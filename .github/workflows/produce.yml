@@ -1,0 +1,206 @@
+name: Isco Video Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Arabic topic or working title. Leave blank for autonomous selection."
+        required: false
+        default: ""
+        type: string
+      format:
+        description: "auto, film, moment, story"
+        required: true
+        default: auto
+        type: choice
+        options: [auto, film, moment, story]
+  push:
+    branches: ["main"]
+    paths:
+      - "triggers/request.json"
+
+concurrency:
+  group: isco-video-public-production
+  cancel-in-progress: false
+
+jobs:
+  produce:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout public runner shell
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare request safely
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TOPIC_INPUT: ${{ inputs.topic }}
+          FORMAT_INPUT: ${{ inputs.format }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          if os.environ.get("EVENT_NAME") == "workflow_dispatch":
+              data = {
+                  "topic": os.environ.get("TOPIC_INPUT", ""),
+                  "format": os.environ.get("FORMAT_INPUT", "auto") or "auto",
+              }
+          else:
+              path = Path("triggers/request.json")
+              if not path.exists():
+                  raise SystemExit("No trigger request found")
+              data = json.loads(path.read_text(encoding="utf-8"))
+
+          fmt = str(data.get("format", "auto") or "auto").strip().lower()
+          if fmt not in {"auto", "film", "moment", "story"}:
+              raise SystemExit("Invalid format")
+          topic = str(data.get("topic", "") or "").strip()
+          request = Path(os.environ["RUNNER_TEMP"]) / "isco-request.json"
+          request.write_text(json.dumps({"topic": topic, "format": fmt}, ensure_ascii=False), encoding="utf-8")
+          print("Request prepared")
+          PY
+
+      - name: Checkout private engine read-only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: agent/foundation-mvp
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core openssl
+
+      - name: Restore encrypted anti-repetition state when configured
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -f state/history.json.enc ] && [ -n "$STATE_ENCRYPTION_KEY" ]; then
+            mkdir -p engine/state
+            openssl enc -d -aes-256-cbc -pbkdf2 \
+              -in state/history.json.enc \
+              -out engine/state/history.json \
+              -pass env:STATE_ENCRYPTION_KEY
+          fi
+
+      - name: Install locked private runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+
+      - name: Materialize one-time provider secrets
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          test -n "$PEXELS_API_KEY"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/isco-secrets"
+          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/isco-secrets/gemini"
+          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
+          printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-secrets/youtube"
+
+      - name: Produce with private engine
+        working-directory: engine
+        env:
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
+          PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
+          YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/youtube
+          REQUEST_FILE: ${{ runner.temp }}/isco-request.json
+          TRENDS_GEO: SA
+          YOUTUBE_REGION: SA
+          YOUTUBE_LANGUAGE: ar
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from isco_video_agent.orchestrator import produce
+
+          req = json.loads(Path(os.environ["REQUEST_FILE"]).read_text(encoding="utf-8"))
+          topic = req.get("topic") or None
+          fmt = req.get("format") or "auto"
+          out = produce(topic=topic, requested_format=fmt, dry_run=False, do_research=True)
+          print(f"Production completed: {out.name}")
+          PY
+
+      - name: Stage review-safe output only
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          OUT_DIR="$(find engine/output -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+          test -n "$OUT_DIR"
+          test -f "$OUT_DIR/final.mp4"
+          mkdir -p safe-output
+          cp "$OUT_DIR/final.mp4" safe-output/final.mp4
+          if [ -f "$OUT_DIR/quality-final.json" ]; then
+            cp "$OUT_DIR/quality-final.json" safe-output/quality-final.json
+          fi
+          if [ -f "$OUT_DIR/state-snapshot.json" ] && [ -n "$STATE_ENCRYPTION_KEY" ]; then
+            openssl enc -aes-256-cbc -pbkdf2 -salt \
+              -in "$OUT_DIR/state-snapshot.json" \
+              -out safe-output/history.json.enc \
+              -pass env:STATE_ENCRYPTION_KEY
+          fi
+
+      - name: Upload short-lived review artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: isco-video-${{ github.run_number }}
+          path: safe-output/
+          if-no-files-found: error
+          retention-days: 1
+
+  persist-state:
+    needs: produce
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download production artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: isco-video-${{ github.run_number }}
+          path: artifact
+
+      - name: Checkout public runner repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Persist encrypted state only
+        run: |
+          set -euo pipefail
+          if [ ! -f artifact/history.json.enc ]; then exit 0; fi
+          mkdir -p state
+          cp artifact/history.json.enc state/history.json.enc
+          git add state/history.json.enc
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update encrypted production state (run $GITHUB_RUN_NUMBER)"
+          git push origin HEAD:${GITHUB_REF_NAME}
