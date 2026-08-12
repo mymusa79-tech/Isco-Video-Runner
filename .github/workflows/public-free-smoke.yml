@@ -1,0 +1,19 @@
+name: Public Free Runner Smoke
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prove public hosted runner starts
+        run: |
+          set -euo pipefail
+          echo "PUBLIC_RUNNER_OK"
+          uname -a
