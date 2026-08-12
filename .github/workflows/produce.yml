@@ -105,6 +105,12 @@ jobs:
           python -m pip install --no-deps -e .
           python -m pip check
 
+      - name: Validate private engine before secrets
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
       - name: Materialize one-time provider secrets
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
