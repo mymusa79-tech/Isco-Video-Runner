@@ -92,7 +92,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 279073124c2dfe59f36b7f05cfde5f759f09d402
+          ref: 0b7f21feac8374623120a4ec46cf23662b42b893
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -154,6 +154,8 @@ jobs:
           GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
           PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
           YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/youtube
+          GEMINI_CONTENT_MODEL: gemini-2.5-flash
+          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
           REQUEST_FILE: ${{ runner.temp }}/isco-request.json
           TRENDS_GEO: SA
           YOUTUBE_REGION: SA
