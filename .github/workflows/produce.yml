@@ -84,12 +84,13 @@ jobs:
       - name: Install media dependencies
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core openssl
 
-      - name: Restore encrypted anti-repetition state when configured
+      - name: Restore encrypted anti-repetition state
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
-          if [ -f state/history.json.enc ] && [ -n "$STATE_ENCRYPTION_KEY" ]; then
+          test -n "$STATE_ENCRYPTION_KEY"
+          if [ -f state/history.json.enc ]; then
             mkdir -p engine/state
             openssl enc -d -aes-256-cbc -pbkdf2 \
               -in state/history.json.enc \
@@ -155,20 +156,20 @@ jobs:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
           OUT_DIR="$(find engine/output -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
           test -n "$OUT_DIR"
           test -f "$OUT_DIR/final.mp4"
+          test -f "$OUT_DIR/state-snapshot.json"
           mkdir -p safe-output
           cp "$OUT_DIR/final.mp4" safe-output/final.mp4
           if [ -f "$OUT_DIR/quality-final.json" ]; then
             cp "$OUT_DIR/quality-final.json" safe-output/quality-final.json
           fi
-          if [ -f "$OUT_DIR/state-snapshot.json" ] && [ -n "$STATE_ENCRYPTION_KEY" ]; then
-            openssl enc -aes-256-cbc -pbkdf2 -salt \
-              -in "$OUT_DIR/state-snapshot.json" \
-              -out safe-output/history.json.enc \
-              -pass env:STATE_ENCRYPTION_KEY
-          fi
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in "$OUT_DIR/state-snapshot.json" \
+            -out safe-output/history.json.enc \
+            -pass env:STATE_ENCRYPTION_KEY
 
       - name: Upload short-lived review artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -201,7 +202,7 @@ jobs:
       - name: Persist encrypted state only
         run: |
           set -euo pipefail
-          if [ ! -f artifact/history.json.enc ]; then exit 0; fi
+          test -f artifact/history.json.enc
           mkdir -p state
           cp artifact/history.json.enc state/history.json.enc
           git add state/history.json.enc
