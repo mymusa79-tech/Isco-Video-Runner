@@ -24,7 +24,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  cleanup-old-artifacts:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Remove prior review artifacts before production
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+            --jq '.artifacts[] | select(.name | startswith("isco-video-")) | .id' \
+          | while read -r artifact_id; do
+              [ -n "$artifact_id" ] || continue
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}"
+            done
+
   produce:
+    needs: cleanup-old-artifacts
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -71,7 +92,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: f2904c3a6b0bee6212cbfee20052c42f1790a1e5
+          ref: 279073124c2dfe59f36b7f05cfde5f759f09d402
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -170,6 +191,17 @@ jobs:
             -in "$OUT_DIR/state-snapshot.json" \
             -out safe-output/history.json.enc \
             -pass env:STATE_ENCRYPTION_KEY
+
+      - name: Enforce free artifact storage guard
+        run: |
+          set -euo pipefail
+          BYTES="$(du -sb safe-output | cut -f1)"
+          MAX_BYTES=$((350 * 1024 * 1024))
+          if [ "$BYTES" -gt "$MAX_BYTES" ]; then
+            echo "Review artifact exceeds the 350 MiB free-only guard. Refusing upload."
+            exit 1
+          fi
+          echo "Artifact size is within the free-only guard."
 
       - name: Upload short-lived review artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
