@@ -43,23 +43,24 @@ jobs:
           mkdir -p "$RUNNER_TEMP/piper-voices"
           python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium
 
-      - name: Isolate failing Arabic text
+      - name: Baseline raw Piper sections
         env:
           PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine
         run: |
           set -euo pipefail
           python - <<'PY'
-          import os, re, tempfile, unicodedata, wave
+          import hashlib, os, tempfile, unicodedata, wave
           from pathlib import Path
           from piper import PiperVoice
-
-          # Import the exact deterministic product-proof text used by V4.
           from scripts.product_proof_plan import _proof_plan, _PROOF_TOPIC
 
           model = Path(os.environ["PIPER_MODEL_PATH"])
           voice = PiperVoice.load(str(model), config_path=str(model) + ".json")
           plan = _proof_plan(_PROOF_TOPIC)
+
+          def digest(text: str) -> str:
+              return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
           def synth(text: str) -> tuple[bool, str]:
               fd, name = tempfile.mkstemp(suffix=".wav")
@@ -74,52 +75,69 @@ jobs:
                   try: os.unlink(name)
                   except FileNotFoundError: pass
 
-          failures = []
           print(f"SECTIONS={len(plan.sections)}")
           for i, section in enumerate(plan.sections, 1):
-              text = section.narration.strip()
+              text = section.narration
               ok, err = synth(text)
-              print(f"SECTION {i}: {'PASS' if ok else 'FAIL'} chars={len(text)}")
-              if ok:
-                  continue
-              print(f"SECTION_ERROR {i}: {err}")
-              print(f"SECTION_TEXT {i}: {text!r}")
-              sentences = [s.strip() for s in re.split(r'(?<=[.!؟!؛])\s+', text) if s.strip()]
-              print(f"SECTION_SENTENCES {i}: {len(sentences)}")
-              for j, sentence in enumerate(sentences, 1):
-                  sok, serr = synth(sentence)
-                  print(f"  SENTENCE {i}.{j}: {'PASS' if sok else 'FAIL'} chars={len(sentence)} text={sentence!r}")
-                  if sok:
-                      continue
-                  print(f"  SENTENCE_ERROR {i}.{j}: {serr}")
+              print(
+                  f"RAW {i}: {'PASS' if ok else 'FAIL'} "
+                  f"chars={len(text)} sha={digest(text)} "
+                  f"nfc={text == unicodedata.normalize('NFC', text)}"
+              )
+              if not ok:
+                  print(f"RAW_ERROR {i}: {err}")
+                  raise SystemExit(1)
+          print("RAW_RESULT: PASS_8_OF_8")
+          PY
 
-                  # Find the shortest failing prefix. This distinguishes a specific
-                  # codepoint/sequence from a pure long-input threshold.
-                  lo, hi = 1, len(sentence)
-                  first_bad = None
-                  while lo <= hi:
-                      mid = (lo + hi) // 2
-                      pok, _ = synth(sentence[:mid])
-                      if pok:
-                          lo = mid + 1
-                      else:
-                          first_bad = mid
-                          hi = mid - 1
-                  if first_bad is not None:
-                      start = max(0, first_bad - 8)
-                      end = min(len(sentence), first_bad + 8)
-                      context = sentence[start:end]
-                      ch = sentence[first_bad - 1]
-                      print(f"  FIRST_FAILING_PREFIX_LENGTH {i}.{j}: {first_bad}")
-                      print(f"  SUSPECT_CHAR {i}.{j}: {ch!r} U+{ord(ch):04X} {unicodedata.name(ch, 'UNKNOWN')}")
-                      print(f"  SUSPECT_CONTEXT {i}.{j}: {context!r}")
-                      # Verify character necessity by deleting exactly the suspect char.
-                      dok, derr = synth(sentence[:first_bad-1] + sentence[first_bad:])
-                      print(f"  DELETE_SUSPECT {i}.{j}: {'PASS' if dok else 'FAIL'} {derr}")
-                  failures.append((i, j, sentence, serr))
+      - name: Exact Voice Mesh sequential Piper path
+        env:
+          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, tempfile, unicodedata
+          from pathlib import Path
 
-          if not failures:
-              print("ISOLATION_RESULT: all individual sections and sentences pass; failure depends on concatenation/length or upstream text differing from proof plan")
-          else:
-              print(f"ISOLATION_RESULT: {len(failures)} failing sentence(s) isolated")
+          import scripts.voice_mesh as voice_mesh
+          from scripts.product_proof_plan import _proof_plan, _PROOF_TOPIC
+
+          plan = _proof_plan(_PROOF_TOPIC)
+
+          # Force the exact fallback branch without spending a Gemini request.
+          voice_mesh._gemini_open = True
+          voice_mesh._piper = None
+
+          def digest(text: str) -> str:
+              return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+          failures = []
+          with tempfile.TemporaryDirectory() as tmp:
+              root = Path(tmp)
+              for i, section in enumerate(plan.sections, 1):
+                  text = section.narration
+                  output = root / f"section-{i}.wav"
+                  print(
+                      f"MESH_INPUT {i}: chars={len(text)} sha={digest(text)} "
+                      f"nfc={text == unicodedata.normalize('NFC', text)}"
+                  )
+                  try:
+                      voice_mesh.synthesize(
+                          "unused-test-key",
+                          text,
+                          output,
+                          model="unused",
+                          voice="unused",
+                          style="",
+                      )
+                      print(f"MESH {i}: PASS bytes={output.stat().st_size}")
+                  except Exception as exc:
+                      print(f"MESH {i}: FAIL {type(exc).__name__}: {exc}")
+                      failures.append(i)
+                      break
+
+          if failures:
+              raise SystemExit(f"VOICE_MESH_RESULT: FAIL_FIRST_SECTION={failures[0]}")
+          print("VOICE_MESH_RESULT: PASS_8_OF_8")
           PY
