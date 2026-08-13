@@ -101,17 +101,20 @@ jobs:
       - name: Materialize provider secrets
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           set -euo pipefail
           test -n "$GEMINI_API_KEY"
+          test -n "$GROQ_API_KEY"
           test -n "$OPENROUTER_API_KEY"
           test -n "$PEXELS_API_KEY"
           umask 077
           mkdir -p "$RUNNER_TEMP/isco-secrets"
           printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/isco-secrets/gemini"
+          printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/isco-secrets/groq"
           printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/isco-secrets/openrouter"
           printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
           printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-secrets/youtube"
@@ -120,6 +123,7 @@ jobs:
         working-directory: engine
         env:
           GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
+          GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
           OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
           PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
           YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/youtube
@@ -134,14 +138,64 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
+          import requests
           import isco_video_agent.resilient_planner as staged
           import isco_video_agent.orchestrator as orchestrator
           from isco_video_agent.providers.gemini import json_text as gemini_json_text
           from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
 
+          def parse_json(raw):
+              text = str(raw or "").strip()
+              try:
+                  value = json.loads(text)
+              except json.JSONDecodeError:
+                  decoder = json.JSONDecoder()
+                  value = None
+                  for i, ch in enumerate(text):
+                      if ch != "{":
+                          continue
+                      try:
+                          candidate, _ = decoder.raw_decode(text[i:])
+                      except json.JSONDecodeError:
+                          continue
+                      if isinstance(candidate, dict):
+                          value = candidate
+                          break
+                  if value is None:
+                      raise RuntimeError("Provider returned invalid JSON")
+              if not isinstance(value, dict):
+                  raise RuntimeError("Provider JSON must be an object")
+              return value
+
+          def groq_json_text(prompt):
+              key_path = Path(os.environ["GROQ_API_KEY_FILE"])
+              token = key_path.read_text(encoding="utf-8").strip()
+              if not token:
+                  raise RuntimeError("Groq key unavailable")
+              response = requests.post(
+                  "https://api.groq.com/openai/v1/chat/completions",
+                  headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+                  json={
+                      "model": "openai/gpt-oss-20b",
+                      "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
+                      "response_format": {"type": "json_object"},
+                      "temperature": 0.2,
+                      "max_completion_tokens": 4000,
+                  },
+                  timeout=120,
+              )
+              if not response.ok:
+                  raise RuntimeError(f"Groq HTTP {response.status_code}")
+              body = response.json()
+              choices = body.get("choices") or []
+              if not choices:
+                  raise RuntimeError("Groq returned no choices")
+              return parse_json(choices[0]["message"]["content"])
+
           original_json_text = staged.json_text
           providers = [
               ("gemini", lambda key, prompt, model: gemini_json_text(key, prompt, model=model)),
+              ("groq-gpt-oss-20b-free", lambda key, prompt, model: groq_json_text(prompt)),
               ("openrouter-free-router", lambda key, prompt, model: openrouter_json_text(prompt, model="openrouter/free")),
               ("openrouter-gpt-oss-20b-free", lambda key, prompt, model: openrouter_json_text(prompt, model="openai/gpt-oss-20b:free")),
           ]
