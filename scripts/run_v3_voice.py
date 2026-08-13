@@ -6,6 +6,7 @@ from pathlib import Path
 
 import isco_video_agent.orchestrator as orchestrator
 from scripts.planner_schema_guard import install_schema_guard
+from scripts.product_proof_plan import install_product_proof_fallback
 from scripts.task_level_planner_router import install_router
 from scripts.voice_mesh import install_voice_mesh
 
@@ -13,6 +14,7 @@ from scripts.voice_mesh import install_voice_mesh
 def main() -> None:
     install_schema_guard()
     install_router()
+    install_product_proof_fallback()
     install_voice_mesh()
     request = json.loads(Path(os.environ["REQUEST_FILE"]).read_text(encoding="utf-8"))
     out = orchestrator.produce(
