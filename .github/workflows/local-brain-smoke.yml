@@ -1,0 +1,20 @@
+name: Local Brain Smoke
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/local-brain-smoke.yml
+  workflow_dispatch:
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify runner
+        run: |
+          set -euo pipefail
+          echo "runner-ok"
+          uname -a
+          free -h
+          df -h .
