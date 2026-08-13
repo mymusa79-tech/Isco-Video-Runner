@@ -164,11 +164,12 @@ jobs:
                       "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown fences or commentary."}],
                       "response_format": {"type": "json_object"},
                       "temperature": 0.35,
-                      "max_tokens": 12000,
+                      "max_tokens": 4000,
                   },
                   timeout=120,
               )
-              r.raise_for_status()
+              if not r.ok:
+                  raise RuntimeError(f"GitHub Models HTTP {r.status_code}")
               return parse_json(r.json()["choices"][0]["message"]["content"])
 
           providers = [
@@ -194,8 +195,9 @@ jobs:
                       print(f"Whole-plan provider selected: {name}")
                       return plan
                   except Exception as exc:
+                      detail = str(exc).replace("\n", " ")[:240]
                       failures.append(f"{name}:{type(exc).__name__}")
-                      print(f"Whole-plan provider failed safely: {name}:{type(exc).__name__}")
+                      print(f"Whole-plan provider failed safely: {name}:{type(exc).__name__}:{detail}")
                   finally:
                       planner.json_text = original_json_text
               raise RuntimeError("All free whole-plan providers failed: " + ",".join(failures))
