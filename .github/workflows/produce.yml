@@ -51,6 +51,7 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+      models: read
     steps:
       - name: Checkout public runner shell
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,21 +68,14 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
-
           if os.environ.get("EVENT_NAME") == "workflow_dispatch":
-              data = {
-                  "topic": os.environ.get("TOPIC_INPUT", ""),
-                  "format": os.environ.get("FORMAT_INPUT", "auto") or "auto",
-              }
+              data = {"topic": os.environ.get("TOPIC_INPUT", ""), "format": os.environ.get("FORMAT_INPUT", "auto") or "auto"}
           else:
               path = Path("triggers/request.json")
-              if not path.exists():
-                  raise SystemExit("No trigger request found")
+              if not path.exists(): raise SystemExit("No trigger request found")
               data = json.loads(path.read_text(encoding="utf-8"))
-
           fmt = str(data.get("format", "auto") or "auto").strip().lower()
-          if fmt not in {"auto", "film", "moment", "story"}:
-              raise SystemExit("Invalid format")
+          if fmt not in {"auto", "film", "moment", "story"}: raise SystemExit("Invalid format")
           topic = str(data.get("topic", "") or "").strip()
           request = Path(os.environ["RUNNER_TEMP"]) / "isco-request.json"
           request.write_text(json.dumps({"topic": topic, "format": fmt}, ensure_ascii=False), encoding="utf-8")
@@ -113,10 +107,7 @@ jobs:
           test -n "$STATE_ENCRYPTION_KEY"
           if [ -f state/history.json.enc ]; then
             mkdir -p engine/state
-            openssl enc -d -aes-256-cbc -pbkdf2 \
-              -in state/history.json.enc \
-              -out engine/state/history.json \
-              -pass env:STATE_ENCRYPTION_KEY
+            openssl enc -d -aes-256-cbc -pbkdf2 -in state/history.json.enc -out engine/state/history.json -pass env:STATE_ENCRYPTION_KEY
           fi
 
       - name: Install locked private runtime
@@ -154,6 +145,7 @@ jobs:
           GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
           PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
           YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/youtube
+          GITHUB_MODELS_TOKEN: ${{ github.token }}
           GEMINI_CONTENT_MODEL: gemini-2.5-flash
           GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
           REQUEST_FILE: ${{ runner.temp }}/isco-request.json
@@ -165,12 +157,52 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
+          import requests
+          import isco_video_agent.planner as planner
+          from isco_video_agent.providers.gemini import json_text as gemini_json_text
           from isco_video_agent.orchestrator import produce
 
+          def github_json(prompt, model):
+              token = os.environ.get("GITHUB_MODELS_TOKEN", "").strip()
+              if not token: raise RuntimeError("GitHub Models token unavailable")
+              r = requests.post(
+                  "https://models.github.ai/inference/chat/completions",
+                  headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json", "X-GitHub-Api-Version": "2026-03-10"},
+                  json={"model": model, "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown fences or commentary."}], "response_format": {"type": "json_object"}, "temperature": 0.4, "max_tokens": 12000},
+                  timeout=120,
+              )
+              r.raise_for_status()
+              raw = r.json()["choices"][0]["message"]["content"].strip()
+              try:
+                  value = json.loads(raw)
+              except json.JSONDecodeError:
+                  decoder = json.JSONDecoder(); value = None
+                  for i, ch in enumerate(raw):
+                      if ch != "{": continue
+                      try: candidate, _ = decoder.raw_decode(raw[i:])
+                      except json.JSONDecodeError: continue
+                      if isinstance(candidate, dict): value = candidate; break
+                  if value is None: raise RuntimeError("GitHub model returned invalid JSON")
+              if not isinstance(value, dict): raise RuntimeError("GitHub model JSON must be object")
+              return value
+
+          def planning_json(api_key, prompt, model="gemini-2.5-flash"):
+              failures = []
+              for name, fn in [
+                  ("gemini", lambda: gemini_json_text(api_key, prompt, model=model)),
+                  ("github-gpt-4.1", lambda: github_json(prompt, "openai/gpt-4.1")),
+                  ("github-gpt-4.1-mini", lambda: github_json(prompt, "openai/gpt-4.1-mini")),
+              ]:
+                  try:
+                      result = fn(); print(f"Planning provider selected: {name}"); return result
+                  except Exception as exc:
+                      failures.append(f"{name}:{type(exc).__name__}")
+                      print(f"Planning provider failed safely: {name}:{type(exc).__name__}")
+              raise RuntimeError("All free planning providers failed: " + ",".join(failures))
+
+          planner.json_text = planning_json
           req = json.loads(Path(os.environ["REQUEST_FILE"]).read_text(encoding="utf-8"))
-          topic = req.get("topic") or None
-          fmt = req.get("format") or "auto"
-          out = produce(topic=topic, requested_format=fmt, dry_run=False, do_research=True)
+          out = produce(topic=req.get("topic") or None, requested_format=req.get("format") or "auto", dry_run=False, do_research=True)
           print(f"Production completed: {out.name}")
           PY
 
@@ -186,23 +218,15 @@ jobs:
           test -f "$OUT_DIR/state-snapshot.json"
           mkdir -p safe-output
           cp "$OUT_DIR/final.mp4" safe-output/final.mp4
-          if [ -f "$OUT_DIR/quality-final.json" ]; then
-            cp "$OUT_DIR/quality-final.json" safe-output/quality-final.json
-          fi
-          openssl enc -aes-256-cbc -pbkdf2 -salt \
-            -in "$OUT_DIR/state-snapshot.json" \
-            -out safe-output/history.json.enc \
-            -pass env:STATE_ENCRYPTION_KEY
+          if [ -f "$OUT_DIR/quality-final.json" ]; then cp "$OUT_DIR/quality-final.json" safe-output/quality-final.json; fi
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in "$OUT_DIR/state-snapshot.json" -out safe-output/history.json.enc -pass env:STATE_ENCRYPTION_KEY
 
       - name: Enforce free artifact storage guard
         run: |
           set -euo pipefail
           BYTES="$(du -sb safe-output | cut -f1)"
           MAX_BYTES=$((350 * 1024 * 1024))
-          if [ "$BYTES" -gt "$MAX_BYTES" ]; then
-            echo "Review artifact exceeds the 350 MiB free-only guard. Refusing upload."
-            exit 1
-          fi
+          if [ "$BYTES" -gt "$MAX_BYTES" ]; then echo "Review artifact exceeds the 350 MiB free-only guard. Refusing upload."; exit 1; fi
           echo "Artifact size is within the free-only guard."
 
       - name: Upload short-lived review artifact
@@ -226,13 +250,11 @@ jobs:
         with:
           persist-credentials: true
           fetch-depth: 1
-
       - name: Download production artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: isco-video-${{ github.run_number }}
           path: artifact
-
       - name: Persist encrypted state only
         run: |
           set -euo pipefail
