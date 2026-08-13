@@ -1,0 +1,125 @@
+name: Piper Arabic Isolation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/piper-isolation.yml"
+
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout locked private engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 2e271271c7770289eef81c354a26681cb2ee3d23
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install exact Piper environment
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip install 'piper-tts==1.4.2'
+          mkdir -p "$RUNNER_TEMP/piper-voices"
+          python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium
+
+      - name: Isolate failing Arabic text
+        env:
+          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, re, tempfile, unicodedata, wave
+          from pathlib import Path
+          from piper import PiperVoice
+
+          # Import the exact deterministic product-proof text used by V4.
+          from scripts.product_proof_plan import _proof_plan, _PROOF_TOPIC
+
+          model = Path(os.environ["PIPER_MODEL_PATH"])
+          voice = PiperVoice.load(str(model), config_path=str(model) + ".json")
+          plan = _proof_plan(_PROOF_TOPIC)
+
+          def synth(text: str) -> tuple[bool, str]:
+              fd, name = tempfile.mkstemp(suffix=".wav")
+              os.close(fd)
+              try:
+                  with wave.open(name, "wb") as wav:
+                      voice.synthesize_wav(text, wav)
+                  return True, ""
+              except Exception as exc:
+                  return False, f"{type(exc).__name__}: {exc}"
+              finally:
+                  try: os.unlink(name)
+                  except FileNotFoundError: pass
+
+          failures = []
+          print(f"SECTIONS={len(plan.sections)}")
+          for i, section in enumerate(plan.sections, 1):
+              text = section.narration.strip()
+              ok, err = synth(text)
+              print(f"SECTION {i}: {'PASS' if ok else 'FAIL'} chars={len(text)}")
+              if ok:
+                  continue
+              print(f"SECTION_ERROR {i}: {err}")
+              print(f"SECTION_TEXT {i}: {text!r}")
+              sentences = [s.strip() for s in re.split(r'(?<=[.!؟!؛])\s+', text) if s.strip()]
+              print(f"SECTION_SENTENCES {i}: {len(sentences)}")
+              for j, sentence in enumerate(sentences, 1):
+                  sok, serr = synth(sentence)
+                  print(f"  SENTENCE {i}.{j}: {'PASS' if sok else 'FAIL'} chars={len(sentence)} text={sentence!r}")
+                  if sok:
+                      continue
+                  print(f"  SENTENCE_ERROR {i}.{j}: {serr}")
+
+                  # Find the shortest failing prefix. This distinguishes a specific
+                  # codepoint/sequence from a pure long-input threshold.
+                  lo, hi = 1, len(sentence)
+                  first_bad = None
+                  while lo <= hi:
+                      mid = (lo + hi) // 2
+                      pok, _ = synth(sentence[:mid])
+                      if pok:
+                          lo = mid + 1
+                      else:
+                          first_bad = mid
+                          hi = mid - 1
+                  if first_bad is not None:
+                      start = max(0, first_bad - 8)
+                      end = min(len(sentence), first_bad + 8)
+                      context = sentence[start:end]
+                      ch = sentence[first_bad - 1]
+                      print(f"  FIRST_FAILING_PREFIX_LENGTH {i}.{j}: {first_bad}")
+                      print(f"  SUSPECT_CHAR {i}.{j}: {ch!r} U+{ord(ch):04X} {unicodedata.name(ch, 'UNKNOWN')}")
+                      print(f"  SUSPECT_CONTEXT {i}.{j}: {context!r}")
+                      # Verify character necessity by deleting exactly the suspect char.
+                      dok, derr = synth(sentence[:first_bad-1] + sentence[first_bad:])
+                      print(f"  DELETE_SUSPECT {i}.{j}: {'PASS' if dok else 'FAIL'} {derr}")
+                  failures.append((i, j, sentence, serr))
+
+          if not failures:
+              print("ISOLATION_RESULT: all individual sections and sentences pass; failure depends on concatenation/length or upstream text differing from proof plan")
+          else:
+              print(f"ISOLATION_RESULT: {len(failures)} failing sentence(s) isolated")
+          PY
