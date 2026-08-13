@@ -1,0 +1,236 @@
+name: Isco Video Production Resilient V2
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Arabic topic or working title"
+        required: true
+        default: "كيف تنهض بعد أن سقطت كثيرًا؟"
+        type: string
+      format:
+        description: "film or story"
+        required: true
+        default: film
+        type: choice
+        options: [film, story]
+  push:
+    branches: ["main"]
+    paths:
+      - "triggers/resilient-v2.json"
+
+concurrency:
+  group: isco-video-resilient-v2
+  cancel-in-progress: false
+
+jobs:
+  produce:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      models: read
+    steps:
+      - name: Checkout public runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Prepare request
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TOPIC_INPUT: ${{ inputs.topic }}
+          FORMAT_INPUT: ${{ inputs.format }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          if os.environ.get("EVENT_NAME") == "workflow_dispatch":
+              data = {"topic": os.environ.get("TOPIC_INPUT", ""), "format": os.environ.get("FORMAT_INPUT", "film")}
+          else:
+              data = json.loads(Path("triggers/resilient-v2.json").read_text(encoding="utf-8"))
+          topic = str(data.get("topic", "") or "").strip()
+          fmt = str(data.get("format", "film") or "film").strip().lower()
+          if not topic: raise SystemExit("Topic required")
+          if fmt not in {"film", "story"}: raise SystemExit("Invalid format")
+          path = Path(os.environ["RUNNER_TEMP"]) / "isco-request.json"
+          path.write_text(json.dumps({"topic": topic, "format": fmt}, ensure_ascii=False), encoding="utf-8")
+          print("Request prepared")
+          PY
+
+      - name: Checkout private engine read-only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: f0f59e4c5570744cf2be65288078551e333232ef
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core openssl
+
+      - name: Restore encrypted state
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          if [ -f state/history.json.enc ]; then
+            mkdir -p engine/state
+            openssl enc -d -aes-256-cbc -pbkdf2 -in state/history.json.enc -out engine/state/history.json -pass env:STATE_ENCRYPTION_KEY
+          fi
+
+      - name: Install and validate engine
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+          python -m unittest discover -s tests -q
+
+      - name: Materialize provider secrets
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          test -n "$PEXELS_API_KEY"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/isco-secrets"
+          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/isco-secrets/gemini"
+          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
+          printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-secrets/youtube"
+
+      - name: Produce with staged free planning fallback
+        working-directory: engine
+        env:
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
+          PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
+          YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/youtube
+          GITHUB_MODELS_TOKEN: ${{ github.token }}
+          GEMINI_CONTENT_MODEL: gemini-2.5-flash
+          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+          REQUEST_FILE: ${{ runner.temp }}/isco-request.json
+          TRENDS_GEO: SA
+          YOUTUBE_REGION: SA
+          YOUTUBE_LANGUAGE: ar
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import requests
+          import isco_video_agent.resilient_planner as staged
+          import isco_video_agent.orchestrator as orchestrator
+          from isco_video_agent.providers.gemini import json_text as gemini_json_text
+
+          original_json_text = staged.json_text
+
+          def parse_json(raw):
+              raw = str(raw).strip()
+              try:
+                  value = json.loads(raw)
+              except json.JSONDecodeError:
+                  decoder = json.JSONDecoder(); value = None
+                  for i, ch in enumerate(raw):
+                      if ch != "{": continue
+                      try: candidate, _ = decoder.raw_decode(raw[i:])
+                      except json.JSONDecodeError: continue
+                      if isinstance(candidate, dict): value = candidate; break
+                  if value is None: raise RuntimeError("Provider returned invalid JSON")
+              if not isinstance(value, dict): raise RuntimeError("Provider JSON must be an object")
+              return value
+
+          def github_json(prompt, model):
+              token = os.environ.get("GITHUB_MODELS_TOKEN", "").strip()
+              if not token: raise RuntimeError("GitHub Models token unavailable")
+              r = requests.post(
+                  "https://models.github.ai/inference/chat/completions",
+                  headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"},
+                  json={
+                      "model": model,
+                      "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
+                      "response_format": {"type": "json_object"},
+                      "temperature": 0.3,
+                      "max_tokens": 4000,
+                  },
+                  timeout=120,
+              )
+              if not r.ok:
+                  raise RuntimeError(f"GitHub Models HTTP {r.status_code}")
+              return parse_json(r.json()["choices"][0]["message"]["content"])
+
+          providers = [
+              ("gemini", lambda key, prompt, model: gemini_json_text(key, prompt, model=model)),
+              ("github-gpt-4.1", lambda key, prompt, model: github_json(prompt, "openai/gpt-4.1")),
+              ("github-gpt-4.1-mini", lambda key, prompt, model: github_json(prompt, "openai/gpt-4.1-mini")),
+          ]
+
+          def resilient_build_plan(api_key, topic, requested_format, content_model, **kwargs):
+              failures = []
+              for name, provider in providers:
+                  def fixed_json(key, prompt, model=content_model, _provider=provider):
+                      return _provider(key, prompt, model)
+                  staged.json_text = fixed_json
+                  try:
+                      plan = staged.build_plan(
+                          api_key, topic, requested_format, content_model,
+                          research_context=kwargs.get("research_context"),
+                          avoid_context=kwargs.get("avoid_context"),
+                          revision_note=kwargs.get("revision_note", ""),
+                          allow_fallback=False,
+                      )
+                      print(f"Staged planning provider selected: {name}")
+                      return plan
+                  except Exception as exc:
+                      detail = str(exc).replace("\n", " ")[:300]
+                      failures.append(f"{name}:{type(exc).__name__}:{detail}")
+                      print(f"Staged planning provider failed safely: {name}:{type(exc).__name__}:{detail}")
+                  finally:
+                      staged.json_text = original_json_text
+              raise RuntimeError("All free staged planning providers failed: " + " | ".join(failures))
+
+          orchestrator.build_plan = resilient_build_plan
+          req = json.loads(Path(os.environ["REQUEST_FILE"]).read_text(encoding="utf-8"))
+          out = orchestrator.produce(topic=req["topic"], requested_format=req["format"], dry_run=False, do_research=True)
+          print(f"Production completed: {out.name}")
+          PY
+
+      - name: Stage review output
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          OUT_DIR="$(find engine/output -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+          test -n "$OUT_DIR"
+          test -f "$OUT_DIR/final.mp4"
+          test -f "$OUT_DIR/state-snapshot.json"
+          mkdir -p safe-output
+          cp "$OUT_DIR/final.mp4" safe-output/final.mp4
+          if [ -f "$OUT_DIR/quality-final.json" ]; then cp "$OUT_DIR/quality-final.json" safe-output/quality-final.json; fi
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in "$OUT_DIR/state-snapshot.json" -out safe-output/history.json.enc -pass env:STATE_ENCRYPTION_KEY
+
+      - name: Enforce free artifact guard
+        run: |
+          set -euo pipefail
+          BYTES="$(du -sb safe-output | cut -f1)"
+          test "$BYTES" -le $((350 * 1024 * 1024))
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: isco-resilient-v2-${{ github.run_number }}
+          path: safe-output/
+          if-no-files-found: error
+          retention-days: 1
