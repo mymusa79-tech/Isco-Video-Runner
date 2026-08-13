@@ -1,5 +1,5 @@
 {
   "topic": "كيف تنهض بعد أن سقطت كثيرًا؟",
   "format": "film",
-  "retry": "visual-qa-parser-fix-1"
+  "retry": "gemini-json-parser-hardening-1"
 }
