@@ -17,7 +17,7 @@ on:
   push:
     branches: ["main"]
     paths:
-      - "README.md"
+      - ".github/workflows/produce-resilient-v2.yml"
 
 concurrency:
   group: isco-video-resilient-v2
@@ -30,7 +30,6 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      models: read
     steps:
       - name: Checkout public runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -53,8 +52,10 @@ jobs:
               data = {"topic": "كيف تنهض بعد أن سقطت كثيرًا؟", "format": "film"}
           topic = str(data.get("topic", "") or "").strip()
           fmt = str(data.get("format", "film") or "film").strip().lower()
-          if not topic: raise SystemExit("Topic required")
-          if fmt not in {"film", "story"}: raise SystemExit("Invalid format")
+          if not topic:
+              raise SystemExit("Topic required")
+          if fmt not in {"film", "story"}:
+              raise SystemExit("Invalid format")
           path = Path(os.environ["RUNNER_TEMP"]) / "isco-request.json"
           path.write_text(json.dumps({"topic": topic, "format": fmt}, ensure_ascii=False), encoding="utf-8")
           print("Request prepared")
@@ -64,7 +65,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: f0f59e4c5570744cf2be65288078551e333232ef
+          ref: 533bbd3f2efa31ba007c2707076a5915e61ee8e0
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -100,15 +101,18 @@ jobs:
       - name: Materialize provider secrets
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           set -euo pipefail
           test -n "$GEMINI_API_KEY"
+          test -n "$OPENROUTER_API_KEY"
           test -n "$PEXELS_API_KEY"
           umask 077
           mkdir -p "$RUNNER_TEMP/isco-secrets"
           printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/isco-secrets/gemini"
+          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/isco-secrets/openrouter"
           printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
           printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-secrets/youtube"
 
@@ -116,9 +120,9 @@ jobs:
         working-directory: engine
         env:
           GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
+          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
           PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
           YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/youtube
-          GITHUB_MODELS_TOKEN: ${{ github.token }}
           GEMINI_CONTENT_MODEL: gemini-2.5-flash
           GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
           REQUEST_FILE: ${{ runner.temp }}/isco-request.json
@@ -130,51 +134,16 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
-          import requests
           import isco_video_agent.resilient_planner as staged
           import isco_video_agent.orchestrator as orchestrator
           from isco_video_agent.providers.gemini import json_text as gemini_json_text
+          from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
 
           original_json_text = staged.json_text
-
-          def parse_json(raw):
-              raw = str(raw).strip()
-              try:
-                  value = json.loads(raw)
-              except json.JSONDecodeError:
-                  decoder = json.JSONDecoder(); value = None
-                  for i, ch in enumerate(raw):
-                      if ch != "{": continue
-                      try: candidate, _ = decoder.raw_decode(raw[i:])
-                      except json.JSONDecodeError: continue
-                      if isinstance(candidate, dict): value = candidate; break
-                  if value is None: raise RuntimeError("Provider returned invalid JSON")
-              if not isinstance(value, dict): raise RuntimeError("Provider JSON must be an object")
-              return value
-
-          def github_json(prompt, model):
-              token = os.environ.get("GITHUB_MODELS_TOKEN", "").strip()
-              if not token: raise RuntimeError("GitHub Models token unavailable")
-              r = requests.post(
-                  "https://models.github.ai/inference/chat/completions",
-                  headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"},
-                  json={
-                      "model": model,
-                      "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
-                      "response_format": {"type": "json_object"},
-                      "temperature": 0.3,
-                      "max_tokens": 4000,
-                  },
-                  timeout=120,
-              )
-              if not r.ok:
-                  raise RuntimeError(f"GitHub Models HTTP {r.status_code}")
-              return parse_json(r.json()["choices"][0]["message"]["content"])
-
           providers = [
               ("gemini", lambda key, prompt, model: gemini_json_text(key, prompt, model=model)),
-              ("github-gpt-4.1", lambda key, prompt, model: github_json(prompt, "openai/gpt-4.1")),
-              ("github-gpt-4.1-mini", lambda key, prompt, model: github_json(prompt, "openai/gpt-4.1-mini")),
+              ("openrouter-free-router", lambda key, prompt, model: openrouter_json_text(prompt, model="openrouter/free")),
+              ("openrouter-gpt-oss-20b-free", lambda key, prompt, model: openrouter_json_text(prompt, model="openai/gpt-oss-20b:free")),
           ]
 
           def resilient_build_plan(api_key, topic, requested_format, content_model, **kwargs):
