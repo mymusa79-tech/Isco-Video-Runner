@@ -17,7 +17,7 @@ on:
   push:
     branches: ["main"]
     paths:
-      - "triggers/resilient-v2.json"
+      - "README.md"
 
 concurrency:
   group: isco-video-resilient-v2
@@ -50,7 +50,7 @@ jobs:
           if os.environ.get("EVENT_NAME") == "workflow_dispatch":
               data = {"topic": os.environ.get("TOPIC_INPUT", ""), "format": os.environ.get("FORMAT_INPUT", "film")}
           else:
-              data = json.loads(Path("triggers/resilient-v2.json").read_text(encoding="utf-8"))
+              data = {"topic": "كيف تنهض بعد أن سقطت كثيرًا؟", "format": "film"}
           topic = str(data.get("topic", "") or "").strip()
           fmt = str(data.get("format", "film") or "film").strip().lower()
           if not topic: raise SystemExit("Topic required")
