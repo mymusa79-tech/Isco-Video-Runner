@@ -1,0 +1,185 @@
+name: Isco Local Brain Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: "Arabic benchmark topic"
+        required: true
+        default: "كيف تنهض بعد أن سقطت كثيرًا؟"
+        type: string
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/local-brain-benchmark.yml"
+      - "scripts/local_brain_benchmark.py"
+
+concurrency:
+  group: isco-local-brain-benchmark
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      MODEL_DIR: ${{ runner.temp }}/isco-local-brain
+      MODEL_FILE: ${{ runner.temp }}/isco-local-brain/Qwen3-4B-Q4_K_M.gguf
+      MODEL_URL: https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true
+      MODEL_SHA256: 7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+      LLAMA_TAG: b9637
+      LOCAL_BRAIN_TIME_BUDGET_S: "420"
+      LOCAL_BRAIN_MAX_RSS_MB: "12288"
+
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Restore pinned local runtime and model cache
+        id: local-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: ${{ runner.temp }}/isco-local-brain
+          key: isco-local-brain-qwen3-4b-q4km-7485fe6f-llama-b9637
+
+      - name: Install pinned llama.cpp runtime
+        run: |
+          set -euo pipefail
+          mkdir -p "$MODEL_DIR/runtime"
+          if [ ! -x "$MODEL_DIR/runtime/llama-server" ]; then
+            python - <<'PY'
+          import json, os, urllib.request
+          tag = os.environ["LLAMA_TAG"]
+          api = f"https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/{tag}"
+          with urllib.request.urlopen(api, timeout=30) as r:
+              release = json.load(r)
+          wanted = f"llama-{tag}-bin-ubuntu-x64.tar.gz"
+          asset = next((a for a in release.get("assets", []) if a.get("name") == wanted), None)
+          if not asset:
+              raise SystemExit(f"Pinned llama.cpp asset missing: {wanted}")
+          digest = str(asset.get("digest", ""))
+          if not digest.startswith("sha256:"):
+              raise SystemExit("Pinned llama.cpp release has no SHA256 digest")
+          open(os.environ["RUNNER_TEMP"] + "/llama-url", "w").write(asset["browser_download_url"])
+          open(os.environ["RUNNER_TEMP"] + "/llama-sha", "w").write(digest.split(":", 1)[1])
+          PY
+            curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
+              "$(cat "$RUNNER_TEMP/llama-url")" -o "$RUNNER_TEMP/llama.tar.gz"
+            echo "$(cat "$RUNNER_TEMP/llama-sha")  $RUNNER_TEMP/llama.tar.gz" | sha256sum -c -
+            mkdir -p "$RUNNER_TEMP/llama-unpack"
+            tar -xzf "$RUNNER_TEMP/llama.tar.gz" -C "$RUNNER_TEMP/llama-unpack"
+            SERVER="$(find "$RUNNER_TEMP/llama-unpack" -type f -name llama-server -print -quit)"
+            test -n "$SERVER"
+            cp "$SERVER" "$MODEL_DIR/runtime/llama-server"
+            chmod 0755 "$MODEL_DIR/runtime/llama-server"
+          fi
+          "$MODEL_DIR/runtime/llama-server" --version
+
+      - name: Download and verify official Qwen model
+        run: |
+          set -euo pipefail
+          mkdir -p "$MODEL_DIR"
+          if [ ! -f "$MODEL_FILE" ] || ! echo "$MODEL_SHA256  $MODEL_FILE" | sha256sum -c - >/dev/null 2>&1; then
+            rm -f "$MODEL_FILE" "$MODEL_FILE.part"
+            curl --fail --location --retry 3 --connect-timeout 30 --max-time 600 \
+              "$MODEL_URL" -o "$MODEL_FILE.part"
+            echo "$MODEL_SHA256  $MODEL_FILE.part" | sha256sum -c -
+            mv "$MODEL_FILE.part" "$MODEL_FILE"
+          fi
+          echo "$MODEL_SHA256  $MODEL_FILE" | sha256sum -c -
+          du -h "$MODEL_FILE"
+
+      - name: Enforce cost and disk budget before inference
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, shutil
+          total, used, free = shutil.disk_usage(os.environ["RUNNER_TEMP"])
+          gib = 1024**3
+          print(f"disk total={total/gib:.2f}GiB used={used/gib:.2f}GiB free={free/gib:.2f}GiB")
+          if free < 6 * gib:
+              raise SystemExit("Local Brain blocked: less than 6 GiB free disk remains")
+          size = os.path.getsize(os.environ["MODEL_FILE"])
+          if size > 3 * gib:
+              raise SystemExit("Local Brain blocked: model exceeded 3 GiB production budget")
+          PY
+
+      - name: Start local inference server and memory monitor
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-output
+          "$MODEL_DIR/runtime/llama-server" \
+            --model "$MODEL_FILE" \
+            --host 127.0.0.1 --port 8080 \
+            --ctx-size 4096 --threads 4 --threads-batch 4 \
+            --parallel 1 --no-webui \
+            >benchmark-output/llama-server.log 2>&1 &
+          echo $! > "$RUNNER_TEMP/llama.pid"
+          PID="$(cat "$RUNNER_TEMP/llama.pid")"
+          (
+            peak=0
+            while kill -0 "$PID" 2>/dev/null; do
+              rss=$(awk '/VmRSS:/ {print $2}' "/proc/$PID/status" 2>/dev/null || echo 0)
+              if [ "${rss:-0}" -gt "$peak" ]; then peak="$rss"; fi
+              echo "$peak" > "$RUNNER_TEMP/llama-peak-rss-kb"
+              sleep 1
+            done
+          ) &
+          echo $! > "$RUNNER_TEMP/monitor.pid"
+          for i in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:8080/health >/dev/null; then
+              echo "Local Brain server ready in ${i}s"
+              exit 0
+            fi
+            if ! kill -0 "$PID" 2>/dev/null; then
+              cat benchmark-output/llama-server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Local Brain startup exceeded 90 seconds"
+          tail -100 benchmark-output/llama-server.log
+          exit 1
+
+      - name: Run Arabic production benchmark
+        env:
+          LOCAL_BRAIN_ENDPOINT: http://127.0.0.1:8080/v1/chat/completions
+          LOCAL_LLM_MODEL: local-qwen3-4b-q4km
+          LOCAL_BRAIN_REPORT: benchmark-output/local-brain-report.json
+          LOCAL_BRAIN_TOPIC: ${{ inputs.topic || 'كيف تنهض بعد أن سقطت كثيرًا؟' }}
+          LOCAL_BRAIN_MIN_ARABIC_RATIO: "0.55"
+        run: |
+          set -euo pipefail
+          timeout 480 python scripts/local_brain_benchmark.py
+
+      - name: Final resource and productivity gate
+        if: always()
+        run: |
+          set -euo pipefail
+          PID="$(cat "$RUNNER_TEMP/llama.pid" 2>/dev/null || true)"
+          PEAK_KB="$(cat "$RUNNER_TEMP/llama-peak-rss-kb" 2>/dev/null || echo 0)"
+          if [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; fi
+          echo "llama_peak_rss_mb=$((PEAK_KB / 1024))" | tee benchmark-output/resources.txt
+          df -h . | tee -a benchmark-output/resources.txt
+          du -sh "$MODEL_DIR" | tee -a benchmark-output/resources.txt
+          if [ "$PEAK_KB" -gt $((12 * 1024 * 1024)) ]; then
+            echo "Memory budget exceeded" >&2
+            exit 1
+          fi
+          test -f benchmark-output/local-brain-report.json
+
+      - name: Upload short-lived benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: isco-local-brain-benchmark-${{ github.run_number }}
+          path: |
+            benchmark-output/local-brain-report.json
+            benchmark-output/resources.txt
+            benchmark-output/llama-server.log
+          if-no-files-found: warn
+          retention-days: 1
