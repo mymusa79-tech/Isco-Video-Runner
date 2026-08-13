@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 2e271271c7770289eef81c354a26681cb2ee3d23
+          ref: 12908d578ae96b9e9d1a5c6956dbfb7b0d492acc
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -164,6 +164,20 @@ jobs:
           YOUTUBE_LANGUAGE: ar
           PYTHONPATH: ${{ github.workspace }}
         run: python ../scripts/run_v3_voice.py
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: isco-resilient-v4-diagnostics-${{ github.run_number }}
+          path: |
+            engine/output/*/quality-final.json
+            engine/output/*/quality-precheck.json
+            engine/output/*/plan.json
+            engine/output/*/opportunities.json
+            engine/output/*/research.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Stage final review
         run: |
