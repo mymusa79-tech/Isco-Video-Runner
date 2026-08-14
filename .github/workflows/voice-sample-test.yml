@@ -9,7 +9,7 @@ permissions:
 jobs:
   synthesize_samples:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -70,10 +70,12 @@ jobs:
           out_dir = Path("voice-samples")
 
           failures = []
+          print("Waiting 60s before the first request so any rate-limit window from a prior attempt clears.")
+          time.sleep(60)
           for index, voice in enumerate(voices):
               out = out_dir / f"voice_test_{voice.lower()}.wav"
               if index > 0:
-                  time.sleep(20)  # free-tier TTS rate limit: space requests out
+                  time.sleep(60)  # free-tier TTS rate limit: space requests out
               try:
                   with patch.object(gem, "_voice_identity", return_value=(voice, "Iapetus")):
                       gem.synthesize_wav(
