@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 626db410cc539be6486d43045b5d4ee9053a01d7
+          ref: 820dfd499de3dd52560114487be1926050ce346f
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -61,6 +61,7 @@ jobs:
           import task_level_planner_router as router
           import voice_mesh
           from isco_video_agent.providers.gemini import _speech_config, _voice_identity
+          from isco_video_agent.orchestrator import _visual_fit_score
 
           assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Iapetus"
           assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Gacrux"
@@ -83,7 +84,10 @@ jobs:
               {"speaker": "B", "voice": "Gacrux"},
           ]
           assert _speech_config("هذا حوار داخلي بصوت واحد.", "RandomVoice") == [{"voice": "Gacrux"}]
-          print("Dialogue routing contract PASS: fixed Iapetus/Gacrux; labelled turns; locked primary; inner dialogue single voice")
+          assert _visual_fit_score({"relevance": 0.87}) == 8.7
+          assert _visual_fit_score({"relevance": 2}) == 10.0
+          assert _visual_fit_score({"relevance": 0}) == 1.0
+          print("Dialogue routing and smart visual scoring contracts PASS")
           PY
 
       - name: Verify no paid API use
