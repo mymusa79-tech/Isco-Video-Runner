@@ -17,7 +17,6 @@ on:
   push:
     branches: ["main"]
     paths:
-      - ".github/workflows/produce-resilient-v4.yml"
       - "scripts/run_v3_voice.py"
       - "scripts/voice_mesh.py"
       - "scripts/task_level_planner_router.py"
@@ -34,11 +33,13 @@ jobs:
       contents: read
     steps:
       - name: Checkout runner
+        id: checkout_runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Checkout private engine
+        id: checkout_engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
@@ -49,10 +50,12 @@ jobs:
           fetch-depth: 1
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        id: setup_python
         with:
           python-version: "3.12"
 
       - name: Install locked engine and local voice fallback
+        id: install_engine
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -69,6 +72,7 @@ jobs:
           test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"
 
       - name: Verify local voice fallback before cloud production
+        id: voice_preflight
         env:
           PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
         run: |
@@ -88,6 +92,7 @@ jobs:
           PY
 
       - name: Prepare secure request and secrets
+        id: prepare_request
         env:
           EVENT_NAME: ${{ github.event_name }}
           TOPIC_INPUT: ${{ inputs.topic }}
@@ -130,6 +135,7 @@ jobs:
           PY
 
       - name: Verify free provider authentication
+        id: verify_providers
         env:
           GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
           PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
@@ -147,6 +153,7 @@ jobs:
           PY
 
       - name: Produce with task-level brain and voice meshes
+        id: produce_video
         working-directory: engine
         env:
           GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
@@ -163,9 +170,12 @@ jobs:
           YOUTUBE_REGION: SA
           YOUTUBE_LANGUAGE: ar
           PYTHONPATH: ${{ github.workspace }}
-        run: python ../scripts/run_v3_voice.py
+        run: |
+          set -o pipefail
+          python ../scripts/run_v3_voice.py 2>&1 | tee "$RUNNER_TEMP/production-step.log"
 
       - name: Upload diagnostics on failure
+        id: upload_diagnostics
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -180,6 +190,7 @@ jobs:
           retention-days: 7
 
       - name: Final review and extract result
+        id: final_review
         if: success()
         working-directory: engine
         env:
@@ -207,6 +218,7 @@ jobs:
           PY
 
       - name: Upload final video
+        id: upload_final
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -217,3 +229,69 @@ jobs:
             engine/output/*/plan.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Notify Telegram
+        if: always()
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          JOB_STATUS: ${{ job.status }}
+          CHECKOUT_RUNNER_OUTCOME: ${{ steps.checkout_runner.outcome }}
+          CHECKOUT_ENGINE_OUTCOME: ${{ steps.checkout_engine.outcome }}
+          SETUP_PYTHON_OUTCOME: ${{ steps.setup_python.outcome }}
+          INSTALL_ENGINE_OUTCOME: ${{ steps.install_engine.outcome }}
+          VOICE_PREFLIGHT_OUTCOME: ${{ steps.voice_preflight.outcome }}
+          PREPARE_REQUEST_OUTCOME: ${{ steps.prepare_request.outcome }}
+          VERIFY_PROVIDERS_OUTCOME: ${{ steps.verify_providers.outcome }}
+          PRODUCE_VIDEO_OUTCOME: ${{ steps.produce_video.outcome }}
+          FINAL_REVIEW_OUTCOME: ${{ steps.final_review.outcome }}
+          UPLOAD_FINAL_OUTCOME: ${{ steps.upload_final.outcome }}
+        run: |
+          set -euo pipefail
+          test -n "$TELEGRAM_BOT_TOKEN"
+          test -n "$TELEGRAM_CHAT_ID"
+
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          artifact_name="isco-resilient-v4-video-${GITHUB_RUN_NUMBER}"
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            message="✅ فيديو جديد جاهز: ${artifact_name}\n${run_url}#artifacts"
+          else
+            stage="unknown"
+            for item in \
+              "Checkout runner:${CHECKOUT_RUNNER_OUTCOME}" \
+              "Checkout private engine:${CHECKOUT_ENGINE_OUTCOME}" \
+              "Setup Python:${SETUP_PYTHON_OUTCOME}" \
+              "Install engine:${INSTALL_ENGINE_OUTCOME}" \
+              "Voice preflight:${VOICE_PREFLIGHT_OUTCOME}" \
+              "Prepare request:${PREPARE_REQUEST_OUTCOME}" \
+              "Provider authentication:${VERIFY_PROVIDERS_OUTCOME}" \
+              "Production:${PRODUCE_VIDEO_OUTCOME}" \
+              "Final review:${FINAL_REVIEW_OUTCOME}" \
+              "Upload final video:${UPLOAD_FINAL_OUTCOME}"
+            do
+              name="${item%%:*}"
+              outcome="${item#*:}"
+              if [ "$outcome" = "failure" ] || [ "$outcome" = "cancelled" ]; then
+                stage="$name"
+                break
+              fi
+            done
+
+            reason="راجع سجل GitHub Actions"
+            if [ -f "$RUNNER_TEMP/production-step.log" ]; then
+              candidate="$(grep -E 'Traceback|Error|Exception|failed|blocked|RuntimeError|ValueError' "$RUNNER_TEMP/production-step.log" | tail -n 1 | tr -d '\r' || true)"
+              if [ -n "$candidate" ]; then
+                reason="${candidate:0:300}"
+              fi
+            fi
+            message="❌ فشل الإنتاج في مرحلة ${stage}، السبب: ${reason}\n${run_url}"
+          fi
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${message}" \
+            >/dev/null
