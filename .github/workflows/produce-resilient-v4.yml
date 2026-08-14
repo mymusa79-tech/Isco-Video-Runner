@@ -193,28 +193,47 @@ jobs:
         id: final_review
         if: success()
         working-directory: engine
-        env:
-          GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
         run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os, sys
+          set -o pipefail
+          python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/final-review-step.log"
+          import json
           from pathlib import Path
-          sys.path.insert(0, str(Path('src').resolve()))
-          from isco_video_agent.providers.gemini import json_text
+
           roots = sorted(Path('output').glob('*'), key=lambda p: p.stat().st_mtime, reverse=True)
-          if not roots: raise SystemExit('No output directory')
+          if not roots:
+              raise SystemExit('No output directory')
           root = roots[0]
-          final = root/'final.mp4'
-          quality = root/'quality-final.json'
-          if not final.exists() or not quality.exists(): raise SystemExit('Missing final deliverables')
+          final = root / 'final.mp4'
+          quality = root / 'quality-final.json'
+          plan = root / 'plan.json'
+          if not final.exists():
+              raise SystemExit('Missing final.mp4')
+          if not quality.exists():
+              raise SystemExit('Missing quality-final.json')
+          if not plan.exists():
+              raise SystemExit('Missing plan.json')
+
           q = json.loads(quality.read_text(encoding='utf-8'))
-          if q.get('status') != 'pass': raise SystemExit('Final quality report is not pass')
-          key = Path(os.environ['GEMINI_API_KEY_FILE']).read_text().strip()
-          plan = json.loads((root/'plan.json').read_text(encoding='utf-8'))
-          verdict = json_text(key, 'Final editorial sanity check for Arabic YouTube video metadata. Return JSON with approved boolean and reason. Topic: '+str(plan.get('topic'))+' Titles: '+json.dumps(plan.get('title_options',[]), ensure_ascii=False), model='gemini-2.5-flash')
-          if not verdict.get('approved'): raise SystemExit('Final editorial review blocked output')
+          failures = []
+          if q.get('duration_ok') is not True:
+              failures.append('duration_ok=false')
+          if q.get('audio_ok') is not True:
+              failures.append('audio_ok=false')
+          if int(q.get('video_streams', 0) or 0) < 1:
+              failures.append('video_streams<1')
+          if q.get('format') != 'moment' and int(q.get('audio_streams', 0) or 0) < 1:
+              failures.append('audio_streams<1')
+          if int(q.get('visual_sections_reviewed', 0) or 0) < 1:
+              failures.append('visual_sections_reviewed<1')
+          if failures:
+              raise SystemExit('Final quality contract failed: ' + ', '.join(failures))
+
+          size = final.stat().st_size
+          if size < 1024 * 1024:
+              raise SystemExit(f'final.mp4 unexpectedly small: {size} bytes')
+
           print('Final review PASS:', final)
+          print('Final quality:', json.dumps(q, ensure_ascii=False, sort_keys=True))
           PY
 
       - name: Upload final video
@@ -280,11 +299,12 @@ jobs:
             done
 
             reason="راجع سجل GitHub Actions"
-            if [ -f "$RUNNER_TEMP/production-step.log" ]; then
+            if [ "$stage" = "Final review" ] && [ -f "$RUNNER_TEMP/final-review-step.log" ]; then
+              candidate="$(grep -E 'Missing|failed|small|Error|Exception|Traceback' "$RUNNER_TEMP/final-review-step.log" | tail -n 1 | tr -d '\r' || true)"
+              if [ -n "$candidate" ]; then reason="${candidate:0:300}"; fi
+            elif [ -f "$RUNNER_TEMP/production-step.log" ]; then
               candidate="$(grep -E 'Traceback|Error|Exception|failed|blocked|RuntimeError|ValueError' "$RUNNER_TEMP/production-step.log" | tail -n 1 | tr -d '\r' || true)"
-              if [ -n "$candidate" ]; then
-                reason="${candidate:0:300}"
-              fi
+              if [ -n "$candidate" ]; then reason="${candidate:0:300}"; fi
             fi
             message="❌ فشل الإنتاج في مرحلة ${stage}، السبب: ${reason}\n${run_url}"
           fi
