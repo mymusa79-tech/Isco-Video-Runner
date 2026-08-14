@@ -5,6 +5,8 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/engine-ci-proxy.yml"
+      - "scripts/task_level_planner_router.py"
+      - "scripts/voice_mesh.py"
   workflow_dispatch:
 
 permissions:
@@ -15,11 +17,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
       - name: Checkout private engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 79c733a3c3daf025713ad2867d9dbb6710d7fa98
+          ref: 5969bbcf7ef9e720f85253098bf426082dcb02f8
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -44,6 +52,32 @@ jobs:
           set -euo pipefail
           cd engine
           python -m unittest discover -s tests -v
+
+      - name: Verify runner dialogue routing
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py
+          PYTHONPATH="engine/src:scripts" python - <<'PY'
+          import os
+          import task_level_planner_router as router
+          import voice_mesh
+
+          assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Kore"
+          assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Gacrux"
+          turns = voice_mesh._dialogue_turns("السائل: لماذا يحدث هذا؟\nالمجيب: لأننا نخلط بين الشعور والحقيقة.")
+          assert turns == [("السائل", "لماذا يحدث هذا؟"), ("المجيب", "لأننا نخلط بين الشعور والحقيقة.")]
+          try:
+              voice_mesh._dialogue_turns("هذا مونولوج بلا أدوار")
+          except RuntimeError as exc:
+              assert str(exc) == "dialogue_voice_contract_invalid"
+          else:
+              raise AssertionError("unlabelled dialogue must fail closed")
+
+          enriched = router._enrich_dialogue_prompt("Narrative structure: dialogue_qa\nWrite only this section, not the whole episode.")
+          assert '"السائل:"' in enriched and '"المجيب:"' in enriched
+          assert "routing metadata for TTS" in enriched
+          print("Dialogue routing contract PASS: fixed Kore/Gacrux; labelled turns; fail-closed parser")
+          PY
 
       - name: Verify no paid API use
         run: |
