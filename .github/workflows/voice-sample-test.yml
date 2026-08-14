@@ -55,6 +55,7 @@ jobs:
           mkdir -p voice-samples
           python - <<'PY'
           import os
+          import time
           from pathlib import Path
           from unittest.mock import patch
 
@@ -68,24 +69,36 @@ jobs:
           voices = ["Gacrux", "Charon", "Orus", "Sadaltager", "Schedar"]
           out_dir = Path("voice-samples")
 
-          for voice in voices:
+          failures = []
+          for index, voice in enumerate(voices):
               out = out_dir / f"voice_test_{voice.lower()}.wav"
-              with patch.object(gem, "_voice_identity", return_value=(voice, "Iapetus")):
-                  gem.synthesize_wav(
-                      api_key,
-                      text_sample,
-                      out,
-                      model="gemini-3.1-flash-tts-preview",
-                      voice=voice,
-                      style="",
-                  )
-              size = out.stat().st_size
-              print(f"OK {voice}: {out} ({size} bytes)")
-              if size < 1024:
-                  raise SystemExit(f"{voice} produced suspiciously small audio")
+              if index > 0:
+                  time.sleep(20)  # free-tier TTS rate limit: space requests out
+              try:
+                  with patch.object(gem, "_voice_identity", return_value=(voice, "Iapetus")):
+                      gem.synthesize_wav(
+                          api_key,
+                          text_sample,
+                          out,
+                          model="gemini-3.1-flash-tts-preview",
+                          voice=voice,
+                          style="",
+                      )
+                  size = out.stat().st_size
+                  print(f"OK {voice}: {out} ({size} bytes)")
+                  if size < 1024:
+                      failures.append(voice)
+                      print(f"FAIL {voice}: suspiciously small audio")
+              except Exception as exc:
+                  failures.append(voice)
+                  print(f"FAIL {voice}: {exc}")
+
+          if failures:
+              raise SystemExit(f"Voices that failed to synthesize: {', '.join(failures)}")
           PY
 
       - name: Upload voice samples
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: voice-samples
