@@ -1,0 +1,56 @@
+name: Engine CI Proxy
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/engine-ci-proxy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout private engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 4a0cf7a8ccd004c0d840b485f0b2b3141519039b
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Run engine tests
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest discover -s tests -v
+
+      - name: Verify no paid API use
+        run: |
+          set -euo pipefail
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+          test -z "${PEXELS_API_KEY:-}"
+          test -z "${PIXABAY_API_KEY:-}"
+          echo "No provider API credentials exposed to test job"
