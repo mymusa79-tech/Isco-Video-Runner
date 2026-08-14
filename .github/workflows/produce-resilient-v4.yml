@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: cfcf91cb90b94d9a62d9c49ed2c84ab033d32c7d
+          ref: 626db410cc539be6486d43045b5d4ee9053a01d7
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -179,20 +179,41 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Stage final review
+      - name: Final review and extract result
+        if: success()
+        working-directory: engine
+        env:
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
         run: |
           set -euo pipefail
-          OUT_DIR="$(find engine/output -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
-          test -f "$OUT_DIR/final.mp4"
-          mkdir -p safe-output
-          cp "$OUT_DIR/final.mp4" safe-output/final.mp4
-          if [ -f "$OUT_DIR/quality-final.json" ]; then cp "$OUT_DIR/quality-final.json" safe-output/quality-final.json; fi
-          if [ -f "$OUT_DIR/rights-manifest.json" ]; then cp "$OUT_DIR/rights-manifest.json" safe-output/rights-manifest.json; fi
+          python - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path('src').resolve()))
+          from isco_video_agent.providers.gemini import json_text
+          roots = sorted(Path('output').glob('*'), key=lambda p: p.stat().st_mtime, reverse=True)
+          if not roots: raise SystemExit('No output directory')
+          root = roots[0]
+          final = root/'final.mp4'
+          quality = root/'quality-final.json'
+          if not final.exists() or not quality.exists(): raise SystemExit('Missing final deliverables')
+          q = json.loads(quality.read_text(encoding='utf-8'))
+          if q.get('status') != 'pass': raise SystemExit('Final quality report is not pass')
+          key = Path(os.environ['GEMINI_API_KEY_FILE']).read_text().strip()
+          plan = json.loads((root/'plan.json').read_text(encoding='utf-8'))
+          verdict = json_text(key, 'Final editorial sanity check for Arabic YouTube video metadata. Return JSON with approved boolean and reason. Topic: '+str(plan.get('topic'))+' Titles: '+json.dumps(plan.get('title_options',[]), ensure_ascii=False), model='gemini-2.5-flash')
+          if not verdict.get('approved'): raise SystemExit('Final editorial review blocked output')
+          print('Final review PASS:', final)
+          PY
 
-      - name: Upload review artifact
+      - name: Upload final video
+        if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: isco-resilient-v4-${{ github.run_number }}
-          path: safe-output/
+          name: isco-resilient-v4-video-${{ github.run_number }}
+          path: |
+            engine/output/*/final.mp4
+            engine/output/*/quality-final.json
+            engine/output/*/plan.json
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
