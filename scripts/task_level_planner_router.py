@@ -11,6 +11,7 @@ import requests
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
 from isco_video_agent.providers.gemini import json_text as gemini_json_text
+from isco_video_agent.providers.gemini import with_channel_persona
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
 
 
@@ -155,6 +156,13 @@ def install_router() -> None:
 
     def task_router(_api_key, prompt, model="gemini-2.5-flash"):
         prompt = _enrich_dialogue_prompt(prompt)
+        # Apply the channel identity injection once here, before the provider loop, so it
+        # survives a fallback away from Gemini instead of only ever running on the Gemini
+        # path inside gemini.json_text() below. with_channel_persona() is idempotent (its
+        # own "<CHANNEL_PERSONA>" guard), so the "gemini" provider entry calling the real
+        # gemini_json_text() -> json_text() -> with_channel_persona() again on this already-
+        # enriched prompt is a safe no-op, not a double injection.
+        prompt = with_channel_persona(prompt)
         cache_key = hashlib.sha256((model + "\n" + prompt).encode("utf-8")).hexdigest()
         cached = responses.get(cache_key)
         if isinstance(cached, dict):
