@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 5969bbcf7ef9e720f85253098bf426082dcb02f8
+          ref: 626db410cc539be6486d43045b5d4ee9053a01d7
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -58,11 +58,11 @@ jobs:
           set -euo pipefail
           python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py
           PYTHONPATH="engine/src:scripts" python - <<'PY'
-          import os
           import task_level_planner_router as router
           import voice_mesh
+          from isco_video_agent.providers.gemini import _speech_config, _voice_identity
 
-          assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Kore"
+          assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Iapetus"
           assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Gacrux"
           turns = voice_mesh._dialogue_turns("السائل: لماذا يحدث هذا؟\nالمجيب: لأننا نخلط بين الشعور والحقيقة.")
           assert turns == [("السائل", "لماذا يحدث هذا؟"), ("المجيب", "لأننا نخلط بين الشعور والحقيقة.")]
@@ -76,7 +76,14 @@ jobs:
           enriched = router._enrich_dialogue_prompt("Narrative structure: dialogue_qa\nWrite only this section, not the whole episode.")
           assert '"السائل:"' in enriched and '"المجيب:"' in enriched
           assert "routing metadata for TTS" in enriched
-          print("Dialogue routing contract PASS: fixed Kore/Gacrux; labelled turns; fail-closed parser")
+
+          assert _voice_identity("RandomVoice") == ("Gacrux", "Iapetus")
+          assert _speech_config("A: لماذا؟\nB: لأن الفكرة أعمق.", "RandomVoice") == [
+              {"speaker": "A", "voice": "Iapetus"},
+              {"speaker": "B", "voice": "Gacrux"},
+          ]
+          assert _speech_config("هذا حوار داخلي بصوت واحد.", "RandomVoice") == [{"voice": "Gacrux"}]
+          print("Dialogue routing contract PASS: fixed Iapetus/Gacrux; labelled turns; locked primary; inner dialogue single voice")
           PY
 
       - name: Verify no paid API use
