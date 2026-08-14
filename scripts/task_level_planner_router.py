@@ -188,7 +188,7 @@ def install_router() -> None:
         plan = staged.build_plan(*args, **kwargs)
         if getattr(plan, "narrative_format", "") == "dialogue_qa":
             os.environ["ISCO_DIALOGUE_QA"] = "1"
-            print("Dialogue voice mode selected: questioner=Kore responder=Gacrux")
+            print("Dialogue voice mode selected: questioner=Iapetus responder=Gacrux")
         else:
             os.environ.pop("ISCO_DIALOGUE_QA", None)
         return plan
