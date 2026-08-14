@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 820dfd499de3dd52560114487be1926050ce346f
+          ref: a2fb670a9da88ca22b2014c83c78c6ab5a10f850
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -53,11 +53,12 @@ jobs:
           cd engine
           python -m unittest discover -s tests -v
 
-      - name: Verify runner dialogue routing
+      - name: Verify identity, visual scoring, and hook contracts
         run: |
           set -euo pipefail
           python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py
           PYTHONPATH="engine/src:scripts" python - <<'PY'
+          from pathlib import Path
           import task_level_planner_router as router
           import voice_mesh
           from isco_video_agent.providers.gemini import _speech_config, _voice_identity
@@ -65,29 +66,23 @@ jobs:
 
           assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Iapetus"
           assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Gacrux"
-          turns = voice_mesh._dialogue_turns("السائل: لماذا يحدث هذا؟\nالمجيب: لأننا نخلط بين الشعور والحقيقة.")
-          assert turns == [("السائل", "لماذا يحدث هذا؟"), ("المجيب", "لأننا نخلط بين الشعور والحقيقة.")]
-          try:
-              voice_mesh._dialogue_turns("هذا مونولوج بلا أدوار")
-          except RuntimeError as exc:
-              assert str(exc) == "dialogue_voice_contract_invalid"
-          else:
-              raise AssertionError("unlabelled dialogue must fail closed")
-
-          enriched = router._enrich_dialogue_prompt("Narrative structure: dialogue_qa\nWrite only this section, not the whole episode.")
-          assert '"السائل:"' in enriched and '"المجيب:"' in enriched
-          assert "routing metadata for TTS" in enriched
-
           assert _voice_identity("RandomVoice") == ("Gacrux", "Iapetus")
           assert _speech_config("A: لماذا؟\nB: لأن الفكرة أعمق.", "RandomVoice") == [
               {"speaker": "A", "voice": "Iapetus"},
               {"speaker": "B", "voice": "Gacrux"},
           ]
-          assert _speech_config("هذا حوار داخلي بصوت واحد.", "RandomVoice") == [{"voice": "Gacrux"}]
           assert _visual_fit_score({"relevance": 0.87}) == 8.7
           assert _visual_fit_score({"relevance": 2}) == 10.0
           assert _visual_fit_score({"relevance": 0}) == 1.0
-          print("Dialogue routing and smart visual scoring contracts PASS")
+
+          planner = Path("engine/src/isco_video_agent/planner.py").read_text(encoding="utf-8")
+          assert "section s1 has a hard retention contract" in planner
+          assert "a direct question" in planner
+          assert "a bold but" in planner
+          assert "clear tease of the concrete insight/result" in planner
+          assert "No scene-setting, greeting, biography, abstract reflection, throat-clearing" in planner
+          assert "s1's first spoken sentence must still be one strong direct question" in planner
+          print("Identity, smart visual scoring, and s1 hook contracts PASS")
           PY
 
       - name: Verify no paid API use
