@@ -42,7 +42,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 12908d578ae96b9e9d1a5c6956dbfb7b0d492acc
+          ref: 159216bd080e948a38af72a20dd4c2604befaa7e
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
