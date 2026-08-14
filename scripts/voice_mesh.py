@@ -16,7 +16,7 @@ _piper = None
 _gemini_open = False
 
 # Channel voice identity is deliberately fixed, not randomized per video.
-DIALOGUE_QUESTIONER_VOICE = "Kore"
+DIALOGUE_QUESTIONER_VOICE = "Iapetus"
 DIALOGUE_RESPONDER_VOICE = "Gacrux"
 _DIALOGUE_LABEL = re.compile(r"(?m)^\s*(السائل|المجيب)\s*:\s*")
 
@@ -133,7 +133,7 @@ def synthesize(api_key: str, transcript: str, output: Path, *, model: str, voice
             if dialogue:
                 _gemini_dialogue(api_key, transcript, output, model=model, style=style)
                 _qa(output, _DIALOGUE_LABEL.sub("", transcript))
-                print("Voice provider selected: gemini-multispeaker (questioner=Kore responder=Gacrux)")
+                print("Voice provider selected: gemini-multispeaker (questioner=Iapetus responder=Gacrux)")
             else:
                 gemini_synthesize(api_key, transcript, output, model=model, voice=voice, style=style)
                 _qa(output, transcript)
@@ -160,4 +160,4 @@ def synthesize(api_key: str, transcript: str, output: Path, *, model: str, voice
 
 def install_voice_mesh() -> None:
     orchestrator.synthesize_wav = synthesize
-    print("Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices Kore/Gacrux")
+    print("Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices Iapetus/Gacrux")
