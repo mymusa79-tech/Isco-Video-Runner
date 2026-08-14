@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: read
+      contents: write
     steps:
       - name: Checkout runner
         id: checkout_runner
@@ -249,6 +249,22 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Create GitHub Release with final video
+        id: create_release
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          video_path="$(ls engine/output/*/final.mp4 | head -n 1)"
+          test -f "$video_path"
+          tag="video-${RUN_NUMBER}"
+          gh release create "$tag" "$video_path" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Isco Video #${RUN_NUMBER}" \
+            --notes "Automated production run ${RUN_NUMBER}."
+
       - name: Notify Telegram
         if: always()
         continue-on-error: true
@@ -266,16 +282,18 @@ jobs:
           PRODUCE_VIDEO_OUTCOME: ${{ steps.produce_video.outcome }}
           FINAL_REVIEW_OUTCOME: ${{ steps.final_review.outcome }}
           UPLOAD_FINAL_OUTCOME: ${{ steps.upload_final.outcome }}
+          CREATE_RELEASE_OUTCOME: ${{ steps.create_release.outcome }}
         run: |
           set -euo pipefail
           test -n "$TELEGRAM_BOT_TOKEN"
           test -n "$TELEGRAM_CHAT_ID"
 
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          artifact_name="isco-resilient-v4-video-${GITHUB_RUN_NUMBER}"
 
           if [ "$JOB_STATUS" = "success" ]; then
-            message="✅ فيديو جديد جاهز: ${artifact_name}\n${run_url}#artifacts"
+            release_tag="video-${GITHUB_RUN_NUMBER}"
+            video_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${release_tag}/final.mp4"
+            message="✅ فيديو جديد جاهز: ${video_url}"
           else
             stage="unknown"
             for item in \
@@ -288,7 +306,8 @@ jobs:
               "Provider authentication:${VERIFY_PROVIDERS_OUTCOME}" \
               "Production:${PRODUCE_VIDEO_OUTCOME}" \
               "Final review:${FINAL_REVIEW_OUTCOME}" \
-              "Upload final video:${UPLOAD_FINAL_OUTCOME}"
+              "Upload final video:${UPLOAD_FINAL_OUTCOME}" \
+              "Create release:${CREATE_RELEASE_OUTCOME}"
             do
               name="${item%%:*}"
               outcome="${item#*:}"
