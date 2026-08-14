@@ -96,6 +96,25 @@ def _normalize_outline(data: dict, prompt: str) -> dict:
     return fixed
 
 
+def _enrich_dialogue_prompt(prompt: str) -> str:
+    """Make dialogue output machine-routable without adding another model call."""
+    lower = prompt.lower()
+    if "dialogue_qa" not in lower:
+        return prompt
+    if "write only this section" not in lower and "repair one section only" not in lower:
+        return prompt
+    return prompt + """
+
+DIALOGUE VOICE CONTRACT (mandatory when the selected narrative format is dialogue_qa):
+- Write the spoken exchange using only these exact Arabic role labels at the start of turns: "السائل:" and "المجيب:".
+- Use both roles in this section when natural; normally 2-6 short turns. Never invent names, host/guest pleasantries, or stage directions.
+- السائل asks/challenges with genuine curiosity and may push back briefly; المجيب remains the channel's main analytical voice.
+- The exchange must advance the argument. Do not make both speakers say the same idea.
+- Labels are routing metadata for TTS and will not be spoken aloud.
+- Preserve these labels during repair. Do not return an unlabelled dialogue monologue.
+"""
+
+
 def _groq_call(prompt: str) -> dict:
     token = _read_secret_file("GROQ_API_KEY_FILE")
     response = requests.post(
@@ -135,6 +154,7 @@ def install_router() -> None:
     ]
 
     def task_router(_api_key, prompt, model="gemini-2.5-flash"):
+        prompt = _enrich_dialogue_prompt(prompt)
         cache_key = hashlib.sha256((model + "\n" + prompt).encode("utf-8")).hexdigest()
         cached = responses.get(cache_key)
         if isinstance(cached, dict):
@@ -164,8 +184,17 @@ def install_router() -> None:
 
         raise RuntimeError("All free providers failed for planning subtask: " + " | ".join(failures))
 
+    def routed_build_plan(*args, **kwargs):
+        plan = staged.build_plan(*args, **kwargs)
+        if getattr(plan, "narrative_format", "") == "dialogue_qa":
+            os.environ["ISCO_DIALOGUE_QA"] = "1"
+            print("Dialogue voice mode selected: questioner=Kore responder=Gacrux")
+        else:
+            os.environ.pop("ISCO_DIALOGUE_QA", None)
+        return plan
+
     staged.json_text = task_router
-    orchestrator.build_plan = staged.build_plan
+    orchestrator.build_plan = routed_build_plan
 
 
 def run() -> None:
