@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 import requests
@@ -17,6 +18,13 @@ from isco_video_agent.providers.openrouter import json_text as openrouter_json_t
 
 CACHE_PATH = Path("state/planning-checkpoint.json")
 CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+# A film's 8 sections mean many back-to-back planning subtasks in one run, with no
+# gap between them otherwise (diagnosed after run 31870521024: 17 consecutive Gemini
+# calls with zero delay tripped its free-tier per-minute rate limit within a single
+# run, not from quota exhausted across the day's earlier attempts). This is a floor on
+# the gap between two calls to the SAME provider, not a global throttle.
+MIN_PROVIDER_CALL_INTERVAL_SECONDS = 1.5
 
 
 def _read_secret_file(name: str) -> str:
@@ -145,6 +153,7 @@ def install_router() -> None:
     checkpoint = _load_checkpoint()
     responses = checkpoint.setdefault("responses", {})
     cooldown: set[str] = set()
+    last_call_at: dict[str, float] = {}
     gemini_key = _read_secret_file("GEMINI_API_KEY_FILE")
 
     providers = [
@@ -173,6 +182,10 @@ def install_router() -> None:
         for name, provider in providers:
             if name in cooldown:
                 continue
+            since_last_call = time.monotonic() - last_call_at.get(name, 0.0)
+            if since_last_call < MIN_PROVIDER_CALL_INTERVAL_SECONDS:
+                time.sleep(MIN_PROVIDER_CALL_INTERVAL_SECONDS - since_last_call)
+            last_call_at[name] = time.monotonic()
             try:
                 raw = provider(prompt, model)
                 data = _normalize_outline(_parse_json(raw), prompt)

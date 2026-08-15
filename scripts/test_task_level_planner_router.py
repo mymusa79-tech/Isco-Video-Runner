@@ -70,6 +70,63 @@ class PersonaInjectionFallbackTests(unittest.TestCase):
         self.assertEqual(captured["prompt"].count("<CHANNEL_PERSONA>"), 1)
 
 
+class ProviderRateLimitSpacingTests(unittest.TestCase):
+    """Covers the fix for run 31870521024's Gemini/Groq 429s: a film's 8 sections mean
+    many back-to-back planning subtasks in one run, and task_router() previously fired
+    them at the same provider with zero delay. This enforces a floor
+    (MIN_PROVIDER_CALL_INTERVAL_SECONDS) between two calls to the SAME provider within
+    one run, without touching cooldown or provider-selection logic at all - verified
+    here by asserting cooldown/provider-order behavior is untouched while sleep is
+    only invoked when two calls to the same provider land closer together than the
+    floor."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
+        gemini_key_path.write_text("fake-gemini-key", encoding="utf-8")
+        self._env_patch = patch.dict(os.environ, {"GEMINI_API_KEY_FILE": str(gemini_key_path)}, clear=False)
+        self._env_patch.start()
+        self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
+        self._cache_patch.start()
+
+    def tearDown(self) -> None:
+        self._cache_patch.stop()
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_second_call_to_same_provider_sleeps_for_the_remaining_gap(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            del api_key, prompt, model
+            return {"ok": True}
+
+        # First subtask's provider attempt reads monotonic() twice (gap check, then
+        # last_call_at update) at t=1000.0; the second subtask's attempt lands 0.1s
+        # later at t=1000.1, which is inside the 1.5s floor, so it must sleep for the
+        # remaining 1.4s.
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router.time, "monotonic", side_effect=[1000.0, 1000.0, 1000.1, 1000.1]), \
+                patch.object(router.time, "sleep") as mock_sleep:
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: القسم الأول", model="gemini-2.5-flash")
+            staged.json_text("unused-api-key", "نداء اليقظة: القسم الثاني", model="gemini-2.5-flash")
+
+        mock_sleep.assert_called_once()
+        (slept_seconds,), _ = mock_sleep.call_args
+        self.assertAlmostEqual(slept_seconds, router.MIN_PROVIDER_CALL_INTERVAL_SECONDS - 0.1, places=6)
+
+    def test_first_call_to_a_provider_never_sleeps(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            del api_key, prompt, model
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router.time, "sleep") as mock_sleep:
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: موضوع اختبار فردي", model="gemini-2.5-flash")
+
+        mock_sleep.assert_not_called()
+
+
 class RouterInstalledMarkerTests(unittest.TestCase):
     """Covers run 31869763274: orchestrator.py's own guard raised even when
     install_router() had genuinely succeeded, because it compared
