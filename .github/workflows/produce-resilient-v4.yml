@@ -205,6 +205,7 @@ jobs:
             engine/output/*/plan.json
             engine/output/*/opportunities.json
             engine/output/*/research.json
+            engine/output/*/planning-telemetry.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -265,6 +266,7 @@ jobs:
             engine/output/*/final.mp4
             engine/output/*/quality-final.json
             engine/output/*/plan.json
+            engine/output/*/planning-telemetry.json
           if-no-files-found: error
           retention-days: 7
 
@@ -279,7 +281,12 @@ jobs:
           video_path="$(ls engine/output/*/final.mp4 | head -n 1)"
           test -f "$video_path"
           tag="video-${RUN_NUMBER}"
-          gh release create "$tag" "$video_path" \
+          release_assets=("$video_path")
+          telemetry_path="$(ls engine/output/*/planning-telemetry.json 2>/dev/null | head -n 1 || true)"
+          if [ -n "$telemetry_path" ] && [ -f "$telemetry_path" ]; then
+            release_assets+=("$telemetry_path")
+          fi
+          gh release create "$tag" "${release_assets[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
             --title "Isco Video #${RUN_NUMBER}" \
             --notes "Automated production run ${RUN_NUMBER}."

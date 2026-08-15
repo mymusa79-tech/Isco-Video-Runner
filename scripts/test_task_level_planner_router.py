@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -344,12 +345,12 @@ class ProviderRateLimitSpacingTests(unittest.TestCase):
             del api_key, prompt, model
             return {"ok": True}
 
-        # First subtask's provider attempt reads monotonic() twice (gap check, then
-        # last_call_at update) at t=1000.0; the second subtask's attempt lands 0.1s
-        # later at t=1000.1, which is inside the 1.5s floor, so it must sleep for the
-        # remaining 1.4s.
+        # First subtask's provider attempt reads monotonic() three times (gap check,
+        # last_call_at update, then telemetry duration) at t=1000.0; the second
+        # subtask's attempt lands 0.1s later at t=1000.1, which is inside the 1.5s
+        # floor, so it must sleep for the remaining 1.4s.
         with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
-                patch.object(router.time, "monotonic", side_effect=[1000.0, 1000.0, 1000.1, 1000.1]), \
+                patch.object(router.time, "monotonic", side_effect=[1000.0, 1000.0, 1000.0, 1000.1, 1000.1, 1000.1]), \
                 patch.object(router.time, "sleep") as mock_sleep:
             router.install_router()
             staged.json_text("unused-api-key", "نداء اليقظة: القسم الأول", model="gemini-2.5-flash")
@@ -401,6 +402,236 @@ class RouterInstalledMarkerTests(unittest.TestCase):
         router.install_router()
         self.assertTrue(getattr(orchestrator.build_plan, "_is_resilient_router", False))
         orchestrator._verify_resilient_router_installed()  # must not raise
+
+
+class ClassifyFailureTests(unittest.TestCase):
+    """Covers the planning-telemetry request: every failed attempt's error_detail must
+    bucket into one of a small set of stable result codes instead of a raw, unbounded
+    exception string, so runs can be compared/aggregated across time."""
+
+    def test_429_in_detail_classifies_as_429(self) -> None:
+        self.assertEqual(router._classify_failure("HTTP 429 rate limited"), "429")
+
+    def test_quota_wording_classifies_as_429(self) -> None:
+        self.assertEqual(router._classify_failure("Resource exhausted: quota exceeded"), "429")
+
+    def test_invalid_json_classifies_as_invalid_json(self) -> None:
+        self.assertEqual(router._classify_failure("Provider returned invalid JSON"), "invalid_json")
+
+    def test_premature_wording_classifies_as_premature_response(self) -> None:
+        self.assertEqual(router._classify_failure("premature response truncated"), "premature_response")
+
+    def test_unrecognized_detail_classifies_as_other(self) -> None:
+        self.assertEqual(router._classify_failure("connection reset by peer"), "other")
+
+
+class ExtractRateLimitHeadersTests(unittest.TestCase):
+    def test_pulls_the_three_known_header_names(self) -> None:
+        headers = {
+            "Retry-After": "30",
+            "X-RateLimit-Remaining-Requests": "5",
+            "X-RateLimit-Remaining-Tokens": "1000",
+            "Some-Other-Header": "ignored",
+        }
+        self.assertEqual(
+            router._extract_rate_limit_headers(headers),
+            {"retry_after": "30", "remaining_requests": "5", "remaining_tokens": "1000"},
+        )
+
+    def test_missing_headers_come_back_as_none(self) -> None:
+        self.assertEqual(
+            router._extract_rate_limit_headers({}),
+            {"retry_after": None, "remaining_requests": None, "remaining_tokens": None},
+        )
+
+
+class RecordAttemptAndTelemetryTests(unittest.TestCase):
+    """Covers _record_attempt()/get_telemetry()/write_planning_telemetry() directly,
+    independent of the full task_router() provider loop."""
+
+    def setUp(self) -> None:
+        router._TELEMETRY.clear()
+        router._last_call_rate_limit_headers.clear()
+
+    def tearDown(self) -> None:
+        router._TELEMETRY.clear()
+        router._last_call_rate_limit_headers.clear()
+
+    def test_recorded_entry_has_all_expected_fields(self) -> None:
+        router._record_attempt("groq", "success", duration_seconds=1.25)
+        entries = router.get_telemetry()
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry["provider"], "groq")
+        self.assertEqual(entry["result"], "success")
+        self.assertEqual(entry["duration_seconds"], 1.25)
+        self.assertIsNone(entry["error_detail"])
+        self.assertIn("timestamp", entry)
+
+    def test_pending_rate_limit_headers_are_attached_and_then_cleared(self) -> None:
+        router._last_call_rate_limit_headers.update({
+            "retry_after": "30",
+            "remaining_requests": "5",
+            "remaining_tokens": "1000",
+        })
+        router._record_attempt("groq", "429", error_detail="HTTP 429 rate limited")
+        entry = router.get_telemetry()[0]
+        self.assertEqual(entry["retry_after"], "30")
+        self.assertEqual(entry["remaining_requests"], "5")
+        self.assertEqual(entry["remaining_tokens"], "1000")
+        # Headers must not leak onto the next, unrelated attempt.
+        router._record_attempt("gemini", "success")
+        second_entry = router.get_telemetry()[1]
+        self.assertIsNone(second_entry["retry_after"])
+
+    def test_get_telemetry_returns_a_copy_not_the_live_list(self) -> None:
+        router._record_attempt("gemini", "success")
+        snapshot = router.get_telemetry()
+        snapshot.append({"provider": "fake", "result": "success"})
+        self.assertEqual(len(router.get_telemetry()), 1)
+
+    def test_write_planning_telemetry_writes_expected_structure(self) -> None:
+        router._record_attempt("gemini", "429", error_detail="HTTP 429 rate limited")
+        router._record_attempt("groq", "success", duration_seconds=2.0)
+        router._record_attempt("groq", "success", duration_seconds=1.0)
+        with tempfile.TemporaryDirectory() as d:
+            out_dir = Path(d)
+            path = router.write_planning_telemetry(out_dir)
+            self.assertEqual(path, out_dir / "planning-telemetry.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        self.assertIn("generated_at", payload)
+        self.assertEqual(len(payload["attempts"]), 3)
+        self.assertEqual(payload["providers"]["gemini"]["total_attempts"], 1)
+        self.assertEqual(payload["providers"]["gemini"]["by_result"], {"429": 1})
+        self.assertEqual(payload["providers"]["groq"]["total_attempts"], 2)
+        self.assertEqual(payload["providers"]["groq"]["by_result"], {"success": 2})
+
+
+class TelemetryRouterIntegrationTests(unittest.TestCase):
+    """Covers task_router()'s actual instrumentation points: circuit-open skips,
+    successful calls, and failed calls must each leave exactly one telemetry entry,
+    and install_router() must reset telemetry the same way it resets _USED_PROVIDERS."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
+        gemini_key_path.write_text("fake-gemini-key", encoding="utf-8")
+        self._env_patch = patch.dict(os.environ, {"GEMINI_API_KEY_FILE": str(gemini_key_path)}, clear=False)
+        self._env_patch.start()
+        self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
+        self._cache_patch.start()
+        self._sleep_patch = patch.object(router.time, "sleep")
+        self._sleep_patch.start()
+
+    def tearDown(self) -> None:
+        self._sleep_patch.stop()
+        self._cache_patch.stop()
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_install_router_resets_telemetry(self) -> None:
+        router._TELEMETRY.append({"provider": "stale", "result": "success"})
+        router.install_router()
+        self.assertEqual(router.get_telemetry(), [])
+
+    def test_successful_call_records_one_success_entry(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            del api_key, prompt, model
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text):
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: موضوع اختبار", model="gemini-2.5-flash")
+
+        entries = router.get_telemetry()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["provider"], "gemini")
+        self.assertEqual(entries[0]["result"], "success")
+        self.assertIsNotNone(entries[0]["duration_seconds"])
+
+    def test_failed_then_fallback_records_a_failure_entry_and_a_success_entry(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            del api_key, prompt, model
+            raise RuntimeError("Provider returned invalid JSON")
+
+        def fake_groq_call(prompt):
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router, "_groq_call", side_effect=fake_groq_call):
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: موضوع اختبار", model="gemini-2.5-flash")
+
+        entries = router.get_telemetry()
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(entries[0]["provider"], "gemini")
+        self.assertEqual(entries[0]["result"], "invalid_json")
+        self.assertEqual(entries[0]["error_detail"], "Provider returned invalid JSON")
+        self.assertEqual(entries[1]["provider"], "groq")
+        self.assertEqual(entries[1]["result"], "success")
+
+    def test_cooled_down_provider_records_circuit_open_not_another_failure(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            del api_key, prompt, model
+            raise RuntimeError("HTTP 429 rate limited")
+
+        def fake_groq_call(prompt):
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router, "_groq_call", side_effect=fake_groq_call):
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: القسم الأول", model="gemini-2.5-flash")
+            staged.json_text("unused-api-key", "نداء اليقظة: القسم الثاني", model="gemini-2.5-flash")
+
+        entries = router.get_telemetry()
+        # Subtask 1: gemini fails (429) then groq succeeds. Subtask 2: gemini is
+        # skipped outright (circuit-open) then groq succeeds again.
+        self.assertEqual(len(entries), 4)
+        self.assertEqual(entries[0]["provider"], "gemini")
+        self.assertEqual(entries[0]["result"], "429")
+        self.assertEqual(entries[1]["provider"], "groq")
+        self.assertEqual(entries[1]["result"], "success")
+        self.assertEqual(entries[2]["provider"], "gemini")
+        self.assertEqual(entries[2]["result"], "circuit-open")
+        self.assertEqual(entries[3]["provider"], "groq")
+        self.assertEqual(entries[3]["result"], "success")
+
+    def test_groq_429_response_headers_are_captured_on_the_failure_entry(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            del api_key, prompt, model
+            raise RuntimeError("HTTP 429 rate limited")
+
+        fake_response = type(
+            "FakeResponse",
+            (),
+            {
+                "status_code": 429,
+                "headers": {
+                    "Retry-After": "12",
+                    "X-RateLimit-Remaining-Requests": "0",
+                    "X-RateLimit-Remaining-Tokens": "0",
+                },
+                "ok": False,
+            },
+        )()
+
+        groq_key_path = Path(self._tmpdir.name) / "groq_key"
+        groq_key_path.write_text("fake-groq-key", encoding="utf-8")
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.dict(os.environ, {"GROQ_API_KEY_FILE": str(groq_key_path)}, clear=False), \
+                patch.object(router.requests, "post", return_value=fake_response):
+            router.install_router()
+            with self.assertRaises(RuntimeError):
+                staged.json_text("unused-api-key", "نداء اليقظة: موضوع اختبار", model="gemini-2.5-flash")
+
+        entries = router.get_telemetry()
+        groq_entry = next(e for e in entries if e["provider"] == "groq")
+        self.assertEqual(groq_entry["result"], "429")
+        self.assertEqual(groq_entry["retry_after"], "12")
+        self.assertEqual(groq_entry["remaining_requests"], "0")
+        self.assertEqual(groq_entry["remaining_tokens"], "0")
 
 
 if __name__ == "__main__":

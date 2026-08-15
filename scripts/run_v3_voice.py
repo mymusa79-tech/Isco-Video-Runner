@@ -7,7 +7,7 @@ from pathlib import Path
 import isco_video_agent.orchestrator as orchestrator
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
-from scripts.task_level_planner_router import get_used_providers, install_router
+from scripts.task_level_planner_router import get_used_providers, install_router, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
 from scripts.voice_mesh import install_voice_mesh
 
@@ -36,6 +36,11 @@ def _tag_plan_source(out_dir: Path) -> None:
     print(f"Plan source tagged: {source}")
 
 
+def _latest_output_dir() -> Path | None:
+    roots = sorted(Path("output").glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return roots[0] if roots else None
+
+
 def main() -> None:
     install_schema_guard()
     install_router()
@@ -44,13 +49,23 @@ def main() -> None:
     start_progress()
     install_progress_hooks()
     request = json.loads(Path(os.environ["REQUEST_FILE"]).read_text(encoding="utf-8"))
-    out = orchestrator.produce(
-        topic=request["topic"],
-        requested_format=request["format"],
-        dry_run=False,
-        do_research=True,
-    )
+    try:
+        out = orchestrator.produce(
+            topic=request["topic"],
+            requested_format=request["format"],
+            dry_run=False,
+            do_research=True,
+        )
+    except Exception:
+        # planning-telemetry.json must exist on a failed run too - it's the exact
+        # record needed to see which provider failed and why, without which this file
+        # would only ever appear on the successful runs that need it least.
+        out_dir = _latest_output_dir()
+        if out_dir is not None:
+            write_planning_telemetry(out_dir)
+        raise
     _tag_plan_source(out)
+    write_planning_telemetry(out)
     print(f"Production completed: {out.name}")
 
 

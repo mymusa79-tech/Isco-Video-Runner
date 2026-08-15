@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -33,6 +34,24 @@ MIN_PROVIDER_CALL_INTERVAL_SECONDS = 1.5
 # original call that populated the cache already recorded its provider.
 _USED_PROVIDERS: list[str] = []
 
+# One entry per provider interaction inside task_router()'s loop - including a provider
+# that was skipped outright because it is already in cooldown (result="circuit-open"),
+# not just providers that were actually called over the network. Reset at the top of
+# install_router() alongside _USED_PROVIDERS. Written to planning-telemetry.json by
+# write_planning_telemetry() (called from run_v3_voice.py after produce() returns, or
+# in its except-handler on failure) so every run leaves a structured record of exactly
+# which provider failed and why, instead of requiring manual log archaeology.
+_TELEMETRY: list[dict] = []
+
+# Set by _groq_call() immediately after it gets an HTTP response (success or failure),
+# read and cleared by _record_attempt() right after the provider call returns/raises in
+# task_router(). Only Groq's rate-limit headers are captured here: gemini_json_text()
+# and openrouter_json_text() live in the Engine package (isco_video_agent.providers),
+# not this file, so their raw HTTP responses aren't available to instrument without
+# touching Engine - retry_after/remaining_requests/remaining_tokens stay null for those
+# two providers, exactly as the "if available" framing of this feature expects.
+_last_call_rate_limit_headers: dict = {}
+
 
 def _normalize_provider_name(name: str) -> str:
     return "openrouter" if name.startswith("openrouter") else name
@@ -47,6 +66,70 @@ def _record_provider_used(name: str) -> None:
 def get_used_providers() -> list[str]:
     """Providers that actually produced planning output for the current/last run."""
     return list(_USED_PROVIDERS)
+
+
+def get_telemetry() -> list[dict]:
+    """Every provider interaction recorded so far in the current/last run."""
+    return list(_TELEMETRY)
+
+
+def _extract_rate_limit_headers(headers) -> dict:
+    return {
+        "retry_after": headers.get("Retry-After"),
+        "remaining_requests": headers.get("X-RateLimit-Remaining-Requests"),
+        "remaining_tokens": headers.get("X-RateLimit-Remaining-Tokens"),
+    }
+
+
+def _classify_failure(detail: str) -> str:
+    lower = detail.lower()
+    if "429" in detail or "quota" in lower:
+        return "429"
+    if "invalid json" in lower:
+        return "invalid_json"
+    if "premature" in lower:
+        return "premature_response"
+    return "other"
+
+
+def _record_attempt(provider_name: str, result: str, *, error_detail: str | None = None, duration_seconds: float | None = None) -> None:
+    headers = dict(_last_call_rate_limit_headers)
+    _last_call_rate_limit_headers.clear()
+    _TELEMETRY.append({
+        "provider": provider_name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "result": result,
+        "error_detail": error_detail,
+        "duration_seconds": duration_seconds,
+        "retry_after": headers.get("retry_after"),
+        "remaining_requests": headers.get("remaining_requests"),
+        "remaining_tokens": headers.get("remaining_tokens"),
+    })
+
+
+def _summarize_telemetry_by_provider(attempts: list[dict]) -> dict:
+    summary: dict = {}
+    for entry in attempts:
+        name = entry["provider"]
+        bucket = summary.setdefault(name, {"total_attempts": 0, "by_result": {}})
+        bucket["total_attempts"] += 1
+        bucket["by_result"][entry["result"]] = bucket["by_result"].get(entry["result"], 0) + 1
+    return summary
+
+
+def write_planning_telemetry(out_dir: Path) -> Path:
+    """Writes the full attempt-by-attempt record plus a per-provider summary to
+    out_dir/planning-telemetry.json. Called for every real production attempt,
+    success or failure - see run_v3_voice.py's try/except around produce()."""
+    attempts = list(_TELEMETRY)
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "providers": _summarize_telemetry_by_provider(attempts),
+        "attempts": attempts,
+    }
+    path = out_dir / "planning-telemetry.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
 
 
 def _read_secret_file(name: str) -> str:
@@ -160,6 +243,7 @@ def _groq_call(prompt: str) -> dict:
         },
         timeout=90,
     )
+    _last_call_rate_limit_headers.update(_extract_rate_limit_headers(response.headers))
     if response.status_code == 429:
         raise RuntimeError("RATE_LIMIT_429")
     if not response.ok:
@@ -195,6 +279,7 @@ def install_router() -> None:
     cooldown: set[str] = set()
     last_call_at: dict[str, float] = {}
     _USED_PROVIDERS.clear()
+    _TELEMETRY.clear()
     gemini_key = _read_secret_file("GEMINI_API_KEY_FILE")
 
     providers = [
@@ -226,6 +311,7 @@ def install_router() -> None:
             # this check must stay first, before any call attempt or the spacing
             # bookkeeping below, so a known-unavailable provider never wastes a request.
             if name in cooldown:
+                _record_attempt(name, "circuit-open")
                 continue
             since_last_call = time.monotonic() - last_call_at.get(name, 0.0)
             if since_last_call < MIN_PROVIDER_CALL_INTERVAL_SECONDS:
@@ -238,11 +324,13 @@ def install_router() -> None:
                 checkpoint["last_provider"] = name
                 _save_checkpoint(checkpoint)
                 _record_provider_used(name)
+                _record_attempt(name, "success", duration_seconds=time.monotonic() - last_call_at[name])
                 print(f"Planning subtask provider selected: {name}")
                 return data
             except Exception as exc:
                 detail = str(exc).replace("\n", " ")[:220]
                 failures.append(f"{name}:{detail}")
+                _record_attempt(name, _classify_failure(detail), error_detail=detail, duration_seconds=time.monotonic() - last_call_at[name])
                 if "429" in detail or "quota" in detail.lower():
                     cooldown.add(name)
                     print(f"Planning provider circuit-open for this run: {name}")
