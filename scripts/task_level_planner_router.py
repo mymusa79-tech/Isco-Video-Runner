@@ -201,6 +201,13 @@ def install_router() -> None:
             os.environ.pop("ISCO_DIALOGUE_QA", None)
         return plan
 
+    # Marker orchestrator.py's _verify_resilient_router_installed() checks directly on
+    # this callable at call time (not a side-channel "install_router() ran" flag, which
+    # could go stale if build_plan were ever reassigned afterward). Must be set before
+    # the assignment below so the exact object orchestrator.build_plan ends up bound to
+    # carries it.
+    routed_build_plan._is_resilient_router = True
+
     staged.json_text = task_router
     orchestrator.build_plan = routed_build_plan
 
