@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import io
+import json
 import os
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import telegram_progress as tp  # noqa: E402  (needs sys.path fixup above)
@@ -50,6 +53,71 @@ class OptionalSecretFileTests(unittest.TestCase):
             path.write_text("  abc123  \n", encoding="utf-8")
             with patch.dict(os.environ, {"X_FILE": str(path)}, clear=False):
                 self.assertEqual(tp._read_secret_file_optional("X_FILE"), "abc123")
+
+
+class TelegramRequestDiagnosticLoggingTests(unittest.TestCase):
+    """Covers the explicit per-call diagnostic logging: every Telegram call must print
+    its own outcome (method name, success/failure, and why) so a run's log gives
+    automated confirmation instead of requiring someone to check their phone."""
+
+    def setUp(self) -> None:
+        tp._state["token"] = "fake-token"
+        tp._state["chat_id"] = "123"
+
+    def _mock_http_response(self, body: dict):
+        response = MagicMock()
+        response.read.return_value = json.dumps(body).encode("utf-8")
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        return response
+
+    def test_prints_success_with_method_name_on_ok_response(self) -> None:
+        buf = io.StringIO()
+        with patch("urllib.request.urlopen", return_value=self._mock_http_response({"ok": True, "result": {"message_id": 42}})):
+            with redirect_stdout(buf):
+                result = tp._telegram_request("sendMessage", {"chat_id": "123", "text": "x"})
+        self.assertIsNotNone(result)
+        self.assertIn("Telegram sendMessage succeeded", buf.getvalue())
+
+    def test_prints_failure_with_api_description_on_ok_false_response(self) -> None:
+        buf = io.StringIO()
+        with patch("urllib.request.urlopen", return_value=self._mock_http_response({"ok": False, "description": "message to edit not found"})):
+            with redirect_stdout(buf):
+                result = tp._telegram_request("editMessageText", {"chat_id": "123", "message_id": 1, "text": "x"})
+        self.assertIsNone(result)
+        self.assertIn("Telegram editMessageText failed: message to edit not found", buf.getvalue())
+
+    def test_prints_failure_with_exception_type_on_network_error(self) -> None:
+        buf = io.StringIO()
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+            with redirect_stdout(buf):
+                result = tp._telegram_request("sendMessage", {"chat_id": "123", "text": "x"})
+        self.assertIsNone(result)
+        self.assertIn("Telegram sendMessage failed: TimeoutError", buf.getvalue())
+
+    def test_start_progress_prints_which_branch_before_calling(self) -> None:
+        buf = io.StringIO()
+        with tempfile.TemporaryDirectory() as d:
+            token_path = Path(d) / "token"
+            token_path.write_text("fake-token", encoding="utf-8")
+            chat_path = Path(d) / "chat"
+            chat_path.write_text("123", encoding="utf-8")
+            env = {"TELEGRAM_BOT_TOKEN_FILE": str(token_path), "TELEGRAM_CHAT_ID_FILE": str(chat_path), "RUNNER_TEMP": d}
+            with patch.dict(os.environ, env, clear=False):
+                with patch("urllib.request.urlopen", return_value=self._mock_http_response({"ok": True, "result": {"message_id": 7}})):
+                    with redirect_stdout(buf):
+                        tp.start_progress()
+        self.assertIn("Telegram notify: sendMessage (initial progress message)", buf.getvalue())
+        self.assertIn("Telegram progress message created: message_id=7", buf.getvalue())
+
+    def test_update_stage_prints_which_stage_before_calling(self) -> None:
+        tp._state["message_id"] = 7
+        buf = io.StringIO()
+        with patch("urllib.request.urlopen", return_value=self._mock_http_response({"ok": True})):
+            with redirect_stdout(buf):
+                tp.update_stage("voice")
+        self.assertIn("Telegram notify: editMessageText (stage=voice)", buf.getvalue())
+        self.assertIn("Telegram editMessageText succeeded", buf.getvalue())
 
 
 class StartProgressNoOpTests(unittest.TestCase):

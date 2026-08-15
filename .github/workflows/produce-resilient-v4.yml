@@ -401,18 +401,28 @@ jobs:
           if [ -n "$progress_message_id" ]; then
             # A live progress message was already sent from inside production - edit it
             # with the final result instead of sending a second message.
-            curl --fail-with-body --silent --show-error \
-              --request POST \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \
-              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-              --data-urlencode "message_id=${progress_message_id}" \
-              --data-urlencode "text=${message}" \
-              >/dev/null
+            echo "Telegram notify: editMessageText (message_id=${progress_message_id})"
+            if curl --fail-with-body --silent --show-error \
+                --request POST \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \
+                --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+                --data-urlencode "message_id=${progress_message_id}" \
+                --data-urlencode "text=${message}" \
+                >/dev/null; then
+              echo "Telegram editMessageText succeeded"
+            else
+              echo "Telegram editMessageText failed"
+            fi
           else
-            curl --fail-with-body --silent --show-error \
-              --request POST \
-              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-              --data-urlencode "text=${message}" \
-              >/dev/null
+            echo "Telegram notify: sendMessage (no saved progress message_id)"
+            if curl --fail-with-body --silent --show-error \
+                --request POST \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+                --data-urlencode "text=${message}" \
+                >/dev/null; then
+              echo "Telegram sendMessage succeeded"
+            else
+              echo "Telegram sendMessage failed"
+            fi
           fi

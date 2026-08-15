@@ -35,15 +35,25 @@ def _read_secret_file_optional(env_name: str) -> str:
 
 
 def _telegram_request(method: str, payload: dict) -> dict | None:
+    """Every call prints its own explicit outcome - method name, success/failure, and
+    the reason on failure - so a run's log always shows automated confirmation of
+    whether the live progress message actually reached Telegram, instead of relying on
+    someone checking their phone. Never prints the URL: it embeds the bot token."""
     if not _state["token"]:
         return None
     url = f"https://api.telegram.org/bot{_state['token']}/{method}"
     data = urllib.parse.urlencode(payload).encode("utf-8")
     try:
         with urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=15) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except Exception:
+            result = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:
+        print(f"Telegram {method} failed: {type(exc).__name__}: {exc}")
         return None
+    if not result.get("ok"):
+        print(f"Telegram {method} failed: {result.get('description', 'unknown API error')}")
+        return None
+    print(f"Telegram {method} succeeded")
+    return result
 
 
 def _render() -> str:
@@ -70,24 +80,29 @@ def start_progress() -> None:
     _state["completed"] = set()
     _state["current_stage"] = None
     if not token or not chat_id:
+        print("Telegram progress tracking disabled: bot token or chat id not configured")
         return
+    print("Telegram notify: sendMessage (initial progress message)")
     resp = _telegram_request("sendMessage", {"chat_id": chat_id, "text": "🔵 بدأ الإنتاج..."})
-    if not (resp and resp.get("ok")):
-        return
+    if not resp:
+        return  # _telegram_request already printed the failure reason
     message_id = resp["result"]["message_id"]
     _state["message_id"] = message_id
+    print(f"Telegram progress message created: message_id={message_id}")
     runner_temp = os.environ.get("RUNNER_TEMP", "")
     if runner_temp:
         try:
-            open(os.path.join(runner_temp, "telegram-progress-message-id.txt"), "w", encoding="utf-8").write(str(message_id))
+            with open(os.path.join(runner_temp, "telegram-progress-message-id.txt"), "w", encoding="utf-8") as f:
+                f.write(str(message_id))
         except OSError:
-            pass
+            print("Telegram progress message_id could not be saved to disk for the final-notify step")
 
 
 def update_stage(stage: str) -> None:
     if _state["message_id"] is None:
         return
     _state["current_stage"] = stage
+    print(f"Telegram notify: editMessageText (stage={stage})")
     _telegram_request("editMessageText", {
         "chat_id": _state["chat_id"],
         "message_id": _state["message_id"],
