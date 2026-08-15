@@ -270,9 +270,23 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Request publish approval via Telegram
+        id: publish_approval
+        if: success()
+        working-directory: engine
+        env:
+          REQUIRE_PUBLISH_APPROVAL: ${{ vars.REQUIRE_PUBLISH_APPROVAL || 'false' }}
+          PUBLISH_APPROVAL_TIMEOUT_ACTION: ${{ vars.PUBLISH_APPROVAL_TIMEOUT_ACTION || 'hold' }}
+          TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token
+          TELEGRAM_CHAT_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-chat-id
+          TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python ../scripts/telegram_publish_gate.py
+
       - name: Create GitHub Release with final video
         id: create_release
-        if: success()
+        if: success() && steps.publish_approval.outputs.effective_decision == 'approved'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_NUMBER: ${{ github.run_number }}
