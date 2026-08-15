@@ -120,5 +120,15 @@ def install_product_proof_fallback() -> None:
             print(f"PRODUCT_PROOF fixed plan ready: sections=8 words={words}")
             return plan
 
+    # orchestrator.py's _verify_resilient_router_installed() checks this marker on the
+    # live build_plan callable. This wrapper still routes real planning through
+    # `original` (the resilient router's routed_build_plan, when install_router() ran
+    # first as it always does in run_v3_voice.py) and only ever substitutes the fixed
+    # local plan for one hardcoded topic after the routed call itself has failed - it
+    # does not bypass the router, so it must carry the router's own marker forward
+    # rather than silently dropping it (run 31870165348: dropping it here made the
+    # guard fail even though the router was genuinely installed underneath).
+    wrapped._is_resilient_router = getattr(original, "_is_resilient_router", False)
+
     orchestrator.build_plan = wrapped
     print("Product-proof planning fallback installed for the single test topic")
