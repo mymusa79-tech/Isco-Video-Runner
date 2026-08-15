@@ -131,6 +131,9 @@ jobs:
           printf '%s' "$TELEGRAM_BOT_TOKEN" > "$RUNNER_TEMP/isco-secrets/telegram-bot-token"
           printf '%s' "$TELEGRAM_CHAT_ID" > "$RUNNER_TEMP/isco-secrets/telegram-chat-id"
           printf '%s' "$TELEGRAM_ALLOWED_USER_ID" > "$RUNNER_TEMP/isco-secrets/telegram-allowed-user-id"
+          # Presence-only diagnostic - never the value - so a run's log can confirm which
+          # optional Telegram secrets are configured in this repository.
+          echo "Telegram secrets present: bot_token=$([ -n "$TELEGRAM_BOT_TOKEN" ] && echo yes || echo no) chat_id=$([ -n "$TELEGRAM_CHAT_ID" ] && echo yes || echo no) allowed_user_id=$([ -n "$TELEGRAM_ALLOWED_USER_ID" ] && echo yes || echo no)"
           python - <<'PY'
           import json, os
           from pathlib import Path
