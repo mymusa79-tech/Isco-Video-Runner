@@ -323,7 +323,27 @@ jobs:
               if [ -n "$extracted" ]; then video_name="$extracted"; fi
             fi
 
-            message="✅ الفيديو جاهز: ${video_name}"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"
+            plan_source=""
+            plan_json_path="$(ls engine/output/*/plan.json 2>/dev/null | head -n 1 || true)"
+            if [ -n "$plan_json_path" ] && [ -f "$plan_json_path" ]; then
+              plan_source="$(PLAN_JSON_PATH="$plan_json_path" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ["PLAN_JSON_PATH"])
+          try:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              print(str(data.get("plan_source", "")).strip())
+          except Exception:
+              print("")
+          PY
+          )"
+            fi
+
+            if [ "$plan_source" = "product_proof_fallback" ]; then
+              message="⚠️ الفيديو جاهز — تم استخدام المحتوى الاحتياطي المعتمد (fallback)، وليس تخطيطًا حيًا"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"
+            else
+              message="✅ الفيديو جاهز: ${video_name}"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"
+            fi
           else
             stage="unknown"
             for item in \
