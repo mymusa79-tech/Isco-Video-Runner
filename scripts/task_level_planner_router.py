@@ -26,6 +26,28 @@ CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 # the gap between two calls to the SAME provider, not a global throttle.
 MIN_PROVIDER_CALL_INTERVAL_SECONDS = 1.5
 
+# Which providers actually produced the plan used for this run's video, in the order
+# first used. Reset at the top of install_router() (one production run per script
+# invocation) and read back by run_v3_voice.py after produce() returns to tag
+# plan.json/quality-final.json with plan_source. A cache hit doesn't append here: the
+# original call that populated the cache already recorded its provider.
+_USED_PROVIDERS: list[str] = []
+
+
+def _normalize_provider_name(name: str) -> str:
+    return "openrouter" if name.startswith("openrouter") else name
+
+
+def _record_provider_used(name: str) -> None:
+    normalized = _normalize_provider_name(name)
+    if normalized not in _USED_PROVIDERS:
+        _USED_PROVIDERS.append(normalized)
+
+
+def get_used_providers() -> list[str]:
+    """Providers that actually produced planning output for the current/last run."""
+    return list(_USED_PROVIDERS)
+
 
 def _read_secret_file(name: str) -> str:
     path = Path(os.environ[name])
@@ -154,6 +176,7 @@ def install_router() -> None:
     responses = checkpoint.setdefault("responses", {})
     cooldown: set[str] = set()
     last_call_at: dict[str, float] = {}
+    _USED_PROVIDERS.clear()
     gemini_key = _read_secret_file("GEMINI_API_KEY_FILE")
 
     providers = [
@@ -192,6 +215,7 @@ def install_router() -> None:
                 responses[cache_key] = data
                 checkpoint["last_provider"] = name
                 _save_checkpoint(checkpoint)
+                _record_provider_used(name)
                 print(f"Planning subtask provider selected: {name}")
                 return data
             except Exception as exc:

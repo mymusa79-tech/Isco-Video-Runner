@@ -70,6 +70,98 @@ class PersonaInjectionFallbackTests(unittest.TestCase):
         self.assertEqual(captured["prompt"].count("<CHANNEL_PERSONA>"), 1)
 
 
+class UsedProvidersTrackingTests(unittest.TestCase):
+    """Covers item 1 of the plan_source request: get_used_providers() must reflect
+    exactly which provider(s) actually produced planning output for the current run,
+    normalized (both OpenRouter variants collapse to "openrouter") and deduplicated,
+    reset fresh on every install_router() call. This is read back by run_v3_voice.py
+    after produce() to tag plan.json/quality-final.json with plan_source."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
+        gemini_key_path.write_text("fake-gemini-key", encoding="utf-8")
+        self._env_patch = patch.dict(os.environ, {"GEMINI_API_KEY_FILE": str(gemini_key_path)}, clear=False)
+        self._env_patch.start()
+        self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
+        self._cache_patch.start()
+
+    def tearDown(self) -> None:
+        self._cache_patch.stop()
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_empty_before_any_subtask_call(self) -> None:
+        router.install_router()
+        self.assertEqual(router.get_used_providers(), [])
+
+    def test_records_the_provider_that_actually_succeeded(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            del api_key, prompt, model
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text):
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: موضوع اختبار", model="gemini-2.5-flash")
+
+        self.assertEqual(router.get_used_providers(), ["gemini"])
+
+    def test_only_the_provider_that_succeeded_is_recorded_not_the_one_that_failed(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            del api_key, prompt, model
+            raise RuntimeError("HTTP 429 rate limited")
+
+        def fake_groq_call(prompt):
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router, "_groq_call", side_effect=fake_groq_call):
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: موضوع اختبار", model="gemini-2.5-flash")
+
+        self.assertEqual(router.get_used_providers(), ["groq"])
+
+    def test_both_openrouter_variants_normalize_to_one_name(self) -> None:
+        def always_fail(*a, **k):
+            raise RuntimeError("HTTP 429 rate limited")
+
+        def fake_openrouter(prompt, model):
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=always_fail), \
+                patch.object(router, "_groq_call", side_effect=always_fail), \
+                patch.object(router, "openrouter_json_text", side_effect=fake_openrouter):
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: موضوع اختبار", model="gemini-2.5-flash")
+
+        self.assertEqual(router.get_used_providers(), ["openrouter"])
+
+    def test_repeated_success_via_same_provider_is_not_duplicated(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            del api_key, prompt, model
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text):
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: القسم الأول", model="gemini-2.5-flash")
+            staged.json_text("unused-api-key", "نداء اليقظة: القسم الثاني", model="gemini-2.5-flash")
+
+        self.assertEqual(router.get_used_providers(), ["gemini"])
+
+    def test_fresh_install_router_call_resets_the_list(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            del api_key, prompt, model
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text):
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: موضوع اختبار", model="gemini-2.5-flash")
+            self.assertEqual(router.get_used_providers(), ["gemini"])
+
+            router.install_router()
+            self.assertEqual(router.get_used_providers(), [])
+
+
 class ProviderRateLimitSpacingTests(unittest.TestCase):
     """Covers the fix for run 31870521024's Gemini/Groq 429s: a film's 8 sections mean
     many back-to-back planning subtasks in one run, and task_router() previously fired

@@ -99,14 +99,36 @@ def _proof_plan(topic: str) -> ProductionPlan:
     )
 
 
+# Whether the fallback actually produced the plan for the current/last run. Read back
+# by run_v3_voice.py after produce() returns to tag plan.json/quality-final.json with
+# plan_source, and by the Notify Telegram workflow step (via that same plan_source
+# field) to warn instead of celebrate when a video shipped on static fallback content
+# rather than live planning.
+_FALLBACK_ACTIVATED = False
+
+
+def was_fallback_used() -> bool:
+    """True if install_product_proof_fallback()'s wrapper produced the current/last run's plan."""
+    return _FALLBACK_ACTIVATED
+
+
 def install_product_proof_fallback() -> None:
+    global _FALLBACK_ACTIVATED
+    _FALLBACK_ACTIVATED = False
     original = orchestrator.build_plan
 
     def wrapped(api_key, topic, requested_format, content_model, **kwargs):
+        global _FALLBACK_ACTIVATED
         try:
             return original(api_key, topic, requested_format, content_model, **kwargs)
         except Exception as exc:
             normalized = str(topic).strip()
+            # Deliberately narrow: this fallback exists ONLY as a last-resort demo/proof
+            # safety net for the one hardcoded, pre-approved topic + film format - never
+            # a general "write something plausible for whatever topic was requested"
+            # fallback. A mismatch here means a real, unrelated production topic failed
+            # cloud planning, and that failure must surface (raise), not be silently
+            # papered over with unrelated fixed content.
             if normalized != _PROOF_TOPIC or str(requested_format).strip().lower() != "film":
                 raise
             print(
@@ -118,6 +140,7 @@ def install_product_proof_fallback() -> None:
             if words < 800:
                 raise RuntimeError(f"Product-proof plan unexpectedly short: {words} words")
             print(f"PRODUCT_PROOF fixed plan ready: sections=8 words={words}")
+            _FALLBACK_ACTIVATED = True
             return plan
 
     # orchestrator.py's _verify_resilient_router_installed() checks this marker on the
