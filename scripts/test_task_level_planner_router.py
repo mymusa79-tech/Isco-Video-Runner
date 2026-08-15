@@ -170,6 +170,59 @@ class OpenRouterRepairAttemptTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
 
 
+class CooldownAwareRoutingTests(unittest.TestCase):
+    """Covers item 4: once a provider is circuit-opened (429/quota match) within a
+    run, task_router() must never attempt it again for the rest of that run - skip
+    straight to the next provider instead of wasting a request on one already known to
+    be unavailable. Verified: the `if name in cooldown: continue` check already runs
+    before the sleep/last_call_at bookkeeping and before any provider call, so this is
+    a regression guard on already-correct behavior, not a behavior change - it fails
+    loudly if that check is ever removed or reordered after the call attempt."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
+        gemini_key_path.write_text("fake-gemini-key", encoding="utf-8")
+        self._env_patch = patch.dict(os.environ, {"GEMINI_API_KEY_FILE": str(gemini_key_path)}, clear=False)
+        self._env_patch.start()
+        self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
+        self._cache_patch.start()
+        self._sleep_patch = patch.object(router.time, "sleep")
+        self._sleep_patch.start()
+
+    def tearDown(self) -> None:
+        self._sleep_patch.stop()
+        self._cache_patch.stop()
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_second_subtask_never_reattempts_a_cooled_down_provider(self) -> None:
+        gemini_calls = 0
+
+        def fake_gemini_json_text(api_key, prompt, model):
+            nonlocal gemini_calls
+            gemini_calls += 1
+            raise RuntimeError("HTTP 429 rate limited")
+
+        groq_calls = 0
+
+        def fake_groq_call(prompt):
+            nonlocal groq_calls
+            groq_calls += 1
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router, "_groq_call", side_effect=fake_groq_call):
+            router.install_router()
+            staged.json_text("unused-api-key", "نداء اليقظة: القسم الأول", model="gemini-2.5-flash")
+            staged.json_text("unused-api-key", "نداء اليقظة: القسم الثاني", model="gemini-2.5-flash")
+
+        # gemini fails once on subtask 1 and gets circuit-opened; subtask 2 must skip
+        # it entirely rather than wasting another attempt, so groq carries both.
+        self.assertEqual(gemini_calls, 1)
+        self.assertEqual(groq_calls, 2)
+
+
 class UsedProvidersTrackingTests(unittest.TestCase):
     """Covers item 1 of the plan_source request: get_used_providers() must reflect
     exactly which provider(s) actually produced planning output for the current run,

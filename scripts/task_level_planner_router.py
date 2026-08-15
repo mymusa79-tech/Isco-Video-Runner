@@ -221,6 +221,10 @@ def install_router() -> None:
 
         failures: list[str] = []
         for name, provider in providers:
+            # cooldown-aware routing: a provider circuit-opened earlier in this run
+            # (429/quota) is skipped outright for every later subtask, not reattempted -
+            # this check must stay first, before any call attempt or the spacing
+            # bookkeeping below, so a known-unavailable provider never wastes a request.
             if name in cooldown:
                 continue
             since_last_call = time.monotonic() - last_call_at.get(name, 0.0)
