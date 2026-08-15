@@ -50,5 +50,56 @@ class ResilientRouterMarkerSurvivesProductProofInstallTests(unittest.TestCase):
         orchestrator._verify_resilient_router_installed()  # must not raise
 
 
+class FallbackScopeRestrictionTests(unittest.TestCase):
+    """Covers item 5: install_product_proof_fallback() must stay a narrow last-resort
+    safety net for exactly one hardcoded, pre-approved topic + film format - never a
+    general "write something plausible for whatever topic failed" fallback. Verified
+    directly against the real wrapper (patching only orchestrator.build_plan, the one
+    thing install_product_proof_fallback() itself replaces) rather than re-deriving
+    the restriction logic by hand, so this actually exercises the shipped code."""
+
+    def setUp(self) -> None:
+        self._build_plan_patch = patch.object(orchestrator, "build_plan")
+        self._mock_build_plan = self._build_plan_patch.start()
+
+    def tearDown(self) -> None:
+        self._build_plan_patch.stop()
+
+    def test_matching_topic_and_format_triggers_fallback_only_after_a_real_failure(self) -> None:
+        self._mock_build_plan.side_effect = RuntimeError("cloud planning failed")
+        product_proof_plan.install_product_proof_fallback()
+
+        plan = orchestrator.build_plan("key", product_proof_plan._PROOF_TOPIC, "film", "gemini-2.5-flash")
+
+        self.assertEqual(plan.topic, product_proof_plan._PROOF_TOPIC)
+        self.assertTrue(product_proof_plan.was_fallback_used())
+
+    def test_different_topic_with_the_same_underlying_failure_is_not_papered_over(self) -> None:
+        self._mock_build_plan.side_effect = RuntimeError("cloud planning failed")
+        product_proof_plan.install_product_proof_fallback()
+
+        with self.assertRaisesRegex(RuntimeError, "cloud planning failed"):
+            orchestrator.build_plan("key", "موضوع إنتاج حقيقي مختلف تمامًا", "film", "gemini-2.5-flash")
+        self.assertFalse(product_proof_plan.was_fallback_used())
+
+    def test_matching_topic_wrong_format_is_not_papered_over(self) -> None:
+        self._mock_build_plan.side_effect = RuntimeError("cloud planning failed")
+        product_proof_plan.install_product_proof_fallback()
+
+        with self.assertRaisesRegex(RuntimeError, "cloud planning failed"):
+            orchestrator.build_plan("key", product_proof_plan._PROOF_TOPIC, "story", "gemini-2.5-flash")
+        self.assertFalse(product_proof_plan.was_fallback_used())
+
+    def test_matching_topic_and_format_with_no_failure_never_engages_the_fallback(self) -> None:
+        real_plan = object()
+        self._mock_build_plan.return_value = real_plan
+        product_proof_plan.install_product_proof_fallback()
+
+        result = orchestrator.build_plan("key", product_proof_plan._PROOF_TOPIC, "film", "gemini-2.5-flash")
+
+        self.assertIs(result, real_plan)
+        self.assertFalse(product_proof_plan.was_fallback_used())
+
+
 if __name__ == "__main__":
     unittest.main()

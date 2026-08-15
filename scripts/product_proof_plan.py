@@ -113,6 +113,17 @@ def was_fallback_used() -> bool:
 
 
 def install_product_proof_fallback() -> None:
+    """Install a narrow last-resort fallback, not a general planning failure handler.
+
+    The wrapper installed here only ever substitutes _proof_plan()'s static content
+    when BOTH the exact hardcoded _PROOF_TOPIC and requested_format == "film" match,
+    AND the real build_plan() call actually raised. Any other topic, any other
+    format, or a topic/format match with no underlying failure all fall straight
+    through to whatever build_plan() actually returns or raises - this must never
+    become a catch-all that quietly ships placeholder content for an arbitrary
+    production topic. See item 5: this constraint is load-bearing and intentional,
+    not an oversight to "improve" later.
+    """
     global _FALLBACK_ACTIVATED
     _FALLBACK_ACTIVATED = False
     original = orchestrator.build_plan
