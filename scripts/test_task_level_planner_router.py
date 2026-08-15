@@ -70,6 +70,106 @@ class PersonaInjectionFallbackTests(unittest.TestCase):
         self.assertEqual(captured["prompt"].count("<CHANNEL_PERSONA>"), 1)
 
 
+class OpenRouterRepairAttemptTests(unittest.TestCase):
+    """Covers item 3: a single repair retry when OpenRouter returns a completion body
+    that isn't valid JSON (the diagnosed root cause of that provider's failures - never
+    429/quota, always a malformed response), asking the same model to reformat its own
+    output. Exactly one extra attempt, then failover - no loop, no repeated repairs."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
+        gemini_key_path.write_text("fake-gemini-key", encoding="utf-8")
+        self._env_patch = patch.dict(os.environ, {"GEMINI_API_KEY_FILE": str(gemini_key_path)}, clear=False)
+        self._env_patch.start()
+        self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
+        self._cache_patch.start()
+
+    def tearDown(self) -> None:
+        self._cache_patch.stop()
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_success_on_first_try_makes_only_one_call(self) -> None:
+        calls: list[str] = []
+
+        def fake_openrouter(prompt, model):
+            calls.append(prompt)
+            return {"ok": True}
+
+        with patch.object(router, "openrouter_json_text", side_effect=fake_openrouter):
+            result = router._openrouter_call_with_repair("original prompt", "openrouter/free")
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(calls, ["original prompt"])
+
+    def test_invalid_json_triggers_exactly_one_repair_attempt_that_succeeds(self) -> None:
+        calls: list[str] = []
+
+        def fake_openrouter(prompt, model):
+            calls.append(prompt)
+            if len(calls) == 1:
+                raise RuntimeError("OpenRouter returned invalid JSON")
+            return {"ok": True}
+
+        with patch.object(router, "openrouter_json_text", side_effect=fake_openrouter):
+            result = router._openrouter_call_with_repair("original prompt", "openrouter/free")
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0], "original prompt")
+        self.assertTrue(calls[1].startswith("original prompt"))
+        self.assertIn("JSON", calls[1])
+        self.assertNotEqual(calls[1], calls[0])
+
+    def test_repair_attempt_also_failing_propagates_without_a_third_try(self) -> None:
+        calls: list[str] = []
+
+        def fake_openrouter(prompt, model):
+            calls.append(prompt)
+            raise RuntimeError("OpenRouter returned invalid JSON")
+
+        with patch.object(router, "openrouter_json_text", side_effect=fake_openrouter):
+            with self.assertRaisesRegex(RuntimeError, "OpenRouter returned invalid JSON"):
+                router._openrouter_call_with_repair("original prompt", "openrouter/free")
+
+        self.assertEqual(len(calls), 2)
+
+    def test_non_json_failure_is_not_repaired_and_propagates_immediately(self) -> None:
+        calls: list[str] = []
+
+        def fake_openrouter(prompt, model):
+            calls.append(prompt)
+            raise RuntimeError("OpenRouter HTTP 500")
+
+        with patch.object(router, "openrouter_json_text", side_effect=fake_openrouter):
+            with self.assertRaisesRegex(RuntimeError, "OpenRouter HTTP 500"):
+                router._openrouter_call_with_repair("original prompt", "openrouter/free")
+
+        self.assertEqual(len(calls), 1)
+
+    def test_repair_is_wired_into_the_real_provider_loop_via_task_router(self) -> None:
+        calls: list[str] = []
+
+        def always_fail(*a, **k):
+            raise RuntimeError("HTTP 429 rate limited")
+
+        def fake_openrouter(prompt, model):
+            calls.append(prompt)
+            if len(calls) == 1:
+                raise RuntimeError("OpenRouter returned invalid JSON")
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=always_fail), \
+                patch.object(router, "_groq_call", side_effect=always_fail), \
+                patch.object(router, "openrouter_json_text", side_effect=fake_openrouter):
+            router.install_router()
+            result = staged.json_text("unused-api-key", "نداء اليقظة: موضوع اختبار", model="gemini-2.5-flash")
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(len(calls), 2)
+
+
 class UsedProvidersTrackingTests(unittest.TestCase):
     """Covers item 1 of the plan_source request: get_used_providers() must reflect
     exactly which provider(s) actually produced planning output for the current run,

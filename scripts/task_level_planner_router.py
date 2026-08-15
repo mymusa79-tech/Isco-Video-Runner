@@ -171,6 +171,24 @@ def _groq_call(prompt: str) -> dict:
     return _parse_json(choices[0]["message"]["content"])
 
 
+_OPENROUTER_REPAIR_SUFFIX = "\n\nأعد الرد بصيغة JSON صالحة فقط، بدون أي نص إضافي قبله أو بعده."
+
+
+def _openrouter_call_with_repair(prompt: str, model: str) -> dict:
+    """OpenRouter's free-tier models are the observed failure mode here (never 429 -
+    always a malformed/non-JSON completion body from the model itself), so retrying
+    the exact same request rarely helps; asking the model to reformat its own output
+    sometimes does. Exactly one repair attempt: if it also fails, for any reason, that
+    exception propagates to task_router()'s normal failover to the next provider -
+    no further attempts, no loop."""
+    try:
+        return openrouter_json_text(prompt, model=model)
+    except RuntimeError as exc:
+        if "invalid JSON" not in str(exc):
+            raise
+        return openrouter_json_text(prompt + _OPENROUTER_REPAIR_SUFFIX, model=model)
+
+
 def install_router() -> None:
     checkpoint = _load_checkpoint()
     responses = checkpoint.setdefault("responses", {})
@@ -182,8 +200,8 @@ def install_router() -> None:
     providers = [
         ("gemini", lambda prompt, model: gemini_json_text(gemini_key, prompt, model=model)),
         ("groq", lambda prompt, model: _groq_call(prompt)),
-        ("openrouter-free-router", lambda prompt, model: openrouter_json_text(prompt, model="openrouter/free")),
-        ("openrouter-gpt-oss-free", lambda prompt, model: openrouter_json_text(prompt, model="openai/gpt-oss-20b:free")),
+        ("openrouter-free-router", lambda prompt, model: _openrouter_call_with_repair(prompt, "openrouter/free")),
+        ("openrouter-gpt-oss-free", lambda prompt, model: _openrouter_call_with_repair(prompt, "openai/gpt-oss-20b:free")),
     ]
 
     def task_router(_api_key, prompt, model="gemini-2.5-flash"):
