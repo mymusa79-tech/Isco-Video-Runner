@@ -1,3 +1,4 @@
+# Safe smoke test: never prints OAuth credentials or token values.
 name: YouTube Analytics OAuth Smoke
 
 on:
