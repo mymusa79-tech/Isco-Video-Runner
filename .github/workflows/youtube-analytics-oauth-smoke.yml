@@ -1,0 +1,130 @@
+name: YouTube Analytics OAuth Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/youtube-analytics-oauth-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+
+    steps:
+      - name: Verify OAuth refresh and YouTube Analytics read access
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TOKEN_RESPONSE="$RUNNER_TEMP/youtube-oauth-token.json"
+          ANALYTICS_RESPONSE="$RUNNER_TEMP/youtube-analytics-response.json"
+          trap 'rm -f "$TOKEN_RESPONSE" "$ANALYTICS_RESPONSE"' EXIT
+          umask 077
+
+          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing or empty"
+              exit 2
+            fi
+          done
+          echo "Required GitHub secrets: PRESENT"
+
+          token_http="$({ curl --silent --show-error \
+            --output "$TOKEN_RESPONSE" \
+            --write-out '%{http_code}' \
+            --request POST 'https://oauth2.googleapis.com/token' \
+            --data-urlencode "client_id=$YOUTUBE_CLIENT_ID" \
+            --data-urlencode "client_secret=$YOUTUBE_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$YOUTUBE_REFRESH_TOKEN" \
+            --data-urlencode 'grant_type=refresh_token'; } 2>/dev/null)" || {
+              echo "::error::OAuth refresh: FAIL (network/request error)"
+              exit 3
+            }
+
+          if [ "$token_http" != "200" ]; then
+            oauth_error="$(jq -r '.error // "unknown_oauth_error"' "$TOKEN_RESPONSE" 2>/dev/null || printf 'unknown_oauth_error')"
+            echo "::error::OAuth refresh: FAIL (HTTP $token_http, error=$oauth_error)"
+            exit 4
+          fi
+
+          access_token="$(jq -r '.access_token // empty' "$TOKEN_RESPONSE")"
+          if [ -z "$access_token" ]; then
+            echo "::error::OAuth refresh: FAIL (Google returned no access token)"
+            exit 5
+          fi
+          echo "::add-mask::$access_token"
+          echo "OAuth refresh: PASS"
+
+          returned_scope="$(jq -r '.scope // empty' "$TOKEN_RESPONSE")"
+          if [ -n "$returned_scope" ]; then
+            if [[ " $returned_scope " == *" https://www.googleapis.com/auth/yt-analytics.readonly "* ]]; then
+              echo "yt-analytics.readonly scope: PRESENT"
+            else
+              echo "::warning::OAuth refresh succeeded, but the refresh response did not list yt-analytics.readonly"
+            fi
+          else
+            echo "OAuth scope field: not returned by token endpoint (not treated as failure)"
+          fi
+
+          start_date="$(date -u -d '8 days ago' +%F)"
+          end_date="$(date -u -d '2 days ago' +%F)"
+
+          analytics_http="$({ curl --silent --show-error \
+            --output "$ANALYTICS_RESPONSE" \
+            --write-out '%{http_code}' \
+            --get 'https://youtubeanalytics.googleapis.com/v2/reports' \
+            --header "Authorization: Bearer $access_token" \
+            --data-urlencode 'ids=channel==MINE' \
+            --data-urlencode "startDate=$start_date" \
+            --data-urlencode "endDate=$end_date" \
+            --data-urlencode 'metrics=views'; } 2>/dev/null)" || {
+              echo "::error::YouTube Analytics: FAIL (network/request error)"
+              exit 6
+            }
+
+          if [ "$analytics_http" = "200" ]; then
+            rows="$(jq -r '(.rows // []) | length' "$ANALYTICS_RESPONSE" 2>/dev/null || printf 'unknown')"
+            echo "YouTube Analytics reports.query: PASS"
+            echo "Analytics read test: PASS (rows=$rows, range=$start_date..$end_date)"
+            exit 0
+          fi
+
+          reason="$(jq -r '.error.errors[0].reason // .error.status // "unknown"' "$ANALYTICS_RESPONSE" 2>/dev/null || printf 'unknown')"
+
+          if [ "$analytics_http" = "403" ]; then
+            case "$reason" in
+              insufficientPermissions|PERMISSION_DENIED|forbidden)
+                echo "::error::YouTube Analytics: FAIL (HTTP 403, reason=$reason)"
+                echo "Diagnosis: OAuth refresh works, but reports.query does not have sufficient authorized access."
+                echo "Google currently documents youtube.readonly as additionally required by reports.query."
+                ;;
+              accessNotConfigured|serviceDisabled)
+                echo "::error::YouTube Analytics: FAIL (HTTP 403, reason=$reason)"
+                echo "Diagnosis: OAuth works, but YouTube Analytics API is not enabled for this Google Cloud project."
+                ;;
+              *)
+                echo "::error::YouTube Analytics: FAIL (HTTP 403, reason=$reason)"
+                echo "Diagnosis: OAuth refresh works; Analytics authorization/API configuration needs review."
+                ;;
+            esac
+            exit 7
+          fi
+
+          if [ "$analytics_http" = "401" ]; then
+            echo "::error::YouTube Analytics: FAIL (HTTP 401, reason=$reason)"
+            echo "Diagnosis: Google issued an access token, but the Analytics endpoint rejected it."
+            exit 8
+          fi
+
+          echo "::error::YouTube Analytics: FAIL (HTTP $analytics_http, reason=$reason)"
+          echo "Diagnosis: OAuth refresh works; Analytics request failed for a non-secret API reason."
+          exit 9
