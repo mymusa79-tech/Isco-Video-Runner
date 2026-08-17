@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 7e21bec65ef629b1a2f6633933baa8bf18b965d6
+          ref: da9c897812cb471ace3ac8a3f287bad15bd9a672
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -143,14 +143,9 @@ jobs:
           printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
           printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/isco-secrets/pixabay"
           printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-secrets/youtube"
-          # Optional: live progress requires TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID, but their
-          # absence must never fail production - scripts/telegram_progress.py treats an
-          # empty/missing file as "progress tracking off", not an error.
           printf '%s' "$TELEGRAM_BOT_TOKEN" > "$RUNNER_TEMP/isco-secrets/telegram-bot-token"
           printf '%s' "$TELEGRAM_CHAT_ID" > "$RUNNER_TEMP/isco-secrets/telegram-chat-id"
           printf '%s' "$TELEGRAM_ALLOWED_USER_ID" > "$RUNNER_TEMP/isco-secrets/telegram-allowed-user-id"
-          # Presence-only diagnostic - never the value - so a run's log can confirm which
-          # optional Telegram secrets are configured in this repository.
           echo "Telegram secrets present: bot_token=$([ -n "$TELEGRAM_BOT_TOKEN" ] && echo yes || echo no) chat_id=$([ -n "$TELEGRAM_CHAT_ID" ] && echo yes || echo no) allowed_user_id=$([ -n "$TELEGRAM_ALLOWED_USER_ID" ] && echo yes || echo no)"
           python - <<'PY'
           import json, os
@@ -237,7 +232,6 @@ jobs:
           import json
           import os
           from pathlib import Path
-
           roots = sorted(Path('output').glob('*'), key=lambda p: p.stat().st_mtime, reverse=True)
           if not roots:
               raise SystemExit('No output directory')
@@ -252,7 +246,6 @@ jobs:
               raise SystemExit('Missing quality-final.json')
           if not plan.exists():
               raise SystemExit('Missing plan.json')
-
           q = json.loads(quality.read_text(encoding='utf-8'))
           failures = []
           if q.get('duration_ok') is not True:
@@ -267,13 +260,9 @@ jobs:
               failures.append('visual_sections_reviewed<1')
           if failures:
               raise SystemExit('Final quality contract failed: ' + ', '.join(failures))
-
           size = final.stat().st_size
           if size < 1024 * 1024:
               raise SystemExit(f'final.mp4 unexpectedly small: {size} bytes')
-
-          # Persist the exact reviewed paths as step outputs. Later steps must consume
-          # these paths directly instead of searching engine/output again.
           output_root = Path('engine') / root
           final_path = Path('engine') / final
           quality_path = Path('engine') / quality
@@ -285,7 +274,6 @@ jobs:
               fh.write(f'quality_path={quality_path.as_posix()}\n')
               fh.write(f'plan_path={plan_path.as_posix()}\n')
               fh.write(f'telemetry_path={telemetry_path.as_posix() if telemetry_path else ""}\n')
-
           print('Final review PASS:', final)
           print('Final quality:', json.dumps(q, ensure_ascii=False, sort_keys=True))
           print('Final review output root:', output_root.as_posix())
@@ -334,18 +322,15 @@ jobs:
           test -n "$FINAL_OUTPUT_ROOT"
           test -n "$FINAL_VIDEO_PATH"
           test -n "$FINAL_QUALITY_PATH"
-
           python - <<'PY'
           import json
           import os
           from pathlib import Path
-
           root = Path(os.environ['FINAL_OUTPUT_ROOT'])
           video = Path(os.environ['FINAL_VIDEO_PATH'])
           quality = Path(os.environ['FINAL_QUALITY_PATH'])
           telemetry_value = os.environ.get('FINAL_TELEMETRY_PATH', '').strip()
           telemetry = Path(telemetry_value) if telemetry_value else None
-
           if video != root / 'final.mp4':
               raise SystemExit(f'Release video escaped reviewed output root: {video}')
           if quality != root / 'quality-final.json':
@@ -356,21 +341,16 @@ jobs:
               raise SystemExit(f'Missing reviewed final.mp4: {video}')
           if not quality.is_file():
               raise SystemExit(f'Missing reviewed quality-final.json: {quality}')
-
           size = video.stat().st_size
           if size <= 1024 * 1024:
               raise SystemExit(f'Release blocked: final.mp4 is not >1MB: {size} bytes')
-
           q = json.loads(quality.read_text(encoding='utf-8'))
           if q.get('duration_ok') is not True:
               raise SystemExit('Release blocked: duration_ok is not true for reviewed output')
-
           if telemetry is not None and not telemetry.is_file():
               raise SystemExit(f'Release telemetry path was exported but file is missing: {telemetry}')
-
           print(f'Release asset validation PASS: root={root} size={size} duration_ok=true')
           PY
-
           tag="video-${RUN_NUMBER}"
           release_assets=("$FINAL_VIDEO_PATH")
           if [ -n "$FINAL_TELEMETRY_PATH" ]; then
@@ -434,9 +414,7 @@ jobs:
           set -euo pipefail
           test -n "$TELEGRAM_BOT_TOKEN"
           test -n "$TELEGRAM_CHAT_ID"
-
           run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-
           elapsed=$(( $(date +%s) - JOB_START_EPOCH ))
           minutes=$(( elapsed / 60 ))
           seconds=$(( elapsed % 60 ))
@@ -445,11 +423,9 @@ jobs:
           else
             duration_str="${seconds}ث"
           fi
-
           if [ "$JOB_STATUS" = "success" ]; then
             release_tag="video-${GITHUB_RUN_NUMBER}"
             video_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${release_tag}/final.mp4"
-
             video_name="Isco Video #${GITHUB_RUN_NUMBER}"
             if [ -f "$RUNNER_TEMP/isco-request.json" ]; then
               extracted="$(python - <<'PY'
@@ -465,7 +441,6 @@ jobs:
           )"
               if [ -n "$extracted" ]; then video_name="$extracted"; fi
             fi
-
             plan_source=""
             if [ -n "$FINAL_PLAN_PATH" ] && [ -f "$FINAL_PLAN_PATH" ]; then
               plan_source="$(PLAN_JSON_PATH="$FINAL_PLAN_PATH" python - <<'PY'
@@ -480,7 +455,6 @@ jobs:
           PY
           )"
             fi
-
             if [ "$plan_source" = "product_proof_fallback" ]; then
               message="⚠️ الفيديو جاهز — تم استخدام المحتوى الاحتياطي المعتمد (fallback)، وليس تخطيطًا حيًا"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"
             else
@@ -508,7 +482,6 @@ jobs:
                 break
               fi
             done
-
             reason="راجع سجل GitHub Actions"
             if [ "$stage" = "Final review" ] && [ -f "$RUNNER_TEMP/final-review-step.log" ]; then
               candidate="$(grep -E 'Missing|failed|small|Error|Exception|Traceback' "$RUNNER_TEMP/final-review-step.log" | tail -n 1 | tr -d '\r' || true)"
@@ -519,15 +492,11 @@ jobs:
             fi
             message="❌ فشل الإنتاج"$'\n'"📍 المرحلة: ${stage}"$'\n'"⏱️ توقف بعد: ${duration_str}"$'\n'"السبب: ${reason}"$'\n'"🔗 ${run_url}"
           fi
-
           progress_message_id=""
           if [ -f "$RUNNER_TEMP/telegram-progress-message-id.txt" ]; then
             progress_message_id="$(tr -d '[:space:]' < "$RUNNER_TEMP/telegram-progress-message-id.txt")"
           fi
-
           if [ -n "$progress_message_id" ]; then
-            # A live progress message was already sent from inside production - edit it
-            # with the final result instead of sending a second message.
             echo "Telegram notify: editMessageText (message_id=${progress_message_id})"
             if curl --fail-with-body --silent --show-error \
                 --request POST \
