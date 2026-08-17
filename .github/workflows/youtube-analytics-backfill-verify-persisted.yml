@@ -1,0 +1,148 @@
+name: Verify Persisted YouTube Analytics Backfill
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/youtube-analytics-backfill-verify-persisted.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout reviewed Engine backfill code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 6c78a821c83ab73115bf6eaadaaac4b36bef27ec
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Restore persisted agent-state read-only
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          state_dir="$RUNNER_TEMP/isco-backfill-verify-state"
+          meta="$RUNNER_TEMP/restore-meta.txt"
+          mkdir -p "$state_dir"
+          python scripts/persistent_memory.py restore --repo . --plain "$state_dir/history.json" --branch agent-state --legacy-state state/history.json.enc --github-output "$meta"
+          grep -qx 'save_allowed=true' "$meta"
+          grep -qx 'state_source=agent-state' "$meta"
+          test -f "$state_dir/history.json"
+          chmod 600 "$state_dir/history.json"
+          echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
+          sha="$(sha256sum "$state_dir/history.json" | awk '{print $1}')"
+          echo "PERSISTED_HISTORY_SHA=$sha" >> "$GITHUB_ENV"
+          echo "Persisted restored history SHA: $sha"
+
+      - name: Verify persisted data and generate insights v2
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/private-verify-artifact"
+          python - <<'PY'
+          import json, os, subprocess
+          from collections import Counter
+          from pathlib import Path
+          from isco_video_agent.analytics_insights import refresh_learning_insights, insights_path
+
+          state=Path(os.environ['ISCO_HISTORY_PATH'])
+          d=json.loads(state.read_text(encoding='utf-8'))
+          raw=d.get('learning',{}).get('metrics',[]) if isinstance(d.get('learning',{}),dict) else []
+          b=[x for x in raw if isinstance(x,dict) and x.get('ingestion_source')=='youtube_backfill_v1' and x.get('backfill_version')==1]
+          ids=[str(x.get('video_id','')) for x in b]
+          formats=Counter(str(x.get('format','')) for x in b)
+          if len(b)!=128 or len(set(ids))!=128: raise SystemExit(f'Persisted count invalid: {len(b)}/{len(set(ids))}')
+          if formats!=Counter({'short':109,'film':19}): raise SystemExit(f'Persisted formats invalid: {formats}')
+          if any(str(x.get('classification_status','')).lower()=='unresolved' for x in b): raise SystemExit('Persisted unresolved record found')
+
+          insights=refresh_learning_insights()
+          if insights.get('schema_version')!=2 or insights.get('cohort_isolation')!='strict_by_format' or insights.get('production_influence')!='none':
+              raise SystemExit('Persisted insights v2 validation failed')
+          cohorts=insights.get('cohorts',{})
+          if cohorts.get('film',{}).get('sample',{}).get('unique_videos')!=19: raise SystemExit('Film insight cohort count invalid')
+          if cohorts.get('short',{}).get('sample',{}).get('unique_videos')!=109: raise SystemExit('Short insight cohort count invalid')
+
+          state_head=subprocess.check_output(['git','ls-remote','--heads','origin','refs/heads/agent-state'],cwd=os.environ['GITHUB_WORKSPACE'],text=True).split()[0]
+          report={
+            'verification':'persisted_agent_state_read_only',
+            'persisted_history_sha256':os.environ['PERSISTED_HISTORY_SHA'],
+            'agent_state_head':state_head,
+            'backfill_rows':len(b),
+            'unique_video_ids':len(set(ids)),
+            'formats':dict(formats),
+            'unresolved_imported':0,
+            'schema_version':insights.get('schema_version'),
+            'cohort_isolation':insights.get('cohort_isolation'),
+            'production_influence':insights.get('production_influence'),
+          }
+          out=Path(os.environ['GITHUB_WORKSPACE'])/'private-verify-artifact'
+          (out/'persisted-write-verification.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          (out/'learning-insights.json').write_text(Path(insights_path()).read_text(encoding='utf-8'),encoding='utf-8')
+          print('Persisted verification PASS: 128 unique backfill rows, 109 short + 19 film, 0 unresolved.')
+          print('agent-state HEAD:',state_head)
+          PY
+
+      - name: Encrypt verification results
+        run: |
+          set -euo pipefail
+          umask 077
+          cat > "$RUNNER_TEMP/backfill-public.pem" <<'PUBKEY'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAnJ+PwaO41Yzi4XcSAEgw
+          rVnT2G2aj22AZuyRC1LIWpGhp8iqoe/jxrWh+UlyQ2KGxOY/aoYIpViQeEPI2pFA
+          LQXtYuqDd8c1tIUJe95O9oKpEira94Zm2lgg0EtI9gFjWbX/PXcv7Ub7vk+LlqDI
+          iEX6oR8PaFf0F8W1W2rrTni+j1HMCSHKkdlO9QxhtD4OSgzpTpaOiWMJNdcwgwEU
+          57gGT5VZFN/tjZRh4B3Qvxi5naX+qTU0dtZVqmF/uRP4TrzzdahEoYaWvKxP8Ykp
+          ERmSyeDg8zO2q2LkDRa5iBuUzzhD8RLsI1gVpUicH4S74S+QoNMIfItCUnEq9jZa
+          nWOIWjX/ora+8fy1Njn2BMfULXFqc+3yxXaZcSYR5ZW0c8gOA6eKPr9XoNsBiyZs
+          Qmw2LkvSEzmX9r4qLBggzzkzxSFh9LgVB7Foh7Z5q9+QswV0oqEql0BDGwsrhb0n
+          aTTKlxzEmBinAqdUU33Vt2dxp830oeCxg6il+CZOnJ3BAgMBAAE=
+          -----END PUBLIC KEY-----
+          PUBKEY
+          openssl rand 32 > "$RUNNER_TEMP/verify-key.bin"; openssl rand 16 > "$RUNNER_TEMP/verify-iv.bin"
+          tar -C "$GITHUB_WORKSPACE/private-verify-artifact" -czf "$RUNNER_TEMP/verify-results.tar.gz" persisted-write-verification.json learning-insights.json
+          openssl enc -aes-256-cbc -K "$(xxd -p -c 256 "$RUNNER_TEMP/verify-key.bin")" -iv "$(xxd -p -c 256 "$RUNNER_TEMP/verify-iv.bin")" -in "$RUNNER_TEMP/verify-results.tar.gz" -out "$GITHUB_WORKSPACE/private-verify-artifact/verify-results.tar.gz.enc"
+          openssl pkeyutl -encrypt -pubin -inkey "$RUNNER_TEMP/backfill-public.pem" -pkeyopt rsa_padding_mode:oaep -in "$RUNNER_TEMP/verify-key.bin" -out "$GITHUB_WORKSPACE/private-verify-artifact/verify-key.bin.enc"
+          cp "$RUNNER_TEMP/verify-iv.bin" "$GITHUB_WORKSPACE/private-verify-artifact/verify-iv.bin"
+          rm -f "$GITHUB_WORKSPACE/private-verify-artifact/persisted-write-verification.json" "$GITHUB_WORKSPACE/private-verify-artifact/learning-insights.json"
+
+      - name: Upload encrypted verification artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: youtube-backfill-persisted-verification-${{ github.run_number }}
+          path: |
+            private-verify-artifact/verify-results.tar.gz.enc
+            private-verify-artifact/verify-key.bin.enc
+            private-verify-artifact/verify-iv.bin
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/isco-backfill-verify-state" "$RUNNER_TEMP/verify-key.bin" "$RUNNER_TEMP/verify-iv.bin" "$RUNNER_TEMP/backfill-public.pem" "$RUNNER_TEMP/verify-results.tar.gz" "$GITHUB_WORKSPACE/private-verify-artifact"
