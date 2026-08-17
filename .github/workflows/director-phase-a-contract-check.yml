@@ -49,8 +49,13 @@ jobs:
           set -euo pipefail
           python -m unittest tests.test_director_brain_phase_a tests.test_director_brain_deterministic_contract -v
 
-      - name: Run full Engine unit suite
+      - name: Run full Engine unit suite with diagnostics
         working-directory: engine
         run: |
-          set -euo pipefail
-          python -m unittest discover -s tests -q
+          set +e
+          python -m unittest discover -s tests -v > /tmp/full-suite.log 2>&1
+          rc=$?
+          echo "===== FULL SUITE TAIL ====="
+          tail -n 300 /tmp/full-suite.log
+          echo "===== END FULL SUITE TAIL (rc=$rc) ====="
+          exit $rc
