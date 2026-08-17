@@ -1,0 +1,225 @@
+name: Director A+B One-Off 8f93ff4
+
+on:
+  push:
+    branches: ["oneoff/director-ab-8f93ff4"]
+    paths:
+      - ".github/workflows/director-ab-oneoff.yml"
+
+concurrency:
+  group: director-ab-oneoff-8f93ff4
+  cancel-in-progress: false
+
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout isolated runner branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout reviewed Phase A+B engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 8f93ff4d5d0b46b3ed61c226ed4fd29bd345eb33
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked engine and local voice fallback
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core openssl
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+          python -m unittest discover -s tests -q
+          python -m pip install 'piper-tts==1.4.2'
+          mkdir -p "$RUNNER_TEMP/piper-voices"
+          python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium
+          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx"
+          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"
+
+      - name: Restore encrypted cross-run memory
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          state_dir="$RUNNER_TEMP/isco-state"
+          mkdir -p "$state_dir"
+          python scripts/persistent_memory.py restore \
+            --repo . \
+            --plain "$state_dir/history.json" \
+            --branch agent-state \
+            --legacy-state state/history.json.enc \
+            --github-output "$GITHUB_OUTPUT"
+          test -f "$state_dir/history.json"
+          chmod 600 "$state_dir/history.json"
+          echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
+
+      - name: Verify Piper local fallback
+        env:
+          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, wave
+          from pathlib import Path
+          from piper import PiperVoice
+          model = Path(os.environ["PIPER_MODEL_PATH"])
+          voice = PiperVoice.load(str(model), config_path=str(model) + ".json")
+          out = Path(os.environ["RUNNER_TEMP"]) / "piper-preflight.wav"
+          with wave.open(str(out), "wb") as wav:
+              voice.synthesize_wav("هذا اختبار صوت محلي.", wav)
+          if out.stat().st_size < 1024:
+              raise SystemExit("Piper preflight produced empty audio")
+          print("Piper local voice preflight OK")
+          PY
+
+      - name: Prepare fixed approved request and secret files
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          test -n "$GROQ_API_KEY"
+          test -n "$OPENROUTER_API_KEY"
+          test -n "$PEXELS_API_KEY"
+          test -n "$PIXABAY_API_KEY"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/isco-secrets"
+          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/isco-secrets/gemini"
+          printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/isco-secrets/groq"
+          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/isco-secrets/openrouter"
+          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
+          printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/isco-secrets/pixabay"
+          printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-secrets/youtube"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path(os.environ["RUNNER_TEMP"], "isco-request.json").write_text(
+              json.dumps({"topic": "كيف تنهض بعد أن سقطت كثيرًا؟", "format": "film"}, ensure_ascii=False),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Verify free provider authentication
+        env:
+          GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
+          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
+        run: |
+          python - <<'PY'
+          import os, requests
+          from pathlib import Path
+          groq = Path(os.environ["GROQ_API_KEY_FILE"]).read_text().strip()
+          pixabay = Path(os.environ["PIXABAY_API_KEY_FILE"]).read_text().strip()
+          a = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": "Bearer " + groq}, timeout=30)
+          if not a.ok: raise SystemExit(f"Groq auth failed: HTTP {a.status_code}")
+          b = requests.get("https://pixabay.com/api/videos/", params={"key": pixabay, "q": "nature", "per_page": 3, "safesearch": "true"}, timeout=30)
+          if not b.ok: raise SystemExit(f"Pixabay auth failed: HTTP {b.status_code}")
+          print("Groq auth OK; Pixabay auth OK")
+          PY
+
+      - name: Produce isolated Director A+B observation
+        working-directory: engine
+        env:
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
+          GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
+          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
+          PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
+          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
+          YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/youtube
+          REQUEST_FILE: ${{ runner.temp }}/isco-request.json
+          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
+          GEMINI_CONTENT_MODEL: gemini-2.5-flash
+          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+          TRENDS_GEO: SA
+          YOUTUBE_REGION: SA
+          YOUTUBE_LANGUAGE: ar
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          python ../scripts/run_director_ab_oneoff.py 2>&1 | tee "$RUNNER_TEMP/director-ab-production.log"
+
+      - name: Verify observation artifacts and final quality
+        if: success()
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          roots = sorted(Path("output").glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+          if not roots:
+              raise SystemExit("No output directory")
+          root = roots[0]
+          required = [
+              "final.mp4", "plan.json", "beat_plan.json", "scene_plan.json",
+              "candidate_manifest.json", "credits.json", "visual-audit.json",
+              "quality-final.json", "ai-budget.json", "director-call-audit.json",
+              "planning-telemetry.json", "final.sha256",
+          ]
+          missing = [name for name in required if not (root / name).exists()]
+          if missing:
+              raise SystemExit("Missing required one-off artifacts: " + ", ".join(missing))
+          beat = json.loads((root / "beat_plan.json").read_text(encoding="utf-8"))
+          scene = json.loads((root / "scene_plan.json").read_text(encoding="utf-8"))
+          candidate = json.loads((root / "candidate_manifest.json").read_text(encoding="utf-8"))
+          calls = json.loads((root / "director-call-audit.json").read_text(encoding="utf-8"))
+          quality = json.loads((root / "quality-final.json").read_text(encoding="utf-8"))
+          if beat.get("generation", {}).get("status") != "ok":
+              raise SystemExit("Phase A beat_plan not OK")
+          if scene.get("generation", {}).get("status") != "ok":
+              raise SystemExit("Phase A scene_plan not OK")
+          if calls.get("within_cap") is not True:
+              raise SystemExit("Director provider attempt cap exceeded")
+          if calls.get("director_provider_attempts", 99) > 3:
+              raise SystemExit("Director provider attempts exceeded 3")
+          if quality.get("duration_ok") is not True or quality.get("audio_ok") is not True or quality.get("av_sync_ok") is not True:
+              raise SystemExit("Final quality contract failed")
+          print("OUTPUT_ROOT=" + root.as_posix())
+          print("PHASE_A_BEAT_STATUS=" + str(beat.get("generation", {}).get("status")))
+          print("PHASE_A_SCENE_STATUS=" + str(scene.get("generation", {}).get("status")))
+          print("PHASE_B_STATUS=" + str(candidate.get("generation", {}).get("status")))
+          print("DIRECTOR_ATTEMPTS=" + str(calls.get("director_provider_attempts")))
+          PY
+
+      - name: Upload one-off evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: director-ab-oneoff-evidence-${{ github.run_number }}
+          path: |
+            engine/output/*/final.mp4
+            engine/output/*/plan.json
+            engine/output/*/beat_plan.json
+            engine/output/*/scene_plan.json
+            engine/output/*/candidate_manifest.json
+            engine/output/*/credits.json
+            engine/output/*/visual-audit.json
+            engine/output/*/quality-final.json
+            engine/output/*/ai-budget.json
+            engine/output/*/director-call-audit.json
+            engine/output/*/planning-telemetry.json
+            engine/output/*/final.sha256
+            ${{ runner.temp }}/director-ab-production.log
+          if-no-files-found: warn
+          retention-days: 7
