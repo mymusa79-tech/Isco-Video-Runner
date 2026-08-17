@@ -12,6 +12,7 @@ import requests
 
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
+from isco_video_agent.ai_budget import AttemptOutcome, get_active_budget_task
 from isco_video_agent.providers.gemini import json_text as gemini_json_text
 from isco_video_agent.providers.gemini import with_channel_persona
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
@@ -20,36 +21,19 @@ from isco_video_agent.providers.openrouter import json_text as openrouter_json_t
 CACHE_PATH = Path("state/planning-checkpoint.json")
 CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-# A film's 8 sections mean many back-to-back planning subtasks in one run, with no
-# gap between them otherwise (diagnosed after run 31870521024: 17 consecutive Gemini
-# calls with zero delay tripped its free-tier per-minute rate limit within a single
-# run, not from quota exhausted across the day's earlier attempts). This is a floor on
-# the gap between two calls to the SAME provider, not a global throttle.
+# Floor on the gap between two calls to the SAME provider, not a global throttle.
 MIN_PROVIDER_CALL_INTERVAL_SECONDS = 1.5
 
-# Which providers actually produced the plan used for this run's video, in the order
-# first used. Reset at the top of install_router() (one production run per script
-# invocation) and read back by run_v3_voice.py after produce() returns to tag
-# plan.json/quality-final.json with plan_source. A cache hit doesn't append here: the
-# original call that populated the cache already recorded its provider.
+# Which providers actually produced planning output for this run, in first-use order.
 _USED_PROVIDERS: list[str] = []
 
-# One entry per provider interaction inside task_router()'s loop - including a provider
-# that was skipped outright because it is already in cooldown (result="circuit-open"),
-# not just providers that were actually called over the network. Reset at the top of
-# install_router() alongside _USED_PROVIDERS. Written to planning-telemetry.json by
-# write_planning_telemetry() (called from run_v3_voice.py after produce() returns, or
-# in its except-handler on failure) so every run leaves a structured record of exactly
-# which provider failed and why, instead of requiring manual log archaeology.
+# Router telemetry is deliberately separate from BudgetLedger. It includes local
+# circuit-open skips for diagnosis; BudgetLedger provider attempts count only provider
+# callables that are actually invoked. OpenRouter's JSON repair therefore contributes
+# two BudgetLedger attempts but remains one outer router interaction in this telemetry.
 _TELEMETRY: list[dict] = []
 
-# Set by _groq_call() immediately after it gets an HTTP response (success or failure),
-# read and cleared by _record_attempt() right after the provider call returns/raises in
-# task_router(). Only Groq's rate-limit headers are captured here: gemini_json_text()
-# and openrouter_json_text() live in the Engine package (isco_video_agent.providers),
-# not this file, so their raw HTTP responses aren't available to instrument without
-# touching Engine - retry_after/remaining_requests/remaining_tokens stay null for those
-# two providers, exactly as the "if available" framing of this feature expects.
+# Groq response rate-limit headers captured for router telemetry.
 _last_call_rate_limit_headers: dict = {}
 
 
@@ -69,7 +53,7 @@ def get_used_providers() -> list[str]:
 
 
 def get_telemetry() -> list[dict]:
-    """Every provider interaction recorded so far in the current/last run."""
+    """Every outer router interaction recorded so far in the current/last run."""
     return list(_TELEMETRY)
 
 
@@ -92,6 +76,21 @@ def _classify_failure(detail: str) -> str:
     return "other"
 
 
+def _classify_budget_outcome(exc: Exception) -> AttemptOutcome:
+    detail = str(exc).lower()
+    if "429" in str(exc) or "quota" in detail or "rate limit" in detail:
+        return AttemptOutcome.RATE_LIMITED
+    if "invalid json" in detail or "complete json object" in detail:
+        return AttemptOutcome.SCHEMA_INVALID
+    if "premature" in detail:
+        return AttemptOutcome.TRUNCATED
+    if "timeout" in detail or "timed out" in detail:
+        return AttemptOutcome.TIMEOUT
+    if "connection" in detail or "network" in detail:
+        return AttemptOutcome.NETWORK_ERROR
+    return AttemptOutcome.OTHER
+
+
 def _record_attempt(provider_name: str, result: str, *, error_detail: str | None = None, duration_seconds: float | None = None) -> None:
     headers = dict(_last_call_rate_limit_headers)
     _last_call_rate_limit_headers.clear()
@@ -107,6 +106,62 @@ def _record_attempt(provider_name: str, result: str, *, error_detail: str | None
     })
 
 
+def _record_budget_attempt(
+    provider_name: str,
+    resolved_model: str,
+    outcome: AttemptOutcome,
+    *,
+    duration_seconds: float,
+    detail: str | None = None,
+) -> None:
+    active = get_active_budget_task()
+    if active is None:
+        return
+    active.ledger.record_attempt(
+        active.spec.task_id,
+        provider=_normalize_provider_name(provider_name),
+        requested_model=active.requested_model,
+        resolved_model=resolved_model,
+        capability=active.spec.capability,
+        outcome=outcome,
+        duration_seconds=duration_seconds,
+        detail=detail,
+    )
+
+
+def _budgeted_provider_call(provider_name: str, resolved_model: str, call, *args, **kwargs):
+    """Account for exactly one provider callable invocation.
+
+    authorize() remains observe-only: its bool is intentionally ignored. Keeping this
+    wrapper at the individual provider-call boundary (and, for OpenRouter repair, on
+    each json_text invocation) prevents the old one-logical-call == one-attempt error.
+    """
+    active = get_active_budget_task()
+    if active is not None:
+        active.ledger.authorize(active.spec.task_id)
+
+    started = time.monotonic()
+    try:
+        result = call(*args, **kwargs)
+    except Exception as exc:
+        _record_budget_attempt(
+            provider_name,
+            resolved_model,
+            _classify_budget_outcome(exc),
+            duration_seconds=time.monotonic() - started,
+            detail=str(exc)[:220],
+        )
+        raise
+
+    _record_budget_attempt(
+        provider_name,
+        resolved_model,
+        AttemptOutcome.SUCCESS,
+        duration_seconds=time.monotonic() - started,
+    )
+    return result
+
+
 def _summarize_telemetry_by_provider(attempts: list[dict]) -> dict:
     summary: dict = {}
     for entry in attempts:
@@ -118,9 +173,6 @@ def _summarize_telemetry_by_provider(attempts: list[dict]) -> dict:
 
 
 def write_planning_telemetry(out_dir: Path) -> Path:
-    """Writes the full attempt-by-attempt record plus a per-provider summary to
-    out_dir/planning-telemetry.json. Called for every real production attempt,
-    success or failure - see run_v3_voice.py's try/except around produce()."""
     attempts = list(_TELEMETRY)
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -231,46 +283,64 @@ DIALOGUE VOICE CONTRACT (mandatory when the selected narrative format is dialogu
 
 def _groq_call(prompt: str) -> dict:
     token = _read_secret_file("GROQ_API_KEY_FILE")
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
-        json={
-            "model": "openai/gpt-oss-20b",
-            "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
-            "response_format": {"type": "json_object"},
-            "temperature": 0.15,
-            "max_completion_tokens": 2600,
-        },
-        timeout=90,
-    )
-    _last_call_rate_limit_headers.update(_extract_rate_limit_headers(response.headers))
-    if response.status_code == 429:
-        raise RuntimeError("RATE_LIMIT_429")
-    if not response.ok:
-        raise RuntimeError(f"Groq HTTP {response.status_code}")
-    body = response.json()
-    choices = body.get("choices") or []
-    if not choices:
-        raise RuntimeError("Groq returned no choices")
-    return _parse_json(choices[0]["message"]["content"])
+
+    def do_request() -> dict:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            json={
+                "model": "openai/gpt-oss-20b",
+                "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.15,
+                "max_completion_tokens": 2600,
+            },
+            timeout=90,
+        )
+        _last_call_rate_limit_headers.update(_extract_rate_limit_headers(response.headers))
+        if response.status_code == 429:
+            raise RuntimeError("RATE_LIMIT_429")
+        if not response.ok:
+            raise RuntimeError(f"Groq HTTP {response.status_code}")
+        body = response.json()
+        choices = body.get("choices") or []
+        if not choices:
+            raise RuntimeError("Groq returned no choices")
+        return _parse_json(choices[0]["message"]["content"])
+
+    # Secret-file reading is local setup; only the provider request/response work is
+    # inside the provider-attempt accounting boundary.
+    return _budgeted_provider_call("groq", "openai/gpt-oss-20b", do_request)
 
 
 _OPENROUTER_REPAIR_SUFFIX = "\n\nأعد الرد بصيغة JSON صالحة فقط، بدون أي نص إضافي قبله أو بعده."
 
 
-def _openrouter_call_with_repair(prompt: str, model: str) -> dict:
-    """OpenRouter's free-tier models are the observed failure mode here (never 429 -
-    always a malformed/non-JSON completion body from the model itself), so retrying
-    the exact same request rarely helps; asking the model to reformat its own output
-    sometimes does. Exactly one repair attempt: if it also fails, for any reason, that
-    exception propagates to task_router()'s normal failover to the next provider -
-    no further attempts, no loop."""
+def _openrouter_call_with_repair(prompt: str, model: str, provider_name: str) -> dict:
+    """Exactly one JSON repair request after an invalid-JSON first response.
+
+    Each openrouter_json_text() invocation is separately budgeted. Therefore an
+    invalid first response followed by a successful repair is two real provider
+    attempts in BudgetLedger, not one outer router interaction.
+    """
     try:
-        return openrouter_json_text(prompt, model=model)
+        return _budgeted_provider_call(
+            provider_name,
+            model,
+            openrouter_json_text,
+            prompt,
+            model=model,
+        )
     except RuntimeError as exc:
         if "invalid JSON" not in str(exc):
             raise
-        return openrouter_json_text(prompt + _OPENROUTER_REPAIR_SUFFIX, model=model)
+        return _budgeted_provider_call(
+            provider_name,
+            model,
+            openrouter_json_text,
+            prompt + _OPENROUTER_REPAIR_SUFFIX,
+            model=model,
+        )
 
 
 def install_router() -> None:
@@ -283,34 +353,43 @@ def install_router() -> None:
     gemini_key = _read_secret_file("GEMINI_API_KEY_FILE")
 
     providers = [
-        ("gemini", lambda prompt, model: gemini_json_text(gemini_key, prompt, model=model)),
+        (
+            "gemini",
+            lambda prompt, model: _budgeted_provider_call(
+                "gemini", model, gemini_json_text, gemini_key, prompt, model=model
+            ),
+        ),
         ("groq", lambda prompt, model: _groq_call(prompt)),
-        ("openrouter-free-router", lambda prompt, model: _openrouter_call_with_repair(prompt, "openrouter/free")),
-        ("openrouter-gpt-oss-free", lambda prompt, model: _openrouter_call_with_repair(prompt, "openai/gpt-oss-20b:free")),
+        (
+            "openrouter-free-router",
+            lambda prompt, model: _openrouter_call_with_repair(
+                prompt, "openrouter/free", "openrouter-free-router"
+            ),
+        ),
+        (
+            "openrouter-gpt-oss-free",
+            lambda prompt, model: _openrouter_call_with_repair(
+                prompt, "openai/gpt-oss-20b:free", "openrouter-gpt-oss-free"
+            ),
+        ),
     ]
 
     def task_router(_api_key, prompt, model="gemini-2.5-flash"):
         prompt = _enrich_dialogue_prompt(prompt)
-        # Apply the channel identity injection once here, before the provider loop, so it
-        # survives a fallback away from Gemini instead of only ever running on the Gemini
-        # path inside gemini.json_text() below. with_channel_persona() is idempotent (its
-        # own "<CHANNEL_PERSONA>" guard), so the "gemini" provider entry calling the real
-        # gemini_json_text() -> json_text() -> with_channel_persona() again on this already-
-        # enriched prompt is a safe no-op, not a double injection.
         prompt = with_channel_persona(prompt)
         cache_key = hashlib.sha256((model + "\n" + prompt).encode("utf-8")).hexdigest()
         cached = responses.get(cache_key)
         if isinstance(cached, dict):
+            # Deliberately before the provider loop: no provider callable, authorize,
+            # or BudgetLedger record occurs for a checkpoint hit.
             print("Planning checkpoint hit")
             return cached
 
         failures: list[str] = []
         for name, provider in providers:
-            # cooldown-aware routing: a provider circuit-opened earlier in this run
-            # (429/quota) is skipped outright for every later subtask, not reattempted -
-            # this check must stay first, before any call attempt or the spacing
-            # bookkeeping below, so a known-unavailable provider never wastes a request.
             if name in cooldown:
+                # Diagnostic telemetry only. No BudgetLedger attempt: no provider
+                # callable/network request is made.
                 _record_attempt(name, "circuit-open")
                 continue
             since_last_call = time.monotonic() - last_call_at.get(name, 0.0)
@@ -348,11 +427,6 @@ def install_router() -> None:
             os.environ.pop("ISCO_DIALOGUE_QA", None)
         return plan
 
-    # Marker orchestrator.py's _verify_resilient_router_installed() checks directly on
-    # this callable at call time (not a side-channel "install_router() ran" flag, which
-    # could go stale if build_plan were ever reassigned afterward). Must be set before
-    # the assignment below so the exact object orchestrator.build_plan ends up bound to
-    # carries it.
     routed_build_plan._is_resilient_router = True
 
     staged.json_text = task_router
