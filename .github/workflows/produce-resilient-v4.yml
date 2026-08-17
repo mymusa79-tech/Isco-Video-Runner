@@ -217,6 +217,7 @@ jobs:
           set -o pipefail
           python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/final-review-step.log"
           import json
+          import os
           from pathlib import Path
 
           roots = sorted(Path('output').glob('*'), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -226,6 +227,7 @@ jobs:
           final = root / 'final.mp4'
           quality = root / 'quality-final.json'
           plan = root / 'plan.json'
+          telemetry = root / 'planning-telemetry.json'
           if not final.exists():
               raise SystemExit('Missing final.mp4')
           if not quality.exists():
@@ -252,8 +254,23 @@ jobs:
           if size < 1024 * 1024:
               raise SystemExit(f'final.mp4 unexpectedly small: {size} bytes')
 
+          # Persist the exact reviewed paths as step outputs. Later steps must consume
+          # these paths directly instead of searching engine/output again.
+          output_root = Path('engine') / root
+          final_path = Path('engine') / final
+          quality_path = Path('engine') / quality
+          plan_path = Path('engine') / plan
+          telemetry_path = (Path('engine') / telemetry) if telemetry.exists() else None
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as fh:
+              fh.write(f'output_root={output_root.as_posix()}\n')
+              fh.write(f'final_path={final_path.as_posix()}\n')
+              fh.write(f'quality_path={quality_path.as_posix()}\n')
+              fh.write(f'plan_path={plan_path.as_posix()}\n')
+              fh.write(f'telemetry_path={telemetry_path.as_posix() if telemetry_path else ""}\n')
+
           print('Final review PASS:', final)
           print('Final quality:', json.dumps(q, ensure_ascii=False, sort_keys=True))
+          print('Final review output root:', output_root.as_posix())
           PY
 
       - name: Upload final video
@@ -263,10 +280,10 @@ jobs:
         with:
           name: isco-resilient-v4-video-${{ github.run_number }}
           path: |
-            engine/output/*/final.mp4
-            engine/output/*/quality-final.json
-            engine/output/*/plan.json
-            engine/output/*/planning-telemetry.json
+            ${{ steps.final_review.outputs.final_path }}
+            ${{ steps.final_review.outputs.quality_path }}
+            ${{ steps.final_review.outputs.plan_path }}
+            ${{ steps.final_review.outputs.telemetry_path }}
           if-no-files-found: error
           retention-days: 7
 
@@ -290,15 +307,56 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_NUMBER: ${{ github.run_number }}
+          FINAL_OUTPUT_ROOT: ${{ steps.final_review.outputs.output_root }}
+          FINAL_VIDEO_PATH: ${{ steps.final_review.outputs.final_path }}
+          FINAL_QUALITY_PATH: ${{ steps.final_review.outputs.quality_path }}
+          FINAL_TELEMETRY_PATH: ${{ steps.final_review.outputs.telemetry_path }}
         run: |
           set -euo pipefail
-          video_path="$(ls engine/output/*/final.mp4 | head -n 1)"
-          test -f "$video_path"
+          test -n "$FINAL_OUTPUT_ROOT"
+          test -n "$FINAL_VIDEO_PATH"
+          test -n "$FINAL_QUALITY_PATH"
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ['FINAL_OUTPUT_ROOT'])
+          video = Path(os.environ['FINAL_VIDEO_PATH'])
+          quality = Path(os.environ['FINAL_QUALITY_PATH'])
+          telemetry_value = os.environ.get('FINAL_TELEMETRY_PATH', '').strip()
+          telemetry = Path(telemetry_value) if telemetry_value else None
+
+          if video != root / 'final.mp4':
+              raise SystemExit(f'Release video escaped reviewed output root: {video}')
+          if quality != root / 'quality-final.json':
+              raise SystemExit(f'Release quality file escaped reviewed output root: {quality}')
+          if telemetry is not None and telemetry != root / 'planning-telemetry.json':
+              raise SystemExit(f'Release telemetry escaped reviewed output root: {telemetry}')
+          if not video.is_file():
+              raise SystemExit(f'Missing reviewed final.mp4: {video}')
+          if not quality.is_file():
+              raise SystemExit(f'Missing reviewed quality-final.json: {quality}')
+
+          size = video.stat().st_size
+          if size <= 1024 * 1024:
+              raise SystemExit(f'Release blocked: final.mp4 is not >1MB: {size} bytes')
+
+          q = json.loads(quality.read_text(encoding='utf-8'))
+          if q.get('duration_ok') is not True:
+              raise SystemExit('Release blocked: duration_ok is not true for reviewed output')
+
+          if telemetry is not None and not telemetry.is_file():
+              raise SystemExit(f'Release telemetry path was exported but file is missing: {telemetry}')
+
+          print(f'Release asset validation PASS: root={root} size={size} duration_ok=true')
+          PY
+
           tag="video-${RUN_NUMBER}"
-          release_assets=("$video_path")
-          telemetry_path="$(ls engine/output/*/planning-telemetry.json 2>/dev/null | head -n 1 || true)"
-          if [ -n "$telemetry_path" ] && [ -f "$telemetry_path" ]; then
-            release_assets+=("$telemetry_path")
+          release_assets=("$FINAL_VIDEO_PATH")
+          if [ -n "$FINAL_TELEMETRY_PATH" ]; then
+            release_assets+=("$FINAL_TELEMETRY_PATH")
           fi
           gh release create "$tag" "${release_assets[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
@@ -323,6 +381,7 @@ jobs:
           FINAL_REVIEW_OUTCOME: ${{ steps.final_review.outcome }}
           UPLOAD_FINAL_OUTCOME: ${{ steps.upload_final.outcome }}
           CREATE_RELEASE_OUTCOME: ${{ steps.create_release.outcome }}
+          FINAL_PLAN_PATH: ${{ steps.final_review.outputs.plan_path }}
         run: |
           set -euo pipefail
           test -n "$TELEGRAM_BOT_TOKEN"
@@ -360,9 +419,8 @@ jobs:
             fi
 
             plan_source=""
-            plan_json_path="$(ls engine/output/*/plan.json 2>/dev/null | head -n 1 || true)"
-            if [ -n "$plan_json_path" ] && [ -f "$plan_json_path" ]; then
-              plan_source="$(PLAN_JSON_PATH="$plan_json_path" python - <<'PY'
+            if [ -n "$FINAL_PLAN_PATH" ] && [ -f "$FINAL_PLAN_PATH" ]; then
+              plan_source="$(PLAN_JSON_PATH="$FINAL_PLAN_PATH" python - <<'PY'
           import json, os
           from pathlib import Path
           path = Path(os.environ["PLAN_JSON_PATH"])
