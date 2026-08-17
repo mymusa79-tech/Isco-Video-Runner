@@ -1,13 +1,13 @@
-name: Director A+B One-Off d647d49
+name: Director A+B Control 800
 
 on:
   push:
-    branches: ["oneoff/director-ab-8f93ff4"]
+    branches: ["oneoff/script-doctor-800-control"]
     paths:
       - ".github/workflows/director-ab-oneoff.yml"
 
 concurrency:
-  group: director-ab-oneoff-d647d49
+  group: director-ab-oneoff-control-800
   cancel-in-progress: false
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout isolated runner branch
+      - name: Checkout isolated runner control branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
@@ -36,6 +36,34 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
+
+      - name: Apply isolated Script Doctor 800-word control
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("src/isco_video_agent/resilient_planner.py")
+          text = path.read_text(encoding="utf-8")
+          old = """shorten a good section merely for brevity. Give every section a distinct key_point. For an under-length film repair,
+target 850-900 total spoken words instead of stopping at the 800-word floor; the actual acceptance contract remains
+800-1450 words and is enforced separately after this repair."""
+          new = """shorten a good section merely for brevity. Give every section a distinct key_point. For an under-length film repair,
+target exactly 800 total spoken words; the actual acceptance contract remains
+800-1450 words and is enforced separately after this repair."""
+          if text.count(old) != 1:
+              raise SystemExit(f"Expected exactly one 850-900 Script Doctor target, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          patched = path.read_text(encoding="utf-8")
+          if "target exactly 800 total spoken words" not in patched or "target 850-900 total spoken words" in patched:
+              raise SystemExit("800-word control patch verification failed")
+          print("CONTROL_ACTIVE=Script Doctor target exactly 800 words")
+          PY
+          git diff --check
+          changed="$(git diff --name-only)"
+          test "$changed" = "src/isco_video_agent/resilient_planner.py"
+          git diff -- src/isco_video_agent/resilient_planner.py > "$RUNNER_TEMP/script-doctor-800-control.diff"
+          cat "$RUNNER_TEMP/script-doctor-800-control.diff"
 
       - name: Install locked engine and local voice fallback
         run: |
@@ -60,7 +88,16 @@ jobs:
           PY
           python -m unittest discover -s tests -q
           git checkout -- tests/test_orchestrator_visual_selection_integration.py
-          git diff --exit-code -- src
+          git diff --check
+          changed="$(git diff --name-only)"
+          test "$changed" = "src/isco_video_agent/resilient_planner.py"
+          python - <<'PY'
+          from pathlib import Path
+          text = Path("src/isco_video_agent/resilient_planner.py").read_text(encoding="utf-8")
+          assert "target exactly 800 total spoken words" in text
+          assert "target 850-900 total spoken words" not in text
+          print("CONTROL_STILL_ACTIVE=800")
+          PY
           python -m pip install 'piper-tts==1.4.2'
           mkdir -p "$RUNNER_TEMP/piper-voices"
           python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium
@@ -152,7 +189,7 @@ jobs:
           print("Groq auth OK; Pixabay auth OK")
           PY
 
-      - name: Produce isolated Director A+B observation
+      - name: Produce isolated Director A+B observation — control 800
         working-directory: engine
         env:
           GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
@@ -171,6 +208,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           set -o pipefail
+          echo "CONTROL_RUN=Script Doctor under-length target exactly 800 words"
           python ../scripts/run_director_ab_oneoff.py 2>&1 | tee "$RUNNER_TEMP/director-ab-production.log"
 
       - name: Verify observation artifacts and final quality
@@ -220,7 +258,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: director-ab-oneoff-evidence-${{ github.run_number }}
+          name: director-ab-control-800-evidence-${{ github.run_number }}
           path: |
             engine/output/*/final.mp4
             engine/output/*/plan.json
@@ -235,6 +273,7 @@ jobs:
             engine/output/*/director-call-audit.json
             engine/output/*/planning-telemetry.json
             engine/output/*/final.sha256
+            ${{ runner.temp }}/script-doctor-800-control.diff
             ${{ runner.temp }}/director-ab-production.log
           if-no-files-found: warn
           retention-days: 7
