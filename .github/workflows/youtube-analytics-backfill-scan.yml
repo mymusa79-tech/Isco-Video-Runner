@@ -1,0 +1,165 @@
+# Manual/read-only YouTube Analytics backfill SCAN.
+# This workflow never calls the backfill WRITE command and never persists state.
+name: YouTube Analytics Backfill Scan
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/youtube-analytics-backfill-scan.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: youtube-analytics-backfill-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout reviewed private engine scan code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 4b03f8ecc92247dcc7d565d652d416c1868459d1
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install reviewed engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Restore encrypted cross-run history read-only
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          state_dir="$RUNNER_TEMP/isco-backfill-state"
+          mkdir -p "$state_dir"
+          python scripts/persistent_memory.py restore \
+            --repo . \
+            --plain "$state_dir/history.json" \
+            --branch agent-state \
+            --legacy-state state/history.json.enc
+          test -f "$state_dir/history.json"
+          chmod 600 "$state_dir/history.json"
+          echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
+          sha256sum "$state_dir/history.json" | awk '{print $1}' > "$RUNNER_TEMP/history-before.sha256"
+
+      - name: Materialize YouTube OAuth secrets as one-time files
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing or empty"
+              exit 2
+            fi
+          done
+          umask 077
+          mkdir -p "$RUNNER_TEMP/isco-youtube-secrets"
+          printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/isco-youtube-secrets/client-id"
+          printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/isco-youtube-secrets/client-secret"
+          printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/isco-youtube-secrets/refresh-token"
+
+      - name: SCAN only — produce real preview without changing history
+        working-directory: engine
+        env:
+          YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-youtube-secrets/client-id
+          YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-youtube-secrets/client-secret
+          YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-youtube-secrets/refresh-token
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/private-artifact"
+          python scripts/backfill_youtube_analytics.py scan \
+            --history "$ISCO_HISTORY_PATH" \
+            --preview "$GITHUB_WORKSPACE/private-artifact/youtube-backfill-preview.json"
+          test -s "$GITHUB_WORKSPACE/private-artifact/youtube-backfill-preview.json"
+          sha256sum "$ISCO_HISTORY_PATH" | awk '{print $1}' > "$RUNNER_TEMP/history-after.sha256"
+          cmp "$RUNNER_TEMP/history-before.sha256" "$RUNNER_TEMP/history-after.sha256"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p = Path(os.environ['GITHUB_WORKSPACE']) / 'private-artifact' / 'youtube-backfill-preview.json'
+          data = json.loads(p.read_text(encoding='utf-8'))
+          if data.get('mode') != 'scan_only' or data.get('write_performed') is not False:
+              raise SystemExit('Preview is not a SCAN-only result')
+          print('SCAN preview created; plaintext contents intentionally not printed.')
+          PY
+
+      - name: Encrypt preview before public-repo artifact upload
+        run: |
+          set -euo pipefail
+          umask 077
+          cat > "$RUNNER_TEMP/backfill-preview-public.pem" <<'PUBKEY'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAnJ+PwaO41Yzi4XcSAEgw
+          rVnT2G2aj22AZuyRC1LIWpGhp8iqoe/jxrWh+UlyQ2KGxOY/aoYIpViQeEPI2pFA
+          LQXtYuqDd8c1tIUJe95O9oKpEira94Zm2lgg0EtI9gFjWbX/PXcv7Ub7vk+LlqDI
+          iEX6oR8PaFf0F8W1W2rrTni+j1HMCSHKkdlO9QxhtD4OSgzpTpaOiWMJNdcwgwEU
+          57gGT5VZFN/tjZRh4B3Qvxi5naX+qTU0dtZVqmF/uRP4TrzzdahEoYaWvKxP8Ykp
+          ERmSyeDg8zO2q2LkDRa5iBuUzzhD8RLsI1gVpUicH4S74S+QoNMIfItCUnEq9jZa
+          nWOIWjX/ora+8fy1Njn2BMfULXFqc+3yxXaZcSYR5ZW0c8gOA6eKPr9XoNsBiyZs
+          Qmw2LkvSEzmX9r4qLBggzzkzxSFh9LgVB7Foh7Z5q9+QswV0oqEql0BDGwsrhb0n
+          aTTKlxzEmBinAqdUU33Vt2dxp830oeCxg6il+CZOnJ3BAgMBAAE=
+          -----END PUBLIC KEY-----
+          PUBKEY
+          openssl rand 32 > "$RUNNER_TEMP/preview-aes-key.bin"
+          openssl rand 16 > "$RUNNER_TEMP/preview-iv.bin"
+          openssl enc -aes-256-cbc \
+            -K "$(xxd -p -c 256 "$RUNNER_TEMP/preview-aes-key.bin")" \
+            -iv "$(xxd -p -c 256 "$RUNNER_TEMP/preview-iv.bin")" \
+            -in "$GITHUB_WORKSPACE/private-artifact/youtube-backfill-preview.json" \
+            -out "$GITHUB_WORKSPACE/private-artifact/youtube-backfill-preview.json.enc"
+          openssl pkeyutl -encrypt \
+            -pubin -inkey "$RUNNER_TEMP/backfill-preview-public.pem" \
+            -pkeyopt rsa_padding_mode:oaep \
+            -in "$RUNNER_TEMP/preview-aes-key.bin" \
+            -out "$GITHUB_WORKSPACE/private-artifact/preview-aes-key.bin.enc"
+          cp "$RUNNER_TEMP/preview-iv.bin" "$GITHUB_WORKSPACE/private-artifact/preview-iv.bin"
+          rm -f "$GITHUB_WORKSPACE/private-artifact/youtube-backfill-preview.json"
+          test -s "$GITHUB_WORKSPACE/private-artifact/youtube-backfill-preview.json.enc"
+          test -s "$GITHUB_WORKSPACE/private-artifact/preview-aes-key.bin.enc"
+
+      - name: Upload encrypted real preview artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: youtube-backfill-preview-real-${{ github.run_number }}
+          path: |
+            private-artifact/youtube-backfill-preview.json.enc
+            private-artifact/preview-aes-key.bin.enc
+            private-artifact/preview-iv.bin
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Cleanup sensitive temporary material
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/isco-youtube-secrets" \
+                 "$RUNNER_TEMP/isco-backfill-state" \
+                 "$RUNNER_TEMP/preview-aes-key.bin" \
+                 "$RUNNER_TEMP/preview-iv.bin" \
+                 "$RUNNER_TEMP/backfill-preview-public.pem" \
+                 "$GITHUB_WORKSPACE/private-artifact"
