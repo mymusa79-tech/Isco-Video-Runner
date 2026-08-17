@@ -1,0 +1,362 @@
+name: YouTube Analytics Backfill WRITE Once
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/youtube-analytics-backfill-write-once.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: youtube-analytics-backfill-write-once
+  cancel-in-progress: false
+
+jobs:
+  write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPECTED_HISTORY_SHA_BEFORE: a1694ee55e74641b1efe8b4f564f3974c4ce991095d05a9e59369fc109dfeace
+      EXPECTED_IMPORT_FINGERPRINT: 372eecb42ba3eee870e7bf7cbf6d0bc824425e4eeb4df4223fedd8d0057c9dbd
+      EXPECTED_IMPORT_COUNT: "128"
+      EXPECTED_FILM_COUNT: "19"
+      EXPECTED_SHORT_COUNT: "109"
+      EXPECTED_UNRESOLVED_COUNT: "1"
+      EXPECTED_UNRESOLVED_VIDEO_ID: SZiEuKz_VWI
+    steps:
+      - name: Checkout runner read-only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout reviewed private engine backfill code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 6c78a821c83ab73115bf6eaadaaac4b36bef27ec
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install and verify reviewed backfill runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+          python -m unittest discover -s tests -p 'test_youtube_backfill*.py' -q
+          python -m unittest tests.test_analytics_insights tests.test_analytics_insights_v2 tests.test_learning_metrics_source -q
+
+      - name: Restore encrypted real history
+        id: restore_state
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          state_dir="$RUNNER_TEMP/isco-backfill-write-state"
+          mkdir -p "$state_dir"
+          python scripts/persistent_memory.py restore \
+            --repo . \
+            --plain "$state_dir/history.json" \
+            --branch agent-state \
+            --legacy-state state/history.json.enc \
+            --github-output "$GITHUB_OUTPUT"
+          test "${{ steps.restore_state.outputs.save_allowed }}" = "true"
+          test -f "$state_dir/history.json"
+          chmod 600 "$state_dir/history.json"
+          echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
+          before="$(sha256sum "$state_dir/history.json" | awk '{print $1}')"
+          echo "HISTORY_SHA_BEFORE=$before" >> "$GITHUB_ENV"
+          test "$before" = "$EXPECTED_HISTORY_SHA_BEFORE"
+          echo "History SHA before WRITE: $before"
+
+      - name: Materialize read-only YouTube credentials
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          set -euo pipefail
+          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN YOUTUBE_API_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is missing or empty"
+              exit 2
+            fi
+          done
+          umask 077
+          mkdir -p "$RUNNER_TEMP/isco-youtube-secrets"
+          printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/isco-youtube-secrets/client-id"
+          printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/isco-youtube-secrets/client-secret"
+          printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/isco-youtube-secrets/refresh-token"
+          printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-youtube-secrets/api-key"
+
+      - name: Fresh SCAN and exact approved-set guard
+        working-directory: engine
+        env:
+          YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-youtube-secrets/client-id
+          YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-youtube-secrets/client-secret
+          YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-youtube-secrets/refresh-token
+          YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-youtube-secrets/api-key
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/private-write-artifact"
+          preview="$GITHUB_WORKSPACE/private-write-artifact/youtube-backfill-preview.WRITE.json"
+          python scripts/backfill_youtube_analytics.py scan \
+            --history "$ISCO_HISTORY_PATH" \
+            --preview "$preview" >/dev/null
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          p = Path(os.environ['GITHUB_WORKSPACE']) / 'private-write-artifact' / 'youtube-backfill-preview.WRITE.json'
+          data = json.loads(p.read_text(encoding='utf-8'))
+          summary = data['summary']
+          expected = {
+              'to_import': int(os.environ['EXPECTED_IMPORT_COUNT']),
+              'unresolved': int(os.environ['EXPECTED_UNRESOLVED_COUNT']),
+          }
+          for key, value in expected.items():
+              if int(summary.get(key, -1)) != value:
+                  raise SystemExit(f'WRITE guard failed: {key}={summary.get(key)} expected={value}')
+          classified = summary.get('classified', {})
+          if int(classified.get('film', -1)) != int(os.environ['EXPECTED_FILM_COUNT']):
+              raise SystemExit('WRITE guard failed: film count changed')
+          if int(classified.get('short', -1)) != int(os.environ['EXPECTED_SHORT_COUNT']):
+              raise SystemExit('WRITE guard failed: short count changed')
+          if int(classified.get('story', -1)) != 0:
+              raise SystemExit('WRITE guard failed: unexpected story cohort')
+          if data.get('history_sha256_before_scan') != os.environ['EXPECTED_HISTORY_SHA_BEFORE']:
+              raise SystemExit('WRITE guard failed: preview baseline history SHA changed')
+          imports = sorted(
+              (str(v.get('video_id', '')), str(v.get('format', '')))
+              for v in data.get('videos', [])
+              if v.get('action') == 'import'
+          )
+          fingerprint = hashlib.sha256(
+              '\n'.join(f'{video_id}:{fmt}' for video_id, fmt in imports).encode('utf-8')
+          ).hexdigest()
+          if fingerprint != os.environ['EXPECTED_IMPORT_FINGERPRINT']:
+              raise SystemExit(f'WRITE guard failed: import fingerprint changed: {fingerprint}')
+          unresolved = [v for v in data.get('videos', []) if v.get('action') == 'unresolved']
+          if len(unresolved) != 1 or unresolved[0].get('video_id') != os.environ['EXPECTED_UNRESOLVED_VIDEO_ID']:
+              raise SystemExit('WRITE guard failed: unresolved video changed')
+          if unresolved[0].get('creator_content_type') is not None:
+              raise SystemExit('WRITE guard failed: unresolved video unexpectedly has creatorContentType')
+          print('Approved-set guard PASS: 128 exact ids/formats; 19 film; 109 short; 1 unresolved.')
+          PY
+          after_scan="$(sha256sum "$ISCO_HISTORY_PATH" | awk '{print $1}')"
+          test "$after_scan" = "$HISTORY_SHA_BEFORE"
+
+      - name: WRITE approved 128 records and prove idempotency
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          preview="$GITHUB_WORKSPACE/private-write-artifact/youtube-backfill-preview.WRITE.json"
+          before_non_backfill="$RUNNER_TEMP/non-backfill-before.sha256"
+          python - <<'PY' > "$before_non_backfill"
+          import hashlib, json, os
+          from pathlib import Path
+          d=json.loads(Path(os.environ['ISCO_HISTORY_PATH']).read_text(encoding='utf-8'))
+          raw=d.get('learning',{}).get('metrics',[]) if isinstance(d.get('learning',{}),dict) else []
+          keep=[x for x in raw if isinstance(x,dict) and str(x.get('ingestion_source','')).strip()!='youtube_backfill_v1']
+          payload=json.dumps(keep,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
+          print(hashlib.sha256(payload).hexdigest())
+          PY
+
+          python scripts/backfill_youtube_analytics.py write \
+            --history "$ISCO_HISTORY_PATH" \
+            --preview "$preview" \
+            --confirm WRITE_BACKFILL > "$RUNNER_TEMP/write-first.json"
+          after_first="$(sha256sum "$ISCO_HISTORY_PATH" | awk '{print $1}')"
+          echo "HISTORY_SHA_AFTER=$after_first" >> "$GITHUB_ENV"
+
+          python scripts/backfill_youtube_analytics.py write \
+            --history "$ISCO_HISTORY_PATH" \
+            --preview "$preview" \
+            --confirm WRITE_BACKFILL > "$RUNNER_TEMP/write-second.json"
+          after_second="$(sha256sum "$ISCO_HISTORY_PATH" | awk '{print $1}')"
+          test "$after_second" = "$after_first"
+
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from collections import Counter
+          from isco_video_agent.analytics_insights import refresh_learning_insights, insights_path
+
+          state=Path(os.environ['ISCO_HISTORY_PATH'])
+          first=json.loads(Path(os.environ['RUNNER_TEMP']).joinpath('write-first.json').read_text(encoding='utf-8'))
+          second=json.loads(Path(os.environ['RUNNER_TEMP']).joinpath('write-second.json').read_text(encoding='utf-8'))
+          if first.get('imported') != 128:
+              raise SystemExit(f'Expected first WRITE imported=128, got {first}')
+          if first.get('skipped_existing_production_observer') != 0 or first.get('skipped_existing_backfill') != 0:
+              raise SystemExit(f'Unexpected first WRITE skip counts: {first}')
+          if second.get('imported') != 0 or second.get('skipped_existing_backfill') != 128:
+              raise SystemExit(f'Idempotency failed on second WRITE: {second}')
+
+          d=json.loads(state.read_text(encoding='utf-8'))
+          raw=d.get('learning',{}).get('metrics',[]) if isinstance(d.get('learning',{}),dict) else []
+          backfill=[x for x in raw if isinstance(x,dict) and x.get('ingestion_source')=='youtube_backfill_v1' and x.get('backfill_version')==1]
+          ids=[str(x.get('video_id','')) for x in backfill]
+          if len(backfill) != 128 or len(set(ids)) != 128:
+              raise SystemExit(f'Backfill cardinality invalid: rows={len(backfill)} unique={len(set(ids))}')
+          formats=Counter(str(x.get('format','')) for x in backfill)
+          if formats != Counter({'short':109,'film':19}):
+              raise SystemExit(f'Backfill format counts invalid: {formats}')
+          if any(str(x.get('classification_status','')).lower()=='unresolved' for x in backfill):
+              raise SystemExit('Unresolved record was imported')
+
+          non_backfill=[x for x in raw if isinstance(x,dict) and str(x.get('ingestion_source','')).strip()!='youtube_backfill_v1']
+          payload=json.dumps(non_backfill,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
+          after_non_backfill=hashlib.sha256(payload).hexdigest()
+          before_non_backfill=Path(os.environ['RUNNER_TEMP']).joinpath('non-backfill-before.sha256').read_text().strip()
+          if after_non_backfill != before_non_backfill:
+              raise SystemExit('production_observer/legacy records changed during WRITE')
+
+          insights=refresh_learning_insights()
+          if insights.get('schema_version') != 2 or insights.get('cohort_isolation') != 'strict_by_format':
+              raise SystemExit('learning-insights schema/cohort isolation validation failed')
+          if insights.get('production_influence') != 'none':
+              raise SystemExit('learning-insights production_influence changed')
+
+          report={
+              'operation':'youtube_analytics_backfill_write_v1',
+              'write_performed':True,
+              'history_sha256_before':os.environ['HISTORY_SHA_BEFORE'],
+              'history_sha256_after':os.environ['HISTORY_SHA_AFTER'],
+              'first_write':first,
+              'idempotency_second_write':second,
+              'backfill_rows_after':len(backfill),
+              'backfill_unique_video_ids':len(set(ids)),
+              'formats':dict(formats),
+              'unresolved_imported':0,
+              'production_observer_preserved':True,
+              'production_observer_payload_sha256_before':before_non_backfill,
+              'production_observer_payload_sha256_after':after_non_backfill,
+              'insights_schema_version':insights.get('schema_version'),
+              'insights_cohort_isolation':insights.get('cohort_isolation'),
+              'remote_persistence_verified':False,
+          }
+          out=Path(os.environ['GITHUB_WORKSPACE'])/'private-write-artifact'/'write-report.json'
+          out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('WRITE verification PASS: 128 imported; second WRITE imported 0; production observer payload unchanged.')
+          print('History SHA after WRITE:', os.environ['HISTORY_SHA_AFTER'])
+          print('Insights schema v2 generated:', insights_path())
+          PY
+
+      - name: Checkout isolated agent-state writer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: state-writer
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Encrypt, persist, and re-restore exact history
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          encrypted="$RUNNER_TEMP/isco-backfill-write-state/history.json.enc"
+          python scripts/persistent_memory.py encrypt \
+            --plain "$ISCO_HISTORY_PATH" \
+            --encrypted "$encrypted"
+          python scripts/persistent_memory.py persist \
+            --repo state-writer \
+            --encrypted "$encrypted" \
+            --branch agent-state \
+            --run-number "backfill-${GITHUB_RUN_NUMBER}"
+
+          verify_dir="$RUNNER_TEMP/isco-backfill-verify"
+          mkdir -p "$verify_dir"
+          python scripts/persistent_memory.py restore \
+            --repo state-writer \
+            --plain "$verify_dir/history.json" \
+            --branch agent-state \
+            --legacy-state state/history.json.enc
+          remote_sha="$(sha256sum "$verify_dir/history.json" | awk '{print $1}')"
+          test "$remote_sha" = "$HISTORY_SHA_AFTER"
+          state_head="$(git -C state-writer ls-remote --heads origin refs/heads/agent-state | awk '{print $1}')"
+          test -n "$state_head"
+          echo "AGENT_STATE_HEAD=$state_head" >> "$GITHUB_ENV"
+          echo "Remote history SHA verified: $remote_sha"
+          echo "agent-state HEAD: $state_head"
+
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ['GITHUB_WORKSPACE'])/'private-write-artifact'/'write-report.json'
+          d=json.loads(p.read_text(encoding='utf-8'))
+          d['remote_persistence_verified']=True
+          d['remote_history_sha256']=os.environ['HISTORY_SHA_AFTER']
+          d['agent_state_head']=os.environ['AGENT_STATE_HEAD']
+          p.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+
+      - name: Encrypt write report and learning insights for artifact
+        run: |
+          set -euo pipefail
+          umask 077
+          cp "$(dirname "$ISCO_HISTORY_PATH")/learning-insights.json" "$GITHUB_WORKSPACE/private-write-artifact/learning-insights.json"
+          cat > "$RUNNER_TEMP/backfill-public.pem" <<'PUBKEY'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAnJ+PwaO41Yzi4XcSAEgw
+          rVnT2G2aj22AZuyRC1LIWpGhp8iqoe/jxrWh+UlyQ2KGxOY/aoYIpViQeEPI2pFA
+          LQXtYuqDd8c1tIUJe95O9oKpEira94Zm2lgg0EtI9gFjWbX/PXcv7Ub7vk+LlqDI
+          iEX6oR8PaFf0F8W1W2rrTni+j1HMCSHKkdlO9QxhtD4OSgzpTpaOiWMJNdcwgwEU
+          57gGT5VZFN/tjZRh4B3Qvxi5naX+qTU0dtZVqmF/uRP4TrzzdahEoYaWvKxP8Ykp
+          ERmSyeDg8zO2q2LkDRa5iBuUzzhD8RLsI1gVpUicH4S74S+QoNMIfItCUnEq9jZa
+          nWOIWjX/ora+8fy1Njn2BMfULXFqc+3yxXaZcSYR5ZW0c8gOA6eKPr9XoNsBiyZs
+          Qmw2LkvSEzmX9r4qLBggzzkzxSFh9LgVB7Foh7Z5q9+QswV0oqEql0BDGwsrhb0n
+          aTTKlxzEmBinAqdUU33Vt2dxp830oeCxg6il+CZOnJ3BAgMBAAE=
+          -----END PUBLIC KEY-----
+          PUBKEY
+          openssl rand 32 > "$RUNNER_TEMP/write-aes-key.bin"
+          openssl rand 16 > "$RUNNER_TEMP/write-iv.bin"
+          tar -C "$GITHUB_WORKSPACE/private-write-artifact" -czf "$RUNNER_TEMP/backfill-write-results.tar.gz" \
+            write-report.json learning-insights.json youtube-backfill-preview.WRITE.json
+          openssl enc -aes-256-cbc \
+            -K "$(xxd -p -c 256 "$RUNNER_TEMP/write-aes-key.bin")" \
+            -iv "$(xxd -p -c 256 "$RUNNER_TEMP/write-iv.bin")" \
+            -in "$RUNNER_TEMP/backfill-write-results.tar.gz" \
+            -out "$GITHUB_WORKSPACE/private-write-artifact/backfill-write-results.tar.gz.enc"
+          openssl pkeyutl -encrypt \
+            -pubin -inkey "$RUNNER_TEMP/backfill-public.pem" \
+            -pkeyopt rsa_padding_mode:oaep \
+            -in "$RUNNER_TEMP/write-aes-key.bin" \
+            -out "$GITHUB_WORKSPACE/private-write-artifact/write-aes-key.bin.enc"
+          cp "$RUNNER_TEMP/write-iv.bin" "$GITHUB_WORKSPACE/private-write-artifact/write-iv.bin"
+          rm -f "$GITHUB_WORKSPACE/private-write-artifact/write-report.json" \
+                "$GITHUB_WORKSPACE/private-write-artifact/learning-insights.json" \
+                "$GITHUB_WORKSPACE/private-write-artifact/youtube-backfill-preview.WRITE.json"
+
+      - name: Upload encrypted WRITE verification artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: youtube-backfill-write-results-${{ github.run_number }}
+          path: |
+            private-write-artifact/backfill-write-results.tar.gz.enc
+            private-write-artifact/write-aes-key.bin.enc
+            private-write-artifact/write-iv.bin
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Cleanup sensitive material
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/isco-youtube-secrets" \
+                 "$RUNNER_TEMP/isco-backfill-write-state" \
+                 "$RUNNER_TEMP/isco-backfill-verify" \
+                 "$RUNNER_TEMP/write-aes-key.bin" \
+                 "$RUNNER_TEMP/write-iv.bin" \
+                 "$RUNNER_TEMP/backfill-public.pem" \
+                 "$RUNNER_TEMP/backfill-write-results.tar.gz" \
+                 "$GITHUB_WORKSPACE/private-write-artifact"
