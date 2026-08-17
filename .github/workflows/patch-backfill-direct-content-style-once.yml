@@ -1,0 +1,97 @@
+name: Patch Backfill Direct Content Style Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/patch-backfill-direct-content-style-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout private Backfill draft with push credential
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: agent/youtube-analytics-backfill-v1
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: true
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Apply narrow direct-writer hardening
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "2be33929854e098961bbc2d16a1311bd3afee26a"
+          python - <<'PY'
+          from pathlib import Path
+
+          src = Path('src/isco_video_agent/youtube_backfill.py')
+          text = src.read_text(encoding='utf-8')
+          old_preview = '''                "ingestion_source": BACKFILL_SOURCE,\n                "backfill_version": BACKFILL_VERSION,\n                "action": action,'''
+          new_preview = '''                "ingestion_source": BACKFILL_SOURCE,\n                "backfill_version": BACKFILL_VERSION,\n                "content_style": "static_image",\n                "action": action,'''
+          old_write = '''                "ingestion_source": BACKFILL_SOURCE,\n                "backfill_version": BACKFILL_VERSION,\n                "imported_at": written_at,'''
+          new_write = '''                "ingestion_source": BACKFILL_SOURCE,\n                "backfill_version": BACKFILL_VERSION,\n                "content_style": "static_image",\n                "imported_at": written_at,'''
+          if text.count(old_preview) != 1 or text.count(old_write) != 1:
+              raise SystemExit('Expected Backfill insertion points changed; refusing patch')
+          text = text.replace(old_preview, new_preview).replace(old_write, new_write)
+          src.write_text(text, encoding='utf-8')
+
+          test = Path('tests/test_backfill_content_style.py')
+          t = test.read_text(encoding='utf-8')
+          import_line = 'from isco_video_agent.backfill_content_style import (\n'
+          if import_line not in t:
+              raise SystemExit('Test import anchor missing')
+          direct_import = 'from isco_video_agent.youtube_backfill import apply_backfill_preview\n'
+          if direct_import not in t:
+              anchor = ')\n\n\ndef _sha'
+              if anchor not in t:
+                  raise SystemExit('Test direct-import anchor missing')
+              t = t.replace(anchor, ')\n' + direct_import + '\n\ndef _sha', 1)
+
+          marker = '''    def test_official_write_path_stamps_new_backfill_rows_before_insights(self) -> None:\n'''
+          direct_test = '''    def test_core_apply_backfill_preview_writes_static_image_directly(self) -> None:\n        with tempfile.TemporaryDirectory() as td:\n            state = Path(td) / "history.json"\n            preview = Path(td) / "preview.json"\n            state.write_text(\n                json.dumps({"videos": [], "learning": {"version": 1, "feedback": [], "metrics": []}}),\n                encoding="utf-8",\n            )\n            preview.write_text(\n                json.dumps(\n                    {\n                        "schema_version": 1,\n                        "generated_at": "2026-08-17T20:00:00+00:00",\n                        "mode": "scan_only",\n                        "write_performed": False,\n                        "videos": [\n                            {\n                                "video_id": "direct-core-backfill",\n                                "format": "film",\n                                "classification_status": "resolved",\n                                "ingestion_source": "youtube_backfill_v1",\n                                "backfill_version": 1,\n                                "action": "import",\n                                "metrics": {"avg_percentage_viewed": 55, "subscribers_gained": 1},\n                            }\n                        ],\n                    }\n                ),\n                encoding="utf-8",\n            )\n            with patch.dict(os.environ, {"ISCO_HISTORY_PATH": str(state)}, clear=False):\n                result = apply_backfill_preview(preview, refresh_insights=False)\n                saved = json.loads(state.read_text(encoding="utf-8"))\n\n        self.assertEqual(result["imported"], 1)\n        self.assertEqual(saved["learning"]["metrics"][0]["content_style"], "static_image")\n\n'''
+          if 'test_core_apply_backfill_preview_writes_static_image_directly' not in t:
+              if marker not in t:
+                  raise SystemExit('Test method insertion anchor missing')
+              t = t.replace(marker, direct_test + marker, 1)
+          test.write_text(t, encoding='utf-8')
+          PY
+
+      - name: Install and run targeted suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+          python -m py_compile src/isco_video_agent/youtube_backfill.py tests/test_backfill_content_style.py
+          python -m unittest \
+            tests.test_analytics_insights \
+            tests.test_analytics_insights_v2 \
+            tests.test_learning_metrics_source \
+            tests.test_youtube_backfill \
+            tests.test_youtube_backfill_session \
+            tests.test_backfill_content_style -v
+
+      - name: Commit and push private draft only after tests pass
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/isco_video_agent/youtube_backfill.py tests/test_backfill_content_style.py
+          git diff --cached --check
+          git commit -m "fix: persist Backfill content style in core writer"
+          git push origin HEAD:refs/heads/agent/youtube-analytics-backfill-v1
+          echo "NEW_ENGINE_SHA=$(git rev-parse HEAD)"
