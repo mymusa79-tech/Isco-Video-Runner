@@ -4,6 +4,10 @@ name: YouTube Analytics Backfill Scan
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/youtube-analytics-backfill-scan.yml
 
 permissions:
   contents: read
@@ -26,7 +30,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 6ce2cf6ca4c17e011ba37fd91b279a52052dd466
+          ref: 6c78a821c83ab73115bf6eaadaaac4b36bef27ec
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
