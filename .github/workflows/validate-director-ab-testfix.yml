@@ -1,0 +1,72 @@
+name: Validate Director A+B Test Isolation
+
+on:
+  push:
+    branches: ["validate/director-ab-testfix"]
+    paths:
+      - ".github/workflows/validate-director-ab-testfix.yml"
+
+concurrency:
+  group: validate-director-ab-testfix
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout validation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout corrected Phase A+B engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 44ef68d1d05a0fb937db5dda1eae0baf74efc58b
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Run full Engine test suite
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+          python -m unittest discover -s tests -q 2>&1 | tee "$RUNNER_TEMP/engine-tests-312.log"
+
+      - name: Build Python 3.13 offline wheelhouse for local verification
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+
+      - name: Package local verification bundle
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/local-verify/wheelhouse"
+          python -m pip wheel -r engine/requirements-lock.txt -w "$RUNNER_TEMP/local-verify/wheelhouse"
+          tar --exclude='engine/.git' --exclude='engine/output' -czf "$RUNNER_TEMP/local-verify/engine-source.tgz" engine
+          cp "$RUNNER_TEMP/engine-tests-312.log" "$RUNNER_TEMP/local-verify/engine-tests-312.log"
+          printf '%s\n' '44ef68d1d05a0fb937db5dda1eae0baf74efc58b' > "$RUNNER_TEMP/local-verify/engine-commit.txt"
+
+      - name: Upload local verification bundle
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: director-ab-testfix-local-verify-${{ github.run_number }}
+          path: ${{ runner.temp }}/local-verify
+          if-no-files-found: warn
+          retention-days: 3
