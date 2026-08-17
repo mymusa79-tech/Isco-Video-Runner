@@ -13,7 +13,6 @@ from isco_video_agent.media.ffmpeg import concat_audio, duration
 from isco_video_agent.providers.gemini import synthesize_wav as gemini_synthesize
 
 _piper = None
-_gemini_open = False
 
 # Channel voice identity is deliberately fixed, not randomized per video.
 DIALOGUE_QUESTIONER_VOICE = "Iapetus"
@@ -125,28 +124,38 @@ def _local_dialogue(transcript: str, output: Path) -> Path:
     return output
 
 
-def synthesize(api_key: str, transcript: str, output: Path, *, model: str, voice: str, style: str = "") -> Path:
-    global _gemini_open
+def synthesize(
+    api_key: str,
+    transcript: str,
+    output: Path,
+    *,
+    model: str,
+    voice: str,
+    style: str = "",
+    attempts: int = 3,
+) -> Path:
     dialogue = os.environ.get("ISCO_DIALOGUE_QA") == "1"
-    if not _gemini_open:
-        try:
-            if dialogue:
-                _gemini_dialogue(api_key, transcript, output, model=model, style=style)
-                _qa(output, _DIALOGUE_LABEL.sub("", transcript))
-                print("Voice provider selected: gemini-multispeaker (questioner=Iapetus responder=Gacrux)")
-            else:
-                gemini_synthesize(api_key, transcript, output, model=model, voice=voice, style=style)
-                _qa(output, transcript)
-                print("Voice provider selected: gemini")
-            return output
-        except Exception as exc:
-            output.unlink(missing_ok=True)
-            msg = str(exc).lower()
-            if "429" in msg or "quota" in msg or "rate" in msg:
-                _gemini_open = True
-                print("Voice provider circuit-open: gemini")
-            else:
-                print("Voice provider failed safely: gemini")
+    if dialogue:
+        _gemini_dialogue(api_key, transcript, output, model=model, style=style)
+        _qa(output, _DIALOGUE_LABEL.sub("", transcript))
+        print("Voice provider selected: gemini-multispeaker (questioner=Iapetus responder=Gacrux)")
+    else:
+        gemini_synthesize(
+            api_key,
+            transcript,
+            output,
+            model=model,
+            voice=voice,
+            style=style,
+            attempts=attempts,
+        )
+        _qa(output, transcript)
+        print("Voice provider selected: gemini")
+    return output
+
+
+def synthesize_local_wav(transcript: str, output: Path) -> Path:
+    dialogue = os.environ.get("ISCO_DIALOGUE_QA") == "1"
     if dialogue:
         _local_dialogue(transcript, output)
         _qa(output, _DIALOGUE_LABEL.sub("", transcript))
@@ -160,4 +169,5 @@ def synthesize(api_key: str, transcript: str, output: Path, *, model: str, voice
 
 def install_voice_mesh() -> None:
     orchestrator.synthesize_wav = synthesize
+    orchestrator.synthesize_local_wav = synthesize_local_wav
     print("Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices Iapetus/Gacrux")
