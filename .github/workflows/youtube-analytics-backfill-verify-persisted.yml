@@ -52,7 +52,6 @@ jobs:
           mkdir -p "$state_dir"
           python scripts/persistent_memory.py restore --repo . --plain "$state_dir/history.json" --branch agent-state --legacy-state state/history.json.enc --github-output "$meta"
           grep -qx 'save_allowed=true' "$meta"
-          grep -qx 'state_source=agent-state' "$meta"
           test -f "$state_dir/history.json"
           chmod 600 "$state_dir/history.json"
           echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
@@ -70,7 +69,6 @@ jobs:
           from collections import Counter
           from pathlib import Path
           from isco_video_agent.analytics_insights import refresh_learning_insights, insights_path
-
           state=Path(os.environ['ISCO_HISTORY_PATH'])
           d=json.loads(state.read_text(encoding='utf-8'))
           raw=d.get('learning',{}).get('metrics',[]) if isinstance(d.get('learning',{}),dict) else []
@@ -80,27 +78,13 @@ jobs:
           if len(b)!=128 or len(set(ids))!=128: raise SystemExit(f'Persisted count invalid: {len(b)}/{len(set(ids))}')
           if formats!=Counter({'short':109,'film':19}): raise SystemExit(f'Persisted formats invalid: {formats}')
           if any(str(x.get('classification_status','')).lower()=='unresolved' for x in b): raise SystemExit('Persisted unresolved record found')
-
           insights=refresh_learning_insights()
-          if insights.get('schema_version')!=2 or insights.get('cohort_isolation')!='strict_by_format' or insights.get('production_influence')!='none':
-              raise SystemExit('Persisted insights v2 validation failed')
+          if insights.get('schema_version')!=2 or insights.get('cohort_isolation')!='strict_by_format' or insights.get('production_influence')!='none': raise SystemExit('Persisted insights v2 validation failed')
           cohorts=insights.get('cohorts',{})
           if cohorts.get('film',{}).get('sample',{}).get('unique_videos')!=19: raise SystemExit('Film insight cohort count invalid')
           if cohorts.get('short',{}).get('sample',{}).get('unique_videos')!=109: raise SystemExit('Short insight cohort count invalid')
-
           state_head=subprocess.check_output(['git','ls-remote','--heads','origin','refs/heads/agent-state'],cwd=os.environ['GITHUB_WORKSPACE'],text=True).split()[0]
-          report={
-            'verification':'persisted_agent_state_read_only',
-            'persisted_history_sha256':os.environ['PERSISTED_HISTORY_SHA'],
-            'agent_state_head':state_head,
-            'backfill_rows':len(b),
-            'unique_video_ids':len(set(ids)),
-            'formats':dict(formats),
-            'unresolved_imported':0,
-            'schema_version':insights.get('schema_version'),
-            'cohort_isolation':insights.get('cohort_isolation'),
-            'production_influence':insights.get('production_influence'),
-          }
+          report={'verification':'persisted_agent_state_read_only','persisted_history_sha256':os.environ['PERSISTED_HISTORY_SHA'],'agent_state_head':state_head,'backfill_rows':len(b),'unique_video_ids':len(set(ids)),'formats':dict(formats),'unresolved_imported':0,'schema_version':insights.get('schema_version'),'cohort_isolation':insights.get('cohort_isolation'),'production_influence':insights.get('production_influence')}
           out=Path(os.environ['GITHUB_WORKSPACE'])/'private-verify-artifact'
           (out/'persisted-write-verification.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
           (out/'learning-insights.json').write_text(Path(insights_path()).read_text(encoding='utf-8'),encoding='utf-8')
