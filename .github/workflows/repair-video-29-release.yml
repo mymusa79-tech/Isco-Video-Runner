@@ -1,0 +1,105 @@
+name: Repair video-29 release asset
+
+on:
+  push:
+    branches: ["ops/repair-video-29-release"]
+    paths:
+      - ".github/workflows/repair-video-29-release.yml"
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RUN_ID: "32014159207"
+      ARTIFACT_NAME: "isco-resilient-v4-video-29"
+      RELEASE_TAG: "video-29"
+      BAD_ASSET_ID: "517901844"
+      EXPECTED_BAD_SIZE: "62616"
+      EXPECTED_GOOD_SIZE: "148468253"
+      EXPECTED_DURATION: "493.6"
+    steps:
+      - name: Download Run #29 artifact
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/run29-artifact"
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir "$RUNNER_TEMP/run29-artifact"
+
+      - name: Select and validate reviewed final
+        id: select
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, shutil, subprocess
+          from pathlib import Path
+
+          artifact = Path(os.environ['RUNNER_TEMP']) / 'run29-artifact'
+          candidates = []
+          for quality in artifact.rglob('quality-final.json'):
+              q = json.loads(quality.read_text(encoding='utf-8'))
+              video = quality.with_name('final.mp4')
+              if q.get('duration_ok') is True and video.is_file() and video.stat().st_size > 1024 * 1024:
+                  candidates.append((quality.parent, q, video))
+
+          if len(candidates) != 1:
+              raise SystemExit(f'Expected exactly one publishable Run #29 output, found {len(candidates)}')
+
+          root, q, video = candidates[0]
+          size = video.stat().st_size
+          expected_size = int(os.environ['EXPECTED_GOOD_SIZE'])
+          if size != expected_size:
+              raise SystemExit(f'Unexpected final.mp4 size: {size} != {expected_size}')
+
+          expected_duration = float(os.environ['EXPECTED_DURATION'])
+          json_duration = float(q.get('duration_seconds', 0.0))
+          if abs(json_duration - expected_duration) > 0.01:
+              raise SystemExit(f'Unexpected quality duration: {json_duration}')
+
+          ffprobe = subprocess.check_output([
+              'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+              '-of', 'default=nw=1:nk=1', str(video)
+          ], text=True).strip()
+          actual_duration = float(ffprobe)
+          if abs(actual_duration - expected_duration) > 0.05:
+              raise SystemExit(f'Unexpected media duration: {actual_duration}')
+
+          digest = hashlib.sha256(video.read_bytes()).hexdigest()
+          staging = Path(os.environ['RUNNER_TEMP']) / 'release-staging'
+          staging.mkdir(parents=True, exist_ok=True)
+          target = staging / 'final.mp4'
+          shutil.copy2(video, target)
+
+          print(f'Selected reviewed output: {root}')
+          print(f'Validated final.mp4: size={size} duration={actual_duration:.3f} sha256={digest}')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as fh:
+              fh.write(f'path={target}\n')
+              fh.write(f'size={size}\n')
+              fh.write(f'sha256={digest}\n')
+          PY
+
+      - name: Verify current bad release asset
+        run: |
+          set -euo pipefail
+          asset="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name=="final.mp4") | "\(.id) \(.size)"')"
+          test "$asset" = "${BAD_ASSET_ID} ${EXPECTED_BAD_SIZE}"
+          echo "Confirmed bad release asset: $asset"
+
+      - name: Replace final.mp4 on video-29
+        run: |
+          set -euo pipefail
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${BAD_ASSET_ID}"
+          gh release upload "$RELEASE_TAG" "${{ steps.select.outputs.path }}" --repo "$GITHUB_REPOSITORY"
+
+      - name: Verify repaired release asset
+        run: |
+          set -euo pipefail
+          asset="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name=="final.mp4") | "\(.id) \(.size) \(.digest)"')"
+          echo "Repaired release asset: $asset"
+          size="$(printf '%s' "$asset" | awk '{print $2}')"
+          test "$size" = "$EXPECTED_GOOD_SIZE"
