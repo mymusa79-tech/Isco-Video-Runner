@@ -135,11 +135,15 @@ def _budgeted_provider_call(provider_name: str, resolved_model: str, call, *args
     authorize() remains observe-only: its bool is intentionally ignored. Keeping this
     wrapper at the individual provider-call boundary (and, for OpenRouter repair, on
     each json_text invocation) prevents the old one-logical-call == one-attempt error.
+
+    With no active BudgetLedger scope this is a transparent direct call: no authorize,
+    timing, or bookkeeping side effects are introduced into the legacy Runner path.
     """
     active = get_active_budget_task()
-    if active is not None:
-        active.ledger.authorize(active.spec.task_id)
+    if active is None:
+        return call(*args, **kwargs)
 
+    active.ledger.authorize(active.spec.task_id)
     started = time.monotonic()
     try:
         result = call(*args, **kwargs)
@@ -316,13 +320,20 @@ def _groq_call(prompt: str) -> dict:
 _OPENROUTER_REPAIR_SUFFIX = "\n\nأعد الرد بصيغة JSON صالحة فقط، بدون أي نص إضافي قبله أو بعده."
 
 
-def _openrouter_call_with_repair(prompt: str, model: str, provider_name: str) -> dict:
+def _openrouter_call_with_repair(prompt: str, model: str, provider_name: str | None = None) -> dict:
     """Exactly one JSON repair request after an invalid-JSON first response.
 
     Each openrouter_json_text() invocation is separately budgeted. Therefore an
     invalid first response followed by a successful repair is two real provider
-    attempts in BudgetLedger, not one outer router interaction.
+    attempts in BudgetLedger, not one outer router interaction. provider_name remains
+    optional for backwards compatibility with the pre-accounting two-argument helper.
     """
+    if provider_name is None:
+        provider_name = (
+            "openrouter-free-router"
+            if model == "openrouter/free"
+            else "openrouter-gpt-oss-free"
+        )
     try:
         return _budgeted_provider_call(
             provider_name,
