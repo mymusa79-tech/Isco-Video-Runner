@@ -69,4 +69,4 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/test_task_level_planner_router.py -v
-          if [ -f scripts/test_voice_mesh.py ]; then python scripts/test_voice_mesh.py -v; fi
+          if [ -f scripts/test_voice_mesh.py ]; then python -m scripts.test_voice_mesh -v; fi
