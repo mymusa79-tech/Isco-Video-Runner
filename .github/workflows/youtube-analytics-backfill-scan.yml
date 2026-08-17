@@ -4,10 +4,6 @@ name: YouTube Analytics Backfill Scan
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/youtube-analytics-backfill-scan.yml
 
 permissions:
   contents: read
@@ -71,10 +67,10 @@ jobs:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          YOUTUBE_DATA_KEY: ${{ secrets.YOUTUBE_API_KEY || secrets.YOUTUBE_DATA_API_KEY || secrets.YOUTUBE_DATA_V3_API_KEY || secrets.YOUTUBE_V3_API_KEY || secrets.GOOGLE_YOUTUBE_API_KEY || secrets.GOOGLE_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           set -euo pipefail
-          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN YOUTUBE_DATA_KEY; do
+          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN YOUTUBE_API_KEY; do
             if [ -z "${!name:-}" ]; then
               echo "::error::$name is missing or empty"
               exit 2
@@ -85,7 +81,7 @@ jobs:
           printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/isco-youtube-secrets/client-id"
           printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/isco-youtube-secrets/client-secret"
           printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/isco-youtube-secrets/refresh-token"
-          printf '%s' "$YOUTUBE_DATA_KEY" > "$RUNNER_TEMP/isco-youtube-secrets/api-key"
+          printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-youtube-secrets/api-key"
 
       - name: SCAN only — produce real preview without changing history
         working-directory: engine
