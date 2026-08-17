@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 4b03f8ecc92247dcc7d565d652d416c1868459d1
+          ref: 6ce2cf6ca4c17e011ba37fd91b279a52052dd466
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -40,13 +40,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install reviewed engine runtime
+      - name: Install and verify reviewed engine runtime
         working-directory: engine
         run: |
           set -euo pipefail
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
+          python -m unittest discover -s tests -p 'test_youtube_backfill*.py' -q
 
       - name: Restore encrypted cross-run history read-only
         env:
@@ -65,14 +66,15 @@ jobs:
           echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
           sha256sum "$state_dir/history.json" | awk '{print $1}' > "$RUNNER_TEMP/history-before.sha256"
 
-      - name: Materialize YouTube OAuth secrets as one-time files
+      - name: Materialize YouTube read-only credentials as one-time files
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           set -euo pipefail
-          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN; do
+          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN YOUTUBE_API_KEY; do
             if [ -z "${!name:-}" ]; then
               echo "::error::$name is missing or empty"
               exit 2
@@ -83,6 +85,7 @@ jobs:
           printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/isco-youtube-secrets/client-id"
           printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/isco-youtube-secrets/client-secret"
           printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/isco-youtube-secrets/refresh-token"
+          printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-youtube-secrets/api-key"
 
       - name: SCAN only — produce real preview without changing history
         working-directory: engine
@@ -90,6 +93,7 @@ jobs:
           YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-youtube-secrets/client-id
           YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-youtube-secrets/client-secret
           YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-youtube-secrets/refresh-token
+          YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-youtube-secrets/api-key
         run: |
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/private-artifact"
