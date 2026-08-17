@@ -45,12 +45,16 @@ jobs:
           from pathlib import Path
           path = Path("src/isco_video_agent/resilient_planner.py")
           text = path.read_text(encoding="utf-8")
-          old = """shorten a good section merely for brevity. Give every section a distinct key_point. For an under-length film repair,
-target 850-900 total spoken words instead of stopping at the 800-word floor; the actual acceptance contract remains
-800-1450 words and is enforced separately after this repair."""
-          new = """shorten a good section merely for brevity. Give every section a distinct key_point. For an under-length film repair,
-target exactly 800 total spoken words; the actual acceptance contract remains
-800-1450 words and is enforced separately after this repair."""
+          old = (
+              "shorten a good section merely for brevity. Give every section a distinct key_point. For an under-length film repair,\n"
+              "target 850-900 total spoken words instead of stopping at the 800-word floor; the actual acceptance contract remains\n"
+              "800-1450 words and is enforced separately after this repair."
+          )
+          new = (
+              "shorten a good section merely for brevity. Give every section a distinct key_point. For an under-length film repair,\n"
+              "target exactly 800 total spoken words; the actual acceptance contract remains\n"
+              "800-1450 words and is enforced separately after this repair."
+          )
           if text.count(old) != 1:
               raise SystemExit(f"Expected exactly one 850-900 Script Doctor target, found {text.count(old)}")
           path.write_text(text.replace(old, new, 1), encoding="utf-8")
