@@ -1,0 +1,58 @@
+name: Apply persistent-memory V2 workflow patch
+
+on:
+  push:
+    branches: ["feature/persistent-cross-run-memory-v2"]
+    paths:
+      - ".github/workflows/apply-persistent-memory-v2-patch.yml"
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feature/persistent-cross-run-memory-v2
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Patch production workflow
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+
+          restore_marker = '      - name: Restore encrypted cross-run memory\n'
+          if restore_marker not in text:
+              anchor = '''          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"\n\n      - name: Verify local voice fallback before cloud production\n'''
+              replacement = '''          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"\n\n      - name: Restore encrypted cross-run memory\n        id: restore_state\n        env:\n          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}\n        run: |\n          set -euo pipefail\n          state_dir="$RUNNER_TEMP/isco-state"\n          mkdir -p "$state_dir"\n          python scripts/persistent_memory.py restore \\\n            --repo . \\\n            --plain "$state_dir/history.json" \\\n            --branch agent-state \\\n            --legacy-state state/history.json.enc \\\n            --github-output "$GITHUB_OUTPUT"\n          test -f "$state_dir/history.json"\n          chmod 600 "$state_dir/history.json"\n          echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"\n\n      - name: Verify local voice fallback before cloud production\n'''
+              if anchor not in text:
+                  raise SystemExit('restore insertion anchor not found')
+              text = text.replace(anchor, replacement, 1)
+
+          persist_marker = '      - name: Persist approved encrypted cross-run memory\n'
+          if persist_marker not in text:
+              anchor = '      - name: Notify Telegram\n'
+              replacement = '''      - name: Checkout agent-state writer\n        id: checkout_state_writer\n        if: success() && steps.publish_approval.outputs.effective_decision == 'approved' && steps.restore_state.outputs.save_allowed == 'true'\n        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n        with:\n          path: state-writer\n          persist-credentials: true\n          fetch-depth: 1\n\n      - name: Persist approved encrypted cross-run memory\n        id: persist_state\n        if: success() && steps.publish_approval.outputs.effective_decision == 'approved' && steps.restore_state.outputs.save_allowed == 'true'\n        continue-on-error: true\n        env:\n          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}\n        run: |\n          set -euo pipefail\n          test -n "$STATE_ENCRYPTION_KEY"\n          test -n "${ISCO_HISTORY_PATH:-}"\n          test -f "$ISCO_HISTORY_PATH"\n          encrypted="$RUNNER_TEMP/isco-state/history.json.enc"\n          python scripts/persistent_memory.py encrypt \\\n            --plain "$ISCO_HISTORY_PATH" \\\n            --encrypted "$encrypted"\n          python scripts/persistent_memory.py persist \\\n            --repo state-writer \\\n            --encrypted "$encrypted" \\\n            --branch agent-state \\\n            --run-number "$GITHUB_RUN_NUMBER"\n\n      - name: Notify Telegram\n'''
+              if anchor not in text:
+                  raise SystemExit('persist insertion anchor not found')
+              text = text.replace(anchor, replacement, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          git diff --check
+          git add .github/workflows/produce-resilient-v4.yml
+          if git diff --cached --quiet; then
+            echo "Workflow already patched"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: wire persistent cross-run memory"
+          git push origin HEAD:feature/persistent-cross-run-memory-v2
