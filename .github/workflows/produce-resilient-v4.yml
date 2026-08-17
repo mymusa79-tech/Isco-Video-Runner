@@ -75,6 +75,24 @@ jobs:
           test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx"
           test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"
 
+      - name: Restore encrypted cross-run memory
+        id: restore_state
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          state_dir="$RUNNER_TEMP/isco-state"
+          mkdir -p "$state_dir"
+          python scripts/persistent_memory.py restore \
+            --repo . \
+            --plain "$state_dir/history.json" \
+            --branch agent-state \
+            --legacy-state state/history.json.enc \
+            --github-output "$GITHUB_OUTPUT"
+          test -f "$state_dir/history.json"
+          chmod 600 "$state_dir/history.json"
+          echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
+
       - name: Verify local voice fallback before cloud production
         id: voice_preflight
         env:
@@ -362,6 +380,36 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --title "Isco Video #${RUN_NUMBER}" \
             --notes "Automated production run ${RUN_NUMBER}."
+
+      - name: Checkout agent-state writer
+        id: checkout_state_writer
+        if: success() && steps.publish_approval.outputs.effective_decision == 'approved' && steps.restore_state.outputs.save_allowed == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: state-writer
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Persist approved encrypted cross-run memory
+        id: persist_state
+        if: success() && steps.publish_approval.outputs.effective_decision == 'approved' && steps.restore_state.outputs.save_allowed == 'true'
+        continue-on-error: true
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          test -n "${ISCO_HISTORY_PATH:-}"
+          test -f "$ISCO_HISTORY_PATH"
+          encrypted="$RUNNER_TEMP/isco-state/history.json.enc"
+          python scripts/persistent_memory.py encrypt \
+            --plain "$ISCO_HISTORY_PATH" \
+            --encrypted "$encrypted"
+          python scripts/persistent_memory.py persist \
+            --repo state-writer \
+            --encrypted "$encrypted" \
+            --branch agent-state \
+            --run-number "$GITHUB_RUN_NUMBER"
 
       - name: Notify Telegram
         if: always()
