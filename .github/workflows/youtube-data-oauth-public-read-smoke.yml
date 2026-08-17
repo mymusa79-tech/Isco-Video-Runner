@@ -1,0 +1,81 @@
+name: YouTube Data OAuth Public Read Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/youtube-data-oauth-public-read-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify public Data API reads without mine=true
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN; do
+            test -n "${!name:-}"
+          done
+          umask 077
+          token_json="$RUNNER_TEMP/token.json"
+          seed_json="$RUNNER_TEMP/seed.json"
+          video_json="$RUNNER_TEMP/video.json"
+          channel_json="$RUNNER_TEMP/channel.json"
+          trap 'rm -f "$token_json" "$seed_json" "$video_json" "$channel_json"' EXIT
+
+          curl -fsS -o "$token_json" -X POST 'https://oauth2.googleapis.com/token' \
+            --data-urlencode "client_id=$YOUTUBE_CLIENT_ID" \
+            --data-urlencode "client_secret=$YOUTUBE_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$YOUTUBE_REFRESH_TOKEN" \
+            --data-urlencode 'grant_type=refresh_token'
+          token="$(jq -r '.access_token // empty' "$token_json")"
+          test -n "$token"
+          echo "::add-mask::$token"
+
+          start_date='2005-01-01'
+          end_date="$(date -u -d '1 day ago' +%F)"
+          curl -fsS -o "$seed_json" --get 'https://youtubeanalytics.googleapis.com/v2/reports' \
+            --header "Authorization: Bearer $token" \
+            --data-urlencode 'ids=channel==MINE' \
+            --data-urlencode "startDate=$start_date" \
+            --data-urlencode "endDate=$end_date" \
+            --data-urlencode 'dimensions=video' \
+            --data-urlencode 'metrics=views' \
+            --data-urlencode 'sort=-views' \
+            --data-urlencode 'maxResults=1'
+          seed="$(jq -r '(.rows // [])[0][0] // empty' "$seed_json")"
+          test -n "$seed"
+
+          video_http="$(curl -sS -o "$video_json" -w '%{http_code}' --get 'https://www.googleapis.com/youtube/v3/videos' \
+            --header "Authorization: Bearer $token" \
+            --data-urlencode 'part=snippet,contentDetails,status' \
+            --data-urlencode "id=$seed")"
+          if [ "$video_http" != 200 ]; then
+            reason="$(jq -r '.error.errors[0].reason // .error.status // "unknown"' "$video_json" 2>/dev/null || echo unknown)"
+            echo "::error::videos.list public OAuth read failed HTTP $video_http reason=$reason"
+            exit 3
+          fi
+          channel_id="$(jq -r '.items[0].snippet.channelId // empty' "$video_json")"
+          test -n "$channel_id"
+
+          channel_http="$(curl -sS -o "$channel_json" -w '%{http_code}' --get 'https://www.googleapis.com/youtube/v3/channels' \
+            --header "Authorization: Bearer $token" \
+            --data-urlencode 'part=contentDetails' \
+            --data-urlencode "id=$channel_id")"
+          if [ "$channel_http" != 200 ]; then
+            reason="$(jq -r '.error.errors[0].reason // .error.status // "unknown"' "$channel_json" 2>/dev/null || echo unknown)"
+            echo "::error::channels.list id-based OAuth read failed HTTP $channel_http reason=$reason"
+            exit 4
+          fi
+          uploads="$(jq -r '.items[0].contentDetails.relatedPlaylists.uploads // empty' "$channel_json")"
+          test -n "$uploads"
+          echo "Public Data API OAuth reads: PASS"
