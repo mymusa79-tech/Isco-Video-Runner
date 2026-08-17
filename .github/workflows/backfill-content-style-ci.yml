@@ -1,0 +1,61 @@
+name: Backfill Content Style CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/backfill-content-style-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout Backfill v1 draft head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 2be33929854e098961bbc2d16a1311bd3afee26a
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Run Backfill and analytics regressions
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            src/isco_video_agent/learning.py \
+            src/isco_video_agent/analytics_insights.py \
+            src/isco_video_agent/backfill_content_style.py \
+            scripts/backfill_youtube_analytics.py \
+            scripts/migrate_backfill_content_style.py
+          python -m unittest \
+            tests.test_analytics_insights \
+            tests.test_analytics_insights_v2 \
+            tests.test_learning_metrics_source \
+            tests.test_youtube_backfill \
+            tests.test_youtube_backfill_session \
+            tests.test_backfill_content_style -v
