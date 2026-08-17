@@ -1,0 +1,56 @@
+name: Director Phase A Contract Check
+
+on:
+  push:
+    branches: ["validate/director-phase-a-contract"]
+    paths:
+      - ".github/workflows/director-phase-a-contract-check.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout runner validation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout Engine fix branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: fix/director-phase-a-deterministic-contract
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core openssl
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+
+      - name: Run Director regression tests
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_director_brain_phase_a tests.test_director_brain_deterministic_contract -v
+
+      - name: Run full Engine unit suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
