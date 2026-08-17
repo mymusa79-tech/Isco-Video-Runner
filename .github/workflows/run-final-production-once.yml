@@ -1,0 +1,26 @@
+name: One-Time Final Production Dispatch
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/run-final-production-once.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch resilient V4 for final production trial
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run produce-resilient-v4.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f topic='وهم البداية المثالية' \
+            -f format=film
