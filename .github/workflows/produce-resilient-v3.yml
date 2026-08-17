@@ -14,11 +14,6 @@ on:
         default: film
         type: choice
         options: [film, story]
-  push:
-    branches: ["main"]
-    paths:
-      - ".github/workflows/produce-resilient-v3.yml"
-      - "scripts/task_level_planner_router.py"
 
 concurrency:
   group: isco-video-resilient-v3
