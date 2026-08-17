@@ -1,0 +1,70 @@
+name: Production Pipeline Integration Test
+
+on:
+  push:
+    branches: ["test/production-pipeline-integration-proxy"]
+    paths:
+      - ".github/workflows/production-pipeline-integration-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout runner test branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout private engine test branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: test/production-pipeline-integration
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Run production pipeline integration only
+        env:
+          GEMINI_API_KEY: ""
+          GROQ_API_KEY: ""
+          OPENROUTER_API_KEY: ""
+          PEXELS_API_KEY: ""
+          PIXABAY_API_KEY: ""
+          YOUTUBE_API_KEY: ""
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest discover -s tests -p 'test_production_pipeline_integration.py' -v
+
+      - name: Prove no provider credentials are exposed
+        run: |
+          set -euo pipefail
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+          test -z "${PEXELS_API_KEY:-}"
+          test -z "${PIXABAY_API_KEY:-}"
+          test -z "${YOUTUBE_API_KEY:-}"
+          echo "No provider credentials exposed to integration job"
