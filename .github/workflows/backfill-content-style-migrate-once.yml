@@ -59,7 +59,6 @@ jobs:
             tests.test_backfill_content_style -q
 
       - name: Guard exact persisted baseline and restore history
-        id: restore_state
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
@@ -67,14 +66,15 @@ jobs:
           current_head="$(git ls-remote --heads origin refs/heads/agent-state | awk '{print $1}')"
           test "$current_head" = "$EXPECTED_AGENT_STATE_HEAD"
           state_dir="$RUNNER_TEMP/isco-style-migration-state"
+          meta="$RUNNER_TEMP/restore-meta.txt"
           mkdir -p "$state_dir"
           python scripts/persistent_memory.py restore \
             --repo . \
             --plain "$state_dir/history.json" \
             --branch agent-state \
             --legacy-state state/history.json.enc \
-            --github-output "$GITHUB_OUTPUT"
-          test "${{ steps.restore_state.outputs.save_allowed }}" = "true"
+            --github-output "$meta"
+          grep -qx 'save_allowed=true' "$meta"
           test -f "$state_dir/history.json"
           chmod 600 "$state_dir/history.json"
           echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
