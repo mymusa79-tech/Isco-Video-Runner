@@ -132,9 +132,10 @@ def _record_budget_attempt(
 def _budgeted_provider_call(provider_name: str, resolved_model: str, call, *args, **kwargs):
     """Account for exactly one provider callable invocation.
 
-    authorize() remains observe-only: its bool is intentionally ignored. Keeping this
-    wrapper at the individual provider-call boundary (and, for OpenRouter repair, on
-    each json_text invocation) prevents the old one-logical-call == one-attempt error.
+    Authorization is enforced at this individual provider-call boundary. When the
+    active BudgetLedger refuses the next attempt, the provider callable is never
+    invoked and no attempt record is manufactured for a request that did not happen.
+    For OpenRouter repair, each json_text invocation still has its own authorization.
 
     With no active BudgetLedger scope this is a transparent direct call: no authorize,
     timing, or bookkeeping side effects are introduced into the legacy Runner path.
@@ -143,7 +144,10 @@ def _budgeted_provider_call(provider_name: str, resolved_model: str, call, *args
     if active is None:
         return call(*args, **kwargs)
 
-    active.ledger.authorize(active.spec.task_id)
+    if not active.ledger.authorize(active.spec.task_id):
+        raise RuntimeError(
+            f"AI budget authorization denied for task {active.spec.task_id}; provider call blocked"
+        )
     started = time.monotonic()
     try:
         result = call(*args, **kwargs)
