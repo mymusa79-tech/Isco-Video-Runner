@@ -229,6 +229,10 @@ jobs:
             engine/output/*/opportunities.json
             engine/output/*/research.json
             engine/output/*/planning-telemetry.json
+            engine/output/*/final-critic.json
+            engine/output/*/ai-budget.json
+            engine/output/*/production-manifest.json
+            engine/output/*/opening-visual-audit.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -250,12 +254,22 @@ jobs:
           quality = root / 'quality-final.json'
           plan = root / 'plan.json'
           telemetry = root / 'planning-telemetry.json'
+          critic = root / 'final-critic.json'
+          budget = root / 'ai-budget.json'
+          manifest = root / 'production-manifest.json'
+          opening_audit = root / 'opening-visual-audit.json'
           if not final.exists():
               raise SystemExit('Missing final.mp4')
           if not quality.exists():
               raise SystemExit('Missing quality-final.json')
           if not plan.exists():
               raise SystemExit('Missing plan.json')
+          if not critic.exists():
+              raise SystemExit('Missing final-critic.json')
+          if not budget.exists():
+              raise SystemExit('Missing ai-budget.json')
+          if not manifest.exists():
+              raise SystemExit('Missing production-manifest.json')
           q = json.loads(quality.read_text(encoding='utf-8'))
           failures = []
           if q.get('duration_ok') is not True:
@@ -278,14 +292,23 @@ jobs:
           quality_path = Path('engine') / quality
           plan_path = Path('engine') / plan
           telemetry_path = (Path('engine') / telemetry) if telemetry.exists() else None
+          critic_path = Path('engine') / critic
+          budget_path = Path('engine') / budget
+          manifest_path = Path('engine') / manifest
+          opening_audit_path = (Path('engine') / opening_audit) if opening_audit.exists() else None
           with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as fh:
               fh.write(f'output_root={output_root.as_posix()}\n')
               fh.write(f'final_path={final_path.as_posix()}\n')
               fh.write(f'quality_path={quality_path.as_posix()}\n')
               fh.write(f'plan_path={plan_path.as_posix()}\n')
               fh.write(f'telemetry_path={telemetry_path.as_posix() if telemetry_path else ""}\n')
+              fh.write(f'critic_path={critic_path.as_posix()}\n')
+              fh.write(f'budget_path={budget_path.as_posix()}\n')
+              fh.write(f'manifest_path={manifest_path.as_posix()}\n')
+              fh.write(f'opening_audit_path={opening_audit_path.as_posix() if opening_audit_path else ""}\n')
           print('Final review PASS:', final)
           print('Final quality:', json.dumps(q, ensure_ascii=False, sort_keys=True))
+          print('Final critic observe-only status:', json.loads(critic.read_text(encoding='utf-8')).get('status'))
           print('Final review output root:', output_root.as_posix())
           PY
 
@@ -300,6 +323,10 @@ jobs:
             ${{ steps.final_review.outputs.quality_path }}
             ${{ steps.final_review.outputs.plan_path }}
             ${{ steps.final_review.outputs.telemetry_path }}
+            ${{ steps.final_review.outputs.critic_path }}
+            ${{ steps.final_review.outputs.budget_path }}
+            ${{ steps.final_review.outputs.manifest_path }}
+            ${{ steps.final_review.outputs.opening_audit_path }}
           if-no-files-found: error
           retention-days: 7
 
@@ -327,11 +354,18 @@ jobs:
           FINAL_VIDEO_PATH: ${{ steps.final_review.outputs.final_path }}
           FINAL_QUALITY_PATH: ${{ steps.final_review.outputs.quality_path }}
           FINAL_TELEMETRY_PATH: ${{ steps.final_review.outputs.telemetry_path }}
+          FINAL_CRITIC_PATH: ${{ steps.final_review.outputs.critic_path }}
+          FINAL_BUDGET_PATH: ${{ steps.final_review.outputs.budget_path }}
+          FINAL_MANIFEST_PATH: ${{ steps.final_review.outputs.manifest_path }}
+          FINAL_OPENING_AUDIT_PATH: ${{ steps.final_review.outputs.opening_audit_path }}
         run: |
           set -euo pipefail
           test -n "$FINAL_OUTPUT_ROOT"
           test -n "$FINAL_VIDEO_PATH"
           test -n "$FINAL_QUALITY_PATH"
+          test -n "$FINAL_CRITIC_PATH"
+          test -n "$FINAL_BUDGET_PATH"
+          test -n "$FINAL_MANIFEST_PATH"
           python - <<'PY'
           import json
           import os
@@ -341,16 +375,28 @@ jobs:
           quality = Path(os.environ['FINAL_QUALITY_PATH'])
           telemetry_value = os.environ.get('FINAL_TELEMETRY_PATH', '').strip()
           telemetry = Path(telemetry_value) if telemetry_value else None
+          critic = Path(os.environ['FINAL_CRITIC_PATH'])
+          budget = Path(os.environ['FINAL_BUDGET_PATH'])
+          manifest = Path(os.environ['FINAL_MANIFEST_PATH'])
+          opening_value = os.environ.get('FINAL_OPENING_AUDIT_PATH', '').strip()
+          opening = Path(opening_value) if opening_value else None
           if video != root / 'final.mp4':
               raise SystemExit(f'Release video escaped reviewed output root: {video}')
           if quality != root / 'quality-final.json':
               raise SystemExit(f'Release quality file escaped reviewed output root: {quality}')
+          if critic != root / 'final-critic.json':
+              raise SystemExit(f'Release critic escaped reviewed output root: {critic}')
+          if budget != root / 'ai-budget.json':
+              raise SystemExit(f'Release budget escaped reviewed output root: {budget}')
+          if manifest != root / 'production-manifest.json':
+              raise SystemExit(f'Release manifest escaped reviewed output root: {manifest}')
           if telemetry is not None and telemetry != root / 'planning-telemetry.json':
               raise SystemExit(f'Release telemetry escaped reviewed output root: {telemetry}')
-          if not video.is_file():
-              raise SystemExit(f'Missing reviewed final.mp4: {video}')
-          if not quality.is_file():
-              raise SystemExit(f'Missing reviewed quality-final.json: {quality}')
+          if opening is not None and opening != root / 'opening-visual-audit.json':
+              raise SystemExit(f'Release opening audit escaped reviewed output root: {opening}')
+          for required in (video, quality, critic, budget, manifest):
+              if not required.is_file():
+                  raise SystemExit(f'Missing reviewed release asset: {required}')
           size = video.stat().st_size
           if size <= 1024 * 1024:
               raise SystemExit(f'Release blocked: final.mp4 is not >1MB: {size} bytes')
@@ -359,12 +405,17 @@ jobs:
               raise SystemExit('Release blocked: duration_ok is not true for reviewed output')
           if telemetry is not None and not telemetry.is_file():
               raise SystemExit(f'Release telemetry path was exported but file is missing: {telemetry}')
+          if opening is not None and not opening.is_file():
+              raise SystemExit(f'Release opening audit path was exported but file is missing: {opening}')
           print(f'Release asset validation PASS: root={root} size={size} duration_ok=true')
           PY
           tag="video-${RUN_NUMBER}"
-          release_assets=("$FINAL_VIDEO_PATH")
+          release_assets=("$FINAL_VIDEO_PATH" "$FINAL_CRITIC_PATH" "$FINAL_BUDGET_PATH" "$FINAL_MANIFEST_PATH")
           if [ -n "$FINAL_TELEMETRY_PATH" ]; then
             release_assets+=("$FINAL_TELEMETRY_PATH")
+          fi
+          if [ -n "$FINAL_OPENING_AUDIT_PATH" ]; then
+            release_assets+=("$FINAL_OPENING_AUDIT_PATH")
           fi
           gh release create "$tag" "${release_assets[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
