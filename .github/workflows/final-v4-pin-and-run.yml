@@ -1,0 +1,78 @@
+name: Final V4 Pin And Run
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/final-v4-pin-and-run.yml"
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  update-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+
+      - name: Update V4 engine SHA
+        env:
+          OLD_SHA: a1eb2fdeffe14fa369844e35caa61708f79285d0
+          NEW_SHA: 7629bc87a0adcd1a1c0864ecf833478076f01ad3
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+          old = os.environ['OLD_SHA']
+          new = os.environ['NEW_SHA']
+          count = text.count(old)
+          if count != 2:
+              raise SystemExit(f'Expected exactly 2 V4 engine SHA pins, found {count}')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/produce-resilient-v4.yml
+          git diff --cached --check
+          git commit -m 'ci: pin V4 to merged content-tone engine'
+          git push origin HEAD:main
+
+      - name: Dispatch decisive production run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request
+          url = f"https://api.github.com/repos/{os.environ['REPO']}/actions/workflows/produce-resilient-v4.yml/dispatches"
+          payload = json.dumps({
+              'ref': 'main',
+              'inputs': {
+                  'topic': 'صوت الآخرين في رأسك',
+                  'format': 'film',
+              },
+          }, ensure_ascii=False).encode('utf-8')
+          req = urllib.request.Request(
+              url,
+              data=payload,
+              method='POST',
+              headers={
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'Content-Type': 'application/json; charset=utf-8',
+              },
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              if resp.status != 204:
+                  raise SystemExit(f'Unexpected dispatch status: {resp.status}')
+          print('Dispatched V4 production for topic: صوت الآخرين في رأسك')
+          PY
