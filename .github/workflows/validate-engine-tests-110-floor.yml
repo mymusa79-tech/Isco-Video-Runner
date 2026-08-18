@@ -1,4 +1,4 @@
-name: Inspect Run41 tone audit context
+name: Validate Run41 planner quality guard
 
 on:
   pull_request:
@@ -7,28 +7,65 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
-  inspect:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      TARGET_JOB: "95736460098"
-      GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 20
     steps:
-      - name: Extract quality audit context
-        shell: bash
+      - name: Checkout Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Runner
+          ref: fix/run41-planner-quality-guard
+          path: candidate
+          persist-credentials: false
+
+      - name: Checkout pinned Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ee4c9983258714a7033d31481bd0f5f473d1de31
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: candidate/engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine
+        working-directory: candidate/engine
         run: |
-          set -euo pipefail
-          gh api --allow-escape-sequences \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/${GITHUB_REPOSITORY}/actions/jobs/${TARGET_JOB}/logs" \
-            > job.log
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
 
-          echo "=== QUALITY / TONE MATCHES ==="
-          grep -nEi 'tone|naturalness|preach|cultural|dignity|narrative.format|religious|content.quality|semantic|repetition|repair dossier|issue.notes|needs.repair|quality audit|audit.*block|status.*block' job.log | tail -n 260 || true
+      - name: Full Engine unit suite
+        working-directory: candidate/engine
+        run: python -m unittest discover -s tests -q
 
-          echo "=== PLANNING WINDOW ==="
-          sed -n '3885,3955p' job.log
+      - name: Run Runner planner guard tests
+        working-directory: candidate
+        env:
+          PYTHONPATH: ${{ github.workspace }}/candidate
+        run: |
+          python -m unittest scripts.test_append_retry_guard -v
+          python -m unittest scripts.test_planner_quality_guard -v
+
+      - name: Verify runtime guard integration
+        working-directory: candidate
+        env:
+          PYTHONPATH: ${{ github.workspace }}/candidate
+        run: |
+          python - <<'PY'
+          from scripts.planner_quality_guard import install_planner_quality_guard, _single_use_transition_slots
+          from isco_video_agent import resilient_planner as staged
+
+          install_planner_quality_guard()
+          assert _single_use_transition_slots(["A", "B", "C"], 8) == ["A", "B", "C", "", "", "", ""]
+          assert "SPOKEN narration itself" in staged._NARRATIVE_FORMATS["question_answer"]
+          print("Run41 quality guard integration PASS: no recycled hints; spoken Q/A rule active")
+          PY
