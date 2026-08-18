@@ -14,6 +14,7 @@ from scripts.voice_mesh import install_voice_mesh
 # Production-proof trigger only: no runtime behavior change.
 # Run36 trigger only: no runtime behavior change.
 # Run37 trigger only: no runtime behavior change.
+# Run38 production trigger: صوت الآخرين في رأسك
 
 
 def _resolve_plan_source() -> str:
