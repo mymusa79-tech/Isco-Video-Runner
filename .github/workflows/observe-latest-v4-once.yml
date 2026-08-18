@@ -1,0 +1,46 @@
+name: Observe Latest V4 Once
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/observe-latest-v4-once.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find newly dispatched V4 run and write marker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CUTOFF: "2026-08-18T00:16:50Z"
+        run: |
+          set -euo pipefail
+          match=""
+          for _ in $(seq 1 18); do
+            runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow produce-resilient-v4.yml --event workflow_dispatch --limit 10 --json databaseId,url,status,conclusion,headSha,createdAt,displayTitle)"
+            match="$(RUNS_JSON="$runs" CUTOFF="$CUTOFF" python - <<'PY'
+          import json, os
+          runs = json.loads(os.environ['RUNS_JSON'])
+          cutoff = os.environ['CUTOFF']
+          fresh = [r for r in runs if str(r.get('createdAt','')) >= cutoff]
+          if fresh:
+              fresh.sort(key=lambda r: r.get('createdAt',''), reverse=True)
+              print(json.dumps(fresh[0], ensure_ascii=False, separators=(',', ':')))
+          PY
+          )"
+            if [ -n "$match" ]; then break; fi
+            sleep 10
+          done
+          if [ -z "$match" ]; then
+            match='{"error":"no_new_v4_workflow_dispatch_found","cutoff":"2026-08-18T00:16:50Z"}'
+          fi
+          payload="$(printf '%s\n' "$match" | base64 -w0)"
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/.ops/v4-latest-run.json" \
+            -f message='ops: record latest V4 production run' \
+            -f content="$payload" \
+            -f branch=main >/dev/null
