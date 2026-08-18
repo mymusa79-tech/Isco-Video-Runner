@@ -1,4 +1,4 @@
-name: Inspect decisive production run
+name: Inspect Run40 production failure
 
 on:
   pull_request:
@@ -14,15 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      TARGET_SHA: 85df6f0ed454ed3e61542b3d9b3002e4ddac3b36
+      TARGET_JOB: "95729550957"
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Query decisive production run
+      - name: Extract production failure context
+        shell: bash
         run: |
           set -euo pipefail
-          echo "Target SHA: $TARGET_SHA"
           gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=20" \
-            --jq '.workflow_runs[] | [.id,.name,.run_number,.event,.status,(.conclusion // ""),.head_sha,.created_at,.html_url] | @tsv'
+            "/repos/${GITHUB_REPOSITORY}/actions/jobs/${TARGET_JOB}/logs" \
+            > job.log
+
+          echo "=== ERROR MATCHES (last 120) ==="
+          grep -nEi 'Traceback|RuntimeError|ValueError|AssertionError|Exception|Error:|failed|blocked|Script Doctor|under.?length|duration|retry' job.log | tail -n 120 || true
+
+          echo "=== FINAL 260 LOG LINES ==="
+          tail -n 260 job.log
