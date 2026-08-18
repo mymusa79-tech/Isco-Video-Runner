@@ -79,6 +79,34 @@ def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> di
     return manifest
 
 
+def _attach_observer_evidence_to_telemetry(
+    telemetry_path: Path,
+    *,
+    manifest: dict,
+    critic: dict,
+    ledger: BudgetLedger,
+    output_dir: Path,
+) -> None:
+    """Make existing release telemetry the durable provenance/critic envelope.
+
+    V4 already uploads planning-telemetry.json and attaches it to the GitHub Release.
+    Embedding these structured reports there preserves provenance without changing the
+    publication gate or making an observe-only critic a new workflow failure point.
+    """
+    data = json.loads(telemetry_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError("planning telemetry must be a JSON object")
+    data["production_manifest"] = manifest
+    data["final_critic"] = critic
+    data["ai_budget"] = ledger.to_summary()
+    opening_path = output_dir / "opening-visual-audit.json"
+    if opening_path.exists():
+        opening = json.loads(opening_path.read_text(encoding="utf-8"))
+        if isinstance(opening, dict):
+            data["opening_visual_audit"] = opening
+    telemetry_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def main() -> None:
     install_schema_guard()
     install_router()
@@ -145,7 +173,14 @@ def main() -> None:
     except Exception:
         pass
 
-    write_planning_telemetry(out)
+    telemetry_path = write_planning_telemetry(out)
+    _attach_observer_evidence_to_telemetry(
+        telemetry_path,
+        manifest=manifest,
+        critic=critic,
+        ledger=ledger,
+        output_dir=out,
+    )
     print(f"Production completed: {out.name}")
 
 
