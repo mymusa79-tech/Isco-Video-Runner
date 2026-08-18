@@ -6,6 +6,7 @@ from pathlib import Path
 
 import isco_video_agent.orchestrator as orchestrator
 from scripts.append_retry_guard import install_append_retry_guard
+from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
@@ -53,6 +54,7 @@ def main() -> None:
     install_router()
     install_planner_quality_guard()
     install_append_retry_guard()
+    install_brand_anchor_guard()
     install_product_proof_fallback()
     install_voice_mesh()
     start_progress()
@@ -66,9 +68,6 @@ def main() -> None:
             do_research=True,
         )
     except Exception:
-        # planning-telemetry.json must exist on a failed run too - it's the exact
-        # record needed to see which provider failed and why, without which this file
-        # would only ever appear on the successful runs that need it least.
         out_dir = _latest_output_dir()
         if out_dir is not None:
             write_planning_telemetry(out_dir)
