@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 import isco_video_agent.orchestrator as orchestrator
+from scripts.append_retry_guard import install_append_retry_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
 from scripts.task_level_planner_router import get_used_providers, install_router, write_planning_telemetry
@@ -49,6 +50,7 @@ def _latest_output_dir() -> Path | None:
 def main() -> None:
     install_schema_guard()
     install_router()
+    install_append_retry_guard()
     install_product_proof_fallback()
     install_voice_mesh()
     start_progress()
