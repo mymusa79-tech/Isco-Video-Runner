@@ -1,4 +1,4 @@
-name: Locate post-Run40 production run
+name: Inspect Run41 production failure
 
 on:
   pull_request:
@@ -14,14 +14,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      TARGET_SHA: de813d23713645a9fe764b6ab0c8aa549459c5fd
+      TARGET_JOB: "95736460098"
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Query runs for merge SHA
+      - name: Extract Run41 failure context
+        shell: bash
         run: |
           set -euo pipefail
-          gh api \
+          gh api --allow-escape-sequences \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=20" \
-            --jq '.workflow_runs[] | [.id,.name,.run_number,.event,.status,(.conclusion // ""),.head_sha,.created_at,.html_url] | @tsv'
+            "/repos/${GITHUB_REPOSITORY}/actions/jobs/${TARGET_JOB}/logs" \
+            > job.log
+
+          echo "=== PLANNER KEY EVENTS ==="
+          grep -nEi 'Planning subtask|Script Doctor|bounded retry|repair dossier|repair applied|words=|append|duration' job.log | tail -n 220 || true
+
+          echo "=== ERROR MATCHES ==="
+          grep -nEi 'Traceback|RuntimeError|ValueError|AssertionError|Exception|Error:|failed|blocked|under.?length|duration|retry|append' job.log | tail -n 160 || true
+
+          echo "=== FINAL 320 LOG LINES ==="
+          tail -n 320 job.log
