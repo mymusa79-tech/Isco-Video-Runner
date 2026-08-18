@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 
+import isco_video_agent.orchestrator as orchestrator
+import isco_video_agent.resilient_planner as staged
 from isco_video_agent.models import ProductionPlan, ScriptSection
-from scripts.brand_anchor_guard import _enforce_brand_anchors_once
+from scripts.brand_anchor_guard import _enforce_brand_anchors_once, install_brand_anchor_guard
 
 
 class BrandAnchorGuardTests(unittest.TestCase):
@@ -70,6 +72,40 @@ class BrandAnchorGuardTests(unittest.TestCase):
         _enforce_brand_anchors_once(plan)
         twice = [section.narration for section in plan.sections]
         self.assertEqual(once, twice)
+
+    def test_install_does_not_rebind_router_delegate(self) -> None:
+        original_orchestrator_build_plan = orchestrator.build_plan
+        original_staged_build_plan = staged.build_plan
+        calls: list[str] = []
+        try:
+            def base_build_plan(*args, **kwargs):
+                calls.append("base")
+                return self._plan("بداية طبيعية.", "نهاية طبيعية.")
+
+            def routed_build_plan(*args, **kwargs):
+                calls.append("router")
+                return staged.build_plan(*args, **kwargs)
+
+            routed_build_plan._is_resilient_router = True
+            staged.build_plan = base_build_plan
+            orchestrator.build_plan = routed_build_plan
+
+            install_brand_anchor_guard()
+
+            self.assertIs(staged.build_plan, base_build_plan)
+            plan = orchestrator.build_plan()
+            self.assertEqual(calls, ["router", "base"])
+            self.assertEqual(
+                plan.sections[0].narration.count(plan.identity_opener),
+                1,
+            )
+            self.assertEqual(
+                plan.sections[-1].narration.count(plan.identity_closer),
+                1,
+            )
+        finally:
+            orchestrator.build_plan = original_orchestrator_build_plan
+            staged.build_plan = original_staged_build_plan
 
 
 if __name__ == "__main__":
