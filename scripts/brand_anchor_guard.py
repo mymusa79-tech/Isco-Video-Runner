@@ -89,5 +89,8 @@ def install_brand_anchor_guard() -> None:
 
     guarded_build_plan._isco_brand_anchor_guard = True
     orchestrator.build_plan = guarded_build_plan
-    staged.build_plan = guarded_build_plan
+    # Do not rebind staged.build_plan here. install_router() deliberately delegates
+    # routed_build_plan() through that module-level callable; rebinding it to this
+    # outer wrapper makes routed_build_plan -> staged.build_plan -> routed_build_plan
+    # recurse before the first provider attempt.
     print("Brand anchor guard installed: opener/closer normalized to one exact anchor each")
