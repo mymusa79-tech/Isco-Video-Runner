@@ -60,6 +60,14 @@ def _production_id() -> str:
     return f"v4:{run_id}:{attempt}"
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> dict:
     final_path = out / "final.mp4"
     if not final_path.is_file():
@@ -78,7 +86,7 @@ def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> di
         "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "").strip() or None,
         "release_tag": f"video-{run_number}" if run_number else None,
         "format": fmt,
-        "final_sha256": hashlib.sha256(final_path.read_bytes()).hexdigest(),
+        "final_sha256": _sha256_file(final_path),
         "youtube_video_id": video_id or None,
         "publication_binding": "verified" if verified else "unbound",
         "binding_source": binding_source or None,
