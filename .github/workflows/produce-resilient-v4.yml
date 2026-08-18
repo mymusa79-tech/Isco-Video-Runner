@@ -225,6 +225,7 @@ jobs:
           path: |
             engine/output/*/quality-final.json
             engine/output/*/quality-precheck.json
+            engine/output/*/factuality-audit.json
             engine/output/*/plan.json
             engine/output/*/opportunities.json
             engine/output/*/research.json
