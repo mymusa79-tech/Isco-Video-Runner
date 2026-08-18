@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: afa2f08416ac2c0f85edb1b73f1ed17518990a93
+          ref: a1eb2fdeffe14fa369844e35caa61708f79285d0
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -200,7 +200,7 @@ jobs:
           YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
           YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
           YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
-          ISCO_ENGINE_SHA: afa2f08416ac2c0f85edb1b73f1ed17518990a93
+          ISCO_ENGINE_SHA: a1eb2fdeffe14fa369844e35caa61708f79285d0
           TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token
           TELEGRAM_CHAT_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-chat-id
           TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
