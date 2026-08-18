@@ -12,6 +12,14 @@ from unittest.mock import patch
 import scripts.run_v3_voice as run_v3_voice
 
 
+def _write_fake_telemetry(out_dir: Path, calls: list | None = None) -> Path:
+    if calls is not None:
+        calls.append(("telemetry", out_dir))
+    path = out_dir / "planning-telemetry.json"
+    path.write_text(json.dumps({"providers": {}, "attempts": []}), encoding="utf-8")
+    return path
+
+
 class ResolvePlanSourceTests(unittest.TestCase):
     def test_fallback_wins_even_if_providers_were_also_recorded(self) -> None:
         with patch.object(run_v3_voice, "was_fallback_used", return_value=True), \
@@ -145,10 +153,18 @@ class MainWritesTelemetryTests(_MainPatchMixin, unittest.TestCase):
                     patch.object(run_v3_voice.orchestrator, "produce", return_value=out_dir), \
                     patch.object(run_v3_voice, "_run_final_critic", return_value={"status": "pass"}), \
                     patch.object(run_v3_voice, "_tag_plan_source", side_effect=lambda o: calls.append(("tag", o))), \
-                    patch.object(run_v3_voice, "write_planning_telemetry", side_effect=lambda o: calls.append(("telemetry", o))):
+                    patch.object(
+                        run_v3_voice,
+                        "write_planning_telemetry",
+                        side_effect=lambda o: _write_fake_telemetry(o, calls),
+                    ):
                 run_v3_voice.main()
 
             self.assertEqual(calls, [("tag", out_dir), ("telemetry", out_dir)])
+            telemetry = json.loads((out_dir / "planning-telemetry.json").read_text(encoding="utf-8"))
+            self.assertIn("production_manifest", telemetry)
+            self.assertIn("final_critic", telemetry)
+            self.assertIn("ai_budget", telemetry)
 
     def test_failure_path_still_writes_telemetry_to_the_latest_output_dir(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -220,12 +236,19 @@ class FinalCriticV4AcceptanceTests(_MainPatchMixin, unittest.TestCase):
                     patch.object(run_v3_voice.orchestrator, "produce", side_effect=produce), \
                     patch.object(run_v3_voice, "_run_final_critic", side_effect=critic), \
                     patch.object(run_v3_voice, "_tag_plan_source"), \
-                    patch.object(run_v3_voice, "write_planning_telemetry"):
+                    patch.object(
+                        run_v3_voice,
+                        "write_planning_telemetry",
+                        side_effect=lambda o: _write_fake_telemetry(o),
+                    ):
                 run_v3_voice.main()
 
             self.assertEqual(order, ["produce", "critic"])
             self.assertTrue((out_dir / "ai-budget.json").exists())
             self.assertTrue((out_dir / "production-manifest.json").exists())
+            telemetry = json.loads((out_dir / "planning-telemetry.json").read_text(encoding="utf-8"))
+            self.assertEqual(telemetry["final_critic"]["status"], "block")
+            self.assertEqual(telemetry["production_manifest"]["publication_binding"], "unbound")
 
 
 if __name__ == "__main__":
