@@ -20,6 +20,7 @@ from isco_video_agent.ai_budget import (  # noqa: E402
     BudgetLedger,
     Capability,
     Priority,
+    PROVIDER_ATTEMPT_HARD_CAP,
     TaskSpec,
     budget_task_scope,
 )
@@ -275,14 +276,11 @@ class PlannerWireAccountingTests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(gemini.call_count, 1)
 
-    # Explicit requirement: authorize() is invoked but its returned bool remains
-    # ignored. Even an enforce=True ledger already at its cap must not change routing
-    # behavior in this accounting-only patch.
-    def test_authorize_false_is_ignored_and_does_not_enable_enforcement(self) -> None:
+    def test_authorize_false_blocks_provider_before_call_and_does_not_record_attempt(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
         spec = _spec("CAP_TEST")
         ledger.register_task(spec)
-        for index in range(42):
+        for index in range(PROVIDER_ATTEMPT_HARD_CAP["film"]):
             ledger.record_attempt(
                 spec.task_id,
                 provider="seed",
@@ -298,14 +296,15 @@ class PlannerWireAccountingTests(unittest.TestCase):
             calls["n"] += 1
             return {"ok": True}
 
+        before = ledger.to_summary()["provider_attempts"]["total"]
         with budget_task_scope(ledger, spec, requested_model="gemini-2.5-flash"):
-            result = router._budgeted_provider_call(
-                "gemini", "gemini-2.5-flash", provider
-            )
+            with self.assertRaisesRegex(RuntimeError, "budget authorization denied"):
+                router._budgeted_provider_call(
+                    "gemini", "gemini-2.5-flash", provider
+                )
 
-        self.assertEqual(result, {"ok": True})
-        self.assertEqual(calls["n"], 1)
-        self.assertEqual(ledger.to_summary()["provider_attempts"]["total"], 43)
+        self.assertEqual(calls["n"], 0)
+        self.assertEqual(ledger.to_summary()["provider_attempts"]["total"], before)
 
 
 if __name__ == "__main__":
