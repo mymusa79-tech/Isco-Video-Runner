@@ -1,0 +1,228 @@
+---
+03688: 2026-08-18T10:39:52.2597008Z Visual candidate scored: 9/10
+03689: 2026-08-18T10:39:52.2597287Z Visual provider selected: pexels
+03690: 2026-08-18T10:39:52.2597871Z Audio measurement: integrated_lufs=-16.06 true_peak_dbtp=-12.00 lra=0.00 threshold=-26.06 expected_lufs=-16.00 lufs_delta=-0.06 audio_ok=True
+03691: 2026-08-18T10:39:52.2598763Z AV-sync check: video_stream_duration=3.000 audio_stream_duration=3.000 av_delta_seconds=0.000 audio_coverage_ratio=1.0000 av_sync_ok=True
+03692: 2026-08-18T10:39:52.2599378Z Visual candidate scored: 9/10
+03693: 2026-08-18T10:39:52.2599662Z Visual provider selected: pexels
+03694: 2026-08-18T10:39:52.2600246Z Audio measurement: integrated_lufs=-16.06 true_peak_dbtp=-12.00 lra=0.00 threshold=-26.06 expected_lufs=-16.00 lufs_delta=-0.06 audio_ok=True
+03695: 2026-08-18T10:39:52.2601180Z AV-sync check: video_stream_duration=3.000 audio_stream_duration=3.000 av_delta_seconds=0.000 audio_coverage_ratio=1.0000 av_sync_ok=True
+03696: 2026-08-18T10:39:52.2601967Z Script Doctor bounded under-length retry: current_words=664 minimum=800 deficit=136 retry_limit=1
+03697: 2026-08-18T10:39:52.2602638Z Script Doctor bounded retry result_words=850
+03698: 2026-08-18T10:39:52.2603155Z Script Doctor bounded under-length retry: current_words=793 minimum=800 deficit=7 retry_limit=1
+03699: 2026-08-18T10:39:52.2603669Z Script Doctor bounded retry result_words=799
+03700: 2026-08-18T10:39:52.2604173Z Script Doctor bounded under-length retry: current_words=664 minimum=800 deficit=136 retry_limit=1
+03701: 2026-08-18T10:39:52.2605002Z Script Doctor bounded under-length retry: current_words=664 minimum=800 deficit=136 retry_limit=1
+03702: 2026-08-18T10:39:52.2605517Z Script Doctor bounded retry result_words=1460
+03703: 2026-08-18T10:39:52.2606018Z Script Doctor bounded under-length retry: current_words=664 minimum=800 deficit=136 retry_limit=1
+03704: 2026-08-18T10:39:52.2606529Z Script Doctor bounded retry result_words=850
+03705: 2026-08-18T10:39:52.6605010Z Collecting piper-tts==1.4.2
+03706: 2026-08-18T10:39:52.7613321Z   Downloading piper_tts-1.4.2-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl.metadata (2.3 kB)
+03707: 2026-08-18T10:39:52.8382027Z Collecting onnxruntime<2,>=1 (from piper-tts==1.4.2)
+03708: 2026-08-18T10:39:52.8589779Z   Downloading onnxruntime-1.29.0-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (5.6 kB)
+03709: 2026-08-18T10:39:52.8764081Z Collecting pathvalidate<4,>=3 (from piper-tts==1.4.2)
+03710: 2026-08-18T10:39:52.8974578Z   Downloading pathvalidate-3.3.1-py3-none-any.whl.metadata (12 kB)
+03711: 2026-08-18T10:39:52.9156549Z Collecting flatbuffers (from onnxruntime<2,>=1->piper-tts==1.4.2)
+03712: 2026-08-18T10:39:52.9361480Z   Downloading flatbuffers-25.12.19-py2.py3-none-any.whl.metadata (1.0 kB)
+03713: 2026-08-18T10:39:53.1363445Z Collecting numpy>=1.21.6 (from onnxruntime<2,>=1->piper-tts==1.4.2)
+03714: 2026-08-18T10:39:53.1572418Z   Downloading numpy-2.5.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+03715: 2026-08-18T10:39:53.1740524Z Collecting packaging (from onnxruntime<2,>=1->piper-tts==1.4.2)
+03716: 2026-08-18T10:39:53.1947856Z   Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+---
+03903: 2026-08-18T10:40:46.5056233Z Planning schema guard installed
+03904: 2026-08-18T10:40:46.5056850Z Product-proof planning fallback installed for the single test topic
+03905: 2026-08-18T10:40:46.5057605Z Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices Iapetus/Gacrux
+03906: 2026-08-18T10:40:46.5058298Z Telegram notify: sendMessage (initial progress message)
+03907: 2026-08-18T10:40:46.5058775Z Telegram sendMessage succeeded
+03908: 2026-08-18T10:40:46.5059211Z Telegram progress message created: message_id=30
+03909: 2026-08-18T10:40:46.5059715Z Telegram notify: editMessageText (stage=planning)
+03910: 2026-08-18T10:40:46.5060172Z Telegram editMessageText succeeded
+03911: 2026-08-18T10:40:46.5060571Z Planning subtask provider selected: gemini
+03912: 2026-08-18T10:40:46.5061000Z Planning subtask provider selected: gemini
+03913: 2026-08-18T10:40:46.5061422Z Planning subtask provider selected: gemini
+03914: 2026-08-18T10:40:46.5061906Z Planning subtask provider selected: gemini
+03915: 2026-08-18T10:40:46.5062855Z Planning subtask provider selected: gemini
+03916: 2026-08-18T10:40:46.5063598Z Planning subtask provider selected: gemini
+03917: 2026-08-18T10:40:46.5064310Z Planning subtask provider selected: gemini
+03918: 2026-08-18T10:40:46.5065061Z Planning subtask provider selected: gemini
+03919: 2026-08-18T10:40:46.5065736Z Planning subtask provider selected: gemini
+03920: 2026-08-18T10:40:46.5066322Z Planning subtask provider selected: gemini
+03921: 2026-08-18T10:40:46.5066891Z Script Doctor bounded under-length retry: current_words=651 minimum=800 deficit=149 retry_limit=1
+03922: 2026-08-18T10:40:46.5068013Z Planning subtask provider selected: gemini
+03923: 2026-08-18T10:40:46.5068561Z Script Doctor bounded retry result_words=774
+03924: 2026-08-18T10:40:46.5068902Z Traceback (most recent call last):
+03925: 2026-08-18T10:40:46.5077612Z   File "/home/runner/work/Isco-Video-Runner/Isco-Video-Runner/engine/../scripts/run_v3_voice.py", line 75, in <module>
+03926: 2026-08-18T10:40:46.5078225Z     main()
+03927: 2026-08-18T10:40:46.5078796Z   File "/home/runner/work/Isco-Video-Runner/Isco-Video-Runner/engine/../scripts/run_v3_voice.py", line 55, in main
+03928: 2026-08-18T10:40:46.5079370Z     out = orchestrator.produce(
+03929: 2026-08-18T10:40:46.5079647Z           ^^^^^^^^^^^^^^^^^^^^^
+03930: 2026-08-18T10:40:46.5080260Z   File "/home/runner/work/Isco-Video-Runner/Isco-Video-Runner/engine/src/isco_video_agent/orchestrator.py", line 427, in produce
+03931: 2026-08-18T10:40:46.5080879Z     plan = _ledger_planner_call(
+03932: 2026-08-18T10:40:46.5081149Z            ^^^^^^^^^^^^^^^^^^^^^
+03933: 2026-08-18T10:40:46.5081805Z   File "/home/runner/work/Isco-Video-Runner/Isco-Video-Runner/engine/src/isco_video_agent/orchestrator.py", line 216, in _ledger_planner_call
+03934: 2026-08-18T10:40:46.5082930Z     return _ledger_routed_call(ledger, spec, resolved_model, fn, *args, **kwargs)
+03935: 2026-08-18T10:40:46.5083398Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+03936: 2026-08-18T10:40:46.5084129Z   File "/home/runner/work/Isco-Video-Runner/Isco-Video-Runner/engine/src/isco_video_agent/orchestrator.py", line 209, in _ledger_routed_call
+---
+03942: 2026-08-18T10:40:46.5087467Z   File "/home/runner/work/Isco-Video-Runner/Isco-Video-Runner/scripts/product_proof_plan.py", line 134, in wrapped
+03943: 2026-08-18T10:40:46.5088139Z     return original(api_key, topic, requested_format, content_model, **kwargs)
+03944: 2026-08-18T10:40:46.5088578Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+03945: 2026-08-18T10:40:46.5089245Z   File "/home/runner/work/Isco-Video-Runner/Isco-Video-Runner/scripts/task_level_planner_router.py", line 433, in routed_build_plan
+03946: 2026-08-18T10:40:46.5089876Z     plan = staged.build_plan(*args, **kwargs)
+03947: 2026-08-18T10:40:46.5090184Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+03948: 2026-08-18T10:40:46.5090826Z   File "/home/runner/work/Isco-Video-Runner/Isco-Video-Runner/engine/src/isco_video_agent/resilient_planner.py", line 751, in build_plan
+03949: 2026-08-18T10:40:46.5091459Z     raise RuntimeError(
+03950: 2026-08-18T10:40:46.5092401Z RuntimeError: Pre-TTS duration contract failed after bounded Script Doctor retry: film narration has 774 words; required 800-1450; first_repair_words=651; duration_retry_limit=1
+03951: 2026-08-18T10:40:46.6663517Z ##[error]Process completed with exit code 1.
+03952: 2026-08-18T10:40:46.6734854Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+03953: 2026-08-18T10:40:46.6735336Z with:
+03954: 2026-08-18T10:40:46.6735579Z   name: isco-resilient-v4-diagnostics-37
+03955: 2026-08-18T10:40:46.6736582Z   path: engine/output/*/quality-final.json
+03956: engine/output/*/quality-precheck.json
+03957: engine/output/*/plan.json
+03958: engine/output/*/opportunities.json
+03959: engine/output/*/research.json
+03960: engine/output/*/planning-telemetry.json
+03961: 
+03962: 2026-08-18T10:40:46.6737601Z   if-no-files-found: warn
+---
+04021: 2026-08-18T10:40:48.0248479Z [36;1m  plan_source=""[0m
+04022: 2026-08-18T10:40:48.0248825Z [36;1m  if [ -n "$FINAL_PLAN_PATH" ] && [ -f "$FINAL_PLAN_PATH" ]; then[0m
+04023: 2026-08-18T10:40:48.0249313Z [36;1m    plan_source="$(PLAN_JSON_PATH="$FINAL_PLAN_PATH" python - <<'PY'[0m
+04024: 2026-08-18T10:40:48.0249714Z [36;1mimport json, os[0m
+04025: 2026-08-18T10:40:48.0249983Z [36;1mfrom pathlib import Path[0m
+04026: 2026-08-18T10:40:48.0250307Z [36;1mpath = Path(os.environ["PLAN_JSON_PATH"])[0m
+04027: 2026-08-18T10:40:48.0250625Z [36;1mtry:[0m
+04028: 2026-08-18T10:40:48.0250912Z [36;1m    data = json.loads(path.read_text(encoding="utf-8"))[0m
+04029: 2026-08-18T10:40:48.0251325Z [36;1m    print(str(data.get("plan_source", "")).strip())[0m
+04030: 2026-08-18T10:40:48.0251670Z [36;1mexcept Exception:[0m
+04031: 2026-08-18T10:40:48.0251932Z [36;1m    print("")[0m
+04032: 2026-08-18T10:40:48.0252544Z [36;1mPY[0m
+04033: 2026-08-18T10:40:48.0252778Z [36;1m)"[0m
+04034: 2026-08-18T10:40:48.0252985Z [36;1m  fi[0m
+04035: 2026-08-18T10:40:48.0253285Z [36;1m  if [ "$plan_source" = "product_proof_fallback" ]; then[0m
+04036: 2026-08-18T10:40:48.0253941Z [36;1m    message="⚠️ الفيديو جاهز — تم استخدام المحتوى الاحتياطي المعتمد (fallback)، وليس تخطيطًا حيًا"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"[0m
+04037: 2026-08-18T10:40:48.0254504Z [36;1m  else[0m
+04038: 2026-08-18T10:40:48.0254897Z [36;1m    message="✅ الفيديو جاهز: ${video_name}"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"[0m
+04039: 2026-08-18T10:40:48.0255346Z [36;1m  fi[0m
+04040: 2026-08-18T10:40:48.0255565Z [36;1melse[0m
+04041: 2026-08-18T10:40:48.0255793Z [36;1m  stage="unknown"[0m
+04042: 2026-08-18T10:40:48.0256056Z [36;1m  for item in \[0m
+04043: 2026-08-18T10:40:48.0256577Z [36;1m    "Checkout runner:${CHECKOUT_RUNNER_OUTCOME}" \[0m
+04044: 2026-08-18T10:40:48.0257015Z [36;1m    "Checkout private engine:${CHECKOUT_ENGINE_OUTCOME}" \[0m
+04045: 2026-08-18T10:40:48.0257594Z [36;1m    "Setup Python:${SETUP_PYTHON_OUTCOME}" \[0m
+04046: 2026-08-18T10:40:48.0257985Z [36;1m    "Install engine:${INSTALL_ENGINE_OUTCOME}" \[0m
+04047: 2026-08-18T10:40:48.0258383Z [36;1m    "Voice preflight:${VOICE_PREFLIGHT_OUTCOME}" \[0m
+04048: 2026-08-18T10:40:48.0258782Z [36;1m    "Prepare request:${PREPARE_REQUEST_OUTCOME}" \[0m
+04049: 2026-08-18T10:40:48.0259209Z [36;1m    "Provider authentication:${VERIFY_PROVIDERS_OUTCOME}" \[0m
+04050: 2026-08-18T10:40:48.0259628Z [36;1m    "Production:${PRODUCE_VIDEO_OUTCOME}" \[0m
+04051: 2026-08-18T10:40:48.0259993Z [36;1m    "Final review:${FINAL_REVIEW_OUTCOME}" \[0m
+04052: 2026-08-18T10:40:48.0260370Z [36;1m    "Upload final video:${UPLOAD_FINAL_OUTCOME}" \[0m
+04053: 2026-08-18T10:40:48.0260752Z [36;1m    "Create release:${CREATE_RELEASE_OUTCOME}"[0m
+04054: 2026-08-18T10:40:48.0261072Z [36;1m  do[0m
+04055: 2026-08-18T10:40:48.0261310Z [36;1m    name="${item%%:*}"[0m
+04056: 2026-08-18T10:40:48.0261589Z [36;1m    outcome="${item#*:}"[0m
+04057: 2026-08-18T10:40:48.0261971Z [36;1m    if [ "$outcome" = "failure" ] || [ "$outcome" = "cancelled" ]; then[0m
+04058: 2026-08-18T10:40:48.0262663Z [36;1m      stage="$name"[0m
+04059: 2026-08-18T10:40:48.0262926Z [36;1m      break[0m
+04060: 2026-08-18T10:40:48.0263157Z [36;1m    fi[0m
+04061: 2026-08-18T10:40:48.0263379Z [36;1m  done[0m
+04062: 2026-08-18T10:40:48.0263620Z [36;1m  reason="راجع سجل GitHub Actions"[0m
+04063: 2026-08-18T10:40:48.0264083Z [36;1m  if [ "$stage" = "Final review" ] && [ -f "$RUNNER_TEMP/final-review-step.log" ]; then[0m
+04064: 2026-08-18T10:40:48.0264911Z [36;1m    candidate="$(grep -E 'Missing|failed|small|Error|Exception|Traceback' "$RUNNER_TEMP/final-review-step.log" | tail -n 1 | tr -d '\r' || true)"[0m
+04065: 2026-08-18T10:40:48.0265663Z [36;1m    if [ -n "$candidate" ]; then reason="${candidate:0:300}"; fi[0m
+04066: 2026-08-18T10:40:48.0266120Z [36;1m  elif [ -f "$RUNNER_TEMP/production-step.log" ]; then[0m
+04067: 2026-08-18T10:40:48.0266932Z [36;1m    candidate="$(grep -E 'Traceback|Error|Exception|failed|blocked|RuntimeError|ValueError' "$RUNNER_TEMP/production-step.log" | tail -n 1 | tr -d '\r' || true)"[0m
+04068: 2026-08-18T10:40:48.0267760Z [36;1m    if [ -n "$candidate" ]; then reason="${candidate:0:300}"; fi[0m
+04069: 2026-08-18T10:40:48.0268136Z [36;1m  fi[0m
+04070: 2026-08-18T10:40:48.0268599Z [36;1m  message="❌ فشل الإنتاج"$'\n'"📍 المرحلة: ${stage}"$'\n'"⏱️ توقف بعد: ${duration_str}"$'\n'"السبب: ${reason}"$'\n'"🔗 ${run_url}"[0m
+04071: 2026-08-18T10:40:48.0269108Z [36;1mfi[0m
+04072: 2026-08-18T10:40:48.0269340Z [36;1mprogress_message_id=""[0m
+04073: 2026-08-18T10:40:48.0269733Z [36;1mif [ -f "$RUNNER_TEMP/telegram-progress-message-id.txt" ]; then[0m
+04074: 2026-08-18T10:40:48.0270327Z [36;1m  progress_message_id="$(tr -d '[:space:]' < "$RUNNER_TEMP/telegram-progress-message-id.txt")"[0m
+04075: 2026-08-18T10:40:48.0270805Z [36;1mfi[0m
+04076: 2026-08-18T10:40:48.0271054Z [36;1mif [ -n "$progress_message_id" ]; then[0m
+04077: 2026-08-18T10:40:48.0271533Z [36;1m  echo "Telegram notify: editMessageText (message_id=${progress_message_id})"[0m
+04078: 2026-08-18T10:40:48.0272295Z [36;1m  if curl --fail-with-body --silent --show-error \[0m
+04079: 2026-08-18T10:40:48.0272693Z [36;1m      --request POST \[0m
+04080: 2026-08-18T10:40:48.0273112Z [36;1m      "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \[0m
+04081: 2026-08-18T10:40:48.0273610Z [36;1m      --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \[0m
+04082: 2026-08-18T10:40:48.0274045Z [36;1m      --data-urlencode "message_id=${progress_message_id}" \[0m
+04083: 2026-08-18T10:40:48.0274469Z [36;1m      --data-urlencode "text=${message}" \[0m
+04084: 2026-08-18T10:40:48.0274794Z [36;1m      >/dev/null; then[0m
+04085: 2026-08-18T10:40:48.0275110Z [36;1m    echo "Telegram editMessageText succeeded"[0m
+04086: 2026-08-18T10:40:48.0275429Z [36;1m  else[0m
+04087: 2026-08-18T10:40:48.0275696Z [36;1m    echo "Telegram editMessageText failed"[0m
+04088: 2026-08-18T10:40:48.0276007Z [36;1m  fi[0m
+04089: 2026-08-18T10:40:48.0276226Z [36;1melse[0m
+04090: 2026-08-18T10:40:48.0276719Z [36;1m  echo "Telegram notify: sendMessage (no saved progress message_id)"[0m
+04091: 2026-08-18T10:40:48.0277196Z [36;1m  if curl --fail-with-body --silent --show-error \[0m
+04092: 2026-08-18T10:40:48.0277672Z [36;1m      --request POST \[0m
+04093: 2026-08-18T10:40:48.0278077Z [36;1m      "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \[0m
+04094: 2026-08-18T10:40:48.0278551Z [36;1m      --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \[0m
+04095: 2026-08-18T10:40:48.0278939Z [36;1m      --data-urlencode "text=${message}" \[0m
+04096: 2026-08-18T10:40:48.0279261Z [36;1m      >/dev/null; then[0m
+04097: 2026-08-18T10:40:48.0279562Z [36;1m    echo "Telegram sendMessage succeeded"[0m
+04098: 2026-08-18T10:40:48.0279876Z [36;1m  else[0m
+04099: 2026-08-18T10:40:48.0280129Z [36;1m    echo "Telegram sendMessage failed"[0m
+04100: 2026-08-18T10:40:48.0280436Z [36;1m  fi[0m
+04101: 2026-08-18T10:40:48.0280647Z [36;1mfi[0m
+04102: 2026-08-18T10:40:48.0317758Z shell: /usr/bin/bash -e {0}
+04103: 2026-08-18T10:40:48.0318045Z env:
+04104: 2026-08-18T10:40:48.0318286Z   JOB_START_EPOCH: 1787049536
+04105: 2026-08-18T10:40:48.0318639Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+04106: 2026-08-18T10:40:48.0319136Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+04107: 2026-08-18T10:40:48.0319614Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+04108: 2026-08-18T10:40:48.0320030Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+04109: 2026-08-18T10:40:48.0320451Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+04110: 2026-08-18T10:40:48.0320869Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+04111: 2026-08-18T10:40:48.0321324Z   ISCO_HISTORY_PATH: /home/runner/work/_temp/isco-state/history.json
+04112: 2026-08-18T10:40:48.0322363Z   TELEGRAM_BOT_TOKEN: ***
+04113: 2026-08-18T10:40:48.0322684Z   TELEGRAM_CHAT_ID: ***
+04114: 2026-08-18T10:40:48.0322940Z   JOB_STATUS: failure
+04115: 2026-08-18T10:40:48.0323194Z   CHECKOUT_RUNNER_OUTCOME: success
+04116: 2026-08-18T10:40:48.0323546Z   CHECKOUT_ENGINE_OUTCOME: success
+04117: 2026-08-18T10:40:48.0323850Z   SETUP_PYTHON_OUTCOME: success
+04118: 2026-08-18T10:40:48.0324138Z   INSTALL_ENGINE_OUTCOME: success
+04119: 2026-08-18T10:40:48.0324417Z   VOICE_PREFLIGHT_OUTCOME: success
+04120: 2026-08-18T10:40:48.0324706Z   PREPARE_REQUEST_OUTCOME: success
+04121: 2026-08-18T10:40:48.0324993Z   VERIFY_PROVIDERS_OUTCOME: success
+04122: 2026-08-18T10:40:48.0325286Z   PRODUCE_VIDEO_OUTCOME: failure
+04123: 2026-08-18T10:40:48.0325564Z   FINAL_REVIEW_OUTCOME: skipped
+04124: 2026-08-18T10:40:48.0325838Z   UPLOAD_FINAL_OUTCOME: skipped
+04125: 2026-08-18T10:40:48.0326113Z   CREATE_RELEASE_OUTCOME: skipped
+04126: 2026-08-18T10:40:48.0326386Z   FINAL_PLAN_PATH: 
+04127: 2026-08-18T10:40:48.0326623Z ##[endgroup]
+04128: 2026-08-18T10:40:48.0443008Z Telegram notify: editMessageText (message_id=30)
+04129: 2026-08-18T10:40:48.5545409Z Telegram editMessageText succeeded
+04130: 2026-08-18T10:40:48.5633591Z Post job cleanup.
+04131: 2026-08-18T10:40:48.6489104Z [command]/usr/bin/git version
+04132: 2026-08-18T10:40:48.6559918Z git version 2.54.0
+04133: 2026-08-18T10:40:48.6609408Z Temporarily overriding HOME='/home/runner/work/_temp/c62489e3-df0a-4310-ae8d-f0cb5a3de58e' before making global git config changes
+04134: 2026-08-18T10:40:48.6610777Z Adding repository directory to the temporary git global config as a safe directory
+04135: 2026-08-18T10:40:48.6615002Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Isco-Video-Runner/Isco-Video-Runner/engine
+04136: 2026-08-18T10:40:48.6646389Z Removing SSH command configuration
+04137: 2026-08-18T10:40:48.6653562Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+04138: 2026-08-18T10:40:48.6688277Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+04139: 2026-08-18T10:40:48.6934849Z Removing HTTP extra header
+04140: 2026-08-18T10:40:48.6941404Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+04141: 2026-08-18T10:40:48.6977957Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+04142: 2026-08-18T10:40:48.7233450Z Removing includeIf entries pointing to credentials config files
+04143: 2026-08-18T10:40:48.7243217Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+04144: 2026-08-18T10:40:48.7279535Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+04145: 2026-08-18T10:40:48.7723225Z Post job cleanup.
+04146: 2026-08-18T10:40:48.8588668Z [command]/usr/bin/git version
+04147: 2026-08-18T10:40:48.8639181Z git version 2.54.0
+04148: 2026-08-18T10:40:48.8686768Z Temporarily overriding HOME='/home/runner/work/_temp/212fdb38-f577-4c4f-a311-20a4fbfe2d7f' before making global git config changes
+04149: 2026-08-18T10:40:48.8688380Z Adding repository directory to the temporary git global config as a safe directory
+04150: 2026-08-18T10:40:48.8691975Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Isco-Video-Runner/Isco-Video-Runner
+04151: 2026-08-18T10:40:48.8726041Z Removing SSH command configuration
+04152: 2026-08-18T10:40:48.8733390Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+04153: 2026-08-18T10:40:48.8770487Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+04154: 2026-08-18T10:40:48.9020519Z Removing HTTP extra header
+04155: 2026-08-18T10:40:48.9026119Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+04156: 2026-08-18T10:40:48.9063450Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+04157: 2026-08-18T10:40:48.9316509Z Removing includeIf entries pointing to credentials config files
+04158: 2026-08-18T10:40:48.9322891Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+04159: 2026-08-18T10:40:48.9360426Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+04160: 2026-08-18T10:40:48.9765228Z Cleaning up orphan processes
