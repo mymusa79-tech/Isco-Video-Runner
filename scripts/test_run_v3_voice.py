@@ -168,6 +168,7 @@ class MainWritesTelemetryTests(_MainPatchMixin, unittest.TestCase):
             request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
             out_dir = Path(d) / "output" / "run-1"
             out_dir.mkdir(parents=True)
+            (out_dir / "final.mp4").write_bytes(b"fake-final")
 
             calls = []
             with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), \
@@ -242,6 +243,7 @@ class FinalCriticV4AcceptanceTests(_MainPatchMixin, unittest.TestCase):
             request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
             out_dir = Path(d) / "output" / "run-1"
             out_dir.mkdir(parents=True)
+            (out_dir / "final.mp4").write_bytes(b"fake-final")
             order = []
 
             def produce(**kwargs):
@@ -253,7 +255,13 @@ class FinalCriticV4AcceptanceTests(_MainPatchMixin, unittest.TestCase):
                 self.assertEqual(kwargs["release_mode"], "observe_only")
                 return {"status": "block", "would_block_if_enforced": True}
 
-            with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), \
+            env = {
+                "REQUEST_FILE": str(request_path),
+                "GITHUB_RUN_ID": "123456",
+                "GITHUB_RUN_NUMBER": "77",
+                "GITHUB_RUN_ATTEMPT": "2",
+            }
+            with patch.dict(os.environ, env, clear=False), \
                     patch.object(run_v3_voice.orchestrator, "produce", side_effect=produce), \
                     patch.object(run_v3_voice, "_run_final_critic", side_effect=critic), \
                     patch.object(run_v3_voice, "_tag_plan_source"), \
@@ -268,8 +276,12 @@ class FinalCriticV4AcceptanceTests(_MainPatchMixin, unittest.TestCase):
             self.assertTrue((out_dir / "ai-budget.json").exists())
             self.assertTrue((out_dir / "production-manifest.json").exists())
             telemetry = json.loads((out_dir / "planning-telemetry.json").read_text(encoding="utf-8"))
+            manifest = telemetry["production_manifest"]
             self.assertEqual(telemetry["final_critic"]["status"], "block")
-            self.assertEqual(telemetry["production_manifest"]["publication_binding"], "unbound")
+            self.assertEqual(manifest["publication_binding"], "unbound")
+            self.assertEqual(manifest["production_id"], "v4:123456:2")
+            self.assertEqual(manifest["release_tag"], "video-77")
+            self.assertEqual(len(manifest["final_sha256"]), 64)
 
 
 if __name__ == "__main__":
