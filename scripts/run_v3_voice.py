@@ -12,6 +12,7 @@ from scripts.telegram_progress import install_progress_hooks, start_progress
 from scripts.voice_mesh import install_voice_mesh
 
 # Production-proof trigger only: no runtime behavior change.
+# Run36 trigger only: no runtime behavior change.
 
 
 def _resolve_plan_source() -> str:
