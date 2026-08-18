@@ -1,0 +1,88 @@
+name: Verify Planner Wrapper Recursion Fix
+
+on:
+  push:
+    branches: ["ci/verify-planner-wrapper-recursion"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact Runner fix
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/planner-wrapper-recursion
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact production Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 7629bc87a0adcd1a1c0864ecf833478076f01ad3
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked test runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r engine/requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e engine
+          python -m pip check
+
+      - name: Syntax check Runner scripts
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/*.py
+
+      - name: Targeted recursion regression tests
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python scripts/test_brand_anchor_guard.py -v
+          python scripts/test_task_level_planner_router.py -v
+          python scripts/test_run_v3_voice.py -v
+
+      - name: Full Runner script test suite
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          count=0
+          for test_file in scripts/test_*.py; do
+            echo "=== RUN ${test_file} ==="
+            python "${test_file}" -v
+            count=$((count + 1))
+          done
+          echo "RUNNER_TEST_FILES=${count}"
+
+      - name: Verify fix branch scope
+        run: |
+          set -euo pipefail
+          git diff --check b23b8d75a2f2165c1ca040b3f863bce877d44bc7..HEAD
+          changed="$(git diff --name-only b23b8d75a2f2165c1ca040b3f863bce877d44bc7..HEAD)"
+          printf '%s\n' "$changed"
+          test "$changed" = $'scripts/brand_anchor_guard.py\nscripts/test_brand_anchor_guard.py'
+
+      - name: Verify no provider secrets exposed
+        run: |
+          set -euo pipefail
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+          test -z "${PEXELS_API_KEY:-}"
+          test -z "${PIXABAY_API_KEY:-}"
+          echo "No paid/provider credentials exposed to verification job"
