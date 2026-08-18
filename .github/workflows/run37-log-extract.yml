@@ -1,0 +1,84 @@
+name: Run37 Log Extract
+
+on:
+  push:
+    branches: ["ops/run37-log-extract"]
+    paths:
+      - ".github/workflows/run37-log-extract.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout diagnostic branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ops/run37-log-extract
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Download and extract exact Run37 markers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_JOB_ID: "95682062006"
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --location \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/jobs/${TARGET_JOB_ID}/logs" \
+            -o /tmp/run37-job.log
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          raw = Path('/tmp/run37-job.log').read_text(encoding='utf-8', errors='replace').splitlines()
+          needles = (
+              'Planning subtask provider selected:',
+              'Script Doctor bounded under-length retry:',
+              'Script Doctor bounded retry result_words=',
+              'Pre-TTS duration contract failed',
+              'Director Phase A',
+              'Director Phase B',
+              'Traceback (most recent call last):',
+              'RuntimeError:',
+              'ValueError:',
+          )
+          hits=[]
+          for i,line in enumerate(raw):
+              if any(n in line for n in needles):
+                  hits.append(i)
+          selected=set()
+          for i in hits:
+              lo=max(0,i-8); hi=min(len(raw),i+13)
+              selected.update(range(lo,hi))
+          # Also capture the tail of the failing production step, bounded and masked.
+          selected.update(range(max(0,len(raw)-140), len(raw)))
+          out=[]
+          last=-2
+          for i in sorted(selected):
+              if i != last+1:
+                  out.append('---')
+              line=raw[i]
+              # Defensive redaction of obvious bearer/query-token forms.
+              line=re.sub(r'(?i)(authorization:\s*bearer\s+)[^\s]+', r'\1***', line)
+              line=re.sub(r'(?i)(api[_-]?key[=:]\s*)[^\s&]+', r'\1***', line)
+              out.append(f'{i+1:05d}: {line}')
+              last=i
+          Path('run37-log-extract.txt').write_text('\n'.join(out)+'\n', encoding='utf-8')
+          PY
+
+      - name: Commit diagnostic excerpt only
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add run37-log-extract.txt
+          git commit -m "ops: record Run37 log excerpt"
+          git push origin HEAD:ops/run37-log-extract
