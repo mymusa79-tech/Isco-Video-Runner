@@ -1,5 +1,6 @@
 name: Pin V4 Agent PR19 once
 
+# Armed after merge so the workflow already exists on default branch before its trigger push.
 on:
   push:
     branches: ["main"]
