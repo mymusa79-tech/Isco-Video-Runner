@@ -127,6 +127,8 @@ def main() -> None:
     os.environ["GEMINI_API_KEY"] = gemini
     ledger = BudgetLedger(request["format"])
 
+    previous_defer = os.environ.get("ISCO_DEFER_YOUTUBE_ANALYTICS")
+    os.environ["ISCO_DEFER_YOUTUBE_ANALYTICS"] = "1"
     try:
         out = orchestrator.produce(
             topic=request["topic"],
@@ -141,6 +143,11 @@ def main() -> None:
             ledger.write(out_dir / "ai-budget.json")
             write_planning_telemetry(out_dir)
         raise
+    finally:
+        if previous_defer is None:
+            os.environ.pop("ISCO_DEFER_YOUTUBE_ANALYTICS", None)
+        else:
+            os.environ["ISCO_DEFER_YOUTUBE_ANALYTICS"] = previous_defer
 
     _tag_plan_source(out)
     plan = _plan_from_json(out / "plan.json")
