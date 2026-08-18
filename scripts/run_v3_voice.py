@@ -34,6 +34,9 @@ def _resolve_plan_source() -> str:
 
 
 def _tag_plan_source(out_dir: Path) -> None:
+    """Record which planner actually produced this run's plan into every JSON
+    artifact the workflow uploads (plan.json, quality-final.json), so a video's real
+    planning source is never just an inference from log-scrollback."""
     source = _resolve_plan_source()
     for filename in ("plan.json", "quality-final.json"):
         path = out_dir / filename
