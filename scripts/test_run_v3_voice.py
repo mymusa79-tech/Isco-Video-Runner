@@ -21,6 +21,10 @@ def _write_fake_telemetry(out_dir: Path, calls: list | None = None) -> Path:
 
 
 class ResolvePlanSourceTests(unittest.TestCase):
+    """Covers item 1: plan_source must always name the real planner that produced a
+    run's plan (gemini | groq | openrouter | product_proof_fallback), and must never
+    claim a live provider succeeded when the fallback actually produced the plan."""
+
     def test_fallback_wins_even_if_providers_were_also_recorded(self) -> None:
         with patch.object(run_v3_voice, "was_fallback_used", return_value=True), \
                 patch.object(run_v3_voice, "get_used_providers", return_value=["gemini"]):
@@ -43,6 +47,9 @@ class ResolvePlanSourceTests(unittest.TestCase):
 
 
 class TagPlanSourceTests(unittest.TestCase):
+    """Covers item 1: plan_source must land in every JSON artifact the workflow
+    uploads (plan.json, quality-final.json), not just one of them."""
+
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
         self.out_dir = Path(self._tmpdir.name)
@@ -62,20 +69,26 @@ class TagPlanSourceTests(unittest.TestCase):
         quality = json.loads((self.out_dir / "quality-final.json").read_text(encoding="utf-8"))
         self.assertEqual(plan["plan_source"], "groq")
         self.assertEqual(quality["plan_source"], "groq")
+        # Original fields must survive the round-trip untouched.
         self.assertEqual(plan["topic"], "x")
         self.assertTrue(quality["duration_ok"])
 
     def test_missing_artifact_is_skipped_not_an_error(self) -> None:
         (self.out_dir / "plan.json").write_text(json.dumps({"topic": "x"}), encoding="utf-8")
+        # quality-final.json deliberately absent.
         with patch.object(run_v3_voice, "was_fallback_used", return_value=True), \
                 patch.object(run_v3_voice, "get_used_providers", return_value=[]):
-            run_v3_voice._tag_plan_source(self.out_dir)
+            run_v3_voice._tag_plan_source(self.out_dir)  # must not raise
         plan = json.loads((self.out_dir / "plan.json").read_text(encoding="utf-8"))
         self.assertEqual(plan["plan_source"], "product_proof_fallback")
         self.assertFalse((self.out_dir / "quality-final.json").exists())
 
 
 class LatestOutputDirTests(unittest.TestCase):
+    """Covers write_planning_telemetry()'s only usable target on a failed run: produce()
+    raised before returning an out_dir, so main()'s except-handler must locate whatever
+    output directory the run was actually writing to some other way."""
+
     def test_returns_none_when_no_output_directories_exist(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             with _chdir(d):
@@ -96,6 +109,9 @@ class LatestOutputDirTests(unittest.TestCase):
 
 
 class _chdir:
+    """Minimal contextmanager: temporarily chdir, since _latest_output_dir() reads the
+    relative "output" directory exactly like main() does at real production runtime."""
+
     def __init__(self, path):
         self._path = path
 
@@ -141,6 +157,11 @@ class _MainPatchMixin:
 
 
 class MainWritesTelemetryTests(_MainPatchMixin, unittest.TestCase):
+    """Covers the planning-telemetry request's core guarantee: planning-telemetry.json
+    must exist after every real production attempt, success or failure alike - it's
+    the exact record needed to see which provider failed and why, so it can't be
+    conditioned on produce() actually returning."""
+
     def test_success_path_writes_telemetry_once_after_tagging(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             request_path = Path(d) / "request.json"
