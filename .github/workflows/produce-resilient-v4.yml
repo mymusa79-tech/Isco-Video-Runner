@@ -125,6 +125,9 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_ALLOWED_USER_ID: ${{ secrets.TELEGRAM_ALLOWED_USER_ID }}
@@ -143,6 +146,9 @@ jobs:
           printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
           printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/isco-secrets/pixabay"
           printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-secrets/youtube"
+          printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/isco-secrets/youtube-client-id"
+          printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/isco-secrets/youtube-client-secret"
+          printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/isco-secrets/youtube-refresh-token"
           printf '%s' "$TELEGRAM_BOT_TOKEN" > "$RUNNER_TEMP/isco-secrets/telegram-bot-token"
           printf '%s' "$TELEGRAM_CHAT_ID" > "$RUNNER_TEMP/isco-secrets/telegram-chat-id"
           printf '%s' "$TELEGRAM_ALLOWED_USER_ID" > "$RUNNER_TEMP/isco-secrets/telegram-allowed-user-id"
@@ -191,6 +197,10 @@ jobs:
           PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
           PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
           YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/youtube
+          YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
+          YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
+          YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
+          ISCO_ENGINE_SHA: adc438ca3ec211183273b6fa52382d6293baa1f8
           TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token
           TELEGRAM_CHAT_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-chat-id
           TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
