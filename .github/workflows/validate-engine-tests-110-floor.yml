@@ -1,4 +1,4 @@
-name: Validate Run40 append guard
+name: Locate post-Run40 production run
 
 on:
   pull_request:
@@ -7,67 +7,21 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  validate:
+  inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
+    env:
+      TARGET_SHA: de813d23713645a9fe764b6ab0c8aa549459c5fd
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout Runner candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: mymusa79-tech/Isco-Video-Runner
-          ref: fix/run40-partial-append-guard
-          path: candidate
-          persist-credentials: false
-
-      - name: Checkout pinned Engine
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: mymusa79-tech/Isco-Video-Agent
-          ref: ee4c9983258714a7033d31481bd0f5f473d1de31
-          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
-          path: candidate/engine
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
-        with:
-          python-version: "3.12"
-
-      - name: Install locked Engine
-        working-directory: candidate/engine
+      - name: Query runs for merge SHA
         run: |
-          python -m pip install -r requirements-lock.txt
-          python -m pip install --no-deps -e .
-          python -m pip check
-
-      - name: Full Engine unit suite
-        working-directory: candidate/engine
-        run: python -m unittest discover -s tests -q
-
-      - name: Run append guard tests
-        working-directory: candidate
-        env:
-          PYTHONPATH: ${{ github.workspace }}/candidate
-        run: python -m unittest scripts.test_append_retry_guard -v
-
-      - name: Verify production parser patch installs
-        working-directory: candidate
-        env:
-          PYTHONPATH: ${{ github.workspace }}/candidate
-        run: |
-          python - <<'PY'
-          from scripts.append_retry_guard import install_append_retry_guard
-          from isco_video_agent import resilient_planner as staged
-
-          install_append_retry_guard()
-          parsed = staged._parse_append_only_response(
-              {"additions": [{"id": "s2", "append_text": " ".join(["إضافة"] * 166)}]},
-              ["s2", "s3"],
-          )
-          assert list(parsed) == ["s2"]
-          assert len(parsed["s2"].split()) == 166
-          print("Run40 parser shape accepted safely with one provider response")
-          PY
+          set -euo pipefail
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=20" \
+            --jq '.workflow_runs[] | [.id,.name,.run_number,.event,.status,(.conclusion // ""),.head_sha,.created_at,.html_url] | @tsv'
