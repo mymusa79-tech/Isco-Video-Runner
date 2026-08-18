@@ -47,7 +47,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: a526ed095c886f8d7bdadafaab95158626047081
+          ref: 064acab57a0d9e155d5938145072dc548657061f
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -154,7 +154,7 @@ jobs:
               topic = (os.environ.get("TOPIC_INPUT") or "").strip()
               fmt = (os.environ.get("FORMAT_INPUT") or "film").strip().lower()
           else:
-              topic = "كيف تنهض بعد أن سقطت كثيرًا؟"
+              topic = "وهم البداية المثالية"
               fmt = "film"
           if not topic or fmt not in {"film", "story"}:
               raise SystemExit("Invalid production request")
