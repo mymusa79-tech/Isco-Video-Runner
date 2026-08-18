@@ -5,6 +5,10 @@ import os
 from pathlib import Path
 
 import isco_video_agent.orchestrator as orchestrator
+from isco_video_agent.ai_budget import BudgetLedger
+from isco_video_agent.config import secret
+from isco_video_agent.production_pipeline import _plan_from_json, _run_final_critic
+from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.planner_quality_guard import install_planner_quality_guard
@@ -30,9 +34,6 @@ def _resolve_plan_source() -> str:
 
 
 def _tag_plan_source(out_dir: Path) -> None:
-    """Record which planner actually produced this run's plan into every JSON
-    artifact the workflow uploads (plan.json, quality-final.json), so a video's real
-    planning source is never just an inference from log-scrollback."""
     source = _resolve_plan_source()
     for filename in ("plan.json", "quality-final.json"):
         path = out_dir / filename
@@ -49,6 +50,35 @@ def _latest_output_dir() -> Path | None:
     return roots[0] if roots else None
 
 
+def _production_id() -> str:
+    run_id = (os.environ.get("GITHUB_RUN_ID") or "local").strip()
+    attempt = (os.environ.get("GITHUB_RUN_ATTEMPT") or "1").strip()
+    return f"v4:{run_id}:{attempt}"
+
+
+def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> dict:
+    video_id = (os.environ.get("ISCO_PRODUCTION_VIDEO_ID") or "").strip()
+    binding_source = (os.environ.get("ISCO_PRODUCTION_BINDING_SOURCE") or "").strip()
+    verified = bool(video_id and binding_source)
+    manifest = {
+        "schema_version": 1,
+        "production_id": production_id,
+        "github_run_id": (os.environ.get("GITHUB_RUN_ID") or "").strip() or None,
+        "github_run_number": (os.environ.get("GITHUB_RUN_NUMBER") or "").strip() or None,
+        "github_run_attempt": (os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip() or None,
+        "runner_sha": (os.environ.get("GITHUB_SHA") or "").strip() or None,
+        "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "").strip() or None,
+        "format": fmt,
+        "youtube_video_id": video_id or None,
+        "publication_binding": "verified" if verified else "unbound",
+        "binding_source": binding_source or None,
+    }
+    (out / "production-manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return manifest
+
+
 def main() -> None:
     install_schema_guard()
     install_router()
@@ -59,20 +89,62 @@ def main() -> None:
     install_voice_mesh()
     start_progress()
     install_progress_hooks()
+
     request = json.loads(Path(os.environ["REQUEST_FILE"]).read_text(encoding="utf-8"))
+    gemini = secret("GEMINI_API_KEY")
+    if not gemini:
+        raise RuntimeError("Gemini secret is required for V4 production")
+    # Keep one in-process copy for the post-render critic while preserving the core's
+    # one-time secret consumption contract.
+    os.environ["GEMINI_API_KEY"] = gemini
+    ledger = BudgetLedger(request["format"])
+
     try:
         out = orchestrator.produce(
             topic=request["topic"],
             requested_format=request["format"],
             dry_run=False,
             do_research=True,
+            ledger=ledger,
         )
     except Exception:
         out_dir = _latest_output_dir()
         if out_dir is not None:
+            ledger.write(out_dir / "ai-budget.json")
             write_planning_telemetry(out_dir)
         raise
+
     _tag_plan_source(out)
+    plan = _plan_from_json(out / "plan.json")
+    content_model = os.environ.get("GEMINI_CONTENT_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
+    critic = _run_final_critic(
+        output_dir=out,
+        plan=plan,
+        gemini=gemini,
+        content_model=content_model,
+        ledger=ledger,
+        release_mode="observe_only",
+    )
+    if critic.get("status") != "pass":
+        print("Final Critic observe-only BLOCK: publication path unchanged; inspect final-critic.json")
+
+    ledger.write(out / "ai-budget.json")
+    production_id = _production_id()
+    manifest = _write_production_manifest(out, production_id=production_id, fmt=plan.format)
+
+    # The observer may classify agent_produced only when this run carries an explicit
+    # verified video binding. Otherwise the latest channel video is kept as unverified
+    # observational data and cannot enter agent cohorts or block historical backfill.
+    try:
+        collect_latest_video_metrics_from_env(
+            format_hint=plan.format,
+            expected_video_id=manifest.get("youtube_video_id"),
+            production_id=production_id if manifest.get("publication_binding") == "verified" else None,
+            binding_source=manifest.get("binding_source"),
+        )
+    except Exception:
+        pass
+
     write_planning_telemetry(out)
     print(f"Production completed: {out.name}")
 
