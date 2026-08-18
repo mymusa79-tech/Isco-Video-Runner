@@ -2,6 +2,10 @@ name: Verify Private Engine
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/verify-private-engine.yml"
 
 permissions:
   contents: read
@@ -15,7 +19,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: a3babb69d58c7a81a2cae04892c1148483e0ff57
+          ref: 4372cda3576e7bffe35b31a0c5fb2f178814cc5d
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -57,7 +61,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: a3babb69d58c7a81a2cae04892c1148483e0ff57
+          ref: 4372cda3576e7bffe35b31a0c5fb2f178814cc5d
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
