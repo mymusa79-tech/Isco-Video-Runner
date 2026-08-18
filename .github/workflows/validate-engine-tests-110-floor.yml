@@ -1,4 +1,4 @@
-name: Validate Run41 planner quality guard
+name: Locate post-Run41 production run
 
 on:
   pull_request:
@@ -7,65 +7,21 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  validate:
+  inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
+    env:
+      TARGET_SHA: 7fcc8b880cd5e2683533fc9a32805e41183c286d
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout Runner candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: mymusa79-tech/Isco-Video-Runner
-          ref: fix/run41-planner-quality-guard
-          path: candidate
-          persist-credentials: false
-
-      - name: Checkout pinned Engine
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: mymusa79-tech/Isco-Video-Agent
-          ref: ee4c9983258714a7033d31481bd0f5f473d1de31
-          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
-          path: candidate/engine
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
-        with:
-          python-version: "3.12"
-
-      - name: Install locked Engine
-        working-directory: candidate/engine
+      - name: Query runs for merge SHA
         run: |
-          python -m pip install -r requirements-lock.txt
-          python -m pip install --no-deps -e .
-          python -m pip check
-
-      - name: Full Engine unit suite
-        working-directory: candidate/engine
-        run: python -m unittest discover -s tests -q
-
-      - name: Run Runner planner guard tests
-        working-directory: candidate
-        env:
-          PYTHONPATH: ${{ github.workspace }}/candidate
-        run: |
-          python -m unittest scripts.test_append_retry_guard -v
-          python -m unittest scripts.test_planner_quality_guard -v
-
-      - name: Verify runtime guard integration
-        working-directory: candidate
-        env:
-          PYTHONPATH: ${{ github.workspace }}/candidate
-        run: |
-          python - <<'PY'
-          from scripts.planner_quality_guard import install_planner_quality_guard, _single_use_transition_slots
-          from isco_video_agent import resilient_planner as staged
-
-          install_planner_quality_guard()
-          assert _single_use_transition_slots(["A", "B", "C"], 8) == ["A", "B", "C", "", "", "", ""]
-          assert "SPOKEN narration itself" in staged._NARRATIVE_FORMATS["question_answer"]
-          print("Run41 quality guard integration PASS: no recycled hints; spoken Q/A rule active")
-          PY
+          set -euo pipefail
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=20" \
+            --jq '.workflow_runs[] | [.id,.name,.run_number,.event,.status,(.conclusion // ""),.head_sha,.created_at,.html_url] | @tsv'
