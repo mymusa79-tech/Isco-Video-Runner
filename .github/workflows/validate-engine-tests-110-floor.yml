@@ -1,4 +1,4 @@
-name: Inspect Run42 production failure
+name: Diagnose Run42 tone flags
 
 on:
   pull_request:
@@ -10,28 +10,61 @@ permissions:
   actions: read
 
 jobs:
-  inspect:
+  diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     env:
-      TARGET_JOB: "95741282522"
       GH_TOKEN: ${{ github.token }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
-      - name: Extract Run42 failure context
-        shell: bash
+      - name: Checkout pinned Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ee4c9983258714a7033d31481bd0f5f473d1de31
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install Engine runtime
+        working-directory: engine
         run: |
-          set -euo pipefail
-          gh api --allow-escape-sequences \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/${GITHUB_REPOSITORY}/actions/jobs/${TARGET_JOB}/logs" \
-            > job.log
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
 
-          echo "=== PLANNER / QUALITY EVENTS ==="
-          grep -nEi 'Planner quality guard|Append-only|Script Doctor|bounded retry|repair dossier|repair applied|tone|naturalness|content.quality|words=|append|duration' job.log | tail -n 260 || true
+      - name: Download Run42 diagnostics
+        run: |
+          gh run download 32146459188 --repo "${GITHUB_REPOSITORY}" --name isco-resilient-v4-diagnostics-42 --dir run42
+          find run42 -type f -maxdepth 3 -print
 
-          echo "=== ERROR MATCHES ==="
-          grep -nEi 'Traceback|RuntimeError|ValueError|AssertionError|Exception|Error:|failed|blocked|under.?length|duration|retry|append|tone|quality' job.log | tail -n 180 || true
+      - name: Audit exact final Run42 plan once
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from isco_video_agent.models import ProductionPlan, ScriptSection
+          from isco_video_agent.tone_quality import audit_tone_and_naturalness
 
-          echo "=== FINAL 360 LOG LINES ==="
-          tail -n 360 job.log
+          plans = sorted(Path('run42').rglob('plan.json'), key=lambda p: p.parent.name)
+          if not plans:
+              raise SystemExit('Run42 plan.json not found')
+          path = plans[-1]
+          data = json.loads(path.read_text(encoding='utf-8'))
+          plan = ProductionPlan(
+              topic=data['topic'], pillar=data['pillar'], format=data['format'], hook=data['hook'],
+              title_options=data['title_options'], thumbnail_concepts=data['thumbnail_concepts'],
+              sections=[ScriptSection(**s) for s in data['sections']], cta=data['cta'],
+              closing_payoff=data['closing_payoff'], identity_opener=data.get('identity_opener',''),
+              identity_closer=data.get('identity_closer',''), identity_transitions=data.get('identity_transitions',[]),
+              narrative_format=data.get('narrative_format','direct_cinematic'),
+          )
+          result = audit_tone_and_naturalness(__import__('os').environ['GEMINI_API_KEY'], plan, 'gemini-2.5-flash')
+          print('RUN42_TONE_AUDIT=' + json.dumps(result, ensure_ascii=False, sort_keys=True))
+          PY
