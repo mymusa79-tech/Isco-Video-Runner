@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import wraps
+
 import isco_video_agent.resilient_planner as staged
 
 
@@ -46,5 +48,25 @@ def _parse_safe_partial_additions(data: dict, expected_ids: list[str]) -> dict[s
 
 def install_append_retry_guard() -> None:
     """Patch only the bounded append-only response parser used by production."""
+    current_retry = staged._script_doctor_underlength_retry
+    if not getattr(current_retry, "_isco_append_retry_trace", False):
+        @wraps(current_retry)
+        def traced_retry(*args, **kwargs):
+            print("PLANNING_BOUNDARY ENTER append_retry_guard")
+            try:
+                result = current_retry(*args, **kwargs)
+            except Exception as exc:
+                detail = str(exc).replace("\n", " ")[:220]
+                print(
+                    "PLANNING_BOUNDARY ERROR append_retry_guard "
+                    + f"type={type(exc).__name__} detail={detail}"
+                )
+                raise
+            print("PLANNING_BOUNDARY EXIT append_retry_guard")
+            return result
+
+        traced_retry._isco_append_retry_trace = True
+        staged._script_doctor_underlength_retry = traced_retry
+
     staged._parse_append_only_response = _parse_safe_partial_additions
     print("Append-only retry guard installed: safe partial additions allowed; hard duration gate unchanged")
