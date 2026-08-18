@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -60,18 +61,24 @@ def _production_id() -> str:
 
 
 def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> dict:
+    final_path = out / "final.mp4"
+    if not final_path.is_file():
+        raise RuntimeError("Final video missing before production manifest")
     video_id = (os.environ.get("ISCO_PRODUCTION_VIDEO_ID") or "").strip()
     binding_source = (os.environ.get("ISCO_PRODUCTION_BINDING_SOURCE") or "").strip()
+    run_number = (os.environ.get("GITHUB_RUN_NUMBER") or "").strip()
     verified = bool(video_id and binding_source)
     manifest = {
         "schema_version": 1,
         "production_id": production_id,
         "github_run_id": (os.environ.get("GITHUB_RUN_ID") or "").strip() or None,
-        "github_run_number": (os.environ.get("GITHUB_RUN_NUMBER") or "").strip() or None,
+        "github_run_number": run_number or None,
         "github_run_attempt": (os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip() or None,
         "runner_sha": (os.environ.get("GITHUB_SHA") or "").strip() or None,
         "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "").strip() or None,
+        "release_tag": f"video-{run_number}" if run_number else None,
         "format": fmt,
+        "final_sha256": hashlib.sha256(final_path.read_bytes()).hexdigest(),
         "youtube_video_id": video_id or None,
         "publication_binding": "verified" if verified else "unbound",
         "binding_source": binding_source or None,
