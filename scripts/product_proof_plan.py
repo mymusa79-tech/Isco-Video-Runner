@@ -130,9 +130,15 @@ def install_product_proof_fallback() -> None:
 
     def wrapped(api_key, topic, requested_format, content_model, **kwargs):
         global _FALLBACK_ACTIVATED
+        print("PLANNING_BOUNDARY ENTER product_proof_fallback")
         try:
-            return original(api_key, topic, requested_format, content_model, **kwargs)
+            plan = original(api_key, topic, requested_format, content_model, **kwargs)
         except Exception as exc:
+            detail = str(exc).replace("\n", " ")[:220]
+            print(
+                "PLANNING_BOUNDARY ERROR product_proof_fallback "
+                + f"type={type(exc).__name__} detail={detail}"
+            )
             normalized = str(topic).strip()
             # Deliberately narrow: this fallback exists ONLY as a last-resort demo/proof
             # safety net for the one hardcoded, pre-approved topic + film format - never
@@ -152,7 +158,8 @@ def install_product_proof_fallback() -> None:
                 raise RuntimeError(f"Product-proof plan unexpectedly short: {words} words")
             print(f"PRODUCT_PROOF fixed plan ready: sections=8 words={words}")
             _FALLBACK_ACTIVATED = True
-            return plan
+        print("PLANNING_BOUNDARY EXIT product_proof_fallback")
+        return plan
 
     # orchestrator.py's _verify_resilient_router_installed() checks this marker on the
     # live build_plan callable. This wrapper still routes real planning through
