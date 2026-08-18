@@ -1,4 +1,4 @@
-name: Validate Run42 brand anchor fix
+name: Locate post-PR16 production run
 
 on:
   pull_request:
@@ -10,88 +10,18 @@ permissions:
   actions: read
 
 jobs:
-  validate:
+  inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     env:
+      TARGET_SHA: 3d95fde6535a25c45e807bf0c5e305323ccb6fe6
       GH_TOKEN: ${{ github.token }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
-      - name: Checkout Runner candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: mymusa79-tech/Isco-Video-Runner
-          ref: fix/run42-brand-anchor-loop
-          path: candidate
-          persist-credentials: false
-
-      - name: Checkout pinned Engine
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: mymusa79-tech/Isco-Video-Agent
-          ref: ee4c9983258714a7033d31481bd0f5f473d1de31
-          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
-          path: candidate/engine
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
-        with:
-          python-version: "3.12"
-
-      - name: Install Engine runtime
-        working-directory: candidate/engine
+      - name: Query runs for merge SHA
         run: |
-          python -m pip install -r requirements-lock.txt
-          python -m pip install --no-deps -e .
-          python -m pip check
-
-      - name: Full Engine and guard tests
-        working-directory: candidate
-        env:
-          PYTHONPATH: ${{ github.workspace }}/candidate
-        run: |
-          (cd engine && python -m unittest discover -s tests -q)
-          python -m unittest scripts.test_append_retry_guard -q
-          python -m unittest scripts.test_planner_quality_guard -q
-          python -m unittest scripts.test_brand_anchor_guard -v
-
-      - name: Download Run42 diagnostics
-        run: |
-          gh run download 32146459188 --repo "${GITHUB_REPOSITORY}" --name isco-resilient-v4-diagnostics-42 --dir run42
-
-      - name: Apply guard to exact Run42 plan and re-audit once
-        working-directory: candidate
-        env:
-          PYTHONPATH: ${{ github.workspace }}/candidate
-          RUN42_DIR: ${{ github.workspace }}/run42
-        run: |
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          from isco_video_agent.models import ProductionPlan, ScriptSection
-          from isco_video_agent.tone_quality import audit_tone_and_naturalness
-          from scripts.brand_anchor_guard import _enforce_brand_anchors_once
-
-          plans = sorted(Path(os.environ['RUN42_DIR']).rglob('plan.json'), key=lambda p: p.parent.name)
-          data = json.loads(plans[-1].read_text(encoding='utf-8'))
-          plan = ProductionPlan(
-              topic=data['topic'], pillar=data['pillar'], format=data['format'], hook=data['hook'],
-              title_options=data['title_options'], thumbnail_concepts=data['thumbnail_concepts'],
-              sections=[ScriptSection(**s) for s in data['sections']], cta=data['cta'],
-              closing_payoff=data['closing_payoff'], identity_opener=data.get('identity_opener',''),
-              identity_closer=data.get('identity_closer',''), identity_transitions=data.get('identity_transitions',[]),
-              narrative_format=data.get('narrative_format','direct_cinematic'),
-          )
-          _enforce_brand_anchors_once(plan)
-          first = plan.sections[0].narration
-          last = plan.sections[-1].narration
-          assert first.count('هذا نداء اليقظة لتعيد ترتيب ما يدور في ذهنك.') == 1
-          assert last.count('حفظكم الله، وإلى نداءٍ قادم.') == 1
-          result = audit_tone_and_naturalness(os.environ['GEMINI_API_KEY'], plan, 'gemini-2.5-flash')
-          print('RUN42_POST_GUARD_TONE_AUDIT=' + json.dumps(result, ensure_ascii=False, sort_keys=True))
-          if result.get('status') != 'pass':
-              raise SystemExit('Run42 exact-plan tone audit still blocks after guard')
-          PY
+          set -euo pipefail
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=20" \
+            --jq '.workflow_runs[] | [.id,.name,.run_number,.event,.status,(.conclusion // ""),.head_sha,.created_at,.html_url] | @tsv'
