@@ -1,4 +1,4 @@
-name: Inspect Run41 production failure
+name: Inspect Run41 tone audit context
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ jobs:
       TARGET_JOB: "95736460098"
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Extract Run41 failure context
+      - name: Extract quality audit context
         shell: bash
         run: |
           set -euo pipefail
@@ -27,11 +27,8 @@ jobs:
             "/repos/${GITHUB_REPOSITORY}/actions/jobs/${TARGET_JOB}/logs" \
             > job.log
 
-          echo "=== PLANNER KEY EVENTS ==="
-          grep -nEi 'Planning subtask|Script Doctor|bounded retry|repair dossier|repair applied|words=|append|duration' job.log | tail -n 220 || true
+          echo "=== QUALITY / TONE MATCHES ==="
+          grep -nEi 'tone|naturalness|preach|cultural|dignity|narrative.format|religious|content.quality|semantic|repetition|repair dossier|issue.notes|needs.repair|quality audit|audit.*block|status.*block' job.log | tail -n 260 || true
 
-          echo "=== ERROR MATCHES ==="
-          grep -nEi 'Traceback|RuntimeError|ValueError|AssertionError|Exception|Error:|failed|blocked|under.?length|duration|retry|append' job.log | tail -n 160 || true
-
-          echo "=== FINAL 320 LOG LINES ==="
-          tail -n 320 job.log
+          echo "=== PLANNING WINDOW ==="
+          sed -n '3885,3955p' job.log
