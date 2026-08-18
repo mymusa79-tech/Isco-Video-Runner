@@ -3,6 +3,8 @@ name: Verify Planner Wrapper Recursion Fix
 on:
   push:
     branches: ["ci/verify-planner-wrapper-recursion"]
+  pull_request:
+    branches: ["main"]
 
 permissions:
   contents: read
