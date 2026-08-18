@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import unittest
+
+from isco_video_agent.models import ProductionPlan, ScriptSection
+from scripts.brand_anchor_guard import _enforce_brand_anchors_once
+
+
+class BrandAnchorGuardTests(unittest.TestCase):
+    def _plan(self, first: str, last: str) -> ProductionPlan:
+        return ProductionPlan(
+            topic="صوت الآخرين في رأسك",
+            pillar="understand",
+            format="film",
+            hook="hook",
+            title_options=["t"],
+            thumbnail_concepts=["x"],
+            sections=[
+                ScriptSection("s1", first, "q1"),
+                ScriptSection("s2", "قسم أوسط لا يجب تغييره إطلاقاً.", "q2"),
+                ScriptSection("s8", last, "q8"),
+            ],
+            cta="cta",
+            closing_payoff="payoff",
+            identity_opener="حين يهدأ صجيج اليوم، تظهر أسئلة صامتة لا يلتفت إليها أحد. هذا نداء اليقظة لتعيد ترتيب ما يدور في ذهنك.",
+            identity_closer="خذ من هذه الوقفة ما يثبت خطواتك، واترك ما لا يخصك. حفظكم الله، وإلى نداءٍ قادم.",
+        )
+
+    def test_run42_near_duplicate_opener_collapses_to_exact_anchor_once(self) -> None:
+        plan = self._plan(
+            "تغلق باب الغرفة بعد لقاء عابر. حين يهدأ صجيج اليوم، تظهر أسئلة صامتة لا يلتفت إليها أحد. "
+            "هذا نداء اليقظة لتعيد ترتيب ما يدور في ذهنك. حين يهدأ ضجيج اليوم، تظهر أسئلة صامتة لا يلتفت إليها أحد. "
+            "هذا نداء اليقظة لتعيد ترتيب ما يدور في ذهنك. ثم يبدأ عقلك في إعادة الشريط.",
+            "نهاية عادية.",
+        )
+        _enforce_brand_anchors_once(plan)
+        text = plan.sections[0].narration
+        self.assertEqual(text.count("هذا نداء اليقظة لتعيد ترتيب ما يدور في ذهنك."), 1)
+        self.assertEqual(text.count("حين يهدأ صجيج اليوم، تظهر أسئلة صامتة لا يلتفت إليها أحد."), 1)
+        self.assertNotIn("حين يهدأ ضجيج اليوم", text)
+        self.assertIn("تغلق باب الغرفة بعد لقاء عابر.", text)
+        self.assertIn("ثم يبدأ عقلك في إعادة الشريط.", text)
+
+    def test_run42_closer_loop_collapses_to_exact_anchor_once(self) -> None:
+        plan = self._plan(
+            "بداية طبيعية.",
+            "عندما تهدأ الأصوات تسترد مساحتك. حفظكم الله، وإلى نداءٍ جديد. "
+            "خذ من هذه الوقفة ما يثبت خطواتك، واترك ما لا يخصك من أثقال وهمية. "
+            "حفظكم الله، وإلى نداءٍ قادم. خذ من هذه الوقفة ما يثبت خطواتك، واترك ما لا يخصك. "
+            "حفظكم الله، وإلى نداءٍ قادم.",
+        )
+        _enforce_brand_anchors_once(plan)
+        text = plan.sections[-1].narration
+        self.assertEqual(text.count("حفظكم الله، وإلى نداءٍ قادم."), 1)
+        self.assertEqual(text.count("خذ من هذه الوقفة ما يثبت خطواتك، واترك ما لا يخصك."), 1)
+        self.assertNotIn("وإلى نداءٍ جديد", text)
+        self.assertNotIn("من أثقال وهمية", text)
+        self.assertTrue(text.startswith("عندما تهدأ الأصوات تسترد مساحتك."))
+
+    def test_middle_sections_are_untouched(self) -> None:
+        plan = self._plan("بداية.", "نهاية.")
+        before = plan.sections[1].narration
+        _enforce_brand_anchors_once(plan)
+        self.assertEqual(plan.sections[1].narration, before)
+
+    def test_second_application_is_idempotent(self) -> None:
+        plan = self._plan("بداية طبيعية.", "نهاية طبيعية.")
+        _enforce_brand_anchors_once(plan)
+        once = [section.narration for section in plan.sections]
+        _enforce_brand_anchors_once(plan)
+        twice = [section.narration for section in plan.sections]
+        self.assertEqual(once, twice)
+
+
+if __name__ == "__main__":
+    unittest.main()
