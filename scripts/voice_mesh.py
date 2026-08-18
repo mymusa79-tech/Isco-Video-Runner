@@ -171,3 +171,5 @@ def install_voice_mesh() -> None:
     orchestrator.synthesize_wav = synthesize
     orchestrator.synthesize_local_wav = synthesize_local_wav
     print("Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices Iapetus/Gacrux")
+
+# Production trigger only: Agent pin afa2f08416ac2c0f85edb1b73f1ed17518990a93
