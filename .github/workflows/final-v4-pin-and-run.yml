@@ -1,10 +1,10 @@
 name: Final V4 Pin And Run
 
 on:
-  push:
+  pull_request:
     branches: ["main"]
     paths:
-      - ".github/workflows/final-v4-pin-and-run.yml"
+      - ".github/final-v4-pin-run-trigger"
 
 permissions:
   contents: write
@@ -14,9 +14,10 @@ jobs:
   update-and-dispatch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout runner
+      - name: Checkout runner main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: main
           persist-credentials: true
 
       - name: Update V4 engine SHA
@@ -76,5 +77,3 @@ jobs:
                   raise SystemExit(f'Unexpected dispatch status: {resp.status}')
           print('Dispatched V4 production for topic: صوت الآخرين في رأسك')
           PY
-
-# one-shot trigger marker
