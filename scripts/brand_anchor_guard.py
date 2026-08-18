@@ -82,10 +82,31 @@ def install_brand_anchor_guard() -> None:
         print("Brand anchor guard already installed")
         return
 
+    trace_depth = 0
+
     @wraps(current)
     def guarded_build_plan(*args, **kwargs):
-        plan = current(*args, **kwargs)
-        return _enforce_brand_anchors_once(plan)
+        nonlocal trace_depth
+        is_outermost = trace_depth == 0
+        trace_depth += 1
+        if is_outermost:
+            print("PLANNING_BOUNDARY ENTER brand_anchor_guard")
+        try:
+            plan = current(*args, **kwargs)
+            result = _enforce_brand_anchors_once(plan)
+        except Exception as exc:
+            if is_outermost:
+                detail = str(exc).replace("\n", " ")[:220]
+                print(
+                    "PLANNING_BOUNDARY ERROR brand_anchor_guard "
+                    + f"type={type(exc).__name__} detail={detail}"
+                )
+            raise
+        finally:
+            trace_depth -= 1
+        if is_outermost:
+            print("PLANNING_BOUNDARY EXIT brand_anchor_guard")
+        return result
 
     guarded_build_plan._isco_brand_anchor_guard = True
     orchestrator.build_plan = guarded_build_plan
