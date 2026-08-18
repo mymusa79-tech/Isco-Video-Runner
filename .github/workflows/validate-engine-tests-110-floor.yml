@@ -5,6 +5,9 @@ on:
     branches: ["validate/engine-tests-110-floor"]
     paths:
       - ".github/workflows/validate-engine-tests-110-floor.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/validate-engine-tests-110-floor.yml"
 
 permissions:
   contents: read
