@@ -1,0 +1,54 @@
+name: Run36 V4 Observer
+
+on:
+  workflow_run:
+    workflows: ["Isco Video Production Resilient V4"]
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout observer state branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ops/run36-observer-state
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Persist completed V4 run identity
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = {
+              "run_id": int(os.environ["RUN_ID"]),
+              "run_number": int(os.environ["RUN_NUMBER"]),
+              "run_attempt": int(os.environ["RUN_ATTEMPT"]),
+              "conclusion": os.environ["CONCLUSION"],
+              "head_sha": os.environ["HEAD_SHA"],
+              "head_branch": os.environ["HEAD_BRANCH"],
+              "html_url": os.environ["RUN_URL"],
+              "event": os.environ["RUN_EVENT"],
+          }
+          Path("run36-v4-result.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add run36-v4-result.json
+          git commit -m "ops: record completed V4 run ${RUN_NUMBER}" || true
+          git push origin HEAD:ops/run36-observer-state
