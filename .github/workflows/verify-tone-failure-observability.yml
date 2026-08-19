@@ -1,0 +1,213 @@
+name: Verify Tone Failure Observability
+
+on:
+  push:
+    branches: ["ci/verify-tone-failure-observability"]
+    paths-ignore:
+      - "verification-results/**"
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout verification branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ci/verify-tone-failure-observability
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Assert tested Runner code equals exact fix
+        id: exact
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse fa76cbcc44605846e5580b5ea841e7f63c6602b7^{commit})" = "fa76cbcc44605846e5580b5ea841e7f63c6602b7"
+          git diff --exit-code fa76cbcc44605846e5580b5ea841e7f63c6602b7..HEAD -- scripts
+
+      - name: Checkout exact production Engine
+        id: engine
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 7629bc87a0adcd1a1c0864ecf833478076f01ad3
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked test runtime
+        id: install
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r engine/requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e engine
+          python -m pip check
+
+      - name: Syntax check Runner scripts
+        id: syntax
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/*.py
+
+      - name: Targeted tone observability tests
+        id: targeted
+        if: always()
+        continue-on-error: true
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/isco-verify
+          status=0
+          : > /tmp/isco-verify/targeted.txt
+          for test_file in scripts/test_tone_failure_observability.py scripts/test_run_v3_voice.py; do
+            echo "=== RUN ${test_file} ===" | tee -a /tmp/isco-verify/targeted.txt
+            if python "${test_file}" -v 2>&1 | tee -a /tmp/isco-verify/targeted.txt; then
+              echo "PASS ${test_file}" | tee -a /tmp/isco-verify/targeted.txt
+            else
+              echo "FAIL ${test_file}" | tee -a /tmp/isco-verify/targeted.txt
+              status=1
+            fi
+          done
+          exit "$status"
+
+      - name: Full Runner script test suite
+        id: full
+        if: always()
+        continue-on-error: true
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/isco-verify
+          count=0
+          failures=0
+          : > /tmp/isco-verify/full.txt
+          for test_file in scripts/test_*.py; do
+            count=$((count + 1))
+            echo "=== RUN ${test_file} ===" | tee -a /tmp/isco-verify/full.txt
+            if python "${test_file}" -v 2>&1 | tee -a /tmp/isco-verify/full.txt; then
+              echo "PASS ${test_file}" | tee -a /tmp/isco-verify/full.txt
+            else
+              echo "FAIL ${test_file}" | tee -a /tmp/isco-verify/full.txt
+              failures=$((failures + 1))
+            fi
+          done
+          printf 'RUNNER_TEST_FILES=%s\nRUNNER_FAILED_FILES=%s\n' "$count" "$failures" | tee /tmp/isco-verify/full-summary.txt
+          test "$failures" -eq 0
+
+      - name: Verify fix branch scope
+        id: scope
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git diff --check 8b6b9fff174fbeed68cc2f349c43ad5bbad23362..fa76cbcc44605846e5580b5ea841e7f63c6602b7
+          changed="$(git diff --name-only 8b6b9fff174fbeed68cc2f349c43ad5bbad23362..fa76cbcc44605846e5580b5ea841e7f63c6602b7)"
+          printf '%s\n' "$changed"
+          test "$changed" = $'scripts/run_v3_voice.py\nscripts/test_tone_failure_observability.py'
+
+      - name: Verify no provider secrets exposed
+        id: secrets
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+          test -z "${PEXELS_API_KEY:-}"
+          test -z "${PIXABAY_API_KEY:-}"
+
+      - name: Persist verification report
+        if: always()
+        env:
+          EXACT: ${{ steps.exact.outcome }}
+          ENGINE: ${{ steps.engine.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          SYNTAX: ${{ steps.syntax.outcome }}
+          TARGETED: ${{ steps.targeted.outcome }}
+          FULL: ${{ steps.full.outcome }}
+          SCOPE: ${{ steps.scope.outcome }}
+          SECRETS: ${{ steps.secrets.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p verification-results
+          full_summary="not available"
+          if test -f /tmp/isco-verify/full-summary.txt; then
+            full_summary="$(tr '\n' ' ' < /tmp/isco-verify/full-summary.txt | sed 's/[[:space:]]*$//')"
+          fi
+          failed_tests="none"
+          if test -f /tmp/isco-verify/full.txt; then
+            found="$(grep '^FAIL scripts/test_' /tmp/isco-verify/full.txt || true)"
+            if test -n "$found"; then failed_tests="$found"; fi
+          fi
+          targeted_failures="none"
+          if test -f /tmp/isco-verify/targeted.txt; then
+            found="$(grep '^FAIL scripts/test_' /tmp/isco-verify/targeted.txt || true)"
+            if test -n "$found"; then targeted_failures="$found"; fi
+          fi
+          overall=PASS
+          for value in "$EXACT" "$ENGINE" "$INSTALL" "$SYNTAX" "$TARGETED" "$FULL" "$SCOPE" "$SECRETS"; do
+            if test "$value" != success; then overall=FAIL; fi
+          done
+          cat > verification-results/tone-failure-observability.txt <<EOF
+          OVERALL=${overall}
+          TESTED_RUNNER_SHA=fa76cbcc44605846e5580b5ea841e7f63c6602b7
+          TESTED_ENGINE_SHA=7629bc87a0adcd1a1c0864ecf833478076f01ad3
+          EXACT_FIX_CODE=${EXACT}
+          ENGINE_CHECKOUT=${ENGINE}
+          INSTALL=${INSTALL}
+          SYNTAX=${SYNTAX}
+          TARGETED=${TARGETED}
+          FULL_RUNNER_SUITE=${FULL}
+          FIX_SCOPE=${SCOPE}
+          PROVIDER_SECRET_CHECK=${SECRETS}
+          ${full_summary}
+          TARGETED_FAILURES=${targeted_failures}
+          FULL_SUITE_FAILURES=${failed_tests}
+          EOF
+          sed -i 's/^          //' verification-results/tone-failure-observability.txt
+          cat verification-results/tone-failure-observability.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add verification-results/tone-failure-observability.txt
+          if git diff --cached --quiet; then
+            echo 'Verification report unchanged'
+          else
+            git commit -m "test: record tone observability verification result"
+            git push origin HEAD:ci/verify-tone-failure-observability
+          fi
+
+      - name: Final verification gate
+        if: always()
+        env:
+          EXACT: ${{ steps.exact.outcome }}
+          ENGINE: ${{ steps.engine.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          SYNTAX: ${{ steps.syntax.outcome }}
+          TARGETED: ${{ steps.targeted.outcome }}
+          FULL: ${{ steps.full.outcome }}
+          SCOPE: ${{ steps.scope.outcome }}
+          SECRETS: ${{ steps.secrets.outcome }}
+        run: |
+          set -euo pipefail
+          for value in "$EXACT" "$ENGINE" "$INSTALL" "$SYNTAX" "$TARGETED" "$FULL" "$SCOPE" "$SECRETS"; do
+            test "$value" = success
+          done
