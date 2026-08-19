@@ -14,6 +14,7 @@ on:
       - "scripts/test_gold_shadow_phase2a.py"
       - "voice-profiles/voice-reference-profile-v1.json"
       - ".github/workflows/produce-resilient-v4.yml"
+      - ".github/workflows/voice-identity-calibration-1b.yml"
       - ".github/workflows/verify-voice-identity-observer-v1.yml"
   workflow_dispatch:
 
@@ -54,32 +55,46 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Verify V4 pin, YAML, and report retention
+      - name: Verify V4 and calibration workflow contracts
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
           import yaml
 
-          path = Path('.github/workflows/produce-resilient-v4.yml')
-          text = path.read_text(encoding='utf-8')
-          data = yaml.safe_load(text)
-          if not isinstance(data, dict):
-              raise SystemExit('V4 workflow did not parse as a YAML mapping')
           old = '7629bc87a0adcd1a1c0864ecf833478076f01ad3'
           new = '044791cc79c8fb620075269329503c0059d7556b'
-          if old in text:
+
+          v4_path = Path('.github/workflows/produce-resilient-v4.yml')
+          v4 = v4_path.read_text(encoding='utf-8')
+          if not isinstance(yaml.safe_load(v4), dict):
+              raise SystemExit('V4 workflow did not parse as a YAML mapping')
+          if old in v4:
               raise SystemExit('Stale Engine SHA remains in V4')
-          if text.count(new) != 2:
-              raise SystemExit(f'Expected merged Engine SHA twice, found {text.count(new)}')
+          if v4.count(new) != 2:
+              raise SystemExit(f'Expected merged Engine SHA twice in V4, found {v4.count(new)}')
           for required in (
               'engine/output/*/voice-identity-audit.json',
               'engine/output/*/gold-shadow-comparison.json',
               'engine/output/*/gold-shadow/phase2a/*.json',
           ):
-              if text.count(required) < 2:
+              if v4.count(required) < 2:
                   raise SystemExit(f'Observer artifact is not retained on success and failure: {required}')
-          print('V4 workflow contract OK: YAML valid, Engine pin current, observer reports retained')
+
+          calibration_path = Path('.github/workflows/voice-identity-calibration-1b.yml')
+          calibration = calibration_path.read_text(encoding='utf-8')
+          if not isinstance(yaml.safe_load(calibration), dict):
+              raise SystemExit('Calibration workflow did not parse as a YAML mapping')
+          if 'branches: ["main"]' not in calibration:
+              raise SystemExit('Calibration workflow is not targeted to main')
+          if 'beb1a38ce4ef7246a0a9d3e4d13c866d8d5843af' in calibration:
+              raise SystemExit('Stale pre-merge Engine SHA remains in calibration workflow')
+          if calibration.count(new) != 1:
+              raise SystemExit(f'Expected merged Engine SHA once in calibration workflow, found {calibration.count(new)}')
+          if 'calibration/voice-calibration-1b.json' not in calibration:
+              raise SystemExit('Calibration evidence artifact is not retained')
+
+          print('Workflow contracts OK: YAML valid, pins current, reports retained, calibration remains reviewable')
           PY
 
       - name: Run full Engine unit suite
