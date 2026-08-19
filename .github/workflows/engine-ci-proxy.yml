@@ -2,7 +2,7 @@ name: Engine CI Proxy
 
 on:
   push:
-    branches: ["main", "analytics/retention-v2-m0-health"]
+    branches: ["main"]
     paths:
       - ".github/workflows/engine-ci-proxy.yml"
       - "scripts/task_level_planner_router.py"
@@ -10,51 +10,24 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  statuses: write
-
-concurrency:
-  group: analytics-retention-m0-health
-  cancel-in-progress: true
+  contents: read
 
 jobs:
   test-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
-      - name: Mark M0 verification started
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os, urllib.request
-          body = json.dumps({"state":"pending","context":"analytics-m0-start","description":"M0 verifier started"}).encode()
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",
-              data=body,
-              method="POST",
-              headers={
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-                  "Content-Type": "application/json",
-              },
-          )
-          urllib.request.urlopen(req, timeout=20).read()
-          PY
-
       - name: Checkout runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: true
+          persist-credentials: false
           fetch-depth: 1
 
       - name: Checkout private engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 3159440919776267065e0b232e49a1bbb0cbf1bb
+          ref: a2fb670a9da88ca22b2014c83c78c6ab5a10f850
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -74,23 +47,13 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Run M0 targeted analytics health tests
-        id: targeted
-        run: |
-          set -euo pipefail
-          cd engine
-          python -m unittest discover -s tests -p 'test_youtube_analytics_health.py' -v
-
       - name: Run engine tests
-        id: full
-        if: always()
         run: |
           set -euo pipefail
           cd engine
           python -m unittest discover -s tests -v
 
       - name: Verify identity, visual scoring, and hook contracts
-        if: always()
         run: |
           set -euo pipefail
           python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py
@@ -123,7 +86,6 @@ jobs:
           PY
 
       - name: Verify no paid API use
-        if: always()
         run: |
           set -euo pipefail
           test -z "${GEMINI_API_KEY:-}"
@@ -131,184 +93,4 @@ jobs:
           test -z "${OPENROUTER_API_KEY:-}"
           test -z "${PEXELS_API_KEY:-}"
           test -z "${PIXABAY_API_KEY:-}"
-          echo "No paid/provider API credentials exposed to test job"
-
-      - name: Materialize YouTube OAuth secrets for read-only health
-        id: oauth
-        if: always()
-        env:
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "$YOUTUBE_CLIENT_ID" ] || [ -z "$YOUTUBE_CLIENT_SECRET" ] || [ -z "$YOUTUBE_REFRESH_TOKEN" ]; then
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            printf '%s\n' '{"schema_version":1,"mode":"read_only_health","status":"credentials_unavailable","production_influence":"none","stores_retention_curve":false}' > "$RUNNER_TEMP/youtube-analytics-health.json"
-            exit 0
-          fi
-          umask 077
-          mkdir -p "$RUNNER_TEMP/isco-analytics-secrets"
-          printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/isco-analytics-secrets/client-id"
-          printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/isco-analytics-secrets/client-secret"
-          printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/isco-analytics-secrets/refresh-token"
-          echo "available=true" >> "$GITHUB_OUTPUT"
-
-      - name: Run live read-only OAuth and retention health probe
-        id: health
-        if: always() && steps.oauth.outputs.available == 'true'
-        working-directory: engine
-        env:
-          YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-analytics-secrets/client-id
-          YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-analytics-secrets/client-secret
-          YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-analytics-secrets/refresh-token
-        run: |
-          set -euo pipefail
-          python scripts/check_youtube_analytics_health.py \
-            --output "$RUNNER_TEMP/youtube-analytics-health.json" \
-            --strict
-
-      - name: Print sanitized M0 health result
-        if: always()
-        run: |
-          set -euo pipefail
-          if [ -f "$RUNNER_TEMP/youtube-analytics-health.json" ]; then
-            cat "$RUNNER_TEMP/youtube-analytics-health.json"
-          else
-            echo '{"status":"health_report_missing"}'
-          fi
-
-      - name: Upload sanitized M0 health artifact
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: analytics-retention-m0-health
-          path: ${{ runner.temp }}/youtube-analytics-health.json
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Publish sanitized M0 commit statuses
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGETED_OUTCOME: ${{ steps.targeted.outcome }}
-          FULL_OUTCOME: ${{ steps.full.outcome }}
-          OAUTH_AVAILABLE: ${{ steps.oauth.outputs.available }}
-          HEALTH_OUTCOME: ${{ steps.health.outcome }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json
-          import os
-          import urllib.request
-          from pathlib import Path
-
-          report_path = Path(os.environ["RUNNER_TEMP"]) / "youtube-analytics-health.json"
-          try:
-              health = json.loads(report_path.read_text(encoding="utf-8"))
-          except Exception:
-              health = {"status": "health_report_missing"}
-
-          targeted = os.environ.get("TARGETED_OUTCOME") or "not_run"
-          full = os.environ.get("FULL_OUTCOME") or "not_run"
-          available = os.environ.get("OAUTH_AVAILABLE") or "false"
-          auth = health.get("auth") if isinstance(health.get("auth"), dict) else {}
-          retention = health.get("retention") if isinstance(health.get("retention"), dict) else {}
-
-          def state(ok: bool) -> str:
-              return "success" if ok else "failure"
-
-          statuses = [
-              ("analytics-m0-targeted", state(targeted == "success"), f"targeted={targeted}"),
-              ("analytics-m0-full-suite", state(full == "success"), f"full_suite={full}"),
-          ]
-          if available != "true":
-              statuses.extend([
-                  ("analytics-m0-auth", "error", "credentials_unavailable"),
-                  ("analytics-m0-retention", "error", "credentials_unavailable"),
-              ])
-          else:
-              auth_status = str(auth.get("status") or "unknown")
-              auth_error = str(auth.get("error_class") or "none")
-              statuses.append((
-                  "analytics-m0-auth",
-                  state(auth_status == "ok"),
-                  f"auth={auth_status} error={auth_error}"[:140],
-              ))
-              retention_status = str(retention.get("status") or "unknown")
-              points = int(retention.get("points_received") or 0)
-              metrics = retention.get("metrics_returned") if isinstance(retention.get("metrics_returned"), list) else []
-              error_class = str(retention.get("error_class") or "none")
-              statuses.append((
-                  "analytics-m0-retention",
-                  state(retention_status == "ok"),
-                  f"retention={retention_status} points={points} metrics={len(metrics)} error={error_class}"[:140],
-              ))
-
-          repo = os.environ["GITHUB_REPOSITORY"]
-          sha = os.environ["GITHUB_SHA"]
-          token = os.environ["GH_TOKEN"]
-          for context, status_state, description in statuses:
-              body = json.dumps({
-                  "state": status_state,
-                  "context": context,
-                  "description": description,
-              }).encode("utf-8")
-              request = urllib.request.Request(
-                  f"https://api.github.com/repos/{repo}/statuses/{sha}",
-                  data=body,
-                  method="POST",
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                      "Content-Type": "application/json",
-                  },
-              )
-              with urllib.request.urlopen(request, timeout=20) as response:
-                  if response.status not in {200, 201}:
-                      raise RuntimeError(f"status publish failed: HTTP {response.status}")
-          PY
-
-      - name: Persist sanitized M0 verification result to diagnostic branch
-        if: always()
-        env:
-          TARGETED_OUTCOME: ${{ steps.targeted.outcome }}
-          FULL_OUTCOME: ${{ steps.full.outcome }}
-          OAUTH_AVAILABLE: ${{ steps.oauth.outputs.available }}
-          HEALTH_OUTCOME: ${{ steps.health.outcome }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          health_path = Path(os.environ["RUNNER_TEMP"]) / "youtube-analytics-health.json"
-          try:
-              health = json.loads(health_path.read_text(encoding="utf-8"))
-          except Exception:
-              health = {"status": "health_report_missing"}
-          result = {
-              "schema_version": 1,
-              "engine_sha": "3159440919776267065e0b232e49a1bbb0cbf1bb",
-              "runner_trigger_sha": os.environ.get("GITHUB_SHA"),
-              "targeted_tests": os.environ.get("TARGETED_OUTCOME") or "not_run",
-              "full_suite": os.environ.get("FULL_OUTCOME") or "not_run",
-              "oauth_credentials_available": os.environ.get("OAUTH_AVAILABLE") == "true",
-              "health_step": os.environ.get("HEALTH_OUTCOME") or "not_run",
-              "health": health,
-              "production_video_started": False,
-          }
-          out = Path("verification/analytics-retention-m0.json")
-          out.parent.mkdir(parents=True, exist_ok=True)
-          out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-          PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add verification/analytics-retention-m0.json
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "ci: record analytics M0 verification result"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "No provider API credentials exposed to test job"
