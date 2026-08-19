@@ -1,0 +1,196 @@
+name: Retention M7 Verification
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-m7:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: de42a75c9359c3e420ba01eda212d64b0e341146
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: M7 through M1 targeted tests
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest discover -s tests -p 'test_youtube_retention_m7_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m6_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m5_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m4_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m3_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m2_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m1_*.py' -v
+
+      - name: Full Engine Python suite
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest discover -s tests -q
+
+      - name: Operational M7 fail-closed verification
+        run: |
+          set -euo pipefail
+          rm -rf verification-m7
+          mkdir -p verification-m7
+          PYTHONPATH="engine/src" python - <<'PY'
+          import json
+          from pathlib import Path
+          from isco_video_agent.retention_experiments import create_experiment, persist_experiment, append_verified_outcome, close_experiment
+
+          spec = {
+              'name': 'm7-synthetic-verification',
+              'hypothesis': 'A shorter opening may retain more viewers through 30 seconds.',
+              'format': 'film',
+              'content_style': 'agent_produced',
+              'variable': 'opening_length',
+              'primary_metric': 'first_30_seconds_retention_percent',
+              'variants': [
+                  {'id': 'control', 'label': 'Current opening', 'value': '18s', 'is_control': True},
+                  {'id': 'treatment', 'label': 'Short opening', 'value': '12s', 'is_control': False},
+              ],
+              'minimum_samples_per_variant': 4,
+          }
+          path = Path('verification-m7/experiment.json')
+          experiment = create_experiment(spec)
+          persist_experiment(experiment, path)
+          for variant, values in (
+              ('control', [40.0] * 8),
+              ('treatment', [45.0] * 8),
+          ):
+              for index, value in enumerate(values):
+                  append_verified_outcome(
+                      path,
+                      video_id=f'synthetic-{variant}-video-{index}',
+                      variant_id=variant,
+                      metric_value=value,
+                      production_id=f'synthetic-prod-{variant}-{index}',
+                      binding_source='m7_synthetic_verification_only',
+                      evidence_grade='strong_observational',
+                  )
+          close_experiment(path)
+          doc = json.loads(path.read_text())
+          approval = {
+              'experiment_id': doc['experiment_id'],
+              'approval_id': 'synthetic-approval',
+              'approved_by': 'verification_fixture',
+              'approved': True,
+              'action': {'type': 'candidate_override', 'target': 'opening_length_seconds', 'value': 12},
+          }
+          validation = {
+              'experiment_id': doc['experiment_id'],
+              'method': 'welch_t_test',
+              'alpha': 0.05,
+              'p_value': 0.01,
+              'independent_reviewed': True,
+          }
+          Path('verification-m7/approval.json').write_text(json.dumps(approval, indent=2, sort_keys=True) + '\n')
+          Path('verification-m7/validation.json').write_text(json.dumps(validation, indent=2, sort_keys=True) + '\n')
+          PY
+          EXP_BEFORE="$(sha256sum verification-m7/experiment.json | awk '{print $1}')"
+          APPROVAL_BEFORE="$(sha256sum verification-m7/approval.json | awk '{print $1}')"
+          VALIDATION_BEFORE="$(sha256sum verification-m7/validation.json | awk '{print $1}')"
+          PYTHONPATH="engine/src" python engine/scripts/evaluate_retention_influence.py \
+            --experiment verification-m7/experiment.json \
+            --approval verification-m7/approval.json \
+            --statistical-validation verification-m7/validation.json \
+            > verification-m7/default-disabled.json
+          PYTHONPATH="engine/src" python engine/scripts/evaluate_retention_influence.py \
+            --experiment verification-m7/experiment.json \
+            --approval verification-m7/approval.json \
+            --statistical-validation verification-m7/validation.json \
+            --mode candidate \
+            > verification-m7/candidate-synthetic.json
+          test "$EXP_BEFORE" = "$(sha256sum verification-m7/experiment.json | awk '{print $1}')"
+          test "$APPROVAL_BEFORE" = "$(sha256sum verification-m7/approval.json | awk '{print $1}')"
+          test "$VALIDATION_BEFORE" = "$(sha256sum verification-m7/validation.json | awk '{print $1}')"
+          ENGINE_SHA="$(git -C engine rev-parse HEAD)" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          assert os.environ['ENGINE_SHA'] == 'de42a75c9359c3e420ba01eda212d64b0e341146'
+          disabled = json.loads(Path('verification-m7/default-disabled.json').read_text())
+          synthetic = json.loads(Path('verification-m7/candidate-synthetic.json').read_text())
+          assert disabled['decision'] == 'blocked'
+          assert 'influence_mode_disabled' in disabled['reasons']
+          assert disabled['apply_automatically'] is False
+          assert disabled['production_influence'] == 'none'
+          assert disabled['inputs_unchanged'] is True
+          assert synthetic['decision'] == 'blocked'
+          assert 'synthetic_evidence_forbidden' in synthetic['reasons']
+          assert synthetic['candidate'] is None
+          assert synthetic['apply_automatically'] is False
+          assert synthetic['production_influence'] == 'none'
+          assert synthetic['inputs_unchanged'] is True
+          evidence = {
+              'schema_version': 1,
+              'mode': 'M7_production_influence_gate_final',
+              'engine_sha': os.environ['ENGINE_SHA'],
+              'default_mode': disabled['mode'],
+              'default_decision': disabled['decision'],
+              'default_block_reason': 'influence_mode_disabled',
+              'candidate_mode_synthetic_decision': synthetic['decision'],
+              'synthetic_block_reason': 'synthetic_evidence_forbidden',
+              'minimum_real_samples_per_variant': synthetic['evidence']['minimum_real_samples_per_variant'],
+              'minimum_positive_effect_pp': synthetic['evidence']['minimum_positive_effect_pp'],
+              'human_approval_required': True,
+              'statistical_validation_required': True,
+              'independent_statistical_review_required': True,
+              'safety_integrity_targets_forbidden': True,
+              'apply_automatically': False,
+              'production_influence': 'none',
+              'candidate_path_covered_by_unit_tests_only': True,
+              'real_production_candidate_emitted': False,
+              'inputs_unchanged': True,
+              'ai_calls': 0,
+              'production_run_started': False,
+          }
+          Path('verification-m7/retention-m7-live.json').write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(evidence, sort_keys=True))
+          PY
+
+      - name: Verify no production or provider credentials exposed
+        run: |
+          set -euo pipefail
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+          test -z "${PEXELS_API_KEY:-}"
+          test -z "${PIXABAY_API_KEY:-}"
+          test -z "${YOUTUBE_REFRESH_TOKEN:-}"
+          test -z "${ISCO_RETENTION_INFLUENCE_MODE:-}"
+
+      - name: Upload sanitized M7 evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: retention-m7-verification
+          path: verification-m7/
+          if-no-files-found: error
+          retention-days: 1
