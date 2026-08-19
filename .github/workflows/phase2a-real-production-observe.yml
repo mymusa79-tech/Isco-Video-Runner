@@ -1,0 +1,241 @@
+name: Phase 2A Real Production Observe
+
+on:
+  push:
+    branches: ["ops/phase2a-real-production-run"]
+    paths:
+      - ".github/workflows/phase2a-real-production-observe.yml"
+
+concurrency:
+  group: phase2a-real-production-observe
+  cancel-in-progress: false
+
+jobs:
+  produce-observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout merged Runner
+        id: checkout_runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify Runner lineage
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 43acba893ae7c8c07ae9f2b4a3b19acfa0c6f6f6 HEAD
+          echo "Runner test commit: $(git rev-parse HEAD)"
+          echo "Merged Runner base: 43acba893ae7c8c07ae9f2b4a3b19acfa0c6f6f6"
+
+      - name: Checkout merged private Engine
+        id: checkout_engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 64212437abe63346da29ae233278b3e8a476d005
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify Engine merge SHA
+        run: |
+          set -euo pipefail
+          test "$(git -C engine rev-parse HEAD)" = "64212437abe63346da29ae233278b3e8a476d005"
+          echo "Engine HEAD: $(git -C engine rev-parse HEAD)"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine and local voice fallback
+        id: install_engine
+        run: |
+          set -euo pipefail
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y ffmpeg fonts-noto-core openssl
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+          python -m pip install 'piper-tts==1.4.2'
+          mkdir -p "$RUNNER_TEMP/piper-voices"
+          python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium
+          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx"
+          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"
+
+      - name: Restore encrypted cross-run memory
+        id: restore_state
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          state_dir="$RUNNER_TEMP/isco-state"
+          mkdir -p "$state_dir"
+          python scripts/persistent_memory.py restore \
+            --repo . \
+            --plain "$state_dir/history.json" \
+            --branch agent-state \
+            --legacy-state state/history.json.enc \
+            --github-output "$GITHUB_OUTPUT"
+          test -f "$state_dir/history.json"
+          chmod 600 "$state_dir/history.json"
+          echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
+
+      - name: Verify local voice fallback
+        env:
+          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, wave
+          from pathlib import Path
+          from piper import PiperVoice
+          model = Path(os.environ["PIPER_MODEL_PATH"])
+          voice = PiperVoice.load(str(model), config_path=str(model) + ".json")
+          out = Path(os.environ["RUNNER_TEMP"]) / "piper-preflight.wav"
+          with wave.open(str(out), "wb") as wav:
+              voice.synthesize_wav("هذا اختبار صوت محلي.", wav)
+          if out.stat().st_size < 1024:
+              raise SystemExit("Piper preflight produced empty audio")
+          print("Piper local voice preflight OK")
+          PY
+
+      - name: Prepare production request and one-time secret files
+        id: prepare_request
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          test -n "$GROQ_API_KEY"
+          test -n "$OPENROUTER_API_KEY"
+          test -n "$PEXELS_API_KEY"
+          test -n "$PIXABAY_API_KEY"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/isco-secrets"
+          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/isco-secrets/gemini"
+          printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/isco-secrets/groq"
+          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/isco-secrets/openrouter"
+          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
+          printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/isco-secrets/pixabay"
+          printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-secrets/youtube"
+          printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/isco-secrets/youtube-client-id"
+          printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/isco-secrets/youtube-client-secret"
+          printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/isco-secrets/youtube-refresh-token"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path(os.environ["RUNNER_TEMP"], "isco-request.json").write_text(
+              json.dumps({"topic": "صوت الآخرين في رأسك", "format": "film"}, ensure_ascii=False),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Verify free provider authentication
+        env:
+          GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
+          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, requests
+          from pathlib import Path
+          groq = Path(os.environ["GROQ_API_KEY_FILE"]).read_text().strip()
+          pixabay = Path(os.environ["PIXABAY_API_KEY_FILE"]).read_text().strip()
+          a = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": "Bearer " + groq}, timeout=30)
+          if not a.ok:
+              raise SystemExit(f"Groq auth failed: HTTP {a.status_code}")
+          b = requests.get("https://pixabay.com/api/videos/", params={"key": pixabay, "q": "nature", "per_page": 3, "safesearch": "true"}, timeout=30)
+          if not b.ok:
+              raise SystemExit(f"Pixabay auth failed: HTTP {b.status_code}")
+          print("Groq auth OK; Pixabay auth OK")
+          PY
+
+      - name: Produce real video with Legacy V4 plus Gold Shadow
+        id: produce_video
+        working-directory: engine
+        env:
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
+          GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
+          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
+          PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
+          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
+          YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/youtube
+          YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
+          YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
+          YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
+          ISCO_ENGINE_SHA: 64212437abe63346da29ae233278b3e8a476d005
+          REQUEST_FILE: ${{ runner.temp }}/isco-request.json
+          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
+          GEMINI_CONTENT_MODEL: gemini-2.5-flash
+          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+          TRENDS_GEO: SA
+          YOUTUBE_REGION: SA
+          YOUTUBE_LANGUAGE: ar
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -o pipefail
+          python ../scripts/run_v3_voice.py 2>&1 | tee "$RUNNER_TEMP/production-step.log"
+
+      - name: Verify Gold Shadow evidence exists
+        if: success()
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          root="$(find output -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+          test -n "$root"
+          test -s "$root/final.mp4"
+          test -s "$root/gold-shadow-comparison.json"
+          test -s "$root/planning-telemetry.json"
+          python - "$root/gold-shadow-comparison.json" <<'PY'
+          import json, sys
+          from pathlib import Path
+          path = Path(sys.argv[1])
+          data = json.loads(path.read_text(encoding="utf-8"))
+          assert data.get("phase") == "2A"
+          assert data.get("mode") == "observe_only"
+          assert data.get("release_authority") == "legacy_v4"
+          print(json.dumps(data, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload production and Gold Shadow evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: phase2a-real-production-${{ github.run_number }}
+          path: |
+            engine/output/*/final.mp4
+            engine/output/*/gold-shadow-comparison.json
+            engine/output/*/gold-shadow/phase2a/**
+            engine/output/*/planning-telemetry.json
+            engine/output/*/final-critic.json
+            engine/output/*/opening-visual-audit.json
+            engine/output/*/ai-budget.json
+            engine/output/*/production-manifest.json
+            engine/output/*/quality-final.json
+            engine/output/*/quality-precheck.json
+            engine/output/*/plan.json
+            ${{ runner.temp }}/production-step.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Confirm no publish side effects
+        if: always()
+        run: |
+          echo "This one-shot workflow contains no publish, release, upload-to-channel, or state-persist step."
