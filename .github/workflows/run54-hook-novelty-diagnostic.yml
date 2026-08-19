@@ -7,7 +7,7 @@ on:
       - ".github/workflows/run54-hook-novelty-diagnostic.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   diagnose:
@@ -93,3 +93,25 @@ jobs:
           path: ${{ runner.temp }}/run54-hook-novelty-diagnostic.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Record diagnostic run id
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/observer-state"
+          git clone --depth 1 --branch ops/run36-observer-state "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" "$RUNNER_TEMP/observer-state"
+          cd "$RUNNER_TEMP/observer-state"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path('run54-hook-diagnostic-latest.json').write_text(json.dumps({
+              'run_id': int(os.environ['GITHUB_RUN_ID']),
+              'run_number': int(os.environ['GITHUB_RUN_NUMBER']),
+              'head_sha': os.environ['GITHUB_SHA'],
+          }, indent=2), encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add run54-hook-diagnostic-latest.json
+          git commit -m 'ops: capture Run54 hook diagnostic run' || true
+          git push origin HEAD:ops/run36-observer-state
