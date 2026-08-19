@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 109c64c77aef2eb8e6bd8db04b48c2b4a37c5d12
+          ref: caf200baa618b1afe2a10cb60ed6823a0b2ad9a5
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -80,7 +80,7 @@ jobs:
           ENGINE_SHA="$(git -C engine rev-parse HEAD)" RAW_SHA="$RAW_BEFORE" BIND_SHA="$BIND_BEFORE" python - <<'PY'
           import json, os
           from pathlib import Path
-          assert os.environ['ENGINE_SHA'] == '109c64c77aef2eb8e6bd8db04b48c2b4a37c5d12'
+          assert os.environ['ENGINE_SHA'] == 'caf200baa618b1afe2a10cb60ed6823a0b2ad9a5'
           m2 = json.loads(Path('verification-m3/m2-summary.json').read_text())
           m3 = json.loads(Path('verification-m3/m3-summary.json').read_text())
           report_doc = json.loads(Path(m3['report_path']).read_text())
