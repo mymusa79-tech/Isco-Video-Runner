@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "engine_sha": "3159440919776267065e0b232e49a1bbb0cbf1bb",
+  "runner_trigger_sha": "011bbd478e1a6028241e2737d459e8808bae7f9f",
+  "targeted_tests": "success",
+  "oauth_credentials_available": true,
+  "live_health_step": "failure",
+  "health": {
+    "schema_version": 1,
+    "mode": "read_only_health",
+    "observed_at": "2026-08-19T16:37:58.161433+00:00",
+    "status": "failed",
+    "auth": {
+      "status": "ok",
+      "error_class": null,
+      "http_status": 200,
+      "api_reason": null
+    },
+    "video_probe": {
+      "status": "failed",
+      "video_id": null,
+      "duration_seconds": null,
+      "error_class": "insufficient_scope_or_permission",
+      "http_status": 403,
+      "api_reason": "insufficientPermissions"
+    },
+    "analytics": {
+      "status": "not_attempted",
+      "metrics_returned": [],
+      "error_class": null,
+      "http_status": null,
+      "api_reason": null
+    },
+    "retention": {
+      "status": "not_attempted",
+      "points_received": 0,
+      "expected_points": 100,
+      "metrics_returned": [],
+      "error_class": null,
+      "http_status": null,
+      "api_reason": null
+    },
+    "last_successful_retention_observation": null,
+    "production_influence": "none",
+    "stores_retention_curve": false
+  },
+  "production_video_started": false
+}
