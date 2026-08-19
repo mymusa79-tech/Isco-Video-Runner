@@ -70,7 +70,14 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python -m unittest discover -s scripts -p 'test_*.py' -v
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort \
+              | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          printf 'Runner test modules (%s):\n' "${#test_modules[@]}"
+          printf '  %s\n' "${test_modules[@]}"
+          python -m unittest "${test_modules[@]}" -v
 
       - name: Compile migration-sensitive Runner adapters
         env:
