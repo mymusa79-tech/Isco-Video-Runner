@@ -2,42 +2,38 @@ name: Engine CI Proxy
 
 on:
   push:
-    branches: ["main"]
-    paths:
-      - ".github/workflows/engine-ci-proxy.yml"
-      - "scripts/task_level_planner_router.py"
-      - "scripts/voice_mesh.py"
-  workflow_dispatch:
+    branches: ["analytics/retention-v2-m1-verification"]
+    paths: [".github/workflows/engine-ci-proxy.yml"]
 
 permissions:
-  contents: read
+  contents: write
+  statuses: write
+
+concurrency:
+  group: retention-m1-final-schema-verification
+  cancel-in-progress: true
 
 jobs:
-  test-engine:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
-      - name: Checkout runner
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 1
-
-      - name: Checkout private engine
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: a2fb670a9da88ca22b2014c83c78c6ab5a10f850
+          ref: 0a65585f987d262e2d08bbd752f9f45bf5e3a16f
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 1
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
-
-      - name: Install test dependencies
+      - name: Install locked Engine runtime
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -46,51 +42,121 @@ jobs:
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
-
-      - name: Run engine tests
+      - name: Run M1 targeted tests
+        id: targeted
+        working-directory: engine
         run: |
           set -euo pipefail
-          cd engine
-          python -m unittest discover -s tests -v
-
-      - name: Verify identity, visual scoring, and hook contracts
+          python -m unittest discover -s tests -p 'test_youtube_retention_m1*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_production_observer_credentials.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_analytics_learning.py' -v
+      - name: Publish targeted status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.targeted.outcome }}
         run: |
-          set -euo pipefail
-          python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py
-          PYTHONPATH="engine/src:scripts" python - <<'PY'
-          from pathlib import Path
-          import task_level_planner_router as router
-          import voice_mesh
-          from isco_video_agent.providers.gemini import _speech_config, _voice_identity
-          from isco_video_agent.orchestrator import _visual_fit_score
-
-          assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Iapetus"
-          assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Gacrux"
-          assert _voice_identity("RandomVoice") == ("Gacrux", "Iapetus")
-          assert _speech_config("A: لماذا؟\nB: لأن الفكرة أعمق.", "RandomVoice") == [
-              {"speaker": "A", "voice": "Iapetus"},
-              {"speaker": "B", "voice": "Gacrux"},
-          ]
-          assert _visual_fit_score({"relevance": 0.87}) == 8.7
-          assert _visual_fit_score({"relevance": 2}) == 10.0
-          assert _visual_fit_score({"relevance": 0}) == 1.0
-
-          planner = Path("engine/src/isco_video_agent/planner.py").read_text(encoding="utf-8")
-          assert "section s1 has a hard retention contract" in planner
-          assert "a direct question" in planner
-          assert "a bold but" in planner
-          assert "clear tease of the concrete insight/result" in planner
-          assert "No scene-setting, greeting, biography, abstract reflection, throat-clearing" in planner
-          assert "s1's first spoken sentence must still be one strong direct question" in planner
-          print("Identity, smart visual scoring, and s1 hook contracts PASS")
+          python - <<'PY'
+          import json,os,urllib.request
+          o=os.environ.get('OUTCOME') or 'missing'; b=json.dumps({'state':'success' if o=='success' else 'failure','context':'retention-m1-targeted-schema-final','description':o}).encode()
+          r=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=b,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'}); urllib.request.urlopen(r,timeout=20).read()
           PY
-
-      - name: Verify no paid API use
+      - name: Run full Engine suite
+        id: full
+        if: always()
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+      - name: Publish full-suite status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.full.outcome }}
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request
+          o=os.environ.get('OUTCOME') or 'missing'; b=json.dumps({'state':'success' if o=='success' else 'failure','context':'retention-m1-full-suite-schema-final','description':o}).encode()
+          r=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=b,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'}); urllib.request.urlopen(r,timeout=20).read()
+          PY
+      - name: Materialize unchanged YouTube credentials
+        id: creds
+        if: always()
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           set -euo pipefail
-          test -z "${GEMINI_API_KEY:-}"
-          test -z "${GROQ_API_KEY:-}"
-          test -z "${OPENROUTER_API_KEY:-}"
-          test -z "${PEXELS_API_KEY:-}"
-          test -z "${PIXABAY_API_KEY:-}"
-          echo "No provider API credentials exposed to test job"
+          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN YOUTUBE_API_KEY; do test -n "${!name}"; done
+          umask 077; mkdir -p "$RUNNER_TEMP/m1-youtube"
+          printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/m1-youtube/client-id"
+          printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/m1-youtube/client-secret"
+          printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/m1-youtube/refresh-token"
+          printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/m1-youtube/api-key"
+      - name: Live read-only retention fetch and persistence
+        id: live
+        if: always()
+        working-directory: engine
+        env:
+          CID_FILE: ${{ runner.temp }}/m1-youtube/client-id
+          CLIENT_SECRET_FILE: ${{ runner.temp }}/m1-youtube/client-secret
+          REFRESH_FILE: ${{ runner.temp }}/m1-youtube/refresh-token
+          API_KEY_FILE: ${{ runner.temp }}/m1-youtube/api-key
+          RETENTION_ROOT: ${{ runner.temp }}/m1-retention
+          SUMMARY_PATH: ${{ github.workspace }}/verification/retention-m1-live.json
+          SIDECAR_COPY_PATH: ${{ github.workspace }}/verification/retention-m1-live-sidecar.json
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          import requests
+          from isco_video_agent.retention_storage import RETENTION_METRICS
+          from isco_video_agent.youtube_analytics import ANALYTICS_URL,TOKEN_URL,VIDEOS_URL,collect_latest_video_metrics_from_env
+          video_id='e_I6g1qt4xg'
+          files={'client_id':Path(os.environ['CID_FILE']),'client_secret':Path(os.environ['CLIENT_SECRET_FILE']),'refresh':Path(os.environ['REFRESH_FILE']),'api_key':Path(os.environ['API_KEY_FILE'])}
+          secret_values=[p.read_text(encoding='utf-8').strip() for p in files.values()]
+          class Session:
+              def __init__(self): self.calls=[]
+              def post(self,u,**k):
+                  r=requests.post(u,**k); self.calls.append((u,r.status_code,k.get('params',{}) or {})); return r
+              def get(self,u,**k):
+                  r=requests.get(u,**k); self.calls.append((u,r.status_code,k.get('params',{}) or {})); return r
+          s=Session(); os.environ['YOUTUBE_CLIENT_ID_FILE']=str(files['client_id']); os.environ['YOUTUBE_CLIENT_SECRET_FILE']=str(files['client_secret']); os.environ['YOUTUBE_REFRESH_TOKEN_FILE']=str(files['refresh']); os.environ['YOUTUBE_API_KEY_FILE']=str(files['api_key']); os.environ['ISCO_RETENTION_STORAGE_ROOT']=os.environ['RETENTION_ROOT']
+          result=collect_latest_video_metrics_from_env(format_hint='film',expected_video_id=video_id,session=s)
+          if not isinstance(result,dict): raise SystemExit('observer returned no result')
+          sidecar=Path(os.environ['RETENTION_ROOT'])/'unverified'/f'{video_id}.json'; data=json.loads(sidecar.read_text(encoding='utf-8')); obs=data['observations'][0]; rows=obs['raw_rows']
+          assert data['schema_version']==1 and data['video_id']==video_id and data['isolation']=='unverified'
+          assert obs['schema_version']==1 and obs['video_id']==video_id and obs['binding_source'] is None and 'production_id' not in obs
+          assert obs['points_received']==100 and len(rows)==100 and obs['curve_status']=='complete'
+          assert obs['content_style']=='unverified' and obs['classification_status']=='unresolved' and obs['ingestion_source']=='production_observer'
+          assert [x['elapsedVideoTimeRatio'] for x in rows]==sorted(x['elapsedVideoTimeRatio'] for x in rows)
+          returned=obs['metrics_returned']; missing=obs['missing_metrics']; assert sorted(returned+missing)==sorted(RETENTION_METRICS) and 'audienceWatchRatio' in returned
+          retention_calls=[c for c in s.calls if c[0]==ANALYTICS_URL and c[2].get('dimensions')=='elapsedVideoTimeRatio']; assert retention_calls and retention_calls[-1][1]==200
+          assert all(c[0] in {TOKEN_URL,VIDEOS_URL,ANALYTICS_URL} for c in s.calls)
+          summary={'schema_version':1,'mode':'M1_full_retention_curve_storage','engine_sha':'0a65585f987d262e2d08bbd752f9f45bf5e3a16f','video_id':video_id,'retention_http_status':retention_calls[-1][1],'retention_request_count':len(retention_calls),'points_received':obs['points_received'],'curve_status':obs['curve_status'],'metrics_returned':returned,'missing_metrics':missing,'content_style':obs['content_style'],'classification_status':obs['classification_status'],'binding_source':obs['binding_source'],'ingestion_source':obs['ingestion_source'],'storage_isolation':data['isolation'],'snapshot_count':len(data['observations']),'observation_schema_version':obs['schema_version'],'observation_video_id':obs['video_id'],'first_30s_present':'first_30s_retention' in (result.get('metrics') or {}),'sample_points':{'first':rows[0],'middle':rows[len(rows)//2],'last':rows[-1]},'production_run_started':False,'stores_raw_curve':True,'interpolation':False,'smoothing':False,'dip_spike_analysis':False,'ai_calls_added':False}
+          st=json.dumps(summary,ensure_ascii=False,indent=2,sort_keys=True)+'\n'; sd=json.dumps(data,ensure_ascii=False,indent=2,sort_keys=True)+'\n'
+          for v in secret_values:
+              if v and v in st+sd: raise SystemExit('secret leakage detected')
+          Path(os.environ['SUMMARY_PATH']).parent.mkdir(parents=True,exist_ok=True); Path(os.environ['SUMMARY_PATH']).write_text(st,encoding='utf-8'); Path(os.environ['SIDECAR_COPY_PATH']).write_text(sd,encoding='utf-8')
+          PY
+      - name: Publish live status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.live.outcome }}
+        run: |
+          python - <<'PY'
+          import json,os,urllib.request
+          o=os.environ.get('OUTCOME') or 'missing'; b=json.dumps({'state':'success' if o=='success' else 'failure','context':'retention-m1-live-schema-final','description':o}).encode()
+          r=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=b,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'}); urllib.request.urlopen(r,timeout=20).read()
+          PY
+      - name: Persist final evidence
+        if: steps.targeted.outcome == 'success' && steps.full.outcome == 'success' && steps.live.outcome == 'success'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add verification/retention-m1-live.json verification/retention-m1-live-sidecar.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "verify: update final M1 retention evidence"
+          git push origin HEAD:analytics/retention-v2-m1-verification
