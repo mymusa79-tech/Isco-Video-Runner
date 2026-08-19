@@ -20,36 +20,41 @@ def _write_fake_telemetry(out_dir: Path, calls: list | None = None) -> Path:
     return path
 
 
-class ResolvePlanSourceTests(unittest.TestCase):
-    """Covers item 1: plan_source must always name the real planner that produced a
-    run's plan (gemini | groq | openrouter | product_proof_fallback), and must never
-    claim a live provider succeeded when the fallback actually produced the plan."""
+def _gold_success(*_args, **_kwargs):
+    return (
+        SimpleNamespace(format="film"),
+        {"status": "pass", "hard_blocks": []},
+        {"phase": "4", "mode": "enforce", "release_authority": "gold"},
+    )
 
+
+class ResolvePlanSourceTests(unittest.TestCase):
     def test_fallback_wins_even_if_providers_were_also_recorded(self) -> None:
-        with patch.object(run_v3_voice, "was_fallback_used", return_value=True), \
-                patch.object(run_v3_voice, "get_used_providers", return_value=["gemini"]):
+        with patch.object(run_v3_voice, "was_fallback_used", return_value=True), patch.object(
+            run_v3_voice, "get_used_providers", return_value=["gemini"]
+        ):
             self.assertEqual(run_v3_voice._resolve_plan_source(), "product_proof_fallback")
 
     def test_single_provider(self) -> None:
-        with patch.object(run_v3_voice, "was_fallback_used", return_value=False), \
-                patch.object(run_v3_voice, "get_used_providers", return_value=["gemini"]):
+        with patch.object(run_v3_voice, "was_fallback_used", return_value=False), patch.object(
+            run_v3_voice, "get_used_providers", return_value=["gemini"]
+        ):
             self.assertEqual(run_v3_voice._resolve_plan_source(), "gemini")
 
     def test_multiple_providers_are_joined(self) -> None:
-        with patch.object(run_v3_voice, "was_fallback_used", return_value=False), \
-                patch.object(run_v3_voice, "get_used_providers", return_value=["gemini", "groq"]):
+        with patch.object(run_v3_voice, "was_fallback_used", return_value=False), patch.object(
+            run_v3_voice, "get_used_providers", return_value=["gemini", "groq"]
+        ):
             self.assertEqual(run_v3_voice._resolve_plan_source(), "gemini+groq")
 
-    def test_no_providers_recorded_is_unknown_not_a_false_claim(self) -> None:
-        with patch.object(run_v3_voice, "was_fallback_used", return_value=False), \
-                patch.object(run_v3_voice, "get_used_providers", return_value=[]):
+    def test_no_providers_recorded_is_unknown(self) -> None:
+        with patch.object(run_v3_voice, "was_fallback_used", return_value=False), patch.object(
+            run_v3_voice, "get_used_providers", return_value=[]
+        ):
             self.assertEqual(run_v3_voice._resolve_plan_source(), "unknown")
 
 
 class TagPlanSourceTests(unittest.TestCase):
-    """Covers item 1: plan_source must land in every JSON artifact the workflow
-    uploads (plan.json, quality-final.json), not just one of them."""
-
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
         self.out_dir = Path(self._tmpdir.name)
@@ -57,61 +62,32 @@ class TagPlanSourceTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmpdir.cleanup()
 
-    def test_tags_both_plan_and_quality_json(self) -> None:
+    def test_tags_both_plan_and_quality_json_without_losing_fields(self) -> None:
         (self.out_dir / "plan.json").write_text(json.dumps({"topic": "x"}), encoding="utf-8")
         (self.out_dir / "quality-final.json").write_text(json.dumps({"duration_ok": True}), encoding="utf-8")
-
-        with patch.object(run_v3_voice, "was_fallback_used", return_value=False), \
-                patch.object(run_v3_voice, "get_used_providers", return_value=["groq"]):
+        with patch.object(run_v3_voice, "was_fallback_used", return_value=False), patch.object(
+            run_v3_voice, "get_used_providers", return_value=["groq"]
+        ):
             run_v3_voice._tag_plan_source(self.out_dir)
-
         plan = json.loads((self.out_dir / "plan.json").read_text(encoding="utf-8"))
         quality = json.loads((self.out_dir / "quality-final.json").read_text(encoding="utf-8"))
         self.assertEqual(plan["plan_source"], "groq")
         self.assertEqual(quality["plan_source"], "groq")
-        # Original fields must survive the round-trip untouched.
         self.assertEqual(plan["topic"], "x")
         self.assertTrue(quality["duration_ok"])
 
-    def test_missing_artifact_is_skipped_not_an_error(self) -> None:
+    def test_missing_artifact_is_skipped(self) -> None:
         (self.out_dir / "plan.json").write_text(json.dumps({"topic": "x"}), encoding="utf-8")
-        # quality-final.json deliberately absent.
-        with patch.object(run_v3_voice, "was_fallback_used", return_value=True), \
-                patch.object(run_v3_voice, "get_used_providers", return_value=[]):
-            run_v3_voice._tag_plan_source(self.out_dir)  # must not raise
+        with patch.object(run_v3_voice, "was_fallback_used", return_value=True), patch.object(
+            run_v3_voice, "get_used_providers", return_value=[]
+        ):
+            run_v3_voice._tag_plan_source(self.out_dir)
         plan = json.loads((self.out_dir / "plan.json").read_text(encoding="utf-8"))
         self.assertEqual(plan["plan_source"], "product_proof_fallback")
         self.assertFalse((self.out_dir / "quality-final.json").exists())
 
 
-class LatestOutputDirTests(unittest.TestCase):
-    """Covers write_planning_telemetry()'s only usable target on a failed run: produce()
-    raised before returning an out_dir, so main()'s except-handler must locate whatever
-    output directory the run was actually writing to some other way."""
-
-    def test_returns_none_when_no_output_directories_exist(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            with _chdir(d):
-                self.assertIsNone(run_v3_voice._latest_output_dir())
-
-    def test_returns_the_most_recently_modified_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            with _chdir(d):
-                Path("output").mkdir()
-                older = Path("output/2026-01-01-topic-a")
-                older.mkdir()
-                newer = Path("output/2026-01-01-topic-b")
-                newer.mkdir()
-                now = time.time()
-                os.utime(older, (now - 100, now - 100))
-                os.utime(newer, (now, now))
-                self.assertEqual(run_v3_voice._latest_output_dir(), newer)
-
-
 class _chdir:
-    """Minimal contextmanager: temporarily chdir, since _latest_output_dir() reads the
-    relative "output" directory exactly like main() does at real production runtime."""
-
     def __init__(self, path):
         self._path = path
 
@@ -124,6 +100,55 @@ class _chdir:
         os.chdir(self._original)
 
 
+class LatestOutputDirTests(unittest.TestCase):
+    def test_returns_none_when_no_output_directories_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as d, _chdir(d):
+            self.assertIsNone(run_v3_voice._latest_output_dir())
+
+    def test_returns_the_most_recently_modified_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as d, _chdir(d):
+            Path("output").mkdir()
+            older = Path("output/older")
+            newer = Path("output/newer")
+            older.mkdir()
+            newer.mkdir()
+            now = time.time()
+            os.utime(older, (now - 100, now - 100))
+            os.utime(newer, (now, now))
+            self.assertEqual(run_v3_voice._latest_output_dir(), newer)
+
+
+class ProductionManifestTests(unittest.TestCase):
+    def test_manifest_hashes_final_and_declares_gold_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            (out / "final.mp4").write_bytes(b"immutable-final")
+            with patch.dict(
+                os.environ,
+                {"GITHUB_RUN_ID": "123", "GITHUB_RUN_NUMBER": "77", "GITHUB_RUN_ATTEMPT": "2"},
+                clear=False,
+            ):
+                manifest = run_v3_voice._write_production_manifest(out, production_id="v4:123:2", fmt="film")
+            self.assertEqual(manifest["release_authority"], "gold_enforced")
+            self.assertEqual(manifest["production_id"], "v4:123:2")
+            self.assertEqual(manifest["release_tag"], "video-77")
+            self.assertEqual(len(manifest["final_sha256"]), 64)
+            self.assertEqual(manifest["publication_binding"], "unbound")
+
+    def test_verified_publication_binding_requires_video_id_and_source(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            (out / "final.mp4").write_bytes(b"final")
+            env = {
+                "ISCO_PRODUCTION_VIDEO_ID": "abc123",
+                "ISCO_PRODUCTION_BINDING_SOURCE": "youtube_upload",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                manifest = run_v3_voice._write_production_manifest(out, production_id="v4:x:1", fmt="film")
+            self.assertEqual(manifest["publication_binding"], "verified")
+            self.assertEqual(manifest["youtube_video_id"], "abc123")
+
+
 class _MainPatchMixin:
     def setUp(self) -> None:
         names = [
@@ -134,6 +159,7 @@ class _MainPatchMixin:
             "install_brand_anchor_guard",
             "install_product_proof_fallback",
             "install_voice_mesh",
+            "install_voice_identity_observer",
             "start_progress",
             "install_progress_hooks",
         ]
@@ -141,160 +167,106 @@ class _MainPatchMixin:
         for item in self._installers:
             item.start()
         self.addCleanup(lambda: [item.stop() for item in self._installers])
-        self._secret = patch.object(run_v3_voice, "secret", return_value="gemini-key")
+
+        def fake_secret(name: str) -> str:
+            return {"GEMINI_API_KEY": "gemini-key", "PEXELS_API_KEY": "pexels-key"}.get(name, "")
+
+        self._secret = patch.object(run_v3_voice, "secret", side_effect=fake_secret)
         self._secret.start()
         self.addCleanup(self._secret.stop)
-        self._plan = patch.object(
-            run_v3_voice,
-            "_plan_from_json",
-            return_value=SimpleNamespace(format="film"),
-        )
-        self._plan.start()
-        self.addCleanup(self._plan.stop)
         self._analytics = patch.object(run_v3_voice, "collect_latest_video_metrics_from_env")
-        self._analytics.start()
+        self.analytics = self._analytics.start()
         self.addCleanup(self._analytics.stop)
 
 
-class MainWritesTelemetryTests(_MainPatchMixin, unittest.TestCase):
-    """Covers the planning-telemetry request's core guarantee: planning-telemetry.json
-    must exist after every real production attempt, success or failure alike - it's
-    the exact record needed to see which provider failed and why, so it can't be
-    conditioned on produce() actually returning."""
-
-    def test_success_path_writes_telemetry_once_after_tagging(self) -> None:
+class MainPhase4FlowTests(_MainPatchMixin, unittest.TestCase):
+    def test_success_runs_one_gold_enforcer_then_writes_gold_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             request_path = Path(d) / "request.json"
             request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
             out_dir = Path(d) / "output" / "run-1"
             out_dir.mkdir(parents=True)
             (out_dir / "final.mp4").write_bytes(b"fake-final")
+            calls: list = []
 
-            calls = []
-            with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), \
-                    patch.object(run_v3_voice.orchestrator, "produce", return_value=out_dir), \
-                    patch.object(run_v3_voice, "_run_final_critic", return_value={"status": "pass"}), \
-                    patch.object(run_v3_voice, "_tag_plan_source", side_effect=lambda o: calls.append(("tag", o))), \
-                    patch.object(
-                        run_v3_voice,
-                        "write_planning_telemetry",
-                        side_effect=lambda o: _write_fake_telemetry(o, calls),
-                    ):
+            def gold(**kwargs):
+                calls.append(("gold", kwargs["output_dir"]))
+                self.assertEqual(kwargs["gemini"], "gemini-key")
+                self.assertEqual(kwargs["pexels"], "pexels-key")
+                return _gold_success()
+
+            with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), patch.object(
+                run_v3_voice.orchestrator, "produce", return_value=out_dir
+            ) as produce, patch.object(run_v3_voice, "run_gold_enforce_phase4", side_effect=gold) as enforcer, patch.object(
+                run_v3_voice, "_tag_plan_source", side_effect=lambda o: calls.append(("tag", o))
+            ), patch.object(
+                run_v3_voice,
+                "write_planning_telemetry",
+                side_effect=lambda o: _write_fake_telemetry(o, calls),
+            ):
                 run_v3_voice.main()
 
-            self.assertEqual(calls, [("tag", out_dir), ("telemetry", out_dir)])
+            produce.assert_called_once()
+            enforcer.assert_called_once()
+            self.assertEqual(calls, [("tag", out_dir), ("gold", out_dir), ("telemetry", out_dir)])
             telemetry = json.loads((out_dir / "planning-telemetry.json").read_text(encoding="utf-8"))
-            self.assertIn("production_manifest", telemetry)
-            self.assertIn("final_critic", telemetry)
-            self.assertIn("ai_budget", telemetry)
-            self.assertIn("gold_shadow_comparison", telemetry)
-            self.assertEqual(telemetry["gold_shadow_comparison"]["release_authority"], "legacy_v4")
+            self.assertEqual(telemetry["final_critic"]["status"], "pass")
+            self.assertEqual(telemetry["gold_enforce_report"]["release_authority"], "gold")
+            self.assertEqual(telemetry["production_manifest"]["release_authority"], "gold_enforced")
+            self.assertTrue((out_dir / "ai-budget.json").exists())
+            self.analytics.assert_called_once()
 
-    def test_failure_path_still_writes_telemetry_to_the_latest_output_dir(self) -> None:
+    def test_core_failure_never_invokes_gold_and_still_flushes_telemetry(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             request_path = Path(d) / "request.json"
             request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
-
             with _chdir(d):
                 Path("output").mkdir()
                 out_dir = Path("output/run-1")
                 out_dir.mkdir()
-
                 calls = []
-                with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), \
-                        patch.object(run_v3_voice.orchestrator, "produce", side_effect=RuntimeError("boom")), \
-                        patch.object(run_v3_voice, "write_planning_telemetry", side_effect=lambda o: calls.append(o)):
-                    with self.assertRaises(RuntimeError):
+                with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), patch.object(
+                    run_v3_voice.orchestrator, "produce", side_effect=RuntimeError("render failed")
+                ), patch.object(run_v3_voice, "run_gold_enforce_phase4") as enforcer, patch.object(
+                    run_v3_voice, "write_planning_telemetry", side_effect=lambda o: calls.append(o) or _write_fake_telemetry(o)
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "render failed"):
                         run_v3_voice.main()
-
+                enforcer.assert_not_called()
                 self.assertEqual(calls, [out_dir])
+                self.analytics.assert_not_called()
 
-    def test_failure_path_with_no_output_dir_yet_does_not_crash_and_still_raises(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            request_path = Path(d) / "request.json"
-            request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
-
-            with _chdir(d):
-                with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), \
-                        patch.object(run_v3_voice.orchestrator, "produce", side_effect=RuntimeError("boom")), \
-                        patch.object(run_v3_voice, "write_planning_telemetry") as mock_write:
-                    with self.assertRaises(RuntimeError):
-                        run_v3_voice.main()
-                mock_write.assert_not_called()
-
-
-class FinalCriticV4AcceptanceTests(_MainPatchMixin, unittest.TestCase):
-    # AC2
-    def test_orchestrator_failure_never_invokes_final_critic(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            request_path = Path(d) / "request.json"
-            request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
-            with _chdir(d):
-                with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), \
-                        patch.object(run_v3_voice.orchestrator, "produce", side_effect=RuntimeError("render failed")), \
-                        patch.object(run_v3_voice, "_run_final_critic") as critic, \
-                        patch.object(run_v3_voice, "write_planning_telemetry"):
-                    with self.assertRaises(RuntimeError):
-                        run_v3_voice.main()
-            critic.assert_not_called()
-
-    # AC3 (and Runner-level proof for AC7: block remains non-blocking in V4)
-    def test_success_runs_critic_after_produce_and_observe_block_still_completes(self) -> None:
+    def test_gold_failure_is_authoritative_and_prevents_manifest_and_analytics(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             request_path = Path(d) / "request.json"
             request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
             out_dir = Path(d) / "output" / "run-1"
             out_dir.mkdir(parents=True)
             (out_dir / "final.mp4").write_bytes(b"fake-final")
-            order = []
-
-            def produce(**kwargs):
-                order.append("produce")
-                return out_dir
-
-            def critic(**kwargs):
-                order.append("critic")
-                self.assertEqual(kwargs["release_mode"], "observe_only")
-                return {"status": "block", "would_block_if_enforced": True}
-
-            def gold_shadow(**kwargs):
-                order.append("gold_shadow")
-                self.assertEqual(kwargs["legacy_critic"]["status"], "block")
-                return {
-                    "release_authority": "legacy_v4",
-                    "mode": "observe_only",
-                    "divergences": {},
-                }
-
-            env = {
-                "REQUEST_FILE": str(request_path),
-                "GITHUB_RUN_ID": "123456",
-                "GITHUB_RUN_NUMBER": "77",
-                "GITHUB_RUN_ATTEMPT": "2",
-            }
-            with patch.dict(os.environ, env, clear=False), \
-                    patch.object(run_v3_voice.orchestrator, "produce", side_effect=produce), \
-                    patch.object(run_v3_voice, "_run_final_critic", side_effect=critic), \
-                    patch.object(run_v3_voice, "run_gold_shadow_phase2a", side_effect=gold_shadow), \
-                    patch.object(run_v3_voice, "_tag_plan_source"), \
-                    patch.object(
-                        run_v3_voice,
-                        "write_planning_telemetry",
-                        side_effect=lambda o: _write_fake_telemetry(o),
-                    ):
-                run_v3_voice.main()
-
-            self.assertEqual(order, ["produce", "critic", "gold_shadow"])
+            with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), patch.object(
+                run_v3_voice.orchestrator, "produce", return_value=out_dir
+            ), patch.object(
+                run_v3_voice, "run_gold_enforce_phase4", side_effect=RuntimeError("gold blocked")
+            ), patch.object(run_v3_voice, "_tag_plan_source"), patch.object(
+                run_v3_voice, "write_planning_telemetry", side_effect=lambda o: _write_fake_telemetry(o)
+            ):
+                with self.assertRaisesRegex(RuntimeError, "gold blocked"):
+                    run_v3_voice.main()
             self.assertTrue((out_dir / "ai-budget.json").exists())
-            self.assertTrue((out_dir / "production-manifest.json").exists())
-            telemetry = json.loads((out_dir / "planning-telemetry.json").read_text(encoding="utf-8"))
-            manifest = telemetry["production_manifest"]
-            self.assertEqual(telemetry["final_critic"]["status"], "block")
-            self.assertEqual(telemetry["gold_shadow_comparison"]["release_authority"], "legacy_v4")
-            self.assertEqual(manifest["publication_binding"], "unbound")
-            self.assertEqual(manifest["production_id"], "v4:123456:2")
-            self.assertEqual(manifest["release_tag"], "video-77")
-            self.assertEqual(len(manifest["final_sha256"]), 64)
+            self.assertTrue((out_dir / "planning-telemetry.json").exists())
+            self.assertFalse((out_dir / "production-manifest.json").exists())
+            self.analytics.assert_not_called()
+
+    def test_core_failure_before_output_directory_preserves_original_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            request_path = Path(d) / "request.json"
+            request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
+            with _chdir(d), patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), patch.object(
+                run_v3_voice.orchestrator, "produce", side_effect=RuntimeError("boom")
+            ), patch.object(run_v3_voice, "write_planning_telemetry") as write:
+                with self.assertRaisesRegex(RuntimeError, "boom"):
+                    run_v3_voice.main()
+                write.assert_not_called()
 
 
 if __name__ == "__main__":

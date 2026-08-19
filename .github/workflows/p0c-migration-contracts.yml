@@ -1,20 +1,30 @@
-name: P0-C Phase 2A Gold Shadow Verification
+name: P0-C Phase 4 Gold Enforcement Verification
 
 on:
   push:
-    branches: ["p0c/phase2a-gold-shadow-critic"]
+    branches: ["p0c/phase4-gold-enforce-same-render-v2"]
     paths:
-      - "scripts/gold_shadow_phase2a.py"
+      - "scripts/gold_enforce_phase4.py"
+      - "scripts/gold_single_evaluator_phase3.py"
+      - "scripts/gold_shadow_phase2b.py"
+      - "scripts/gold_thumbnail_budget.py"
       - "scripts/run_v3_voice.py"
-      - "scripts/test_gold_shadow_phase2a.py"
+      - "scripts/test_gold_enforce_phase4.py"
+      - "scripts/test_gold_single_evaluator_phase3.py"
+      - "scripts/test_gold_shadow_phase2b.py"
       - "scripts/test_p0c_migration_contracts.py"
       - "scripts/test_run_v3_voice.py"
       - ".github/workflows/p0c-migration-contracts.yml"
   pull_request:
     paths:
-      - "scripts/gold_shadow_phase2a.py"
+      - "scripts/gold_enforce_phase4.py"
+      - "scripts/gold_single_evaluator_phase3.py"
+      - "scripts/gold_shadow_phase2b.py"
+      - "scripts/gold_thumbnail_budget.py"
       - "scripts/run_v3_voice.py"
-      - "scripts/test_gold_shadow_phase2a.py"
+      - "scripts/test_gold_enforce_phase4.py"
+      - "scripts/test_gold_single_evaluator_phase3.py"
+      - "scripts/test_gold_shadow_phase2b.py"
       - "scripts/test_p0c_migration_contracts.py"
       - "scripts/test_run_v3_voice.py"
       - ".github/workflows/p0c-migration-contracts.yml"
@@ -28,17 +38,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout Runner Phase 2A branch
+      - name: Checkout clean Runner Phase 4 branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - name: Checkout private Engine Phase 2A head
+      - name: Prove clean Phase 3 ancestry
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor adb72ed10e72a0854b157075473b6b12d32d8057 HEAD
+          echo "Clean Phase 3 ancestry: adb72ed10e72a0854b157075473b6b12d32d8057"
+
+      - name: Checkout exact compatible Engine P0-C candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: e074fd9bb942c263c9ef595438b3cf22cd55b55b
+          ref: b2933176668ebc694f041f78b881942718e2d806
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -47,7 +63,7 @@ jobs:
       - name: Verify pinned Engine head
         run: |
           set -euo pipefail
-          test "$(git -C engine rev-parse HEAD)" = "e074fd9bb942c263c9ef595438b3cf22cd55b55b"
+          test "$(git -C engine rev-parse HEAD)" = "b2933176668ebc694f041f78b881942718e2d806"
           echo "Engine HEAD: $(git -C engine rev-parse HEAD)"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -58,31 +74,34 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=20 \
-            -o Acquire::https::Timeout=20 \
-            update
-          sudo apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=20 \
-            -o Acquire::https::Timeout=20 \
-            install -y ffmpeg fonts-noto-core
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y ffmpeg fonts-noto-core
           cd engine
           python -m pip install --timeout 30 --retries 3 -r requirements-lock.txt
           python -m pip install --timeout 30 --retries 3 --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Run Engine P0-C Migration Contracts
+      - name: Run focused Gold Phase 2B-3-4 regressions
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
-          cd engine
+          python -m unittest \
+            scripts.test_gold_shadow_phase2b \
+            scripts.test_gold_single_evaluator_phase3 \
+            scripts.test_gold_enforce_phase4 \
+            -v
+
+      - name: Run Engine P0-C Migration Contracts
+        working-directory: engine
+        run: |
+          set -euo pipefail
           python -m unittest tests.test_p0c_migration_contracts -v
 
       - name: Run full private Engine suite
+        working-directory: engine
         run: |
           set -euo pipefail
-          cd engine
           python -m unittest discover -s tests -v
 
       - name: Run Runner P0-C Migration Contracts
@@ -113,10 +132,13 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             scripts/gold_shadow_phase2a.py \
+            scripts/gold_shadow_phase2b.py \
+            scripts/gold_single_evaluator_phase3.py \
+            scripts/gold_enforce_phase4.py \
+            scripts/gold_thumbnail_budget.py \
             scripts/run_v3_voice.py \
             scripts/task_level_planner_router.py \
             scripts/voice_mesh.py \
-            scripts/test_gold_shadow_phase2a.py \
             scripts/test_p0c_migration_contracts.py
 
       - name: Verify provider credentials are absent
@@ -127,4 +149,4 @@ jobs:
           test -z "${OPENROUTER_API_KEY:-}"
           test -z "${PEXELS_API_KEY:-}"
           test -z "${PIXABAY_API_KEY:-}"
-          echo "P0-C Phase 2A verifier exposed no provider API credentials"
+          echo "P0-C Phase 4 verifier exposed no provider API credentials"
