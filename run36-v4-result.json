@@ -1,10 +1,10 @@
 {
-  "run_id": 32233814422,
-  "run_number": 52,
+  "run_id": 32262243937,
+  "run_number": 53,
   "run_attempt": 1,
-  "conclusion": "cancelled",
-  "head_sha": "1531746a643d0f7c45852c359d33edb30d08c829",
+  "conclusion": "failure",
+  "head_sha": "e522b7d29c7fc991d601e18c4f6a350974a4d784",
   "head_branch": "main",
-  "html_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/32233814422",
+  "html_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/actions/runs/32262243937",
   "event": "push"
 }
