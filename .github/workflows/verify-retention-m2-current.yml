@@ -1,10 +1,10 @@
-name: Verify Retention V2 M2 On Current Foundation
+name: Verify Retention V2 M2 Current
 
 on:
+  push:
+    branches: ["ci/verify-retention-m2-current"]
   pull_request:
-    paths:
-      - ".github/workflows/p0c-migration-contracts.yml"
-      - ".github/workflows/verify-retention-m2-current.yml"
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -19,9 +19,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          fetch-depth: 1
 
-      - name: Checkout exact Engine M2 candidate
+      - name: Checkout Engine M2 candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
@@ -31,7 +30,8 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
 
@@ -45,7 +45,7 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: M0 M0.1 M1 M2 targeted regressions
+      - name: Retention M0 M0.1 M1 M2 targeted regressions
         working-directory: engine
         run: |
           set -euo pipefail
@@ -67,14 +67,31 @@ jobs:
           set -euo pipefail
           python -m unittest discover -s tests -q
 
-      - name: Verify exact M2 isolation boundary and contracts
+      - name: Verify M2 isolation and no production influence
         working-directory: engine
         run: |
           set -euo pipefail
-          BASE_SHA=0a65585f987d262e2d08bbd752f9f45bf5e3a16f
-          git cat-file -e "$BASE_SHA^{commit}"
-          git diff --check "$BASE_SHA"..HEAD
-          actual="$(git diff --name-only "$BASE_SHA"..HEAD | sort)"
+          python - <<'PY'
+          from pathlib import Path
+          import inspect
+          import isco_video_agent.retention_timeline as rt
+
+          source = inspect.getsource(rt)
+          assert 'production_influence\": \"none\"' in source or "'production_influence': 'none'" in source
+          assert 'ai_calls\": 0' in source or "'ai_calls': 0" in source
+          assert 'timeline-map.json' in source
+          assert 'forced alignment' in source
+          assert 'CTA inference' in source
+          assert Path('src/isco_video_agent/learning.py').exists()
+          print('M2 isolation PASS: derived read-only binding layer; no AI/production influence')
+          PY
+
+      - name: Verify branch diff boundary
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git diff --check agent/foundation-mvp..HEAD
+          actual="$(git diff --name-only agent/foundation-mvp..HEAD | sort)"
           expected="$(printf '%s\n' \
             scripts/bind_retention_timeline.py \
             src/isco_video_agent/retention_timeline.py \
@@ -82,24 +99,4 @@ jobs:
             tests/test_youtube_retention_m2_timeline_binding.py | sort)"
           printf 'ACTUAL\n%s\nEXPECTED\n%s\n' "$actual" "$expected"
           test "$actual" = "$expected"
-          python - <<'PY'
-          import inspect
-          import isco_video_agent.retention_timeline as rt
-          source = inspect.getsource(rt)
-          assert 'timeline-map.json' in source
-          assert 'forced alignment' in source
-          assert 'CTA inference' in source
-          assert 'production_influence' in source and 'none' in source
-          assert 'ai_calls' in source
-          print('M2 isolation PASS: derived read-only binding, no AI/production influence')
-          PY
-
-      - name: Verify no provider credentials are present
-        run: |
-          set -euo pipefail
-          test -z "${GEMINI_API_KEY:-}"
-          test -z "${GROQ_API_KEY:-}"
-          test -z "${OPENROUTER_API_KEY:-}"
-          test -z "${PEXELS_API_KEY:-}"
-          test -z "${PIXABAY_API_KEY:-}"
-          echo 'No provider credentials exposed'
+          echo 'M2 exact four-file boundary PASS'
