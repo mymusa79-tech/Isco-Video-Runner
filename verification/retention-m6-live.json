@@ -1,0 +1,23 @@
+{
+  "ai_calls": 0,
+  "assignment_mode": "external_or_manual_only",
+  "causal_claims": "not_permitted",
+  "definition_locked": true,
+  "descriptive_counts": {
+    "control": 4,
+    "treatment": 4
+  },
+  "descriptive_delta_test_value": 5.0,
+  "descriptive_gate_status": "descriptive_ready",
+  "engine_sha": "9f46fb54fe459772dc28d029abd8c2cfcfa9a799",
+  "experiment_id": "20583d592377da63e712b7d22f2c3f86fc7060b66bc000c00260cad4a3a6b858",
+  "minimum_samples_per_variant": 4,
+  "mode": "M6_experiment_registry_final",
+  "production_action": "none",
+  "production_influence": "none",
+  "production_run_started": false,
+  "real_production_outcomes_used": false,
+  "schema_version": 1,
+  "statistical_significance_claim": "not_permitted",
+  "synthetic_outcomes_only": true
+}
