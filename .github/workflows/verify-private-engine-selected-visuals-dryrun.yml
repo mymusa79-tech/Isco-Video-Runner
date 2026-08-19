@@ -1,0 +1,46 @@
+name: Verify Private Engine - Selected Visuals Dry Runs
+
+on:
+  pull_request:
+    branches: ["ci/selected-visuals-verifier-base"]
+    paths:
+      - ".github/verify-selected-visuals-dryrun-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout private engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 0a362c3151ddb9739aacb9ab4388a541643b85d5
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install locked runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dry-run orchestration with approved explicit topic
+        working-directory: engine
+        run: isco-video produce --topic "صوت الآخرين في رأسك" --format auto --dry-run --no-research
+
+      - name: Dry-run orchestration through approved-brief auto path
+        working-directory: engine
+        run: isco-video produce --format auto --dry-run --no-research
