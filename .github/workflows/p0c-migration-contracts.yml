@@ -2,7 +2,7 @@ name: P0-C Migration Contract Freeze
 
 on:
   push:
-    branches: ["p0c/migration-contract-freeze"]
+    branches: ["p0c/phase1-extract-gold-finalizer"]
     paths:
       - "scripts/test_p0c_migration_contracts.py"
       - ".github/workflows/p0c-migration-contracts.yml"
@@ -26,15 +26,21 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Checkout private Engine contract branch
+      - name: Checkout private Engine Phase 1 head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: p0c/migration-contract-freeze
+          ref: 2c760411818393c9f37fd63dade73515729fc2d2
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 1
+
+      - name: Verify pinned Engine head
+        run: |
+          set -euo pipefail
+          test "$(git -C engine rev-parse HEAD)" = "2c760411818393c9f37fd63dade73515729fc2d2"
+          echo "Engine HEAD: $(git -C engine rev-parse HEAD)"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -43,11 +49,20 @@ jobs:
       - name: Install locked Engine test runtime
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 \
+            -o Acquire::https::Timeout=20 \
+            update
+          sudo apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 \
+            -o Acquire::https::Timeout=20 \
+            install -y ffmpeg fonts-noto-core
           cd engine
-          python -m pip install -r requirements-lock.txt
-          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip install --timeout 30 --retries 3 -r requirements-lock.txt
+          python -m pip install --timeout 30 --retries 3 --no-build-isolation --no-deps -e .
           python -m pip check
 
       - name: Run full private Engine suite
@@ -56,16 +71,26 @@ jobs:
           cd engine
           python -m unittest discover -s tests -v
 
-      - name: Run P0-C Runner adapter contracts
+      - name: Run 16 P0-C Migration Contracts
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python -m unittest \
-            scripts.test_p0c_migration_contracts \
-            scripts.test_budget_wire_attempts \
-            scripts.test_voice_mesh \
-            -v
+          python -m unittest scripts.test_p0c_migration_contracts -v
+
+      - name: Run full Runner regression suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort \
+              | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          printf 'Runner test modules (%s):\n' "${#test_modules[@]}"
+          printf '  %s\n' "${test_modules[@]}"
+          python -m unittest "${test_modules[@]}" -v
 
       - name: Compile migration-sensitive Runner adapters
         env:
