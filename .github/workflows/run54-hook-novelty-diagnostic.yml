@@ -1,0 +1,95 @@
+name: Run54 Hook Novelty Diagnostic
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/run54-hook-novelty-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Restore encrypted production history
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/isco-state"
+          python scripts/persistent_memory.py restore \
+            --repo . \
+            --plain "$RUNNER_TEMP/isco-state/history.json" \
+            --branch agent-state \
+            --legacy-state state/history.json.enc
+          test -s "$RUNNER_TEMP/isco-state/history.json"
+
+      - name: Measure exact hook similarity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, re
+          from difflib import SequenceMatcher
+          from pathlib import Path
+
+          current_hook = "هل جربت يومًا أن تتوقف عن فعل شيء ما، فارتفع داخل رأسك صوتٌ يعاتبك، كأن هناك قاضيًا خفيًا يراقب كل قرار تتخذه؟"
+          spoken_opening = "هل جربت يومًا أن تنهي مكالمة عمل أو نقاشًا عاديًا، ثم تقضي بقية يومك تراجع كل كلمة تفوهت بها كأنك تقف أمام لجنة تأديبية؟"
+
+          def norm(value: str) -> str:
+              value = value.lower().strip()
+              value = re.sub(r"[^\w\u0600-\u06ff]+", " ", value, flags=re.UNICODE)
+              return re.sub(r"\s+", " ", value).strip()
+
+          def ratio(a: str, b: str) -> float:
+              return SequenceMatcher(None, norm(a), norm(b)).ratio()
+
+          history_path = Path(os.environ["RUNNER_TEMP"]) / "isco-state" / "history.json"
+          data = json.loads(history_path.read_text(encoding="utf-8"))
+          recent = [x for x in data.get("videos", []) if isinstance(x, dict)][-5:]
+          rows = []
+          for index, item in enumerate(recent):
+              prior = str(item.get("hook", "")).strip()
+              rows.append({
+                  "recent_index": index - len(recent),
+                  "created_at": item.get("created_at"),
+                  "topic": item.get("topic"),
+                  "hook": prior,
+                  "metadata_hook_similarity": round(ratio(current_hook, prior), 6) if prior else 0.0,
+                  "spoken_opening_similarity": round(ratio(spoken_opening, prior), 6) if prior else 0.0,
+              })
+          out = {
+              "threshold": 0.78,
+              "current_metadata_hook": current_hook,
+              "current_spoken_opening": spoken_opening,
+              "history_video_count": len(data.get("videos", [])),
+              "recent": rows,
+              "metadata_would_block": any(r["metadata_hook_similarity"] >= 0.78 for r in rows),
+              "spoken_opening_would_block": any(r["spoken_opening_similarity"] >= 0.78 for r in rows),
+          }
+          target = Path(os.environ["RUNNER_TEMP"]) / "run54-hook-novelty-diagnostic.json"
+          target.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps({
+              "history_video_count": out["history_video_count"],
+              "metadata_would_block": out["metadata_would_block"],
+              "spoken_opening_would_block": out["spoken_opening_would_block"],
+              "max_metadata_similarity": max((r["metadata_hook_similarity"] for r in rows), default=0),
+              "max_spoken_similarity": max((r["spoken_opening_similarity"] for r in rows), default=0),
+          }, ensure_ascii=False))
+          PY
+
+      - name: Upload diagnostic evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: run54-hook-novelty-diagnostic
+          path: ${{ runner.temp }}/run54-hook-novelty-diagnostic.json
+          if-no-files-found: error
+          retention-days: 7
