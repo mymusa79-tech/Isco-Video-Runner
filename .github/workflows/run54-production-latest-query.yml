@@ -26,6 +26,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Observe the deterministic opening-query production validation.
           gh api \
             -H 'Accept: application/vnd.github+json' \
             '/repos/mymusa79-tech/Isco-Video-Runner/actions/workflows/run54-production-validation.yml/runs?branch=main&per_page=1' \
