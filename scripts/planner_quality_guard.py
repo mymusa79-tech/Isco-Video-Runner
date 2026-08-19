@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 from functools import wraps
 
+import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
 
 
@@ -100,6 +102,8 @@ _OPENING_QUERY_DROP_TERMS = _HUMAN_QUERY_TERMS | {
 }
 
 _OPENING_QUERY_FALLBACK = "quiet room natural light"
+_SPEAKER_PREFIX_RE = re.compile(r"^(?:A|B)\s*:\s*", re.IGNORECASE)
+_FIRST_SENTENCE_RE = re.compile(r"^(.+?[؟?!\.])(?:\s|$)", re.DOTALL)
 
 
 def _single_use_transition_slots(transition_variants: list[str], section_count: int) -> list[str]:
@@ -160,8 +164,58 @@ def _guard_opening_brief(outline: object, *, fmt: str) -> object:
     return outline
 
 
+def _first_spoken_sentence(text: str) -> str:
+    """Extract the first sentence the viewer actually hears, not planning metadata."""
+    cleaned = str(text).strip()
+    if not cleaned:
+        return ""
+
+    # Dialogue plans can begin with a speaker label. The identity of the speaker is
+    # not part of the hook wording and should not affect anti-repetition similarity.
+    cleaned = _SPEAKER_PREFIX_RE.sub("", cleaned, count=1).strip()
+    match = _FIRST_SENTENCE_RE.match(cleaned)
+    if match:
+        return re.sub(r"\s+", " ", match.group(1)).strip()
+
+    first_line = next((line.strip() for line in cleaned.splitlines() if line.strip()), cleaned)
+    return re.sub(r"\s+", " ", first_line).strip()
+
+
+def _spoken_hook(plan: object) -> str:
+    sections = getattr(plan, "sections", None)
+    if isinstance(sections, list) and sections:
+        narration = str(getattr(sections[0], "narration", "")).strip()
+        spoken = _first_spoken_sentence(narration)
+        if spoken:
+            return spoken
+    return str(getattr(plan, "hook", "")).strip()
+
+
+def _spoken_hook_from_history_record(record: dict) -> str:
+    """Resolve the accepted viewer-facing hook from the already-written final plan.
+
+    The Engine calls append_history only after render/quality/monetization acceptance,
+    and plan.json exists by then. Reading it here keeps persistent novelty memory tied
+    to what was actually narrated while preserving plan.hook for packaging metadata.
+    """
+    output = str(record.get("output", "")).strip()
+    if not output:
+        return str(record.get("hook", "")).strip()
+    try:
+        plan_path = (orchestrator.ROOT / output).parent / "plan.json"
+        data = json.loads(plan_path.read_text(encoding="utf-8"))
+        sections = data.get("sections", []) if isinstance(data, dict) else []
+        if isinstance(sections, list) and sections and isinstance(sections[0], dict):
+            spoken = _first_spoken_sentence(str(sections[0].get("narration", "")))
+            if spoken:
+                return spoken
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return str(record.get("hook", "")).strip()
+
+
 def install_planner_quality_guard() -> None:
-    """Patch planner output/prompting only; provider call counts and downstream gates stay unchanged."""
+    """Patch runtime quality semantics without adding provider calls or weakening gates."""
     staged._NARRATIVE_FORMATS["question_answer"] = _QUESTION_ANSWER_RUNTIME_RULE
 
     current_outline = staged._outline
@@ -188,7 +242,44 @@ def install_planner_quality_guard() -> None:
         guarded_write_full_script._isco_single_use_transition_guard = True
         staged._write_full_script = guarded_write_full_script
 
+    current_novelty = orchestrator._novelty_flags
+    if not getattr(current_novelty, "_isco_spoken_hook_novelty_guard", False):
+        @wraps(current_novelty)
+        def guarded_novelty_flags(plan, music, *, auto_topic: bool):
+            metadata_hook = str(getattr(plan, "hook", "")).strip()
+            spoken_hook = _spoken_hook(plan)
+            if not spoken_hook or spoken_hook == metadata_hook:
+                return current_novelty(plan, music, auto_topic=auto_topic)
+
+            # Reuse the Engine's unchanged novelty function and unchanged 0.78 hook
+            # threshold. Only the input is corrected to the actual spoken opening.
+            plan.hook = spoken_hook
+            try:
+                return current_novelty(plan, music, auto_topic=auto_topic)
+            finally:
+                plan.hook = metadata_hook
+
+        guarded_novelty_flags._isco_spoken_hook_novelty_guard = True
+        orchestrator._novelty_flags = guarded_novelty_flags
+
+    current_append = orchestrator.append_history
+    if not getattr(current_append, "_isco_spoken_hook_history_guard", False):
+        @wraps(current_append)
+        def guarded_append_history(record: dict):
+            stored = dict(record)
+            metadata_hook = str(stored.get("hook", "")).strip()
+            spoken_hook = _spoken_hook_from_history_record(stored)
+            if spoken_hook:
+                stored["hook"] = spoken_hook
+            if metadata_hook and spoken_hook and metadata_hook != spoken_hook:
+                stored["metadata_hook"] = metadata_hook
+            return current_append(stored)
+
+        guarded_append_history._isco_spoken_hook_history_guard = True
+        orchestrator.append_history = guarded_append_history
+
     print(
         "Planner quality guard installed: opening stock query deterministic safety; "
-        "transition hints single-use; question_answer narration rule strengthened"
+        "spoken-hook novelty/history alignment; transition hints single-use; "
+        "question_answer narration rule strengthened"
     )
