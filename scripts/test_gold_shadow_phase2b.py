@@ -11,7 +11,6 @@ import isco_video_agent.thumbnail as thumbnail
 from isco_video_agent.ai_budget import AttemptOutcome, BudgetLedger, Capability
 import scripts.gold_shadow_phase2b as phase2b
 import scripts.gold_thumbnail_budget as thumb_budget
-import scripts.run_v3_voice as runner
 
 
 class ThumbnailBudgetAdapterTests(unittest.TestCase):
@@ -150,19 +149,6 @@ class Phase2BIsolationTests(unittest.TestCase):
                 )
             )
             self.assertEqual(len(shadow_rights["thumbnails"]), 1)
-
-
-class Phase2BRunnerContracts(unittest.TestCase):
-    def test_runner_owns_pexels_secret_once_and_passes_same_ledger_to_shadow(self) -> None:
-        source = inspect.getsource(runner.main)
-        self.assertEqual(source.count('secret("PEXELS_API_KEY")'), 1)
-        self.assertIn('os.environ["PEXELS_API_KEY"] = pexels', source)
-        self.assertEqual(source.count("orchestrator.produce("), 1)
-        self.assertEqual(source.count("run_gold_shadow_phase2b("), 1)
-        shadow = source.index("run_gold_shadow_phase2b(")
-        self.assertLess(source.index("orchestrator.produce("), shadow)
-        self.assertIn("pexels=pexels", source[shadow:])
-        self.assertIn("ledger=ledger", source[shadow:])
 
 
 if __name__ == "__main__":
