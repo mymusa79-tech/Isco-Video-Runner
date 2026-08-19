@@ -1,25 +1,21 @@
 {
   "calls": [
     {
-      "error": null,
       "kind": "oauth_refresh",
       "method": "POST",
       "status": 200
     },
     {
-      "error": null,
       "kind": "video_probe",
       "method": "GET",
       "status": 200
     },
     {
-      "error": null,
       "kind": "base_analytics",
       "method": "GET",
       "status": 200
     },
     {
-      "error": null,
       "kind": "retention",
       "method": "GET",
       "status": 200
