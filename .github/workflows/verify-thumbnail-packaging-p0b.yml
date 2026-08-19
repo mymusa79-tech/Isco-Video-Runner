@@ -4,7 +4,7 @@ on:
   push:
     branches: ["ci/verify-thumbnail-packaging-p0b"]
   pull_request:
-    branches: ["main"]
+    branches: ["p0c/phase2b-gold-shadow-thumbnail"]
   workflow_dispatch:
 
 permissions:
