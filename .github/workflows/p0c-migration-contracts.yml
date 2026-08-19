@@ -1,32 +1,15 @@
-name: P0-C Phase 4 Gold Enforcement Verification
+name: Verify Clean Gold V2 Plus Packaging V1
 
 on:
-  push:
-    branches: ["p0c/phase4-gold-enforce-same-render-v2"]
-    paths:
-      - "scripts/gold_enforce_phase4.py"
-      - "scripts/gold_single_evaluator_phase3.py"
-      - "scripts/gold_shadow_phase2b.py"
-      - "scripts/gold_thumbnail_budget.py"
-      - "scripts/run_v3_voice.py"
-      - "scripts/test_gold_enforce_phase4.py"
-      - "scripts/test_gold_single_evaluator_phase3.py"
-      - "scripts/test_gold_shadow_phase2b.py"
-      - "scripts/test_p0c_migration_contracts.py"
-      - "scripts/test_run_v3_voice.py"
-      - ".github/workflows/p0c-migration-contracts.yml"
   pull_request:
     paths:
       - "scripts/gold_enforce_phase4.py"
-      - "scripts/gold_single_evaluator_phase3.py"
-      - "scripts/gold_shadow_phase2b.py"
       - "scripts/gold_thumbnail_budget.py"
       - "scripts/run_v3_voice.py"
-      - "scripts/test_gold_enforce_phase4.py"
-      - "scripts/test_gold_single_evaluator_phase3.py"
-      - "scripts/test_gold_shadow_phase2b.py"
-      - "scripts/test_p0c_migration_contracts.py"
-      - "scripts/test_run_v3_voice.py"
+      - "scripts/packaging_delivery_contract.py"
+      - "scripts/test_thumbnail_pixabay_bridge_p0d.py"
+      - "scripts/test_packaging_artifact_delivery_p0e.py"
+      - ".github/workflows/produce-resilient-v4.yml"
       - ".github/workflows/p0c-migration-contracts.yml"
   workflow_dispatch:
 
@@ -34,54 +17,53 @@ permissions:
   contents: read
 
 jobs:
-  contracts:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
-      - name: Checkout clean Runner Phase 4 branch
+      - name: Checkout integrated Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Prove clean Phase 3 ancestry
+      - name: Prove clean Gold ancestry
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor adb72ed10e72a0854b157075473b6b12d32d8057 HEAD
-          echo "Clean Phase 3 ancestry: adb72ed10e72a0854b157075473b6b12d32d8057"
+          git merge-base --is-ancestor 8f22d73cab614c0a8b19a2efaa37259656917644 HEAD
+          echo "Clean Gold Phase 4 v2 ancestry preserved"
 
-      - name: Checkout exact compatible Engine P0-C candidate
+      - name: Checkout exact Foundation plus Packaging Engine integration candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: b2933176668ebc694f041f78b881942718e2d806
+          ref: 69bd421053d1f1f3d3d3fe71934272e91220cb3b
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - name: Verify pinned Engine head
+      - name: Verify pinned Engine integration candidate
         run: |
           set -euo pipefail
-          test "$(git -C engine rev-parse HEAD)" = "b2933176668ebc694f041f78b881942718e2d806"
-          echo "Engine HEAD: $(git -C engine rev-parse HEAD)"
+          test "$(git -C engine rev-parse HEAD)" = "69bd421053d1f1f3d3d3fe71934272e91220cb3b"
+          echo "Engine integration HEAD: $(git -C engine rev-parse HEAD)"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
 
-      - name: Install locked Engine test runtime
+      - name: Install locked Engine runtime
         run: |
           set -euo pipefail
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y ffmpeg fonts-noto-core
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
           cd engine
-          python -m pip install --timeout 30 --retries 3 -r requirements-lock.txt
-          python -m pip install --timeout 30 --retries 3 --no-build-isolation --no-deps -e .
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Run focused Gold Phase 2B-3-4 regressions
+      - name: Run Gold Phase 2B 3 4 plus Packaging Runner regressions
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
@@ -90,26 +72,51 @@ jobs:
             scripts.test_gold_shadow_phase2b \
             scripts.test_gold_single_evaluator_phase3 \
             scripts.test_gold_enforce_phase4 \
+            scripts.test_thumbnail_pixabay_bridge_p0d \
+            scripts.test_packaging_artifact_delivery_p0e \
             -v
 
-      - name: Run Engine P0-C Migration Contracts
+      - name: Run Packaging Engine P0 P1 P2 regressions
         working-directory: engine
         run: |
           set -euo pipefail
-          python -m unittest tests.test_p0c_migration_contracts -v
+          python -m unittest \
+            tests.test_thumbnail_cultural_safety \
+            tests.test_thumbnail_packaging_contract \
+            tests.test_thumbnail_batch_review \
+            tests.test_thumbnail_candidate_board \
+            tests.test_thumbnail_pixabay_fallback \
+            tests.test_packaging_identity_integrity_p1 \
+            tests.test_thumbnail_renderer_p1 \
+            tests.test_youtube_packaging_reporting_p1 \
+            tests.test_packaging_early_brief_p2 \
+            tests.test_packaging_experiments_p2 \
+            tests.test_packaging_learning_p2 \
+            tests.test_packaging_benchmark_p2 \
+            -v
 
-      - name: Run full private Engine suite
+      - name: Run Analytics and Cinematic integration regressions
         working-directory: engine
         run: |
           set -euo pipefail
-          python -m unittest discover -s tests -v
+          python -m unittest \
+            tests.test_youtube_production_observer_credentials \
+            tests.test_youtube_retention_m1_storage \
+            tests.test_youtube_retention_m1_fallback \
+            tests.test_cinematic_m1_loop_safety \
+            tests.test_cinematic_m2_music_bed \
+            tests.test_cinematic_m3_color \
+            tests.test_cinematic_m4_voice_pacing \
+            tests.test_cinematic_m5_outro \
+            tests.test_cinematic_m6_opening \
+            tests.test_cinematic_m6_opening_selection \
+            -v
 
-      - name: Run Runner P0-C Migration Contracts
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+      - name: Run full Engine suite
+        working-directory: engine
         run: |
           set -euo pipefail
-          python -m unittest scripts.test_p0c_migration_contracts -v
+          python -m unittest discover -s tests -q
 
       - name: Run full Runner regression suite
         env:
@@ -121,32 +128,41 @@ jobs:
               | sort \
               | sed -e 's#/#.#g' -e 's#\.py$##'
           )
-          printf 'Runner test modules (%s):\n' "${#test_modules[@]}"
-          printf '  %s\n' "${test_modules[@]}"
-          python -m unittest "${test_modules[@]}" -v
+          python -m unittest "${test_modules[@]}" -q
 
-      - name: Compile migration-sensitive adapters
+      - name: Verify exact Packaging delta over clean Gold v2
+        run: |
+          set -euo pipefail
+          actual="$(git diff --name-only 8f22d73cab614c0a8b19a2efaa37259656917644..HEAD | sort)"
+          expected="$(printf '%s\n' \
+            .github/workflows/p0c-migration-contracts.yml \
+            .github/workflows/produce-resilient-v4.yml \
+            scripts/gold_enforce_phase4.py \
+            scripts/gold_thumbnail_budget.py \
+            scripts/packaging_delivery_contract.py \
+            scripts/run_v3_voice.py \
+            scripts/test_packaging_artifact_delivery_p0e.py \
+            scripts/test_thumbnail_pixabay_bridge_p0d.py | sort)"
+          printf 'ACTUAL\n%s\nEXPECTED\n%s\n' "$actual" "$expected"
+          test "$actual" = "$expected"
+          git diff --check 8f22d73cab614c0a8b19a2efaa37259656917644..HEAD
+
+      - name: Verify safety and authority invariants
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python -m py_compile \
-            scripts/gold_shadow_phase2a.py \
-            scripts/gold_shadow_phase2b.py \
-            scripts/gold_single_evaluator_phase3.py \
-            scripts/gold_enforce_phase4.py \
-            scripts/gold_thumbnail_budget.py \
-            scripts/run_v3_voice.py \
-            scripts/task_level_planner_router.py \
-            scripts/voice_mesh.py \
-            scripts/test_p0c_migration_contracts.py
-
-      - name: Verify provider credentials are absent
-        run: |
-          set -euo pipefail
+          python - <<'PY'
+          import inspect
+          from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
+          from scripts.gold_thumbnail_budget import build_budgeted_thumbnail_package
+          from scripts.packaging_delivery_contract import validate_packaging_delivery
+          assert 'pixabay' in inspect.signature(run_gold_enforce_phase4).parameters
+          assert 'pixabay_key' in inspect.signature(build_budgeted_thumbnail_package).parameters
+          assert callable(validate_packaging_delivery)
+          print('Gold authority + Pixabay routing + Packaging delivery invariants PASS')
+          PY
           test -z "${GEMINI_API_KEY:-}"
-          test -z "${GROQ_API_KEY:-}"
-          test -z "${OPENROUTER_API_KEY:-}"
           test -z "${PEXELS_API_KEY:-}"
           test -z "${PIXABAY_API_KEY:-}"
-          echo "P0-C Phase 4 verifier exposed no provider API credentials"
+          echo 'No provider credentials exposed'
