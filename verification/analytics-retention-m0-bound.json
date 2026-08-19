@@ -65,8 +65,8 @@
     "production_influence": "none",
     "stores_retention_curve": false
   },
-  "targeted_tests": "pending",
-  "full_suite": "pending",
+  "targeted_tests": "success",
+  "full_suite": "success",
   "secrets_changed": false,
   "production_video_started": false,
   "production_influence": "none",
@@ -149,5 +149,6 @@
     },
     "production_influence": "none",
     "stores_retention_curve": false
-  }
+  },
+  "verified_engine_sha": "df8cadcd531a9bfa28767e94fc6d61e479ad0d4a"
 }
