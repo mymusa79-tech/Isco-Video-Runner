@@ -1,0 +1,93 @@
+name: Verify P0-C Phase 4 V2
+
+on:
+  push:
+    branches: ["ci/verify-p0c-phase4-v2"]
+  pull_request:
+    branches: ["p0c/phase4-gold-enforce-same-render-v2"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout clean Phase 4 verifier branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Prove clean Phase 3 ancestry
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor adb72ed10e72a0854b157075473b6b12d32d8057 HEAD
+          test "$(git rev-list --count adb72ed10e72a0854b157075473b6b12d32d8057..HEAD)" -ge 4
+          echo "Clean Phase 3 ancestry PASS"
+
+      - name: Checkout exact compatible Engine P0-C candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: b2933176668ebc694f041f78b881942718e2d806
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Verify Gold Phase 2B-3-4 regressions
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            scripts.test_gold_shadow_phase2b \
+            scripts.test_gold_single_evaluator_phase3 \
+            scripts.test_gold_enforce_phase4 \
+            -v
+
+      - name: Full Engine regression suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Static Phase 4 safety invariants
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import inspect
+          import scripts.gold_enforce_phase4 as phase4
+          import scripts.run_v3_voice as runner
+
+          source = inspect.getsource(runner.main)
+          assert source.count("orchestrator.produce(") == 1
+          assert source.count("run_gold_enforce_phase4(") == 1
+          assert "run_gold_single_evaluator_phase3(" not in source
+          assert source.index("orchestrator.produce(") < source.index("run_gold_enforce_phase4(")
+          assert source.index("run_gold_enforce_phase4(") < source.index("_write_production_manifest(")
+          assert '"release_authority": "gold_enforced"' in inspect.getsource(runner._write_production_manifest)
+          sig = inspect.signature(phase4.run_gold_enforce_phase4)
+          assert list(sig.parameters) == ["output_dir", "gemini", "pexels", "ledger"]
+          print("Phase 4 safety invariants PASS")
+          PY
