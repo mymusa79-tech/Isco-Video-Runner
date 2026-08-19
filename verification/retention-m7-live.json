@@ -1,0 +1,23 @@
+{
+  "ai_calls": 0,
+  "apply_automatically": false,
+  "candidate_mode_synthetic_decision": "blocked",
+  "candidate_path_covered_by_unit_tests_only": true,
+  "default_block_reason": "influence_mode_disabled",
+  "default_decision": "blocked",
+  "default_mode": "disabled",
+  "engine_sha": "de42a75c9359c3e420ba01eda212d64b0e341146",
+  "human_approval_required": true,
+  "independent_statistical_review_required": true,
+  "inputs_unchanged": true,
+  "minimum_positive_effect_pp": 3.0,
+  "minimum_real_samples_per_variant": 8,
+  "mode": "M7_production_influence_gate_final",
+  "production_influence": "none",
+  "production_run_started": false,
+  "real_production_candidate_emitted": false,
+  "safety_integrity_targets_forbidden": true,
+  "schema_version": 1,
+  "statistical_validation_required": true,
+  "synthetic_block_reason": "synthetic_evidence_forbidden"
+}
