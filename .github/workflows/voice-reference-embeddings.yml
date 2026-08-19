@@ -1,0 +1,102 @@
+name: Voice Reference Embeddings
+
+on:
+  push:
+    branches: ["agent/voice-identity-observer-v1"]
+    paths:
+      - ".github/workflows/voice-reference-embeddings.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install pinned speaker verifier
+        run: |
+          set -euo pipefail
+          python -m pip install 'speechbrain==1.1.0'
+      - name: Download human-approved listening samples
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p samples
+          gh run download 32224276241 \
+            --repo mymusa79-tech/Isco-Video-Runner \
+            --name arabic-gemini-voice-roster-samples \
+            --dir samples
+          test -f samples/01-Charon.wav
+          test -f samples/02-Orus.wav
+      - name: Extract normalized ECAPA reference embeddings
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          import torch
+          from speechbrain.inference.speaker import SpeakerRecognition
+          from speechbrain.utils.fetching import FetchConfig
+
+          source = "speechbrain/spkrec-ecapa-voxceleb"
+          revision = "0f99f2d0ebe89ac095bcc5903c4dd8f72b367286"
+          verifier = SpeakerRecognition.from_hparams(
+              source=source,
+              savedir=".cache/spkrec-ecapa-voxceleb",
+              fetch_config=FetchConfig(revision=revision, allow_updates=False),
+              run_opts={"device": "cpu"},
+          )
+
+          def profile(role: str, voice: str, path: Path) -> dict:
+              signal = verifier.load_audio(str(path)).unsqueeze(0)
+              with torch.no_grad():
+                  emb = verifier.encode_batch(signal, normalize=False).squeeze().detach().cpu().float()
+              emb = emb / torch.linalg.vector_norm(emb)
+              raw = path.read_bytes()
+              return {
+                  "profile_id": f"channel-{role}-v1",
+                  "role": role,
+                  "voice": voice,
+                  "source_audio_sha256": hashlib.sha256(raw).hexdigest(),
+                  "embedding": [round(float(x), 9) for x in emb.tolist()],
+              }
+
+          data = {
+              "schema_version": 1,
+              "mode": "observe_only",
+              "calibrated": False,
+              "backend": {
+                  "library": "speechbrain",
+                  "version": "1.1.0",
+                  "model": source,
+                  "model_revision": revision,
+                  "metric": "cosine_similarity",
+              },
+              "profiles": {
+                  "primary": profile("primary", "Charon", Path("samples/01-Charon.wav")),
+                  "questioner": profile("questioner", "Orus", Path("samples/02-Orus.wav")),
+              },
+          }
+          Path("voice-reference-embeddings.json").write_text(
+              json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          print("Reference embeddings generated:", {k: len(v["embedding"]) for k, v in data["profiles"].items()})
+          PY
+      - name: Upload reference profile
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: voice-reference-embeddings-v1
+          path: voice-reference-embeddings.json
+          if-no-files-found: error
+          retention-days: 7
