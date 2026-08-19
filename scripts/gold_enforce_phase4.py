@@ -34,6 +34,7 @@ def run_gold_enforce_phase4(
     gemini: str,
     pexels: str,
     ledger: BudgetLedger,
+    pixabay: str | None = None,
 ) -> tuple[object, dict, dict]:
     """Enforce the extracted Gold finalizer over the exact existing core render.
 
@@ -55,7 +56,7 @@ def run_gold_enforce_phase4(
     critic_box: dict[str, dict] = {}
 
     def budgeted_builder(**kwargs):
-        return build_budgeted_thumbnail_package(**kwargs, ledger=ledger)
+        return build_budgeted_thumbnail_package(**kwargs, ledger=ledger, pixabay_key=pixabay)
 
     def enforced_critic(**kwargs):
         critic = _run_final_critic(
