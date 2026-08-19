@@ -1,0 +1,24 @@
+{
+  "ad_impressions_substitution": false,
+  "ai_calls": 0,
+  "context_only": true,
+  "cross_metric_causal_inference": "not_permitted",
+  "discovery_status": "reporting_api_unavailable",
+  "engine_sha": "2c222390b41607f04dd7bccc644cfe72f7a2cef4",
+  "error_reason": "PERMISSION_DENIED",
+  "existing_job": false,
+  "http_status": 403,
+  "latest_report_available": false,
+  "metric_names": [
+    "video_thumbnail_impressions",
+    "video_thumbnail_impressions_ctr"
+  ],
+  "mode": "M5_reach_ctr_context_final",
+  "mutation_performed": false,
+  "production_influence": "none",
+  "production_run_started": false,
+  "report_type": "channel_reach_basic_a1",
+  "report_type_available": false,
+  "requires_job_creation": false,
+  "schema_version": 2
+}
