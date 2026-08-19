@@ -1,10 +1,11 @@
 {
   "ai_calls_added": false,
+  "binding_source": null,
   "classification_status": "unresolved",
   "content_style": "unverified",
   "curve_status": "complete",
   "dip_spike_analysis": false,
-  "engine_sha": "1330d04d1b95969e2f8c2f7b6cafffc59187039f",
+  "engine_sha": "0a65585f987d262e2d08bbd752f9f45bf5e3a16f",
   "first_30s_present": true,
   "ingestion_source": "production_observer",
   "interpolation": false,
@@ -18,6 +19,8 @@
     "totalSegmentImpressions"
   ],
   "mode": "M1_full_retention_curve_storage",
+  "observation_schema_version": 1,
+  "observation_video_id": "e_I6g1qt4xg",
   "points_received": 100,
   "production_run_started": false,
   "retention_http_status": 200,

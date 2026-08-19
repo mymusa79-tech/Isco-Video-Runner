@@ -2,6 +2,7 @@
   "isolation": "unverified",
   "observations": [
     {
+      "binding_source": null,
       "classification_status": "unresolved",
       "content_style": "unverified",
       "curve_status": "complete",
@@ -23,7 +24,7 @@
         "audienceWatchRatio": 0,
         "relativeRetentionPerformance": 0
       },
-      "observed_at": "2026-08-19T18:13:53.725803+00:00",
+      "observed_at": "2026-08-19T18:27:05.307450+00:00",
       "points_received": 100,
       "raw_rows": [
         {
@@ -528,7 +529,9 @@
         }
       ],
       "response_rows_received": 100,
-      "snapshot_id": "563997360b531144d0ecfe6624def73ee5f33ea083bf7953dc52642ce1777ccd"
+      "schema_version": 1,
+      "snapshot_id": "c029e2d8c1b8a784cef9e9add233de8bd14551ef389fa59ca01dabb626720c17",
+      "video_id": "e_I6g1qt4xg"
     }
   ],
   "schema_version": 1,
