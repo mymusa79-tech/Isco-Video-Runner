@@ -2,7 +2,7 @@
   "schema_version": 1,
   "mode": "M0_bound_video_diagnosis",
   "engine_sha": "f0d9574fa5e89105db821e949c354dca011bda0a",
-  "runner_trigger_sha": "1d459bf3a1b666df17188888b0090126c7bfe125",
+  "runner_trigger_sha": "1b11173243b389cdfeb99b6a65c9d46a5a62c38f",
   "history_restore": "success",
   "binding_evidence": {
     "source": "encrypted_agent_state_history",
@@ -19,7 +19,7 @@
   "health": {
     "schema_version": 1,
     "mode": "read_only_bound_video_health",
-    "observed_at": "2026-08-19T17:05:47.487642+00:00",
+    "observed_at": "2026-08-19T17:07:09.633382+00:00",
     "status": "failed",
     "video_id": "e_I6g1qt4xg",
     "auth": {
