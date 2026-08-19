@@ -7,6 +7,7 @@ on:
       - "scripts/gold_thumbnail_budget.py"
       - "scripts/run_v3_voice.py"
       - "scripts/packaging_delivery_contract.py"
+      - "scripts/test_gold_enforce_phase4.py"
       - "scripts/test_thumbnail_pixabay_bridge_p0d.py"
       - "scripts/test_packaging_artifact_delivery_p0e.py"
       - ".github/workflows/produce-resilient-v4.yml"
@@ -142,7 +143,7 @@ jobs:
           )
           python -m unittest "${test_modules[@]}" -q
 
-      - name: Verify exact Packaging delta over clean Gold v2
+      - name: Verify exact approved integration delta over clean Gold v2
         run: |
           set -euo pipefail
           git fetch --no-tags origin "refs/heads/integration/gold-v2-packaging-v1:refs/remotes/origin/integration/gold-v2-packaging-v1"
@@ -155,6 +156,7 @@ jobs:
             scripts/gold_thumbnail_budget.py \
             scripts/packaging_delivery_contract.py \
             scripts/run_v3_voice.py \
+            scripts/test_gold_enforce_phase4.py \
             scripts/test_packaging_artifact_delivery_p0e.py \
             scripts/test_thumbnail_pixabay_bridge_p0d.py | sort)"
           printf 'ACTUAL\n%s\nEXPECTED\n%s\n' "$actual" "$expected"
