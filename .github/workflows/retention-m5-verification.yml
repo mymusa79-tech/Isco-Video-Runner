@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: d7cb75c621a8b38f013bd09e58a8bcec85477be3
+          ref: 1a55f6dbb6978d745aecd510c9bb8df625a9afe7
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -83,7 +83,7 @@ jobs:
           import json, os
           from pathlib import Path
           discovery = json.loads(Path('verification-m5/discovery.json').read_text())
-          assert os.environ['ENGINE_SHA'] == 'd7cb75c621a8b38f013bd09e58a8bcec85477be3'
+          assert os.environ['ENGINE_SHA'] == '1a55f6dbb6978d745aecd510c9bb8df625a9afe7'
           assert discovery['mutation_performed'] is False
           assert discovery['production_influence'] == 'none'
           assert discovery['status'] in {'job_missing','job_waiting_for_report','report_ready'}
