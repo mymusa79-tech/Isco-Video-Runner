@@ -1,12 +1,11 @@
 name: Retention M3 Verification
 
 on:
-  push:
-    branches: ["analytics/retention-v2-m3-verification"]
-    paths: [".github/workflows/retention-m3-verification.yml"]
+  pull_request:
+    branches: ["main"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify-m3:
@@ -15,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: true
+          persist-credentials: false
           fetch-depth: 1
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -126,7 +125,7 @@ jobs:
               'ai_calls': report['ai_calls'],
               'production_run_started': False,
           }
-          Path('verification/retention-m3-live.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
+          Path('verification-m3/retention-m3-live.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
           print(json.dumps(evidence, ensure_ascii=False, sort_keys=True))
           PY
 
@@ -139,11 +138,10 @@ jobs:
           test -z "${PEXELS_API_KEY:-}"
           test -z "${PIXABAY_API_KEY:-}"
 
-      - name: Persist sanitized M3 evidence
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add verification/retention-m3-live.json
-          git commit -m "ci: record M3 retention verification" || true
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+      - name: Upload sanitized M3 evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: retention-m3-verification
+          path: verification-m3/
+          if-no-files-found: error
+          retention-days: 1
