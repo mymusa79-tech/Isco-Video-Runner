@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 1a55f6dbb6978d745aecd510c9bb8df625a9afe7
+          ref: 2c222390b41607f04dd7bccc644cfe72f7a2cef4
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -85,21 +85,23 @@ jobs:
           import json, os
           from pathlib import Path
           discovery = json.loads(Path('verification-m5/discovery.json').read_text())
-          assert os.environ['ENGINE_SHA'] == '1a55f6dbb6978d745aecd510c9bb8df625a9afe7'
+          assert os.environ['ENGINE_SHA'] == '2c222390b41607f04dd7bccc644cfe72f7a2cef4'
           assert discovery['mutation_performed'] is False
           assert discovery['production_influence'] == 'none'
           assert discovery['report_type'] == 'channel_reach_basic_a1'
           assert discovery['status'] in {
               'job_missing','job_waiting_for_report','report_ready',
-              'reporting_api_unavailable','report_type_unavailable','jobs_unavailable',
+              'reporting_api_unavailable','report_type_unavailable','jobs_unavailable','report_list_unavailable',
           }
           evidence = {
-              'schema_version': 1,
-              'mode': 'M5_reach_ctr_context_diagnostic',
+              'schema_version': 2,
+              'mode': 'M5_reach_ctr_context_final',
               'engine_sha': os.environ['ENGINE_SHA'],
               'report_type': discovery['report_type'],
               'report_type_available': discovery['report_type_available'],
               'discovery_status': discovery['status'],
+              'http_status': discovery.get('http_status'),
+              'error_reason': discovery.get('error_reason'),
               'existing_job': discovery['existing_job'],
               'latest_report_available': discovery['latest_report_available'],
               'requires_job_creation': discovery['requires_job_creation'],
