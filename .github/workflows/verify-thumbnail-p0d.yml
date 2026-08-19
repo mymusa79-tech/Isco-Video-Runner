@@ -3,6 +3,8 @@ name: Verify Thumbnail Pixabay Fallback P0-D
 on:
   push:
     branches: ["ci/verify-thumbnail-p0d"]
+  pull_request:
+    branches: ["p0d/pixabay-thumbnail-fallback"]
   workflow_dispatch:
 
 permissions:
