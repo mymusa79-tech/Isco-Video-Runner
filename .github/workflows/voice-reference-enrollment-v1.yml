@@ -5,14 +5,10 @@ on:
     branches: ["agent/voice-identity-observer-v1"]
     paths:
       - ".github/workflows/voice-reference-enrollment-v1.yml"
-  pull_request:
-    branches: ["main"]
-    paths:
-      - ".github/workflows/voice-reference-enrollment-v1.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   APPROVED_RUN_ID: "32224276241"
@@ -187,3 +183,19 @@ jobs:
           path: voice-reference-profile-v1.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Persist enrolled profile on observer branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_BRANCH: agent/voice-identity-observer-v1
+        run: |
+          set -euo pipefail
+          encoded="$(base64 -w0 voice-reference-profile-v1.json)"
+          gh api --method PUT \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/contents/voice-profiles/voice-reference-profile-v1.json" \
+            -f message='test: persist approved ECAPA voice reference profile' \
+            -f content="$encoded" \
+            -f branch="$TARGET_BRANCH" \
+            >/dev/null
+          echo 'Persisted voice-profiles/voice-reference-profile-v1.json on observer branch'
