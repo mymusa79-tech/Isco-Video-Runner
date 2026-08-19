@@ -1,4 +1,5 @@
 name: Apply Packaging P0-E Workflow Patch
+# Second isolated-branch push: trigger the already-present patcher workflow.
 
 on:
   push:
