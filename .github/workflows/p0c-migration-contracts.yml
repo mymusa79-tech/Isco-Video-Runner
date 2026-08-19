@@ -70,8 +70,10 @@ jobs:
         working-directory: engine
         run: |
           set -euo pipefail
-          git diff --check agent/foundation-mvp..HEAD
-          actual="$(git diff --name-only agent/foundation-mvp..HEAD | sort)"
+          BASE_SHA=0a65585f987d262e2d08bbd752f9f45bf5e3a16f
+          git cat-file -e "$BASE_SHA^{commit}"
+          git diff --check "$BASE_SHA"..HEAD
+          actual="$(git diff --name-only "$BASE_SHA"..HEAD | sort)"
           expected="$(printf '%s\n' \
             scripts/bind_retention_timeline.py \
             src/isco_video_agent/retention_timeline.py \
