@@ -3,9 +3,10 @@
   "bound_points": 0,
   "boundary_rule": "half_open_[start,end); internal boundary belongs to the interval starting there; final video endpoint may belong to terminal interval",
   "derived_points": 100,
-  "engine_sha": "a0da50f8b08abd0b2c698706f151c213a154c607",
+  "duration_source": "retention_observation.duration_seconds",
+  "engine_sha": "9f5ae2d94d0226690d502440498333c91fb0d539",
   "final_duration_seconds": 207.0,
-  "mode": "M2_retention_timeline_binding",
+  "mode": "M2_retention_timeline_binding_final",
   "production_influence": "none",
   "production_run_started": false,
   "provenance": {
@@ -15,6 +16,7 @@
     "ingestion_source": "production_observer",
     "snapshot_id": "c029e2d8c1b8a784cef9e9add233de8bd14551ef389fa59ca01dabb626720c17"
   },
+  "provenance_verified_for_event_binding": false,
   "raw_sidecar_sha256": "9de956d7e87224292162b12201b5ce17bafcaa29a1947b0764e5b2fcd9010831",
   "raw_sidecar_unchanged": true,
   "samples": {
@@ -24,7 +26,7 @@
       "binding_source": null,
       "binding_status": "unbound",
       "brand_sting": null,
-      "duration_source": "timeline_metadata",
+      "duration_source": "retention_observation.duration_seconds",
       "elapsedVideoTimeRatio": 0.01,
       "opening_slot": null,
       "outro": null,
@@ -40,7 +42,7 @@
       "binding_source": null,
       "binding_status": "unbound",
       "brand_sting": null,
-      "duration_source": "timeline_metadata",
+      "duration_source": "retention_observation.duration_seconds",
       "elapsedVideoTimeRatio": 1.0,
       "opening_slot": null,
       "outro": null,
@@ -56,7 +58,7 @@
       "binding_source": null,
       "binding_status": "unbound",
       "brand_sting": null,
-      "duration_source": "timeline_metadata",
+      "duration_source": "retention_observation.duration_seconds",
       "elapsedVideoTimeRatio": 0.51,
       "opening_slot": null,
       "outro": null,
@@ -67,9 +69,15 @@
       "section_id": null
     }
   },
-  "schema_version": 1,
+  "schema_version": 2,
   "source_curve_points": 100,
   "timeline_metadata_source": "retention_observation_only",
+  "timeline_missing_metadata": [
+    "confirmed_m6_opening",
+    "confirmed_outro",
+    "section_boundaries",
+    "verified_production_provenance"
+  ],
   "unbound_points": 100,
   "video_id": "e_I6g1qt4xg"
 }
