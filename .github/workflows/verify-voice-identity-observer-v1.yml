@@ -1,0 +1,108 @@
+name: Verify Voice Identity Observer V1
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "scripts/voice_identity_observer.py"
+      - "scripts/test_voice_identity_observer.py"
+      - "scripts/voice_mesh.py"
+      - "scripts/test_voice_mesh.py"
+      - "scripts/run_v3_voice.py"
+      - "voice-profiles/voice-reference-profile-v1.json"
+      - ".github/workflows/verify-voice-identity-observer-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout runner observer branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout private Engine observer branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: beb1a38ce4ef7246a0a9d3e4d13c866d8d5843af
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine and observer runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Run full Engine unit suite
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Run Runner Voice Mesh and Observer contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine/src
+        run: |
+          set -euo pipefail
+          python -m unittest scripts.test_voice_mesh scripts.test_voice_identity_observer -v
+
+      - name: Download exact approved Charon and Orus samples
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p approved
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            '/repos/mymusa79-tech/Isco-Video-Runner/actions/artifacts/9355112613/zip' \
+            > approved.zip
+          unzip -q approved.zip -d approved
+          test -f approved/01-Charon.wav
+          test -f approved/02-Orus.wav
+          printf '%s  %s\n' \
+            '129130c0c453dcf13f9ad5f861052d8346a0dafdb4f0126e437d566530363a87' \
+            'approved/01-Charon.wav' \
+            '5bfa06f7f22e22a3b9f0344d0b2ddbb7dff3ac28131616f4477f52a72cec23ea' \
+            'approved/02-Orus.wav' \
+            | sha256sum -c -
+
+      - name: ECAPA real-model smoke against approved references
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine/src
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import math
+          from pathlib import Path
+          from scripts.voice_identity_observer import _analyze_wav
+
+          charon = _analyze_wav(Path('approved/01-Charon.wav'), dialogue=False)
+          orus = _analyze_wav(Path('approved/02-Orus.wav'), dialogue=True)
+          score = charon['speaker_similarity']
+          if score is None or not math.isfinite(float(score)) or not -1.0 <= float(score) <= 1.0:
+              raise SystemExit(f'invalid Charon ECAPA similarity: {score!r}')
+          if len(charon['window_scores']) < 3:
+              raise SystemExit('Charon smoke did not measure start/middle/end windows')
+          if len(orus['window_scores']) < 3:
+              raise SystemExit('Orus smoke did not measure start/middle/end windows')
+          if any('questioner_similarity' not in item for item in orus['window_scores']):
+              raise SystemExit('Dialogue smoke omitted Orus questioner-reference scores')
+          print('ECAPA smoke OK; Charon primary similarity=', score)
+          print('Orus diagnostic window scores=', orus['window_scores'])
+          print('No threshold/enforcement asserted: Phase 1 remains uncalibrated observe-only')
+          PY

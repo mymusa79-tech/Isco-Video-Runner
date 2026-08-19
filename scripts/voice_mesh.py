@@ -13,11 +13,34 @@ from isco_video_agent.media.ffmpeg import concat_audio, duration
 from isco_video_agent.providers.gemini import synthesize_wav as gemini_synthesize
 
 _piper = None
+_voice_provenance: dict[str, dict] = {}
 
-# Channel voice identity is deliberately fixed, not randomized per video.
-DIALOGUE_QUESTIONER_VOICE = "Iapetus"
-DIALOGUE_RESPONDER_VOICE = "Gacrux"
+# Human-approved Voice Roster V1. Fixed, never randomized per video.
+DIALOGUE_QUESTIONER_VOICE = "Orus"
+DIALOGUE_RESPONDER_VOICE = "Charon"
 _DIALOGUE_LABEL = re.compile(r"(?m)^\s*(السائل|المجيب)\s*:\s*")
+
+
+def _output_key(path: Path) -> str:
+    try:
+        return str(path.resolve())
+    except Exception:
+        return str(path)
+
+
+def _record_voice_provenance(output: Path, *, provider: str, fallback_used: bool) -> None:
+    _voice_provenance[_output_key(output)] = {
+        "provider": provider,
+        "fallback_used": fallback_used,
+    }
+
+
+def consume_voice_provenance(output: Path) -> dict:
+    """Return actual final TTS provenance once, for the post-synthesis observer."""
+    return _voice_provenance.pop(
+        _output_key(output),
+        {"provider": "unknown", "fallback_used": None},
+    )
 
 
 def _qa(path: Path, text: str) -> None:
@@ -138,7 +161,11 @@ def synthesize(
     if dialogue:
         _gemini_dialogue(api_key, transcript, output, model=model, style=style)
         _qa(output, _DIALOGUE_LABEL.sub("", transcript))
-        print("Voice provider selected: gemini-multispeaker (questioner=Iapetus responder=Gacrux)")
+        _record_voice_provenance(output, provider="gemini-multispeaker", fallback_used=False)
+        print(
+            "Voice provider selected: gemini-multispeaker "
+            f"(questioner={DIALOGUE_QUESTIONER_VOICE} responder={DIALOGUE_RESPONDER_VOICE})"
+        )
     else:
         gemini_synthesize(
             api_key,
@@ -150,6 +177,7 @@ def synthesize(
             attempts=attempts,
         )
         _qa(output, transcript)
+        _record_voice_provenance(output, provider="gemini", fallback_used=False)
         print("Voice provider selected: gemini")
     return output
 
@@ -159,10 +187,12 @@ def synthesize_local_wav(transcript: str, output: Path) -> Path:
     if dialogue:
         _local_dialogue(transcript, output)
         _qa(output, _DIALOGUE_LABEL.sub("", transcript))
+        _record_voice_provenance(output, provider="piper-local-dialogue-single-speaker", fallback_used=True)
         print("Voice provider selected: piper-local-dialogue-single-speaker")
     else:
         _local(transcript, output)
         _qa(output, transcript)
+        _record_voice_provenance(output, provider="piper-local", fallback_used=True)
         print("Voice provider selected: piper-local")
     return output
 
@@ -170,6 +200,9 @@ def synthesize_local_wav(transcript: str, output: Path) -> Path:
 def install_voice_mesh() -> None:
     orchestrator.synthesize_wav = synthesize
     orchestrator.synthesize_local_wav = synthesize_local_wav
-    print("Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices Iapetus/Gacrux")
+    print(
+        "Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices "
+        f"{DIALOGUE_QUESTIONER_VOICE}/{DIALOGUE_RESPONDER_VOICE}"
+    )
 
 # Production trigger only: Agent pin afa2f08416ac2c0f85edb1b73f1ed17518990a93
