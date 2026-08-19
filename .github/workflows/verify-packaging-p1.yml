@@ -1,0 +1,130 @@
+name: Verify Packaging Director P1
+
+on:
+  push:
+    branches: ["ci/verify-packaging-p1"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Runner P0-E stack
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact Engine P1 candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 933f6adfa9d12f0fec7802bd3905f41178c551e4
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Packaging P0 plus P1 tests
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_thumbnail_cultural_safety \
+            tests.test_thumbnail_packaging_contract \
+            tests.test_thumbnail_batch_review \
+            tests.test_thumbnail_candidate_board \
+            tests.test_thumbnail_pixabay_fallback \
+            tests.test_packaging_identity_integrity_p1 \
+            tests.test_thumbnail_renderer_p1 \
+            tests.test_youtube_packaging_reporting_p1 \
+            -v
+
+      - name: Verify Gold and P0-E regressions
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            scripts.test_gold_shadow_phase2b \
+            scripts.test_gold_single_evaluator_phase3 \
+            scripts.test_gold_enforce_phase4 \
+            scripts.test_thumbnail_pixabay_bridge_p0d \
+            scripts.test_packaging_artifact_delivery_p0e \
+            -v
+
+      - name: Prove AI request ceiling and builder compatibility
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import inspect
+          import isco_video_agent.thumbnail as thumbnail
+          from isco_video_agent.packaging_identity import load_packaging_bible
+          from isco_video_agent.packaging_integrity import audit_packaging_promise
+          import isco_video_agent.youtube_packaging_reporting as reporting
+
+          sig = inspect.signature(thumbnail.build_thumbnail_package)
+          assert list(sig.parameters) == ["gemini_key", "pexels_key", "plan", "output_dir", "model", "pixabay_key"], sig
+          assert sig.parameters["pixabay_key"].default is None
+          assert thumbnail.MAX_VISUAL_CANDIDATES_PER_HYPOTHESIS == 6
+          assert thumbnail.PEXELS_PRIMARY_BOARD_SLOTS == 4
+          bible = load_packaging_bible()
+          assert bible["experiment"]["candidate_count"] == 3
+          assert bible["experiment"]["winner_metric"] == "watch_time_share"
+          assert reporting.REACH_REPORT_TYPE == "channel_reach_basic_a1"
+          assert "release_authority" in inspect.getsource(audit_packaging_promise)
+          print("P1 contract invariants PASS: A/B/C, observer-only integrity, Reach observer, 4-call P0 ceiling preserved")
+          PY
+
+      - name: Verify P1 isolated diff boundary
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git diff --check 5f6eaa933cd8ad0a62dc23f06b731fb88e9a4241..933f6adfa9d12f0fec7802bd3905f41178c551e4
+          files="$(git diff --name-only 5f6eaa933cd8ad0a62dc23f06b731fb88e9a4241..933f6adfa9d12f0fec7802bd3905f41178c551e4)"
+          printf '%s\n' "$files"
+          ! grep -qx 'src/isco_video_agent/media/ffmpeg.py' <<<"$files"
+          ! grep -qx 'src/isco_video_agent/orchestrator.py' <<<"$files"
+          ! grep -qx 'src/isco_video_agent/production_pipeline.py' <<<"$files"
+          ! grep -qx 'src/isco_video_agent/gold_finalizer.py' <<<"$files"
+          ! grep -qx 'src/isco_video_agent/providers/gemini.py' <<<"$files"
+          echo "P1 isolation PASS: no Cinematic/Gold/production/provider hunk touched"
+
+      - name: Full Engine regression suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Confirm verifier cannot run production
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('.github/workflows/verify-packaging-p1.yml').read_text(encoding='utf-8')
+          forbidden = ['GEMINI_API_KEY', 'PEXELS_API_KEY', 'PIXABAY_API_KEY', 'YOUTUBE_CLIENT_SECRET', 'run_v3_voice.py', 'produce-resilient-v4.yml']
+          for item in forbidden:
+              assert item not in text, item
+          print('Verifier safety PASS: no provider credentials and no production entrypoint/dispatch')
+          PY
