@@ -1,44 +1,37 @@
+# M0 diagnostic trigger pass 2
 name: Engine CI Proxy
 
 on:
   push:
     branches: ["analytics/retention-v2-m0-health"]
-    paths:
-      - ".github/workflows/engine-ci-proxy.yml"
-  workflow_dispatch:
+    paths: [".github/workflows/engine-ci-proxy.yml"]
 
 permissions:
   contents: write
   statuses: write
-
-concurrency:
-  group: analytics-m0-bound-video-proven-verifier
-  cancel-in-progress: true
 
 jobs:
   test-engine:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Mark comparison started
+      - name: Mark direct diagnostic started
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
           import json,os,urllib.request
-          body=json.dumps({'state':'pending','context':'analytics-m0-compare-start','description':'bound vs direct Analytics M0 started'}).encode()
+          body=json.dumps({'state':'pending','context':'analytics-m0-direct-start','description':'direct Analytics M0 started'}).encode()
           req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
           urllib.request.urlopen(req,timeout=20).read()
           PY
 
-      - name: Checkout runner
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: true
           fetch-depth: 1
 
-      - name: Checkout private Engine M0
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
           ref: df8cadcd531a9bfa28767e94fc6d61e479ad0d4a
@@ -54,46 +47,23 @@ jobs:
       - name: Install minimal diagnostic runtime
         run: python -m pip install 'requests==2.32.3'
 
-      - name: Restore encrypted history read-only
-        id: restore
-        env:
-          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
-        run: |
-          set -euo pipefail
-          python scripts/persistent_memory.py restore --repo . --plain "$RUNNER_TEMP/m0-history.json" --branch agent-state --legacy-state state/history.json.enc --github-output "$GITHUB_OUTPUT"
-          test -f "$RUNNER_TEMP/m0-history.json"
-          chmod 600 "$RUNNER_TEMP/m0-history.json"
-
-      - name: Select known video from persisted analytics history
+      - name: Read same known video ID from existing M0 evidence
         id: binding
-        env:
-          HISTORY_PATH: ${{ runner.temp }}/m0-history.json
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,os
           from pathlib import Path
-          data=json.loads(Path(os.environ['HISTORY_PATH']).read_text(encoding='utf-8'))
-          learning=data.get('learning') if isinstance(data.get('learning'),dict) else {}
-          candidates=[]
-          for bucket_name in ('metrics','unverified_metrics'):
-              bucket=learning.get(bucket_name,[])
-              if not isinstance(bucket,list): continue
-              for i,item in enumerate(bucket):
-                  if not isinstance(item,dict): continue
-                  video_id=str(item.get('video_id','')).strip()
-                  if not video_id: continue
-                  verified=str(item.get('classification_status','')).lower()=='verified' and bool(item.get('production_id')) and bool(item.get('binding_source'))
-                  candidates.append(((2 if verified else 1 if bucket_name=='metrics' else 0,i),bucket_name,item))
-          if not candidates: raise SystemExit('No analytics video ID in persisted history')
-          _,bucket,item=max(candidates,key=lambda x:x[0])
-          video_id=str(item['video_id']).strip()
-          evidence={'source':'encrypted_agent_state_history','bucket':bucket,'classification_status':item.get('classification_status'),'content_style':item.get('content_style'),'ingestion_source':item.get('ingestion_source'),'production_id_present':bool(item.get('production_id')),'binding_source':item.get('binding_source'),'created_at':item.get('created_at'),'video_id':video_id}
-          Path(os.environ['RUNNER_TEMP'],'binding.json').write_text(json.dumps(evidence,ensure_ascii=False,indent=2),encoding='utf-8')
+          p=Path('verification/analytics-retention-m0-bound.json')
+          data=json.loads(p.read_text(encoding='utf-8'))
+          binding=data.get('binding_evidence',{})
+          video_id=str(binding.get('video_id','')).strip()
+          if not video_id: raise SystemExit('Existing M0 evidence has no video ID')
           with Path(os.environ['GITHUB_OUTPUT']).open('a') as f:f.write(f'video_id={video_id}\n')
+          print('Reusing the same known video ID from persisted M0 evidence.')
           PY
 
-      - name: Materialize OAuth for bound-path probe
+      - name: Materialize existing OAuth secrets
         env:
           CID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           CSECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -101,35 +71,12 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$CID"; test -n "$CSECRET"; test -n "$RTOKEN"
-          umask 077; mkdir -p "$RUNNER_TEMP/oauth-bound"
-          printf '%s' "$CID" > "$RUNNER_TEMP/oauth-bound/cid"
-          printf '%s' "$CSECRET" > "$RUNNER_TEMP/oauth-bound/secret"
-          printf '%s' "$RTOKEN" > "$RUNNER_TEMP/oauth-bound/refresh"
-
-      - name: Probe production-style bound path
-        id: bound
-        continue-on-error: true
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src
-          YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/oauth-bound/cid
-          YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/oauth-bound/secret
-          YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/oauth-bound/refresh
-          VID: ${{ steps.binding.outputs.video_id }}
-        run: python engine/scripts/check_youtube_analytics_bound_health.py --video-id "$VID" --output "$RUNNER_TEMP/bound.json" --strict
-
-      - name: Materialize OAuth for direct Analytics probe
-        env:
-          CID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          CSECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          RTOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: |
-          set -euo pipefail
           umask 077; mkdir -p "$RUNNER_TEMP/oauth-direct"
           printf '%s' "$CID" > "$RUNNER_TEMP/oauth-direct/cid"
           printf '%s' "$CSECRET" > "$RUNNER_TEMP/oauth-direct/secret"
           printf '%s' "$RTOKEN" > "$RUNNER_TEMP/oauth-direct/refresh"
 
-      - name: Probe Analytics directly without Data API
+      - name: Probe base Analytics and retention directly
         id: direct
         continue-on-error: true
         env:
@@ -140,30 +87,35 @@ jobs:
           VID: ${{ steps.binding.outputs.video_id }}
         run: python engine/scripts/check_youtube_analytics_direct_health.py --video-id "$VID" --output "$RUNNER_TEMP/direct.json"
 
-      - name: Persist sanitized comparison evidence
+      - name: Add sanitized direct result to M0 evidence
         if: always()
         env:
-          BOUND_OUTCOME: ${{ steps.bound.outcome }}
           DIRECT_OUTCOME: ${{ steps.direct.outcome }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,os
           from pathlib import Path
-          t=Path(os.environ['RUNNER_TEMP'])
-          def load(name):
-              try:return json.loads((t/name).read_text(encoding='utf-8'))
-              except Exception:return {'status':'missing'}
-          result={'schema_version':2,'mode':'M0_bound_vs_direct_analytics','engine_sha':'df8cadcd531a9bfa28767e94fc6d61e479ad0d4a','runner_trigger_sha':os.environ.get('GITHUB_SHA'),'binding_evidence':load('binding.json'),'bound_step':os.environ.get('BOUND_OUTCOME'),'bound_path':load('bound.json'),'direct_step':os.environ.get('DIRECT_OUTCOME'),'direct_analytics_path':load('direct.json'),'targeted_tests':'pending','full_suite':'pending','secrets_changed':False,'production_video_started':False,'production_influence':'none'}
-          out=Path('verification/analytics-retention-m0-bound.json');out.parent.mkdir(parents=True,exist_ok=True);out.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+          p=Path('verification/analytics-retention-m0-bound.json')
+          data=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {'schema_version':2}
+          q=Path(os.environ['RUNNER_TEMP'])/'direct.json'
+          try: direct=json.loads(q.read_text(encoding='utf-8'))
+          except Exception: direct={'status':'missing'}
+          data['schema_version']=2
+          data['latest_engine_sha']='df8cadcd531a9bfa28767e94fc6d61e479ad0d4a'
+          data['direct_step']=os.environ.get('DIRECT_OUTCOME') or 'not_run'
+          data['direct_analytics_path']=direct
+          data['targeted_tests']='pending';data['full_suite']='pending'
+          data['secrets_changed']=False;data['production_video_started']=False;data['production_influence']='none'
+          p.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add verification/analytics-retention-m0-bound.json
-          git commit -m "ci: record M0 bound vs direct Analytics evidence" || true
+          git commit -m "ci: record direct Analytics M0 result" || true
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
-      - name: Publish live stage statuses
+      - name: Publish direct API statuses
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -171,23 +123,12 @@ jobs:
           python - <<'PY'
           import json,os,urllib.request
           from pathlib import Path
-          t=Path(os.environ['RUNNER_TEMP'])
-          def load(n):
-              try:return json.loads((t/n).read_text())
-              except:return {}
-          b=load('bound.json');d=load('direct.json')
-          stages={
-            'oauth':b.get('auth',{}).get('status'),
-            'channel':b.get('channel_diagnostic',{}).get('status'),
-            'videos':b.get('video_probe',{}).get('status'),
-            'base-direct':d.get('base_analytics',{}).get('query_status'),
-            'retention-direct':d.get('retention',{}).get('query_status'),
-          }
+          try:d=json.loads((Path(os.environ['RUNNER_TEMP'])/'direct.json').read_text())
+          except:d={}
+          stages={'base':d.get('base_analytics',{}).get('query_status'),'retention':d.get('retention',{}).get('query_status')}
           repo=os.environ['GITHUB_REPOSITORY'];sha=os.environ['GITHUB_SHA'];tok=os.environ['GH_TOKEN']
           for n,v in stages.items():
-              state='success' if v=='ok' or n=='channel' else 'failure'
-              desc=f'{n}={v or "missing"}'+(' nonblocking' if n=='channel' and v!='ok' else '')
-              body=json.dumps({'state':state,'context':f'analytics-m0-{n}','description':desc[:140]}).encode()
+              body=json.dumps({'state':'success' if v=='ok' else 'failure','context':f'analytics-m0-direct-{n}','description':f'{n}={v or "missing"}'}).encode()
               req=urllib.request.Request(f'https://api.github.com/repos/{repo}/statuses/{sha}',data=body,method='POST',headers={'Authorization':f'Bearer {tok}','Accept':'application/vnd.github+json','Content-Type':'application/json'})
               urllib.request.urlopen(req,timeout=20).read()
           PY
@@ -219,7 +160,7 @@ jobs:
         working-directory: engine
         run: python -m unittest discover -s tests -q
 
-      - name: Finalize test evidence
+      - name: Finalize M0 test results
         if: always()
         env:
           TARGETED: ${{ steps.targeted.outcome }}
@@ -229,11 +170,10 @@ jobs:
           python - <<'PY'
           import json,os
           from pathlib import Path
-          p=Path('verification/analytics-retention-m0-bound.json')
-          data=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {}
+          p=Path('verification/analytics-retention-m0-bound.json');data=json.loads(p.read_text(encoding='utf-8'))
           data['targeted_tests']=os.environ.get('TARGETED') or 'not_run';data['full_suite']=os.environ.get('FULL') or 'not_run'
-          p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
+          p.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
           PY
           git add verification/analytics-retention-m0-bound.json
-          git commit -m "ci: finalize M0 diagnostic verification" || true
+          git commit -m "ci: finalize M0 direct diagnostic tests" || true
           git push origin "HEAD:${GITHUB_REF_NAME}"
