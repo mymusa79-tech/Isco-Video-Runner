@@ -64,12 +64,12 @@ jobs:
           from isco_video_agent.providers.gemini import _speech_config, _voice_identity
           from isco_video_agent.orchestrator import _visual_fit_score
 
-          assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Iapetus"
-          assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Gacrux"
-          assert _voice_identity("RandomVoice") == ("Gacrux", "Iapetus")
+          assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Orus"
+          assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Charon"
+          assert _voice_identity("RandomVoice") == ("Charon", "Orus")
           assert _speech_config("A: لماذا؟\nB: لأن الفكرة أعمق.", "RandomVoice") == [
-              {"speaker": "A", "voice": "Iapetus"},
-              {"speaker": "B", "voice": "Gacrux"},
+              {"speaker": "A", "voice": "Orus"},
+              {"speaker": "B", "voice": "Charon"},
           ]
           assert _visual_fit_score({"relevance": 0.87}) == 8.7
           assert _visual_fit_score({"relevance": 2}) == 10.0
