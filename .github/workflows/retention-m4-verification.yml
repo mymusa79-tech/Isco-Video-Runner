@@ -1,0 +1,130 @@
+name: Retention M4 Verification
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-m4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 340ec72d27df123c176574956cef8ce30229bb39
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: M4 through M1 targeted tests
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest discover -s tests -p 'test_youtube_retention_m4_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m3_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m2_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m1_*.py' -v
+
+      - name: Full Engine Python suite
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest discover -s tests -q
+
+      - name: Real evidence chain through M4
+        run: |
+          set -euo pipefail
+          rm -rf verification-m4
+          mkdir -p verification-m4/bindings verification-m4/signals
+          RAW_BEFORE="$(sha256sum verification/retention-m1-live-sidecar.json | awk '{print $1}')"
+          PYTHONPATH="engine/src" python engine/scripts/bind_retention_timeline.py \
+            --retention-sidecar verification/retention-m1-live-sidecar.json \
+            --output-root verification-m4/bindings > verification-m4/m2.json
+          BINDING_PATH="$(python -c "import json; print(json.load(open('verification-m4/m2.json'))['binding_path'])")"
+          BIND_BEFORE="$(sha256sum "$BINDING_PATH" | awk '{print $1}')"
+          PYTHONPATH="engine/src" python engine/scripts/extract_retention_signals.py \
+            --binding "$BINDING_PATH" --output-root verification-m4/signals > verification-m4/m3.json
+          SIGNAL_PATH="$(python -c "import json; print(json.load(open('verification-m4/m3.json'))['report_path'])")"
+          SIGNAL_BEFORE="$(sha256sum "$SIGNAL_PATH" | awk '{print $1}')"
+          PYTHONPATH="engine/src" python engine/scripts/analyze_retention_cohorts.py \
+            --pair "$SIGNAL_PATH" verification/retention-m1-live-sidecar.json \
+            --output verification-m4/m4-report.json > verification-m4/m4.json
+          test "$RAW_BEFORE" = "$(sha256sum verification/retention-m1-live-sidecar.json | awk '{print $1}')"
+          test "$BIND_BEFORE" = "$(sha256sum "$BINDING_PATH" | awk '{print $1}')"
+          test "$SIGNAL_BEFORE" = "$(sha256sum "$SIGNAL_PATH" | awk '{print $1}')"
+          ENGINE_SHA="$(git -C engine rev-parse HEAD)" RAW_SHA="$RAW_BEFORE" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          assert os.environ['ENGINE_SHA'] == '340ec72d27df123c176574956cef8ce30229bb39'
+          report = json.loads(Path('verification-m4/m4-report.json').read_text())
+          assert report['level'] == 2
+          assert report['unique_videos'] == 1
+          assert report['eligible_videos'] == 0
+          assert report['excluded']['unresolved_classification'] == 1
+          assert report['cohorts'] == []
+          assert report['recommendations'] == []
+          assert report['causal_claims'] == 'not_permitted'
+          assert report['production_influence'] == 'none'
+          assert report['ai_calls'] == 0
+          evidence = {
+              'schema_version': 1,
+              'mode': 'M4_cohort_replication_final',
+              'engine_sha': os.environ['ENGINE_SHA'],
+              'real_video_id': 'e_I6g1qt4xg',
+              'real_input_unique_videos': report['unique_videos'],
+              'real_eligible_videos': report['eligible_videos'],
+              'real_excluded': report['excluded'],
+              'real_recommendations': len(report['recommendations']),
+              'minimum_cohort_videos': report['minimum_cohort_videos'],
+              'minimum_replication_ratio': report['minimum_replication_ratio'],
+              'cohort_key': report['cohort_key'],
+              'raw_m1_sha256': os.environ['RAW_SHA'],
+              'raw_m1_unchanged': True,
+              'm2_binding_unchanged': True,
+              'm3_signal_unchanged': True,
+              'synthetic_gate_covered_by_unit_tests': True,
+              'causal_claims': report['causal_claims'],
+              'production_influence': report['production_influence'],
+              'ai_calls': report['ai_calls'],
+              'production_run_started': False,
+          }
+          Path('verification-m4/retention-m4-live.json').write_text(json.dumps(evidence, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(evidence, sort_keys=True))
+          PY
+
+      - name: Verify no provider credentials exposed
+        run: |
+          set -euo pipefail
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+
+      - name: Upload sanitized M4 evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: retention-m4-verification
+          path: verification-m4/
+          if-no-files-found: error
+          retention-days: 1
