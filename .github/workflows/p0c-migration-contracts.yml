@@ -1,4 +1,4 @@
-name: Verify Unified Engine Plus Clean Gold V2 Packaging V1
+name: Verify Final Unified Engine Plus Clean Gold V2 Packaging V1
 
 on:
   pull_request:
@@ -33,21 +33,21 @@ jobs:
           git merge-base --is-ancestor 8f22d73cab614c0a8b19a2efaa37259656917644 HEAD
           echo "Clean Gold Phase 4 v2 ancestry preserved"
 
-      - name: Checkout exact Unified Engine candidate
+      - name: Checkout exact final Unified Engine candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 61f3b0cef56749be9aae83249d9bc5d709e89668
+          ref: 577c6d9b7f232f9797cdde07d0ef94ef5c9e7c6f
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Verify pinned Unified Engine HEAD
+      - name: Verify pinned final Unified Engine HEAD
         run: |
           set -euo pipefail
-          test "$(git -C engine rev-parse HEAD)" = "61f3b0cef56749be9aae83249d9bc5d709e89668"
-          echo "Unified Engine HEAD: $(git -C engine rev-parse HEAD)"
+          test "$(git -C engine rev-parse HEAD)" = "577c6d9b7f232f9797cdde07d0ef94ef5c9e7c6f"
+          echo "Final Unified Engine candidate: $(git -C engine rev-parse HEAD)"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -62,6 +62,15 @@ jobs:
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
+
+      - name: Run security regressions
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_security \
+            tests.test_security_subprocess_secret_env_v2 \
+            -v
 
       - name: Run Gold Phase 2B 3 4 plus Packaging Runner regressions
         env:
@@ -170,7 +179,8 @@ jobs:
           assert Path('engine/src/isco_video_agent/retention_storage.py').exists()
           assert Path('engine/src/isco_video_agent/retention_timeline.py').exists()
           assert Path('engine/src/isco_video_agent/opening_director.py').exists()
-          print('Gold + Packaging + Voice pacing + Analytics M0-M2 + Cinematic invariants PASS')
+          assert Path('engine/src/isco_video_agent/packaging_learning.py').exists()
+          print('Security + Gold + Packaging + Voice pacing + Analytics M0-M2 + Cinematic invariants PASS')
           PY
           test -z "${GEMINI_API_KEY:-}"
           test -z "${PEXELS_API_KEY:-}"
