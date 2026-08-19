@@ -20,7 +20,7 @@ jobs:
       - name: Checkout runner guard branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: fix/run54-opening-query-guard
+          ref: fix/run54-spoken-hook-novelty
           persist-credentials: false
           fetch-depth: 1
 
@@ -54,7 +54,7 @@ jobs:
           cd engine
           python -m unittest discover -s tests -v
 
-      - name: Run Run54 opening-query guard regression
+      - name: Run Run54 planner-quality regressions
         run: |
           set -euo pipefail
           PYTHONPATH="engine/src:." python -m unittest scripts.test_planner_quality_guard -v
@@ -65,9 +65,8 @@ jobs:
           python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py scripts/planner_quality_guard.py
           PYTHONPATH="engine/src:scripts" python - <<'PY'
           from pathlib import Path
-          import task_level_planner_router as router
           import voice_mesh
-          from planner_quality_guard import _safe_opening_visual_query
+          from planner_quality_guard import _safe_opening_visual_query, _spoken_hook
           from isco_video_agent.providers.gemini import _speech_config, _voice_identity
           from isco_video_agent.orchestrator import _visual_fit_score
 
@@ -92,7 +91,7 @@ jobs:
           assert "clear tease of the concrete insight/result" in planner
           assert "No scene-setting, greeting, biography, abstract reflection, throat-clearing" in planner
           assert "s1's first spoken sentence must still be one strong direct question" in planner
-          print("Run54 guard, identity, smart visual scoring, and s1 hook contracts PASS")
+          print("Run54 spoken-hook, visual guard, identity, scoring, and s1 contracts PASS")
           PY
 
       - name: Verify no paid API use
