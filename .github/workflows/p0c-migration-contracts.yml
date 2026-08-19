@@ -2,7 +2,7 @@ name: P0-C Migration Contract Freeze
 
 on:
   push:
-    branches: ["p0c/migration-contract-freeze"]
+    branches: ["p0c/phase1-extract-gold-finalizer"]
     paths:
       - "scripts/test_p0c_migration_contracts.py"
       - ".github/workflows/p0c-migration-contracts.yml"
@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: p0c/migration-contract-freeze
+          ref: p0c/phase1-extract-gold-finalizer
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
