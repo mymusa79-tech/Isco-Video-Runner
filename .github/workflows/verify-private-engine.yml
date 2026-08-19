@@ -1,4 +1,4 @@
-# Retry marker: final cinematic verification head b3ca55a.
+# Retry marker: final cinematic verification head b3ca55a; dry-run smoke tests explicitly ignore the committed production brief.
 name: Verify Private Engine
 
 on:
@@ -88,12 +88,20 @@ jobs:
         working-directory: engine
         run: python -m unittest discover -s tests -q
 
+      # Smoke tests must validate the CLI's dry-run fallback paths, not the current
+      # production/approved_brief.json.  Pointing at an intentionally absent fixture
+      # makes load_approved_brief(required=False) return None without weakening the
+      # real-production approval requirement (required=True outside --dry-run).
       - name: Dry-run orchestration with explicit topic
         working-directory: engine
+        env:
+          ISCO_APPROVED_BRIEF_PATH: /tmp/isco-verifier-no-approved-brief.json
         run: isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
 
       - name: Dry-run autonomous topic selection
         working-directory: engine
+        env:
+          ISCO_APPROVED_BRIEF_PATH: /tmp/isco-verifier-no-approved-brief.json
         run: isco-video produce --format auto --dry-run --no-research
 
   dependency-audit:
