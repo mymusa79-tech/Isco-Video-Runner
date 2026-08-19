@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 933f6adfa9d12f0fec7802bd3905f41178c551e4
+          ref: f8a48418bbc3eac94072c026ec308c9c5f90239f
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -96,6 +96,7 @@ jobs:
           assert bible["experiment"]["winner_metric"] == "watch_time_share"
           assert reporting.REACH_REPORT_TYPE == "channel_reach_basic_a1"
           assert "release_authority" in inspect.getsource(audit_packaging_promise)
+          assert "systemManaged" in inspect.getsource(reporting._ensure_reach_job)
           print("P1 contract invariants PASS: A/B/C, observer-only integrity, Reach observer, 4-call P0 ceiling preserved")
           PY
 
@@ -103,8 +104,8 @@ jobs:
         working-directory: engine
         run: |
           set -euo pipefail
-          git diff --check 5f6eaa933cd8ad0a62dc23f06b731fb88e9a4241..933f6adfa9d12f0fec7802bd3905f41178c551e4
-          files="$(git diff --name-only 5f6eaa933cd8ad0a62dc23f06b731fb88e9a4241..933f6adfa9d12f0fec7802bd3905f41178c551e4)"
+          git diff --check 5f6eaa933cd8ad0a62dc23f06b731fb88e9a4241..f8a48418bbc3eac94072c026ec308c9c5f90239f
+          files="$(git diff --name-only 5f6eaa933cd8ad0a62dc23f06b731fb88e9a4241..f8a48418bbc3eac94072c026ec308c9c5f90239f)"
           printf '%s\n' "$files"
           ! grep -qx 'src/isco_video_agent/media/ffmpeg.py' <<<"$files"
           ! grep -qx 'src/isco_video_agent/orchestrator.py' <<<"$files"
