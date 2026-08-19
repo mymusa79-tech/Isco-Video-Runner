@@ -1,0 +1,57 @@
+name: One-shot Final Engine Pin Update
+
+on:
+  push:
+    branches: ["integration/gold-v2-packaging-v1"]
+    paths:
+      - ".github/workflows/integration-update-engine-pin.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  update-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: integration/gold-v2-packaging-v1
+          fetch-depth: 0
+
+      - name: Replace old Engine pin exactly twice
+        env:
+          OLD_SHA: e074fd9bb942c263c9ef595438b3cf22cd55b55b
+          NEW_SHA: cd436e97eac4eafdb6e57bce93ad21b5a534f626
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+          old = os.environ['OLD_SHA']
+          new = os.environ['NEW_SHA']
+          count = text.count(old)
+          if count != 2:
+              raise SystemExit(f'Expected old Engine SHA exactly twice, found {count}')
+          if new in text:
+              raise SystemExit('New Engine SHA unexpectedly already present')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          updated = path.read_text(encoding='utf-8')
+          if updated.count(new) != 2 or old in updated:
+              raise SystemExit('Engine SHA replacement invariant failed')
+          print('Updated checkout ref + ISCO_ENGINE_SHA to final Engine main SHA')
+          PY
+
+      - name: Remove one-shot updater and commit pin only
+        run: |
+          set -euo pipefail
+          rm .github/workflows/integration-update-engine-pin.yml
+          git diff --check
+          git diff -- .github/workflows/produce-resilient-v4.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/produce-resilient-v4.yml .github/workflows/integration-update-engine-pin.yml
+          git commit -m 'integration: pin production to unified Engine main'
+          git push origin HEAD:integration/gold-v2-packaging-v1
