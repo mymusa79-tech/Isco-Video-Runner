@@ -55,6 +55,34 @@ jobs:
         working-directory: runner
         run: python -m unittest scripts.test_voice_mesh -v
 
+      - name: Diagnostic M3 color tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m3_color -v
+
+      - name: Diagnostic M4 voice pacing tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m4_voice_pacing -v
+
+      - name: Diagnostic M5 outro tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m5_outro -v
+
+      - name: Diagnostic M6 opening media tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m6_opening -v
+
+      - name: Diagnostic M6 opening selection tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m6_opening_selection -v
+
+      - name: Diagnostic M6 final critic auxiliary tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m6_final_critic_auxiliary -v
+
+      - name: Diagnostic media regression tests
+        working-directory: engine
+        run: python -m unittest tests.test_media -v
+
       - name: Unit and media tests
         working-directory: engine
         run: python -m unittest discover -s tests -q
