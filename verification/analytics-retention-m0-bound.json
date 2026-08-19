@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "mode": "M0_bound_video_diagnosis",
   "engine_sha": "f0d9574fa5e89105db821e949c354dca011bda0a",
   "runner_trigger_sha": "1b11173243b389cdfeb99b6a65c9d46a5a62c38f",
@@ -69,5 +69,44 @@
   "full_suite": "pending",
   "secrets_changed": false,
   "production_video_started": false,
-  "production_influence": "none"
+  "production_influence": "none",
+  "latest_engine_sha": "df8cadcd531a9bfa28767e94fc6d61e479ad0d4a",
+  "direct_step": "success",
+  "direct_analytics_path": {
+    "schema_version": 1,
+    "mode": "read_only_direct_analytics_health",
+    "observed_at": "2026-08-19T17:13:08.815003+00:00",
+    "video_id": "e_I6g1qt4xg",
+    "auth": {
+      "status": "ok",
+      "error_class": null,
+      "http_status": 200,
+      "api_reason": null
+    },
+    "base_analytics": {
+      "query_status": "ok",
+      "data_status": "ok",
+      "metrics_returned": [
+        "views",
+        "estimatedMinutesWatched",
+        "averageViewDuration",
+        "averageViewPercentage",
+        "subscribersGained"
+      ],
+      "error_class": null,
+      "http_status": 200,
+      "api_reason": null
+    },
+    "retention": {
+      "query_status": "failed",
+      "curve_status": "unknown",
+      "points_received": 0,
+      "metrics_returned": [],
+      "error_class": "network_error",
+      "http_status": null,
+      "api_reason": null
+    },
+    "production_influence": "none",
+    "stores_retention_curve": false
+  }
 }
