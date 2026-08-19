@@ -26,6 +26,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Trigger refresh after observer already exists on default branch.
           gh api -H 'Accept: application/vnd.github+json' \
             '/repos/mymusa79-tech/Isco-Video-Runner/actions/workflows/run54-pin-updater.yml/runs?branch=main&per_page=1' \
             > /tmp/runs.json
