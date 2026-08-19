@@ -447,6 +447,9 @@ jobs:
           encrypted="$RUNNER_TEMP/isco-state/history.json.enc"
           python scripts/persistent_memory.py encrypt \
             --plain "$ISCO_HISTORY_PATH" \
+            --encrypted "$encrypted"
+          python scripts/persistent_memory.py persist \
+            --repo state-writer \
             --encrypted "$encrypted" \
             --branch agent-state \
             --run-number "$GITHUB_RUN_NUMBER"
