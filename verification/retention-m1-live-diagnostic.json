@@ -1,0 +1,31 @@
+{
+  "calls": [
+    {
+      "error": null,
+      "kind": "oauth_refresh",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "error": null,
+      "kind": "video_probe",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "error": null,
+      "kind": "base_analytics",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "error": null,
+      "kind": "retention",
+      "method": "GET",
+      "status": 200
+    }
+  ],
+  "engine_sha": "34ae246bd65c3ebf6cfec72a2968dde3cdac2f83",
+  "observer_returned": true,
+  "sidecar_exists": false
+}
