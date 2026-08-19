@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: a2fb670a9da88ca22b2014c83c78c6ab5a10f850
+          ref: 271fb0abaa51608e1637c86762c68ee991960c62
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -52,6 +52,12 @@ jobs:
           set -euo pipefail
           cd engine
           python -m unittest discover -s tests -v
+
+      - name: Verify Run 54 novelty recovery regression
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest tests.test_run54_novelty_gate_recovery -v
 
       - name: Verify identity, visual scoring, and hook contracts
         run: |
