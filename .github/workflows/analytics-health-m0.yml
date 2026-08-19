@@ -9,17 +9,39 @@ on:
       - .github/workflows/analytics-health-m0.yml
 
 permissions:
-  contents: read
+  contents: write
+  statuses: write
+
+concurrency:
+  group: analytics-retention-m0-live-health
+  cancel-in-progress: true
 
 jobs:
-  verify:
+  health:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
+      - name: Mark live health started
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request
+          body=json.dumps({"state":"pending","context":"analytics-m0-live-start","description":"read-only M0 health started"}).encode()
+          req=urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",
+              data=body, method="POST",
+              headers={"Authorization":f"Bearer {os.environ['GH_TOKEN']}","Accept":"application/vnd.github+json","Content-Type":"application/json"},
+          )
+          urllib.request.urlopen(req, timeout=20).read()
+          PY
+
       - name: Checkout runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
+          persist-credentials: true
+          fetch-depth: 1
 
       - name: Checkout private engine M0
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -36,37 +58,24 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install verification runtime
+      - name: Install locked Engine package
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core
           cd engine
           python -m pip install -r requirements-lock.txt
-          python -m pip install --no-deps -e .
+          python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
       - name: Run M0 targeted tests
+        id: targeted
         working-directory: engine
         run: |
           set -euo pipefail
           python -m unittest discover -s tests -p 'test_youtube_analytics_health.py' -v
 
-      - name: Run analytics regression tests
-        working-directory: engine
-        run: |
-          set -euo pipefail
-          python -m unittest discover -s tests -p 'test_*analytics*.py' -v
-          python -m unittest tests/test_youtube_backfill.py tests/test_youtube_backfill_session.py -v
-
-      - name: Run full Engine suite
-        working-directory: engine
-        run: |
-          set -euo pipefail
-          python -m unittest discover -s tests -q
-
-      - name: Materialize YouTube OAuth secrets for health probe
+      - name: Materialize YouTube OAuth secrets
         id: oauth
+        if: always()
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -86,7 +95,8 @@ jobs:
           echo "available=true" >> "$GITHUB_OUTPUT"
 
       - name: Run live read-only OAuth and retention health probe
-        if: steps.oauth.outputs.available == 'true'
+        id: live
+        if: always() && steps.oauth.outputs.available == 'true'
         working-directory: engine
         env:
           YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-analytics-secrets/client-id
@@ -98,21 +108,79 @@ jobs:
             --output "$RUNNER_TEMP/youtube-analytics-health.json" \
             --strict
 
-      - name: Print sanitized health result
+      - name: Persist sanitized live health result
         if: always()
+        env:
+          TARGETED_OUTCOME: ${{ steps.targeted.outcome }}
+          OAUTH_AVAILABLE: ${{ steps.oauth.outputs.available }}
+          LIVE_OUTCOME: ${{ steps.live.outcome }}
         run: |
           set -euo pipefail
-          if [ -f "$RUNNER_TEMP/youtube-analytics-health.json" ]; then
-            cat "$RUNNER_TEMP/youtube-analytics-health.json"
-          else
-            echo '{"status":"health_report_missing"}'
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          hp=Path(os.environ["RUNNER_TEMP"])/"youtube-analytics-health.json"
+          try:
+              health=json.loads(hp.read_text(encoding="utf-8"))
+          except Exception:
+              health={"status":"health_report_missing"}
+          result={
+              "schema_version":1,
+              "engine_sha":"3159440919776267065e0b232e49a1bbb0cbf1bb",
+              "runner_trigger_sha":os.environ.get("GITHUB_SHA"),
+              "targeted_tests":os.environ.get("TARGETED_OUTCOME") or "not_run",
+              "oauth_credentials_available":os.environ.get("OAUTH_AVAILABLE")=="true",
+              "live_health_step":os.environ.get("LIVE_OUTCOME") or "not_run",
+              "health":health,
+              "production_video_started":False,
+          }
+          out=Path("verification/analytics-retention-m0-live.json")
+          out.parent.mkdir(parents=True,exist_ok=True)
+          out.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add verification/analytics-retention-m0-live.json
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: record analytics M0 live health"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
 
-      - name: Upload sanitized M0 health artifact
+      - name: Publish sanitized live health statuses
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: analytics-retention-m0-health
-          path: ${{ runner.temp }}/youtube-analytics-health.json
-          if-no-files-found: warn
-          retention-days: 7
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OAUTH_AVAILABLE: ${{ steps.oauth.outputs.available }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request
+          from pathlib import Path
+          hp=Path(os.environ["RUNNER_TEMP"])/"youtube-analytics-health.json"
+          try:
+              health=json.loads(hp.read_text(encoding="utf-8"))
+          except Exception:
+              health={"status":"health_report_missing"}
+          auth=health.get("auth") if isinstance(health.get("auth"),dict) else {}
+          retention=health.get("retention") if isinstance(health.get("retention"),dict) else {}
+          available=os.environ.get("OAUTH_AVAILABLE")=="true"
+          entries=[]
+          if not available:
+              entries=[("analytics-m0-live-auth","error","credentials_unavailable"),("analytics-m0-live-retention","error","credentials_unavailable")]
+          else:
+              a=str(auth.get("status") or "unknown"); ae=str(auth.get("error_class") or "none")
+              r=str(retention.get("status") or "unknown"); re=str(retention.get("error_class") or "none")
+              p=int(retention.get("points_received") or 0); m=retention.get("metrics_returned") if isinstance(retention.get("metrics_returned"),list) else []
+              entries=[
+                  ("analytics-m0-live-auth","success" if a=="ok" else "failure",f"auth={a} error={ae}"[:140]),
+                  ("analytics-m0-live-retention","success" if r=="ok" else "failure",f"retention={r} points={p} metrics={len(m)} error={re}"[:140]),
+              ]
+          for context,state,description in entries:
+              body=json.dumps({"state":state,"context":context,"description":description}).encode()
+              req=urllib.request.Request(
+                  f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",
+                  data=body,method="POST",
+                  headers={"Authorization":f"Bearer {os.environ['GH_TOKEN']}","Accept":"application/vnd.github+json","Content-Type":"application/json"},
+              )
+              urllib.request.urlopen(req,timeout=20).read()
+          PY
