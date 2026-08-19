@@ -186,12 +186,16 @@ def main() -> None:
     request = json.loads(Path(os.environ["REQUEST_FILE"]).read_text(encoding="utf-8"))
     gemini = secret("GEMINI_API_KEY")
     pexels = secret("PEXELS_API_KEY")
+    pixabay = secret("PIXABAY_API_KEY")
     if not gemini or not pexels:
         raise RuntimeError("Gemini and Pexels secrets are required for V4 production")
-    # Runner remains the one-time owner of both Gold inputs. The legacy core consumes
-    # restored env copies once; Phase 4 reuses only in-process values for enforcement.
+    # Runner remains the one-time owner of provider inputs needed both by the core and
+    # by post-render Gold packaging. Restored env copies are consumed once by the core;
+    # Gold reuses only these in-process values.
     os.environ["GEMINI_API_KEY"] = gemini
     os.environ["PEXELS_API_KEY"] = pexels
+    if pixabay:
+        os.environ["PIXABAY_API_KEY"] = pixabay
     ledger = BudgetLedger(request["format"])
 
     previous_defer = os.environ.get("ISCO_DEFER_YOUTUBE_ANALYTICS")
@@ -224,6 +228,7 @@ def main() -> None:
             output_dir=out,
             gemini=gemini,
             pexels=pexels,
+            pixabay=pixabay,
             ledger=ledger,
         )
     except Exception:
