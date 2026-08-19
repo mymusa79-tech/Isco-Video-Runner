@@ -3,6 +3,8 @@ name: Verify Retention V2 M2 Current
 on:
   push:
     branches: ["ci/verify-retention-m2-current"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -74,8 +76,8 @@ jobs:
           import isco_video_agent.retention_timeline as rt
 
           source = inspect.getsource(rt)
-          assert 'production_influence": "none"' in source or "'production_influence': 'none'" in source
-          assert 'ai_calls": 0' in source or "'ai_calls': 0" in source
+          assert 'production_influence\": \"none\"' in source or "'production_influence': 'none'" in source
+          assert 'ai_calls\": 0' in source or "'ai_calls': 0" in source
           assert 'timeline-map.json' in source
           assert 'forced alignment' in source
           assert 'CTA inference' in source
