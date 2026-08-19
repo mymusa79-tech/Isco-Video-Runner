@@ -1,4 +1,4 @@
-# M0 one-time direct retention retry
+# M0 final verification only
 name: Engine CI Proxy
 
 on:
@@ -11,17 +11,17 @@ permissions:
   statuses: write
 
 jobs:
-  m0-direct-retry:
+  verify-m0:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
-      - name: Mark retry started
+      - name: Mark verification started
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           python - <<'PY'
           import json,os,urllib.request
-          body=json.dumps({'state':'pending','context':'analytics-m0-retention-retry-start','description':'one-time direct retention retry started'}).encode()
+          body=json.dumps({'state':'pending','context':'analytics-m0-final-verify-start','description':'final M0 code verification started'}).encode()
           req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
           urllib.request.urlopen(req,timeout=20).read()
           PY
@@ -44,71 +44,55 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: python -m pip install 'requests==2.32.3'
-
-      - name: Read same known video ID
-        id: binding
-        run: |
-          python - <<'PY'
-          import json,os
-          from pathlib import Path
-          data=json.loads(Path('verification/analytics-retention-m0-bound.json').read_text(encoding='utf-8'))
-          video_id=str(data.get('binding_evidence',{}).get('video_id','')).strip()
-          if not video_id: raise SystemExit('No M0 video ID')
-          with Path(os.environ['GITHUB_OUTPUT']).open('a') as f:f.write(f'video_id={video_id}\n')
-          PY
-
-      - name: Materialize unchanged OAuth credentials
-        env:
-          CID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          CSECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          RTOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      - name: Install locked Engine verification runtime
         run: |
           set -euo pipefail
-          test -n "$CID"; test -n "$CSECRET"; test -n "$RTOKEN"
-          umask 077; mkdir -p "$RUNNER_TEMP/oauth"
-          printf '%s' "$CID" > "$RUNNER_TEMP/oauth/cid"
-          printf '%s' "$CSECRET" > "$RUNNER_TEMP/oauth/secret"
-          printf '%s' "$RTOKEN" > "$RUNNER_TEMP/oauth/refresh"
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
 
-      - name: Retry direct base and retention
-        id: retry
-        continue-on-error: true
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src
-          YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/oauth/cid
-          YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/oauth/secret
-          YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/oauth/refresh
-          VID: ${{ steps.binding.outputs.video_id }}
-        run: python engine/scripts/check_youtube_analytics_direct_health.py --video-id "$VID" --output "$RUNNER_TEMP/retry.json"
+      - name: Run all M0 targeted tests
+        id: targeted
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_youtube_analytics_health.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_analytics_bound_health.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_analytics_direct_health.py' -v
 
-      - name: Persist sanitized retry result
+      - name: Run full Engine suite
+        id: full
+        if: always()
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Persist and publish verification result
         if: always()
         env:
-          RETRY_OUTCOME: ${{ steps.retry.outcome }}
+          TARGETED: ${{ steps.targeted.outcome }}
+          FULL: ${{ steps.full.outcome }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import json,os,urllib.request
           from pathlib import Path
-          p=Path('verification/analytics-retention-m0-bound.json');data=json.loads(p.read_text(encoding='utf-8'))
-          try:r=json.loads((Path(os.environ['RUNNER_TEMP'])/'retry.json').read_text(encoding='utf-8'))
-          except Exception:r={'status':'missing'}
-          data['direct_retry_step']=os.environ.get('RETRY_OUTCOME') or 'not_run'
-          data['direct_analytics_retry']=r
-          p.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
-          stages={'base':r.get('base_analytics',{}).get('query_status'),'retention':r.get('retention',{}).get('query_status')}
+          p=Path('verification/analytics-retention-m0-bound.json')
+          data=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {'schema_version':2}
+          targeted=os.environ.get('TARGETED') or 'not_run';full=os.environ.get('FULL') or 'not_run'
+          data['targeted_tests']=targeted;data['full_suite']=full;data['verified_engine_sha']='df8cadcd531a9bfa28767e94fc6d61e479ad0d4a'
+          p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
           repo=os.environ['GITHUB_REPOSITORY'];sha=os.environ['GITHUB_SHA'];tok=os.environ['GH_TOKEN']
-          for n,v in stages.items():
-              detail=r.get('retention',{}) if n=='retention' else r.get('base_analytics',{})
-              desc=f'{n}={v or "missing"} error={detail.get("error_class") or "none"}'[:140]
-              body=json.dumps({'state':'success' if v=='ok' else 'failure','context':f'analytics-m0-retry-{n}','description':desc}).encode()
+          for context,outcome in [('analytics-m0-final-targeted',targeted),('analytics-m0-final-full-suite',full)]:
+              body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':context,'description':outcome[:140]}).encode()
               req=urllib.request.Request(f'https://api.github.com/repos/{repo}/statuses/{sha}',data=body,method='POST',headers={'Authorization':f'Bearer {tok}','Accept':'application/vnd.github+json','Content-Type':'application/json'})
               urllib.request.urlopen(req,timeout=20).read()
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add verification/analytics-retention-m0-bound.json
-          git commit -m "ci: record one-time direct retention retry" || true
+          git commit -m "ci: record final M0 verification" || true
           git push origin "HEAD:${GITHUB_REF_NAME}"
