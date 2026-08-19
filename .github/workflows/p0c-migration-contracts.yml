@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 3ee78472ae187644b4d1e623a36f0176e9827ea3
+          ref: e074fd9bb942c263c9ef595438b3cf22cd55b55b
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -47,7 +47,7 @@ jobs:
       - name: Verify pinned Engine head
         run: |
           set -euo pipefail
-          test "$(git -C engine rev-parse HEAD)" = "3ee78472ae187644b4d1e623a36f0176e9827ea3"
+          test "$(git -C engine rev-parse HEAD)" = "e074fd9bb942c263c9ef595438b3cf22cd55b55b"
           echo "Engine HEAD: $(git -C engine rev-parse HEAD)"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
