@@ -8,11 +8,10 @@ from pathlib import Path
 import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.ai_budget import BudgetLedger
 from isco_video_agent.config import secret
-from isco_video_agent.production_pipeline import _plan_from_json
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.brand_anchor_guard import install_brand_anchor_guard
-from scripts.gold_single_evaluator_phase3 import run_gold_single_evaluator_phase3
+from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
@@ -130,6 +129,7 @@ def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> di
         "release_tag": f"video-{run_number}" if run_number else None,
         "format": fmt,
         "final_sha256": _sha256_file(final_path),
+        "release_authority": "gold_enforced",
         "youtube_video_id": video_id or None,
         "publication_binding": "verified" if verified else "unbound",
         "binding_source": binding_source or None,
@@ -147,17 +147,17 @@ def _attach_observer_evidence_to_telemetry(
     critic: dict,
     ledger: BudgetLedger,
     output_dir: Path,
-    gold_shadow: dict | None = None,
+    gold_enforce: dict | None = None,
 ) -> None:
-    """Make existing release telemetry the durable provenance/observer envelope."""
+    """Make existing release telemetry the durable provenance/Gold envelope."""
     data = json.loads(telemetry_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise RuntimeError("planning telemetry must be a JSON object")
     data["production_manifest"] = manifest
     data["final_critic"] = critic
     data["ai_budget"] = ledger.to_summary()
-    if isinstance(gold_shadow, dict):
-        data["gold_shadow_comparison"] = gold_shadow
+    if isinstance(gold_enforce, dict):
+        data["gold_enforce_report"] = gold_enforce
     opening_path = output_dir / "opening-visual-audit.json"
     if opening_path.exists():
         opening = json.loads(opening_path.read_text(encoding="utf-8"))
@@ -188,8 +188,8 @@ def main() -> None:
     pexels = secret("PEXELS_API_KEY")
     if not gemini or not pexels:
         raise RuntimeError("Gemini and Pexels secrets are required for V4 production")
-    # Runner remains the one-time owner of both post-render Gold inputs. Core consumes
-    # the restored env copies once; Phase 3 reuses only the in-process Python values.
+    # Runner remains the one-time owner of both Gold inputs. The legacy core consumes
+    # restored env copies once; Phase 4 reuses only in-process values for enforcement.
     os.environ["GEMINI_API_KEY"] = gemini
     os.environ["PEXELS_API_KEY"] = pexels
     ledger = BudgetLedger(request["format"])
@@ -219,23 +219,28 @@ def main() -> None:
             os.environ["ISCO_DEFER_YOUTUBE_ANALYTICS"] = previous_defer
 
     _tag_plan_source(out)
-    plan = _plan_from_json(out / "plan.json")
-    critic, gold_shadow = run_gold_single_evaluator_phase3(
-        output_dir=out,
-        gemini=gemini,
-        pexels=pexels,
-        ledger=ledger,
-    )
-    if critic.get("status") != "pass":
-        print("Gold Final Critic observe-only BLOCK: legacy V4 publication path unchanged")
+    try:
+        plan, critic, gold_enforce = run_gold_enforce_phase4(
+            output_dir=out,
+            gemini=gemini,
+            pexels=pexels,
+            ledger=ledger,
+        )
+    except Exception:
+        # Preserve the enforcing failure as the workflow result, but flush the exact
+        # same-ledger evidence and Voice Observer diagnostics first. No manifest,
+        # analytics, release, or accepted publication evidence is written on failure.
+        ledger.write(out / "ai-budget.json")
+        telemetry_path = write_planning_telemetry(out)
+        _attach_voice_audit_to_telemetry(telemetry_path, out)
+        raise
 
     ledger.write(out / "ai-budget.json")
     production_id = _production_id()
     manifest = _write_production_manifest(out, production_id=production_id, fmt=plan.format)
 
-    # The observer may classify agent_produced only when this run carries an explicit
-    # verified video binding. Otherwise the latest channel video is kept as unverified
-    # observational data and cannot enter agent cohorts or block historical backfill.
+    # Analytics remains strictly post-acceptance. Gold has already passed and state has
+    # been accepted before any channel metric can be collected or attached.
     try:
         collect_latest_video_metrics_from_env(
             format_hint=plan.format,
@@ -253,7 +258,7 @@ def main() -> None:
         critic=critic,
         ledger=ledger,
         output_dir=out,
-        gold_shadow=gold_shadow,
+        gold_enforce=gold_enforce,
     )
     print(f"Production completed: {out.name}")
 
