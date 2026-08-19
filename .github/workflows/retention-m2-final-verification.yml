@@ -1,0 +1,182 @@
+name: Retention M2 Final Verification
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/retention-m2-final-verification.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  targeted-and-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout verifier branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout private Engine M2 final candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 9f5ae2d94d0226690d502440498333c91fb0d539
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Python runtime
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: M2 targeted tests
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest discover -s tests -p 'test_youtube_retention_m2_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m1_*.py' -v
+
+      - name: Bind real M1 curve read-only
+        run: |
+          set -euo pipefail
+          test -f verification/retention-m1-live-sidecar.json
+          rm -rf verification-m2
+          mkdir -p verification-m2/bindings
+          BEFORE="$(sha256sum verification/retention-m1-live-sidecar.json | awk '{print $1}')"
+          PYTHONPATH="engine/src" python engine/scripts/bind_retention_timeline.py \
+            --retention-sidecar verification/retention-m1-live-sidecar.json \
+            --output-root verification-m2/bindings \
+            > verification-m2/derive-summary.json
+          AFTER="$(sha256sum verification/retention-m1-live-sidecar.json | awk '{print $1}')"
+          test "$BEFORE" = "$AFTER"
+          ENGINE_SHA="$(git -C engine rev-parse HEAD)" BEFORE_SHA="$BEFORE" python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          summary = json.loads(Path('verification-m2/derive-summary.json').read_text(encoding='utf-8'))
+          binding_path = Path(summary['binding_path'])
+          document = json.loads(binding_path.read_text(encoding='utf-8'))
+          binding = document['bindings'][-1]
+          points = binding['points']
+          assert os.environ['ENGINE_SHA'] == '9f5ae2d94d0226690d502440498333c91fb0d539'
+          assert summary['points_received'] == 100
+          assert len(points) == 100
+          assert summary['raw_sidecar_unchanged'] is True
+          assert summary['raw_sidecar_sha256'] == os.environ['BEFORE_SHA']
+          assert binding['isolation'] == 'unverified'
+          assert binding['provenance_verified_for_event_binding'] is False
+          assert 'verified_production_provenance' in binding['timeline_missing_metadata']
+          assert binding['final_duration_seconds'] == 207.0
+          assert binding['ai_calls'] == 0
+          assert binding['production_influence'] == 'none'
+          assert binding['bound_points'] == 0
+          assert binding['unbound_points'] == 100
+          assert all(point['binding_status'] == 'unbound' for point in points)
+          assert all(point['duration_source'] == 'retention_observation.duration_seconds' for point in points)
+          assert all(point['section_id'] is None for point in points)
+          assert all(point['opening_slot'] is None for point in points)
+          assert all(point['brand_sting'] is None for point in points)
+          assert all(point['outro'] is None for point in points)
+          for point in points:
+              assert point['absolute_second'] == round(point['elapsedVideoTimeRatio'] * 207.0, 6)
+
+          evidence = {
+              'schema_version': 2,
+              'mode': 'M2_retention_timeline_binding_final',
+              'engine_sha': os.environ['ENGINE_SHA'],
+              'video_id': binding['video_id'],
+              'source_curve_points': 100,
+              'derived_points': len(points),
+              'final_duration_seconds': binding['final_duration_seconds'],
+              'duration_source': points[0]['duration_source'],
+              'timeline_metadata_source': binding['timeline_metadata_source'],
+              'timeline_missing_metadata': binding['timeline_missing_metadata'],
+              'bound_points': binding['bound_points'],
+              'unbound_points': binding['unbound_points'],
+              'provenance_verified_for_event_binding': binding['provenance_verified_for_event_binding'],
+              'raw_sidecar_unchanged': True,
+              'raw_sidecar_sha256': os.environ['BEFORE_SHA'],
+              'provenance': binding['provenance'],
+              'boundary_rule': binding['boundary_rule'],
+              'samples': {'first': points[0], 'middle': points[len(points)//2], 'last': points[-1]},
+              'ai_calls': binding['ai_calls'],
+              'production_influence': binding['production_influence'],
+              'production_run_started': False,
+          }
+          Path('verification-m2/retention-m2-live-final.json').write_text(
+              json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          Path('verification-m2/retention-m2-derived-final.json').write_text(
+              json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8'
+          )
+          print(json.dumps(evidence, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Verify no provider secrets exposed
+        run: |
+          set -euo pipefail
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+          test -z "${PEXELS_API_KEY:-}"
+          test -z "${PIXABAY_API_KEY:-}"
+          echo "No provider credentials exposed to M2 final verifier"
+
+      - name: Upload M2 final evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: retention-m2-final-${{ github.run_number }}
+          path: verification-m2/
+          if-no-files-found: error
+          retention-days: 1
+
+  full-engine-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout private Engine M2 final candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 9f5ae2d94d0226690d502440498333c91fb0d539
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies with bounded wait
+        run: |
+          set -euo pipefail
+          timeout 180s sudo apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15
+          timeout 240s sudo apt-get install -y ffmpeg fonts-noto-core
+          command -v ffmpeg
+          command -v ffprobe
+
+      - name: Install locked Python runtime
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Full Engine suite
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
