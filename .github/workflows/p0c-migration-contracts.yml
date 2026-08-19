@@ -56,16 +56,12 @@ jobs:
           cd engine
           python -m unittest discover -s tests -v
 
-      - name: Run P0-C Runner adapter contracts
+      - name: Run full Runner regression suite
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python -m unittest \
-            scripts.test_p0c_migration_contracts \
-            scripts.test_budget_wire_attempts \
-            scripts.test_voice_mesh \
-            -v
+          python -m unittest discover -s scripts -p 'test_*.py' -v
 
       - name: Compile migration-sensitive Runner adapters
         env:
