@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 5e2baf0c17ad04d14844b3f2cca21b774f643a23
+          ref: 4badc9ae3215986fb2b4becdba7f147a6cf726f0
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -146,7 +146,7 @@ jobs:
           YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
           YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
           YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
-          ISCO_ENGINE_SHA: 5e2baf0c17ad04d14844b3f2cca21b774f643a23
+          ISCO_ENGINE_SHA: 4badc9ae3215986fb2b4becdba7f147a6cf726f0
           REQUEST_FILE: ${{ runner.temp }}/isco-request.json
           PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
           GEMINI_CONTENT_MODEL: gemini-2.5-flash
