@@ -23,23 +23,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
           python - <<'PY'
           import json, os, urllib.request
-          body = json.dumps({
-              "state": "pending",
-              "context": "analytics-m01-start",
-              "description": "M0.1 credential alignment verification started",
-          }).encode()
+          body = json.dumps({"state":"pending","context":"analytics-m01-start","description":"M0.1 verification started"}).encode()
           req = urllib.request.Request(
               f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",
-              data=body,
-              method="POST",
-              headers={
-                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                  "Accept": "application/vnd.github+json",
-                  "Content-Type": "application/json",
-              },
+              data=body, method="POST",
+              headers={"Authorization":f"Bearer {os.environ['GH_TOKEN']}","Accept":"application/vnd.github+json","Content-Type":"application/json"},
           )
           urllib.request.urlopen(req, timeout=20).read()
           PY
@@ -65,6 +55,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install locked Engine verification runtime
+        id: install
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -76,40 +67,67 @@ jobs:
 
       - name: Run M0.1 targeted tests
         id: targeted
+        if: always()
         working-directory: engine
         run: |
           set -euo pipefail
           python -m unittest discover -s tests -p 'test_youtube_production_observer_credentials.py' -v
           python -m unittest discover -s tests -p 'test_youtube_analytics_learning.py' -v
-          python -m unittest discover -s tests -p 'test_youtube_analytics_health.py' -v
-          python -m unittest discover -s tests -p 'test_youtube_analytics_bound_health.py' -v
-          python -m unittest discover -s tests -p 'test_youtube_analytics_direct_health.py' -v
+
+      - name: Publish targeted status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.targeted.outcome }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          outcome=os.environ.get('OUTCOME') or 'missing'
+          body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':'analytics-m01-targeted','description':outcome}).encode()
+          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          urllib.request.urlopen(req,timeout=20).read()
+          PY
 
       - name: Run full Engine suite
         id: full
+        if: always()
         working-directory: engine
         run: |
           set -euo pipefail
           python -m unittest discover -s tests -q
 
+      - name: Publish full-suite status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.full.outcome }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          outcome=os.environ.get('OUTCOME') or 'missing'
+          body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':'analytics-m01-full-suite','description':outcome}).encode()
+          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          urllib.request.urlopen(req,timeout=20).read()
+          PY
+
       - name: Select known Video ID from prior M0 evidence
         id: binding
+        if: always()
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os
           from pathlib import Path
-          p = Path('verification/analytics-retention-m0-bound.json')
-          data = json.loads(p.read_text(encoding='utf-8'))
-          video_id = str(data.get('binding_evidence', {}).get('video_id', '')).strip()
-          if not video_id:
-              raise SystemExit('Prior M0 evidence contains no known video ID')
-          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as fh:
-              fh.write(f'video_id={video_id}\n')
-          print('Known M0 video binding loaded for read-only verification.')
+          data=json.loads(Path('verification/analytics-retention-m0-bound.json').read_text(encoding='utf-8'))
+          video_id=str(data.get('binding_evidence',{}).get('video_id','')).strip()
+          if not video_id: raise SystemExit('Prior M0 evidence contains no known video ID')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8') as fh: fh.write(f'video_id={video_id}\n')
+          print('Known M0 video binding loaded.')
           PY
 
       - name: Materialize unchanged YouTube credentials
+        id: creds
+        if: always()
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -117,9 +135,7 @@ jobs:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           set -euo pipefail
-          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN YOUTUBE_API_KEY; do
-            test -n "${!name}"
-          done
+          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN YOUTUBE_API_KEY; do test -n "${!name}"; done
           umask 077
           mkdir -p "$RUNNER_TEMP/m01-youtube"
           printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/m01-youtube/client-id"
@@ -129,6 +145,7 @@ jobs:
 
       - name: Live read-only Production Observer credential verification
         id: live
+        if: always()
         continue-on-error: true
         working-directory: engine
         env:
@@ -142,162 +159,126 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json
-          import os
+          import json, os
           from datetime import datetime, timedelta, timezone
           from pathlib import Path
           import requests
-
           from isco_video_agent.youtube_analytics import (
-              ANALYTICS_URL,
-              _auth_headers,
-              _base_metrics,
-              _json_response,
-              _published_video_by_id,
-              _refresh_access_token,
+              ANALYTICS_URL, _auth_headers, _base_metrics, _json_response,
+              _published_video_by_id, _refresh_access_token,
               collect_latest_video_metrics_from_env,
           )
           from isco_video_agent.youtube_backfill_session import YouTubeBackfillReadSession
 
-          video_id = os.environ['VIDEO_ID'].strip()
-          cid_path = Path(os.environ['CID_FILE'])
-          secret_path = Path(os.environ['CLIENT_SECRET_FILE'])
-          refresh_path = Path(os.environ['REFRESH_FILE'])
-          api_key_path = Path(os.environ['API_KEY_FILE'])
-          client_id = cid_path.read_text(encoding='utf-8').strip()
-          client_secret = secret_path.read_text(encoding='utf-8').strip()
-          refresh_token = refresh_path.read_text(encoding='utf-8').strip()
-          api_key = api_key_path.read_text(encoding='utf-8').strip()
-
-          # Exercise the real Production Observer from_env path first. secret() consumes
-          # these one-time files; local variables above exist only inside this process.
-          os.environ['YOUTUBE_CLIENT_ID_FILE'] = str(cid_path)
-          os.environ['YOUTUBE_CLIENT_SECRET_FILE'] = str(secret_path)
-          os.environ['YOUTUBE_REFRESH_TOKEN_FILE'] = str(refresh_path)
-          os.environ['YOUTUBE_API_KEY_FILE'] = str(api_key_path)
-          observer = collect_latest_video_metrics_from_env(
-              format_hint='film',
-              expected_video_id=video_id,
-              production_id='m0.1:live:diagnostic',
-              binding_source='m0.1_read_only_verification',
-              session=requests,
-          )
-
-          aligned = YouTubeBackfillReadSession(api_key=api_key, base_session=requests)
-          report = {
-              'schema_version': 1,
-              'mode': 'M0.1_production_observer_credential_alignment',
-              'video_id': video_id,
-              'credential_route': {
-                  'video_metadata': 'youtube_data_api_key',
-                  'analytics_base': 'oauth_refresh_token',
-                  'retention': 'oauth_refresh_token',
-              },
-              'video_probe': {'status': 'not_attempted'},
-              'analytics': {'status': 'not_attempted'},
-              'retention': {'status': 'not_attempted', 'points_received': 0},
-              'observer': {'status': 'failed'},
-              'secrets_changed': False,
-              'production_run_started': False,
-              'stores_retention_curve': False,
-              'production_influence': 'none',
+          video_id=(os.environ.get('VIDEO_ID') or '').strip()
+          if not video_id: raise SystemExit('No known video ID was provided')
+          paths={
+              'cid':Path(os.environ['CID_FILE']),
+              'secret':Path(os.environ['CLIENT_SECRET_FILE']),
+              'refresh':Path(os.environ['REFRESH_FILE']),
+              'key':Path(os.environ['API_KEY_FILE']),
           }
+          client_id=paths['cid'].read_text(encoding='utf-8').strip()
+          client_secret=paths['secret'].read_text(encoding='utf-8').strip()
+          refresh_token=paths['refresh'].read_text(encoding='utf-8').strip()
+          api_key=paths['key'].read_text(encoding='utf-8').strip()
 
-          if not isinstance(observer, dict):
-              report['observer'] = {'status': 'failed', 'reason': 'observer_returned_none'}
-          else:
-              report['observer'] = {
-                  'status': 'ok',
-                  'video_id': observer.get('video_id'),
-                  'content_style': observer.get('content_style'),
-                  'classification_status': observer.get('classification_status'),
-                  'production_id': observer.get('production_id'),
-                  'binding_source': observer.get('binding_source'),
-                  'first_30s_present': 'first_30s_retention' in (observer.get('metrics') or {}),
-              }
-
-          access_token = _refresh_access_token(client_id, client_secret, refresh_token, session=aligned)
-          video = _published_video_by_id(access_token, video_id, session=aligned)
-          if video is None:
-              report['video_probe'] = {'status': 'failed'}
-          else:
-              report['video_probe'] = {
-                  'status': 'ok',
-                  'video_id': video.get('video_id'),
-                  'duration_seconds': video.get('duration_seconds'),
-              }
-              metrics = _base_metrics(
-                  access_token,
-                  video_id=video_id,
-                  published_at=video.get('published_at'),
-                  session=aligned,
-              )
-              report['analytics'] = {
-                  'status': 'ok' if metrics else 'failed',
-                  'metrics_returned': sorted(metrics),
-              }
-
-              current = datetime.now(timezone.utc)
-              end_date = current.date() - timedelta(days=1)
-              published_at = video.get('published_at')
-              start_date = published_at.date() if published_at else end_date - timedelta(days=365)
-              retention = _json_response(
-                  aligned.get(
-                      ANALYTICS_URL,
-                      headers=_auth_headers(access_token),
-                      params={
-                          'ids': 'channel==MINE',
-                          'startDate': start_date.isoformat(),
-                          'endDate': end_date.isoformat(),
-                          'dimensions': 'elapsedVideoTimeRatio',
-                          'metrics': 'audienceWatchRatio',
-                          'filters': f'video=={video_id}',
-                          'sort': 'elapsedVideoTimeRatio',
-                          'maxResults': 200,
-                      },
-                      timeout=25,
-                  ),
-                  label='M0.1 YouTube Analytics retention verification',
-              )
-              rows = retention.get('rows')
-              headers = retention.get('columnHeaders')
-              points = len(rows) if isinstance(rows, list) else 0
-              names = [
-                  str(item.get('name', ''))
-                  for item in headers
-                  if isinstance(headers, list) and isinstance(item, dict)
-              ] if isinstance(headers, list) else []
-              report['retention'] = {
-                  'status': 'ok' if points == 100 else 'failed',
-                  'points_received': points,
-                  'metrics_returned': names,
-              }
-
-          out = Path(os.environ['RUNNER_TEMP']) / 'analytics-retention-m01-live.json'
-          out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
-
-          required = (
-              report['observer'].get('status') == 'ok'
-              and report['observer'].get('video_id') == video_id
-              and report['observer'].get('content_style') == 'agent_produced'
-              and report['observer'].get('classification_status') == 'verified'
-              and report['observer'].get('production_id') == 'm0.1:live:diagnostic'
-              and report['observer'].get('binding_source') == 'm0.1_read_only_verification'
-              and report['video_probe'].get('status') == 'ok'
-              and report['video_probe'].get('video_id') == video_id
-              and report['analytics'].get('status') == 'ok'
-              and report['retention'].get('status') == 'ok'
-              and report['retention'].get('points_received') == 100
+          os.environ['YOUTUBE_CLIENT_ID_FILE']=str(paths['cid'])
+          os.environ['YOUTUBE_CLIENT_SECRET_FILE']=str(paths['secret'])
+          os.environ['YOUTUBE_REFRESH_TOKEN_FILE']=str(paths['refresh'])
+          os.environ['YOUTUBE_API_KEY_FILE']=str(paths['key'])
+          observer=collect_latest_video_metrics_from_env(
+              format_hint='film', expected_video_id=video_id,
+              production_id='m0.1:live:diagnostic',
+              binding_source='m0.1_read_only_verification', session=requests,
           )
-          print(json.dumps({
-              'observer': report['observer'].get('status'),
-              'video_probe': report['video_probe'].get('status'),
-              'analytics': report['analytics'].get('status'),
-              'retention': report['retention'].get('status'),
-              'points_received': report['retention'].get('points_received'),
-          }, sort_keys=True))
-          if not required:
-              raise SystemExit('M0.1 live verification contract failed')
+
+          aligned=YouTubeBackfillReadSession(api_key=api_key,base_session=requests)
+          report={
+              'schema_version':1,
+              'mode':'M0.1_production_observer_credential_alignment',
+              'video_id':video_id,
+              'credential_route':{
+                  'video_metadata':'youtube_data_api_key',
+                  'analytics_base':'oauth_refresh_token',
+                  'retention':'oauth_refresh_token',
+              },
+              'observer':{'status':'failed'},
+              'video_probe':{'status':'not_attempted'},
+              'analytics':{'status':'not_attempted'},
+              'retention':{'status':'not_attempted','points_received':0},
+              'secrets_changed':False,
+              'production_run_started':False,
+              'stores_retention_curve':False,
+              'production_influence':'none',
+          }
+          if isinstance(observer,dict):
+              report['observer']={
+                  'status':'ok','video_id':observer.get('video_id'),
+                  'content_style':observer.get('content_style'),
+                  'classification_status':observer.get('classification_status'),
+                  'production_id':observer.get('production_id'),
+                  'binding_source':observer.get('binding_source'),
+                  'first_30s_present':'first_30s_retention' in (observer.get('metrics') or {}),
+              }
+          else:
+              report['observer']={'status':'failed','reason':'observer_returned_none'}
+
+          access_token=_refresh_access_token(client_id,client_secret,refresh_token,session=aligned)
+          video=_published_video_by_id(access_token,video_id,session=aligned)
+          if video is not None:
+              report['video_probe']={'status':'ok','video_id':video.get('video_id'),'duration_seconds':video.get('duration_seconds')}
+              metrics=_base_metrics(access_token,video_id=video_id,published_at=video.get('published_at'),session=aligned)
+              report['analytics']={'status':'ok' if metrics else 'failed','metrics_returned':sorted(metrics)}
+              current=datetime.now(timezone.utc); end_date=current.date()-timedelta(days=1)
+              published_at=video.get('published_at'); start_date=published_at.date() if published_at else end_date-timedelta(days=365)
+              retention=_json_response(aligned.get(
+                  ANALYTICS_URL,
+                  headers=_auth_headers(access_token),
+                  params={
+                      'ids':'channel==MINE','startDate':start_date.isoformat(),'endDate':end_date.isoformat(),
+                      'dimensions':'elapsedVideoTimeRatio','metrics':'audienceWatchRatio',
+                      'filters':f'video=={video_id}','sort':'elapsedVideoTimeRatio','maxResults':200,
+                  }, timeout=25,
+              ),label='M0.1 retention verification')
+              rows=retention.get('rows'); headers=retention.get('columnHeaders')
+              points=len(rows) if isinstance(rows,list) else 0
+              names=[str(x.get('name','')) for x in headers if isinstance(x,dict)] if isinstance(headers,list) else []
+              report['retention']={'status':'ok' if points==100 else 'failed','points_received':points,'metrics_returned':names}
+          else:
+              report['video_probe']={'status':'failed'}
+
+          out=Path(os.environ['RUNNER_TEMP'])/'analytics-retention-m01-live.json'
+          out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          required=(
+              report['observer'].get('status')=='ok'
+              and report['observer'].get('video_id')==video_id
+              and report['observer'].get('content_style')=='agent_produced'
+              and report['observer'].get('classification_status')=='verified'
+              and report['observer'].get('production_id')=='m0.1:live:diagnostic'
+              and report['observer'].get('binding_source')=='m0.1_read_only_verification'
+              and report['video_probe'].get('status')=='ok'
+              and report['video_probe'].get('video_id')==video_id
+              and report['analytics'].get('status')=='ok'
+              and report['retention'].get('status')=='ok'
+              and report['retention'].get('points_received')==100
+          )
+          print(json.dumps({'observer':report['observer'].get('status'),'video_probe':report['video_probe'].get('status'),'analytics':report['analytics'].get('status'),'retention':report['retention'].get('status'),'points_received':report['retention'].get('points_received')},sort_keys=True))
+          if not required: raise SystemExit('M0.1 live verification contract failed')
+          PY
+
+      - name: Publish live status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.live.outcome }}
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+          outcome=os.environ.get('OUTCOME') or 'missing'
+          body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':'analytics-m01-live','description':outcome}).encode()
+          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          urllib.request.urlopen(req,timeout=20).read()
           PY
 
       - name: Persist sanitized M0.1 evidence
@@ -311,24 +292,15 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
-          src = Path(os.environ['RUNNER_TEMP']) / 'analytics-retention-m01-live.json'
-          try:
-              report = json.loads(src.read_text(encoding='utf-8'))
-          except Exception:
-              report = {
-                  'schema_version': 1,
-                  'mode': 'M0.1_production_observer_credential_alignment',
-                  'status': 'live_report_missing',
-              }
-          report['engine_sha'] = '11046af6351a71cbaf3261756c73cc35f46d24da'
-          report['targeted_tests'] = os.environ.get('TARGETED') or 'not_run'
-          report['full_suite'] = os.environ.get('FULL') or 'not_run'
-          report['live_step'] = os.environ.get('LIVE') or 'not_run'
-          report['secrets_changed'] = False
-          report['production_run_started'] = False
-          out = Path('verification/analytics-retention-m0.1-live.json')
-          out.parent.mkdir(parents=True, exist_ok=True)
-          out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+          src=Path(os.environ['RUNNER_TEMP'])/'analytics-retention-m01-live.json'
+          try: report=json.loads(src.read_text(encoding='utf-8'))
+          except Exception: report={'schema_version':1,'mode':'M0.1_production_observer_credential_alignment','status':'live_report_missing'}
+          report['engine_sha']='11046af6351a71cbaf3261756c73cc35f46d24da'
+          report['targeted_tests']=os.environ.get('TARGETED') or 'not_run'
+          report['full_suite']=os.environ.get('FULL') or 'not_run'
+          report['live_step']=os.environ.get('LIVE') or 'not_run'
+          report['secrets_changed']=False;report['production_run_started']=False
+          out=Path('verification/analytics-retention-m0.1-live.json');out.parent.mkdir(parents=True,exist_ok=True);out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -336,40 +308,14 @@ jobs:
           git commit -m "ci: record M0.1 observer credential verification" || true
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
-      - name: Publish M0.1 status checks
+      - name: Enforce M0.1 verification
         if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
           TARGETED: ${{ steps.targeted.outcome }}
           FULL: ${{ steps.full.outcome }}
           LIVE: ${{ steps.live.outcome }}
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import json, os, urllib.request
-          checks = {
-              'targeted': os.environ.get('TARGETED'),
-              'full-suite': os.environ.get('FULL'),
-              'live': os.environ.get('LIVE'),
-          }
-          repo = os.environ['GITHUB_REPOSITORY']
-          sha = os.environ['GITHUB_SHA']
-          token = os.environ['GH_TOKEN']
-          for name, outcome in checks.items():
-              body = json.dumps({
-                  'state': 'success' if outcome == 'success' else 'failure',
-                  'context': f'analytics-m01-{name}',
-                  'description': str(outcome or 'missing')[:140],
-              }).encode()
-              req = urllib.request.Request(
-                  f'https://api.github.com/repos/{repo}/statuses/{sha}',
-                  data=body,
-                  method='POST',
-                  headers={
-                      'Authorization': f'Bearer {token}',
-                      'Accept': 'application/vnd.github+json',
-                      'Content-Type': 'application/json',
-                  },
-              )
-              urllib.request.urlopen(req, timeout=20).read()
-          PY
+          test "$TARGETED" = "success"
+          test "$FULL" = "success"
+          test "$LIVE" = "success"
