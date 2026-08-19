@@ -1,3 +1,4 @@
+# Retry marker: fresh hosted runner; Engine SHA below is unchanged.
 name: Verify Private Engine
 
 on:
