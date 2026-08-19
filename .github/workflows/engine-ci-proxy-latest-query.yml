@@ -27,6 +27,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Temporary observer used only during Run #54 verification.
           gh api \
             -H 'Accept: application/vnd.github+json' \
             '/repos/mymusa79-tech/Isco-Video-Runner/actions/workflows/engine-ci-proxy.yml/runs?branch=main&per_page=1' \
