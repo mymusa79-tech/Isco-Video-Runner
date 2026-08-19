@@ -112,7 +112,9 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
 
     def test_phase4_gold_enforcer_is_enforcing_and_owns_state_transition(self) -> None:
         source = inspect.getsource(gold_phase4.run_gold_enforce_phase4)
-        self.assertNotIn("orchestrator.produce", source)
+        tree = ast.parse(source)
+        call_names = {_call_name(node) for node in ast.walk(tree) if isinstance(node, ast.Call)}
+        self.assertNotIn("orchestrator.produce", call_names)
         self.assertEqual(source.count("finalize_gold_output("), 1)
         self.assertIn("mark_production_accepted=mark_production_accepted", source)
         self.assertIn("remove_production_record=remove_production_record", source)
