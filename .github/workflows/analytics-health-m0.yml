@@ -1,0 +1,117 @@
+name: Analytics Retention M0 Health
+
+on:
+  push:
+    branches:
+      - analytics/retention-v2-m0-health
+    paths:
+      - .github/workflows/analytics-health-m0.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout private engine M0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3159440919776267065e0b232e49a1bbb0cbf1bb
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install verification runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+
+      - name: Run M0 targeted tests
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_youtube_analytics_health.py' -v
+
+      - name: Run analytics regression tests
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_*analytics*.py' -v
+          python -m unittest tests/test_youtube_backfill.py tests/test_youtube_backfill_session.py -v
+
+      - name: Run full Engine suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Materialize YouTube OAuth secrets for health probe
+        id: oauth
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$YOUTUBE_CLIENT_ID" ] || [ -z "$YOUTUBE_CLIENT_SECRET" ] || [ -z "$YOUTUBE_REFRESH_TOKEN" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            printf '%s\n' '{"schema_version":1,"mode":"read_only_health","status":"credentials_unavailable","production_influence":"none","stores_retention_curve":false}' > "$RUNNER_TEMP/youtube-analytics-health.json"
+            exit 0
+          fi
+          umask 077
+          mkdir -p "$RUNNER_TEMP/isco-analytics-secrets"
+          printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/isco-analytics-secrets/client-id"
+          printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/isco-analytics-secrets/client-secret"
+          printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/isco-analytics-secrets/refresh-token"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
+      - name: Run live read-only OAuth and retention health probe
+        if: steps.oauth.outputs.available == 'true'
+        working-directory: engine
+        env:
+          YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-analytics-secrets/client-id
+          YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-analytics-secrets/client-secret
+          YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-analytics-secrets/refresh-token
+        run: |
+          set -euo pipefail
+          python scripts/check_youtube_analytics_health.py \
+            --output "$RUNNER_TEMP/youtube-analytics-health.json" \
+            --strict
+
+      - name: Print sanitized health result
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f "$RUNNER_TEMP/youtube-analytics-health.json" ]; then
+            cat "$RUNNER_TEMP/youtube-analytics-health.json"
+          else
+            echo '{"status":"health_report_missing"}'
+          fi
+
+      - name: Upload sanitized M0 health artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: analytics-retention-m0-health
+          path: ${{ runner.temp }}/youtube-analytics-health.json
+          if-no-files-found: warn
+          retention-days: 7
