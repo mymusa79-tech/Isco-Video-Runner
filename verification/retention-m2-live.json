@@ -1,0 +1,75 @@
+{
+  "ai_calls": 0,
+  "bound_points": 0,
+  "boundary_rule": "half_open_[start,end); internal boundary belongs to the interval starting there; final video endpoint may belong to terminal interval",
+  "derived_points": 100,
+  "engine_sha": "a0da50f8b08abd0b2c698706f151c213a154c607",
+  "final_duration_seconds": 207.0,
+  "mode": "M2_retention_timeline_binding",
+  "production_influence": "none",
+  "production_run_started": false,
+  "provenance": {
+    "binding_source": null,
+    "classification_status": "unresolved",
+    "content_style": "unverified",
+    "ingestion_source": "production_observer",
+    "snapshot_id": "c029e2d8c1b8a784cef9e9add233de8bd14551ef389fa59ca01dabb626720c17"
+  },
+  "raw_sidecar_sha256": "9de956d7e87224292162b12201b5ce17bafcaa29a1947b0764e5b2fcd9010831",
+  "raw_sidecar_unchanged": true,
+  "samples": {
+    "first": {
+      "absolute_second": 2.07,
+      "binding_confidence": "none",
+      "binding_source": null,
+      "binding_status": "unbound",
+      "brand_sting": null,
+      "duration_source": "timeline_metadata",
+      "elapsedVideoTimeRatio": 0.01,
+      "opening_slot": null,
+      "outro": null,
+      "retention_metrics": {
+        "audienceWatchRatio": 0.9767,
+        "relativeRetentionPerformance": 0.20695000000000002
+      },
+      "section_id": null
+    },
+    "last": {
+      "absolute_second": 207.0,
+      "binding_confidence": "none",
+      "binding_source": null,
+      "binding_status": "unbound",
+      "brand_sting": null,
+      "duration_source": "timeline_metadata",
+      "elapsedVideoTimeRatio": 1.0,
+      "opening_slot": null,
+      "outro": null,
+      "retention_metrics": {
+        "audienceWatchRatio": 0.0698,
+        "relativeRetentionPerformance": 0.5083
+      },
+      "section_id": null
+    },
+    "middle": {
+      "absolute_second": 105.57,
+      "binding_confidence": "none",
+      "binding_source": null,
+      "binding_status": "unbound",
+      "brand_sting": null,
+      "duration_source": "timeline_metadata",
+      "elapsedVideoTimeRatio": 0.51,
+      "opening_slot": null,
+      "outro": null,
+      "retention_metrics": {
+        "audienceWatchRatio": 0.09300000000000001,
+        "relativeRetentionPerformance": 0.5034
+      },
+      "section_id": null
+    }
+  },
+  "schema_version": 1,
+  "source_curve_points": 100,
+  "timeline_metadata_source": "retention_observation_only",
+  "unbound_points": 100,
+  "video_id": "e_I6g1qt4xg"
+}
