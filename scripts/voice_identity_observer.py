@@ -117,9 +117,11 @@ def _pitch_summary(signal, sample_rate: int) -> dict[str, float | None]:
         if pitch.numel() < 5:
             return {"f0_median": None, "f0_p10": None, "f0_p90": None}
         pitch = torch.sort(pitch).values
+
         def quantile(q: float) -> float:
             idx = min(int(round((pitch.numel() - 1) * q)), pitch.numel() - 1)
             return round(float(pitch[idx]), 2)
+
         return {
             "f0_median": quantile(0.50),
             "f0_p10": quantile(0.10),
@@ -287,7 +289,9 @@ def install_voice_identity_observer() -> None:
     """Wrap the common post-TTS boundary. Never retries, blocks, or changes provider choice."""
     global _original_synthesize_tts_section
     current = orchestrator._synthesize_tts_section
-    if getattr(current, "_is_voice_identity_observer", False):
+    # Only our literal marker means the wrapper is already installed. This avoids
+    # truthy proxy/mock attributes being mistaken for installation state.
+    if getattr(current, "_is_voice_identity_observer", False) is True:
         return
     _original_synthesize_tts_section = current
 
