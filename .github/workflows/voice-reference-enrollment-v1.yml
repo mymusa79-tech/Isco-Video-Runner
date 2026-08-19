@@ -1,0 +1,185 @@
+name: Voice Reference Enrollment V1
+
+on:
+  push:
+    branches: ["agent/voice-identity-observer-v1"]
+    paths:
+      - ".github/workflows/voice-reference-enrollment-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APPROVED_RUN_ID: "32224276241"
+  APPROVED_ARTIFACT_ID: "9355112613"
+  ECAPA_MODEL_SOURCE: "speechbrain/spkrec-ecapa-voxceleb"
+  ECAPA_MODEL_REVISION: "a025b9e8262be969a7b3f8f53c01d346eadf361b"
+
+jobs:
+  enroll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned voice fingerprint runtime
+        run: |
+          set -euo pipefail
+          python -m pip install \
+            'numpy==2.3.5' \
+            'torch==2.10.0' \
+            'torchaudio==2.10.0' \
+            'speechbrain==1.1.0'
+          python -m pip check
+
+      - name: Download exact human-approved listening artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p approved
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${APPROVED_ARTIFACT_ID}/zip" \
+            > approved.zip
+          unzip -q approved.zip -d approved
+          test -f approved/01-Charon.wav
+          test -f approved/02-Orus.wav
+          printf '%s  %s\n' \
+            '129130c0c453dcf13f9ad5f861052d8346a0dafdb4f0126e437d566530363a87' \
+            'approved/01-Charon.wav' \
+            '5bfa06f7f22e22a3b9f0344d0b2ddbb7dff3ac28131616f4477f52a72cec23ea' \
+            'approved/02-Orus.wav' \
+            | sha256sum -c -
+
+      - name: Build immutable ECAPA reference profile
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import math
+          import os
+          import wave
+          from pathlib import Path
+
+          import numpy as np
+          import torch
+          from speechbrain.inference.classifiers import EncoderClassifier
+          from speechbrain.utils.fetching import FetchConfig
+
+          RATE = 16000
+          WINDOW_SECONDS = 4.0
+          source = os.environ["ECAPA_MODEL_SOURCE"]
+          revision = os.environ["ECAPA_MODEL_REVISION"]
+          model = EncoderClassifier.from_hparams(
+              source=source,
+              savedir=".cache/ecapa",
+              fetch_config=FetchConfig(revision=revision, allow_updates=False),
+              run_opts={"device": "cpu"},
+          )
+
+          def load_wav(path: Path):
+              with wave.open(str(path), "rb") as wf:
+                  channels = wf.getnchannels()
+                  width = wf.getsampwidth()
+                  rate = wf.getframerate()
+                  raw = wf.readframes(wf.getnframes())
+              if width != 2:
+                  raise RuntimeError(f"unsupported sample width for {path}: {width}")
+              samples = np.frombuffer(raw, dtype="<i2").astype("float32")
+              if channels > 1:
+                  samples = samples.reshape(-1, channels).mean(axis=1)
+              samples /= 32768.0
+              if rate != RATE:
+                  old_x = np.linspace(0.0, 1.0, num=len(samples), endpoint=False)
+                  new_len = max(1, int(round(len(samples) * RATE / rate)))
+                  new_x = np.linspace(0.0, 1.0, num=new_len, endpoint=False)
+                  samples = np.interp(new_x, old_x, samples).astype("float32")
+              return samples
+
+          def normalize(vector):
+              vector = np.asarray(vector, dtype="float32").reshape(-1)
+              norm = float(np.linalg.norm(vector))
+              if not math.isfinite(norm) or norm <= 0:
+                  raise RuntimeError("invalid embedding norm")
+              return vector / norm
+
+          def windows(samples):
+              size = int(round(WINDOW_SECONDS * RATE))
+              if len(samples) <= size:
+                  return [(0, samples)]
+              starts = [0, (len(samples) - size) // 2, len(samples) - size]
+              return [(start, samples[start:start + size]) for start in dict.fromkeys(starts)]
+
+          def profile(role, profile_id, voice_name, path):
+              samples = load_wav(path)
+              vectors = []
+              window_meta = []
+              for start, window in windows(samples):
+                  tensor = torch.as_tensor(window, dtype=torch.float32).unsqueeze(0)
+                  with torch.inference_mode():
+                      embedded = model.encode_batch(tensor, normalize=True)
+                  vector = normalize(embedded.squeeze().detach().cpu().numpy())
+                  vectors.append(vector)
+                  window_meta.append({
+                      "start_seconds": round(start / RATE, 3),
+                      "duration_seconds": round(len(window) / RATE, 3),
+                  })
+              centroid = normalize(np.mean(vectors, axis=0))
+              return {
+                  "role": role,
+                  "profile_id": profile_id,
+                  "voice_name": voice_name,
+                  "reference_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                  "reference_windows": window_meta,
+                  "centroid": [round(float(x), 9) for x in centroid],
+              }
+
+          payload = {
+              "schema_version": 1,
+              "profile_version": "channel-voice-roster-v1",
+              "mode": "human_approved_reference",
+              "source": {
+                  "runner_run_id": int(os.environ["APPROVED_RUN_ID"]),
+                  "artifact_id": int(os.environ["APPROVED_ARTIFACT_ID"]),
+                  "tts_model": "gemini-3.1-flash-tts-preview",
+                  "human_approval": "Charon=primary; Orus=questioner",
+              },
+              "embedding": {
+                  "backend": "speechbrain-ecapa-voxceleb",
+                  "model_source": source,
+                  "model_revision": revision,
+                  "sample_rate_hz": RATE,
+                  "window_seconds": WINDOW_SECONDS,
+              },
+              "profiles": {
+                  "primary": profile(
+                      "primary", "channel-primary-v1", "Charon",
+                      Path("approved/01-Charon.wav"),
+                  ),
+                  "questioner": profile(
+                      "questioner", "channel-questioner-v1", "Orus",
+                      Path("approved/02-Orus.wav"),
+                  ),
+              },
+          }
+          dims = {len(item["centroid"]) for item in payload["profiles"].values()}
+          if len(dims) != 1 or next(iter(dims)) < 64:
+              raise RuntimeError(f"unexpected ECAPA embedding dimensions: {sorted(dims)}")
+          Path("voice-reference-profile-v1.json").write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          print("Reference profile built:", next(iter(dims)), "dimensions")
+          PY
+
+      - name: Upload enrolled profile
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: voice-reference-profile-v1
+          path: voice-reference-profile-v1.json
+          if-no-files-found: error
+          retention-days: 7
