@@ -1,0 +1,190 @@
+name: Verify Thumbnail Candidate Board P0-C
+
+on:
+  push:
+    branches: ["ci/verify-thumbnail-board-p0c"]
+  pull_request:
+    branches: ["p0c/phase4-gold-enforce-same-render"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Runner Phase 4 stack
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact Engine P0-C candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: b2933176668ebc694f041f78b881942718e2d806
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused thumbnail P0 A-B-C tests
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_thumbnail_cultural_safety \
+            tests.test_thumbnail_packaging_contract \
+            tests.test_thumbnail_batch_review \
+            tests.test_thumbnail_candidate_board \
+            -v
+
+      - name: Verify Gold Phase 2B thumbnail adapter regressions
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python -m unittest scripts.test_gold_shadow_phase2b -v
+
+      - name: Verify Gold Phase 4 enforcement regressions
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python -m unittest scripts.test_gold_enforce_phase4 -v
+
+      - name: Prove actual P0-C builder is four provider attempts under Gold budget adapter
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import tempfile
+          from pathlib import Path
+          from types import SimpleNamespace
+          from unittest.mock import Mock, patch
+
+          import isco_video_agent.thumbnail as thumbnail
+          from isco_video_agent.ai_budget import BudgetLedger
+          import scripts.gold_thumbnail_budget as gold_budget
+
+          plan = SimpleNamespace(
+              format="film",
+              topic="كيف تنهض بعد السقوط؟",
+              hook="hook",
+              title_options=["title"],
+              thumbnail_concepts=["concept"],
+              closing_payoff="payoff",
+          )
+          concepts = []
+          for index in range(1, 4):
+              concepts.append({
+                  "title_ar": f"عنوان مختلف {index}",
+                  "text_ar": f"ابدأ الآن {index}",
+                  "visual_query_en": f"sunrise path {index}",
+                  "text_position": ("left", "right", "center")[index - 1],
+                  "packaging_hypothesis": f"فرضية مختلفة {index}",
+                  "viewer_promise": f"وعد مختلف {index}",
+                  "title_role": f"دور العنوان {index}",
+                  "thumbnail_role": f"دور الصورة {index}",
+                  "angle": f"زاوية {index}",
+                  "why_it_can_work": f"سبب {index}",
+              })
+          photos = [
+              {
+                  "id": index,
+                  "url": f"https://www.pexels.com/photo/{index}/",
+                  "photographer": f"p{index}",
+                  "photographer_url": f"https://www.pexels.com/@p{index}/",
+              }
+              for index in range(1, 7)
+          ]
+          original_json = Mock(return_value={"concepts": concepts})
+          original_audit = Mock(return_value={
+              "status": "pass",
+              "selected_candidate_index": 2,
+              "candidate_count": 6,
+          })
+
+          def fake_download(_url, path):
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(b"raw")
+              return path
+
+          def fake_preview(_raw, path):
+              path.write_bytes(b"preview")
+              return path
+
+          ledger = BudgetLedger("film", enforce=True)
+          with tempfile.TemporaryDirectory() as tmp, \
+               patch.object(thumbnail, "json_text", original_json), \
+               patch.object(thumbnail, "audit_image_preview", original_audit), \
+               patch.object(thumbnail, "search_photos", return_value=photos), \
+               patch.object(thumbnail, "photo_file", side_effect=lambda photo: f"https://images.pexels.com/{photo['id']}.jpg"), \
+               patch.object(thumbnail, "download", side_effect=fake_download), \
+               patch.object(thumbnail, "make_image_review_preview", side_effect=fake_preview), \
+               patch.object(thumbnail, "write_srt", side_effect=lambda _segments, path: path), \
+               patch.object(thumbnail, "render_thumbnail", side_effect=lambda _raw, _srt, output, **_kwargs: output):
+              package = gold_budget.build_budgeted_thumbnail_package(
+                  gemini_key="g",
+                  pexels_key="p",
+                  plan=plan,
+                  output_dir=Path(tmp),
+                  model="model",
+                  ledger=ledger,
+              )
+
+          summary = ledger.to_summary()
+          assert original_json.call_count == 1, original_json.call_count
+          assert original_audit.call_count == 3, original_audit.call_count
+          assert summary["provider_attempts"]["total"] == 4, summary
+          assert summary["logical_tasks"]["by_priority"]["P2"] == 4, summary
+          assert summary["logical_tasks"]["by_kind"]["GOLD_SHADOW_THUMBNAIL_CONCEPTS"] == 1, summary
+          assert summary["logical_tasks"]["by_kind"]["GOLD_SHADOW_THUMBNAIL_VISUAL"] == 3, summary
+          assert package["visual_review"]["max_ai_calls_per_package"] == 4
+          assert all(candidate["reviewed_candidate_count"] == 6 for candidate in package["candidates"])
+          print("Gold budget integration PASS: 1 Text + 3 Vision = 4 provider attempts")
+          PY
+
+      - name: Full Engine regression suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Static compatibility invariants
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import inspect
+          import isco_video_agent.thumbnail as thumbnail
+          import scripts.gold_thumbnail_budget as gold_budget
+
+          signature = inspect.signature(thumbnail.build_thumbnail_package)
+          assert list(signature.parameters) == ["gemini_key", "pexels_key", "plan", "output_dir", "model"]
+          source = inspect.getsource(gold_budget)
+          assert "thumbnail.build_thumbnail_package" in source
+          assert "thumbnail.audit_image_preview = budgeted_audit_image_preview" in source
+          assert thumbnail.MAX_VISUAL_CANDIDATES_PER_HYPOTHESIS == 6
+          print("P0-C builder signature and Gold adapter seams PASS")
+          PY
