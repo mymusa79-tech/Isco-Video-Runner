@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "target_head_sha": "33b8eb92c5ccfb266521c48e4464a9fc20ace3bf",
+  "production_run_id": 32233339812,
+  "production_run_number": 1,
+  "production_status": "completed",
+  "production_conclusion": "failure",
+  "production_event": "push",
+  "production_head_branch": "ops/phase2a-real-production-run",
+  "production_head_sha": "33b8eb92c5ccfb266521c48e4464a9fc20ace3bf",
+  "artifact_id": null,
+  "artifact_files": [],
+  "gold_shadow_comparison_found": false,
+  "gold_shadow_comparison": null,
+  "jobs": [
+    {
+      "id": 96007763178,
+      "name": "produce-observe",
+      "status": "completed",
+      "conclusion": "failure",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Checkout merged Runner",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Verify Runner lineage",
+          "status": "completed",
+          "conclusion": "failure"
+        },
+        {
+          "name": "Checkout merged private Engine",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify Engine merge SHA",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Install locked Engine and local voice fallback",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Restore encrypted cross-run memory",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify local voice fallback",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Prepare production request and one-time secret files",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify free provider authentication",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Produce real video with Legacy V4 plus Gold Shadow",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Verify Gold Shadow evidence exists",
+          "status": "completed",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Upload production and Gold Shadow evidence",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Confirm no publish side effects",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Checkout merged Runner",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ]
+}
