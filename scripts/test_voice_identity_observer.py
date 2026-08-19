@@ -142,11 +142,14 @@ class VoiceObserverWrapperTests(unittest.TestCase):
         original_saved = observer._original_synthesize_tts_section
         output = Path("output/test/audio/01.wav")
         production = Mock(return_value=output)
+        production._is_voice_identity_observer = False
         try:
             observer.orchestrator._synthesize_tts_section = production
             observer._original_synthesize_tts_section = None
             observer.install_voice_identity_observer()
             wrapped = observer.orchestrator._synthesize_tts_section
+            self.assertIsNot(wrapped, production)
+            self.assertIs(getattr(wrapped, "_is_voice_identity_observer", None), True)
             with patch.object(observer, "observe_output", side_effect=RuntimeError("observer failed")) as audit:
                 result = wrapped(
                     None,
@@ -170,12 +173,15 @@ class VoiceObserverWrapperTests(unittest.TestCase):
     def test_install_is_idempotent(self) -> None:
         original_boundary = observer.orchestrator._synthesize_tts_section
         original_saved = observer._original_synthesize_tts_section
-        production = Mock()
+        production = Mock(return_value=Path("output/test/audio/01.wav"))
+        production._is_voice_identity_observer = False
         try:
             observer.orchestrator._synthesize_tts_section = production
             observer._original_synthesize_tts_section = None
             observer.install_voice_identity_observer()
             first = observer.orchestrator._synthesize_tts_section
+            self.assertIsNot(first, production)
+            self.assertIs(getattr(first, "_is_voice_identity_observer", None), True)
             observer.install_voice_identity_observer()
             self.assertIs(observer.orchestrator._synthesize_tts_section, first)
         finally:
