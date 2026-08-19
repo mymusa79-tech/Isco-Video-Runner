@@ -54,6 +54,30 @@ def _latest_output_dir() -> Path | None:
     return roots[0] if roots else None
 
 
+def _attach_failure_tone_diagnostics(out_dir: Path) -> None:
+    """Copy the full tone audit into quality-precheck.json on failed production.
+
+    The Engine already writes tone-quality-audit.json before enforcing the tone gate,
+    but V4's failure artifact uploads quality-precheck.json and not that sidecar. Keep
+    this observational only: enrich the already-uploaded precheck when both files are
+    valid JSON objects, and never mask the original production exception.
+    """
+    precheck_path = out_dir / "quality-precheck.json"
+    tone_path = out_dir / "tone-quality-audit.json"
+    if not precheck_path.is_file() or not tone_path.is_file():
+        return
+    try:
+        precheck = json.loads(precheck_path.read_text(encoding="utf-8"))
+        tone = json.loads(tone_path.read_text(encoding="utf-8"))
+        if not isinstance(precheck, dict) or not isinstance(tone, dict):
+            return
+        precheck["tone_quality_audit"] = tone
+        precheck_path.write_text(json.dumps(precheck, ensure_ascii=False, indent=2), encoding="utf-8")
+        print("Tone failure diagnostics attached to quality-precheck.json")
+    except Exception as exc:
+        print(f"Tone failure diagnostics attachment skipped ({type(exc).__name__})")
+
+
 def _production_id() -> str:
     run_id = (os.environ.get("GITHUB_RUN_ID") or "local").strip()
     attempt = (os.environ.get("GITHUB_RUN_ATTEMPT") or "1").strip()
@@ -158,6 +182,7 @@ def main() -> None:
     except Exception:
         out_dir = _latest_output_dir()
         if out_dir is not None:
+            _attach_failure_tone_diagnostics(out_dir)
             ledger.write(out_dir / "ai-budget.json")
             write_planning_telemetry(out_dir)
         raise
