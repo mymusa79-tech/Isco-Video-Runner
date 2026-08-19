@@ -21,6 +21,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
       - name: Checkout private engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,14 +35,17 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Python
+        id: setup_python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
 
       - name: Install media dependencies
+        id: media_deps
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
 
       - name: Install locked runtime
+        id: install_runtime
         working-directory: engine
         run: |
           set -euo pipefail
@@ -48,17 +53,82 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Unit and media tests
+      - name: Six selected-visual acceptance tests
+        id: acceptance_tests
         working-directory: engine
-        run: python -m unittest discover -s tests -q
+        run: |
+          set -o pipefail
+          python -m unittest tests.test_final_critic_selected_visuals -v 2>&1 | tee "$RUNNER_TEMP/selected-visual-acceptance.log"
+
+      - name: Unit and media tests
+        id: full_suite
+        working-directory: engine
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -q 2>&1 | tee "$RUNNER_TEMP/full-suite.log"
 
       - name: Dry-run orchestration with explicit topic
+        id: dry_explicit
         working-directory: engine
         run: isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
 
       - name: Dry-run autonomous topic selection
+        id: dry_auto
         working-directory: engine
         run: isco-video produce --format auto --dry-run --no-research
+
+      - name: Checkout Runner evidence branch
+        if: always()
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ci/final-critic-selected-visuals
+          path: report-repo
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Persist test evidence
+        if: always()
+        continue-on-error: true
+        env:
+          SETUP_PYTHON_OUTCOME: ${{ steps.setup_python.outcome }}
+          MEDIA_DEPS_OUTCOME: ${{ steps.media_deps.outcome }}
+          INSTALL_RUNTIME_OUTCOME: ${{ steps.install_runtime.outcome }}
+          ACCEPTANCE_TESTS_OUTCOME: ${{ steps.acceptance_tests.outcome }}
+          FULL_SUITE_OUTCOME: ${{ steps.full_suite.outcome }}
+          DRY_EXPLICIT_OUTCOME: ${{ steps.dry_explicit.outcome }}
+          DRY_AUTO_OUTCOME: ${{ steps.dry_auto.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p report-repo/ci-results
+          python - <<'PY'
+          import json, os, shutil
+          from pathlib import Path
+          root = Path("report-repo/ci-results")
+          payload = {
+              "engine_sha": "8fc8a9a6a0a06f74c5c13e2693ab84da79f7e415",
+              "setup_python": os.environ.get("SETUP_PYTHON_OUTCOME", ""),
+              "media_dependencies": os.environ.get("MEDIA_DEPS_OUTCOME", ""),
+              "install_runtime": os.environ.get("INSTALL_RUNTIME_OUTCOME", ""),
+              "acceptance_tests": os.environ.get("ACCEPTANCE_TESTS_OUTCOME", ""),
+              "full_suite": os.environ.get("FULL_SUITE_OUTCOME", ""),
+              "dry_run_explicit": os.environ.get("DRY_EXPLICIT_OUTCOME", ""),
+              "dry_run_auto": os.environ.get("DRY_AUTO_OUTCOME", ""),
+          }
+          (root / "test-job.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+          for source, target in (
+              (Path(os.environ["RUNNER_TEMP"]) / "selected-visual-acceptance.log", root / "acceptance.log"),
+              (Path(os.environ["RUNNER_TEMP"]) / "full-suite.log", root / "full-suite.log"),
+          ):
+              if source.exists():
+                  shutil.copy2(source, target)
+          PY
+          cd report-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ci-results
+          git commit -m "ci: record private engine test evidence" || exit 0
+          git push origin HEAD:ci/final-critic-selected-visuals
 
   dependency-audit:
     runs-on: ubuntu-latest
@@ -85,3 +155,40 @@ jobs:
           set -euo pipefail
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
+
+  report:
+    if: always()
+    needs: [test, dependency-audit]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Runner evidence branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ci/final-critic-selected-visuals
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Persist overall verification result
+        env:
+          TEST_JOB_RESULT: ${{ needs.test.result }}
+          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+        run: |
+          set -euo pipefail
+          mkdir -p ci-results
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          payload = {
+              "engine_sha": "8fc8a9a6a0a06f74c5c13e2693ab84da79f7e415",
+              "test_job": os.environ.get("TEST_JOB_RESULT", ""),
+              "dependency_audit": os.environ.get("DEPENDENCY_AUDIT_RESULT", ""),
+          }
+          Path("ci-results/verify-private-engine.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ci-results/verify-private-engine.json
+          git commit -m "ci: record private engine verification result" || exit 0
+          git push origin HEAD:ci/final-critic-selected-visuals
