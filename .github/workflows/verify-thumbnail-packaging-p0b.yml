@@ -1,0 +1,87 @@
+name: Verify Thumbnail Packaging P0-B
+
+on:
+  push:
+    branches: ["ci/verify-thumbnail-packaging-p0b"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Phase 2B Runner adapter
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 185b6da01608e1ecc74ec286f7a79e45865c40ac
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused thumbnail safety and packaging contract tests
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_thumbnail_cultural_safety \
+            tests.test_thumbnail_packaging_contract \
+            -v
+
+      - name: Verify Phase 2B Gold thumbnail adapter compatibility
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python -m unittest scripts.test_gold_shadow_phase2b -v
+
+      - name: Full Engine regression suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Contract invariants
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import inspect
+          import isco_video_agent.thumbnail as thumbnail
+          import scripts.gold_thumbnail_budget as gold_budget
+
+          signature = inspect.signature(thumbnail.build_thumbnail_package)
+          assert list(signature.parameters) == ["gemini_key", "pexels_key", "plan", "output_dir", "model"]
+          source = inspect.getsource(gold_budget)
+          assert "thumbnail.build_thumbnail_package" in source
+          assert "thumbnail.json_text = budgeted_json_text" in source
+          assert "thumbnail.audit_image_preview = budgeted_audit_image_preview" in source
+          assert thumbnail.PACKAGING_CONTRACT_VERSION == 1
+          print("P0-B signature, Gold adapter seams, and contract version PASS")
+          PY
