@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
-import scripts.gold_shadow_phase2b as gold_shadow
+import scripts.gold_single_evaluator_phase3 as gold_phase3
 import scripts.gold_thumbnail_budget as thumbnail_budget
 import scripts.run_v3_voice as runner
 import scripts.task_level_planner_router as router
@@ -75,24 +75,22 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
             with self.subTest(installer=installer):
                 self.assertLess(source.index(installer), production)
 
-    def test_one_runner_ledger_is_forwarded_to_core_legacy_critic_and_gold_shadow(self) -> None:
+    def test_one_runner_ledger_is_forwarded_to_core_and_single_gold_evaluator(self) -> None:
         calls = _calls_in_main()
         core_calls = calls.get("orchestrator.produce", [])
-        critic_calls = calls.get("_run_final_critic", [])
-        shadow_calls = calls.get("run_gold_shadow_phase2b", [])
+        gold_calls = calls.get("run_gold_single_evaluator_phase3", [])
         self.assertEqual(len(core_calls), 1)
-        self.assertEqual(len(critic_calls), 1)
-        self.assertEqual(len(shadow_calls), 1)
+        self.assertEqual(len(gold_calls), 1)
+        self.assertEqual(len(calls.get("_run_final_critic", [])), 0)
+        self.assertEqual(len(calls.get("run_gold_shadow_phase2b", [])), 0)
         self.assertTrue(_keyword_is_name(core_calls[0], "ledger", "ledger"))
-        self.assertTrue(_keyword_is_name(critic_calls[0], "ledger", "ledger"))
-        self.assertTrue(_keyword_is_name(shadow_calls[0], "ledger", "ledger"))
+        self.assertTrue(_keyword_is_name(gold_calls[0], "ledger", "ledger"))
 
     def test_provenance_and_release_evidence_order_is_stable(self) -> None:
         source = _main_source()
         order = [
             "_tag_plan_source(out)",
-            "_run_final_critic(",
-            "run_gold_shadow_phase2b(",
+            "run_gold_single_evaluator_phase3(",
             "_write_production_manifest(",
             "collect_latest_video_metrics_from_env(",
             "_attach_observer_evidence_to_telemetry(",
@@ -100,22 +98,28 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
         positions = [source.index(marker) for marker in order]
         self.assertEqual(positions, sorted(positions))
 
-    def test_gold_shadow_adapter_has_no_production_or_state_mutation_authority(self) -> None:
-        source = inspect.getsource(gold_shadow.run_gold_shadow_phase2b)
+    def test_phase3_gold_evaluator_has_no_production_or_state_mutation_authority(self) -> None:
+        source = inspect.getsource(gold_phase3.run_gold_single_evaluator_phase3)
         self.assertNotIn("orchestrator.produce", source)
         self.assertNotIn("mark_production_accepted", source)
         self.assertNotIn("remove_production_record", source)
         self.assertNotIn("sync_state_snapshot", source)
-        self.assertIn("build_budgeted_thumbnail_package", source)
-        self.assertIn("observe_gold_output", source)
         self.assertIn('"release_authority": "legacy_v4"', source)
+        self.assertIn('"single_gold_evaluator": True', source)
 
-    def test_gold_shadow_runs_once_after_the_single_core_render(self) -> None:
+    def test_single_gold_evaluator_uses_gold_task_namespace_and_observe_only_mode(self) -> None:
+        source = inspect.getsource(gold_phase3.run_gold_single_evaluator_phase3)
+        self.assertEqual(source.count("_run_final_critic("), 1)
+        self.assertIn('release_mode="observe_only"', source)
+        self.assertIn('task_prefix="GOLD_"', source)
+        self.assertIn('task_kind="GOLD_FINAL_CRITIC"', source)
+
+    def test_single_gold_evaluator_runs_once_after_the_single_core_render(self) -> None:
         calls = _calls_in_main()
         self.assertEqual(len(calls.get("orchestrator.produce", [])), 1)
-        self.assertEqual(len(calls.get("run_gold_shadow_phase2b", [])), 1)
+        self.assertEqual(len(calls.get("run_gold_single_evaluator_phase3", [])), 1)
         source = _main_source()
-        self.assertLess(source.index("orchestrator.produce("), source.index("run_gold_shadow_phase2b("))
+        self.assertLess(source.index("orchestrator.produce("), source.index("run_gold_single_evaluator_phase3("))
 
     def test_analytics_agent_binding_comes_only_from_the_verified_manifest(self) -> None:
         source = _main_source()
@@ -166,9 +170,9 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
         source = _main_source()
         self.assertEqual(source.count('secret("PEXELS_API_KEY")'), 1)
         self.assertIn('os.environ["PEXELS_API_KEY"] = pexels', source)
-        shadow = source.index("run_gold_shadow_phase2b(")
-        self.assertIn("pexels=pexels", source[shadow:])
-        self.assertNotIn('secret("PEXELS_API_KEY")', source[shadow:])
+        gold = source.index("run_gold_single_evaluator_phase3(")
+        self.assertIn("pexels=pexels", source[gold:])
+        self.assertNotIn('secret("PEXELS_API_KEY")', source[gold:])
 
     def test_thumbnail_budget_adapter_delegates_without_copying_packaging_logic(self) -> None:
         source = inspect.getsource(thumbnail_budget)

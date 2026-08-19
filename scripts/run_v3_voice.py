@@ -8,11 +8,11 @@ from pathlib import Path
 import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.ai_budget import BudgetLedger
 from isco_video_agent.config import secret
-from isco_video_agent.production_pipeline import _plan_from_json, _run_final_critic
+from isco_video_agent.production_pipeline import _plan_from_json
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.brand_anchor_guard import install_brand_anchor_guard
-from scripts.gold_shadow_phase2b import run_gold_shadow_phase2b
+from scripts.gold_single_evaluator_phase3 import run_gold_single_evaluator_phase3
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
@@ -188,9 +188,8 @@ def main() -> None:
     pexels = secret("PEXELS_API_KEY")
     if not gemini or not pexels:
         raise RuntimeError("Gemini and Pexels secrets are required for V4 production")
-    # Runner is now the one-time owner of both post-render observer secrets. The core
-    # receives in-process env copies, consumes/pops them, and no secret file is read a
-    # second time after rendering.
+    # Runner remains the one-time owner of both post-render Gold inputs. Core consumes
+    # the restored env copies once; Phase 3 reuses only the in-process Python values.
     os.environ["GEMINI_API_KEY"] = gemini
     os.environ["PEXELS_API_KEY"] = pexels
     ledger = BudgetLedger(request["format"])
@@ -221,27 +220,14 @@ def main() -> None:
 
     _tag_plan_source(out)
     plan = _plan_from_json(out / "plan.json")
-    content_model = os.environ.get("GEMINI_CONTENT_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
-    critic = _run_final_critic(
-        output_dir=out,
-        plan=plan,
-        gemini=gemini,
-        content_model=content_model,
-        ledger=ledger,
-        release_mode="observe_only",
-    )
-    if critic.get("status") != "pass":
-        print("Final Critic observe-only BLOCK: publication path unchanged; inspect final-critic.json")
-
-    gold_shadow = run_gold_shadow_phase2b(
+    critic, gold_shadow = run_gold_single_evaluator_phase3(
         output_dir=out,
         gemini=gemini,
         pexels=pexels,
         ledger=ledger,
-        legacy_critic=critic,
-        plan_from_json=_plan_from_json,
-        run_final_critic=_run_final_critic,
     )
+    if critic.get("status") != "pass":
+        print("Gold Final Critic observe-only BLOCK: legacy V4 publication path unchanged")
 
     ledger.write(out / "ai-budget.json")
     production_id = _production_id()
