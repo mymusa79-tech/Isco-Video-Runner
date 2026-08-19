@@ -41,6 +41,7 @@ jobs:
       - name: Install engine and local voice fallback
         run: |
           set -euo pipefail
+          # Trigger commit for this one-shot production validation.
           if ! command -v ffmpeg >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y ffmpeg
