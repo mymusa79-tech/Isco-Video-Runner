@@ -43,11 +43,20 @@ jobs:
       - name: Install locked Engine test runtime
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          sudo apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 \
+            -o Acquire::https::Timeout=20 \
+            update
+          sudo apt-get \
+            -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=20 \
+            -o Acquire::https::Timeout=20 \
+            install -y ffmpeg fonts-noto-core
           cd engine
-          python -m pip install -r requirements-lock.txt
-          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip install --timeout 30 --retries 3 -r requirements-lock.txt
+          python -m pip install --timeout 30 --retries 3 --no-build-isolation --no-deps -e .
           python -m pip check
 
       - name: Run full private Engine suite
