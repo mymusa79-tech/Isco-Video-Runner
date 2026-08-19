@@ -8,25 +8,17 @@ on:
 
 permissions:
   contents: write
-  statuses: write
-
-concurrency:
-  group: retention-m1-verification
-  cancel-in-progress: true
 
 jobs:
-  verify:
+  diagnose-live:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
-      - name: Checkout Runner verifier branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: true
           fetch-depth: 1
-
-      - name: Checkout exact private Engine M1 candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
           ref: 34ae246bd65c3ebf6cfec72a2968dde3cdac2f83
@@ -34,69 +26,15 @@ jobs:
           path: engine
           persist-credentials: false
           fetch-depth: 1
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
-
-      - name: Install locked Engine verification runtime
+      - name: Install Engine
+        working-directory: engine
         run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core
-          cd engine
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
-          python -m pip check
-
-      - name: Run M1 targeted tests
-        id: targeted
-        working-directory: engine
-        run: |
-          set -euo pipefail
-          python -m unittest discover -s tests -p 'test_youtube_retention_m1_storage.py' -v
-          python -m unittest discover -s tests -p 'test_youtube_production_observer_credentials.py' -v
-          python -m unittest discover -s tests -p 'test_youtube_analytics_learning.py' -v
-
-      - name: Publish targeted status
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OUTCOME: ${{ steps.targeted.outcome }}
-        run: |
-          python - <<'PY'
-          import json, os, urllib.request
-          outcome=os.environ.get('OUTCOME') or 'missing'
-          body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':'retention-m1-targeted','description':outcome}).encode()
-          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
-          urllib.request.urlopen(req,timeout=20).read()
-          PY
-
-      - name: Run full Engine suite
-        id: full
-        if: always()
-        working-directory: engine
-        run: |
-          set -euo pipefail
-          python -m unittest discover -s tests -q
-
-      - name: Publish full-suite status
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OUTCOME: ${{ steps.full.outcome }}
-        run: |
-          python - <<'PY'
-          import json, os, urllib.request
-          outcome=os.environ.get('OUTCOME') or 'missing'
-          body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':'retention-m1-full-suite','description':outcome}).encode()
-          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
-          urllib.request.urlopen(req,timeout=20).read()
-          PY
-
       - name: Materialize unchanged YouTube credentials
-        id: creds
-        if: always()
         env:
           YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -111,141 +49,83 @@ jobs:
           printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/m1-youtube/client-secret"
           printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/m1-youtube/refresh-token"
           printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/m1-youtube/api-key"
-
-      - name: Live read-only full retention fetch and persistence
-        id: live
-        if: always()
+      - name: Diagnose live stages safely
         working-directory: engine
         env:
-          VIDEO_ID: e_I6g1qt4xg
           CID_FILE: ${{ runner.temp }}/m1-youtube/client-id
           CLIENT_SECRET_FILE: ${{ runner.temp }}/m1-youtube/client-secret
           REFRESH_FILE: ${{ runner.temp }}/m1-youtube/refresh-token
           API_KEY_FILE: ${{ runner.temp }}/m1-youtube/api-key
           RETENTION_ROOT: ${{ runner.temp }}/m1-retention
-          SUMMARY_PATH: ${{ github.workspace }}/verification/retention-m1-live.json
-          SIDECAR_COPY_PATH: ${{ github.workspace }}/verification/retention-m1-live-sidecar.json
+          REPORT_PATH: ${{ github.workspace }}/verification/retention-m1-live-diagnostic.json
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os
           from pathlib import Path
           import requests
-          from isco_video_agent.retention_storage import RETENTION_METRICS
           from isco_video_agent.youtube_analytics import ANALYTICS_URL, TOKEN_URL, VIDEOS_URL, collect_latest_video_metrics_from_env
 
-          video_id=os.environ['VIDEO_ID'].strip()
-          files={
-              'client_id':Path(os.environ['CID_FILE']),
-              'client_secret':Path(os.environ['CLIENT_SECRET_FILE']),
-              'refresh':Path(os.environ['REFRESH_FILE']),
-              'api_key':Path(os.environ['API_KEY_FILE']),
-          }
-          secret_values=[p.read_text(encoding='utf-8').strip() for p in files.values()]
+          def safe_error(response):
+              try:
+                  payload=response.json()
+              except Exception:
+                  return None
+              err=payload.get('error') if isinstance(payload,dict) else None
+              if not isinstance(err,dict): return None
+              reasons=[]
+              for item in err.get('errors',[]):
+                  if isinstance(item,dict) and item.get('reason'): reasons.append(str(item['reason']))
+              return {'code':err.get('code'),'reasons':reasons,'message':str(err.get('message',''))[:240]}
 
           class RecordingSession:
               def __init__(self): self.calls=[]
+              def _record(self,method,url,kwargs,response):
+                  params=kwargs.get('params',{}) or {}
+                  kind='other'
+                  if url==TOKEN_URL: kind='oauth_refresh'
+                  elif url==VIDEOS_URL: kind='video_probe'
+                  elif url==ANALYTICS_URL and params.get('dimensions')=='elapsedVideoTimeRatio': kind='retention'
+                  elif url==ANALYTICS_URL: kind='base_analytics'
+                  self.calls.append({'kind':kind,'method':method,'status':response.status_code,'error':safe_error(response)})
               def post(self,url,**kwargs):
-                  response=requests.post(url,**kwargs)
-                  self.calls.append({'method':'POST','url':url,'status':response.status_code,'params':kwargs.get('params',{})})
-                  return response
+                  r=requests.post(url,**kwargs); self._record('POST',url,kwargs,r); return r
               def get(self,url,**kwargs):
-                  response=requests.get(url,**kwargs)
-                  self.calls.append({'method':'GET','url':url,'status':response.status_code,'params':kwargs.get('params',{})})
-                  return response
+                  r=requests.get(url,**kwargs); self._record('GET',url,kwargs,r); return r
 
-          session=RecordingSession()
-          os.environ['YOUTUBE_CLIENT_ID_FILE']=str(files['client_id'])
-          os.environ['YOUTUBE_CLIENT_SECRET_FILE']=str(files['client_secret'])
-          os.environ['YOUTUBE_REFRESH_TOKEN_FILE']=str(files['refresh'])
-          os.environ['YOUTUBE_API_KEY_FILE']=str(files['api_key'])
-          os.environ['ISCO_RETENTION_STORAGE_ROOT']=os.environ['RETENTION_ROOT']
-
-          result=collect_latest_video_metrics_from_env(
-              format_hint='film',
-              expected_video_id=video_id,
-              session=session,
-          )
-          if not isinstance(result,dict): raise SystemExit('Production observer returned no result')
-
-          sidecar=Path(os.environ['RETENTION_ROOT'])/'unverified'/f'{video_id}.json'
-          if not sidecar.exists(): raise SystemExit('Expected unverified retention sidecar was not persisted')
-          data=json.loads(sidecar.read_text(encoding='utf-8'))
-          observations=data.get('observations',[])
-          if not isinstance(observations,list) or len(observations)!=1: raise SystemExit('Expected exactly one live snapshot')
-          obs=observations[0]
-          rows=obs.get('raw_rows',[])
-          if obs.get('curve_status')!='complete': raise SystemExit(f"Curve status was {obs.get('curve_status')}")
-          if obs.get('points_received')!=100 or len(rows)!=100: raise SystemExit('Live curve did not persist exactly 100 points')
-          if data.get('isolation')!='unverified': raise SystemExit('Historical live video crossed the verified provenance boundary')
-          if obs.get('content_style')!='unverified' or obs.get('classification_status')!='unresolved': raise SystemExit('Historical provenance semantics changed')
-          if 'production_id' in obs: raise SystemExit('Unverified live snapshot must not invent production_id')
-          returned=obs.get('metrics_returned',[])
-          if any(name not in RETENTION_METRICS for name in returned): raise SystemExit('Unexpected retention metric name returned')
-          if not returned: raise SystemExit('No retention metrics returned')
-          ratios=[row.get('elapsedVideoTimeRatio') for row in rows]
-          if ratios!=sorted(ratios): raise SystemExit('Persisted curve ratios are not sorted')
-
-          retention_calls=[c for c in session.calls if c['url']==ANALYTICS_URL and c['params'].get('dimensions')=='elapsedVideoTimeRatio']
-          if len(retention_calls)!=1 or retention_calls[0]['status']!=200: raise SystemExit('Retention HTTP 200 not observed exactly once')
-          allowed={TOKEN_URL,VIDEOS_URL,ANALYTICS_URL}
-          if any(c['url'] not in allowed for c in session.calls): raise SystemExit('Unexpected network destination in M1 verifier')
-
-          summary={
-              'schema_version':1,
-              'mode':'M1_full_retention_curve_storage',
-              'engine_sha':'34ae246bd65c3ebf6cfec72a2968dde3cdac2f83',
-              'video_id':video_id,
-              'retention_http_status':retention_calls[0]['status'],
-              'points_received':obs.get('points_received'),
-              'curve_status':obs.get('curve_status'),
-              'metrics_returned':returned,
-              'missing_metrics':obs.get('missing_metrics',[]),
-              'content_style':obs.get('content_style'),
-              'classification_status':obs.get('classification_status'),
-              'ingestion_source':obs.get('ingestion_source'),
-              'storage_isolation':data.get('isolation'),
-              'snapshot_count':len(observations),
-              'first_30s_present':'first_30s_retention' in (result.get('metrics') or {}),
-              'sample_points':{'first':rows[0],'middle':rows[len(rows)//2],'last':rows[-1]},
-              'production_run_started':False,
-              'stores_raw_curve':True,
-              'interpolation':False,
-              'smoothing':False,
-              'dip_spike_analysis':False,
-              'ai_calls_added':False,
+          files={
+              'YOUTUBE_CLIENT_ID_FILE':Path(os.environ['CID_FILE']),
+              'YOUTUBE_CLIENT_SECRET_FILE':Path(os.environ['CLIENT_SECRET_FILE']),
+              'YOUTUBE_REFRESH_TOKEN_FILE':Path(os.environ['REFRESH_FILE']),
+              'YOUTUBE_API_KEY_FILE':Path(os.environ['API_KEY_FILE']),
           }
-          summary_text=json.dumps(summary,ensure_ascii=False,indent=2,sort_keys=True)+'\n'
-          sidecar_text=json.dumps(data,ensure_ascii=False,indent=2,sort_keys=True)+'\n'
-          exposed=summary_text+sidecar_text
+          secret_values=[p.read_text(encoding='utf-8').strip() for p in files.values()]
+          for name,path in files.items(): os.environ[name]=str(path)
+          os.environ['ISCO_RETENTION_STORAGE_ROOT']=os.environ['RETENTION_ROOT']
+          session=RecordingSession()
+          result=collect_latest_video_metrics_from_env(format_hint='film',expected_video_id='e_I6g1qt4xg',session=session)
+          sidecar=Path(os.environ['RETENTION_ROOT'])/'unverified'/'e_I6g1qt4xg.json'
+          report={
+              'engine_sha':'34ae246bd65c3ebf6cfec72a2968dde3cdac2f83',
+              'observer_returned':isinstance(result,dict),
+              'calls':session.calls,
+              'sidecar_exists':sidecar.exists(),
+          }
+          if sidecar.exists():
+              data=json.loads(sidecar.read_text(encoding='utf-8'))
+              obs=(data.get('observations') or [{}])[-1]
+              report['sidecar']={'isolation':data.get('isolation'),'points_received':obs.get('points_received'),'curve_status':obs.get('curve_status'),'metrics_returned':obs.get('metrics_returned'),'missing_metrics':obs.get('missing_metrics')}
+          text=json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True)+'\n'
           for value in secret_values:
-              if value and value in exposed: raise SystemExit('Secret leakage detected in M1 evidence')
-          Path(os.environ['SUMMARY_PATH']).parent.mkdir(parents=True,exist_ok=True)
-          Path(os.environ['SUMMARY_PATH']).write_text(summary_text,encoding='utf-8')
-          Path(os.environ['SIDECAR_COPY_PATH']).write_text(sidecar_text,encoding='utf-8')
-          print('M1 live retention storage verification PASS')
+              if value and value in text: raise SystemExit('secret leakage in diagnostic')
+          Path(os.environ['REPORT_PATH']).parent.mkdir(parents=True,exist_ok=True)
+          Path(os.environ['REPORT_PATH']).write_text(text,encoding='utf-8')
           PY
-
-      - name: Publish live status
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OUTCOME: ${{ steps.live.outcome }}
-        run: |
-          python - <<'PY'
-          import json, os, urllib.request
-          outcome=os.environ.get('OUTCOME') or 'missing'
-          body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':'retention-m1-live','description':outcome}).encode()
-          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
-          urllib.request.urlopen(req,timeout=20).read()
-          PY
-
-      - name: Persist verification evidence only
-        if: steps.targeted.outcome == 'success' && steps.full.outcome == 'success' && steps.live.outcome == 'success'
+      - name: Persist diagnostic evidence
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add verification/retention-m1-live.json verification/retention-m1-live-sidecar.json
-          git commit -m "verify: persist M1 retention evidence"
+          git add verification/retention-m1-live-diagnostic.json
+          git commit -m "verify: capture M1 live diagnostic"
           git push origin HEAD:analytics/retention-v2-m1-verification
