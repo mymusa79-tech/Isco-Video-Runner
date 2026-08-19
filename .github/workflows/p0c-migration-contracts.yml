@@ -11,6 +11,7 @@ on:
       - "scripts/test_thumbnail_pixabay_bridge_p0d.py"
       - "scripts/test_packaging_artifact_delivery_p0e.py"
       - ".github/workflows/produce-resilient-v4.yml"
+      - ".github/workflows/verify-voice-identity-observer-v1.yml"
       - ".github/workflows/p0c-migration-contracts.yml"
   workflow_dispatch:
 
@@ -152,6 +153,7 @@ jobs:
           expected="$(printf '%s\n' \
             .github/workflows/p0c-migration-contracts.yml \
             .github/workflows/produce-resilient-v4.yml \
+            .github/workflows/verify-voice-identity-observer-v1.yml \
             scripts/gold_enforce_phase4.py \
             scripts/gold_thumbnail_budget.py \
             scripts/packaging_delivery_contract.py \
