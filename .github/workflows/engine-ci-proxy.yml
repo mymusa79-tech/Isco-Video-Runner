@@ -48,7 +48,7 @@ jobs:
           printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/m1-youtube/client-secret"
           printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/m1-youtube/refresh-token"
           printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/m1-youtube/api-key"
-      - name: Capture curve and storage failure safely
+      - name: Capture normalized curve metadata
         working-directory: engine
         env:
           CID_FILE: ${{ runner.temp }}/m1-youtube/client-id
@@ -91,37 +91,20 @@ jobs:
           os.environ['ISCO_RETENTION_STORAGE_ROOT']=os.environ['RETENTION_ROOT']
 
           capture={}
-          real_persist=ya.persist_retention_observation
-          def wrapped_persist(**kwargs):
-              curve=kwargs.get('curve') or {}
-              capture['curve']={
-                  'status':curve.get('status'),
-                  'points_received':curve.get('points_received'),
-                  'response_rows_received':curve.get('response_rows_received'),
-                  'invalid_rows_dropped':curve.get('invalid_rows_dropped'),
-                  'metrics_returned':curve.get('metrics_returned'),
-                  'missing_metrics':curve.get('missing_metrics'),
-                  'first_point':(curve.get('points') or [None])[0],
-              }
-              try:
-                  result=real_persist(**kwargs)
-                  capture['persist_result']=result
-                  return result
-              except Exception as exc:
-                  capture['storage_error']={'type':type(exc).__name__,'message':str(exc)[:300]}
-                  raise
-          ya.persist_retention_observation=wrapped_persist
+          real_curve=ya._retention_curve
+          def wrapped_curve(*args,**kwargs):
+              curve=real_curve(*args,**kwargs)
+              if isinstance(curve,dict):
+                  capture['curve']={k:curve.get(k) for k in ('status','points_received','response_rows_received','invalid_rows_dropped','metrics_returned','missing_metrics','null_value_counts')}
+                  capture['first_point']=(curve.get('points') or [None])[0]
+              else:
+                  capture['curve']=None
+              return curve
+          ya._retention_curve=wrapped_curve
 
           session=RecordingSession()
           result=ya.collect_latest_video_metrics_from_env(format_hint='film',expected_video_id='e_I6g1qt4xg',session=session)
-          sidecar=Path(os.environ['RETENTION_ROOT'])/'unverified'/'e_I6g1qt4xg.json'
-          report={
-              'engine_sha':'34ae246bd65c3ebf6cfec72a2968dde3cdac2f83',
-              'observer_returned':isinstance(result,dict),
-              'calls':session.calls,
-              'sidecar_exists':sidecar.exists(),
-              **capture,
-          }
+          report={'engine_sha':'34ae246bd65c3ebf6cfec72a2968dde3cdac2f83','observer_returned':isinstance(result,dict),'calls':session.calls,**capture}
           text=json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True)+'\n'
           for value in secret_values:
               if value and value in text: raise SystemExit('secret leakage in diagnostic')
@@ -134,5 +117,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add verification/retention-m1-live-diagnostic.json
-          git commit -m "verify: isolate M1 storage failure"
+          git commit -m "verify: capture M1 normalized curve metadata"
           git push origin HEAD:analytics/retention-v2-m1-verification
