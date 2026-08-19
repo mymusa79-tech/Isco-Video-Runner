@@ -17,9 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout runner
+      - name: Checkout runner guard branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: fix/run54-opening-query-guard
           persist-credentials: false
           fetch-depth: 1
 
@@ -27,7 +28,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 7a4258b0d5ee49f299fe5a989c62e55cd3cdb780
+          ref: 4badc9ae3215986fb2b4becdba7f147a6cf726f0
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -53,17 +54,26 @@ jobs:
           cd engine
           python -m unittest discover -s tests -v
 
+      - name: Run Run54 opening-query guard regression
+        run: |
+          set -euo pipefail
+          PYTHONPATH="engine/src:." python -m unittest scripts.test_planner_quality_guard -v
+
       - name: Verify identity, visual scoring, and hook contracts
         run: |
           set -euo pipefail
-          python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py
+          python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py scripts/planner_quality_guard.py
           PYTHONPATH="engine/src:scripts" python - <<'PY'
           from pathlib import Path
           import task_level_planner_router as router
           import voice_mesh
+          from planner_quality_guard import _safe_opening_visual_query
           from isco_video_agent.providers.gemini import _speech_config, _voice_identity
           from isco_video_agent.orchestrator import _visual_fit_score
 
+          assert _safe_opening_visual_query(
+              "person sitting by wooden table in sunlit room looking pensively at empty notebook"
+          ) == "table room notebook"
           assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Orus"
           assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Charon"
           assert _voice_identity("RandomVoice") == ("Charon", "Orus")
@@ -82,7 +92,7 @@ jobs:
           assert "clear tease of the concrete insight/result" in planner
           assert "No scene-setting, greeting, biography, abstract reflection, throat-clearing" in planner
           assert "s1's first spoken sentence must still be one strong direct question" in planner
-          print("Identity, smart visual scoring, and s1 hook contracts PASS")
+          print("Run54 guard, identity, smart visual scoring, and s1 hook contracts PASS")
           PY
 
       - name: Verify no paid API use
