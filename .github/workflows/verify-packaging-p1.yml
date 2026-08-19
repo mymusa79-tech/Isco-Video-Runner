@@ -124,10 +124,20 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
+          import re
           from pathlib import Path
+
           text = Path('.github/workflows/verify-packaging-p1.yml').read_text(encoding='utf-8')
-          forbidden = ['GEMINI_API_KEY', 'PEXELS_API_KEY', 'PIXABAY_API_KEY', 'YOUTUBE_CLIENT_SECRET', 'run_v3_voice.py', 'produce-resilient-v4.yml']
-          for item in forbidden:
+          secret_refs = set(re.findall(r"\$\{\{\s*secrets\.([A-Z0-9_]+)\s*\}\}", text))
+          unexpected_secrets = secret_refs - {"PRIVATE_SOURCE_TOKEN"}
+          assert not unexpected_secrets, sorted(unexpected_secrets)
+
+          production_entrypoints = [
+              "run_" + "v3_voice.py",
+              "produce-" + "resilient-v4.yml",
+          ]
+          for item in production_entrypoints:
               assert item not in text, item
-          print('Verifier safety PASS: no provider credentials and no production entrypoint/dispatch')
+
+          print('Verifier safety PASS: only checkout credential is referenced and no production entrypoint/dispatch exists')
           PY
