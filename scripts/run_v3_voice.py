@@ -12,7 +12,7 @@ from isco_video_agent.production_pipeline import _plan_from_json, _run_final_cri
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.brand_anchor_guard import install_brand_anchor_guard
-from scripts.gold_shadow_phase2a import run_gold_shadow_phase2a
+from scripts.gold_shadow_phase2b import run_gold_shadow_phase2b
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
@@ -185,11 +185,14 @@ def main() -> None:
 
     request = json.loads(Path(os.environ["REQUEST_FILE"]).read_text(encoding="utf-8"))
     gemini = secret("GEMINI_API_KEY")
-    if not gemini:
-        raise RuntimeError("Gemini secret is required for V4 production")
-    # Keep one in-process copy for both post-render observers while preserving the
-    # core's one-time secret consumption contract.
+    pexels = secret("PEXELS_API_KEY")
+    if not gemini or not pexels:
+        raise RuntimeError("Gemini and Pexels secrets are required for V4 production")
+    # Runner is now the one-time owner of both post-render observer secrets. The core
+    # receives in-process env copies, consumes/pops them, and no secret file is read a
+    # second time after rendering.
     os.environ["GEMINI_API_KEY"] = gemini
+    os.environ["PEXELS_API_KEY"] = pexels
     ledger = BudgetLedger(request["format"])
 
     previous_defer = os.environ.get("ISCO_DEFER_YOUTUBE_ANALYTICS")
@@ -230,9 +233,10 @@ def main() -> None:
     if critic.get("status") != "pass":
         print("Final Critic observe-only BLOCK: publication path unchanged; inspect final-critic.json")
 
-    gold_shadow = run_gold_shadow_phase2a(
+    gold_shadow = run_gold_shadow_phase2b(
         output_dir=out,
         gemini=gemini,
+        pexels=pexels,
         ledger=ledger,
         legacy_critic=critic,
         plan_from_json=_plan_from_json,
