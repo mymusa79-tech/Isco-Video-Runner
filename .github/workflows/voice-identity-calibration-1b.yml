@@ -1,0 +1,171 @@
+name: Voice Identity Calibration 1B
+
+on:
+  pull_request:
+    branches: ["agent/voice-identity-observer-v1"]
+    paths:
+      - "scripts/calibrate_voice_identity_1b.py"
+      - ".github/workflows/voice-identity-calibration-1b.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout calibration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout locked private Engine observer runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: beb1a38ce4ef7246a0a9d3e4d13c866d8d5843af
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked observer runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Verify Observer contracts remain observe-only
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine/src
+        run: python -m unittest scripts.test_voice_identity_observer -v
+
+      - name: Download exact human-labelled calibration sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p calibration/approved calibration/run20 calibration/run22 calibration/run23 calibration/run50 calibration/audio
+
+          gh api -H 'Accept: application/vnd.github+json' \
+            '/repos/mymusa79-tech/Isco-Video-Runner/actions/artifacts/9355112613/zip' > calibration/approved.zip
+          unzip -q calibration/approved.zip -d calibration/approved
+          printf '%s  %s\n' \
+            '129130c0c453dcf13f9ad5f861052d8346a0dafdb4f0126e437d566530363a87' 'calibration/approved/01-Charon.wav' \
+            '5bfa06f7f22e22a3b9f0344d0b2ddbb7dff3ac28131616f4477f52a72cec23ea' 'calibration/approved/02-Orus.wav' \
+            | sha256sum -c -
+
+          for spec in \
+            'run20:9243720881' \
+            'run22:9244503686' \
+            'run23:9247555386' \
+            'run50:9348400037'; do
+            name="${spec%%:*}"
+            artifact="${spec##*:}"
+            gh api -H 'Accept: application/vnd.github+json' \
+              "/repos/mymusa79-tech/Isco-Video-Runner/actions/artifacts/${artifact}/zip" \
+              > "calibration/${name}.zip"
+            unzip -q "calibration/${name}.zip" -d "calibration/${name}"
+            video="$(find "calibration/${name}" -type f -name final.mp4 -print -quit)"
+            test -n "$video"
+            ffmpeg -hide_banner -loglevel error -y -i "$video" -vn -ac 1 -ar 16000 -c:a pcm_s16le \
+              "calibration/audio/${name}.wav"
+            rm -f "calibration/${name}.zip"
+          done
+
+      - name: Build immutable calibration manifest
+        run: |
+          cat > calibration/manifest.json <<'JSON'
+          {
+            "samples": [
+              {
+                "label": "approved_charon_reference",
+                "class": "positive_confirmed",
+                "human_label": "approved_primary_charon",
+                "run_id": 32224276241,
+                "artifact_id": 9355112613,
+                "path": "calibration/approved/01-Charon.wav",
+                "window_count": 5
+              },
+              {
+                "label": "approved_orus_secondary_control",
+                "class": "secondary_control",
+                "human_label": "approved_questioner_orus_not_primary",
+                "run_id": 32224276241,
+                "artifact_id": 9355112613,
+                "path": "calibration/approved/02-Orus.wav",
+                "window_count": 5
+              },
+              {
+                "label": "run20_rejected_female",
+                "class": "negative_human_rejected",
+                "human_label": "human_rejected_female_voice",
+                "run_id": 31870521024,
+                "artifact_id": 9243720881,
+                "path": "calibration/audio/run20.wav",
+                "window_count": 9
+              },
+              {
+                "label": "run22_rejected_female",
+                "class": "negative_human_rejected",
+                "human_label": "human_rejected_female_voice",
+                "run_id": 31873909586,
+                "artifact_id": 9244503686,
+                "path": "calibration/audio/run22.wav",
+                "window_count": 9
+              },
+              {
+                "label": "run23_rejected_female",
+                "class": "negative_human_rejected",
+                "human_label": "human_rejected_female_voice",
+                "run_id": 31886255171,
+                "artifact_id": 9247555386,
+                "path": "calibration/audio/run23.wav",
+                "window_count": 9
+              },
+              {
+                "label": "run50_rejected_female",
+                "class": "negative_human_rejected",
+                "human_label": "human_rejected_female_voice",
+                "run_id": 32201867773,
+                "artifact_id": 9348400037,
+                "path": "calibration/audio/run50.wav",
+                "window_count": 9
+              }
+            ]
+          }
+          JSON
+
+      - name: Measure Phase 1B raw distributions
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine/src
+        run: |
+          set -euo pipefail
+          python scripts/calibrate_voice_identity_1b.py \
+            calibration/manifest.json \
+            calibration/voice-calibration-1b.json
+
+      - name: Assert calibration has zero enforcement
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('calibration/voice-calibration-1b.json').read_text(encoding='utf-8'))
+          assert data['mode'] == 'observe_only'
+          assert data['calibration_only'] is True
+          assert data['enforcement'] == 'disabled'
+          assert data['thresholds'] is None
+          assert len(data['samples']) == 6
+          assert data['class_distributions']['negative_human_rejected']['count'] == 36
+          print('Calibration safety contract OK: raw evidence only, zero enforcement, thresholds=None')
+          PY
