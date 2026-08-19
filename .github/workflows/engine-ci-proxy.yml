@@ -10,8 +10,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   statuses: write
+
+concurrency:
+  group: analytics-retention-m0-health
+  cancel-in-progress: true
 
 jobs:
   test-engine:
@@ -43,7 +47,7 @@ jobs:
       - name: Checkout runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 1
 
       - name: Checkout private engine
@@ -265,3 +269,46 @@ jobs:
                   if response.status not in {200, 201}:
                       raise RuntimeError(f"status publish failed: HTTP {response.status}")
           PY
+
+      - name: Persist sanitized M0 verification result to diagnostic branch
+        if: always()
+        env:
+          TARGETED_OUTCOME: ${{ steps.targeted.outcome }}
+          FULL_OUTCOME: ${{ steps.full.outcome }}
+          OAUTH_AVAILABLE: ${{ steps.oauth.outputs.available }}
+          HEALTH_OUTCOME: ${{ steps.health.outcome }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          health_path = Path(os.environ["RUNNER_TEMP"]) / "youtube-analytics-health.json"
+          try:
+              health = json.loads(health_path.read_text(encoding="utf-8"))
+          except Exception:
+              health = {"status": "health_report_missing"}
+          result = {
+              "schema_version": 1,
+              "engine_sha": "3159440919776267065e0b232e49a1bbb0cbf1bb",
+              "runner_trigger_sha": os.environ.get("GITHUB_SHA"),
+              "targeted_tests": os.environ.get("TARGETED_OUTCOME") or "not_run",
+              "full_suite": os.environ.get("FULL_OUTCOME") or "not_run",
+              "oauth_credentials_available": os.environ.get("OAUTH_AVAILABLE") == "true",
+              "health_step": os.environ.get("HEALTH_OUTCOME") or "not_run",
+              "health": health,
+              "production_video_started": False,
+          }
+          out = Path("verification/analytics-retention-m0.json")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add verification/analytics-retention-m0.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "ci: record analytics M0 verification result"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
