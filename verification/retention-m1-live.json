@@ -1,0 +1,48 @@
+{
+  "ai_calls_added": false,
+  "classification_status": "unresolved",
+  "content_style": "unverified",
+  "curve_status": "complete",
+  "dip_spike_analysis": false,
+  "engine_sha": "1330d04d1b95969e2f8c2f7b6cafffc59187039f",
+  "first_30s_present": true,
+  "ingestion_source": "production_observer",
+  "interpolation": false,
+  "metrics_returned": [
+    "audienceWatchRatio",
+    "relativeRetentionPerformance"
+  ],
+  "missing_metrics": [
+    "startedWatching",
+    "stoppedWatching",
+    "totalSegmentImpressions"
+  ],
+  "mode": "M1_full_retention_curve_storage",
+  "points_received": 100,
+  "production_run_started": false,
+  "retention_http_status": 200,
+  "retention_request_count": 2,
+  "sample_points": {
+    "first": {
+      "audienceWatchRatio": 0.9767,
+      "elapsedVideoTimeRatio": 0.01,
+      "relativeRetentionPerformance": 0.20695000000000002
+    },
+    "last": {
+      "audienceWatchRatio": 0.0698,
+      "elapsedVideoTimeRatio": 1.0,
+      "relativeRetentionPerformance": 0.5083
+    },
+    "middle": {
+      "audienceWatchRatio": 0.09300000000000001,
+      "elapsedVideoTimeRatio": 0.51,
+      "relativeRetentionPerformance": 0.5034
+    }
+  },
+  "schema_version": 1,
+  "smoothing": false,
+  "snapshot_count": 1,
+  "storage_isolation": "unverified",
+  "stores_raw_curve": true,
+  "video_id": "e_I6g1qt4xg"
+}
