@@ -1,40 +1,33 @@
-# M0 final verification only
 name: Engine CI Proxy
 
 on:
   push:
-    branches: ["analytics/retention-v2-m0-health"]
-    paths: [".github/workflows/engine-ci-proxy.yml"]
+    branches: ["main"]
+    paths:
+      - ".github/workflows/engine-ci-proxy.yml"
+      - "scripts/task_level_planner_router.py"
+      - "scripts/voice_mesh.py"
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  statuses: write
+  contents: read
 
 jobs:
-  verify-m0:
+  test-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
-      - name: Mark verification started
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python - <<'PY'
-          import json,os,urllib.request
-          body=json.dumps({'state':'pending','context':'analytics-m0-final-verify-start','description':'final M0 code verification started'}).encode()
-          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
-          urllib.request.urlopen(req,timeout=20).read()
-          PY
-
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: true
+          persist-credentials: false
           fetch-depth: 1
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Checkout private engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: df8cadcd531a9bfa28767e94fc6d61e479ad0d4a
+          ref: a2fb670a9da88ca22b2014c83c78c6ab5a10f850
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -44,7 +37,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install locked Engine verification runtime
+      - name: Install test dependencies
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -54,45 +47,50 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Run all M0 targeted tests
-        id: targeted
-        working-directory: engine
+      - name: Run engine tests
         run: |
           set -euo pipefail
-          python -m unittest discover -s tests -p 'test_youtube_analytics_health.py' -v
-          python -m unittest discover -s tests -p 'test_youtube_analytics_bound_health.py' -v
-          python -m unittest discover -s tests -p 'test_youtube_analytics_direct_health.py' -v
+          cd engine
+          python -m unittest discover -s tests -v
 
-      - name: Run full Engine suite
-        id: full
-        if: always()
-        working-directory: engine
-        run: python -m unittest discover -s tests -q
-
-      - name: Persist and publish verification result
-        if: always()
-        env:
-          TARGETED: ${{ steps.targeted.outcome }}
-          FULL: ${{ steps.full.outcome }}
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify identity, visual scoring, and hook contracts
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import json,os,urllib.request
+          python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py
+          PYTHONPATH="engine/src:scripts" python - <<'PY'
           from pathlib import Path
-          p=Path('verification/analytics-retention-m0-bound.json')
-          data=json.loads(p.read_text(encoding='utf-8')) if p.exists() else {'schema_version':2}
-          targeted=os.environ.get('TARGETED') or 'not_run';full=os.environ.get('FULL') or 'not_run'
-          data['targeted_tests']=targeted;data['full_suite']=full;data['verified_engine_sha']='df8cadcd531a9bfa28767e94fc6d61e479ad0d4a'
-          p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
-          repo=os.environ['GITHUB_REPOSITORY'];sha=os.environ['GITHUB_SHA'];tok=os.environ['GH_TOKEN']
-          for context,outcome in [('analytics-m0-final-targeted',targeted),('analytics-m0-final-full-suite',full)]:
-              body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':context,'description':outcome[:140]}).encode()
-              req=urllib.request.Request(f'https://api.github.com/repos/{repo}/statuses/{sha}',data=body,method='POST',headers={'Authorization':f'Bearer {tok}','Accept':'application/vnd.github+json','Content-Type':'application/json'})
-              urllib.request.urlopen(req,timeout=20).read()
+          import task_level_planner_router as router
+          import voice_mesh
+          from isco_video_agent.providers.gemini import _speech_config, _voice_identity
+          from isco_video_agent.orchestrator import _visual_fit_score
+
+          assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Iapetus"
+          assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Gacrux"
+          assert _voice_identity("RandomVoice") == ("Gacrux", "Iapetus")
+          assert _speech_config("A: لماذا؟\nB: لأن الفكرة أعمق.", "RandomVoice") == [
+              {"speaker": "A", "voice": "Iapetus"},
+              {"speaker": "B", "voice": "Gacrux"},
+          ]
+          assert _visual_fit_score({"relevance": 0.87}) == 8.7
+          assert _visual_fit_score({"relevance": 2}) == 10.0
+          assert _visual_fit_score({"relevance": 0}) == 1.0
+
+          planner = Path("engine/src/isco_video_agent/planner.py").read_text(encoding="utf-8")
+          assert "section s1 has a hard retention contract" in planner
+          assert "a direct question" in planner
+          assert "a bold but" in planner
+          assert "clear tease of the concrete insight/result" in planner
+          assert "No scene-setting, greeting, biography, abstract reflection, throat-clearing" in planner
+          assert "s1's first spoken sentence must still be one strong direct question" in planner
+          print("Identity, smart visual scoring, and s1 hook contracts PASS")
           PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add verification/analytics-retention-m0-bound.json
-          git commit -m "ci: record final M0 verification" || true
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Verify no paid API use
+        run: |
+          set -euo pipefail
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+          test -z "${PEXELS_API_KEY:-}"
+          test -z "${PIXABAY_API_KEY:-}"
+          echo "No provider API credentials exposed to test job"
