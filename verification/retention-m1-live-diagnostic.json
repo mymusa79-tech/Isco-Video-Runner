@@ -21,7 +21,28 @@
       "status": 200
     }
   ],
+  "curve": {
+    "invalid_rows_dropped": 0,
+    "metrics_returned": [
+      "audienceWatchRatio",
+      "relativeRetentionPerformance",
+      "startedWatching",
+      "stoppedWatching",
+      "totalSegmentImpressions"
+    ],
+    "missing_metrics": [],
+    "null_value_counts": {
+      "audienceWatchRatio": 0,
+      "relativeRetentionPerformance": 0,
+      "startedWatching": 0,
+      "stoppedWatching": 0,
+      "totalSegmentImpressions": 0
+    },
+    "points_received": 0,
+    "response_rows_received": 0,
+    "status": "empty"
+  },
   "engine_sha": "34ae246bd65c3ebf6cfec72a2968dde3cdac2f83",
-  "observer_returned": true,
-  "sidecar_exists": false
+  "first_point": null,
+  "observer_returned": true
 }
