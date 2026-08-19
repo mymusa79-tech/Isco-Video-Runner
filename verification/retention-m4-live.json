@@ -1,0 +1,27 @@
+{
+  "ai_calls": 0,
+  "causal_claims": "not_permitted",
+  "cohort_key": [
+    "format",
+    "content_style"
+  ],
+  "engine_sha": "340ec72d27df123c176574956cef8ce30229bb39",
+  "m2_binding_unchanged": true,
+  "m3_signal_unchanged": true,
+  "minimum_cohort_videos": 4,
+  "minimum_replication_ratio": 0.75,
+  "mode": "M4_cohort_replication_final",
+  "production_influence": "none",
+  "production_run_started": false,
+  "raw_m1_sha256": "9de956d7e87224292162b12201b5ce17bafcaa29a1947b0764e5b2fcd9010831",
+  "raw_m1_unchanged": true,
+  "real_eligible_videos": 0,
+  "real_excluded": {
+    "unresolved_classification": 1
+  },
+  "real_input_unique_videos": 1,
+  "real_recommendations": 0,
+  "real_video_id": "e_I6g1qt4xg",
+  "schema_version": 1,
+  "synthetic_gate_covered_by_unit_tests": true
+}
