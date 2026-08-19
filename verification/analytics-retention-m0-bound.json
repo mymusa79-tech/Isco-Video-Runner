@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "mode": "M0_bound_video_diagnosis",
+  "engine_sha": "f0d9574fa5e89105db821e949c354dca011bda0a",
+  "runner_trigger_sha": "1d459bf3a1b666df17188888b0090126c7bfe125",
+  "history_restore": "success",
+  "binding_evidence": {
+    "source": "encrypted_agent_state_history",
+    "bucket": "metrics",
+    "classification_status": "resolved",
+    "content_style": "static_image",
+    "ingestion_source": "youtube_backfill_v1",
+    "production_id_present": false,
+    "binding_source": null,
+    "created_at": "2026-08-17T20:02:02.858410+00:00",
+    "video_id": "e_I6g1qt4xg"
+  },
+  "health_step": "failure",
+  "health": {
+    "schema_version": 1,
+    "mode": "read_only_bound_video_health",
+    "observed_at": "2026-08-19T17:05:47.487642+00:00",
+    "status": "failed",
+    "video_id": "e_I6g1qt4xg",
+    "auth": {
+      "status": "ok",
+      "error_class": null,
+      "http_status": 200,
+      "api_reason": null
+    },
+    "scope_diagnostic": {
+      "status": "ok",
+      "scopes": [
+        "https://www.googleapis.com/auth/yt-analytics.readonly"
+      ],
+      "error_class": null,
+      "http_status": 200,
+      "api_reason": null
+    },
+    "channel_diagnostic": {
+      "status": "failed",
+      "blocking": false,
+      "error_class": "insufficient_scope_or_permission",
+      "http_status": 403,
+      "api_reason": "insufficientPermissions"
+    },
+    "video_probe": {
+      "status": "failed",
+      "duration_seconds": null,
+      "error_class": "insufficient_scope_or_permission",
+      "http_status": 403,
+      "api_reason": "insufficientPermissions"
+    },
+    "analytics": {
+      "query_status": "not_attempted",
+      "data_status": "not_attempted",
+      "metrics_returned": []
+    },
+    "retention": {
+      "query_status": "not_attempted",
+      "curve_status": "not_attempted",
+      "points_received": 0,
+      "metrics_returned": []
+    },
+    "production_influence": "none",
+    "stores_retention_curve": false
+  },
+  "targeted_tests": "pending",
+  "full_suite": "pending",
+  "secrets_changed": false,
+  "production_video_started": false,
+  "production_influence": "none"
+}
