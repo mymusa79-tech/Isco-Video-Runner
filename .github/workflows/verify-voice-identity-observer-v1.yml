@@ -9,6 +9,9 @@ on:
       - "scripts/voice_mesh.py"
       - "scripts/test_voice_mesh.py"
       - "scripts/run_v3_voice.py"
+      - "scripts/test_run_v3_voice.py"
+      - "scripts/gold_shadow_phase2a.py"
+      - "scripts/test_gold_shadow_phase2a.py"
       - "voice-profiles/voice-reference-profile-v1.json"
       - ".github/workflows/verify-voice-identity-observer-v1.yml"
   workflow_dispatch:
@@ -27,11 +30,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout private Engine observer branch
+      - name: Checkout merged private Engine Gold plus Voice runtime
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: beb1a38ce4ef7246a0a9d3e4d13c866d8d5843af
+          ref: 044791cc79c8fb620075269329503c0059d7556b
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -54,12 +57,41 @@ jobs:
         working-directory: engine
         run: python -m unittest discover -s tests -q
 
-      - name: Run Runner Voice Mesh and Observer contracts
+      - name: Run combined Runner Voice and Gold contracts
         env:
           PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine/src
         run: |
           set -euo pipefail
-          python -m unittest scripts.test_voice_mesh scripts.test_voice_identity_observer -v
+          python -m unittest \
+            scripts.test_voice_mesh \
+            scripts.test_voice_identity_observer \
+            scripts.test_gold_shadow_phase2a \
+            scripts.test_run_v3_voice -v
+
+      - name: Assert Gold and Voice namespaces are disjoint
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine/src
+        run: |
+          python - <<'PY'
+          from isco_video_agent.ai_budget import Capability
+          from isco_video_agent.production_pipeline import _final_critic_spec
+          from scripts.voice_identity_observer import AUDIT_FILENAME
+
+          legacy = {
+              _final_critic_spec('FINAL_CRITIC_OPENING_VISUAL', Capability.VISION).task_id,
+              _final_critic_spec('FINAL_CRITIC_RELEASE_REVIEW', Capability.TEXT).task_id,
+          }
+          gold = {
+              _final_critic_spec('FINAL_CRITIC_OPENING_VISUAL', Capability.VISION, task_prefix='GOLD_SHADOW_', task_kind='GOLD_SHADOW_FINAL_CRITIC').task_id,
+              _final_critic_spec('FINAL_CRITIC_RELEASE_REVIEW', Capability.TEXT, task_prefix='GOLD_SHADOW_', task_kind='GOLD_SHADOW_FINAL_CRITIC').task_id,
+          }
+          tts = {f'TTS_SECTION_{i:02d}' for i in range(1, 9)}
+          assert legacy.isdisjoint(gold)
+          assert gold.isdisjoint(tts)
+          assert AUDIT_FILENAME == 'voice-identity-audit.json'
+          assert AUDIT_FILENAME != 'gold-shadow-comparison.json'
+          print('Namespace contract OK:', sorted(legacy), sorted(gold), AUDIT_FILENAME)
+          PY
 
       - name: Download exact approved Charon and Orus samples
         env:
