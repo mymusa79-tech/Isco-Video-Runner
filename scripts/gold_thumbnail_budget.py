@@ -106,12 +106,14 @@ def build_budgeted_thumbnail_package(
     output_dir: Path,
     model: str,
     ledger: BudgetLedger,
+    pixabay_key: str | None = None,
 ) -> dict:
     """Call the canonical thumbnail builder while accounting every Gemini attempt."""
     with _budget_thumbnail_provider_calls(ledger=ledger, model=model):
         return thumbnail.build_thumbnail_package(
             gemini_key=gemini_key,
             pexels_key=pexels_key,
+            pixabay_key=pixabay_key,
             plan=plan,
             output_dir=output_dir,
             model=model,
