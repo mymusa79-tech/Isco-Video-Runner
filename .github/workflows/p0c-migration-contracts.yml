@@ -34,21 +34,21 @@ jobs:
           git merge-base --is-ancestor 8f22d73cab614c0a8b19a2efaa37259656917644 HEAD
           echo "Clean Gold Phase 4 v2 ancestry preserved"
 
-      - name: Checkout exact final Unified Engine candidate
+      - name: Checkout exact Unified Engine main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 577c6d9b7f232f9797cdde07d0ef94ef5c9e7c6f
+          ref: cd436e97eac4eafdb6e57bce93ad21b5a534f626
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Verify pinned final Unified Engine HEAD
+      - name: Verify pinned Unified Engine main HEAD
         run: |
           set -euo pipefail
-          test "$(git -C engine rev-parse HEAD)" = "577c6d9b7f232f9797cdde07d0ef94ef5c9e7c6f"
-          echo "Final Unified Engine candidate: $(git -C engine rev-parse HEAD)"
+          test "$(git -C engine rev-parse HEAD)" = "cd436e97eac4eafdb6e57bce93ad21b5a534f626"
+          echo "Unified Engine main: $(git -C engine rev-parse HEAD)"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
