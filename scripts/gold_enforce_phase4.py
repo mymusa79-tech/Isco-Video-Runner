@@ -15,6 +15,7 @@ from isco_video_agent.production_pipeline import (
     _run_final_critic,
     _sync_state_snapshot,
 )
+from isco_video_agent.security import safe_error
 
 from scripts.gold_shadow_phase2a import _fingerprint, _provider_attempt_total
 from scripts.gold_thumbnail_budget import build_budgeted_thumbnail_package
@@ -134,11 +135,9 @@ def run_gold_enforce_phase4(
             "provider_attempts_after_gold": attempts_after,
             "gold_provider_attempt_delta": max(0, attempts_after - attempts_before),
         },
-        "error": (
-            {"type": type(error).__name__, "message": str(error)[:500]}
-            if error is not None
-            else None
-        ),
+        # Never persist raw exception text here: provider/library errors can contain
+        # request URLs, headers, query strings, or credential-bearing file paths.
+        "error": safe_error(error) if error is not None else None,
     }
     try:
         (output_dir / "gold-enforce-report.json").write_text(
