@@ -1,125 +1,144 @@
-name: P0-C Phase 2A Gold Shadow Verification
+name: Verify Packaging V1 On Current Foundation
 
 on:
-  push:
-    branches: ["p0c/phase2a-gold-shadow-critic"]
-    paths:
-      - "scripts/gold_shadow_phase2a.py"
-      - "scripts/run_v3_voice.py"
-      - "scripts/test_gold_shadow_phase2a.py"
-      - "scripts/test_p0c_migration_contracts.py"
-      - "scripts/test_run_v3_voice.py"
-      - ".github/workflows/p0c-migration-contracts.yml"
   pull_request:
     paths:
-      - "scripts/gold_shadow_phase2a.py"
-      - "scripts/run_v3_voice.py"
-      - "scripts/test_gold_shadow_phase2a.py"
-      - "scripts/test_p0c_migration_contracts.py"
-      - "scripts/test_run_v3_voice.py"
       - ".github/workflows/p0c-migration-contracts.yml"
+      - ".github/workflows/verify-packaging-foundation-integration.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  contracts:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
-      - name: Checkout Runner Phase 2A branch
+      - name: Checkout runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Checkout private Engine Phase 2A head
+      - name: Checkout exact Engine integration merge candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: e074fd9bb942c263c9ef595438b3cf22cd55b55b
+          ref: 69bd421053d1f1f3d3d3fe71934272e91220cb3b
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
-          fetch-depth: 1
-
-      - name: Verify pinned Engine head
-        run: |
-          set -euo pipefail
-          test "$(git -C engine rev-parse HEAD)" = "e074fd9bb942c263c9ef595438b3cf22cd55b55b"
-          echo "Engine HEAD: $(git -C engine rev-parse HEAD)"
+          fetch-depth: 0
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
 
-      - name: Install locked Engine test runtime
+      - name: Install locked Engine runtime
         run: |
           set -euo pipefail
-          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          sudo apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=20 \
-            -o Acquire::https::Timeout=20 \
-            update
-          sudo apt-get \
-            -o Acquire::Retries=3 \
-            -o Acquire::http::Timeout=20 \
-            -o Acquire::https::Timeout=20 \
-            install -y ffmpeg fonts-noto-core
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
           cd engine
-          python -m pip install --timeout 30 --retries 3 -r requirements-lock.txt
-          python -m pip install --timeout 30 --retries 3 --no-build-isolation --no-deps -e .
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Run Engine P0-C Migration Contracts
+      - name: Packaging P0 P1 P2 focused suite
+        working-directory: engine
         run: |
           set -euo pipefail
-          cd engine
-          python -m unittest tests.test_p0c_migration_contracts -v
+          python -m unittest \
+            tests.test_thumbnail_cultural_safety \
+            tests.test_thumbnail_packaging_contract \
+            tests.test_thumbnail_batch_review \
+            tests.test_thumbnail_candidate_board \
+            tests.test_thumbnail_pixabay_fallback \
+            tests.test_packaging_identity_integrity_p1 \
+            tests.test_thumbnail_renderer_p1 \
+            tests.test_youtube_packaging_reporting_p1 \
+            tests.test_packaging_early_brief_p2 \
+            tests.test_packaging_experiments_p2 \
+            tests.test_packaging_learning_p2 \
+            tests.test_packaging_benchmark_p2 \
+            -v
 
-      - name: Run full private Engine suite
+      - name: Analytics M0 M0.1 M1 regressions
+        working-directory: engine
         run: |
           set -euo pipefail
-          cd engine
-          python -m unittest discover -s tests -v
+          python -m unittest \
+            tests.test_youtube_analytics_health \
+            tests.test_youtube_analytics_bound_health \
+            tests.test_youtube_analytics_direct_health \
+            tests.test_youtube_production_observer_credentials \
+            tests.test_youtube_retention_m1_storage \
+            tests.test_youtube_retention_m1_fallback \
+            tests.test_youtube_retention_m1_observation_schema \
+            -v
 
-      - name: Run Runner P0-C Migration Contracts
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+      - name: Cinematic M1 M6 regressions
+        working-directory: engine
         run: |
           set -euo pipefail
-          python -m unittest scripts.test_p0c_migration_contracts -v
+          python -m unittest \
+            tests.test_cinematic_m1_loop_safety \
+            tests.test_cinematic_m2_music_bed \
+            tests.test_cinematic_m3_color \
+            tests.test_cinematic_m4_voice_pacing \
+            tests.test_cinematic_m5_outro \
+            tests.test_cinematic_m6_opening \
+            tests.test_cinematic_m6_opening_selection \
+            tests.test_cinematic_m6_final_critic_auxiliary \
+            -v
 
-      - name: Run full Runner regression suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+      - name: Gold and Final Critic Engine regressions
+        working-directory: engine
         run: |
           set -euo pipefail
-          mapfile -t test_modules < <(
-            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
-              | sort \
-              | sed -e 's#/#.#g' -e 's#\.py$##'
-          )
-          printf 'Runner test modules (%s):\n' "${#test_modules[@]}"
-          printf '  %s\n' "${test_modules[@]}"
-          python -m unittest "${test_modules[@]}" -v
+          python -m unittest \
+            tests.test_gold_finalizer \
+            tests.test_gold_shadow_phase2a \
+            tests.test_final_critic_selected_visuals \
+            tests.test_final_critic_provenance_batch \
+            -v
 
-      - name: Compile migration-sensitive adapters
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+      - name: Full Engine regression suite
+        working-directory: engine
         run: |
           set -euo pipefail
-          python -m py_compile \
-            scripts/gold_shadow_phase2a.py \
-            scripts/run_v3_voice.py \
-            scripts/task_level_planner_router.py \
-            scripts/voice_mesh.py \
-            scripts/test_gold_shadow_phase2a.py \
-            scripts/test_p0c_migration_contracts.py
+          python -m unittest discover -s tests -q
 
-      - name: Verify provider credentials are absent
+      - name: Prove combined authority and isolation invariants
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import inspect
+          from pathlib import Path
+          import isco_video_agent.thumbnail as thumbnail
+          import isco_video_agent.packaging_learning as learning
+          import isco_video_agent.packaging_early_brief as early
+          policy = learning.load_packaging_learning_policy()
+          assert policy["mode"] == "recommendation_only"
+          assert policy["automatic_production_influence"] is False
+          assert policy["variant_attribution"] == "manual_studio_only"
+          assert policy["video_metrics_role"] == "context_only"
+          assert policy["early_brief"]["enabled_by_default"] is False
+          sig = inspect.signature(thumbnail.build_thumbnail_package)
+          assert "pixabay_key" in sig.parameters and sig.parameters["pixabay_key"].default is None
+          assert "json_text" in inspect.getsource(early.build_early_packaging_brief)
+          for required in [
+              'src/isco_video_agent/retention_storage.py',
+              'src/isco_video_agent/packaging_learning.py',
+              'src/isco_video_agent/media/opening.py',
+          ]:
+              assert Path(required).is_file(), required
+          print('Combined Foundation + Packaging V1 invariants PASS')
+          PY
+
+      - name: Verify no provider credentials are present
         run: |
           set -euo pipefail
           test -z "${GEMINI_API_KEY:-}"
@@ -127,4 +146,4 @@ jobs:
           test -z "${OPENROUTER_API_KEY:-}"
           test -z "${PEXELS_API_KEY:-}"
           test -z "${PIXABAY_API_KEY:-}"
-          echo "P0-C Phase 2A verifier exposed no provider API credentials"
+          echo 'No provider credentials exposed'
