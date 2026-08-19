@@ -1,0 +1,41 @@
+{
+  "ai_calls": 0,
+  "causal_claims": "not_permitted",
+  "end_behavior": {
+    "classification": "observed_end_stable",
+    "delta_pp": 0.0,
+    "end_retention_percent": 6.98,
+    "end_second": 207.0,
+    "interpretation": "observed_end_window_change_only",
+    "start_ratio": 0.9,
+    "start_retention_percent": 6.98,
+    "start_second": 186.3
+  },
+  "engine_sha": "caf200baa618b1afe2a10cb60ed6823a0b2ad9a5",
+  "evidence_grade": "strong_observational",
+  "first_30_seconds": {
+    "bracket_seconds": [
+      28.98,
+      31.05
+    ],
+    "retention_percent": 26.761884,
+    "second": 30.0,
+    "source": "linear_interpolation_between_adjacent_raw_points"
+  },
+  "isolation": "unverified",
+  "level1_points": 100,
+  "m2_binding_sha256": "3345022c4b381b184bc67c5a58f3b78207ed640c371a0cbd5ebbd7db5d2f27c4",
+  "m2_binding_unchanged": true,
+  "mode": "M3_deterministic_signal_extraction_final",
+  "opening_observations_count": 0,
+  "production_influence": "none",
+  "production_run_started": false,
+  "ranked_steps_count": 3,
+  "raw_m1_sha256": "9de956d7e87224292162b12201b5ce17bafcaa29a1947b0764e5b2fcd9010831",
+  "raw_m1_unchanged": true,
+  "schema_version": 1,
+  "section_boundary_deltas_count": 0,
+  "source_curve_points": 100,
+  "stable_windows_count": 5,
+  "video_id": "e_I6g1qt4xg"
+}
