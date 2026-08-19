@@ -1,6 +1,7 @@
 name: Analytics Retention M0 Health
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - analytics/retention-v2-m0-health
