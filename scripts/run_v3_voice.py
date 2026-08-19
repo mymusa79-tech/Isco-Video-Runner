@@ -17,6 +17,7 @@ from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
 from scripts.task_level_planner_router import get_used_providers, install_router, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
+from scripts.voice_identity_observer import install_voice_identity_observer
 from scripts.voice_mesh import install_voice_mesh
 
 # Production-proof trigger only: no runtime behavior change.
@@ -76,6 +77,23 @@ def _attach_failure_tone_diagnostics(out_dir: Path) -> None:
         print("Tone failure diagnostics attached to quality-precheck.json")
     except Exception as exc:
         print(f"Tone failure diagnostics attachment skipped ({type(exc).__name__})")
+
+
+def _attach_voice_audit_to_telemetry(telemetry_path: Path, output_dir: Path) -> None:
+    """Embed Voice Observer V1 in existing durable telemetry without making it a gate."""
+    voice_path = output_dir / "voice-identity-audit.json"
+    if not voice_path.is_file() or not telemetry_path.is_file():
+        return
+    try:
+        telemetry = json.loads(telemetry_path.read_text(encoding="utf-8"))
+        voice = json.loads(voice_path.read_text(encoding="utf-8"))
+        if not isinstance(telemetry, dict) or not isinstance(voice, dict):
+            return
+        telemetry["voice_identity_audit"] = voice
+        telemetry_path.write_text(json.dumps(telemetry, ensure_ascii=False, indent=2), encoding="utf-8")
+        print("Voice Identity Observer evidence attached to planning telemetry")
+    except Exception as exc:
+        print(f"Voice Identity Observer telemetry attachment skipped ({type(exc).__name__})")
 
 
 def _production_id() -> str:
@@ -146,6 +164,11 @@ def _attach_observer_evidence_to_telemetry(
         opening = json.loads(opening_path.read_text(encoding="utf-8"))
         if isinstance(opening, dict):
             data["opening_visual_audit"] = opening
+    voice_path = output_dir / "voice-identity-audit.json"
+    if voice_path.exists():
+        voice = json.loads(voice_path.read_text(encoding="utf-8"))
+        if isinstance(voice, dict):
+            data["voice_identity_audit"] = voice
     telemetry_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -157,6 +180,7 @@ def main() -> None:
     install_brand_anchor_guard()
     install_product_proof_fallback()
     install_voice_mesh()
+    install_voice_identity_observer()
     start_progress()
     install_progress_hooks()
 
@@ -184,7 +208,8 @@ def main() -> None:
         if out_dir is not None:
             _attach_failure_tone_diagnostics(out_dir)
             ledger.write(out_dir / "ai-budget.json")
-            write_planning_telemetry(out_dir)
+            telemetry_path = write_planning_telemetry(out_dir)
+            _attach_voice_audit_to_telemetry(telemetry_path, out_dir)
         raise
     finally:
         if previous_defer is None:
