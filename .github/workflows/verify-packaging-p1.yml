@@ -3,6 +3,8 @@ name: Verify Packaging Director P1
 on:
   push:
     branches: ["ci/verify-packaging-p1"]
+  pull_request:
+    branches: ["p0e/packaging-artifact-delivery"]
   workflow_dispatch:
 
 permissions:
