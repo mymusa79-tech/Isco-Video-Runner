@@ -6,6 +6,7 @@ from unittest.mock import patch
 import isco_video_agent.resilient_planner as staged
 from scripts.planner_quality_guard import (
     _QUESTION_ANSWER_RUNTIME_RULE,
+    _safe_opening_visual_query,
     _single_use_transition_slots,
     install_planner_quality_guard,
 )
@@ -36,14 +37,79 @@ class PlannerQualityGuardTests(unittest.TestCase):
         self.assertIn("do not collapse", _QUESTION_ANSWER_RUNTIME_RULE)
         self.assertIn("metadata", _QUESTION_ANSWER_RUNTIME_RULE)
 
+    def test_run54_identifiable_person_query_is_reduced_to_objects_and_environment(self) -> None:
+        self.assertEqual(
+            _safe_opening_visual_query(
+                "person sitting by wooden table in sunlit room looking pensively at empty notebook"
+            ),
+            "table room notebook",
+        )
+
+    def test_explicit_non_identifiable_framing_is_preserved(self) -> None:
+        self.assertEqual(
+            _safe_opening_visual_query("hands writing notebook"),
+            "hands writing notebook",
+        )
+        self.assertEqual(
+            _safe_opening_visual_query("silhouette person walking road"),
+            "silhouette person walking road",
+        )
+
+    def test_non_person_query_is_preserved(self) -> None:
+        self.assertEqual(
+            _safe_opening_visual_query("notebook desk window morning light"),
+            "notebook desk window morning light",
+        )
+
+    def test_human_only_query_uses_safe_broad_fallback(self) -> None:
+        self.assertEqual(
+            _safe_opening_visual_query("person sitting alone thinking"),
+            "quiet room natural light",
+        )
+
+    def test_installed_outline_wrapper_sanitizes_only_first_longform_brief_without_extra_call(self) -> None:
+        outline_calls: list[dict] = []
+
+        def fake_outline(*args, **kwargs):
+            outline_calls.append(kwargs)
+            return {
+                "section_briefs": [
+                    {
+                        "id": "s1",
+                        "visual_query": "person sitting by wooden table in sunlit room looking pensively at empty notebook",
+                    },
+                    {"id": "s2", "visual_query": "person walking city street"},
+                ]
+            }
+
+        def fake_write(*args, **kwargs):
+            return {"ok": True}
+
+        with (
+            patch.object(staged, "_outline", fake_outline),
+            patch.object(staged, "_write_full_script", fake_write),
+        ):
+            install_planner_quality_guard()
+            result = staged._outline("key", topic="موضوع", fmt="film", model="model")
+
+        self.assertEqual(len(outline_calls), 1)
+        self.assertEqual(result["section_briefs"][0]["visual_query"], "table room notebook")
+        self.assertEqual(result["section_briefs"][1]["visual_query"], "person walking city street")
+
     def test_installed_wrapper_passes_single_use_slots_without_extra_call(self) -> None:
         calls: list[dict] = []
+
+        def fake_outline(*args, **kwargs):
+            return {"section_briefs": []}
 
         def fake_write(*args, **kwargs):
             calls.append(kwargs)
             return {"ok": True}
 
-        with patch.object(staged, "_write_full_script", fake_write):
+        with (
+            patch.object(staged, "_outline", fake_outline),
+            patch.object(staged, "_write_full_script", fake_write),
+        ):
             install_planner_quality_guard()
             result = staged._write_full_script(
                 "key",
