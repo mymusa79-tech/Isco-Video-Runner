@@ -5,6 +5,10 @@ on:
     branches: ["agent/voice-roster-listening-samples"]
     paths:
       - ".github/workflows/voice-roster-listening-samples.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/voice-roster-listening-samples.yml"
   workflow_dispatch:
 
 jobs:
