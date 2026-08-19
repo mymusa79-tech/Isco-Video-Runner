@@ -98,6 +98,31 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
             self.assertFalse(report["gold"]["accepted"])
             self.assertTrue(report["state_observation"]["failure_cleanup_expected"])
 
+    def test_failure_report_never_persists_raw_exception_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "output"
+            root.mkdir()
+            (root / "final.mp4").write_bytes(b"immutable-render")
+            marker = "https://provider.invalid/?key=SHOULD_NOT_APPEAR"
+            with patch.object(phase4, "_output_key", return_value="output/test/final.mp4"), patch.object(
+                phase4, "_plan_from_json", return_value=object()
+            ), patch.object(
+                phase4, "build_budgeted_thumbnail_package", side_effect=RuntimeError(marker)
+            ), patch.object(phase4, "remove_production_record"), patch.object(
+                phase4, "_sync_state_snapshot"
+            ):
+                with self.assertRaises(RuntimeError):
+                    phase4.run_gold_enforce_phase4(
+                        output_dir=root,
+                        gemini="dummy",
+                        pexels="dummy",
+                        ledger=BudgetLedger("film", enforce=True),
+                    )
+            report_text = (root / "gold-enforce-report.json").read_text(encoding="utf-8")
+            report = json.loads(report_text)
+            self.assertNotIn(marker, report_text)
+            self.assertEqual(report["error"], {"type": "RuntimeError"})
+
     def test_final_video_mutation_is_detected_inside_cleanup_boundary_before_acceptance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "output"
