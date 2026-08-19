@@ -1,0 +1,40 @@
+name: Retention M2 Final Full Python Suite
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/retention-m2-final-full-python.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  full-engine-python-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout private Engine M2 final candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 9f5ae2d94d0226690d502440498333c91fb0d539
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Python runtime
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Full Engine unittest discovery
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
