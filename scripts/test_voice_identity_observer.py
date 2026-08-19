@@ -1,3 +1,4 @@
+# Trigger-only comment for final production-readiness verification; no test behavior change.
 from __future__ import annotations
 
 import json
