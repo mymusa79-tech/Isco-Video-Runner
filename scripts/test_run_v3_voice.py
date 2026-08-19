@@ -187,6 +187,8 @@ class MainWritesTelemetryTests(_MainPatchMixin, unittest.TestCase):
             self.assertIn("production_manifest", telemetry)
             self.assertIn("final_critic", telemetry)
             self.assertIn("ai_budget", telemetry)
+            self.assertIn("gold_shadow_comparison", telemetry)
+            self.assertEqual(telemetry["gold_shadow_comparison"]["release_authority"], "legacy_v4")
 
     def test_failure_path_still_writes_telemetry_to_the_latest_output_dir(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -255,6 +257,15 @@ class FinalCriticV4AcceptanceTests(_MainPatchMixin, unittest.TestCase):
                 self.assertEqual(kwargs["release_mode"], "observe_only")
                 return {"status": "block", "would_block_if_enforced": True}
 
+            def gold_shadow(**kwargs):
+                order.append("gold_shadow")
+                self.assertEqual(kwargs["legacy_critic"]["status"], "block")
+                return {
+                    "release_authority": "legacy_v4",
+                    "mode": "observe_only",
+                    "divergences": {},
+                }
+
             env = {
                 "REQUEST_FILE": str(request_path),
                 "GITHUB_RUN_ID": "123456",
@@ -264,6 +275,7 @@ class FinalCriticV4AcceptanceTests(_MainPatchMixin, unittest.TestCase):
             with patch.dict(os.environ, env, clear=False), \
                     patch.object(run_v3_voice.orchestrator, "produce", side_effect=produce), \
                     patch.object(run_v3_voice, "_run_final_critic", side_effect=critic), \
+                    patch.object(run_v3_voice, "run_gold_shadow_phase2a", side_effect=gold_shadow), \
                     patch.object(run_v3_voice, "_tag_plan_source"), \
                     patch.object(
                         run_v3_voice,
@@ -272,12 +284,13 @@ class FinalCriticV4AcceptanceTests(_MainPatchMixin, unittest.TestCase):
                     ):
                 run_v3_voice.main()
 
-            self.assertEqual(order, ["produce", "critic"])
+            self.assertEqual(order, ["produce", "critic", "gold_shadow"])
             self.assertTrue((out_dir / "ai-budget.json").exists())
             self.assertTrue((out_dir / "production-manifest.json").exists())
             telemetry = json.loads((out_dir / "planning-telemetry.json").read_text(encoding="utf-8"))
             manifest = telemetry["production_manifest"]
             self.assertEqual(telemetry["final_critic"]["status"], "block")
+            self.assertEqual(telemetry["gold_shadow_comparison"]["release_authority"], "legacy_v4")
             self.assertEqual(manifest["publication_binding"], "unbound")
             self.assertEqual(manifest["production_id"], "v4:123456:2")
             self.assertEqual(manifest["release_tag"], "video-77")
