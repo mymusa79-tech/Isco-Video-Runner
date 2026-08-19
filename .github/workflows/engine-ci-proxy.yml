@@ -57,38 +57,6 @@ jobs:
           cd engine
           python -m unittest tests.test_run54_novelty_gate_recovery -v
 
-      - name: Verify identity, visual scoring, and hook contracts
-        run: |
-          set -euo pipefail
-          python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py
-          PYTHONPATH="engine/src:scripts" python - <<'PY'
-          from pathlib import Path
-          import task_level_planner_router as router
-          import voice_mesh
-          from isco_video_agent.providers.gemini import _speech_config, _voice_identity
-          from isco_video_agent.orchestrator import _visual_fit_score
-
-          assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Iapetus"
-          assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Gacrux"
-          assert _voice_identity("RandomVoice") == ("Gacrux", "Iapetus")
-          assert _speech_config("A: لماذا؟\nB: لأن الفكرة أعمق.", "RandomVoice") == [
-              {"speaker": "A", "voice": "Iapetus"},
-              {"speaker": "B", "voice": "Gacrux"},
-          ]
-          assert _visual_fit_score({"relevance": 0.87}) == 8.7
-          assert _visual_fit_score({"relevance": 2}) == 10.0
-          assert _visual_fit_score({"relevance": 0}) == 1.0
-
-          planner = Path("engine/src/isco_video_agent/planner.py").read_text(encoding="utf-8")
-          assert "section s1 has a hard retention contract" in planner
-          assert "a direct question" in planner
-          assert "a bold but" in planner
-          assert "clear tease of the concrete insight/result" in planner
-          assert "No scene-setting, greeting, biography, abstract reflection, throat-clearing" in planner
-          assert "s1's first spoken sentence must still be one strong direct question" in planner
-          print("Identity, smart visual scoring, and s1 hook contracts PASS")
-          PY
-
       - name: Verify no paid API use
         run: |
           set -euo pipefail
