@@ -38,8 +38,8 @@ jobs:
       - name: Install locked Engine runtime
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core
+          command -v ffmpeg
+          command -v ffprobe
           cd engine
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
