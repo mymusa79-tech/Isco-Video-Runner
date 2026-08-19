@@ -105,6 +105,17 @@ _OPENING_QUERY_FALLBACK = "quiet room natural light"
 _SPEAKER_PREFIX_RE = re.compile(r"^(?:A|B)\s*:\s*", re.IGNORECASE)
 _FIRST_SENTENCE_RE = re.compile(r"^(.+?[؟?!\.])(?:\s|$)", re.DOTALL)
 
+# Run54 proved that a full-script repair can still reproduce a harsh coercive
+# imperative even after the repair prompt explicitly names preachiness. Keep this
+# normalization deliberately tiny: these are the observed "wean yourself" forms,
+# not a general Arabic imperative blacklist. Ordinary practical suggestions such as
+# "جرب أن تدوّن" or "خذ نفسًا" remain untouched and the independent tone auditor
+# still makes the final pass/block decision.
+_HARSH_DIRECTIVE_PATTERNS = (
+    (re.compile(r"افطم\s+نفسك\s+تدريجي(?:ًا|اً|ا)\s+عن\s+"), "يمكنك أن تقلل تدريجيًا من "),
+    (re.compile(r"افطم\s+نفسك\s+عن\s+"), "يمكنك أن تقلل من "),
+)
+
 
 def _single_use_transition_slots(transition_variants: list[str], section_count: int) -> list[str]:
     """Return one transition slot per post-opening section without recycling hints.
@@ -162,6 +173,43 @@ def _guard_opening_brief(outline: object, *, fmt: str) -> object:
         briefs[0]["visual_query"] = safe[:260]
         print(f"Planner quality guard sanitized opening visual_query: {original} -> {safe}")
     return outline
+
+
+def _neutralize_harsh_directives(text: str) -> str:
+    """Neutralize only the coercive Run54 directive proven to trip tone QA.
+
+    This is a deterministic text transform, not a replacement for the tone gate.
+    It intentionally leaves all unrelated imperatives and advice wording unchanged.
+    """
+    original = str(text)
+    normalized = original
+    replaced = False
+    for pattern, replacement in _HARSH_DIRECTIVE_PATTERNS:
+        updated, count = pattern.subn(replacement, normalized)
+        if count:
+            replaced = True
+            normalized = updated
+    if replaced:
+        # The exact blocked Run54 sentence also contained this agreement error. Keep
+        # the grammar repair scoped to text in which the harsh directive was found.
+        normalized = normalized.replace("من هذا المراقبة", "من هذه المراقبة")
+    return normalized
+
+
+def _normalize_plan_tone(plan: object) -> int:
+    """Apply the bounded zero-call tone transform to section narration in place."""
+    sections = getattr(plan, "sections", None)
+    if not isinstance(sections, list):
+        return 0
+    changed = 0
+    for section in sections:
+        original = str(getattr(section, "narration", ""))
+        normalized = _neutralize_harsh_directives(original)
+        if normalized != original:
+            section.narration = normalized
+            changed += 1
+            print(f"Planner quality guard neutralized harsh directive in section {getattr(section, 'id', '?')}")
+    return changed
 
 
 def _first_spoken_sentence(text: str) -> str:
@@ -242,6 +290,20 @@ def install_planner_quality_guard() -> None:
         guarded_write_full_script._isco_single_use_transition_guard = True
         staged._write_full_script = guarded_write_full_script
 
+    # install_router() is called before this guard and its routed_build_plan reads
+    # staged.build_plan dynamically. Wrapping staged.build_plan here therefore covers
+    # both the initial plan and the single consolidated repair without adding calls.
+    current_build = staged.build_plan
+    if not getattr(current_build, "_isco_tone_directive_guard", False):
+        @wraps(current_build)
+        def guarded_build_plan(*args, **kwargs):
+            plan = current_build(*args, **kwargs)
+            _normalize_plan_tone(plan)
+            return plan
+
+        guarded_build_plan._isco_tone_directive_guard = True
+        staged.build_plan = guarded_build_plan
+
     current_novelty = orchestrator._novelty_flags
     if not getattr(current_novelty, "_isco_spoken_hook_novelty_guard", False):
         @wraps(current_novelty)
@@ -280,6 +342,6 @@ def install_planner_quality_guard() -> None:
 
     print(
         "Planner quality guard installed: opening stock query deterministic safety; "
-        "spoken-hook novelty/history alignment; transition hints single-use; "
-        "question_answer narration rule strengthened"
+        "bounded harsh-directive tone normalization; spoken-hook novelty/history alignment; "
+        "transition hints single-use; question_answer narration rule strengthened"
     )
