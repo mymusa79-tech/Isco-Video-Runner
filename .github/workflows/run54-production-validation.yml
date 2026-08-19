@@ -41,7 +41,7 @@ jobs:
       - name: Install engine and local voice fallback
         run: |
           set -euo pipefail
-          # Production validation for the deterministic Run54 opening-query guard.
+          # Production validation after Run54 spoken-hook novelty alignment.
           if ! command -v ffmpeg >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y ffmpeg
