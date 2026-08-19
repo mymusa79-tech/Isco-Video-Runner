@@ -10,7 +10,8 @@ from unittest.mock import patch
 
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
-import scripts.gold_shadow_phase2a as gold_shadow
+import scripts.gold_shadow_phase2b as gold_shadow
+import scripts.gold_thumbnail_budget as thumbnail_budget
 import scripts.run_v3_voice as runner
 import scripts.task_level_planner_router as router
 import scripts.voice_mesh as voice_mesh
@@ -67,6 +68,7 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
             "install_brand_anchor_guard()",
             "install_product_proof_fallback()",
             "install_voice_mesh()",
+            "install_voice_identity_observer()",
             "install_progress_hooks()",
         )
         for installer in installers:
@@ -77,7 +79,7 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
         calls = _calls_in_main()
         core_calls = calls.get("orchestrator.produce", [])
         critic_calls = calls.get("_run_final_critic", [])
-        shadow_calls = calls.get("run_gold_shadow_phase2a", [])
+        shadow_calls = calls.get("run_gold_shadow_phase2b", [])
         self.assertEqual(len(core_calls), 1)
         self.assertEqual(len(critic_calls), 1)
         self.assertEqual(len(shadow_calls), 1)
@@ -90,7 +92,7 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
         order = [
             "_tag_plan_source(out)",
             "_run_final_critic(",
-            "run_gold_shadow_phase2a(",
+            "run_gold_shadow_phase2b(",
             "_write_production_manifest(",
             "collect_latest_video_metrics_from_env(",
             "_attach_observer_evidence_to_telemetry(",
@@ -99,21 +101,21 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
 
     def test_gold_shadow_adapter_has_no_production_or_state_mutation_authority(self) -> None:
-        source = inspect.getsource(gold_shadow.run_gold_shadow_phase2a)
+        source = inspect.getsource(gold_shadow.run_gold_shadow_phase2b)
         self.assertNotIn("orchestrator.produce", source)
         self.assertNotIn("mark_production_accepted", source)
         self.assertNotIn("remove_production_record", source)
-        self.assertNotIn("build_thumbnail_package", source)
-        self.assertNotIn("augment_rights", source)
+        self.assertNotIn("sync_state_snapshot", source)
+        self.assertIn("build_budgeted_thumbnail_package", source)
         self.assertIn("observe_gold_output", source)
         self.assertIn('"release_authority": "legacy_v4"', source)
 
     def test_gold_shadow_runs_once_after_the_single_core_render(self) -> None:
         calls = _calls_in_main()
         self.assertEqual(len(calls.get("orchestrator.produce", [])), 1)
-        self.assertEqual(len(calls.get("run_gold_shadow_phase2a", [])), 1)
+        self.assertEqual(len(calls.get("run_gold_shadow_phase2b", [])), 1)
         source = _main_source()
-        self.assertLess(source.index("orchestrator.produce("), source.index("run_gold_shadow_phase2a("))
+        self.assertLess(source.index("orchestrator.produce("), source.index("run_gold_shadow_phase2b("))
 
     def test_analytics_agent_binding_comes_only_from_the_verified_manifest(self) -> None:
         source = _main_source()
@@ -159,6 +161,23 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
                 finally:
                     staged.json_text = original_json_text
                     orchestrator.build_plan = original_build_plan
+
+    def test_runner_consumes_pexels_once_then_reuses_only_the_in_process_value(self) -> None:
+        source = _main_source()
+        self.assertEqual(source.count('secret("PEXELS_API_KEY")'), 1)
+        self.assertIn('os.environ["PEXELS_API_KEY"] = pexels', source)
+        shadow = source.index("run_gold_shadow_phase2b(")
+        self.assertIn("pexels=pexels", source[shadow:])
+        self.assertNotIn('secret("PEXELS_API_KEY")', source[shadow:])
+
+    def test_thumbnail_budget_adapter_delegates_without_copying_packaging_logic(self) -> None:
+        source = inspect.getsource(thumbnail_budget)
+        self.assertIn("thumbnail.build_thumbnail_package", source)
+        self.assertIn("_ledger_call(", source)
+        self.assertIn("_ledger_call_status(", source)
+        self.assertNotIn("def build_thumbnail_package(", source)
+        self.assertNotIn("search_photos(", source)
+        self.assertNotIn("render_thumbnail(", source)
 
 
 if __name__ == "__main__":
