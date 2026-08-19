@@ -9,6 +9,7 @@ from array import array
 from pathlib import Path
 
 import isco_video_agent.orchestrator as orchestrator
+from isco_video_agent.media.audio_pacing import add_tail_silence_in_place, section_tail_seconds
 from isco_video_agent.media.ffmpeg import concat_audio, duration
 from isco_video_agent.providers.gemini import synthesize_wav as gemini_synthesize
 
@@ -105,7 +106,8 @@ def _gemini_dialogue(api_key: str, transcript: str, output: Path, *, model: str,
         "Synthesize this Arabic two-person conversation exactly as written. Do not read these directions aloud. "
         "Use clear contemporary Modern Standard Arabic. The questioner is curious, concise and grounded; the responder "
         "is the channel's warm, mature, thoughtful main voice. Keep the exchange natural, intelligent and understated. "
-        "Do not add, remove, paraphrase, sing, or exaggerate. Respect punctuation and short conversational pauses. "
+        "Do not add, remove, paraphrase, sing, or exaggerate. Do not race through sentence endings. "
+        "Let completed thoughts breathe, give rhetorical questions a perceptible natural pause when earned, and never make all pauses identical. "
         + style
         + "\n\n### TRANSCRIPT\n"
         + spoken
@@ -160,6 +162,7 @@ def synthesize(
     dialogue = os.environ.get("ISCO_DIALOGUE_QA") == "1"
     if dialogue:
         _gemini_dialogue(api_key, transcript, output, model=model, style=style)
+        add_tail_silence_in_place(output, section_tail_seconds(transcript))
         _qa(output, _DIALOGUE_LABEL.sub("", transcript))
         _record_voice_provenance(output, provider="gemini-multispeaker", fallback_used=False)
         print(
@@ -167,6 +170,7 @@ def synthesize(
             f"(questioner={DIALOGUE_QUESTIONER_VOICE} responder={DIALOGUE_RESPONDER_VOICE})"
         )
     else:
+        # Engine gemini_synthesize() owns the cinematic pacing tail for this path.
         gemini_synthesize(
             api_key,
             transcript,
@@ -186,11 +190,13 @@ def synthesize_local_wav(transcript: str, output: Path) -> Path:
     dialogue = os.environ.get("ISCO_DIALOGUE_QA") == "1"
     if dialogue:
         _local_dialogue(transcript, output)
+        add_tail_silence_in_place(output, section_tail_seconds(transcript))
         _qa(output, _DIALOGUE_LABEL.sub("", transcript))
         _record_voice_provenance(output, provider="piper-local-dialogue-single-speaker", fallback_used=True)
         print("Voice provider selected: piper-local-dialogue-single-speaker")
     else:
         _local(transcript, output)
+        add_tail_silence_in_place(output, section_tail_seconds(transcript))
         _qa(output, transcript)
         _record_voice_provenance(output, provider="piper-local", fallback_used=True)
         print("Voice provider selected: piper-local")
