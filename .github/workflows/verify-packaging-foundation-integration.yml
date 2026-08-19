@@ -1,0 +1,145 @@
+name: Verify Packaging V1 Foundation Integration
+
+on:
+  push:
+    branches: ["ci/verify-packaging-foundation-integration"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact Engine integration merge candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 69bd421053d1f1f3d3d3fe71934272e91220cb3b
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Packaging P0 P1 P2 focused suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_thumbnail_cultural_safety \
+            tests.test_thumbnail_packaging_contract \
+            tests.test_thumbnail_batch_review \
+            tests.test_thumbnail_candidate_board \
+            tests.test_thumbnail_pixabay_fallback \
+            tests.test_packaging_identity_integrity_p1 \
+            tests.test_thumbnail_renderer_p1 \
+            tests.test_youtube_packaging_reporting_p1 \
+            tests.test_packaging_early_brief_p2 \
+            tests.test_packaging_experiments_p2 \
+            tests.test_packaging_learning_p2 \
+            tests.test_packaging_benchmark_p2 \
+            -v
+
+      - name: Analytics M0 M0.1 M1 regressions
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_youtube_analytics_health \
+            tests.test_youtube_analytics_bound_health \
+            tests.test_youtube_analytics_direct_health \
+            tests.test_youtube_production_observer_credentials \
+            tests.test_youtube_retention_m1_storage \
+            tests.test_youtube_retention_m1_fallback \
+            tests.test_youtube_retention_m1_observation_schema \
+            -v
+
+      - name: Cinematic M1 M6 regressions
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_cinematic_m1_loop_safety \
+            tests.test_cinematic_m2_music_bed \
+            tests.test_cinematic_m3_color \
+            tests.test_cinematic_m4_voice_pacing \
+            tests.test_cinematic_m5_outro \
+            tests.test_cinematic_m6_opening \
+            tests.test_cinematic_m6_opening_selection \
+            tests.test_cinematic_m6_final_critic_auxiliary \
+            -v
+
+      - name: Gold and authority regressions from Engine
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_gold_finalizer \
+            tests.test_gold_shadow_phase2a \
+            tests.test_final_critic_selected_visuals \
+            tests.test_final_critic_provenance_batch \
+            -v
+
+      - name: Full Engine regression suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Verify Packaging authority invariants
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import inspect
+          import isco_video_agent.thumbnail as thumbnail
+          import isco_video_agent.packaging_learning as learning
+          import isco_video_agent.packaging_early_brief as early
+          policy = learning.load_packaging_learning_policy()
+          assert policy["mode"] == "recommendation_only"
+          assert policy["automatic_production_influence"] is False
+          assert policy["variant_attribution"] == "manual_studio_only"
+          assert policy["video_metrics_role"] == "context_only"
+          assert policy["early_brief"]["enabled_by_default"] is False
+          sig = inspect.signature(thumbnail.build_thumbnail_package)
+          assert "pixabay_key" in sig.parameters
+          assert sig.parameters["pixabay_key"].default is None
+          assert "json_text" in inspect.getsource(early.build_early_packaging_brief)
+          print("Packaging authority invariants PASS")
+          PY
+
+      - name: Verify integration tree contains all three tracks
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          test -f src/isco_video_agent/retention_storage.py
+          test -f src/isco_video_agent/packaging_learning.py
+          test -f src/isco_video_agent/media/opening.py
+          test -f tests/test_youtube_retention_m1_storage.py
+          test -f tests/test_packaging_learning_p2.py
+          test -f tests/test_cinematic_m6_opening.py
+          echo 'Integrated tree contains Analytics M1 + Packaging V1 + Cinematic M1-M6'
