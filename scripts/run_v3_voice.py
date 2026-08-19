@@ -12,6 +12,7 @@ from isco_video_agent.production_pipeline import _plan_from_json, _run_final_cri
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.brand_anchor_guard import install_brand_anchor_guard
+from scripts.gold_shadow_phase2a import run_gold_shadow_phase2a
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
@@ -128,6 +129,7 @@ def _attach_observer_evidence_to_telemetry(
     critic: dict,
     ledger: BudgetLedger,
     output_dir: Path,
+    gold_shadow: dict | None = None,
 ) -> None:
     """Make existing release telemetry the durable provenance/critic envelope.
 
@@ -141,6 +143,8 @@ def _attach_observer_evidence_to_telemetry(
     data["production_manifest"] = manifest
     data["final_critic"] = critic
     data["ai_budget"] = ledger.to_summary()
+    if isinstance(gold_shadow, dict):
+        data["gold_shadow_comparison"] = gold_shadow
     opening_path = output_dir / "opening-visual-audit.json"
     if opening_path.exists():
         opening = json.loads(opening_path.read_text(encoding="utf-8"))
@@ -164,8 +168,8 @@ def main() -> None:
     gemini = secret("GEMINI_API_KEY")
     if not gemini:
         raise RuntimeError("Gemini secret is required for V4 production")
-    # Keep one in-process copy for the post-render critic while preserving the core's
-    # one-time secret consumption contract.
+    # Keep one in-process copy for both post-render observers while preserving the
+    # core's one-time secret consumption contract.
     os.environ["GEMINI_API_KEY"] = gemini
     ledger = BudgetLedger(request["format"])
 
@@ -206,6 +210,15 @@ def main() -> None:
     if critic.get("status") != "pass":
         print("Final Critic observe-only BLOCK: publication path unchanged; inspect final-critic.json")
 
+    gold_shadow = run_gold_shadow_phase2a(
+        output_dir=out,
+        gemini=gemini,
+        ledger=ledger,
+        legacy_critic=critic,
+        plan_from_json=_plan_from_json,
+        run_final_critic=_run_final_critic,
+    )
+
     ledger.write(out / "ai-budget.json")
     production_id = _production_id()
     manifest = _write_production_manifest(out, production_id=production_id, fmt=plan.format)
@@ -230,6 +243,7 @@ def main() -> None:
         critic=critic,
         ledger=ledger,
         output_dir=out,
+        gold_shadow=gold_shadow,
     )
     print(f"Production completed: {out.name}")
 

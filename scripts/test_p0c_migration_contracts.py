@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
+import scripts.gold_shadow_phase2a as gold_shadow
 import scripts.run_v3_voice as runner
 import scripts.task_level_planner_router as router
 import scripts.voice_mesh as voice_mesh
@@ -72,26 +73,47 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
             with self.subTest(installer=installer):
                 self.assertLess(source.index(installer), production)
 
-    def test_one_runner_ledger_is_forwarded_to_core_and_post_render_critic(self) -> None:
+    def test_one_runner_ledger_is_forwarded_to_core_legacy_critic_and_gold_shadow(self) -> None:
         calls = _calls_in_main()
         core_calls = calls.get("orchestrator.produce", [])
         critic_calls = calls.get("_run_final_critic", [])
+        shadow_calls = calls.get("run_gold_shadow_phase2a", [])
         self.assertEqual(len(core_calls), 1)
         self.assertEqual(len(critic_calls), 1)
+        self.assertEqual(len(shadow_calls), 1)
         self.assertTrue(_keyword_is_name(core_calls[0], "ledger", "ledger"))
         self.assertTrue(_keyword_is_name(critic_calls[0], "ledger", "ledger"))
+        self.assertTrue(_keyword_is_name(shadow_calls[0], "ledger", "ledger"))
 
     def test_provenance_and_release_evidence_order_is_stable(self) -> None:
         source = _main_source()
         order = [
             "_tag_plan_source(out)",
             "_run_final_critic(",
+            "run_gold_shadow_phase2a(",
             "_write_production_manifest(",
             "collect_latest_video_metrics_from_env(",
             "_attach_observer_evidence_to_telemetry(",
         ]
         positions = [source.index(marker) for marker in order]
         self.assertEqual(positions, sorted(positions))
+
+    def test_gold_shadow_adapter_has_no_production_or_state_mutation_authority(self) -> None:
+        source = inspect.getsource(gold_shadow.run_gold_shadow_phase2a)
+        self.assertNotIn("orchestrator.produce", source)
+        self.assertNotIn("mark_production_accepted", source)
+        self.assertNotIn("remove_production_record", source)
+        self.assertNotIn("build_thumbnail_package", source)
+        self.assertNotIn("augment_rights", source)
+        self.assertIn("observe_gold_output", source)
+        self.assertIn('"release_authority": "legacy_v4"', source)
+
+    def test_gold_shadow_runs_once_after_the_single_core_render(self) -> None:
+        calls = _calls_in_main()
+        self.assertEqual(len(calls.get("orchestrator.produce", [])), 1)
+        self.assertEqual(len(calls.get("run_gold_shadow_phase2a", [])), 1)
+        source = _main_source()
+        self.assertLess(source.index("orchestrator.produce("), source.index("run_gold_shadow_phase2a("))
 
     def test_analytics_agent_binding_comes_only_from_the_verified_manifest(self) -> None:
         source = _main_source()
