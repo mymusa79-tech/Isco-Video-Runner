@@ -1,0 +1,149 @@
+name: Retention M3 Verification
+
+on:
+  push:
+    branches: ["analytics/retention-v2-m3-verification"]
+    paths: [".github/workflows/retention-m3-verification.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  verify-m3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 109c64c77aef2eb8e6bd8db04b48c2b4a37c5d12
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: M3 + M2 + M1 targeted tests
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest discover -s tests -p 'test_youtube_retention_m3_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m2_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m1_*.py' -v
+
+      - name: Full Engine Python suite
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest discover -s tests -q
+
+      - name: Real M1 -> M2 -> M3 read-only verification
+        run: |
+          set -euo pipefail
+          test -f verification/retention-m1-live-sidecar.json
+          rm -rf verification-m3
+          mkdir -p verification-m3/bindings verification-m3/signals
+          RAW_BEFORE="$(sha256sum verification/retention-m1-live-sidecar.json | awk '{print $1}')"
+          PYTHONPATH="engine/src" python engine/scripts/bind_retention_timeline.py \
+            --retention-sidecar verification/retention-m1-live-sidecar.json \
+            --output-root verification-m3/bindings \
+            > verification-m3/m2-summary.json
+          RAW_AFTER="$(sha256sum verification/retention-m1-live-sidecar.json | awk '{print $1}')"
+          test "$RAW_BEFORE" = "$RAW_AFTER"
+          BINDING_PATH="$(python - <<'PY'
+          import json
+          print(json.load(open('verification-m3/m2-summary.json'))['binding_path'])
+          PY
+          )"
+          BIND_BEFORE="$(sha256sum "$BINDING_PATH" | awk '{print $1}')"
+          PYTHONPATH="engine/src" python engine/scripts/extract_retention_signals.py \
+            --binding "$BINDING_PATH" \
+            --output-root verification-m3/signals \
+            > verification-m3/m3-summary.json
+          BIND_AFTER="$(sha256sum "$BINDING_PATH" | awk '{print $1}')"
+          test "$BIND_BEFORE" = "$BIND_AFTER"
+          ENGINE_SHA="$(git -C engine rev-parse HEAD)" RAW_SHA="$RAW_BEFORE" BIND_SHA="$BIND_BEFORE" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          assert os.environ['ENGINE_SHA'] == '109c64c77aef2eb8e6bd8db04b48c2b4a37c5d12'
+          m2 = json.loads(Path('verification-m3/m2-summary.json').read_text())
+          m3 = json.loads(Path('verification-m3/m3-summary.json').read_text())
+          report_doc = json.loads(Path(m3['report_path']).read_text())
+          report = report_doc['reports'][-1]
+          assert m2['raw_sidecar_unchanged'] is True
+          assert m3['source_binding_unchanged'] is True
+          assert report['level'] == 1
+          assert report['mode'] == 'human_read_only'
+          assert report['evidence']['points'] == 100
+          assert report['evidence']['grade'] == 'strong_observational'
+          assert report['first_30_seconds'] is not None
+          assert report['production_influence'] == 'none'
+          assert report['ai_calls'] == 0
+          assert report['causal_claims'] == 'not_permitted'
+          assert report['isolation'] == 'unverified'
+          assert report['section_boundary_deltas'] == []
+          assert report['opening_observations'] == []
+          text = ' '.join(report['human_summary']).lower()
+          for forbidden in ('caused by','because','resulted in','led to'):
+              assert forbidden not in text
+          evidence = {
+              'schema_version': 1,
+              'mode': 'M3_deterministic_signal_extraction_final',
+              'engine_sha': os.environ['ENGINE_SHA'],
+              'video_id': report['video_id'],
+              'source_curve_points': m2['points_received'],
+              'level1_points': report['evidence']['points'],
+              'evidence_grade': report['evidence']['grade'],
+              'first_30_seconds': report['first_30_seconds'],
+              'ranked_steps_count': len(report['ranked_steps']),
+              'stable_windows_count': len(report['stable_windows']),
+              'section_boundary_deltas_count': len(report['section_boundary_deltas']),
+              'opening_observations_count': len(report['opening_observations']),
+              'end_behavior': report['end_behavior'],
+              'raw_m1_sha256': os.environ['RAW_SHA'],
+              'raw_m1_unchanged': True,
+              'm2_binding_sha256': os.environ['BIND_SHA'],
+              'm2_binding_unchanged': True,
+              'isolation': report['isolation'],
+              'causal_claims': report['causal_claims'],
+              'production_influence': report['production_influence'],
+              'ai_calls': report['ai_calls'],
+              'production_run_started': False,
+          }
+          Path('verification/retention-m3-live.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
+          print(json.dumps(evidence, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Verify no provider credentials exposed
+        run: |
+          set -euo pipefail
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+          test -z "${PEXELS_API_KEY:-}"
+          test -z "${PIXABAY_API_KEY:-}"
+
+      - name: Persist sanitized M3 evidence
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add verification/retention-m3-live.json
+          git commit -m "ci: record M3 retention verification" || true
+          git push origin "HEAD:${GITHUB_REF_NAME}"
