@@ -133,7 +133,7 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
                     router.install_router()
                     self.assertTrue(getattr(orchestrator.build_plan, "_is_resilient_router", False))
                     self.assertIsNot(staged.json_text, original_json_text)
-                    self.assertIs(orchestrator.build_plan.__module__, router.__name__)
+                    self.assertEqual(orchestrator.build_plan.__module__, router.__name__)
                 finally:
                     staged.json_text = original_json_text
                     orchestrator.build_plan = original_build_plan
