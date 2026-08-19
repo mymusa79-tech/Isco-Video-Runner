@@ -1,0 +1,4 @@
+Run after tone failure observability fix
+Merged Runner SHA: a98bc309d52159d65ef6ac65e516beaab344a32e
+Topic: صوت الآخرين في رأسك
+Purpose: capture full tone-quality diagnostics after Run #48 blocker
