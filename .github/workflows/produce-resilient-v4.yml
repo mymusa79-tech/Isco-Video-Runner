@@ -234,6 +234,10 @@ jobs:
             engine/output/*/ai-budget.json
             engine/output/*/production-manifest.json
             engine/output/*/opening-visual-audit.json
+            engine/output/*/thumbnail-plan.json
+            engine/output/*/thumbnail-*.jpg
+            engine/output/*/rights-manifest.json
+            engine/output/*/gold-enforce-report.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -246,7 +250,11 @@ jobs:
           python - <<'PY' 2>&1 | tee "$RUNNER_TEMP/final-review-step.log"
           import json
           import os
+          import sys
           from pathlib import Path
+          sys.path.insert(0, str(Path.cwd()))
+          sys.path.insert(0, str(Path.cwd().parent))
+          from scripts.packaging_delivery_contract import validate_packaging_delivery
           roots = sorted(Path('output').glob('*'), key=lambda p: p.stat().st_mtime, reverse=True)
           if not roots:
               raise SystemExit('No output directory')
@@ -271,6 +279,7 @@ jobs:
               raise SystemExit('Missing ai-budget.json')
           if not manifest.exists():
               raise SystemExit('Missing production-manifest.json')
+          packaging = validate_packaging_delivery(root)
           q = json.loads(quality.read_text(encoding='utf-8'))
           failures = []
           if q.get('duration_ok') is not True:
@@ -310,6 +319,7 @@ jobs:
           print('Final review PASS:', final)
           print('Final quality:', json.dumps(q, ensure_ascii=False, sort_keys=True))
           print('Final critic observe-only status:', json.loads(critic.read_text(encoding='utf-8')).get('status'))
+          print('Packaging delivery validation PASS:', ', '.join(sorted(packaging)))
           print('Final review output root:', output_root.as_posix())
           PY
 
@@ -329,6 +339,10 @@ jobs:
             ${{ steps.final_review.outputs.budget_path }}
             ${{ steps.final_review.outputs.manifest_path }}
             ${{ steps.final_review.outputs.opening_audit_path }}
+            ${{ steps.final_review.outputs.output_root }}/thumbnail-plan.json
+            ${{ steps.final_review.outputs.output_root }}/thumbnail-*.jpg
+            ${{ steps.final_review.outputs.output_root }}/rights-manifest.json
+            ${{ steps.final_review.outputs.output_root }}/gold-enforce-report.json
           if-no-files-found: error
           retention-days: 7
 
@@ -371,7 +385,11 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import sys
           from pathlib import Path
+          sys.path.insert(0, str(Path.cwd()))
+          sys.path.insert(0, str(Path.cwd().parent))
+          from scripts.packaging_delivery_contract import validate_packaging_delivery
           root = Path(os.environ['FINAL_OUTPUT_ROOT'])
           video = Path(os.environ['FINAL_VIDEO_PATH'])
           quality = Path(os.environ['FINAL_QUALITY_PATH'])
@@ -382,6 +400,7 @@ jobs:
           manifest = Path(os.environ['FINAL_MANIFEST_PATH'])
           opening_value = os.environ.get('FINAL_OPENING_AUDIT_PATH', '').strip()
           opening = Path(opening_value) if opening_value else None
+          packaging = validate_packaging_delivery(root)
           if video != root / 'final.mp4':
               raise SystemExit(f'Release video escaped reviewed output root: {video}')
           if quality != root / 'quality-final.json':
@@ -410,9 +429,10 @@ jobs:
           if opening is not None and not opening.is_file():
               raise SystemExit(f'Release opening audit path was exported but file is missing: {opening}')
           print(f'Release asset validation PASS: root={root} size={size} duration_ok=true')
+          print('Packaging release validation PASS:', ', '.join(sorted(packaging)))
           PY
           tag="video-${RUN_NUMBER}"
-          release_assets=("$FINAL_VIDEO_PATH" "$FINAL_CRITIC_PATH" "$FINAL_BUDGET_PATH" "$FINAL_MANIFEST_PATH")
+          release_assets=("$FINAL_VIDEO_PATH" "$FINAL_CRITIC_PATH" "$FINAL_BUDGET_PATH" "$FINAL_MANIFEST_PATH" "$FINAL_OUTPUT_ROOT/thumbnail-plan.json" "$FINAL_OUTPUT_ROOT/thumbnail-1.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-2.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-3.jpg" "$FINAL_OUTPUT_ROOT/rights-manifest.json" "$FINAL_OUTPUT_ROOT/gold-enforce-report.json")
           if [ -n "$FINAL_TELEMETRY_PATH" ]; then
             release_assets+=("$FINAL_TELEMETRY_PATH")
           fi
