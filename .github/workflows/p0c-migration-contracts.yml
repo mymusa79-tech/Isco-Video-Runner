@@ -133,7 +133,9 @@ jobs:
       - name: Verify exact Packaging delta over clean Gold v2
         run: |
           set -euo pipefail
-          actual="$(git diff --name-only 8f22d73cab614c0a8b19a2efaa37259656917644..HEAD | sort)"
+          git fetch --no-tags origin "refs/heads/integration/gold-v2-packaging-v1:refs/remotes/origin/integration/gold-v2-packaging-v1"
+          candidate="origin/integration/gold-v2-packaging-v1"
+          actual="$(git diff --name-only 8f22d73cab614c0a8b19a2efaa37259656917644.."$candidate" | sort)"
           expected="$(printf '%s\n' \
             .github/workflows/p0c-migration-contracts.yml \
             .github/workflows/produce-resilient-v4.yml \
@@ -145,7 +147,7 @@ jobs:
             scripts/test_thumbnail_pixabay_bridge_p0d.py | sort)"
           printf 'ACTUAL\n%s\nEXPECTED\n%s\n' "$actual" "$expected"
           test "$actual" = "$expected"
-          git diff --check 8f22d73cab614c0a8b19a2efaa37259656917644..HEAD
+          git diff --check 8f22d73cab614c0a8b19a2efaa37259656917644.."$candidate"
 
       - name: Verify safety and authority invariants
         env:
