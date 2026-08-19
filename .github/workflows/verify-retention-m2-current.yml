@@ -1,0 +1,98 @@
+name: Verify Retention V2 M2 Current
+
+on:
+  push:
+    branches: ["ci/verify-retention-m2-current"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout Engine M2 candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: agent/retention-v2-m2-timeline-binding
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Retention M0 M0.1 M1 M2 targeted regressions
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_youtube_analytics_health \
+            tests.test_youtube_analytics_bound_health \
+            tests.test_youtube_analytics_direct_health \
+            tests.test_youtube_production_observer_credentials \
+            tests.test_youtube_retention_m1_storage \
+            tests.test_youtube_retention_m1_fallback \
+            tests.test_youtube_retention_m1_observation_schema \
+            tests.test_youtube_retention_m2_timeline_binding \
+            -v
+
+      - name: Full Engine regression suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Verify M2 isolation and no production influence
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import inspect
+          import isco_video_agent.retention_timeline as rt
+
+          source = inspect.getsource(rt)
+          assert 'production_influence": "none"' in source or "'production_influence': 'none'" in source
+          assert 'ai_calls": 0' in source or "'ai_calls': 0" in source
+          assert 'timeline-map.json' in source
+          assert 'forced alignment' in source
+          assert 'CTA inference' in source
+          assert Path('src/isco_video_agent/learning.py').exists()
+          print('M2 isolation PASS: derived read-only binding layer; no AI/production influence')
+          PY
+
+      - name: Verify branch diff boundary
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git diff --check agent/foundation-mvp..HEAD
+          actual="$(git diff --name-only agent/foundation-mvp..HEAD | sort)"
+          expected="$(printf '%s\n' \
+            scripts/bind_retention_timeline.py \
+            src/isco_video_agent/retention_timeline.py \
+            tests/test_youtube_retention_m2_timeline_binding.py | sort)"
+          printf 'ACTUAL\n%s\nEXPECTED\n%s\n' "$actual" "$expected"
+          test "$actual" = "$expected"
+          echo 'M2 exact three-file boundary PASS'
