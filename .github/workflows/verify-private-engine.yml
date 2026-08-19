@@ -1,4 +1,4 @@
-# Retry marker: fresh hosted runner; Engine SHA below is unchanged.
+# Retry marker: final cinematic verification head b3ca55a.
 name: Verify Private Engine
 
 on:
@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: fcc0d1ec2bce6e8fc38dba36c8107fe064b5dd7d
+          ref: b3ca55aad38aa98a3f217a8d44ca2fab5718949a
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -104,7 +104,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: fcc0d1ec2bce6e8fc38dba36c8107fe064b5dd7d
+          ref: b3ca55aad38aa98a3f217a8d44ca2fab5718949a
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
