@@ -1,0 +1,59 @@
+name: Run54 Production Latest Query
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/run54-production-latest-query.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout observer state
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ops/run36-observer-state
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Capture latest Run54 production validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            '/repos/mymusa79-tech/Isco-Video-Runner/actions/workflows/run54-production-validation.yml/runs?branch=main&per_page=1' \
+            > /tmp/runs.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/runs.json').read_text(encoding='utf-8'))
+          runs = data.get('workflow_runs') or []
+          if not runs:
+              raise SystemExit('No Run54 production validation runs found')
+          run = runs[0]
+          out = {
+              'run_id': run.get('id'),
+              'run_number': run.get('run_number'),
+              'run_attempt': run.get('run_attempt'),
+              'status': run.get('status'),
+              'conclusion': run.get('conclusion'),
+              'event': run.get('event'),
+              'head_sha': run.get('head_sha'),
+              'head_branch': run.get('head_branch'),
+              'html_url': run.get('html_url'),
+          }
+          Path('run54-production-query.json').write_text(json.dumps(out, indent=2), encoding='utf-8')
+          print(json.dumps(out, sort_keys=True))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add run54-production-query.json
+          git commit -m 'ops: capture latest Run54 production query' || true
+          git push origin HEAD:ops/run36-observer-state
