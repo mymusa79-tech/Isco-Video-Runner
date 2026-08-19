@@ -22,6 +22,7 @@ jobs:
       - name: Replace verified Engine SHA exactly twice
         run: |
           set -euo pipefail
+          # One-shot updater: execute only after this workflow already exists on main.
           python - <<'PY'
           from pathlib import Path
           path = Path('.github/workflows/produce-resilient-v4.yml')
