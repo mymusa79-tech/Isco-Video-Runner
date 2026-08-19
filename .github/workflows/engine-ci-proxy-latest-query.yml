@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/engine-ci-proxy-latest-query.yml"
+      - ".github/workflows/engine-ci-proxy.yml"
 
 permissions:
   actions: read
