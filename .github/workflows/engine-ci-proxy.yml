@@ -2,49 +2,32 @@ name: Engine CI Proxy
 
 on:
   push:
-    branches: ["analytics/retention-v2-m0-health"]
+    branches: ["main"]
     paths:
       - ".github/workflows/engine-ci-proxy.yml"
+      - "scripts/task_level_planner_router.py"
+      - "scripts/voice_mesh.py"
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  statuses: write
-
-concurrency:
-  group: analytics-m01-production-observer-verification
-  cancel-in-progress: true
+  contents: read
 
 jobs:
-  verify-m01:
+  test-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
-      - name: Mark M0.1 verification started
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python - <<'PY'
-          import json, os, urllib.request
-          body = json.dumps({"state":"pending","context":"analytics-m01-start","description":"M0.1 verification started"}).encode()
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",
-              data=body, method="POST",
-              headers={"Authorization":f"Bearer {os.environ['GH_TOKEN']}","Accept":"application/vnd.github+json","Content-Type":"application/json"},
-          )
-          urllib.request.urlopen(req, timeout=20).read()
-          PY
-
-      - name: Checkout runner diagnostic branch
+      - name: Checkout runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: true
+          persist-credentials: false
           fetch-depth: 1
 
-      - name: Checkout private Engine M0.1
+      - name: Checkout private engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 11046af6351a71cbaf3261756c73cc35f46d24da
+          ref: a2fb670a9da88ca22b2014c83c78c6ab5a10f850
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -54,8 +37,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install locked Engine verification runtime
-        id: install
+      - name: Install test dependencies
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -65,257 +47,50 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Run M0.1 targeted tests
-        id: targeted
-        if: always()
-        working-directory: engine
+      - name: Run engine tests
         run: |
           set -euo pipefail
-          python -m unittest discover -s tests -p 'test_youtube_production_observer_credentials.py' -v
-          python -m unittest discover -s tests -p 'test_youtube_analytics_learning.py' -v
+          cd engine
+          python -m unittest discover -s tests -v
 
-      - name: Publish targeted status
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OUTCOME: ${{ steps.targeted.outcome }}
-        run: |
-          python - <<'PY'
-          import json, os, urllib.request
-          outcome=os.environ.get('OUTCOME') or 'missing'
-          body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':'analytics-m01-targeted','description':outcome}).encode()
-          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
-          urllib.request.urlopen(req,timeout=20).read()
-          PY
-
-      - name: Run full Engine suite
-        id: full
-        if: always()
-        working-directory: engine
+      - name: Verify identity, visual scoring, and hook contracts
         run: |
           set -euo pipefail
-          python -m unittest discover -s tests -q
-
-      - name: Publish full-suite status
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OUTCOME: ${{ steps.full.outcome }}
-        run: |
-          python - <<'PY'
-          import json, os, urllib.request
-          outcome=os.environ.get('OUTCOME') or 'missing'
-          body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':'analytics-m01-full-suite','description':outcome}).encode()
-          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
-          urllib.request.urlopen(req,timeout=20).read()
-          PY
-
-      - name: Select known Video ID from prior M0 evidence
-        id: binding
-        if: always()
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os
+          python -m py_compile scripts/task_level_planner_router.py scripts/voice_mesh.py
+          PYTHONPATH="engine/src:scripts" python - <<'PY'
           from pathlib import Path
-          data=json.loads(Path('verification/analytics-retention-m0-bound.json').read_text(encoding='utf-8'))
-          video_id=str(data.get('binding_evidence',{}).get('video_id','')).strip()
-          if not video_id: raise SystemExit('Prior M0 evidence contains no known video ID')
-          with Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8') as fh: fh.write(f'video_id={video_id}\n')
-          print('Known M0 video binding loaded.')
+          import task_level_planner_router as router
+          import voice_mesh
+          from isco_video_agent.providers.gemini import _speech_config, _voice_identity
+          from isco_video_agent.orchestrator import _visual_fit_score
+
+          assert voice_mesh.DIALOGUE_QUESTIONER_VOICE == "Iapetus"
+          assert voice_mesh.DIALOGUE_RESPONDER_VOICE == "Gacrux"
+          assert _voice_identity("RandomVoice") == ("Gacrux", "Iapetus")
+          assert _speech_config("A: لماذا؟\nB: لأن الفكرة أعمق.", "RandomVoice") == [
+              {"speaker": "A", "voice": "Iapetus"},
+              {"speaker": "B", "voice": "Gacrux"},
+          ]
+          assert _visual_fit_score({"relevance": 0.87}) == 8.7
+          assert _visual_fit_score({"relevance": 2}) == 10.0
+          assert _visual_fit_score({"relevance": 0}) == 1.0
+
+          planner = Path("engine/src/isco_video_agent/planner.py").read_text(encoding="utf-8")
+          assert "section s1 has a hard retention contract" in planner
+          assert "a direct question" in planner
+          assert "a bold but" in planner
+          assert "clear tease of the concrete insight/result" in planner
+          assert "No scene-setting, greeting, biography, abstract reflection, throat-clearing" in planner
+          assert "s1's first spoken sentence must still be one strong direct question" in planner
+          print("Identity, smart visual scoring, and s1 hook contracts PASS")
           PY
 
-      - name: Materialize unchanged YouTube credentials
-        id: creds
-        if: always()
-        env:
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      - name: Verify no paid API use
         run: |
           set -euo pipefail
-          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN YOUTUBE_API_KEY; do test -n "${!name}"; done
-          umask 077
-          mkdir -p "$RUNNER_TEMP/m01-youtube"
-          printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/m01-youtube/client-id"
-          printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/m01-youtube/client-secret"
-          printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/m01-youtube/refresh-token"
-          printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/m01-youtube/api-key"
-
-      - name: Live read-only Production Observer credential verification
-        id: live
-        if: always()
-        continue-on-error: true
-        working-directory: engine
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src
-          VIDEO_ID: ${{ steps.binding.outputs.video_id }}
-          CID_FILE: ${{ runner.temp }}/m01-youtube/client-id
-          CLIENT_SECRET_FILE: ${{ runner.temp }}/m01-youtube/client-secret
-          REFRESH_FILE: ${{ runner.temp }}/m01-youtube/refresh-token
-          API_KEY_FILE: ${{ runner.temp }}/m01-youtube/api-key
-          ISCO_HISTORY_PATH: ${{ runner.temp }}/m01-observer-history.json
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os
-          from datetime import datetime, timedelta, timezone
-          from pathlib import Path
-          import requests
-          from isco_video_agent.youtube_analytics import (
-              ANALYTICS_URL, _auth_headers, _base_metrics, _json_response,
-              _published_video_by_id, _refresh_access_token,
-              collect_latest_video_metrics_from_env,
-          )
-          from isco_video_agent.youtube_backfill_session import YouTubeBackfillReadSession
-
-          video_id=(os.environ.get('VIDEO_ID') or '').strip()
-          if not video_id: raise SystemExit('No known video ID was provided')
-          paths={
-              'cid':Path(os.environ['CID_FILE']),
-              'secret':Path(os.environ['CLIENT_SECRET_FILE']),
-              'refresh':Path(os.environ['REFRESH_FILE']),
-              'key':Path(os.environ['API_KEY_FILE']),
-          }
-          client_id=paths['cid'].read_text(encoding='utf-8').strip()
-          client_secret=paths['secret'].read_text(encoding='utf-8').strip()
-          refresh_token=paths['refresh'].read_text(encoding='utf-8').strip()
-          api_key=paths['key'].read_text(encoding='utf-8').strip()
-
-          os.environ['YOUTUBE_CLIENT_ID_FILE']=str(paths['cid'])
-          os.environ['YOUTUBE_CLIENT_SECRET_FILE']=str(paths['secret'])
-          os.environ['YOUTUBE_REFRESH_TOKEN_FILE']=str(paths['refresh'])
-          os.environ['YOUTUBE_API_KEY_FILE']=str(paths['key'])
-          observer=collect_latest_video_metrics_from_env(
-              format_hint='film', expected_video_id=video_id,
-              production_id='m0.1:live:diagnostic',
-              binding_source='m0.1_read_only_verification', session=requests,
-          )
-
-          aligned=YouTubeBackfillReadSession(api_key=api_key,base_session=requests)
-          report={
-              'schema_version':1,
-              'mode':'M0.1_production_observer_credential_alignment',
-              'video_id':video_id,
-              'credential_route':{
-                  'video_metadata':'youtube_data_api_key',
-                  'analytics_base':'oauth_refresh_token',
-                  'retention':'oauth_refresh_token',
-              },
-              'observer':{'status':'failed'},
-              'video_probe':{'status':'not_attempted'},
-              'analytics':{'status':'not_attempted'},
-              'retention':{'status':'not_attempted','points_received':0},
-              'secrets_changed':False,
-              'production_run_started':False,
-              'stores_retention_curve':False,
-              'production_influence':'none',
-          }
-          if isinstance(observer,dict):
-              report['observer']={
-                  'status':'ok','video_id':observer.get('video_id'),
-                  'content_style':observer.get('content_style'),
-                  'classification_status':observer.get('classification_status'),
-                  'production_id':observer.get('production_id'),
-                  'binding_source':observer.get('binding_source'),
-                  'first_30s_present':'first_30s_retention' in (observer.get('metrics') or {}),
-              }
-          else:
-              report['observer']={'status':'failed','reason':'observer_returned_none'}
-
-          access_token=_refresh_access_token(client_id,client_secret,refresh_token,session=aligned)
-          video=_published_video_by_id(access_token,video_id,session=aligned)
-          if video is not None:
-              report['video_probe']={'status':'ok','video_id':video.get('video_id'),'duration_seconds':video.get('duration_seconds')}
-              metrics=_base_metrics(access_token,video_id=video_id,published_at=video.get('published_at'),session=aligned)
-              report['analytics']={'status':'ok' if metrics else 'failed','metrics_returned':sorted(metrics)}
-              current=datetime.now(timezone.utc); end_date=current.date()-timedelta(days=1)
-              published_at=video.get('published_at'); start_date=published_at.date() if published_at else end_date-timedelta(days=365)
-              retention=_json_response(aligned.get(
-                  ANALYTICS_URL,
-                  headers=_auth_headers(access_token),
-                  params={
-                      'ids':'channel==MINE','startDate':start_date.isoformat(),'endDate':end_date.isoformat(),
-                      'dimensions':'elapsedVideoTimeRatio','metrics':'audienceWatchRatio',
-                      'filters':f'video=={video_id}','sort':'elapsedVideoTimeRatio','maxResults':200,
-                  }, timeout=25,
-              ),label='M0.1 retention verification')
-              rows=retention.get('rows'); headers=retention.get('columnHeaders')
-              points=len(rows) if isinstance(rows,list) else 0
-              names=[str(x.get('name','')) for x in headers if isinstance(x,dict)] if isinstance(headers,list) else []
-              report['retention']={'status':'ok' if points==100 else 'failed','points_received':points,'metrics_returned':names}
-          else:
-              report['video_probe']={'status':'failed'}
-
-          out=Path(os.environ['RUNNER_TEMP'])/'analytics-retention-m01-live.json'
-          out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
-          required=(
-              report['observer'].get('status')=='ok'
-              and report['observer'].get('video_id')==video_id
-              and report['observer'].get('content_style')=='agent_produced'
-              and report['observer'].get('classification_status')=='verified'
-              and report['observer'].get('production_id')=='m0.1:live:diagnostic'
-              and report['observer'].get('binding_source')=='m0.1_read_only_verification'
-              and report['video_probe'].get('status')=='ok'
-              and report['video_probe'].get('video_id')==video_id
-              and report['analytics'].get('status')=='ok'
-              and report['retention'].get('status')=='ok'
-              and report['retention'].get('points_received')==100
-          )
-          print(json.dumps({'observer':report['observer'].get('status'),'video_probe':report['video_probe'].get('status'),'analytics':report['analytics'].get('status'),'retention':report['retention'].get('status'),'points_received':report['retention'].get('points_received')},sort_keys=True))
-          if not required: raise SystemExit('M0.1 live verification contract failed')
-          PY
-
-      - name: Publish live status
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OUTCOME: ${{ steps.live.outcome }}
-        run: |
-          python - <<'PY'
-          import json, os, urllib.request
-          outcome=os.environ.get('OUTCOME') or 'missing'
-          body=json.dumps({'state':'success' if outcome=='success' else 'failure','context':'analytics-m01-live','description':outcome}).encode()
-          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/statuses/{os.environ['GITHUB_SHA']}",data=body,method='POST',headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json'})
-          urllib.request.urlopen(req,timeout=20).read()
-          PY
-
-      - name: Persist sanitized M0.1 evidence
-        if: always()
-        env:
-          TARGETED: ${{ steps.targeted.outcome }}
-          FULL: ${{ steps.full.outcome }}
-          LIVE: ${{ steps.live.outcome }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          src=Path(os.environ['RUNNER_TEMP'])/'analytics-retention-m01-live.json'
-          try: report=json.loads(src.read_text(encoding='utf-8'))
-          except Exception: report={'schema_version':1,'mode':'M0.1_production_observer_credential_alignment','status':'live_report_missing'}
-          report['engine_sha']='11046af6351a71cbaf3261756c73cc35f46d24da'
-          report['targeted_tests']=os.environ.get('TARGETED') or 'not_run'
-          report['full_suite']=os.environ.get('FULL') or 'not_run'
-          report['live_step']=os.environ.get('LIVE') or 'not_run'
-          report['secrets_changed']=False;report['production_run_started']=False
-          out=Path('verification/analytics-retention-m0.1-live.json');out.parent.mkdir(parents=True,exist_ok=True);out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
-          PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add verification/analytics-retention-m0.1-live.json
-          git commit -m "ci: record M0.1 observer credential verification" || true
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-
-      - name: Enforce M0.1 verification
-        if: always()
-        env:
-          TARGETED: ${{ steps.targeted.outcome }}
-          FULL: ${{ steps.full.outcome }}
-          LIVE: ${{ steps.live.outcome }}
-        run: |
-          set -euo pipefail
-          test "$TARGETED" = "success"
-          test "$FULL" = "success"
-          test "$LIVE" = "success"
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+          test -z "${PEXELS_API_KEY:-}"
+          test -z "${PIXABAY_API_KEY:-}"
+          echo "No provider API credentials exposed to test job"
