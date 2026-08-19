@@ -20,7 +20,7 @@ jobs:
       - name: Checkout runner guard branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: fix/run54-spoken-hook-novelty
+          ref: fix/run54-tone-directive-guard
           persist-credentials: false
           fetch-depth: 1
 
@@ -66,10 +66,14 @@ jobs:
           PYTHONPATH="engine/src:scripts" python - <<'PY'
           from pathlib import Path
           import voice_mesh
-          from planner_quality_guard import _safe_opening_visual_query, _spoken_hook
+          from planner_quality_guard import _neutralize_harsh_directives, _safe_opening_visual_query
           from isco_video_agent.providers.gemini import _speech_config, _voice_identity
           from isco_video_agent.orchestrator import _visual_fit_score
 
+          assert _neutralize_harsh_directives(
+              "افطم نفسك تدريجيًا عن هذا المراقبة المستمرة."
+          ) == "يمكنك أن تقلل تدريجيًا من هذه المراقبة المستمرة."
+          assert _neutralize_harsh_directives("جرب أن تدوّن الفكرة.") == "جرب أن تدوّن الفكرة."
           assert _safe_opening_visual_query(
               "person sitting by wooden table in sunlit room looking pensively at empty notebook"
           ) == "table room notebook"
@@ -91,7 +95,7 @@ jobs:
           assert "clear tease of the concrete insight/result" in planner
           assert "No scene-setting, greeting, biography, abstract reflection, throat-clearing" in planner
           assert "s1's first spoken sentence must still be one strong direct question" in planner
-          print("Run54 spoken-hook, visual guard, identity, scoring, and s1 contracts PASS")
+          print("Run54 tone, visual guard, identity, scoring, and s1 contracts PASS")
           PY
 
       - name: Verify no paid API use
