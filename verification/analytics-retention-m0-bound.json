@@ -108,5 +108,46 @@
     },
     "production_influence": "none",
     "stores_retention_curve": false
+  },
+  "direct_retry_step": "success",
+  "direct_analytics_retry": {
+    "schema_version": 1,
+    "mode": "read_only_direct_analytics_health",
+    "observed_at": "2026-08-19T17:15:12.377567+00:00",
+    "video_id": "e_I6g1qt4xg",
+    "auth": {
+      "status": "ok",
+      "error_class": null,
+      "http_status": 200,
+      "api_reason": null
+    },
+    "base_analytics": {
+      "query_status": "ok",
+      "data_status": "ok",
+      "metrics_returned": [
+        "views",
+        "estimatedMinutesWatched",
+        "averageViewDuration",
+        "averageViewPercentage",
+        "subscribersGained"
+      ],
+      "error_class": null,
+      "http_status": 200,
+      "api_reason": null
+    },
+    "retention": {
+      "query_status": "ok",
+      "curve_status": "complete",
+      "points_received": 100,
+      "metrics_returned": [
+        "elapsedVideoTimeRatio",
+        "audienceWatchRatio"
+      ],
+      "error_class": null,
+      "http_status": 200,
+      "api_reason": null
+    },
+    "production_influence": "none",
+    "stores_retention_curve": false
   }
 }
