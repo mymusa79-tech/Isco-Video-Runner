@@ -42,14 +42,13 @@ jobs:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           set -euo pipefail
-          for name in YOUTUBE_CLIENT_ID YOUTUBE_CLIENT_SECRET YOUTUBE_REFRESH_TOKEN YOUTUBE_API_KEY; do test -n "${!name}"; done
           umask 077
           mkdir -p "$RUNNER_TEMP/m1-youtube"
           printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/m1-youtube/client-id"
           printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/m1-youtube/client-secret"
           printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/m1-youtube/refresh-token"
           printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/m1-youtube/api-key"
-      - name: Diagnose live stages safely
+      - name: Capture curve and storage failure safely
         working-directory: engine
         env:
           CID_FILE: ${{ runner.temp }}/m1-youtube/client-id
@@ -64,30 +63,18 @@ jobs:
           import json, os
           from pathlib import Path
           import requests
-          from isco_video_agent.youtube_analytics import ANALYTICS_URL, TOKEN_URL, VIDEOS_URL, collect_latest_video_metrics_from_env
-
-          def safe_error(response):
-              try:
-                  payload=response.json()
-              except Exception:
-                  return None
-              err=payload.get('error') if isinstance(payload,dict) else None
-              if not isinstance(err,dict): return None
-              reasons=[]
-              for item in err.get('errors',[]):
-                  if isinstance(item,dict) and item.get('reason'): reasons.append(str(item['reason']))
-              return {'code':err.get('code'),'reasons':reasons,'message':str(err.get('message',''))[:240]}
+          import isco_video_agent.youtube_analytics as ya
 
           class RecordingSession:
               def __init__(self): self.calls=[]
               def _record(self,method,url,kwargs,response):
                   params=kwargs.get('params',{}) or {}
                   kind='other'
-                  if url==TOKEN_URL: kind='oauth_refresh'
-                  elif url==VIDEOS_URL: kind='video_probe'
-                  elif url==ANALYTICS_URL and params.get('dimensions')=='elapsedVideoTimeRatio': kind='retention'
-                  elif url==ANALYTICS_URL: kind='base_analytics'
-                  self.calls.append({'kind':kind,'method':method,'status':response.status_code,'error':safe_error(response)})
+                  if url==ya.TOKEN_URL: kind='oauth_refresh'
+                  elif url==ya.VIDEOS_URL: kind='video_probe'
+                  elif url==ya.ANALYTICS_URL and params.get('dimensions')=='elapsedVideoTimeRatio': kind='retention'
+                  elif url==ya.ANALYTICS_URL: kind='base_analytics'
+                  self.calls.append({'kind':kind,'method':method,'status':response.status_code})
               def post(self,url,**kwargs):
                   r=requests.post(url,**kwargs); self._record('POST',url,kwargs,r); return r
               def get(self,url,**kwargs):
@@ -102,19 +89,39 @@ jobs:
           secret_values=[p.read_text(encoding='utf-8').strip() for p in files.values()]
           for name,path in files.items(): os.environ[name]=str(path)
           os.environ['ISCO_RETENTION_STORAGE_ROOT']=os.environ['RETENTION_ROOT']
+
+          capture={}
+          real_persist=ya.persist_retention_observation
+          def wrapped_persist(**kwargs):
+              curve=kwargs.get('curve') or {}
+              capture['curve']={
+                  'status':curve.get('status'),
+                  'points_received':curve.get('points_received'),
+                  'response_rows_received':curve.get('response_rows_received'),
+                  'invalid_rows_dropped':curve.get('invalid_rows_dropped'),
+                  'metrics_returned':curve.get('metrics_returned'),
+                  'missing_metrics':curve.get('missing_metrics'),
+                  'first_point':(curve.get('points') or [None])[0],
+              }
+              try:
+                  result=real_persist(**kwargs)
+                  capture['persist_result']=result
+                  return result
+              except Exception as exc:
+                  capture['storage_error']={'type':type(exc).__name__,'message':str(exc)[:300]}
+                  raise
+          ya.persist_retention_observation=wrapped_persist
+
           session=RecordingSession()
-          result=collect_latest_video_metrics_from_env(format_hint='film',expected_video_id='e_I6g1qt4xg',session=session)
+          result=ya.collect_latest_video_metrics_from_env(format_hint='film',expected_video_id='e_I6g1qt4xg',session=session)
           sidecar=Path(os.environ['RETENTION_ROOT'])/'unverified'/'e_I6g1qt4xg.json'
           report={
               'engine_sha':'34ae246bd65c3ebf6cfec72a2968dde3cdac2f83',
               'observer_returned':isinstance(result,dict),
               'calls':session.calls,
               'sidecar_exists':sidecar.exists(),
+              **capture,
           }
-          if sidecar.exists():
-              data=json.loads(sidecar.read_text(encoding='utf-8'))
-              obs=(data.get('observations') or [{}])[-1]
-              report['sidecar']={'isolation':data.get('isolation'),'points_received':obs.get('points_received'),'curve_status':obs.get('curve_status'),'metrics_returned':obs.get('metrics_returned'),'missing_metrics':obs.get('missing_metrics')}
           text=json.dumps(report,ensure_ascii=False,indent=2,sort_keys=True)+'\n'
           for value in secret_values:
               if value and value in text: raise SystemExit('secret leakage in diagnostic')
@@ -127,5 +134,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add verification/retention-m1-live-diagnostic.json
-          git commit -m "verify: capture M1 live diagnostic"
+          git commit -m "verify: isolate M1 storage failure"
           git push origin HEAD:analytics/retention-v2-m1-verification
