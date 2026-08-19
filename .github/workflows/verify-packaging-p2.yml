@@ -1,0 +1,159 @@
+name: Verify Packaging Director P2
+
+on:
+  push:
+    branches: ["ci/verify-packaging-p2"]
+  pull_request:
+    branches: ["p0e/packaging-artifact-delivery"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Runner P0-E stack
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact Engine P2 candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 167dbbaf3fa2e3db320b6f80164d97754018ef06
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Packaging P0 plus P1 plus P2 tests
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_thumbnail_cultural_safety \
+            tests.test_thumbnail_packaging_contract \
+            tests.test_thumbnail_batch_review \
+            tests.test_thumbnail_candidate_board \
+            tests.test_thumbnail_pixabay_fallback \
+            tests.test_packaging_identity_integrity_p1 \
+            tests.test_thumbnail_renderer_p1 \
+            tests.test_youtube_packaging_reporting_p1 \
+            tests.test_packaging_early_brief_p2 \
+            tests.test_packaging_experiments_p2 \
+            tests.test_packaging_learning_p2 \
+            tests.test_packaging_benchmark_p2 \
+            -v
+
+      - name: Verify Gold and P0-E regressions
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            scripts.test_gold_shadow_phase2b \
+            scripts.test_gold_single_evaluator_phase3 \
+            scripts.test_gold_enforce_phase4 \
+            scripts.test_thumbnail_pixabay_bridge_p0d \
+            scripts.test_packaging_artifact_delivery_p0e \
+            -v
+
+      - name: Prove P2 authority and budget invariants
+        env:
+          PYTHONPATH: engine/src:.
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import inspect
+          import isco_video_agent.thumbnail as thumbnail
+          import isco_video_agent.packaging_early_brief as early
+          import isco_video_agent.packaging_learning as learning
+          import isco_video_agent.packaging_benchmark as benchmark
+
+          sig = inspect.signature(thumbnail.build_thumbnail_package)
+          assert list(sig.parameters) == ["gemini_key", "pexels_key", "plan", "output_dir", "model", "pixabay_key"], sig
+          assert sig.parameters["pixabay_key"].default is None
+          assert thumbnail.MAX_VISUAL_CANDIDATES_PER_HYPOTHESIS == 6
+          policy = learning.load_packaging_learning_policy()
+          assert policy["mode"] == "recommendation_only"
+          assert policy["automatic_production_influence"] is False
+          assert policy["variant_attribution"] == "manual_studio_only"
+          assert policy["video_metrics_role"] == "context_only"
+          assert policy["early_brief"]["enabled_by_default"] is False
+          assert policy["early_brief"]["max_provider_calls_per_invocation"] == 1
+          assert policy["benchmark"]["live_provider_calls"] is False
+          assert "json_text" in inspect.getsource(early.build_early_packaging_brief)
+          assert "release_authority" in inspect.getsource(early.build_early_packaging_brief)
+          assert "automatic_production_influence" in inspect.getsource(learning.analyze_packaging_experiments)
+          assert "live_provider_calls" in inspect.getsource(benchmark.score_packaging_package)
+          print("P2 invariants PASS: early brief opt-in, learning recommendation-only, manual Studio attribution, benchmark zero-call")
+          PY
+
+      - name: Verify exact P2 isolation boundary
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git diff --check 9ecd17ee1aef2e86d8f0cb4072da33c400473009..167dbbaf3fa2e3db320b6f80164d97754018ef06
+          actual="$(git diff --name-only 9ecd17ee1aef2e86d8f0cb4072da33c400473009..167dbbaf3fa2e3db320b6f80164d97754018ef06 | sort)"
+          expected="$(printf '%s\n' \
+            config/packaging_learning.json \
+            src/isco_video_agent/packaging_benchmark.py \
+            src/isco_video_agent/packaging_early_brief.py \
+            src/isco_video_agent/packaging_experiments.py \
+            src/isco_video_agent/packaging_learning.py \
+            tests/test_packaging_benchmark_p2.py \
+            tests/test_packaging_early_brief_p2.py \
+            tests/test_packaging_experiments_p2.py \
+            tests/test_packaging_learning_p2.py | sort)"
+          printf 'ACTUAL\n%s\nEXPECTED\n%s\n' "$actual" "$expected"
+          test "$actual" = "$expected"
+          ! grep -qx 'src/isco_video_agent/learning.py' <<<"$actual"
+          ! grep -qx 'src/isco_video_agent/analytics_insights.py' <<<"$actual"
+          ! grep -qx 'src/isco_video_agent/thumbnail.py' <<<"$actual"
+          ! grep -qx 'src/isco_video_agent/orchestrator.py' <<<"$actual"
+          ! grep -qx 'src/isco_video_agent/production_pipeline.py' <<<"$actual"
+          ! grep -qx 'src/isco_video_agent/gold_finalizer.py' <<<"$actual"
+          echo "P2 isolation PASS: nine Packaging-owned new files only; Analytics/Cinematic/Gold/production untouched"
+
+      - name: Full Engine regression suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Confirm verifier cannot run production
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path('.github/workflows/verify-packaging-p2.yml').read_text(encoding='utf-8')
+          secret_refs = set(re.findall(r"\$\{\{\s*secrets\.([A-Z0-9_]+)\s*\}\}", text))
+          unexpected = secret_refs - {"PRIVATE_SOURCE_TOKEN"}
+          assert not unexpected, sorted(unexpected)
+          production_entrypoints = ["run_" + "v3_voice.py", "produce-" + "resilient-v4.yml"]
+          for item in production_entrypoints:
+              assert item not in text, item
+          print("Verifier safety PASS: no provider credentials and no production entrypoint/dispatch")
+          PY
