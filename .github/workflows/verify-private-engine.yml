@@ -1,7 +1,15 @@
+# Retry marker: final cinematic verification head b3ca55a; dry-run smoke tests explicitly ignore the committed production brief.
 name: Verify Private Engine
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/verify-private-engine.yml
+      - scripts/voice_mesh.py
+      - scripts/test_voice_mesh.py
 
 permissions:
   contents: read
@@ -9,13 +17,20 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
+      - name: Checkout runner verification branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: runner
+          persist-credentials: false
+          fetch-depth: 1
+
       - name: Checkout private engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 791aefe8f268bb4b18eec650941119d90026c946
+          ref: b3ca55aad38aa98a3f217a8d44ca2fab5718949a
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -37,16 +52,56 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
+      - name: Runner voice-mesh regression tests
+        working-directory: runner
+        run: python -m unittest scripts.test_voice_mesh -v
+
+      - name: Diagnostic M3 color tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m3_color -v
+
+      - name: Diagnostic M4 voice pacing tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m4_voice_pacing -v
+
+      - name: Diagnostic M5 outro tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m5_outro -v
+
+      - name: Diagnostic M6 opening media tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m6_opening -v
+
+      - name: Diagnostic M6 opening selection tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m6_opening_selection -v
+
+      - name: Diagnostic M6 final critic auxiliary tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_m6_final_critic_auxiliary -v
+
+      - name: Diagnostic media regression tests
+        working-directory: engine
+        run: python -m unittest tests.test_media -v
+
       - name: Unit and media tests
         working-directory: engine
         run: python -m unittest discover -s tests -q
 
+      # Smoke tests must validate the CLI's dry-run fallback paths, not the current
+      # production/approved_brief.json.  Pointing at an intentionally absent fixture
+      # makes load_approved_brief(required=False) return None without weakening the
+      # real-production approval requirement (required=True outside --dry-run).
       - name: Dry-run orchestration with explicit topic
         working-directory: engine
+        env:
+          ISCO_APPROVED_BRIEF_PATH: /tmp/isco-verifier-no-approved-brief.json
         run: isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
 
       - name: Dry-run autonomous topic selection
         working-directory: engine
+        env:
+          ISCO_APPROVED_BRIEF_PATH: /tmp/isco-verifier-no-approved-brief.json
         run: isco-video produce --format auto --dry-run --no-research
 
   dependency-audit:
@@ -57,7 +112,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 791aefe8f268bb4b18eec650941119d90026c946
+          ref: b3ca55aad38aa98a3f217a8d44ca2fab5718949a
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
