@@ -3,6 +3,8 @@ name: Verify Thumbnail Packaging P0-B
 on:
   push:
     branches: ["ci/verify-thumbnail-packaging-p0b"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
