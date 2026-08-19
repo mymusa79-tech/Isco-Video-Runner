@@ -1,0 +1,46 @@
+name: Run54 Engine Pin Updater
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/run54-pin-updater.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  update-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Replace verified Engine SHA exactly twice
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          old = 'cd436e97eac4eafdb6e57bce93ad21b5a534f626'
+          new = '5e2baf0c17ad04d14844b3f2cca21b774f643a23'
+          text = path.read_text(encoding='utf-8')
+          count = text.count(old)
+          if count != 2:
+              raise SystemExit(f'Expected exactly 2 old Engine SHA occurrences, found {count}')
+          updated = text.replace(old, new)
+          if updated.count(new) != 2:
+              raise SystemExit('New Engine SHA count is not exactly 2 after replacement')
+          path.write_text(updated, encoding='utf-8')
+          print('Engine pin replacement validated: 2/2')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/produce-resilient-v4.yml
+          git diff --cached --check
+          git diff --cached --exit-code && { echo 'No pin change staged'; exit 1; } || true
+          git commit -m 'integration: pin V4 to Run 54 novelty recovery'
+          git push origin HEAD:main
