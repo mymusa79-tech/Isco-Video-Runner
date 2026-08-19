@@ -1,0 +1,64 @@
+name: Verify Packaging P0-E Delivery
+
+on:
+  pull_request:
+    branches: ["ci/p0e-packaging-verifier-base"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout verifier head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Packaging delivery contract tests
+        run: |
+          set -euo pipefail
+          python -m py_compile scripts/packaging_delivery_contract.py
+          python -m unittest scripts.test_packaging_artifact_delivery_p0e -v
+
+      - name: Workflow syntax and production-trigger isolation
+        run: |
+          set -euo pipefail
+          ruby -e "require 'psych'; Psych.parse_file('.github/workflows/produce-resilient-v4.yml'); puts 'Workflow YAML syntax: PASS'"
+          python - <<'PY'
+          from pathlib import Path
+          workflow = Path('.github/workflows/produce-resilient-v4.yml').read_text(encoding='utf-8')
+          trigger = workflow.split('concurrency:', 1)[0]
+          assert 'branches: ["main"]' in trigger
+          assert 'p0e/packaging-artifact-delivery' not in trigger
+          assert 'workflow_run:' not in trigger
+          assert 'pull_request:' not in trigger
+          assert '- ".github/workflows/produce-resilient-v4.yml"' not in trigger
+          print('Production trigger isolation: PASS')
+          PY
+
+      - name: Exact P0-E diff boundary
+        env:
+          P0D_BASE: 928008e53e8e0ab010568b5eec2fc08c4bf0a79d
+          P0E_HEAD: e4b235ea3b83c0db5f8c306b3cef9f11f18f7976
+        run: |
+          set -euo pipefail
+          expected=".github/workflows/produce-resilient-v4.yml
+          scripts/packaging_delivery_contract.py
+          scripts/test_packaging_artifact_delivery_p0e.py"
+          actual="$(git diff --name-only "$P0D_BASE" "$P0E_HEAD")"
+          test "$actual" = "$expected"
+          git diff --check "$P0D_BASE" "$P0E_HEAD"
+          if git diff --name-only "$P0D_BASE" "$P0E_HEAD" | grep -Eq '(^|/)(run_v3_voice.py|gold_enforce_phase4.py|gold_thumbnail_budget.py)$'; then
+            echo 'P0-E touched a Gold/production execution seam unexpectedly' >&2
+            exit 1
+          fi
+          echo 'P0-E exact three-file boundary: PASS'
