@@ -1,14 +1,22 @@
-name: P0-C Migration Contract Freeze
+name: P0-C Phase 2A Gold Shadow Verification
 
 on:
   push:
-    branches: ["p0c/phase1-extract-gold-finalizer"]
+    branches: ["p0c/phase2a-gold-shadow-critic"]
     paths:
+      - "scripts/gold_shadow_phase2a.py"
+      - "scripts/run_v3_voice.py"
+      - "scripts/test_gold_shadow_phase2a.py"
       - "scripts/test_p0c_migration_contracts.py"
+      - "scripts/test_run_v3_voice.py"
       - ".github/workflows/p0c-migration-contracts.yml"
   pull_request:
     paths:
+      - "scripts/gold_shadow_phase2a.py"
+      - "scripts/run_v3_voice.py"
+      - "scripts/test_gold_shadow_phase2a.py"
       - "scripts/test_p0c_migration_contracts.py"
+      - "scripts/test_run_v3_voice.py"
       - ".github/workflows/p0c-migration-contracts.yml"
   workflow_dispatch:
 
@@ -20,17 +28,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout Runner contract branch
+      - name: Checkout Runner Phase 2A branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Checkout private Engine Phase 1 head
+      - name: Checkout private Engine Phase 2A head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 2c760411818393c9f37fd63dade73515729fc2d2
+          ref: 3ee78472ae187644b4d1e623a36f0176e9827ea3
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -39,7 +47,7 @@ jobs:
       - name: Verify pinned Engine head
         run: |
           set -euo pipefail
-          test "$(git -C engine rev-parse HEAD)" = "2c760411818393c9f37fd63dade73515729fc2d2"
+          test "$(git -C engine rev-parse HEAD)" = "3ee78472ae187644b4d1e623a36f0176e9827ea3"
           echo "Engine HEAD: $(git -C engine rev-parse HEAD)"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -65,13 +73,19 @@ jobs:
           python -m pip install --timeout 30 --retries 3 --no-build-isolation --no-deps -e .
           python -m pip check
 
+      - name: Run Engine P0-C Migration Contracts
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m unittest tests.test_p0c_migration_contracts -v
+
       - name: Run full private Engine suite
         run: |
           set -euo pipefail
           cd engine
           python -m unittest discover -s tests -v
 
-      - name: Run 16 P0-C Migration Contracts
+      - name: Run Runner P0-C Migration Contracts
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
@@ -92,15 +106,17 @@ jobs:
           printf '  %s\n' "${test_modules[@]}"
           python -m unittest "${test_modules[@]}" -v
 
-      - name: Compile migration-sensitive Runner adapters
+      - name: Compile migration-sensitive adapters
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
           python -m py_compile \
+            scripts/gold_shadow_phase2a.py \
             scripts/run_v3_voice.py \
             scripts/task_level_planner_router.py \
             scripts/voice_mesh.py \
+            scripts/test_gold_shadow_phase2a.py \
             scripts/test_p0c_migration_contracts.py
 
       - name: Verify provider credentials are absent
@@ -111,4 +127,4 @@ jobs:
           test -z "${OPENROUTER_API_KEY:-}"
           test -z "${PEXELS_API_KEY:-}"
           test -z "${PIXABAY_API_KEY:-}"
-          echo "P0-C contract job exposed no provider API credentials"
+          echo "P0-C Phase 2A verifier exposed no provider API credentials"
