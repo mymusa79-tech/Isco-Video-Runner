@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: e074fd9bb942c263c9ef595438b3cf22cd55b55b
+          ref: cd436e97eac4eafdb6e57bce93ad21b5a534f626
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -65,7 +65,7 @@ jobs:
           text = path.read_text(encoding='utf-8')
           if not isinstance(yaml.safe_load(text), dict):
               raise SystemExit('V4 workflow did not parse as a YAML mapping')
-          current = 'e074fd9bb942c263c9ef595438b3cf22cd55b55b'
+          current = 'cd436e97eac4eafdb6e57bce93ad21b5a534f626'
           if text.count(current) != 2:
               raise SystemExit(f'Expected current Engine SHA twice in V4, found {text.count(current)}')
           print('V4 Engine pin contract OK:', current)
