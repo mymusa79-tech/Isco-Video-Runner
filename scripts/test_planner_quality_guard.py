@@ -13,6 +13,7 @@ import isco_video_agent.resilient_planner as staged
 from scripts.planner_quality_guard import (
     _QUESTION_ANSWER_RUNTIME_RULE,
     _first_spoken_sentence,
+    _neutralize_harsh_directives,
     _safe_opening_visual_query,
     _single_use_transition_slots,
     _spoken_hook,
@@ -32,13 +33,19 @@ RUN54_CURRENT_SPOKEN_HOOK = (
     "هل جربت يومًا أن تنهي مكالمة عمل أو نقاشًا عاديًا، ثم تقضي بقية يومك "
     "تراجع كل كلمة تفوهت بها كأنك تقف أمام لجنة تأديبية؟"
 )
+RUN54_BLOCKED_TONE_SENTENCE = (
+    "افطم نفسك تدريجيًا عن هذا المراقبة المستمرة، واستعد زمام حواسك لتكون حاضرًا فيما تفعله هنا والآن."
+)
+RUN54_NEUTRAL_TONE_SENTENCE = (
+    "يمكنك أن تقلل تدريجيًا من هذه المراقبة المستمرة، واستعد زمام حواسك لتكون حاضرًا فيما تفعله هنا والآن."
+)
 
 
 def _plan(*, metadata_hook: str = RUN54_CURRENT_METADATA_HOOK, narration: str = RUN54_CURRENT_SPOKEN_HOOK):
     return SimpleNamespace(
         topic="صوت الآخرين في رأسك",
         hook=metadata_hook,
-        sections=[SimpleNamespace(narration=narration, visual_query="table room notebook")],
+        sections=[SimpleNamespace(id="sec_1", narration=narration, visual_query="table room notebook")],
     )
 
 
@@ -97,6 +104,52 @@ class PlannerQualityGuardTests(unittest.TestCase):
             "quiet room natural light",
         )
 
+    def test_run54_harsh_directive_is_neutralized_and_grammar_fixed(self) -> None:
+        self.assertEqual(
+            _neutralize_harsh_directives(RUN54_BLOCKED_TONE_SENTENCE),
+            RUN54_NEUTRAL_TONE_SENTENCE,
+        )
+
+    def test_harsh_directive_without_gradual_word_is_neutralized(self) -> None:
+        self.assertEqual(
+            _neutralize_harsh_directives("افطم نفسك عن مراقبة آراء الآخرين."),
+            "يمكنك أن تقلل من مراقبة آراء الآخرين.",
+        )
+
+    def test_ordinary_practical_suggestions_are_not_rewritten(self) -> None:
+        samples = [
+            "جرب أن تدوّن الفكرة قبل أن تحكم عليها.",
+            "خذ نفسًا عميقًا قبل أن ترد.",
+            "يمكنك أن تسأل نفسك ما الذي تريده فعلًا.",
+        ]
+        for sample in samples:
+            self.assertEqual(_neutralize_harsh_directives(sample), sample)
+
+    def test_build_plan_tone_wrapper_adds_zero_provider_calls_and_normalizes_output(self) -> None:
+        calls: list[tuple[tuple, dict]] = []
+        fake_plan = SimpleNamespace(
+            hook="hook",
+            sections=[SimpleNamespace(id="sec_4", narration=RUN54_BLOCKED_TONE_SENTENCE)],
+        )
+
+        def fake_build(*args, **kwargs):
+            calls.append((args, kwargs))
+            return fake_plan
+
+        with (
+            patch.object(staged, "_outline", lambda *a, **k: {"section_briefs": []}),
+            patch.object(staged, "_write_full_script", lambda *a, **k: {}),
+            patch.object(staged, "build_plan", fake_build),
+            patch.object(orchestrator, "_novelty_flags", lambda *a, **k: []),
+            patch.object(orchestrator, "append_history", lambda record: record),
+        ):
+            install_planner_quality_guard()
+            result = staged.build_plan("key", "topic", "film", "model")
+
+        self.assertIs(result, fake_plan)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(result.sections[0].narration, RUN54_NEUTRAL_TONE_SENTENCE)
+
     def test_first_spoken_sentence_strips_dialogue_label(self) -> None:
         self.assertEqual(
             _first_spoken_sentence("A: لماذا تفعل ذلك؟\nB: لأنني خائف."),
@@ -140,9 +193,6 @@ class PlannerQualityGuardTests(unittest.TestCase):
                 patch.object(orchestrator, "_novelty_flags", original_novelty),
                 patch.object(orchestrator, "append_history", lambda record: record),
             ):
-                # Prove the old metadata signal really is blocked at the unchanged
-                # Engine threshold, then prove the installed guard passes the real
-                # spoken opening against the exact same history.
                 metadata_flags = original_novelty(plan, None, auto_topic=False)
                 self.assertIn("hook_too_similar_to_recent", metadata_flags)
 
