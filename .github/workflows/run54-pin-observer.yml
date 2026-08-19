@@ -21,13 +21,13 @@ jobs:
           persist-credentials: true
           fetch-depth: 1
 
-      - name: Capture latest production validation run
+      - name: Capture both production validation runs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           gh api -H 'Accept: application/vnd.github+json' \
-            '/repos/mymusa79-tech/Isco-Video-Runner/actions/workflows/run54-production-validation.yml/runs?branch=main&per_page=1' \
+            '/repos/mymusa79-tech/Isco-Video-Runner/actions/workflows/run54-production-validation.yml/runs?branch=main&per_page=2' \
             > /tmp/runs.json
           python - <<'PY'
           import json
@@ -36,20 +36,22 @@ jobs:
           runs = data.get('workflow_runs') or []
           if not runs:
               raise SystemExit('No Run54 production validation runs found')
-          run = runs[0]
-          out = {
-              'run_id': run.get('id'),
-              'run_number': run.get('run_number'),
-              'status': run.get('status'),
-              'conclusion': run.get('conclusion'),
-              'head_sha': run.get('head_sha'),
-              'html_url': run.get('html_url'),
-          }
-          Path('run54-production-run.json').write_text(json.dumps(out, indent=2), encoding='utf-8')
+          out = [
+              {
+                  'run_id': run.get('id'),
+                  'run_number': run.get('run_number'),
+                  'status': run.get('status'),
+                  'conclusion': run.get('conclusion'),
+                  'head_sha': run.get('head_sha'),
+                  'html_url': run.get('html_url'),
+              }
+              for run in runs
+          ]
+          Path('run54-production-runs.json').write_text(json.dumps(out, indent=2), encoding='utf-8')
           print(json.dumps(out, sort_keys=True))
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add run54-production-run.json
-          git commit -m 'ops: capture Run54 production run state' || true
+          git add run54-production-runs.json
+          git commit -m 'ops: capture both Run54 production states' || true
           git push origin HEAD:ops/run36-observer-state
