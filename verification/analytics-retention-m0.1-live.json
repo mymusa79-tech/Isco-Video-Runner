@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "mode": "M0.1_production_observer_credential_alignment",
+  "video_id": "e_I6g1qt4xg",
+  "credential_route": {
+    "video_metadata": "youtube_data_api_key",
+    "analytics_base": "oauth_refresh_token",
+    "retention": "oauth_refresh_token"
+  },
+  "observer": {
+    "status": "ok",
+    "video_id": "e_I6g1qt4xg",
+    "content_style": "agent_produced",
+    "classification_status": "verified",
+    "production_id": "m0.1:live:diagnostic",
+    "binding_source": "m0.1_read_only_verification",
+    "first_30s_present": true
+  },
+  "video_probe": {
+    "status": "ok",
+    "video_id": "e_I6g1qt4xg",
+    "duration_seconds": 207.0
+  },
+  "analytics": {
+    "status": "ok",
+    "metrics_returned": [
+      "avg_percentage_viewed",
+      "avg_view_duration_seconds",
+      "subscribers_gained",
+      "views",
+      "watch_time_hours"
+    ]
+  },
+  "retention": {
+    "status": "ok",
+    "points_received": 100,
+    "metrics_returned": [
+      "elapsedVideoTimeRatio",
+      "audienceWatchRatio"
+    ]
+  },
+  "secrets_changed": false,
+  "production_run_started": false,
+  "stores_retention_curve": false,
+  "production_influence": "none",
+  "engine_sha": "11046af6351a71cbaf3261756c73cc35f46d24da",
+  "targeted_tests": "success",
+  "full_suite": "success",
+  "live_step": "success"
+}
