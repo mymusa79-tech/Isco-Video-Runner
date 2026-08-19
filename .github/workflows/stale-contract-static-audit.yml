@@ -1,0 +1,107 @@
+name: Stale Contract Static Audit
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 64927af2bcb214d323344feae4e6bc6faf8c47cf
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Inventory all stale-contract signals
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+          import json, re
+          from pathlib import Path
+
+          roots = [(Path('.'), 'runner'), (Path('engine'), 'engine')]
+          allowed = {'.py', '.yml', '.yaml', '.md', '.json', '.toml', '.txt'}
+          patterns = {
+              'approved_brief': re.compile(r'approved_brief|ISCO_APPROVED_BRIEF_PATH', re.I),
+              'dry_run': re.compile(r'dry[-_ ]?run', re.I),
+              'autonomous': re.compile(r'autonomous selection|autonomous topic|Leave blank for autonomous', re.I),
+              'old_explicit_topic': re.compile(r'لماذا تشعر أنك متأخر عن الجميع'),
+              'production_cli': re.compile(r'isco-video\s+produce|orchestrator\.produce|produce_core\('),
+              'workflow_dispatch': re.compile(r'workflow_dispatch'),
+              'engine_sha_pin': re.compile(r'(?m)^\s*(?:ref:|ISCO_ENGINE_SHA:)\s*[0-9a-f]{40}\s*$'),
+          }
+          hits = []
+          scanned = 0
+          for root, repo in roots:
+              for path in root.rglob('*'):
+                  if not path.is_file() or '.git' in path.parts or path.suffix.lower() not in allowed:
+                      continue
+                  # Do not double-scan Engine through Runner root.
+                  if repo == 'runner' and path.parts and path.parts[0] == 'engine':
+                      continue
+                  scanned += 1
+                  try:
+                      text = path.read_text(encoding='utf-8')
+                  except UnicodeDecodeError:
+                      continue
+                  rel = str(path)
+                  for label, rx in patterns.items():
+                      for m in rx.finditer(text):
+                          line = text.count('\n', 0, m.start()) + 1
+                          excerpt = text.splitlines()[line-1].strip()[:240]
+                          hits.append({'repo': repo, 'file': rel, 'line': line, 'signal': label, 'excerpt': excerpt})
+
+          # Exact production-capable workflow inventory with pin/input clues.
+          workflows = []
+          for wf in sorted(Path('.github/workflows').glob('*.yml')):
+              text = wf.read_text(encoding='utf-8')
+              pins = sorted(set(re.findall(r'(?m)^\s*(?:ref:|ISCO_ENGINE_SHA:)\s*([0-9a-f]{40})\s*$', text)))
+              workflows.append({
+                  'file': str(wf),
+                  'workflow_dispatch': 'workflow_dispatch' in text,
+                  'calls_production': bool(re.search(r'isco-video\s+produce|run_v3_voice\.py|orchestrator\.produce|produce\(', text)),
+                  'actions_write': 'actions: write' in text,
+                  'contents_write': 'contents: write' in text,
+                  'engine_sha_pins': pins,
+                  'mentions_autonomous': bool(patterns['autonomous'].search(text)),
+              })
+
+          report = {'scanned_files': scanned, 'signal_hits': hits, 'runner_workflows': workflows}
+          Path('stale-contract-audit.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+
+          print(f'SCANNED_FILES={scanned}')
+          for signal in patterns:
+              subset = [h for h in hits if h['signal'] == signal]
+              print(f'\n=== {signal}: {len(subset)} ===')
+              for h in subset:
+                  print(f"{h['repo']}:{h['file']}:{h['line']}: {h['excerpt']}")
+          print('\n=== RUNNER WORKFLOW INVENTORY ===')
+          for w in workflows:
+              if w['workflow_dispatch'] or w['calls_production'] or w['engine_sha_pins']:
+                  print(json.dumps(w, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload static audit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: stale-contract-static-audit
+          path: stale-contract-audit.json
+          if-no-files-found: error
+          retention-days: 3
