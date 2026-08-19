@@ -58,6 +58,7 @@ jobs:
             tests.test_youtube_retention_m1_fallback \
             tests.test_youtube_retention_m1_observation_schema \
             tests.test_youtube_retention_m2_timeline_binding \
+            tests.test_youtube_retention_m2_provenance_guard \
             -v
 
       - name: Full Engine regression suite
@@ -94,7 +95,8 @@ jobs:
           expected="$(printf '%s\n' \
             scripts/bind_retention_timeline.py \
             src/isco_video_agent/retention_timeline.py \
+            tests/test_youtube_retention_m2_provenance_guard.py \
             tests/test_youtube_retention_m2_timeline_binding.py | sort)"
           printf 'ACTUAL\n%s\nEXPECTED\n%s\n' "$actual" "$expected"
           test "$actual" = "$expected"
-          echo 'M2 exact three-file boundary PASS'
+          echo 'M2 exact four-file boundary PASS'
