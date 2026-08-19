@@ -1,4 +1,4 @@
-name: Verify Clean Gold V2 Plus Packaging V1
+name: Verify Unified Engine Plus Clean Gold V2 Packaging V1
 
 on:
   pull_request:
@@ -33,21 +33,21 @@ jobs:
           git merge-base --is-ancestor 8f22d73cab614c0a8b19a2efaa37259656917644 HEAD
           echo "Clean Gold Phase 4 v2 ancestry preserved"
 
-      - name: Checkout exact Foundation plus Packaging Engine integration candidate
+      - name: Checkout exact Unified Engine candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 69bd421053d1f1f3d3d3fe71934272e91220cb3b
+          ref: 61f3b0cef56749be9aae83249d9bc5d709e89668
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Verify pinned Engine integration candidate
+      - name: Verify pinned Unified Engine HEAD
         run: |
           set -euo pipefail
-          test "$(git -C engine rev-parse HEAD)" = "69bd421053d1f1f3d3d3fe71934272e91220cb3b"
-          echo "Engine integration HEAD: $(git -C engine rev-parse HEAD)"
+          test "$(git -C engine rev-parse HEAD)" = "61f3b0cef56749be9aae83249d9bc5d709e89668"
+          echo "Unified Engine HEAD: $(git -C engine rev-parse HEAD)"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -95,7 +95,7 @@ jobs:
             tests.test_packaging_benchmark_p2 \
             -v
 
-      - name: Run Analytics and Cinematic integration regressions
+      - name: Run Analytics M0 M1 M2 and Cinematic integration regressions
         working-directory: engine
         run: |
           set -euo pipefail
@@ -103,6 +103,9 @@ jobs:
             tests.test_youtube_production_observer_credentials \
             tests.test_youtube_retention_m1_storage \
             tests.test_youtube_retention_m1_fallback \
+            tests.test_youtube_retention_m1_observation_schema \
+            tests.test_youtube_retention_m2_timeline_binding \
+            tests.test_youtube_retention_m2_provenance_guard \
             tests.test_cinematic_m1_loop_safety \
             tests.test_cinematic_m2_music_bed \
             tests.test_cinematic_m3_color \
@@ -149,20 +152,25 @@ jobs:
           test "$actual" = "$expected"
           git diff --check 8f22d73cab614c0a8b19a2efaa37259656917644.."$candidate"
 
-      - name: Verify safety and authority invariants
+      - name: Verify safety authority and isolation invariants
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import inspect
+          from pathlib import Path
           from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
           from scripts.gold_thumbnail_budget import build_budgeted_thumbnail_package
           from scripts.packaging_delivery_contract import validate_packaging_delivery
           assert 'pixabay' in inspect.signature(run_gold_enforce_phase4).parameters
           assert 'pixabay_key' in inspect.signature(build_budgeted_thumbnail_package).parameters
           assert callable(validate_packaging_delivery)
-          print('Gold authority + Pixabay routing + Packaging delivery invariants PASS')
+          assert Path('engine/src/isco_video_agent/media/audio_pacing.py').exists()
+          assert Path('engine/src/isco_video_agent/retention_storage.py').exists()
+          assert Path('engine/src/isco_video_agent/retention_timeline.py').exists()
+          assert Path('engine/src/isco_video_agent/opening_director.py').exists()
+          print('Gold + Packaging + Voice pacing + Analytics M0-M2 + Cinematic invariants PASS')
           PY
           test -z "${GEMINI_API_KEY:-}"
           test -z "${PEXELS_API_KEY:-}"
