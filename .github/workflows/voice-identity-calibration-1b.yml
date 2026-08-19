@@ -37,12 +37,14 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install FFmpeg for calibration extraction
+      - name: Install portable FFmpeg for calibration extraction
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg
-          ffmpeg -version | head -1
+          python -m pip install imageio-ffmpeg==0.6.0
+          python - <<'PY'
+          import imageio_ffmpeg
+          print(imageio_ffmpeg.get_ffmpeg_exe())
+          PY
 
       - name: Install locked observer runtime
         working-directory: engine
@@ -62,6 +64,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          FFMPEG_BIN="$(python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
+          test -x "$FFMPEG_BIN"
           mkdir -p calibration/approved calibration/run20 calibration/run22 calibration/run23 calibration/run50 calibration/audio
 
           gh api -H 'Accept: application/vnd.github+json' \
@@ -85,7 +89,7 @@ jobs:
             unzip -q "calibration/${name}.zip" -d "calibration/${name}"
             video="$(find "calibration/${name}" -type f -name final.mp4 -print -quit)"
             test -n "$video"
-            ffmpeg -hide_banner -loglevel error -y -i "$video" -vn -ac 1 -ar 16000 -c:a pcm_s16le \
+            "$FFMPEG_BIN" -hide_banner -loglevel error -y -i "$video" -vn -ac 1 -ar 16000 -c:a pcm_s16le \
               "calibration/audio/${name}.wav"
             rm -f "calibration/${name}.zip"
           done
