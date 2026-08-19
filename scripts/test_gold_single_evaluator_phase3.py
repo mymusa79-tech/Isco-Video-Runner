@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import inspect
 import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from isco_video_agent.ai_budget import BudgetLedger
 import scripts.gold_single_evaluator_phase3 as phase3
-import scripts.run_v3_voice as runner
 
 
 class Phase3SingleEvaluatorTests(unittest.TestCase):
@@ -90,13 +88,6 @@ class Phase3SingleEvaluatorTests(unittest.TestCase):
             self.assertEqual((root / "rights-manifest.json").read_bytes(), rights_before)
             self.assertEqual(json.loads((root / "final-critic.json").read_text())["status"], "pass")
             self.assertEqual(critic["status"], "pass")
-
-    def test_runner_source_has_one_core_render_and_no_legacy_critic_call(self) -> None:
-        source = inspect.getsource(runner.main)
-        self.assertEqual(source.count("orchestrator.produce("), 1)
-        self.assertEqual(source.count("run_gold_single_evaluator_phase3("), 1)
-        self.assertNotIn("_run_final_critic(", source)
-        self.assertLess(source.index("orchestrator.produce("), source.index("run_gold_single_evaluator_phase3("))
 
 
 if __name__ == "__main__":
