@@ -1,0 +1,260 @@
+name: Integration Closure Full Combined Regression
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  combined-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Runner integration candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Checkout exact Engine integration candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 64927af2bcb214d323344feae4e6bc6faf8c47cf
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify exact integration ancestry and Engine SHA
+        run: |
+          set -euo pipefail
+          test "$(git -C engine rev-parse HEAD)" = "64927af2bcb214d323344feae4e6bc6faf8c47cf"
+          git -C engine merge-base --is-ancestor 4badc9ae3215986fb2b4becdba7f147a6cf726f0 HEAD
+          echo "Engine integration candidate is a clean descendant of reviewed main"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit first
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Approved brief contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, tempfile
+          from pathlib import Path
+          from unittest.mock import patch
+          import isco_video_agent.orchestrator as orchestrator
+
+          committed = json.loads(Path('production/approved_brief.json').read_text(encoding='utf-8'))
+          assert committed['approved_by_user'] is True
+          assert committed['approved_topic'].strip()
+          assert committed['format'] in {'film', 'moment', 'story'}
+
+          # Matrix semantics at the brief boundary itself. Generic dry-runs must be
+          # explicitly isolated from a committed production brief; production must not.
+          with tempfile.TemporaryDirectory() as tmp:
+              missing = str(Path(tmp) / 'missing-approved-brief.json')
+              with patch.dict(os.environ, {'ISCO_APPROVED_BRIEF_PATH': missing}, clear=False):
+                  assert orchestrator.load_approved_brief(required=False) is None
+                  try:
+                      orchestrator.load_approved_brief(required=True)
+                  except RuntimeError as exc:
+                      assert 'user-approved production brief' in str(exc)
+                  else:
+                      raise AssertionError('real production brief requirement did not fail closed')
+          print('Approved brief boundary matrix OK')
+          PY
+
+      - name: Retention Intelligence M1 through M7
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -p 'test_youtube_retention_m1_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m2_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m3_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m4_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m5_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m6_*.py' -v
+          python -m unittest discover -s tests -p 'test_youtube_retention_m7_*.py' -v
+
+      - name: Security regressions
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_security tests.test_security_subprocess_secret_env_v2 -v
+
+      - name: Gold Phase 2B 3 4 plus Packaging Runner regressions
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            scripts.test_gold_shadow_phase2b \
+            scripts.test_gold_single_evaluator_phase3 \
+            scripts.test_gold_enforce_phase4 \
+            scripts.test_thumbnail_pixabay_bridge_p0d \
+            scripts.test_packaging_artifact_delivery_p0e \
+            -v
+
+      - name: Packaging Engine P0 P1 P2 regressions
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_thumbnail_cultural_safety \
+            tests.test_thumbnail_packaging_contract \
+            tests.test_thumbnail_batch_review \
+            tests.test_thumbnail_candidate_board \
+            tests.test_thumbnail_pixabay_fallback \
+            tests.test_packaging_identity_integrity_p1 \
+            tests.test_thumbnail_renderer_p1 \
+            tests.test_youtube_packaging_reporting_p1 \
+            tests.test_packaging_early_brief_p2 \
+            tests.test_packaging_experiments_p2 \
+            tests.test_packaging_learning_p2 \
+            tests.test_packaging_benchmark_p2 \
+            -v
+
+      - name: Cinematic M1 M6 and Analytics integration regressions
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_youtube_production_observer_credentials \
+            tests.test_cinematic_m1_loop_safety \
+            tests.test_cinematic_m2_music_bed \
+            tests.test_cinematic_m3_color \
+            tests.test_cinematic_m4_voice_pacing \
+            tests.test_cinematic_m5_outro \
+            tests.test_cinematic_m6_opening \
+            tests.test_cinematic_m6_opening_selection \
+            -v
+
+      - name: Full Engine suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Official Engine dry-run contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+
+          echo '1/4 generic explicit-topic dry-run with brief intentionally absent'
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+
+          echo '2/4 generic autonomous dry-run with brief intentionally absent'
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+
+          echo '3/4 committed approved-brief dry-run'
+          isco-video produce --format auto --dry-run --no-research
+
+          echo '4/4 mismatched topic must fail closed while brief is present'
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: mismatched topic unexpectedly bypassed approved brief' >&2
+            exit 1
+          fi
+          echo 'Dry-run approved-brief matrix OK'
+
+      - name: Full Runner regression suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort \
+              | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Verify canonical committed Engine closure delta
+        run: |
+          set -euo pipefail
+          base=4badc9ae3215986fb2b4becdba7f147a6cf726f0
+          head=64927af2bcb214d323344feae4e6bc6faf8c47cf
+          echo 'Runtime working-tree status after regression:'
+          git -C engine status --short || true
+          actual="$(git -C engine diff-tree --no-commit-id --name-only --no-renames -r "$base" "$head" | sort)"
+          expected="$(printf '%s\n' \
+            scripts/analyze_retention_cohorts.py \
+            scripts/evaluate_retention_influence.py \
+            scripts/extract_retention_signals.py \
+            scripts/probe_reach_reporting.py \
+            scripts/register_retention_experiment.py \
+            src/isco_video_agent/retention_cohorts.py \
+            src/isco_video_agent/retention_experiments.py \
+            src/isco_video_agent/retention_influence.py \
+            src/isco_video_agent/retention_reach.py \
+            src/isco_video_agent/retention_signals.py \
+            tests/test_youtube_retention_m3_signals.py \
+            tests/test_youtube_retention_m4_cohorts.py \
+            tests/test_youtube_retention_m5_reach.py \
+            tests/test_youtube_retention_m6_experiments.py \
+            tests/test_youtube_retention_m7_influence.py | sort)"
+          printf 'COMMITTED ACTUAL\n%s\nEXPECTED\n%s\n' "$actual" "$expected"
+          test "$actual" = "$expected"
+          git -C engine diff --no-ext-diff --check "$base" "$head"
+
+      - name: Verify cross-system safety and fail-closed invariants
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from isco_video_agent.retention_influence import influence_mode
+          required = [
+              'engine/src/isco_video_agent/retention_storage.py',
+              'engine/src/isco_video_agent/retention_timeline.py',
+              'engine/src/isco_video_agent/retention_signals.py',
+              'engine/src/isco_video_agent/retention_cohorts.py',
+              'engine/src/isco_video_agent/retention_reach.py',
+              'engine/src/isco_video_agent/retention_experiments.py',
+              'engine/src/isco_video_agent/retention_influence.py',
+              'engine/src/isco_video_agent/opening_director.py',
+              'engine/src/isco_video_agent/packaging_learning.py',
+              'engine/src/isco_video_agent/media/audio_pacing.py',
+              'scripts/gold_enforce_phase4.py',
+              'scripts/packaging_delivery_contract.py',
+          ]
+          missing = [path for path in required if not Path(path).exists()]
+          assert not missing, missing
+          assert influence_mode() == 'disabled'
+          print('Gold + Packaging + Cinematic + Retention coexist; M7 defaults disabled')
+          PY
+          test -z "${GEMINI_API_KEY:-}"
+          test -z "${GROQ_API_KEY:-}"
+          test -z "${OPENROUTER_API_KEY:-}"
+          test -z "${PEXELS_API_KEY:-}"
+          test -z "${PIXABAY_API_KEY:-}"
+          test -z "${YOUTUBE_REFRESH_TOKEN:-}"
+          test -z "${ISCO_RETENTION_INFLUENCE_MODE:-}"
+          echo 'No production/provider credentials exposed'
