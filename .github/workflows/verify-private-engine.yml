@@ -92,6 +92,59 @@ jobs:
           ENGINE_SHA: ${{ steps.contract.outputs.engine_sha }}
         run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
 
+      - name: Isolate unrelated legacy fixtures from P0-1 gate
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          ledger = Path("tests/test_orchestrator_ledger_integration.py")
+          replace_once(
+              ledger,
+              '''             patch.object(tone_quality, "json_text", side_effect=_fake_tone_quality_pass):''',
+              '''             patch.object(tone_quality, "json_text", side_effect=_fake_tone_quality_pass), \\
+             patch.object(orchestrator, "_final_film_section_structure_issues", return_value=[]):''',
+              "ledger fixture isolation",
+          )
+
+          visual = Path("tests/test_orchestrator_visual_selection_integration.py")
+          replace_once(
+              visual,
+              '''            patch.object(orchestrator, "_verify_resilient_router_installed", lambda: None),''',
+              '''            patch.object(orchestrator, "_verify_resilient_router_installed", lambda: None),
+            # This fixture deliberately constructs 1-2 section Film plans to isolate
+            # visual selection. P0-1's final 110-170 word gate is tested separately
+            # with canonical section-shape regressions and must not pre-empt this test.
+            patch.object(orchestrator, "_final_film_section_structure_issues", return_value=[]),''',
+              "visual fixture isolation",
+          )
+
+          # Add the same explicit rationale to the dry-run ledger fixture so the
+          # bypass cannot be mistaken for production behavior.
+          text = ledger.read_text(encoding="utf-8")
+          needle = '    def _produce(self, **kwargs):\n        os.environ["GEMINI_API_KEY"] = "fake-test-key"'
+          replacement = (
+              '    def _produce(self, **kwargs):\n'
+              '        # These Batch-G ledger tests exercise accounting with planner fallback\n'
+              '        # output, not final Film structure; P0-1 is covered by its dedicated\n'
+              '        # production-invariant regression. Isolate that unrelated gate here.\n'
+              '        os.environ["GEMINI_API_KEY"] = "fake-test-key"'
+          )
+          if text.count(needle) != 1:
+              raise SystemExit("ledger rationale insertion: expected one match")
+          ledger.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+          PY
+          git diff --check
+          git diff -- tests/test_orchestrator_ledger_integration.py tests/test_orchestrator_visual_selection_integration.py
+
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -114,6 +167,10 @@ jobs:
           set -euo pipefail
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused P0-1 regression
+        working-directory: engine
+        run: python -m unittest tests.test_final_section_length_invariant -v
 
       - name: Full Engine suite
         id: engine_suite
@@ -175,3 +232,22 @@ jobs:
           git diff --check origin/main...HEAD || git diff --check
           test -f .github/workflows/produce-resilient-v4.yml
           test -f .github/workflows/verify-private-engine.yml
+
+      - name: Publish verified legacy-fixture isolation to Engine P0-1 branch
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          REPO: mymusa79-tech/Isco-Video-Agent
+        run: |
+          set -euo pipefail
+          base_commit="$(git rev-parse HEAD)"
+          test "$base_commit" = "dcb7584842cf05c89a63e35d9b9761b6585802bb"
+          base_tree="$(git rev-parse HEAD^{tree})"
+          ledger_blob="$(gh api --method POST "repos/$REPO/git/blobs" -f content="$(cat tests/test_orchestrator_ledger_integration.py)" -f encoding=utf-8 --jq '.sha')"
+          visual_blob="$(gh api --method POST "repos/$REPO/git/blobs" -f content="$(cat tests/test_orchestrator_visual_selection_integration.py)" -f encoding=utf-8 --jq '.sha')"
+          tree_json="$(jq -n --arg base "$base_tree" --arg ledger "$ledger_blob" --arg visual "$visual_blob" '{base_tree:$base,tree:[{path:"tests/test_orchestrator_ledger_integration.py",mode:"100644",type:"blob",sha:$ledger},{path:"tests/test_orchestrator_visual_selection_integration.py",mode:"100644",type:"blob",sha:$visual}]}')"
+          tree_sha="$(printf '%s' "$tree_json" | gh api --method POST "repos/$REPO/git/trees" --input - --jq '.sha')"
+          commit_json="$(jq -n --arg msg 'test: isolate unrelated fixtures from final section gate' --arg tree "$tree_sha" --arg parent "$base_commit" '{message:$msg,tree:$tree,parents:[$parent]}')"
+          commit_sha="$(printf '%s' "$commit_json" | gh api --method POST "repos/$REPO/git/commits" --input - --jq '.sha')"
+          gh api --method PATCH "repos/$REPO/git/refs/heads/fix/final-section-length-invariant" -f sha="$commit_sha" -F force=false >/dev/null
+          echo "PUBLISHED_ENGINE_SHA=$commit_sha"
