@@ -97,9 +97,25 @@ def _dialogue_turns(transcript: str) -> list[tuple[str, str]]:
     return turns
 
 
-def _gemini_dialogue(api_key: str, transcript: str, output: Path, *, model: str, style: str) -> Path:
-    from google import genai
+def _single_attempt_gemini_client(api_key: str):
+    """Create a Gemini client with SDK retries disabled.
 
+    P0-2 retry ownership: the Engine ledger/TTS budget owns retry/fallback decisions.
+    One call through this client must therefore represent exactly one provider attempt,
+    including the dialogue path that bypasses Engine providers.gemini._client().
+    """
+    from google import genai
+    from google.genai import types as genai_types
+
+    return genai.Client(
+        api_key=api_key,
+        http_options=genai_types.HttpOptions(
+            retry_options=genai_types.HttpRetryOptions(attempts=1),
+        ),
+    )
+
+
+def _gemini_dialogue(api_key: str, transcript: str, output: Path, *, model: str, style: str) -> Path:
     turns = _dialogue_turns(transcript)
     spoken = "\n".join(f"{role}: {text}" for role, text in turns)
     prompt = (
@@ -112,7 +128,7 @@ def _gemini_dialogue(api_key: str, transcript: str, output: Path, *, model: str,
         + "\n\n### TRANSCRIPT\n"
         + spoken
     )
-    client = genai.Client(api_key=api_key)
+    client = _single_attempt_gemini_client(api_key)
     interaction = client.interactions.create(
         model=model,
         input=prompt,
