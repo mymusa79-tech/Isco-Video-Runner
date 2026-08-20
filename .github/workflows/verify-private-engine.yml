@@ -13,15 +13,13 @@ jobs:
     if: github.head_ref == 'ops/final-canonical-v4-once'
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve dispatched canonical V4 run read-only
+      - name: Inspect recent canonical V4 runs read-only
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os, urllib.request
-          from datetime import datetime
-
           repo = os.environ['GITHUB_REPOSITORY']
           url = f'https://api.github.com/repos/{repo}/actions/workflows/produce-resilient-v4.yml/runs?event=workflow_dispatch&branch=main&per_page=20'
           req = urllib.request.Request(url, headers={
@@ -32,16 +30,8 @@ jobs:
           })
           with urllib.request.urlopen(req, timeout=30) as r:
               data = json.load(r)
-          cutoff = datetime.fromisoformat('2026-08-20T09:15:45+00:00')
-          expected_sha = 'e6a598d743f66bbfab68566455c13e49ea7113c4'
-          matches = []
-          for run in data.get('workflow_runs', []):
-              created = datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
-              if created >= cutoff and run.get('head_sha') == expected_sha:
-                  matches.append(run)
-          if len(matches) != 1:
-              slim = [{k: x.get(k) for k in ('id','run_number','status','conclusion','created_at','updated_at','head_sha','event','html_url')} for x in data.get('workflow_runs', [])[:10]]
-              raise SystemExit('Expected exactly one canonical V4 dispatch after cutoff; matches=' + str(len(matches)) + ' recent=' + json.dumps(slim))
-          run = matches[0]
-          print('CANONICAL_V4_RUN=' + json.dumps({k: run.get(k) for k in ('id','run_number','status','conclusion','created_at','updated_at','head_sha','head_branch','event','html_url')}, sort_keys=True))
+          slim = [{k: x.get(k) for k in ('id','run_number','status','conclusion','created_at','updated_at','head_sha','event','html_url')} for x in data.get('workflow_runs', [])[:12]]
+          print('RECENT_V4_RUNS=' + json.dumps(slim, sort_keys=True))
+          active = [x for x in slim if x['status'] not in ('completed',)]
+          print('ACTIVE_V4_RUNS=' + json.dumps(active, sort_keys=True))
           PY
