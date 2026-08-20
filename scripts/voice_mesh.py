@@ -21,6 +21,12 @@ DIALOGUE_QUESTIONER_VOICE = "Orus"
 DIALOGUE_RESPONDER_VOICE = "Charon"
 _DIALOGUE_LABEL = re.compile(r"(?m)^\s*(السائل|المجيب)\s*:\s*")
 
+# Local fallback must stay bounded on low-memory runners. Long Film sections are split
+# at natural Arabic/Latin sentence boundaries before Piper, then concatenated locally.
+# This adds no provider calls and does not change cloud retry ownership.
+PIPER_MAX_CHARS_PER_CHUNK = 420
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?؟!؛])\s+|\n+")
+
 
 def _output_key(path: Path) -> str:
     try:
@@ -76,10 +82,85 @@ def _local_voice():
     return _piper
 
 
-def _local(text: str, output: Path) -> Path:
+def _split_long_piece(piece: str, max_chars: int) -> list[str]:
+    words = piece.split()
+    if not words:
+        return []
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for word in words:
+        added = len(word) if not current else len(word) + 1
+        if current and current_len + added > max_chars:
+            chunks.append(" ".join(current))
+            current = [word]
+            current_len = len(word)
+        else:
+            current.append(word)
+            current_len += added
+    if current:
+        chunks.append(" ".join(current))
+    return chunks
+
+
+def _piper_chunks(text: str, max_chars: int = PIPER_MAX_CHARS_PER_CHUNK) -> list[str]:
+    """Deterministic natural-boundary chunks for the local Piper fallback.
+
+    Prefer sentence boundaries. If one sentence itself exceeds the limit, fall back to
+    word-boundary splitting. No text is dropped or paraphrased; whitespace is merely
+    normalized between words/chunks.
+    """
+    normalized = str(text or "").strip()
+    if not normalized:
+        return []
+    if len(normalized) <= max_chars:
+        return [normalized]
+
+    chunks: list[str] = []
+    current = ""
+    for piece in [x.strip() for x in _SENTENCE_BOUNDARY.split(normalized) if x.strip()]:
+        if len(piece) > max_chars:
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(_split_long_piece(piece, max_chars))
+            continue
+        candidate = piece if not current else current + " " + piece
+        if len(candidate) <= max_chars:
+            current = candidate
+        else:
+            chunks.append(current)
+            current = piece
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _synthesize_piper_piece(text: str, output: Path) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(output), "wb") as wav:
         _local_voice().synthesize_wav(text, wav)
+    return output
+
+
+def _local(text: str, output: Path) -> Path:
+    chunks = _piper_chunks(text)
+    if not chunks:
+        raise RuntimeError("voice_local_empty_transcript")
+    if len(chunks) == 1:
+        return _synthesize_piper_piece(chunks[0], output)
+
+    parts: list[Path] = []
+    try:
+        for index, chunk in enumerate(chunks, 1):
+            part = output.with_name(f"{output.stem}-piper-chunk-{index:02d}.wav")
+            _synthesize_piper_piece(chunk, part)
+            parts.append(part)
+        concat_audio(parts, output)
+    finally:
+        for part in parts:
+            part.unlink(missing_ok=True)
+    print(f"Piper local fallback chunked safely: chunks={len(chunks)}")
     return output
 
 
