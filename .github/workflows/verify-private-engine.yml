@@ -29,20 +29,22 @@ jobs:
           from pathlib import Path
           path = Path('engine/src/isco_video_agent/orchestrator.py')
           text = path.read_text(encoding='utf-8')
-          old = '''                audit_fn=_visual_audit_fn,
-                cache=visual_cache,
-                exclude_ids={"pexels": excluded_pexels},
-            )
-            reviews = opening_sequence.reviewed
-'''
-          new = '''                audit_fn=_visual_audit_fn,
-                cache=visual_cache,
-                exclude_ids={"pexels": excluded_pexels},
-                alternate_query_fn=_alternate_query_fn if gemini else None,
-                alternate_search_fn=_search_provider if gemini else None,
-            )
-            reviews = opening_sequence.reviewed
-'''
+          old = (
+              '                audit_fn=_visual_audit_fn,\n'
+              '                cache=visual_cache,\n'
+              '                exclude_ids={"pexels": excluded_pexels},\n'
+              '            )\n'
+              '            reviews = opening_sequence.reviewed\n'
+          )
+          new = (
+              '                audit_fn=_visual_audit_fn,\n'
+              '                cache=visual_cache,\n'
+              '                exclude_ids={"pexels": excluded_pexels},\n'
+              '                alternate_query_fn=_alternate_query_fn if gemini else None,\n'
+              '                alternate_search_fn=_search_provider if gemini else None,\n'
+              '            )\n'
+              '            reviews = opening_sequence.reviewed\n'
+          )
           if text.count(old) != 1:
               raise SystemExit(f'Expected exactly one opening wiring target; found {text.count(old)}')
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
