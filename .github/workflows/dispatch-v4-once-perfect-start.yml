@@ -1,4 +1,4 @@
-name: Dispatch V4 Once - Perfect Start
+name: Dispatch Canonical V4 Once - Final Closure
 
 on:
   push:
@@ -15,21 +15,48 @@ jobs:
   dispatch:
     runs-on: ubuntu-latest
     steps:
-      - name: Dispatch produce-resilient-v4 exactly once
+      - name: Checkout exact merged Runner main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e6a598d743f66bbfab68566455c13e49ea7113c4
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify canonical production closure before dispatch
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "e6a598d743f66bbfab68566455c13e49ea7113c4"
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          expected_engine = "245ef9a52fcf2500b058d08b2c9d48d92e746951"
+          text = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
+          trigger = text.split("concurrency:", 1)[0]
+          checkout = re.findall(r"^\s+ref:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
+          env_pin = re.findall(r"^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
+          if checkout != [expected_engine] or env_pin != [expected_engine]:
+              raise SystemExit(f"Canonical V4 Engine pin mismatch: checkout={checkout} env={env_pin}")
+          if "workflow_dispatch:" not in trigger or "push:" in trigger or "inputs:" in trigger:
+              raise SystemExit("Canonical V4 is not dispatch-only without inputs")
+          required = (
+              "engine/production/approved_brief.json",
+              "approved_by_user",
+              "approved_topic",
+              "ISCO_APPROVED_BRIEF_PATH:",
+          )
+          missing = [needle for needle in required if needle not in text]
+          if missing:
+              raise SystemExit("Canonical V4 Approved-Brief contract missing: " + ", ".join(missing))
+          print("Canonical closure verified: Runner main + Engine pin + Approved-Brief-only contract")
+          PY
+
+      - name: Dispatch canonical produce-resilient-v4 exactly once
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          python - <<'PY' > "$RUNNER_TEMP/dispatch.json"
-          import json
-          print(json.dumps({
-              "ref": "main",
-              "inputs": {
-                  "topic": "وهم البداية المثالية",
-                  "format": "film"
-              }
-          }, ensure_ascii=False))
-          PY
+          printf '%s\n' '{"ref":"main"}' > "$RUNNER_TEMP/dispatch.json"
           curl --fail-with-body --silent --show-error \
             -X POST \
             -H "Authorization: Bearer ${GH_TOKEN}" \
@@ -37,4 +64,4 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/dispatches" \
             --data-binary @"$RUNNER_TEMP/dispatch.json"
-          echo "workflow_dispatch requested exactly once"
+          echo "Canonical workflow_dispatch requested exactly once"
