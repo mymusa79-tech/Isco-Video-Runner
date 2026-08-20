@@ -19,12 +19,18 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import io, os, re, urllib.request, zipfile
+          import io, os, re, urllib.error, urllib.request, zipfile
 
           repo = os.environ['GITHUB_REPOSITORY']
           job_id = 96375672648
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          api_url = f'https://api.github.com/repos/{repo}/actions/jobs/{job_id}/logs'
           req = urllib.request.Request(
-              f'https://api.github.com/repos/{repo}/actions/jobs/{job_id}/logs',
+              api_url,
               headers={
                   'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
                   'Accept': 'application/vnd.github+json',
@@ -32,8 +38,22 @@ jobs:
                   'User-Agent': 'isco-run55-log-inspector',
               },
           )
-          with urllib.request.urlopen(req, timeout=60) as r:
+          opener = urllib.request.build_opener(NoRedirect())
+          try:
+              opener.open(req, timeout=30)
+              raise SystemExit('Expected GitHub Actions logs endpoint to redirect')
+          except urllib.error.HTTPError as exc:
+              if exc.code not in (302, 303, 307):
+                  raise
+              location = exc.headers.get('Location')
+              if not location:
+                  raise SystemExit('Actions logs redirect had no Location header')
+
+          # The signed blob URL must be fetched WITHOUT the GitHub Authorization header.
+          blob_req = urllib.request.Request(location, headers={'User-Agent': 'isco-run55-log-inspector'})
+          with urllib.request.urlopen(blob_req, timeout=60) as r:
               raw = r.read()
+
           if raw[:2] == b'PK':
               with zipfile.ZipFile(io.BytesIO(raw)) as zf:
                   chunks = []
@@ -54,7 +74,6 @@ jobs:
                   ranges[-1] = (ranges[-1][0], max(ranges[-1][1], hi))
               else:
                   ranges.append((lo, hi))
-          # Keep only the last six relevant windows to avoid huge output.
           ranges = ranges[-6:]
           print('=== TARGETED_ERROR_WINDOWS ===')
           for lo, hi in ranges:
