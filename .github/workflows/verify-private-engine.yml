@@ -1,4 +1,4 @@
-name: Prepare Engine Section Length Orchestrator
+name: Verify P0-1 Final Section Length
 
 on:
   pull_request:
@@ -9,25 +9,28 @@ permissions:
   contents: read
 
 jobs:
-  prepare:
+  p0-1-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 35
     steps:
-      - name: Checkout exact private Engine branch head
+      - name: Checkout Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact private Engine P0-1 head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 756dd3bd9a2964d07b2336fc385876d7a8d55bce
+          ref: 103d5c4ce522f70848f45bfba7a3b7dfcd6a1f7f
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Apply guarded patch and prepare Engine commit object
+      - name: Apply guarded orchestrator wiring in working tree
         working-directory: engine
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
-          REPO: mymusa79-tech/Isco-Video-Agent
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -126,17 +129,63 @@ def _final_film_section_structure_issues(plan) -> list:
 
           path.write_text(text, encoding="utf-8")
           PY
-
           python -m py_compile src/isco_video_agent/orchestrator.py
           git diff --check
           git diff -- src/isco_video_agent/orchestrator.py
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused P0-1 regression
+        working-directory: engine
+        run: python -m unittest tests.test_final_section_length_invariant -v
+
+      - name: Full Engine suite
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Full Runner regression suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Publish verified Engine P0-1 commit
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          REPO: mymusa79-tech/Isco-Video-Agent
+        run: |
+          set -euo pipefail
           base_commit="$(git rev-parse HEAD)"
+          test "$base_commit" = "103d5c4ce522f70848f45bfba7a3b7dfcd6a1f7f"
           base_tree="$(git rev-parse HEAD^{tree})"
           blob_sha="$(gh api --method POST "repos/$REPO/git/blobs" -f content="$(cat src/isco_video_agent/orchestrator.py)" -f encoding=utf-8 --jq '.sha')"
           tree_json="$(jq -n --arg base "$base_tree" --arg blob "$blob_sha" '{base_tree:$base,tree:[{path:"src/isco_video_agent/orchestrator.py",mode:"100644",type:"blob",sha:$blob},{path:".github/workflows/patch-final-section-length-orchestrator.yml",mode:"100644",type:"blob",sha:null}]}')"
           tree_sha="$(printf '%s' "$tree_json" | gh api --method POST "repos/$REPO/git/trees" --input - --jq '.sha')"
           commit_json="$(jq -n --arg msg 'fix: wire final film section bands into orchestrator' --arg tree "$tree_sha" --arg parent "$base_commit" '{message:$msg,tree:$tree,parents:[$parent]}')"
           commit_sha="$(printf '%s' "$commit_json" | gh api --method POST "repos/$REPO/git/commits" --input - --jq '.sha')"
-          echo "BASE_COMMIT_SHA=$base_commit"
-          echo "PREPARED_COMMIT_SHA=$commit_sha"
+          gh api --method PATCH "repos/$REPO/git/refs/heads/fix/final-section-length-invariant" -f sha="$commit_sha" -F force=false >/dev/null
+          echo "VERIFIED_ENGINE_SHA=$commit_sha"
