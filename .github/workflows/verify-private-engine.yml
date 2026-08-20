@@ -1,57 +1,67 @@
-name: Cancel Duplicate Final V4 Run
+name: Inspect Run 55 Production Failure
 
 on:
   pull_request:
     branches: ["main"]
 
 permissions:
-  actions: write
+  actions: read
   contents: read
 
 jobs:
-  cancel-duplicate:
+  inspect-run55:
     if: github.head_ref == 'ops/final-canonical-v4-once'
     runs-on: ubuntu-latest
     steps:
-      - name: Cancel only duplicate queued canonical V4
+      - name: Extract targeted failure evidence read-only
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, urllib.request
+          import io, os, re, urllib.request, zipfile
 
           repo = os.environ['GITHUB_REPOSITORY']
-          token = os.environ['GH_TOKEN']
-          expected_sha = 'e6a598d743f66bbfab68566455c13e49ea7113c4'
-          active_id = 32352874618
-          duplicate_id = 32352978242
-
-          def get_run(run_id):
-              req = urllib.request.Request(
-                  f'https://api.github.com/repos/{repo}/actions/runs/{run_id}',
-                  headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'isco-final-v4-deduper'},
-              )
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  return json.load(r)
-
-          active = get_run(active_id)
-          duplicate = get_run(duplicate_id)
-          for label, run in [('active', active), ('duplicate', duplicate)]:
-              if run.get('name') != 'Isco Video Production Resilient V4' or run.get('head_sha') != expected_sha or run.get('event') != 'workflow_dispatch':
-                  raise SystemExit(f'{label} run identity mismatch: ' + json.dumps({k: run.get(k) for k in ('id','name','head_sha','event','status','conclusion')}))
-          if active.get('status') not in ('in_progress', 'completed'):
-              raise SystemExit('Expected run #55 to be active or already completed')
-          if duplicate.get('status') == 'completed':
-              print('Duplicate run already completed; no cancel request sent')
-              raise SystemExit(0)
+          job_id = 96375672648
           req = urllib.request.Request(
-              f'https://api.github.com/repos/{repo}/actions/runs/{duplicate_id}/cancel',
-              data=b'', method='POST',
-              headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'isco-final-v4-deduper'},
+              f'https://api.github.com/repos/{repo}/actions/jobs/{job_id}/logs',
+              headers={
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'isco-run55-log-inspector',
+              },
           )
-          with urllib.request.urlopen(req, timeout=30) as r:
-              if r.status not in (202, 204):
-                  raise SystemExit(f'Unexpected cancel status: {r.status}')
-          print(f'Cancelled duplicate queued V4 run {duplicate_id}; preserving run {active_id}')
+          with urllib.request.urlopen(req, timeout=60) as r:
+              raw = r.read()
+          if raw[:2] == b'PK':
+              with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                  chunks = []
+                  for name in zf.namelist():
+                      if not name.endswith('/'):
+                          chunks.append(zf.read(name).decode('utf-8', 'replace'))
+                  text = '\n'.join(chunks)
+          else:
+              text = raw.decode('utf-8', 'replace')
+
+          lines = text.splitlines()
+          patterns = re.compile(r'Traceback|RuntimeError|ValueError|Exception|Error|FAILED|failed|BLOCK|blocked|visual|Pexels|Pixabay|media|ffmpeg|No (?:video|visual)|candidate|Final Critic', re.I)
+          hits = [i for i, line in enumerate(lines) if patterns.search(line)]
+          ranges = []
+          for i in hits:
+              lo, hi = max(0, i-18), min(len(lines), i+25)
+              if ranges and lo <= ranges[-1][1] + 4:
+                  ranges[-1] = (ranges[-1][0], max(ranges[-1][1], hi))
+              else:
+                  ranges.append((lo, hi))
+          # Keep only the last six relevant windows to avoid huge output.
+          ranges = ranges[-6:]
+          print('=== TARGETED_ERROR_WINDOWS ===')
+          for lo, hi in ranges:
+              print(f'--- lines {lo+1}-{hi} ---')
+              for line in lines[lo:hi]:
+                  print(line)
+          print('=== FINAL_180_LOG_LINES ===')
+          for line in lines[-180:]:
+              print(line)
           PY
