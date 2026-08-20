@@ -31,15 +31,54 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Checkout current merged private Engine
+      - name: Resolve canonical V4 Engine pin
+        id: engine_pin
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+          checkout = re.findall(r'^\s+ref:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          env_pin = re.findall(r'^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          if len(checkout) != 1 or len(env_pin) != 1 or checkout[0] != env_pin[0]:
+              raise SystemExit(f'V4 Engine pin mismatch: checkout={checkout} env={env_pin}')
+          sha = checkout[0]
+          required = (
+              'workflow_dispatch:',
+              'engine/production/approved_brief.json',
+              'approved_by_user',
+              'approved_topic',
+              'ISCO_APPROVED_BRIEF_PATH:',
+          )
+          missing = [needle for needle in required if needle not in text]
+          forbidden = ('inputs.topic', 'inputs.format', 'TOPIC_INPUT', 'FORMAT_INPUT', 'EVENT_NAME', 'push:')
+          present = [needle for needle in forbidden if needle in text]
+          if missing or present:
+              raise SystemExit(f'V4 production contract drift: missing={missing} forbidden_present={present}')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as fh:
+              fh.write(f'engine_sha={sha}\n')
+          print('V4 Engine pin contract OK:', sha)
+          PY
+
+      - name: Checkout current canonical private Engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: cd436e97eac4eafdb6e57bce93ad21b5a534f626
+          ref: ${{ steps.engine_pin.outputs.engine_sha }}
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        env:
+          ENGINE_SHA: ${{ steps.engine_pin.outputs.engine_sha }}
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -54,10 +93,14 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Verify V4 uses the same current Engine
+      - name: Verify V4 uses the checked-out Engine
+        env:
+          ENGINE_SHA: ${{ steps.engine_pin.outputs.engine_sha }}
         run: |
           set -euo pipefail
           python - <<'PY'
+          import os
+          import re
           from pathlib import Path
           import yaml
 
@@ -65,9 +108,11 @@ jobs:
           text = path.read_text(encoding='utf-8')
           if not isinstance(yaml.safe_load(text), dict):
               raise SystemExit('V4 workflow did not parse as a YAML mapping')
-          current = 'cd436e97eac4eafdb6e57bce93ad21b5a534f626'
-          if text.count(current) != 2:
-              raise SystemExit(f'Expected current Engine SHA twice in V4, found {text.count(current)}')
+          current = os.environ['ENGINE_SHA']
+          checkout = re.findall(r'^\s+ref:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          env_pin = re.findall(r'^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          if checkout != [current] or env_pin != [current]:
+              raise SystemExit(f'V4 does not use checked-out Engine: checkout={checkout} env={env_pin} expected={current}')
           print('V4 Engine pin contract OK:', current)
           PY
 
