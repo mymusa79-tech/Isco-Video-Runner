@@ -1,0 +1,49 @@
+name: Inspect Run58 Final Job Log V2
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened]
+    paths:
+      - ".github/workflows/inspect-run58-final-log-v2.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract exact Run58 failure context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          JOB_ID: "96472740586"
+        run: |
+          set -euo pipefail
+          gh api --allow-escape-sequences \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/$REPO/actions/jobs/$JOB_ID/logs" > /tmp/run58-job.log
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          path = Path('/tmp/run58-job.log')
+          text = path.read_text(encoding='utf-8', errors='replace')
+          # Strip ANSI/terminal escape sequences after preserving the raw provider/error text.
+          text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', text)
+          lines = text.splitlines()
+          pat = re.compile(r'Traceback|RuntimeError|Exception|Opening Director|Groq HTTP 413|429|quota|TTS|Vision|PRODUCE_VIDEO_OUTCOME|failed|failure|rate.?limit', re.I)
+          print('=== MATCHED FAILURE CONTEXT ===')
+          idxs = [i for i, line in enumerate(lines) if pat.search(line)]
+          selected = set()
+          for i in idxs:
+              selected.update(range(max(0, i-12), min(len(lines), i+13)))
+          for i in sorted(selected)[-320:]:
+              print(f'{i+1}:{lines[i]}')
+          print('=== FINAL 180 LINES ===')
+          start = max(0, len(lines)-180)
+          for i in range(start, len(lines)):
+              print(f'{i+1}:{lines[i]}')
+          PY
