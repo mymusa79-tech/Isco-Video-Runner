@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 0eb7718b4e298ebaf1bded279ce5723cdd8948a9
+          ref: 005bcd51fe224619cd14ba89d70ee025b3d3b00e
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -33,7 +33,9 @@ jobs:
 
       - name: Verify exact Engine checkout
         working-directory: engine
-        run: test "$(git rev-parse HEAD)" = "0eb7718b4e298ebaf1bded279ce5723cdd8948a9"
+        env:
+          ENGINE_SHA: 005bcd51fe224619cd14ba89d70ee025b3d3b00e
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -99,8 +101,8 @@ jobs:
         working-directory: engine
         run: |
           set -euo pipefail
-          python -m py_compile src/isco_video_agent/repair_dossier.py tests/test_final_section_length_invariant.py
+          python -m py_compile src/isco_video_agent/orchestrator.py src/isco_video_agent/repair_dossier.py tests/test_final_section_length_invariant.py tests/test_orchestrator_ledger_integration.py tests/test_orchestrator_visual_selection_integration.py
           git diff --check 549d1dc32cd57c4cccfefecf7f04e35b6f3e1b39...HEAD
           actual="$(git diff --name-only 549d1dc32cd57c4cccfefecf7f04e35b6f3e1b39...HEAD | sort)"
-          expected="$(printf '%s\n' 'src/isco_video_agent/repair_dossier.py' 'tests/test_final_section_length_invariant.py' | sort)"
+          expected="$(printf '%s\n' 'src/isco_video_agent/orchestrator.py' 'src/isco_video_agent/repair_dossier.py' 'tests/test_final_section_length_invariant.py' 'tests/test_orchestrator_ledger_integration.py' 'tests/test_orchestrator_visual_selection_integration.py' | sort)"
           test "$actual" = "$expected"
