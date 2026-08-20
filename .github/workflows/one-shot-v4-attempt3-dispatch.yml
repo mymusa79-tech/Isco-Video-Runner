@@ -1,0 +1,33 @@
+name: One-shot V4 Attempt 3 Dispatch
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened]
+    paths:
+      - ".github/workflows/one-shot-v4-attempt3-dispatch.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify canonical main and dispatch Production V4
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EXPECTED_MAIN_SHA: 2bd25119faf1d5def77d725835801781af0162d6
+        run: |
+          set -euo pipefail
+          actual_main_sha="$(gh api "repos/$REPO/git/ref/heads/main" --jq '.object.sha')"
+          test "$actual_main_sha" = "$EXPECTED_MAIN_SHA"
+          gh api \
+            --method POST \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/$REPO/actions/workflows/produce-resilient-v4.yml/dispatches" \
+            -f ref=main
+          echo "Production V4 workflow_dispatch accepted for main=$actual_main_sha"
