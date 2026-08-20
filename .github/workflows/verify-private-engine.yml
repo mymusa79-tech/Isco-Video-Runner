@@ -2,6 +2,11 @@ name: Verify Private Engine
 
 on:
   workflow_dispatch:
+    inputs:
+      engine_sha:
+        description: "Exact 40-character Engine commit SHA to verify"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -9,17 +14,30 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
+      - name: Validate requested Engine SHA
+        env:
+          ENGINE_SHA: ${{ inputs.engine_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'engine_sha must be an exact 40-character lowercase commit SHA' >&2; exit 1; }
+
       - name: Checkout private engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 791aefe8f268bb4b18eec650941119d90026c946
+          ref: ${{ inputs.engine_sha }}
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        env:
+          ENGINE_SHA: ${{ inputs.engine_sha }}
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -41,23 +59,39 @@ jobs:
         working-directory: engine
         run: python -m unittest discover -s tests -q
 
-      - name: Dry-run orchestration with explicit topic
+      - name: Dry-run approved-brief contract matrix
         working-directory: engine
-        run: isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
-
-      - name: Dry-run autonomous topic selection
-        working-directory: engine
-        run: isco-video produce --format auto --dry-run --no-research
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
 
   dependency-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Validate requested Engine SHA
+        env:
+          ENGINE_SHA: ${{ inputs.engine_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'engine_sha must be an exact 40-character lowercase commit SHA' >&2; exit 1; }
+
       - name: Checkout private engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 791aefe8f268bb4b18eec650941119d90026c946
+          ref: ${{ inputs.engine_sha }}
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
