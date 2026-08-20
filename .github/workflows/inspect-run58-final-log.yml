@@ -1,0 +1,32 @@
+name: Inspect Run58 Final Job Log
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened]
+    paths:
+      - ".github/workflows/inspect-run58-final-log.yml"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract exact Run58 failure context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          JOB_ID: "96472740586"
+        run: |
+          set -euo pipefail
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "repos/$REPO/actions/jobs/$JOB_ID/logs" > /tmp/run58-job.log
+          echo '=== MATCHED FAILURE CONTEXT ==='
+          grep -n -i -E -C 12 'Traceback|RuntimeError|Exception|Opening Director|Groq HTTP 413|429|quota|TTS|Vision|PRODUCE_VIDEO_OUTCOME|failed|failure|rate.limit' /tmp/run58-job.log | tail -n 260 || true
+          echo '=== FINAL 140 LINES ==='
+          tail -n 140 /tmp/run58-job.log
