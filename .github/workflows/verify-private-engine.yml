@@ -1,4 +1,4 @@
-name: Validate Engine Opening Recovery Patch
+name: Commit Tested Engine Opening Recovery Wiring
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  validate-opening-recovery:
+  commit-tested-wiring:
     if: github.head_ref == 'ops/final-canonical-v4-once'
     runs-on: ubuntu-latest
     steps:
@@ -22,9 +22,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Apply minimal orchestrator wiring in workspace only
+      - name: Verify Engine branch head and apply exact tested wiring
         run: |
           set -euo pipefail
+          test "$(git -C engine rev-parse HEAD)" = "d9a531cb91b930a428edf51c425d70a2f79df89a"
           python - <<'PY'
           from pathlib import Path
           path = Path('engine/src/isco_video_agent/orchestrator.py')
@@ -50,9 +51,8 @@ jobs:
           path.write_text(text.replace(old, new, 1), encoding='utf-8')
           PY
           git -C engine diff --check
-          git -C engine diff -- src/isco_video_agent/orchestrator.py
 
-      - name: Run focused opening recovery regressions
+      - name: Re-run focused regressions before remote write
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src
         run: |
@@ -60,10 +60,44 @@ jobs:
           python -m unittest engine/tests/test_cinematic_m6_opening_selection.py -v
           python -m py_compile engine/src/isco_video_agent/opening_director.py engine/src/isco_video_agent/orchestrator.py
 
-      - name: Upload patched orchestrator for connector commit
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: opening-recovery-orchestrator
-          path: engine/src/isco_video_agent/orchestrator.py
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit exact tested orchestrator to Engine feature branch
+        env:
+          PRIVATE_SOURCE_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, json, os, urllib.request
+          from pathlib import Path
+
+          repo = 'mymusa79-tech/Isco-Video-Agent'
+          branch = 'fix/opening-director-bounded-recovery'
+          path = 'src/isco_video_agent/orchestrator.py'
+          expected_blob = '7bf523225dc6a97d911608b9c31d835d7075435d'
+          content = Path('engine/' + path).read_bytes()
+          payload = json.dumps({
+              'message': 'fix: wire bounded opening visual recovery',
+              'content': base64.b64encode(content).decode('ascii'),
+              'sha': expected_blob,
+              'branch': branch,
+          }).encode('utf-8')
+          req = urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/contents/{path}',
+              data=payload,
+              method='PUT',
+              headers={
+                  'Authorization': f"Bearer {os.environ['PRIVATE_SOURCE_TOKEN']}",
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'Content-Type': 'application/json',
+                  'User-Agent': 'isco-opening-recovery-committer',
+              },
+          )
+          with urllib.request.urlopen(req, timeout=60) as response:
+              result = json.load(response)
+          commit_sha = result.get('commit', {}).get('sha')
+          blob_sha = result.get('content', {}).get('sha')
+          if not commit_sha or not blob_sha:
+              raise SystemExit('Engine contents API returned no commit/blob SHA')
+          print('ENGINE_WIRING_COMMIT=' + commit_sha)
+          print('ENGINE_WIRING_BLOB=' + blob_sha)
+          PY
