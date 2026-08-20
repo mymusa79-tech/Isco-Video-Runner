@@ -1,32 +1,41 @@
-name: One-shot V4 Attempt 4 Dispatch
+name: One-shot V4 Attempt 4 Observe
 
 on:
   pull_request:
     branches: ["main"]
-    types: [opened]
+    types: [synchronize]
     paths:
       - ".github/workflows/one-shot-v4-attempt4-dispatch.yml"
 
 permissions:
-  actions: write
+  actions: read
   contents: read
 
 jobs:
-  dispatch:
+  observe:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify main and dispatch canonical Production V4
+      - name: Capture newly dispatched Production V4
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           EXPECTED_MAIN_SHA: 2c7ed80f34e2b9396d1fe795529da5daa7a7a761
-          EXPECTED_ENGINE_SHA: 549d1dc32cd57c4cccfefecf7f04e35b6f3e1b39
         run: |
           set -euo pipefail
-          actual_main="$(gh api "repos/$REPO/commits/main" --jq '.sha')"
-          test "$actual_main" = "$EXPECTED_MAIN_SHA"
-          workflow="$(gh api "repos/$REPO/contents/.github/workflows/produce-resilient-v4.yml?ref=main" --jq '.content' | base64 -d)"
-          count="$(grep -o "$EXPECTED_ENGINE_SHA" <<<"$workflow" | wc -l | tr -d ' ')"
-          test "$count" = "3"
-          gh api --method POST "repos/$REPO/actions/workflows/produce-resilient-v4.yml/dispatches" -f ref=main
-          echo "Production V4 Attempt 4 dispatch accepted: runner=$actual_main engine=$EXPECTED_ENGINE_SHA"
+          run_json="$(gh api "repos/$REPO/actions/workflows/produce-resilient-v4.yml/runs?event=workflow_dispatch&branch=main&per_page=1")"
+          run_id="$(jq -r '.workflow_runs[0].id // empty' <<<"$run_json")"
+          run_number="$(jq -r '.workflow_runs[0].run_number // empty' <<<"$run_json")"
+          status="$(jq -r '.workflow_runs[0].status // empty' <<<"$run_json")"
+          conclusion="$(jq -r '.workflow_runs[0].conclusion // empty' <<<"$run_json")"
+          head_sha="$(jq -r '.workflow_runs[0].head_sha // empty' <<<"$run_json")"
+          html_url="$(jq -r '.workflow_runs[0].html_url // empty' <<<"$run_json")"
+          created_at="$(jq -r '.workflow_runs[0].created_at // empty' <<<"$run_json")"
+          test -n "$run_id"
+          test "$head_sha" = "$EXPECTED_MAIN_SHA"
+          echo "ATTEMPT4_RUN_ID=$run_id"
+          echo "ATTEMPT4_RUN_NUMBER=$run_number"
+          echo "ATTEMPT4_STATUS=$status"
+          echo "ATTEMPT4_CONCLUSION=$conclusion"
+          echo "ATTEMPT4_HEAD_SHA=$head_sha"
+          echo "ATTEMPT4_CREATED_AT=$created_at"
+          echo "ATTEMPT4_URL=$html_url"
