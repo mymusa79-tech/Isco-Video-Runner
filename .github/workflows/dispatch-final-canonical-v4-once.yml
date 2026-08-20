@@ -35,8 +35,8 @@ jobs:
           })
           with urllib.request.urlopen(req, timeout=30) as r:
               data = json.load(r)
-          cutoff = datetime.fromisoformat('2026-08-20T09:15:45+00:00')
-          expected_sha = 'e6a598d743f66bbfab68566455c13e49ea7113c4'
+          cutoff = datetime.fromisoformat('2026-08-20T10:45:00+00:00')
+          expected_sha = 'da08cf466a218f77b217fdad34ed0dce027fe6a4'
           matches = []
           for run in data.get('workflow_runs', []):
               created = datetime.fromisoformat(run['created_at'].replace('Z', '+00:00'))
