@@ -1,156 +1,142 @@
-name: Verify Private Engine
+name: Prepare Engine Section Length Orchestrator
 
 on:
-  workflow_dispatch:
-    inputs:
-      engine_sha:
-        description: "Optional exact Engine SHA; when set it must match canonical Runner V4"
-        required: false
-        type: string
   pull_request:
     branches: ["main"]
+    types: [synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
 
 jobs:
-  combined-regression:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 10
     steps:
-      - name: Checkout exact Runner candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Resolve and verify canonical V4 Engine contract
-        id: contract
-        env:
-          REQUESTED_ENGINE_SHA: ${{ inputs.engine_sha }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          path = Path(".github/workflows/produce-resilient-v4.yml")
-          text = path.read_text(encoding="utf-8")
-          checkout = re.findall(r"^\s+ref:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
-          env_pin = re.findall(r"^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
-          if len(checkout) != 1 or len(env_pin) != 1 or checkout[0] != env_pin[0]:
-              raise SystemExit(f"Canonical V4 Engine pin mismatch: checkout={checkout} env={env_pin}")
-          sha = checkout[0]
-          requested = (os.environ.get("REQUESTED_ENGINE_SHA") or "").strip()
-          if requested and requested != sha:
-              raise SystemExit(f"Requested Engine SHA {requested} does not match canonical V4 pin {sha}")
-          if not re.fullmatch(r"[0-9a-f]{40}", sha):
-              raise SystemExit("Canonical V4 Engine SHA must be an exact lowercase 40-character SHA")
-
-          required = (
-              "workflow_dispatch:",
-              'brief_path = Path("engine/production/approved_brief.json")',
-              'brief.get("approved_by_user") is not True',
-              'brief.get("approved_topic")',
-              "ISCO_APPROVED_BRIEF_PATH:",
-          )
-          missing = [needle for needle in required if needle not in text]
-          if missing:
-              raise SystemExit("Canonical V4 contract missing: " + ", ".join(missing))
-          forbidden = (
-              "inputs.topic",
-              "inputs.format",
-              "TOPIC_INPUT",
-              "FORMAT_INPUT",
-              "EVENT_NAME",
-              "push:",
-          )
-          present = [needle for needle in forbidden if needle in text]
-          if present:
-              raise SystemExit("Canonical V4 still exposes legacy request paths: " + ", ".join(present))
-
-          output = Path(os.environ["GITHUB_OUTPUT"])
-          with output.open("a", encoding="utf-8") as fh:
-              fh.write(f"engine_sha={sha}\n")
-          print(f"Canonical V4 contract PASS: runner={os.environ.get('GITHUB_SHA')} engine={sha}")
-          PY
-
-      - name: Checkout exact private Engine
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout exact private Engine branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: ${{ steps.contract.outputs.engine_sha }}
+          ref: 756dd3bd9a2964d07b2336fc385876d7a8d55bce
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify exact Engine checkout
+      - name: Apply guarded patch and prepare Engine commit object
         working-directory: engine
         env:
-          ENGINE_SHA: ${{ steps.contract.outputs.engine_sha }}
-        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - name: Install media dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
-
-      - name: Install locked Engine runtime
-        working-directory: engine
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          REPO: mymusa79-tech/Isco-Video-Agent
         run: |
           set -euo pipefail
-          python -m pip install -r requirements-lock.txt
-          python -m pip install --no-build-isolation --no-deps -e .
-          python -m pip check
+          python - <<'PY'
+          from pathlib import Path
 
-      - name: Dependency audit
-        working-directory: engine
-        run: |
-          set -euo pipefail
-          python -m pip install pip-audit==2.10.1
-          pip-audit --no-deps -r requirements-lock.txt
+          path = Path("src/isco_video_agent/orchestrator.py")
+          text = path.read_text(encoding="utf-8")
 
-      - name: Full Engine suite
-        working-directory: engine
-        run: python -m unittest discover -s tests -q
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              text = text.replace(old, new, 1)
 
-      - name: Approved-Brief CLI contract matrix
-        working-directory: engine
-        run: |
-          set -euo pipefail
-          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
-          rm -f "$missing"
-          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
-            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
-          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
-            --format auto --dry-run --no-research
-          isco-video produce --format auto --dry-run --no-research
-          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
-            --format auto --dry-run --no-research; then
-            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
-            exit 1
-          fi
-
-      - name: Full Runner regression suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          mapfile -t test_modules < <(
-            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
-              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          replace_once(
+              "from .repair_dossier import apply_single_repair, build_dossier",
+              "from .repair_dossier import (\n"
+              "    FILM_SECTION_MAX_WORDS,\n"
+              "    FILM_SECTION_MIN_WORDS,\n"
+              "    apply_single_repair,\n"
+              "    build_dossier,\n"
+              "    check_section_word_bands,\n"
+              ")",
+              "repair_dossier import",
           )
-          test "${#test_modules[@]}" -gt 0
-          python -m unittest "${test_modules[@]}" -q
 
-      - name: Exact closure delta sanity
-        run: |
-          set -euo pipefail
-          git diff --check origin/main...HEAD || git diff --check
-          test -f .github/workflows/produce-resilient-v4.yml
-          test -f .github/workflows/verify-private-engine.yml
+          marker = "\ndef _visual_fit_score(audit: dict) -> float:\n"
+          helper = '''
+
+def _final_film_section_structure_issues(plan) -> list:
+    """Hard final Film section band on the exact narration that can reach TTS."""
+    if getattr(plan, "format", None) != "film":
+        return []
+    sections = [
+        {"id": sec.id, "narration": sec.narration, "target_words": 120}
+        for sec in plan.sections
+    ]
+    return check_section_word_bands(
+        sections,
+        minimum_words=FILM_SECTION_MIN_WORDS,
+        maximum_words=FILM_SECTION_MAX_WORDS,
+    )
+'''
+          replace_once(marker, helper + marker, "final Film helper insertion")
+
+          replace_once(
+              '''    dossier = build_dossier(
+        structure_issues=[], novelty_flags=novelty,
+        factuality_audit=fact_audit, semantic_repetition_audit=content_audit, tone_audit=tone_audit,
+    )''',
+              '''    dossier = build_dossier(
+        structure_issues=_final_film_section_structure_issues(plan), novelty_flags=novelty,
+        factuality_audit=fact_audit, semantic_repetition_audit=content_audit, tone_audit=tone_audit,
+    )''',
+              "initial dossier structure wiring",
+          )
+
+          replace_once(
+              '''        return build_dossier(
+            structure_issues=[], novelty_flags=r_novelty,
+            factuality_audit=r_fact, semantic_repetition_audit=r_content, tone_audit=r_tone,
+        )''',
+              '''        return build_dossier(
+            structure_issues=_final_film_section_structure_issues(repaired_plan), novelty_flags=r_novelty,
+            factuality_audit=r_fact, semantic_repetition_audit=r_content, tone_audit=r_tone,
+        )''',
+              "re-audit dossier structure wiring",
+          )
+
+          replace_once(
+              '''    _write_json(out / "repair-dossier.json", {
+        "needed_repair_initially": dossier.needs_repair,''',
+              '''    final_structure_issues = (
+        repair_outcome.dossier_after.structure_issues
+        if repair_outcome is not None and repair_outcome.dossier_after is not None
+        else dossier.structure_issues
+    )
+    _write_json(out / "repair-dossier.json", {
+        "needed_repair_initially": dossier.needs_repair,''',
+              "final structure state",
+          )
+
+          replace_once(
+              '''    if novelty and not dry_run:
+        raise RuntimeError("Anti-repetition quality gate failed on final script: " + "; ".join(novelty))''',
+              '''    if final_structure_issues and not dry_run:
+        details = "; ".join(f"{issue.section_id} {issue.detail}" for issue in final_structure_issues)
+        raise RuntimeError(
+            "Final Film section-length invariant failed before TTS after the single RepairDossier repair: " + details
+        )
+    if novelty and not dry_run:
+        raise RuntimeError("Anti-repetition quality gate failed on final script: " + "; ".join(novelty))''',
+              "pre-TTS structure fail-closed gate",
+          )
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          python -m py_compile src/isco_video_agent/orchestrator.py
+          git diff --check
+          git diff -- src/isco_video_agent/orchestrator.py
+
+          base_commit="$(git rev-parse HEAD)"
+          base_tree="$(git rev-parse HEAD^{tree})"
+          blob_sha="$(gh api --method POST "repos/$REPO/git/blobs" -f content="$(cat src/isco_video_agent/orchestrator.py)" -f encoding=utf-8 --jq '.sha')"
+          tree_json="$(jq -n --arg base "$base_tree" --arg blob "$blob_sha" '{base_tree:$base,tree:[{path:"src/isco_video_agent/orchestrator.py",mode:"100644",type:"blob",sha:$blob},{path:".github/workflows/patch-final-section-length-orchestrator.yml",mode:"100644",type:"blob",sha:null}]}')"
+          tree_sha="$(printf '%s' "$tree_json" | gh api --method POST "repos/$REPO/git/trees" --input - --jq '.sha')"
+          commit_json="$(jq -n --arg msg 'fix: wire final film section bands into orchestrator' --arg tree "$tree_sha" --arg parent "$base_commit" '{message:$msg,tree:$tree,parents:[$parent]}')"
+          commit_sha="$(printf '%s' "$commit_json" | gh api --method POST "repos/$REPO/git/commits" --input - --jq '.sha')"
+          echo "BASE_COMMIT_SHA=$base_commit"
+          echo "PREPARED_COMMIT_SHA=$commit_sha"
