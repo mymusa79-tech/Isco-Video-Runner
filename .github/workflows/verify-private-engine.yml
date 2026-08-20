@@ -116,8 +116,29 @@ jobs:
           pip-audit --no-deps -r requirements-lock.txt
 
       - name: Full Engine suite
+        id: engine_suite
+        continue-on-error: true
         working-directory: engine
-        run: python -m unittest discover -s tests -q
+        run: |
+          set +e
+          python -m unittest discover -s tests -q > "$RUNNER_TEMP/p0-1-engine-suite.log" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/p0-1-engine-suite.log"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload P0-1 Engine suite diagnostics
+        if: ${{ steps.engine_suite.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: p0-1-engine-suite-${{ github.run_id }}
+          path: ${{ runner.temp }}/p0-1-engine-suite.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Stop after captured Engine regression failure
+        if: ${{ steps.engine_suite.outcome == 'failure' }}
+        run: exit 1
 
       - name: Approved-Brief CLI contract matrix
         working-directory: engine
