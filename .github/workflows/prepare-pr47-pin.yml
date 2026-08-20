@@ -1,0 +1,61 @@
+name: Prepare PR47 Engine Pin
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, reopened]
+    paths:
+      - ".github/workflows/prepare-pr47-pin.yml"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  pin:
+    if: github.event.pull_request.head.ref == 'chore/pin-engine-pr47-merge'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pin branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: chore/pin-engine-pr47-merge
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify main and replace exact Engine pin
+        env:
+          EXPECTED_MAIN: 2bd25119faf1d5def77d725835801781af0162d6
+          OLD_ENGINE: ea205d2174019d7d14dce7855767ad6f27a2e320
+          NEW_ENGINE: 549d1dc32cd57c4cccfefecf7f04e35b6f3e1b39
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$EXPECTED_MAIN"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+          old = os.environ['OLD_ENGINE']
+          new = os.environ['NEW_ENGINE']
+          count = text.count(old)
+          if count != 3:
+              raise SystemExit(f'Expected exactly 3 old Engine pin occurrences, found {count}')
+          text = text.replace(old, new)
+          if text.count(new) != 3 or old in text:
+              raise SystemExit('Engine pin replacement integrity failed')
+          path.write_text(text, encoding='utf-8')
+          PY
+          git diff --check
+          git diff -- .github/workflows/produce-resilient-v4.yml
+
+      - name: Commit clean pin and remove temporary preparer
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- .github/workflows/produce-resilient-v4.yml
+          git rm -- .github/workflows/prepare-pr47-pin.yml
+          git commit -m "chore: pin Production V4 to Engine PR #47"
+          git push origin HEAD:chore/pin-engine-pr47-merge
