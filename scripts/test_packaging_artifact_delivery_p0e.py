@@ -100,8 +100,11 @@ class PackagingArtifactDeliveryP0ETests(unittest.TestCase):
 
     def test_workflow_delivers_packaging_without_expanding_production_trigger(self) -> None:
         workflow = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
-        self.assertIn('branches: ["main"]', workflow)
-        self.assertNotIn('".github/workflows/produce-resilient-v4.yml"', workflow.split("concurrency:", 1)[0])
+        trigger_contract = workflow.split("concurrency:", 1)[0]
+        self.assertIn("workflow_dispatch:", trigger_contract)
+        self.assertNotIn("push:", trigger_contract)
+        self.assertNotIn("inputs:", trigger_contract)
+        self.assertNotIn('".github/workflows/produce-resilient-v4.yml"', trigger_contract)
         self.assertIn("engine/output/*/thumbnail-plan.json", workflow)
         self.assertIn("${{ steps.final_review.outputs.output_root }}/thumbnail-*.jpg", workflow)
         self.assertIn("packaging_delivery_contract import validate_packaging_delivery", workflow)
