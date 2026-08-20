@@ -425,7 +425,9 @@ def install_router() -> None:
                 detail = str(exc).replace("\n", " ")[:220]
                 failures.append(f"{name}:{detail}")
                 _record_attempt(name, _classify_failure(detail), error_detail=detail, duration_seconds=time.monotonic() - last_call_at[name])
-                if "429" in detail or "quota" in detail.lower():
+                is_rate_limited = "429" in detail or "quota" in detail.lower()
+                is_groq_payload_too_large = name == "groq" and "groq http 413" in detail.lower()
+                if is_rate_limited or is_groq_payload_too_large:
                     cooldown.add(name)
                     print(f"Planning provider circuit-open for this run: {name}")
                 else:
