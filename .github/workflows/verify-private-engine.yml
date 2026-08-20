@@ -1,37 +1,57 @@
-name: Observe Final Canonical V4 via Existing PR Workflow
+name: Cancel Duplicate Final V4 Run
 
 on:
   pull_request:
     branches: ["main"]
 
 permissions:
-  actions: read
+  actions: write
   contents: read
 
 jobs:
-  observe-final-v4:
+  cancel-duplicate:
     if: github.head_ref == 'ops/final-canonical-v4-once'
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect recent canonical V4 runs read-only
+      - name: Cancel only duplicate queued canonical V4
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os, urllib.request
+
           repo = os.environ['GITHUB_REPOSITORY']
-          url = f'https://api.github.com/repos/{repo}/actions/workflows/produce-resilient-v4.yml/runs?event=workflow_dispatch&branch=main&per_page=20'
-          req = urllib.request.Request(url, headers={
-              'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
-              'Accept': 'application/vnd.github+json',
-              'X-GitHub-Api-Version': '2022-11-28',
-              'User-Agent': 'isco-final-v4-observer',
-          })
+          token = os.environ['GH_TOKEN']
+          expected_sha = 'e6a598d743f66bbfab68566455c13e49ea7113c4'
+          active_id = 32352874618
+          duplicate_id = 32352978242
+
+          def get_run(run_id):
+              req = urllib.request.Request(
+                  f'https://api.github.com/repos/{repo}/actions/runs/{run_id}',
+                  headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'isco-final-v4-deduper'},
+              )
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.load(r)
+
+          active = get_run(active_id)
+          duplicate = get_run(duplicate_id)
+          for label, run in [('active', active), ('duplicate', duplicate)]:
+              if run.get('name') != 'Isco Video Production Resilient V4' or run.get('head_sha') != expected_sha or run.get('event') != 'workflow_dispatch':
+                  raise SystemExit(f'{label} run identity mismatch: ' + json.dumps({k: run.get(k) for k in ('id','name','head_sha','event','status','conclusion')}))
+          if active.get('status') not in ('in_progress', 'completed'):
+              raise SystemExit('Expected run #55 to be active or already completed')
+          if duplicate.get('status') == 'completed':
+              print('Duplicate run already completed; no cancel request sent')
+              raise SystemExit(0)
+          req = urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/actions/runs/{duplicate_id}/cancel',
+              data=b'', method='POST',
+              headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'isco-final-v4-deduper'},
+          )
           with urllib.request.urlopen(req, timeout=30) as r:
-              data = json.load(r)
-          slim = [{k: x.get(k) for k in ('id','run_number','status','conclusion','created_at','updated_at','head_sha','event','html_url')} for x in data.get('workflow_runs', [])[:12]]
-          print('RECENT_V4_RUNS=' + json.dumps(slim, sort_keys=True))
-          active = [x for x in slim if x['status'] not in ('completed',)]
-          print('ACTIVE_V4_RUNS=' + json.dumps(active, sort_keys=True))
+              if r.status not in (202, 204):
+                  raise SystemExit(f'Unexpected cancel status: {r.status}')
+          print(f'Cancelled duplicate queued V4 run {duplicate_id}; preserving run {active_id}')
           PY
