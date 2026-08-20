@@ -1,0 +1,143 @@
+name: Prepare Engine Section Length Orchestrator
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened]
+    paths:
+      - ".github/workflows/prepare-engine-section-length-orchestrator.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact private Engine branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 756dd3bd9a2964d07b2336fc385876d7a8d55bce
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Apply guarded patch and prepare Engine commit object
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          REPO: mymusa79-tech/Isco-Video-Agent
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/isco_video_agent/orchestrator.py")
+          text = path.read_text(encoding="utf-8")
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              "from .repair_dossier import apply_single_repair, build_dossier",
+              "from .repair_dossier import (\n"
+              "    FILM_SECTION_MAX_WORDS,\n"
+              "    FILM_SECTION_MIN_WORDS,\n"
+              "    apply_single_repair,\n"
+              "    build_dossier,\n"
+              "    check_section_word_bands,\n"
+              ")",
+              "repair_dossier import",
+          )
+
+          marker = "\ndef _visual_fit_score(audit: dict) -> float:\n"
+          helper = '''
+
+def _final_film_section_structure_issues(plan) -> list:
+    """Hard final Film section band on the exact narration that can reach TTS."""
+    if getattr(plan, "format", None) != "film":
+        return []
+    sections = [
+        {"id": sec.id, "narration": sec.narration, "target_words": 120}
+        for sec in plan.sections
+    ]
+    return check_section_word_bands(
+        sections,
+        minimum_words=FILM_SECTION_MIN_WORDS,
+        maximum_words=FILM_SECTION_MAX_WORDS,
+    )
+'''
+          replace_once(marker, helper + marker, "final Film helper insertion")
+
+          replace_once(
+              '''    dossier = build_dossier(
+        structure_issues=[], novelty_flags=novelty,
+        factuality_audit=fact_audit, semantic_repetition_audit=content_audit, tone_audit=tone_audit,
+    )''',
+              '''    dossier = build_dossier(
+        structure_issues=_final_film_section_structure_issues(plan), novelty_flags=novelty,
+        factuality_audit=fact_audit, semantic_repetition_audit=content_audit, tone_audit=tone_audit,
+    )''',
+              "initial dossier structure wiring",
+          )
+
+          replace_once(
+              '''        return build_dossier(
+            structure_issues=[], novelty_flags=r_novelty,
+            factuality_audit=r_fact, semantic_repetition_audit=r_content, tone_audit=r_tone,
+        )''',
+              '''        return build_dossier(
+            structure_issues=_final_film_section_structure_issues(repaired_plan), novelty_flags=r_novelty,
+            factuality_audit=r_fact, semantic_repetition_audit=r_content, tone_audit=r_tone,
+        )''',
+              "re-audit dossier structure wiring",
+          )
+
+          replace_once(
+              '''    _write_json(out / "repair-dossier.json", {
+        "needed_repair_initially": dossier.needs_repair,''',
+              '''    final_structure_issues = (
+        repair_outcome.dossier_after.structure_issues
+        if repair_outcome is not None and repair_outcome.dossier_after is not None
+        else dossier.structure_issues
+    )
+    _write_json(out / "repair-dossier.json", {
+        "needed_repair_initially": dossier.needs_repair,''',
+              "final structure state",
+          )
+
+          replace_once(
+              '''    if novelty and not dry_run:
+        raise RuntimeError("Anti-repetition quality gate failed on final script: " + "; ".join(novelty))''',
+              '''    if final_structure_issues and not dry_run:
+        details = "; ".join(f"{issue.section_id} {issue.detail}" for issue in final_structure_issues)
+        raise RuntimeError(
+            "Final Film section-length invariant failed before TTS after the single RepairDossier repair: " + details
+        )
+    if novelty and not dry_run:
+        raise RuntimeError("Anti-repetition quality gate failed on final script: " + "; ".join(novelty))''',
+              "pre-TTS structure fail-closed gate",
+          )
+
+          path.write_text(text, encoding="utf-8")
+          PY
+
+          python -m py_compile src/isco_video_agent/orchestrator.py
+          git diff --check
+          git diff -- src/isco_video_agent/orchestrator.py
+
+          base_commit="$(git rev-parse HEAD)"
+          base_tree="$(git rev-parse HEAD^{tree})"
+          blob_sha="$(gh api --method POST "repos/$REPO/git/blobs" -f content="$(cat src/isco_video_agent/orchestrator.py)" -f encoding=utf-8 --jq '.sha')"
+          tree_json="$(jq -n --arg base "$base_tree" --arg blob "$blob_sha" '{base_tree:$base,tree:[{path:"src/isco_video_agent/orchestrator.py",mode:"100644",type:"blob",sha:$blob},{path:".github/workflows/patch-final-section-length-orchestrator.yml",mode:"100644",type:"blob",sha:null}]}')"
+          tree_sha="$(printf '%s' "$tree_json" | gh api --method POST "repos/$REPO/git/trees" --input - --jq '.sha')"
+          commit_json="$(jq -n --arg msg 'fix: wire final film section bands into orchestrator' --arg tree "$tree_sha" --arg parent "$base_commit" '{message:$msg,tree:$tree,parents:[$parent]}')"
+          commit_sha="$(printf '%s' "$commit_json" | gh api --method POST "repos/$REPO/git/commits" --input - --jq '.sha')"
+          echo "BASE_COMMIT_SHA=$base_commit"
+          echo "PREPARED_COMMIT_SHA=$commit_sha"
