@@ -1,0 +1,32 @@
+name: One-shot V4 Attempt 4 Dispatch
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened]
+    paths:
+      - ".github/workflows/one-shot-v4-attempt4-dispatch.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify main and dispatch canonical Production V4
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EXPECTED_MAIN_SHA: 2c7ed80f34e2b9396d1fe795529da5daa7a7a761
+          EXPECTED_ENGINE_SHA: 549d1dc32cd57c4cccfefecf7f04e35b6f3e1b39
+        run: |
+          set -euo pipefail
+          actual_main="$(gh api "repos/$REPO/commits/main" --jq '.sha')"
+          test "$actual_main" = "$EXPECTED_MAIN_SHA"
+          workflow="$(gh api "repos/$REPO/contents/.github/workflows/produce-resilient-v4.yml?ref=main" --jq '.content' | base64 -d)"
+          count="$(grep -o "$EXPECTED_ENGINE_SHA" <<<"$workflow" | wc -l | tr -d ' ')"
+          test "$count" = "3"
+          gh api --method POST "repos/$REPO/actions/workflows/produce-resilient-v4.yml/dispatches" -f ref=main
+          echo "Production V4 Attempt 4 dispatch accepted: runner=$actual_main engine=$EXPECTED_ENGINE_SHA"
