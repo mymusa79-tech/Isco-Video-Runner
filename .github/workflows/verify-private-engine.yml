@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       engine_sha:
-        description: "Exact 40-character Engine commit SHA to verify"
+        description: "Exact 40-character Engine commit SHA to verify against canonical Runner V4"
         required: true
         type: string
 
@@ -14,7 +14,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Validate requested Engine SHA
         env:
@@ -22,6 +22,52 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'engine_sha must be an exact 40-character lowercase commit SHA' >&2; exit 1; }
+
+      - name: Checkout exact Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify canonical V4 exact-pair contract
+        env:
+          ENGINE_SHA: ${{ inputs.engine_sha }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          sha = os.environ["ENGINE_SHA"]
+          path = Path(".github/workflows/produce-resilient-v4.yml")
+          text = path.read_text(encoding="utf-8")
+          required = (
+              "workflow_dispatch:",
+              f"ref: {sha}",
+              f"ISCO_ENGINE_SHA: {sha}",
+              'brief_path = Path("engine/production/approved_brief.json")',
+              'brief.get("approved_by_user") is not True',
+              'brief.get("approved_topic")',
+              "ISCO_APPROVED_BRIEF_PATH:",
+          )
+          missing = [needle for needle in required if needle not in text]
+          if missing:
+              raise SystemExit("Canonical V4 contract missing: " + ", ".join(missing))
+          forbidden = (
+              "inputs.topic",
+              "inputs.format",
+              "TOPIC_INPUT",
+              "FORMAT_INPUT",
+              "EVENT_NAME",
+              "push:",
+          )
+          present = [needle for needle in forbidden if needle in text]
+          if present:
+              raise SystemExit("Canonical V4 still exposes legacy request paths: " + ", ".join(present))
+          if text.count(sha) < 3:
+              raise SystemExit("Canonical V4 Engine SHA is not pinned consistently")
+          print(f"Canonical V4 exact-pair contract PASS: runner={os.environ.get('GITHUB_SHA')} engine={sha}")
+          PY
 
       - name: Checkout private engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -75,6 +121,18 @@ jobs:
             echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
             exit 1
           fi
+
+      - name: Full Runner regression suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
 
   dependency-audit:
     runs-on: ubuntu-latest
