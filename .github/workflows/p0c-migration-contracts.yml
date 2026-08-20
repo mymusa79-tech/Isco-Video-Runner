@@ -35,20 +35,48 @@ jobs:
           git merge-base --is-ancestor 8f22d73cab614c0a8b19a2efaa37259656917644 HEAD
           echo "Clean Gold Phase 4 v2 ancestry preserved"
 
+      - name: Resolve canonical V4 Engine pin
+        id: engine_pin
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          text = Path('.github/workflows/produce-resilient-v4.yml').read_text(encoding='utf-8')
+          checkout = re.findall(r'^\s+ref:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          env_pin = re.findall(r'^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          if len(checkout) != 1 or len(env_pin) != 1 or checkout[0] != env_pin[0]:
+              raise SystemExit(f'V4 Engine pin mismatch: checkout={checkout} env={env_pin}')
+          sha = checkout[0]
+          required = ('engine/production/approved_brief.json', 'approved_by_user', 'approved_topic', 'ISCO_APPROVED_BRIEF_PATH:')
+          missing = [needle for needle in required if needle not in text]
+          forbidden = ('inputs.topic', 'inputs.format', 'TOPIC_INPUT', 'FORMAT_INPUT', 'EVENT_NAME', 'push:')
+          present = [needle for needle in forbidden if needle in text]
+          if missing or present:
+              raise SystemExit(f'V4 production contract drift: missing={missing} forbidden_present={present}')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as fh:
+              fh.write(f'engine_sha={sha}\n')
+          print('Canonical V4 Engine pin:', sha)
+          PY
+
       - name: Checkout exact Unified Engine main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: cd436e97eac4eafdb6e57bce93ad21b5a534f626
+          ref: ${{ steps.engine_pin.outputs.engine_sha }}
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 0
 
       - name: Verify pinned Unified Engine main HEAD
+        env:
+          ENGINE_SHA: ${{ steps.engine_pin.outputs.engine_sha }}
         run: |
           set -euo pipefail
-          test "$(git -C engine rev-parse HEAD)" = "cd436e97eac4eafdb6e57bce93ad21b5a534f626"
+          test "$(git -C engine rev-parse HEAD)" = "$ENGINE_SHA"
           echo "Unified Engine main: $(git -C engine rev-parse HEAD)"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
