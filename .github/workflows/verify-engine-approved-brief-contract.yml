@@ -1,0 +1,114 @@
+name: Verify Engine Approved Brief Contract
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact Engine contract candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: a706fa98df224a6372edc7fef5ec477e95023b2f
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Full Engine suite
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Approved brief regressions explicitly
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_security \
+            tests.test_workflows \
+            tests.test_approved_brief_orchestration_contract \
+            -v
+
+      - name: CLI dry-run contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Verify contract-only Engine delta
+        run: |
+          set -euo pipefail
+          base=b91750fd245510eb2de1f9017b96ca1c4de5f91f
+          head=a706fa98df224a6372edc7fef5ec477e95023b2f
+          actual="$(git -C engine diff --name-only "$base" "$head" | sort)"
+          expected="$(printf '%s\n' \
+            .github/workflows/ci.yml \
+            .github/workflows/produce.yml \
+            README.md \
+            deploy/public-runner/README.md \
+            deploy/public-runner/produce.yml \
+            docs/FOUNDATION_STATUS.md \
+            tests/test_approved_brief_orchestration_contract.py \
+            tests/test_workflows.py | sort)"
+          printf 'ACTUAL\n%s\nEXPECTED\n%s\n' "$actual" "$expected"
+          test "$actual" = "$expected"
+          test -z "$(git -C engine diff --name-only "$base" "$head" -- 'src/**')"
+          git -C engine diff --check "$base" "$head"
+
+      - name: Full Runner regression suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          python -m unittest "${test_modules[@]}" -q
