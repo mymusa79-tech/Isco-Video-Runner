@@ -2,24 +2,6 @@ name: Isco Video Production Resilient V4
 
 on:
   workflow_dispatch:
-    inputs:
-      topic:
-        description: "Arabic topic or working title"
-        required: true
-        default: "كيف تنهض بعد أن سقطت كثيرًا؟"
-        type: string
-      format:
-        description: "film or story"
-        required: true
-        default: film
-        type: choice
-        options: [film, story]
-  push:
-    branches: ["main"]
-    paths:
-      - "scripts/run_v3_voice.py"
-      - "scripts/voice_mesh.py"
-      - "scripts/task_level_planner_router.py"
 
 concurrency:
   group: isco-video-resilient-v4
@@ -47,11 +29,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: cd436e97eac4eafdb6e57bce93ad21b5a534f626
+          ref: 245ef9a52fcf2500b058d08b2c9d48d92e746951
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 1
+
+      - name: Verify exact Engine pin
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "245ef9a52fcf2500b058d08b2c9d48d92e746951"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         id: setup_python
@@ -113,12 +99,9 @@ jobs:
           print("Piper local voice preflight OK")
           PY
 
-      - name: Prepare secure request and secrets
+      - name: Prepare approved-brief request and secrets
         id: prepare_request
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          TOPIC_INPUT: ${{ inputs.topic }}
-          FORMAT_INPUT: ${{ inputs.format }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -156,17 +139,18 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
-          if os.environ.get("EVENT_NAME") == "workflow_dispatch":
-              topic = (os.environ.get("TOPIC_INPUT") or "").strip()
-              fmt = (os.environ.get("FORMAT_INPUT") or "film").strip().lower()
-          else:
-              topic = "صوت الآخرين في رأسك"
-              fmt = "film"
-          if not topic or fmt not in {"film", "story"}:
-              raise SystemExit("Invalid production request")
+          brief_path = Path("engine/production/approved_brief.json")
+          brief = json.loads(brief_path.read_text(encoding="utf-8"))
+          if not isinstance(brief, dict) or brief.get("approved_by_user") is not True:
+              raise SystemExit("Production brief is missing explicit user approval")
+          topic = str(brief.get("approved_topic") or "").strip()
+          fmt = str(brief.get("format") or "").strip().lower()
+          if not topic or fmt not in {"film", "moment", "story"}:
+              raise SystemExit("Invalid approved production brief")
           Path(os.environ["RUNNER_TEMP"], "isco-request.json").write_text(
               json.dumps({"topic": topic, "format": fmt}, ensure_ascii=False), encoding="utf-8"
           )
+          print(f"Approved production brief loaded: format={fmt}")
           PY
 
       - name: Verify free provider authentication
@@ -200,7 +184,8 @@ jobs:
           YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
           YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
           YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
-          ISCO_ENGINE_SHA: cd436e97eac4eafdb6e57bce93ad21b5a534f626
+          ISCO_ENGINE_SHA: 245ef9a52fcf2500b058d08b2c9d48d92e746951
+          ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
           TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token
           TELEGRAM_CHAT_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-chat-id
           TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
