@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: a706fa98df224a6372edc7fef5ec477e95023b2f
+          ref: cf0a77d2f9e151de06ec941ba2cdbabb677641b4
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           base=b91750fd245510eb2de1f9017b96ca1c4de5f91f
-          head=a706fa98df224a6372edc7fef5ec477e95023b2f
+          head=cf0a77d2f9e151de06ec941ba2cdbabb677641b4
           actual="$(git -C engine diff --name-only "$base" "$head" | sort)"
           expected="$(printf '%s\n' \
             .github/workflows/ci.yml \
@@ -102,7 +102,8 @@ jobs:
             deploy/public-runner/produce.yml \
             docs/FOUNDATION_STATUS.md \
             tests/test_approved_brief_orchestration_contract.py \
-            tests/test_workflows.py | sort)"
+            tests/test_workflows.py \
+            tests/test_youtube_analytics_learning.py | sort)"
           printf 'ACTUAL\n%s\nEXPECTED\n%s\n' "$actual" "$expected"
           test "$actual" = "$expected"
           test -z "$(git -C engine diff --name-only "$base" "$head" -- 'src/**')"
