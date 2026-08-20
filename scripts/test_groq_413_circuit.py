@@ -79,7 +79,7 @@ class GroqPayloadTooLargeCircuitTests(unittest.TestCase):
             "groq",
             "openrouter-free-router",
         ])
-        self.assertEqual(telemetry[1]["result"], "other")
+        self.assertEqual(telemetry[1]["result"], "payload_too_large")
         self.assertEqual(telemetry[1]["error_detail"], "Groq HTTP 413")
 
     def test_groq_413_opens_circuit_for_rest_of_planning_session(self) -> None:
@@ -120,7 +120,7 @@ class GroqPayloadTooLargeCircuitTests(unittest.TestCase):
 
         groq_events = [x for x in router.get_telemetry() if x["provider"] == "groq"]
         self.assertEqual(len(groq_events), 2)
-        self.assertEqual(groq_events[0]["result"], "other")
+        self.assertEqual(groq_events[0]["result"], "payload_too_large")
         self.assertEqual(groq_events[0]["error_detail"], "Groq HTTP 413")
         self.assertEqual(groq_events[1]["result"], "circuit-open")
 
