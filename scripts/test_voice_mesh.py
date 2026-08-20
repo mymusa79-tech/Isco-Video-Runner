@@ -41,6 +41,17 @@ class VoiceMeshCloudTests(unittest.TestCase):
                 )
         local.assert_not_called()
 
+    def test_dialogue_client_disables_sdk_level_retries(self) -> None:
+        with patch("google.genai.Client") as client_ctor:
+            sentinel = object()
+            client_ctor.return_value = sentinel
+            result = voice_mesh._single_attempt_gemini_client("fake-key")
+
+        self.assertIs(result, sentinel)
+        http_options = client_ctor.call_args.kwargs["http_options"]
+        self.assertIsNotNone(http_options.retry_options)
+        self.assertEqual(http_options.retry_options.attempts, 1)
+
     def test_dialogue_cloud_adds_one_section_tail_and_preserves_voice_roster(self) -> None:
         transcript = "السائل: لماذا؟\nالمجيب: لأننا نختبر."
         output = Path("dialogue.wav")
