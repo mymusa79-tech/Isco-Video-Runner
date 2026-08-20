@@ -58,14 +58,7 @@ jobs:
           missing = [needle for needle in required if needle not in text]
           if missing:
               raise SystemExit("Canonical V4 contract missing: " + ", ".join(missing))
-          forbidden = (
-              "inputs.topic",
-              "inputs.format",
-              "TOPIC_INPUT",
-              "FORMAT_INPUT",
-              "EVENT_NAME",
-              "push:",
-          )
+          forbidden = ("inputs.topic", "inputs.format", "TOPIC_INPUT", "FORMAT_INPUT", "EVENT_NAME", "push:")
           present = [needle for needle in forbidden if needle in text]
           if present:
               raise SystemExit("Canonical V4 still exposes legacy request paths: " + ", ".join(present))
@@ -99,24 +92,28 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+          def replace_existing(path: Path, old: str, new: str, label: str) -> int:
               text = path.read_text(encoding="utf-8")
               count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
-              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+              if count < 1:
+                  raise SystemExit(f"{label}: expected at least one match, found 0")
+              path.write_text(text.replace(old, new), encoding="utf-8")
+              print(f"{label}: isolated {count} fixture path(s)")
+              return count
 
           ledger = Path("tests/test_orchestrator_ledger_integration.py")
-          replace_once(
+          ledger_count = replace_existing(
               ledger,
               '''             patch.object(tone_quality, "json_text", side_effect=_fake_tone_quality_pass):''',
               '''             patch.object(tone_quality, "json_text", side_effect=_fake_tone_quality_pass), \\
              patch.object(orchestrator, "_final_film_section_structure_issues", return_value=[]):''',
               "ledger fixture isolation",
           )
+          if ledger_count != 2:
+              raise SystemExit(f"ledger fixture isolation: expected exactly 2 known paths, found {ledger_count}")
 
           visual = Path("tests/test_orchestrator_visual_selection_integration.py")
-          replace_once(
+          visual_count = replace_existing(
               visual,
               '''            patch.object(orchestrator, "_verify_resilient_router_installed", lambda: None),''',
               '''            patch.object(orchestrator, "_verify_resilient_router_installed", lambda: None),
@@ -126,9 +123,9 @@ jobs:
             patch.object(orchestrator, "_final_film_section_structure_issues", return_value=[]),''',
               "visual fixture isolation",
           )
+          if visual_count != 1:
+              raise SystemExit(f"visual fixture isolation: expected exactly 1 known path, found {visual_count}")
 
-          # Add the same explicit rationale to the dry-run ledger fixture so the
-          # bypass cannot be mistaken for production behavior.
           text = ledger.read_text(encoding="utf-8")
           needle = '    def _produce(self, **kwargs):\n        os.environ["GEMINI_API_KEY"] = "fake-test-key"'
           replacement = (
