@@ -4,47 +4,52 @@ on:
   workflow_dispatch:
     inputs:
       engine_sha:
-        description: "Exact 40-character Engine commit SHA to verify against canonical Runner V4"
-        required: true
+        description: "Optional exact Engine SHA; when set it must match canonical Runner V4"
+        required: false
         type: string
+  pull_request:
+    branches: ["main"]
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  combined-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
-      - name: Validate requested Engine SHA
-        env:
-          ENGINE_SHA: ${{ inputs.engine_sha }}
-        run: |
-          set -euo pipefail
-          [[ "$ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'engine_sha must be an exact 40-character lowercase commit SHA' >&2; exit 1; }
-
       - name: Checkout exact Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify canonical V4 exact-pair contract
+      - name: Resolve and verify canonical V4 Engine contract
+        id: contract
         env:
-          ENGINE_SHA: ${{ inputs.engine_sha }}
+          REQUESTED_ENGINE_SHA: ${{ inputs.engine_sha }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import os
+          import re
           from pathlib import Path
 
-          sha = os.environ["ENGINE_SHA"]
           path = Path(".github/workflows/produce-resilient-v4.yml")
           text = path.read_text(encoding="utf-8")
+          checkout = re.findall(r"^\s+ref:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
+          env_pin = re.findall(r"^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
+          if len(checkout) != 1 or len(env_pin) != 1 or checkout[0] != env_pin[0]:
+              raise SystemExit(f"Canonical V4 Engine pin mismatch: checkout={checkout} env={env_pin}")
+          sha = checkout[0]
+          requested = (os.environ.get("REQUESTED_ENGINE_SHA") or "").strip()
+          if requested and requested != sha:
+              raise SystemExit(f"Requested Engine SHA {requested} does not match canonical V4 pin {sha}")
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("Canonical V4 Engine SHA must be an exact lowercase 40-character SHA")
+
           required = (
               "workflow_dispatch:",
-              f"ref: {sha}",
-              f"ISCO_ENGINE_SHA: {sha}",
               'brief_path = Path("engine/production/approved_brief.json")',
               'brief.get("approved_by_user") is not True',
               'brief.get("approved_topic")',
@@ -64,16 +69,18 @@ jobs:
           present = [needle for needle in forbidden if needle in text]
           if present:
               raise SystemExit("Canonical V4 still exposes legacy request paths: " + ", ".join(present))
-          if text.count(sha) < 3:
-              raise SystemExit("Canonical V4 Engine SHA is not pinned consistently")
-          print(f"Canonical V4 exact-pair contract PASS: runner={os.environ.get('GITHUB_SHA')} engine={sha}")
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as fh:
+              fh.write(f"engine_sha={sha}\n")
+          print(f"Canonical V4 contract PASS: runner={os.environ.get('GITHUB_SHA')} engine={sha}")
           PY
 
-      - name: Checkout private engine
+      - name: Checkout exact private Engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: ${{ inputs.engine_sha }}
+          ref: ${{ steps.contract.outputs.engine_sha }}
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -82,7 +89,7 @@ jobs:
       - name: Verify exact Engine checkout
         working-directory: engine
         env:
-          ENGINE_SHA: ${{ inputs.engine_sha }}
+          ENGINE_SHA: ${{ steps.contract.outputs.engine_sha }}
         run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
 
       - name: Set up Python
@@ -93,7 +100,7 @@ jobs:
       - name: Install media dependencies
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
 
-      - name: Install locked runtime
+      - name: Install locked Engine runtime
         working-directory: engine
         run: |
           set -euo pipefail
@@ -101,11 +108,18 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Unit and media tests
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Full Engine suite
         working-directory: engine
         run: python -m unittest discover -s tests -q
 
-      - name: Dry-run approved-brief contract matrix
+      - name: Approved-Brief CLI contract matrix
         working-directory: engine
         run: |
           set -euo pipefail
@@ -134,35 +148,9 @@ jobs:
           test "${#test_modules[@]}" -gt 0
           python -m unittest "${test_modules[@]}" -q
 
-  dependency-audit:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Validate requested Engine SHA
-        env:
-          ENGINE_SHA: ${{ inputs.engine_sha }}
+      - name: Exact closure delta sanity
         run: |
           set -euo pipefail
-          [[ "$ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'engine_sha must be an exact 40-character lowercase commit SHA' >&2; exit 1; }
-
-      - name: Checkout private engine
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: mymusa79-tech/Isco-Video-Agent
-          ref: ${{ inputs.engine_sha }}
-          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
-          path: engine
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - name: Audit fully pinned runtime
-        working-directory: engine
-        run: |
-          set -euo pipefail
-          python -m pip install pip-audit==2.10.1
-          pip-audit --no-deps -r requirements-lock.txt
+          git diff --check origin/main...HEAD || git diff --check
+          test -f .github/workflows/produce-resilient-v4.yml
+          test -f .github/workflows/verify-private-engine.yml
