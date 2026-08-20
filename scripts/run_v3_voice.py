@@ -102,6 +102,16 @@ def _production_id() -> str:
     return f"v4:{run_id}:{attempt}"
 
 
+def _production_budget_ledger(fmt: str) -> BudgetLedger:
+    """Production is the enforcing owner of the AI attempt budget.
+
+    Tests and offline diagnostics may keep BudgetLedger's observe-only default, but a
+    real V4 run must never silently exceed task-local or run-wide provider ceilings.
+    """
+    os.environ["ISCO_AI_BUDGET_ENFORCE"] = "1"
+    return BudgetLedger(fmt)
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -196,7 +206,7 @@ def main() -> None:
     os.environ["PEXELS_API_KEY"] = pexels
     if pixabay:
         os.environ["PIXABAY_API_KEY"] = pixabay
-    ledger = BudgetLedger(request["format"])
+    ledger = _production_budget_ledger(request["format"])
 
     previous_defer = os.environ.get("ISCO_DEFER_YOUTUBE_ANALYTICS")
     os.environ["ISCO_DEFER_YOUTUBE_ANALYTICS"] = "1"
