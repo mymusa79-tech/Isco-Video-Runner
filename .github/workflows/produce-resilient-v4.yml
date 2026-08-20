@@ -16,11 +16,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: dcb7584842cf05c89a63e35d9b9761b6585802bb
+          ref: 005bcd51fe224619cd14ba89d70ee025b3d3b00e
           persist-credentials: false
       - name: Approved brief contract markers
         env:
-          ISCO_ENGINE_SHA: dcb7584842cf05c89a63e35d9b9761b6585802bb
+          ISCO_ENGINE_SHA: 005bcd51fe224619cd14ba89d70ee025b3d3b00e
           ISCO_APPROVED_BRIEF_PATH: engine/production/approved_brief.json
         run: |
           python - <<'PY'
