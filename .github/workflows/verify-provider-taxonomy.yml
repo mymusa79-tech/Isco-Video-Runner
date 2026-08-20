@@ -1,0 +1,108 @@
+name: Verify Provider Taxonomy Exact Engine
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  combined-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Runner checkout
+        env:
+          RUNNER_SHA: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$RUNNER_SHA"
+
+      - name: Checkout exact private Engine main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: f5d956b5a158e8c225061826a9650c66ff213e47
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        env:
+          ENGINE_SHA: f5d956b5a158e8c225061826a9650c66ff213e47
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused provider taxonomy regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python -m unittest scripts.test_provider_failure scripts.test_groq_413_circuit -v
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Full Engine suite
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Full Runner regression suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Scope and syntax sanity
+        run: |
+          set -euo pipefail
+          git diff --check origin/main...HEAD || git diff --check
+          python -m py_compile scripts/provider_failure.py scripts/task_level_planner_router.py scripts/test_provider_failure.py scripts/test_groq_413_circuit.py
