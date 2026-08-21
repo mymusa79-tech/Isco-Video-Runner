@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      ENGINE_SHA: f959fa6970b80bb93f87164ce19ecf72cb7a87b6
+      ENGINE_SHA: 445ef0430fef78e995880ca7e558bfb1ecaad48e
     steps:
       - name: Checkout isolated verifier branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
