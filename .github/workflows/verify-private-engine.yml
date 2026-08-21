@@ -47,7 +47,6 @@ jobs:
               raise SystemExit(f"Requested Engine SHA {requested} does not match canonical V4 pin {sha}")
           if not re.fullmatch(r"[0-9a-f]{40}", sha):
               raise SystemExit("Canonical V4 Engine SHA must be an exact lowercase 40-character SHA")
-
           required = (
               "workflow_dispatch:",
               'brief_path = Path("engine/production/approved_brief.json")',
@@ -58,20 +57,11 @@ jobs:
           missing = [needle for needle in required if needle not in text]
           if missing:
               raise SystemExit("Canonical V4 contract missing: " + ", ".join(missing))
-          forbidden = (
-              "inputs.topic",
-              "inputs.format",
-              "TOPIC_INPUT",
-              "FORMAT_INPUT",
-              "EVENT_NAME",
-              "push:",
-          )
+          forbidden = ("inputs.topic", "inputs.format", "TOPIC_INPUT", "FORMAT_INPUT", "EVENT_NAME", "push:")
           present = [needle for needle in forbidden if needle in text]
           if present:
               raise SystemExit("Canonical V4 still exposes legacy request paths: " + ", ".join(present))
-
-          output = Path(os.environ["GITHUB_OUTPUT"])
-          with output.open("a", encoding="utf-8") as fh:
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
               fh.write(f"engine_sha={sha}\n")
           print(f"Canonical V4 contract PASS: runner={os.environ.get('GITHUB_SHA')} engine={sha}")
           PY
@@ -86,11 +76,15 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify exact Engine checkout
+      - name: Verify exact Engine checkout and clean tree
         working-directory: engine
         env:
           ENGINE_SHA: ${{ steps.contract.outputs.engine_sha }}
-        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "CLEAN_ENGINE_SHA=$(git rev-parse HEAD)"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -115,9 +109,34 @@ jobs:
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
 
-      - name: Full Engine suite
+      - name: Focused P0-1 regression
         working-directory: engine
-        run: python -m unittest discover -s tests -q
+        run: python -m unittest tests.test_final_section_length_invariant -v
+
+      - name: Full Engine suite
+        id: engine_suite
+        continue-on-error: true
+        working-directory: engine
+        run: |
+          set +e
+          python -m unittest discover -s tests -q > "$RUNNER_TEMP/p0-1-engine-suite.log" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/p0-1-engine-suite.log"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload P0-1 Engine suite diagnostics
+        if: ${{ steps.engine_suite.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: p0-1-engine-suite-${{ github.run_id }}
+          path: ${{ runner.temp }}/p0-1-engine-suite.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Stop after captured Engine regression failure
+        if: ${{ steps.engine_suite.outcome == 'failure' }}
+        run: exit 1
 
       - name: Approved-Brief CLI contract matrix
         working-directory: engine
@@ -154,3 +173,4 @@ jobs:
           git diff --check origin/main...HEAD || git diff --check
           test -f .github/workflows/produce-resilient-v4.yml
           test -f .github/workflows/verify-private-engine.yml
+          test -z "$(git -C engine status --porcelain)"
