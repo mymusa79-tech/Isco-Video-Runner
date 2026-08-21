@@ -1,5 +1,6 @@
 name: Voice Finalists Arabic Scratch
 on:
+  pull_request:
   push:
     branches:
       - scratch/voice-finalists-ar-2026-08-22
