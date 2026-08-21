@@ -2,10 +2,23 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import wave
+from array import array
 from pathlib import Path
 from unittest.mock import patch
 
 import scripts.voice_mesh as voice_mesh
+
+
+def _write_pcm_wav(path: Path, segments: list[tuple[int, int]], *, rate: int = 16000) -> None:
+    """Write deterministic mono 16-bit PCM segments: (seconds, sample amplitude)."""
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        for seconds, amplitude in segments:
+            samples = array("h", [amplitude]) * (rate * seconds)
+            wav.writeframes(samples.tobytes())
 
 
 class PiperChunkingTests(unittest.TestCase):
@@ -72,6 +85,34 @@ class PiperChunkingTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "voice_local_empty_transcript"):
                 voice_mesh._local("   ", Path("empty.wav"))
         piece.assert_not_called()
+
+    def test_whole_file_acoustic_qa_rejects_silent_tail_after_healthy_opening(self) -> None:
+        # The legacy first-15s RMS sample would pass this: ten loud seconds followed by
+        # five silent seconds still had a high RMS, while the final five seconds were
+        # never inspected. Whole-file QA must catch the sustained tail dropout.
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "silent-tail.wav"
+            _write_pcm_wav(output, [(10, 900), (10, 0)])
+            transcript = " ".join(["كلمة"] * 20)
+            with patch.object(voice_mesh, "duration", return_value=20.0):
+                with self.assertRaisesRegex(RuntimeError, "voice_qa_silence"):
+                    voice_mesh._qa(output, transcript)
+
+    def test_whole_file_acoustic_qa_accepts_long_continuous_audio(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "healthy.wav"
+            _write_pcm_wav(output, [(20, 400)])
+            transcript = " ".join(["كلمة"] * 20)
+            with patch.object(voice_mesh, "duration", return_value=20.0):
+                voice_mesh._qa(output, transcript)
+
+    def test_whole_file_acoustic_qa_allows_bounded_natural_pause(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "bounded-pause.wav"
+            _write_pcm_wav(output, [(8, 400), (4, 0), (8, 400)])
+            transcript = " ".join(["كلمة"] * 20)
+            with patch.object(voice_mesh, "duration", return_value=20.0):
+                voice_mesh._qa(output, transcript)
 
 
 if __name__ == "__main__":
