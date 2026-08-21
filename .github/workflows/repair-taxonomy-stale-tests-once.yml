@@ -1,0 +1,64 @@
+name: Repair Taxonomy Stale Tests Once
+
+on:
+  push:
+    branches:
+      - fix/p1-taxonomy-router-contract-compat
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[taxonomy-tests-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Replace obsolete router contract tests with central taxonomy tests
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          router_path = Path('scripts/task_level_planner_router.py')
+          text = router_path.read_text(encoding='utf-8')
+          wrapper = '''\n\n\ndef _classify_failure(detail: str) -> str:\n    \"\"\"Compatibility projection for legacy Runner tests/callers.\n\n    Classification authority remains provider_failure.classify_provider_failure;\n    this helper exposes only its stable telemetry category and owns no policy.\n    \"\"\"\n    return classify_provider_failure(\"unknown\", detail).telemetry_result\n'''
+          if wrapper not in text:
+              raise SystemExit('compat wrapper missing; refuse blind edit')
+          router_path.write_text(text.replace(wrapper, '\n', 1), encoding='utf-8')
+
+          test_path = Path('scripts/test_task_level_planner_router.py')
+          tests = test_path.read_text(encoding='utf-8')
+          import_marker = 'import task_level_planner_router as router  # noqa: E402  (needs sys.path fixup above)\n'
+          helper = '''import task_level_planner_router as router  # noqa: E402  (needs sys.path fixup above)\nfrom provider_failure import classify_provider_failure  # noqa: E402\n\n\ndef _central_telemetry_result(detail: str) -> str:\n    return classify_provider_failure(\"unknown\", detail).telemetry_result\n'''
+          if 'def _central_telemetry_result(' not in tests:
+              if import_marker not in tests:
+                  raise SystemExit('test import marker missing')
+              tests = tests.replace(import_marker, helper, 1)
+          tests = tests.replace('router._classify_failure(', '_central_telemetry_result(')
+          tests = tests.replace(
+              'self.assertEqual(_central_telemetry_result("connection reset by peer"), "other")',
+              'self.assertEqual(_central_telemetry_result("connection reset by peer"), "network_error")',
+          )
+          if 'router._classify_failure(' in tests:
+              raise SystemExit('stale router classifier reference remains')
+          test_path.write_text(tests, encoding='utf-8')
+          PY
+          python -m unittest -v scripts.test_provider_failure scripts.test_task_level_planner_router
+          python -m py_compile scripts/provider_failure.py scripts/task_level_planner_router.py scripts/test_task_level_planner_router.py
+          git diff --check
+
+      - name: Commit final correction and remove one-shot workflow
+        run: |
+          set -euo pipefail
+          rm .github/workflows/repair-taxonomy-stale-tests-once.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/task_level_planner_router.py scripts/test_task_level_planner_router.py .github/workflows/repair-taxonomy-stale-tests-once.yml
+          git commit -m 'test: align router tests with central taxonomy [taxonomy-tests-applied]'
+          git push origin HEAD:fix/p1-taxonomy-router-contract-compat
