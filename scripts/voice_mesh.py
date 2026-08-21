@@ -27,6 +27,13 @@ _DIALOGUE_LABEL = re.compile(r"(?m)^\s*(السائل|المجيب)\s*:\s*")
 PIPER_MAX_CHARS_PER_CHUNK = 420
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?؟!؛])\s+|\n+")
 
+# Acoustic QA scans the whole synthesized WAV in bounded one-second windows. The
+# historical first-15s sample could miss a truncated/silent tail after Piper chunk
+# concatenation. Keep the existing RMS floor and allow ordinary rhetorical pauses,
+# while failing closed on a sustained five-second acoustic dropout anywhere in-file.
+VOICE_QA_RMS_FLOOR = 25.0
+VOICE_QA_MAX_CONSECUTIVE_SILENT_WINDOWS = 5
+
 
 def _output_key(path: Path) -> str:
     try:
@@ -53,23 +60,47 @@ def consume_voice_provenance(output: Path) -> dict:
 def _qa(path: Path, text: str) -> None:
     if not path.exists() or path.stat().st_size < 1024:
         raise RuntimeError("voice_qa_empty")
+
+    total_square = 0.0
+    total_samples = 0
+    consecutive_silent_windows = 0
     with wave.open(str(path), "rb") as w:
         rate = w.getframerate()
         width = w.getsampwidth()
-        frames = w.getnframes()
-        raw = w.readframes(min(frames, rate * 15))
-    if rate < 16000 or width != 2:
-        raise RuntimeError("voice_qa_format")
+        if rate < 16000 or width != 2:
+            raise RuntimeError("voice_qa_format")
+
+        # Stream the complete WAV rather than materializing long Film audio in memory.
+        # One-second windows are only for dropout detection; the overall RMS below is
+        # still computed across every PCM sample in the file.
+        while True:
+            raw = w.readframes(rate)
+            if not raw:
+                break
+            samples = array("h")
+            samples.frombytes(raw)
+            if not samples:
+                continue
+            square_sum = sum(float(x) * float(x) for x in samples)
+            sample_count = len(samples)
+            total_square += square_sum
+            total_samples += sample_count
+            window_rms = math.sqrt(square_sum / sample_count)
+            if window_rms < VOICE_QA_RMS_FLOOR:
+                consecutive_silent_windows += 1
+                if consecutive_silent_windows >= VOICE_QA_MAX_CONSECUTIVE_SILENT_WINDOWS:
+                    raise RuntimeError("voice_qa_silence")
+            else:
+                consecutive_silent_windows = 0
+
     seconds = float(duration(path))
     words = max(1, len(text.split()))
     if seconds < max(1.0, words * 0.12) or seconds > max(8.0, words * 1.35):
         raise RuntimeError("voice_qa_duration")
-    samples = array("h")
-    samples.frombytes(raw)
-    if not samples:
+    if total_samples <= 0:
         raise RuntimeError("voice_qa_samples")
-    rms = math.sqrt(sum(float(x) * float(x) for x in samples) / len(samples))
-    if rms < 25:
+    rms = math.sqrt(total_square / total_samples)
+    if rms < VOICE_QA_RMS_FLOOR:
         raise RuntimeError("voice_qa_silence")
 
 
