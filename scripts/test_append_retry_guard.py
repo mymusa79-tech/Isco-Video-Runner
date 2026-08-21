@@ -380,7 +380,7 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
             del api_key, prompt, model
             calls += 1
             additions = self._complete_additions(self.ATTEMPT5_COUNTS)
-            additions[0]["append_text"] = "قصير"
+            additions[1]["append_text"] = "قصير"
             return {"additions": additions}
 
         _RETRY_ATTEMPTED.set(False)
