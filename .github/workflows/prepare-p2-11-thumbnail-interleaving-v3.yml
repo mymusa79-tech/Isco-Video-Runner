@@ -1,0 +1,57 @@
+name: Prepare P2-11 Thumbnail Provider Interleaving V3
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Runner preparer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: runner
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact private Engine base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ae09e7f3ecfc0c49e96041f058d9e0b38924bb69
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Apply guarded P2-11 patch and prepare Engine commit object
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          REPO: mymusa79-tech/Isco-Video-Agent
+        run: |
+          set -euo pipefail
+          python ../runner/scripts/prepare_p2_11_engine.py
+          python -m py_compile src/isco_video_agent/thumbnail.py tests/test_thumbnail_pixabay_fallback.py
+          git diff --check
+          python -m unittest tests.test_thumbnail_pixabay_fallback -q
+
+          changed="$(git diff --name-only | sort)"
+          test "$changed" = $'src/isco_video_agent/thumbnail.py\ntests/test_thumbnail_pixabay_fallback.py'
+          grep -q 'up_to_4_pexels_plus_pixabay_fill_interleaved_pexels_first' src/isco_video_agent/thumbnail.py
+
+          base_commit="$(git rev-parse HEAD)"
+          base_tree="$(git rev-parse HEAD^{tree})"
+          thumbnail_blob="$(gh api --method POST "repos/$REPO/git/blobs" -f content="$(cat src/isco_video_agent/thumbnail.py)" -f encoding=utf-8 --jq '.sha')"
+          test_blob="$(gh api --method POST "repos/$REPO/git/blobs" -f content="$(cat tests/test_thumbnail_pixabay_fallback.py)" -f encoding=utf-8 --jq '.sha')"
+          tree_json="$(jq -n --arg base "$base_tree" --arg thumbnail "$thumbnail_blob" --arg test "$test_blob" '{base_tree:$base,tree:[{path:"src/isco_video_agent/thumbnail.py",mode:"100644",type:"blob",sha:$thumbnail},{path:"tests/test_thumbnail_pixabay_fallback.py",mode:"100644",type:"blob",sha:$test}]}')"
+          tree_sha="$(printf '%s' "$tree_json" | gh api --method POST "repos/$REPO/git/trees" --input - --jq '.sha')"
+          commit_json="$(jq -n --arg msg 'fix: interleave thumbnail providers to reduce position bias' --arg tree "$tree_sha" --arg parent "$base_commit" '{message:$msg,tree:$tree,parents:[$parent]}')"
+          commit_sha="$(printf '%s' "$commit_json" | gh api --method POST "repos/$REPO/git/commits" --input - --jq '.sha')"
+          echo "BASE_COMMIT_SHA=$base_commit"
+          echo "PREPARED_COMMIT_SHA=$commit_sha"
