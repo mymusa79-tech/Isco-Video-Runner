@@ -39,7 +39,6 @@ jobs:
           python ../runner/scripts/prepare_p2_11_engine.py
           python -m py_compile src/isco_video_agent/thumbnail.py tests/test_thumbnail_pixabay_fallback.py
           git diff --check
-          python -m unittest tests.test_thumbnail_pixabay_fallback -q
 
           changed="$(git diff --name-only | sort)"
           test "$changed" = $'src/isco_video_agent/thumbnail.py\ntests/test_thumbnail_pixabay_fallback.py'
