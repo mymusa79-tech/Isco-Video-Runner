@@ -6,9 +6,13 @@ from unittest.mock import patch
 import isco_video_agent.resilient_planner as staged
 
 from scripts.append_retry_guard import (
+    _FIRST_RETRY_BEFORE_DEFICIT,
     _RETRY_ATTEMPTED,
+    _RETRY_ATTEMPTS,
+    _SECOND_CHANCE_USED,
     _parse_safe_partial_additions,
     _repair_all_residual_underlength,
+    _residual_deficit,
     install_append_retry_guard,
 )
 
@@ -112,8 +116,11 @@ class Attempt4ResidualSectionBandRegressionTests(unittest.TestCase):
         ]
 
     @staticmethod
-    def _plan(counts: list[int]) -> staged.ProductionPlan:
+    def _plan(counts: list[int], *, terminal_closer: bool = False) -> staged.ProductionPlan:
         sections = Attempt4ResidualSectionBandRegressionTests._sections(counts)
+        if terminal_closer and sections:
+            closing_words = counts[-1]
+            sections[-1].narration = " ".join(["ختام"] * max(0, closing_words - 1) + ["closer"])
         return staged.ProductionPlan(
             topic="صوت الآخرين في رأسك",
             pillar="understand",
@@ -130,6 +137,13 @@ class Attempt4ResidualSectionBandRegressionTests(unittest.TestCase):
             narrative_format="problem_reveal_solution",
         )
 
+    @staticmethod
+    def _restore_context() -> None:
+        _RETRY_ATTEMPTED.set(False)
+        _RETRY_ATTEMPTS.set(0)
+        _FIRST_RETRY_BEFORE_DEFICIT.set(None)
+        _SECOND_CHANCE_USED.set(False)
+
     def test_attempt4_shape_repairs_all_six_short_sections_even_when_total_already_passes_800(self) -> None:
         sections = self._sections(self.ATTEMPT4_COUNTS)
         self.assertEqual(sum(staged._word_count(s.narration) for s in sections), 801)
@@ -145,18 +159,22 @@ class Attempt4ResidualSectionBandRegressionTests(unittest.TestCase):
                 ]
             }
 
-        with patch.object(staged, "json_text", side_effect=fake_json):
-            additions = _repair_all_residual_underlength(
-                "key",
-                topic="صوت الآخرين في رأسك",
-                model="model",
-                sections=sections,
-                policy_json="{}",
-                research_json="{}",
-                narrative_format="problem_reveal_solution",
-                current_words=801,
-                minimum=800,
-            )
+        self._restore_context()
+        try:
+            with patch.object(staged, "json_text", side_effect=fake_json):
+                additions = _repair_all_residual_underlength(
+                    "key",
+                    topic="صوت الآخرين في رأسك",
+                    model="model",
+                    sections=sections,
+                    policy_json="{}",
+                    research_json="{}",
+                    narrative_format="problem_reveal_solution",
+                    current_words=801,
+                    minimum=800,
+                )
+        finally:
+            self._restore_context()
 
         self.assertEqual(list(additions), [f"sec_{index}" for index in range(2, 8)])
         self.assertEqual(len(prompts), 1)
@@ -210,38 +228,137 @@ class Attempt4ResidualSectionBandRegressionTests(unittest.TestCase):
             staged._script_doctor_underlength_retry = original_retry
             staged._parse_append_only_response = original_parser
             staged.json_text = original_json
-            _RETRY_ATTEMPTED.set(False)
+            self._restore_context()
 
-    def test_post_build_guard_never_spends_second_append_call_if_engine_retry_was_already_used(self) -> None:
+
+class Attempt5PartialAppendRegressionTests(unittest.TestCase):
+    ATTEMPT5_AFTER_FIRST = [121, 119, 109, 106, 108, 99, 110, 81]
+
+    @staticmethod
+    def _plan(counts: list[int]) -> staged.ProductionPlan:
+        return Attempt4ResidualSectionBandRegressionTests._plan(counts, terminal_closer=True)
+
+    @staticmethod
+    def _restore_context() -> None:
+        Attempt4ResidualSectionBandRegressionTests._restore_context()
+
+    def _run_guarded_fake_build(self, counts, *, first_before_deficit, fake_json):
         original_build = staged.build_plan
         original_retry = staged._script_doctor_underlength_retry
         original_parser = staged._parse_append_only_response
         original_json = staged.json_text
-        calls: list[str] = []
 
         def fake_build(*args, **kwargs):
             del args, kwargs
             _RETRY_ATTEMPTED.set(True)
-            return self._plan(self.ATTEMPT4_COUNTS)
+            _RETRY_ATTEMPTS.set(1)
+            _FIRST_RETRY_BEFORE_DEFICIT.set(first_before_deficit)
+            return self._plan(counts)
+
+        try:
+            staged.build_plan = fake_build
+            staged.json_text = fake_json
+            install_append_retry_guard()
+            return staged.build_plan("key", "topic", "film", "model", research_context={})
+        finally:
+            staged.build_plan = original_build
+            staged._script_doctor_underlength_retry = original_retry
+            staged._parse_append_only_response = original_parser
+            staged.json_text = original_json
+            self._restore_context()
+
+    def test_attempt5_partial_first_append_unlocks_exactly_one_residual_only_followup(self) -> None:
+        current_deficit = sum(max(0, 110 - value) for value in self.ATTEMPT5_AFTER_FIRST)
+        self.assertEqual(current_deficit, 47)
+        prompts: list[str] = []
+
+        def fake_json(api_key, prompt, model):
+            del api_key, model
+            prompts.append(prompt)
+            return {
+                "additions": [
+                    {"id": "sec_3", "append_text": " ".join(["إضافة"] * 7)},
+                    {"id": "sec_4", "append_text": " ".join(["إضافة"] * 10)},
+                    {"id": "sec_5", "append_text": " ".join(["إضافة"] * 8)},
+                    {"id": "sec_6", "append_text": " ".join(["إضافة"] * 17)},
+                    {"id": "sec_8", "append_text": " ".join(["إضافة"] * 35)},
+                ]
+            }
+
+        plan = self._run_guarded_fake_build(
+            self.ATTEMPT5_AFTER_FIRST,
+            first_before_deficit=90,
+            fake_json=fake_json,
+        )
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("SECOND AND FINAL partial-progress repair", prompts[0])
+        self.assertNotIn('"id": "sec_1"', prompts[0])
+        self.assertNotIn('"id": "sec_2"', prompts[0])
+        self.assertNotIn('"id": "sec_7"', prompts[0])
+        self.assertEqual(_residual_deficit(plan.sections), 0)
+        self.assertTrue(plan.sections[-1].narration.endswith("closer"))
+        for section in plan.sections:
+            self.assertGreaterEqual(staged._word_count(section.narration), 110)
+            self.assertLessEqual(staged._word_count(section.narration), 170)
+        self.assertLessEqual(staged._plan_word_count(plan), 1450)
+
+    def test_zero_progress_first_append_never_unlocks_second_call(self) -> None:
+        current_deficit = sum(max(0, 110 - value) for value in self.ATTEMPT5_AFTER_FIRST)
+        calls: list[str] = []
+
+        def fake_json(api_key, prompt, model):
+            del api_key, prompt, model
+            calls.append("unexpected")
+            return {"additions": [{"id": "sec_3", "append_text": "إضافة"}]}
+
+        plan = self._run_guarded_fake_build(
+            self.ATTEMPT5_AFTER_FIRST,
+            first_before_deficit=current_deficit,
+            fake_json=fake_json,
+        )
+        self.assertEqual(calls, [])
+        self.assertEqual(_residual_deficit(plan.sections), current_deficit)
+
+    def test_completed_first_append_never_unlocks_second_call(self) -> None:
+        calls: list[str] = []
 
         def fake_json(api_key, prompt, model):
             del api_key, prompt, model
             calls.append("unexpected")
             return {"additions": []}
 
-        try:
-            staged.build_plan = fake_build
-            staged.json_text = fake_json
-            install_append_retry_guard()
-            plan = staged.build_plan("key", "topic", "film", "model", research_context={})
-            self.assertEqual(calls, [])
-            self.assertTrue(any(staged._word_count(section.narration) < 110 for section in plan.sections))
-        finally:
-            staged.build_plan = original_build
-            staged._script_doctor_underlength_retry = original_retry
-            staged._parse_append_only_response = original_parser
-            staged.json_text = original_json
-            _RETRY_ATTEMPTED.set(False)
+        plan = self._run_guarded_fake_build(
+            [121, 119, 110, 110, 110, 110, 110, 110],
+            first_before_deficit=90,
+            fake_json=fake_json,
+        )
+        self.assertEqual(calls, [])
+        self.assertEqual(_residual_deficit(plan.sections), 0)
+
+    def test_partial_second_response_gets_no_third_call_and_remains_fail_closed(self) -> None:
+        prompts: list[str] = []
+
+        def fake_json(api_key, prompt, model):
+            del api_key, model
+            prompts.append(prompt)
+            return {
+                "additions": [
+                    {"id": "sec_3", "append_text": " ".join(["إضافة"] * 7)},
+                ]
+            }
+
+        plan = self._run_guarded_fake_build(
+            self.ATTEMPT5_AFTER_FIRST,
+            first_before_deficit=90,
+            fake_json=fake_json,
+        )
+        self.assertEqual(len(prompts), 1)
+        self.assertGreater(_residual_deficit(plan.sections), 0)
+        self.assertTrue(plan.sections[-1].narration.endswith("closer"))
+
+    def test_109_is_short_and_110_is_not(self) -> None:
+        sections = Attempt4ResidualSectionBandRegressionTests._sections([109, 110])
+        self.assertEqual(_residual_deficit(sections), 1)
 
 
 if __name__ == "__main__":
