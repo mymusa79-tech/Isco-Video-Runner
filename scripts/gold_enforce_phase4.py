@@ -17,6 +17,7 @@ from isco_video_agent.production_pipeline import (
 )
 from isco_video_agent.security import safe_error
 
+from scripts.gold_final_critic_text_fallback import gold_final_critic_text_fallback
 from scripts.gold_shadow_phase2a import _fingerprint, _provider_attempt_total
 from scripts.gold_thumbnail_budget import build_budgeted_thumbnail_package
 
@@ -60,14 +61,18 @@ def run_gold_enforce_phase4(
         return build_budgeted_thumbnail_package(**kwargs, ledger=ledger, pixabay_key=pixabay)
 
     def enforced_critic(**kwargs):
-        critic = _run_final_critic(
-            **kwargs,
-            ledger=ledger,
-            release_mode="enforce",
-            report_dir=output_dir,
-            task_prefix="GOLD_",
-            task_kind="GOLD_FINAL_CRITIC",
-        )
+        # Gold-only P1 recovery: keep Opening Vision on direct Gemini, while the
+        # text-only release review may make exactly one technical provider switch
+        # Gemini -> OpenRouter. Core final_critic.py remains unchanged.
+        with gold_final_critic_text_fallback():
+            critic = _run_final_critic(
+                **kwargs,
+                ledger=ledger,
+                release_mode="enforce",
+                report_dir=output_dir,
+                task_prefix="GOLD_",
+                task_kind="GOLD_FINAL_CRITIC",
+            )
         critic_box["critic"] = critic
         # Validate the one-render invariant while still inside finalize_gold_output's
         # cleanup-protected try block. If bytes changed, the finalizer rejects/cleans
