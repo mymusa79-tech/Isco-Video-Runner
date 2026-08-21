@@ -1,0 +1,90 @@
+name: Verify P2-12 Section Overlength Guard
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  exact-combined-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact Runner main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 4dffd788882abc5b1083b2b8e4ab7f9e14873022
+          path: runner
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Runner checkout
+        working-directory: runner
+        run: test "$(git rev-parse HEAD)" = "4dffd788882abc5b1083b2b8e4ab7f9e14873022"
+
+      - name: Checkout exact private Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: e77acfab4f2e04e6472510b68d4f73cb615c2302
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "e77acfab4f2e04e6472510b68d4f73cb615c2302"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install media and locked Engine runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: P2-12 focused regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -p 'test_section_visual_sequence.py' -q
+
+      - name: Full Engine suite
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Full Runner regression suite
+        working-directory: runner
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}/runner
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Exact P2-12 scope sanity
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git diff --check 75962f3b9f2e2dbe692a8e62ea743bd4e811440b..e77acfab4f2e04e6472510b68d4f73cb615c2302
+          mapfile -t changed < <(git diff --name-only 75962f3b9f2e2dbe692a8e62ea743bd4e811440b..e77acfab4f2e04e6472510b68d4f73cb615c2302 | sort)
+          test "${#changed[@]}" -eq 3
+          test "${changed[0]}" = "src/isco_video_agent/opening_director.py"
+          test "${changed[1]}" = "src/isco_video_agent/section_visual_sequence.py"
+          test "${changed[2]}" = "tests/test_section_visual_sequence.py"
+          grep -q 'MAX_SECTION_SEQUENCE_SECONDS = MAX_SINGLE_SHOT_SECONDS \* MAX_SECTION_SEQUENCE_SLOTS' src/isco_video_agent/section_visual_sequence.py
+          grep -q 'section_overlength_violation' src/isco_video_agent/section_visual_sequence.py
+          grep -q 'enforce_section_sequence_duration' src/isco_video_agent/opening_director.py
+          grep -q 'test_overlength_opening_selector_uses_same_guard_before_vision' tests/test_section_visual_sequence.py
