@@ -13,7 +13,7 @@ permissions:
 jobs:
   generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           test -n "$GEMINI_API_KEY"
           python - <<'PY'
-          import base64, os, wave
+          import base64, os, time, wave
           from pathlib import Path
           from google import genai
 
@@ -60,17 +60,34 @@ jobs:
           root.mkdir(exist_ok=True)
           client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
+          def synthesize(direction, voice, round_name, label):
+              for attempt in range(1, 4):
+                  try:
+                      return client.interactions.create(
+                          model="gemini-3.1-flash-tts-preview",
+                          input=direction,
+                          response_format={"type": "audio"},
+                          generation_config={"speech_config": [{"voice": voice}]},
+                      )
+                  except Exception as exc:
+                      msg = str(exc).lower()
+                      if attempt < 3 and ("429" in msg or "quota" in msg or "too_many_requests" in msg):
+                          print(f"Free-tier rate limit for {round_name}/{label}; sleeping 65s before retry {attempt + 1}/3")
+                          time.sleep(65)
+                          continue
+                      raise
+
+          request_count = 0
           for round_name, cfg in rounds.items():
               out = root / round_name
               out.mkdir(exist_ok=True)
               direction = direction_prefix + cfg["text"]
               for label, voice in cfg["voices"].items():
-                  interaction = client.interactions.create(
-                      model="gemini-3.1-flash-tts-preview",
-                      input=direction,
-                      response_format={"type": "audio"},
-                      generation_config={"speech_config": [{"voice": voice}]},
-                  )
+                  if request_count == 3:
+                      print("Respecting free-tier 3-request window: sleeping 65s before second batch")
+                      time.sleep(65)
+                  interaction = synthesize(direction, voice, round_name, label)
+                  request_count += 1
                   if not interaction.output_audio or not interaction.output_audio.data:
                       raise RuntimeError(f"No audio returned for {round_name}/{label}")
                   pcm = base64.b64decode(interaction.output_audio.data)
