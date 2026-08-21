@@ -146,15 +146,6 @@ def _budgeted_provider_call(provider_name: str, resolved_model: str, call, *args
     return result
 
 
-
-def _classify_failure(detail: str) -> str:
-    """Compatibility projection for legacy Runner tests/callers.
-
-    Classification authority remains provider_failure.classify_provider_failure;
-    this helper exposes only its stable telemetry category and owns no policy.
-    """
-    return classify_provider_failure("unknown", detail).telemetry_result
-
 def _summarize_telemetry_by_provider(attempts: list[dict]) -> dict:
     summary: dict = {}
     for entry in attempts:

@@ -10,6 +10,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import task_level_planner_router as router  # noqa: E402  (needs sys.path fixup above)
+from provider_failure import classify_provider_failure  # noqa: E402
+
+
+def _central_telemetry_result(detail: str) -> str:
+    return classify_provider_failure("unknown", detail).telemetry_result
 
 import isco_video_agent.orchestrator as orchestrator  # noqa: E402
 import isco_video_agent.resilient_planner as staged  # noqa: E402
@@ -410,19 +415,19 @@ class ClassifyFailureTests(unittest.TestCase):
     exception string, so runs can be compared/aggregated across time."""
 
     def test_429_in_detail_classifies_as_429(self) -> None:
-        self.assertEqual(router._classify_failure("HTTP 429 rate limited"), "429")
+        self.assertEqual(_central_telemetry_result("HTTP 429 rate limited"), "429")
 
     def test_quota_wording_classifies_as_429(self) -> None:
-        self.assertEqual(router._classify_failure("Resource exhausted: quota exceeded"), "429")
+        self.assertEqual(_central_telemetry_result("Resource exhausted: quota exceeded"), "429")
 
     def test_invalid_json_classifies_as_invalid_json(self) -> None:
-        self.assertEqual(router._classify_failure("Provider returned invalid JSON"), "invalid_json")
+        self.assertEqual(_central_telemetry_result("Provider returned invalid JSON"), "invalid_json")
 
     def test_premature_wording_classifies_as_premature_response(self) -> None:
-        self.assertEqual(router._classify_failure("premature response truncated"), "premature_response")
+        self.assertEqual(_central_telemetry_result("premature response truncated"), "premature_response")
 
     def test_unrecognized_detail_classifies_as_other(self) -> None:
-        self.assertEqual(router._classify_failure("connection reset by peer"), "other")
+        self.assertEqual(_central_telemetry_result("connection reset by peer"), "network_error")
 
 
 class ExtractRateLimitHeadersTests(unittest.TestCase):
