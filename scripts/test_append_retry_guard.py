@@ -81,28 +81,57 @@ class AppendRetryGuardParserTests(unittest.TestCase):
         )
         self.assertEqual(result, {"s2": "الإضافة الوحيدة المقبولة"})
 
-    def test_word_bounds_are_enforced(self) -> None:
+    def test_word_bounds_are_enforced_against_final_section_contract(self) -> None:
         specs = [
-            {"id": "s2", "minimum_append_words": 4, "maximum_append_words": 6},
+            {
+                "id": "s2",
+                "current_words": 106,
+                "hard_section_band": [110, 170],
+                "minimum_append_words": 4,
+                "maximum_append_words": 6,
+            },
         ]
         _validate_addition_bounds(
             {"s2": "واحد اثنان ثلاثة أربعة"}, specs, aggregate_headroom=20
         )
-        with self.assertRaisesRegex(RuntimeError, "required 4-6"):
+        with self.assertRaisesRegex(RuntimeError, "required final section band is 110-170"):
             _validate_addition_bounds(
                 {"s2": "واحد اثنان ثلاثة"}, specs, aggregate_headroom=20
             )
-        with self.assertRaisesRegex(RuntimeError, "required 4-6"):
+        with self.assertRaisesRegex(RuntimeError, "maximum allowed is 6"):
             _validate_addition_bounds(
                 {"s2": "واحد اثنان ثلاثة أربعة خمسة ستة سبعة"},
                 specs,
                 aggregate_headroom=20,
             )
 
+    def test_attempt6_one_word_safety_undershoot_is_allowed_only_if_hard_floor_passes(self) -> None:
+        spec = [
+            {
+                "id": "2",
+                "current_words": 100,
+                "hard_section_band": [110, 170],
+                "minimum_append_words": 16,
+                "maximum_append_words": 34,
+            }
+        ]
+        _validate_addition_bounds(
+            {"2": " ".join(["إضافة"] * 15)},
+            spec,
+            aggregate_headroom=100,
+        )
+        with self.assertRaisesRegex(RuntimeError, "would produce 109 section words"):
+            _validate_addition_bounds(
+                {"2": " ".join(["إضافة"] * 9)},
+                spec,
+                aggregate_headroom=100,
+            )
+
 
 class FilmResidualSectionBandRegressionTests(unittest.TestCase):
     ATTEMPT4_COUNTS = [124, 97, 93, 104, 89, 85, 83, 126]
     ATTEMPT5_COUNTS = [121, 119, 109, 106, 108, 99, 110, 81]
+    ATTEMPT6_TRACE_COUNTS = [120, 100, 120, 120, 120, 120, 120, 120]
 
     @staticmethod
     def _sections(counts: list[int], *, terminal_closer: bool = False) -> list[staged.ScriptSection]:
@@ -238,6 +267,43 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
         finally:
             self._restore_staged(saved)
 
+    def test_attempt6_trace_accepts_15_when_preferred_is_16_but_final_is_115(self) -> None:
+        sections = self._sections(self.ATTEMPT6_TRACE_COUNTS)
+        calls = 0
+
+        def fake_json(api_key, prompt, model):
+            nonlocal calls
+            del api_key, model
+            calls += 1
+            self.assertIn('"minimum_append_words": 16', prompt)
+            return {
+                "additions": [
+                    {
+                        "id": "sec_2",
+                        "append_text": " ".join(["إضافة"] * 15),
+                    }
+                ]
+            }
+
+        _RETRY_ATTEMPTED.set(False)
+        with patch.object(staged, "json_text", side_effect=fake_json):
+            additions = _repair_all_residual_underlength(
+                "key",
+                topic="صوت الآخرين في رأسك",
+                model="model",
+                sections=sections,
+                policy_json="{}",
+                research_json="{}",
+                narrative_format="problem_reveal_solution",
+                current_words=sum(self.ATTEMPT6_TRACE_COUNTS),
+                minimum=800,
+            )
+        self.assertEqual(calls, 1)
+        staged._append_retry_additions(sections, additions)
+        self.assertEqual(staged._word_count(sections[1].narration), 115)
+        self.assertEqual(_residual_deficit(sections), 0)
+        _RETRY_ATTEMPTED.set(False)
+
     def test_internal_engine_retry_can_repair_closing_before_anchor_in_same_single_call(self) -> None:
         saved = self._save_staged()
         calls: list[str] = []
@@ -314,12 +380,12 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
             del api_key, prompt, model
             calls += 1
             additions = self._complete_additions(self.ATTEMPT5_COUNTS)
-            additions[0]["append_text"] = "قصير"
+            additions[1]["append_text"] = "قصير"
             return {"additions": additions}
 
         _RETRY_ATTEMPTED.set(False)
         with patch.object(staged, "json_text", side_effect=fake_json):
-            with self.assertRaisesRegex(RuntimeError, "required 7-"):
+            with self.assertRaisesRegex(RuntimeError, "required final section band is 110-170"):
                 _repair_all_residual_underlength(
                     "key",
                     topic="topic",
