@@ -1,0 +1,57 @@
+name: Prepare Final Engine Pin P2 Remediation
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened]
+    paths:
+      - ".github/workflows/prepare-final-engine-pin-p2-remediation.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout isolated pin branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: chore/final-engine-pin-p2-remediation
+          fetch-depth: 0
+
+      - name: Replace exactly three Production V4 Engine pins
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+          old = '549d1dc32cd57c4cccfefecf7f04e35b6f3e1b39'
+          new = '9191d64cf1af419a0e8147c65530e0f1420eec7f'
+          count = text.count(old)
+          if count != 3:
+              raise SystemExit(f'expected exactly 3 old Engine pin occurrences, found {count}')
+          if new in text:
+              raise SystemExit('new Engine pin already present before preparer')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          Path('.github/workflows/prepare-final-engine-pin-p2-remediation.yml').unlink()
+          PY
+
+          git diff --check
+          test "$(grep -o '9191d64cf1af419a0e8147c65530e0f1420eec7f' .github/workflows/produce-resilient-v4.yml | wc -l)" -eq 3
+          test "$(grep -o '549d1dc32cd57c4cccfefecf7f04e35b6f3e1b39' .github/workflows/produce-resilient-v4.yml | wc -l)" -eq 0
+          mapfile -t changed < <(git diff --name-only | sort)
+          test "${#changed[@]}" -eq 2
+          test "${changed[0]}" = ".github/workflows/prepare-final-engine-pin-p2-remediation.yml"
+          test "${changed[1]}" = ".github/workflows/produce-resilient-v4.yml"
+
+      - name: Commit pin-only final branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/produce-resilient-v4.yml .github/workflows/prepare-final-engine-pin-p2-remediation.yml
+          git commit -m "chore: pin Production V4 to final remediated Engine"
+          git push origin HEAD:chore/final-engine-pin-p2-remediation
