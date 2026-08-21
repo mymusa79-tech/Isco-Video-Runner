@@ -12,7 +12,12 @@ import requests
 
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
-from isco_video_agent.ai_budget import AttemptOutcome, get_active_budget_task
+from isco_video_agent.ai_budget import (
+    AttemptOutcome,
+    TaskSpec,
+    budget_task_scope,
+    get_active_budget_task,
+)
 from isco_video_agent.providers.gemini import json_text as gemini_json_text
 from isco_video_agent.providers.gemini import with_channel_persona
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
@@ -24,6 +29,12 @@ CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # Floor on the gap between two calls to the SAME provider, not a global throttle.
 MIN_PROVIDER_CALL_INTERVAL_SECONDS = 1.5
+
+# One routed planning subtask can physically issue at most six provider calls:
+# Gemini (1) + Groq (1) + each of the two OpenRouter routes (up to 2 when its
+# local invalid-JSON repair is needed). This is task-local only; the Engine's
+# unchanged Film run-wide provider-attempt hard cap remains 42.
+PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS = 6
 
 # Which providers actually produced planning output for this run, in first-use order.
 _USED_PROVIDERS: list[str] = []
@@ -339,6 +350,7 @@ def install_router() -> None:
     responses = checkpoint.setdefault("responses", {})
     cooldown: set[str] = set()
     last_call_at: dict[str, float] = {}
+    planning_subtask_sequence = 0
     _USED_PROVIDERS.clear()
     _TELEMETRY.clear()
     gemini_key = _read_secret_file("GEMINI_API_KEY_FILE")
@@ -415,6 +427,42 @@ def install_router() -> None:
 
         raise RuntimeError("All free providers failed for planning subtask: " + " | ".join(failures))
 
+    def budget_scoped_task_router(_api_key, prompt, model="gemini-2.5-flash"):
+        """Isolate task-local fallback budget per json_text planning subtask.
+
+        orchestrator wraps one whole build_plan() in OUTLINE_PLAN. A single build_plan
+        internally issues multiple json_text subtasks, so sharing OUTLINE_PLAN's old
+        max_provider_attempts=3 counter incorrectly denied the fourth legitimate
+        subtask in Production Attempt #1. Each router interaction now gets a unique
+        child TaskSpec while all child attempts remain on the same BudgetLedger, so
+        the run-wide Film hard cap of 42 is still authoritative and fail-closed.
+        """
+        nonlocal planning_subtask_sequence
+        active = get_active_budget_task()
+        if active is None or active.spec.kind != "OUTLINE_PLAN":
+            return task_router(_api_key, prompt, model=model)
+
+        planning_subtask_sequence += 1
+        child = TaskSpec(
+            task_id=(
+                f"{active.spec.task_id}_{active.spec.priority.name}_"
+                f"SUBTASK_{planning_subtask_sequence:03d}"
+            ),
+            kind="PLANNING_SUBTASK",
+            priority=active.spec.priority,
+            capability=active.spec.capability,
+            max_provider_attempts=PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS,
+            schema_repair_allowed=active.spec.schema_repair_allowed,
+            local_fallback=False,
+            semantic_block_is_final=False,
+        )
+        with budget_task_scope(
+            active.ledger,
+            child,
+            requested_model=active.requested_model,
+        ):
+            return task_router(_api_key, prompt, model=model)
+
     def routed_build_plan(*args, **kwargs):
         plan = staged.build_plan(*args, **kwargs)
         if getattr(plan, "narrative_format", "") == "dialogue_qa":
@@ -426,21 +474,5 @@ def install_router() -> None:
 
     routed_build_plan._is_resilient_router = True
 
-    staged.json_text = task_router
+    staged.json_text = budget_scoped_task_router
     orchestrator.build_plan = routed_build_plan
-
-
-def run() -> None:
-    install_router()
-    request = json.loads(Path(os.environ["REQUEST_FILE"]).read_text(encoding="utf-8"))
-    out = orchestrator.produce(
-        topic=request["topic"],
-        requested_format=request["format"],
-        dry_run=False,
-        do_research=True,
-    )
-    print(f"Production completed: {out.name}")
-
-
-if __name__ == "__main__":
-    run()
