@@ -13,6 +13,8 @@ from isco_video_agent.ai_budget import (
 from scripts import task_level_planner_router as router
 
 
+# These regressions are deliberately network-free: they exercise the real router
+# accounting boundary with a fake Gemini callable so only budget semantics vary.
 class PlanningSubtaskBudgetScopeRegressionTests(unittest.TestCase):
     def setUp(self) -> None:
         self._original_staged_json_text = router.staged.json_text
