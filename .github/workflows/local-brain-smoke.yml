@@ -1,20 +1,82 @@
-name: Local Brain Smoke
+name: Voice Finalists Arabic Scratch
 on:
   push:
     branches:
-      - main
+      - scratch/voice-finalists-ar-2026-08-22
     paths:
       - .github/workflows/local-brain-smoke.yml
-  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
-  smoke:
+  generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Verify runner
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install Gemini SDK
+        run: python -m pip install google-genai==2.17.0
+      - name: Generate blind Arabic finalists
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -euo pipefail
-          echo "runner-ok"
-          uname -a
-          free -h
-          df -h .
+          test -n "$GEMINI_API_KEY"
+          python - <<'PY'
+          import base64, os, wave
+          from pathlib import Path
+          from google import genai
+
+          text = (
+              "قد تظن أنك تحتاج إلى أن تصبح أقوى قبل أن تبدأ، لكن الحقيقة أن قوتك لا تأتي قبل الخطوة الأولى؛ "
+              "إنها تُبنى في كل مرة تنهض فيها، رغم الخوف، وتقرر أن حياتك لن تبقى كما كانت."
+          )
+          direction = (
+              "اقرأ النص التالي فقط دون إضافة أو حذف. فصحى عربية طبيعية، نبرة هادئة وواثقة وناضجة، "
+              "كأنك تخاطب شخصًا واحدًا لا جمهورًا. لا تستخدم أسلوب مذيع أخبار أو إعلان، وتجنب المبالغة المسرحية "
+              "والحزن المصطنع والنبرة الآلية. اجعل الوقفات طبيعية عند التحولات الفكرية، وأنهِ الجملة بقوة هادئة.\n\n"
+              f"النص: {text}"
+          )
+
+          voices = {
+              "A": "Rasalgethi",
+              "B": "Charon",
+              "C": "Sadaltager",
+          }
+
+          out = Path("voice-finalists-ar")
+          out.mkdir(exist_ok=True)
+          client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+          for label, voice in voices.items():
+              interaction = client.interactions.create(
+                  model="gemini-3.1-flash-tts-preview",
+                  input=direction,
+                  response_format={"type": "audio"},
+                  generation_config={"speech_config": [{"voice": voice}]},
+              )
+              if not interaction.output_audio or not interaction.output_audio.data:
+                  raise RuntimeError(f"No audio returned for {label}")
+              pcm = base64.b64decode(interaction.output_audio.data)
+              with wave.open(str(out / f"{label}.wav"), "wb") as wf:
+                  wf.setnchannels(1)
+                  wf.setsampwidth(2)
+                  wf.setframerate(24000)
+                  wf.writeframes(pcm)
+
+          (out / "README.txt").write_text(
+              "Blind Arabic finalists. Listen to A.wav, B.wav, C.wav and rank them.\n"
+              "Same text, same direction, same Gemini 3.1 Flash TTS Preview model.\n",
+              encoding="utf-8",
+          )
+          PY
+      - name: Upload samples
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: voice-finalists-ar
+          path: voice-finalists-ar/
+          if-no-files-found: error
+          retention-days: 1
