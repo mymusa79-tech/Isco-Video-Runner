@@ -13,7 +13,7 @@ permissions:
 jobs:
   generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           test -n "$GEMINI_API_KEY"
           python - <<'PY'
-          import base64, os, time, wave
+          import base64, os, re, time, wave
           from pathlib import Path
           from google import genai
 
@@ -61,7 +61,7 @@ jobs:
           client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
           def synthesize(direction, voice, round_name, label):
-              for attempt in range(1, 4):
+              for attempt in range(1, 9):
                   try:
                       return client.interactions.create(
                           model="gemini-3.1-flash-tts-preview",
@@ -71,23 +71,25 @@ jobs:
                       )
                   except Exception as exc:
                       msg = str(exc).lower()
-                      if attempt < 3 and ("429" in msg or "quota" in msg or "too_many_requests" in msg):
-                          print(f"Free-tier rate limit for {round_name}/{label}; sleeping 65s before retry {attempt + 1}/3")
-                          time.sleep(65)
+                      rate_limited = "429" in msg or "quota" in msg or "too_many_requests" in msg
+                      if attempt < 8 and rate_limited:
+                          m = re.search(r"retry in\s+([0-9.]+)s", msg)
+                          wait_s = (float(m.group(1)) + 5.0) if m else 65.0
+                          wait_s = max(10.0, min(wait_s, 120.0))
+                          print(
+                              f"Free-tier rate limit for {round_name}/{label}; "
+                              f"waiting {wait_s:.1f}s before retry {attempt + 1}/8"
+                          )
+                          time.sleep(wait_s)
                           continue
                       raise
 
-          request_count = 0
           for round_name, cfg in rounds.items():
               out = root / round_name
               out.mkdir(exist_ok=True)
               direction = direction_prefix + cfg["text"]
               for label, voice in cfg["voices"].items():
-                  if request_count == 3:
-                      print("Respecting free-tier 3-request window: sleeping 65s before second batch")
-                      time.sleep(65)
                   interaction = synthesize(direction, voice, round_name, label)
-                  request_count += 1
                   if not interaction.output_audio or not interaction.output_audio.data:
                       raise RuntimeError(f"No audio returned for {round_name}/{label}")
                   pcm = base64.b64decode(interaction.output_audio.data)
@@ -96,6 +98,7 @@ jobs:
                       wf.setsampwidth(2)
                       wf.setframerate(24000)
                       wf.writeframes(pcm)
+                  time.sleep(2)
 
           (root / "README.txt").write_text(
               "Blind Arabic finalists rounds 2 and 3. Rank A/B/C separately in each round.\n"
