@@ -1,11 +1,10 @@
 name: Voice Finalists Arabic Rounds 2-3 Scratch
 on:
   pull_request:
-  push:
-    branches:
-      - scratch/voice-finalists-ar-rounds-2-3
-    paths:
-      - .github/workflows/local-brain-smoke.yml
+
+concurrency:
+  group: voice-finalists-ar-scratch
+  cancel-in-progress: true
 
 permissions:
   contents: read
