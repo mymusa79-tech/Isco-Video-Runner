@@ -18,13 +18,13 @@ jobs:
     steps:
       - name: Dispatch canonical Production V4 on main
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           test -n "$GH_TOKEN"
           python - <<'PY'
-          import json, os, time, urllib.parse, urllib.request
+          import json, os, time, urllib.request
           repo = os.environ['REPO']
           token = os.environ['GH_TOKEN']
           headers = {
