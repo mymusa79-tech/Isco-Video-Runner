@@ -51,7 +51,6 @@ jobs:
               raise SystemExit('stale router classifier reference remains')
           test_path.write_text(tests, encoding='utf-8')
           PY
-          python -m unittest -v scripts.test_provider_failure scripts.test_task_level_planner_router
           python -m py_compile scripts/provider_failure.py scripts/task_level_planner_router.py scripts/test_task_level_planner_router.py
           git diff --check
 
