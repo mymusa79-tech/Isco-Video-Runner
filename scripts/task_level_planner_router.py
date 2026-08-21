@@ -12,7 +12,12 @@ import requests
 
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
-from isco_video_agent.ai_budget import AttemptOutcome, get_active_budget_task
+from isco_video_agent.ai_budget import (
+    AttemptOutcome,
+    TaskSpec,
+    budget_task_scope,
+    get_active_budget_task,
+)
 from isco_video_agent.providers.gemini import json_text as gemini_json_text
 from isco_video_agent.providers.gemini import with_channel_persona
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
@@ -24,6 +29,12 @@ CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # Floor on the gap between two calls to the SAME provider, not a global throttle.
 MIN_PROVIDER_CALL_INTERVAL_SECONDS = 1.5
+
+# One routed planning subtask can physically issue at most six provider calls:
+# Gemini (1) + Groq (1) + each of the two OpenRouter routes (up to 2 when its
+# local invalid-JSON repair is needed). This is task-local only; the Engine's
+# unchanged Film run-wide provider-attempt hard cap remains 42.
+PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS = 6
 
 # Which providers actually produced planning output for this run, in first-use order.
 _USED_PROVIDERS: list[str] = []
@@ -339,6 +350,7 @@ def install_router() -> None:
     responses = checkpoint.setdefault("responses", {})
     cooldown: set[str] = set()
     last_call_at: dict[str, float] = {}
+    planning_subtask_sequence = 0
     _USED_PROVIDERS.clear()
     _TELEMETRY.clear()
     gemini_key = _read_secret_file("GEMINI_API_KEY_FILE")
@@ -366,54 +378,85 @@ def install_router() -> None:
     ]
 
     def task_router(_api_key, prompt, model="gemini-2.5-flash"):
+        nonlocal planning_subtask_sequence
         prompt = _enrich_dialogue_prompt(prompt)
         prompt = with_channel_persona(prompt)
         cache_key = hashlib.sha256((model + "\n" + prompt).encode("utf-8")).hexdigest()
         cached = responses.get(cache_key)
         if isinstance(cached, dict):
-            # Deliberately before the provider loop: no provider callable, authorize,
-            # or BudgetLedger record occurs for a checkpoint hit.
+            # A checkpoint hit is local work only. It must not create a child logical
+            # provider subtask, authorize a provider attempt, or record an attempt.
             print("Planning checkpoint hit")
             return cached
 
-        failures: list[str] = []
-        for name, provider in providers:
-            if name in cooldown:
-                # Diagnostic telemetry only. No BudgetLedger attempt: no provider
-                # callable/network request is made.
-                _record_attempt(name, "circuit-open")
-                continue
-            since_last_call = time.monotonic() - last_call_at.get(name, 0.0)
-            if since_last_call < MIN_PROVIDER_CALL_INTERVAL_SECONDS:
-                time.sleep(MIN_PROVIDER_CALL_INTERVAL_SECONDS - since_last_call)
-            last_call_at[name] = time.monotonic()
-            try:
-                raw = provider(prompt, model)
-                data = _normalize_outline(_parse_json(raw), prompt)
-                responses[cache_key] = data
-                checkpoint["last_provider"] = name
-                _save_checkpoint(checkpoint)
-                _record_provider_used(name)
-                _record_attempt(name, "success", duration_seconds=time.monotonic() - last_call_at[name])
-                print(f"Planning subtask provider selected: {name}")
-                return data
-            except Exception as exc:
-                detail = str(exc).replace("\n", " ")[:220]
-                failures.append(f"{name}:{detail}")
-                failure = classify_provider_failure(name, exc)
-                _record_attempt(
-                    name,
-                    failure.telemetry_result,
-                    error_detail=detail,
-                    duration_seconds=time.monotonic() - last_call_at[name],
-                )
-                if failure.open_circuit:
-                    cooldown.add(name)
-                    print(f"Planning provider circuit-open for this run: {name}")
-                else:
-                    print(f"Planning subtask failed safely: {name}:{detail}")
+        def run_provider_loop():
+            failures: list[str] = []
+            for name, provider in providers:
+                if name in cooldown:
+                    # Diagnostic telemetry only. No BudgetLedger attempt: no provider
+                    # callable/network request is made.
+                    _record_attempt(name, "circuit-open")
+                    continue
+                since_last_call = time.monotonic() - last_call_at.get(name, 0.0)
+                if since_last_call < MIN_PROVIDER_CALL_INTERVAL_SECONDS:
+                    time.sleep(MIN_PROVIDER_CALL_INTERVAL_SECONDS - since_last_call)
+                last_call_at[name] = time.monotonic()
+                try:
+                    raw = provider(prompt, model)
+                    data = _normalize_outline(_parse_json(raw), prompt)
+                    responses[cache_key] = data
+                    checkpoint["last_provider"] = name
+                    _save_checkpoint(checkpoint)
+                    _record_provider_used(name)
+                    _record_attempt(name, "success", duration_seconds=time.monotonic() - last_call_at[name])
+                    print(f"Planning subtask provider selected: {name}")
+                    return data
+                except Exception as exc:
+                    detail = str(exc).replace("\n", " ")[:220]
+                    failures.append(f"{name}:{detail}")
+                    failure = classify_provider_failure(name, exc)
+                    _record_attempt(
+                        name,
+                        failure.telemetry_result,
+                        error_detail=detail,
+                        duration_seconds=time.monotonic() - last_call_at[name],
+                    )
+                    if failure.open_circuit:
+                        cooldown.add(name)
+                        print(f"Planning provider circuit-open for this run: {name}")
+                    else:
+                        print(f"Planning subtask failed safely: {name}:{detail}")
 
-        raise RuntimeError("All free providers failed for planning subtask: " + " | ".join(failures))
+            raise RuntimeError("All free providers failed for planning subtask: " + " | ".join(failures))
+
+        active = get_active_budget_task()
+        if active is None or active.spec.kind != "OUTLINE_PLAN":
+            return run_provider_loop()
+
+        # Only an actual provider-bound cache miss gets a child budget task. This
+        # preserves the pre-existing cache contract (one outer logical task, zero
+        # provider attempts on a hit) while isolating fallback budgets for real
+        # planning subtasks.
+        planning_subtask_sequence += 1
+        child = TaskSpec(
+            task_id=(
+                f"{active.spec.task_id}_{active.spec.priority.name}_"
+                f"SUBTASK_{planning_subtask_sequence:03d}"
+            ),
+            kind="PLANNING_SUBTASK",
+            priority=active.spec.priority,
+            capability=active.spec.capability,
+            max_provider_attempts=PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS,
+            schema_repair_allowed=active.spec.schema_repair_allowed,
+            local_fallback=False,
+            semantic_block_is_final=False,
+        )
+        with budget_task_scope(
+            active.ledger,
+            child,
+            requested_model=active.requested_model,
+        ):
+            return run_provider_loop()
 
     def routed_build_plan(*args, **kwargs):
         plan = staged.build_plan(*args, **kwargs)
