@@ -53,7 +53,7 @@ jobs:
 
       - name: Focused Gold fallback regressions
         env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}/scripts:${{ github.workspace }}
         run: |
           python -m unittest scripts.test_gold_final_critic_text_fallback scripts.test_gold_enforce_phase4 -v
 
@@ -80,7 +80,7 @@ jobs:
 
       - name: Full Runner regression suite
         env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}/scripts:${{ github.workspace }}
         run: |
           set -euo pipefail
           mapfile -t test_modules < <(find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' | sort | sed -e 's#/#.#g' -e 's#\.py$##')
