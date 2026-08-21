@@ -8,6 +8,7 @@ from pathlib import Path
 import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.ai_budget import BudgetLedger
 from isco_video_agent.config import secret
+from isco_video_agent.text_audit_router import text_audit_circuit_scope
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.brand_anchor_guard import install_brand_anchor_guard
@@ -211,13 +212,18 @@ def main() -> None:
     previous_defer = os.environ.get("ISCO_DEFER_YOUTUBE_ANALYTICS")
     os.environ["ISCO_DEFER_YOUTUBE_ANALYTICS"] = "1"
     try:
-        out = orchestrator.produce(
-            topic=request["topic"],
-            requested_format=request["format"],
-            dry_run=False,
-            do_research=True,
-            ledger=ledger,
-        )
+        # Share text-audit provider health only across the core audits/re-audits of
+        # this one production run. The Engine context resets even on failure, so a
+        # later run never inherits a stale circuit. Gold Final Critic has its own
+        # separately bounded provider policy and remains outside this scope.
+        with text_audit_circuit_scope():
+            out = orchestrator.produce(
+                topic=request["topic"],
+                requested_format=request["format"],
+                dry_run=False,
+                do_research=True,
+                ledger=ledger,
+            )
     except Exception:
         out_dir = _latest_output_dir()
         if out_dir is not None:
