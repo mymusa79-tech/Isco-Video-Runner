@@ -16,6 +16,7 @@ from isco_video_agent.ai_budget import AttemptOutcome, get_active_budget_task
 from isco_video_agent.providers.gemini import json_text as gemini_json_text
 from isco_video_agent.providers.gemini import with_channel_persona
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
+from provider_failure import classify_provider_failure
 
 
 CACHE_PATH = Path("state/planning-checkpoint.json")
@@ -63,32 +64,6 @@ def _extract_rate_limit_headers(headers) -> dict:
         "remaining_requests": headers.get("X-RateLimit-Remaining-Requests"),
         "remaining_tokens": headers.get("X-RateLimit-Remaining-Tokens"),
     }
-
-
-def _classify_failure(detail: str) -> str:
-    lower = detail.lower()
-    if "429" in detail or "quota" in lower:
-        return "429"
-    if "invalid json" in lower:
-        return "invalid_json"
-    if "premature" in lower:
-        return "premature_response"
-    return "other"
-
-
-def _classify_budget_outcome(exc: Exception) -> AttemptOutcome:
-    detail = str(exc).lower()
-    if "429" in str(exc) or "quota" in detail or "rate limit" in detail:
-        return AttemptOutcome.RATE_LIMITED
-    if "invalid json" in detail or "complete json object" in detail:
-        return AttemptOutcome.SCHEMA_INVALID
-    if "premature" in detail:
-        return AttemptOutcome.TRUNCATED
-    if "timeout" in detail or "timed out" in detail:
-        return AttemptOutcome.TIMEOUT
-    if "connection" in detail or "network" in detail:
-        return AttemptOutcome.NETWORK_ERROR
-    return AttemptOutcome.OTHER
 
 
 def _record_attempt(provider_name: str, result: str, *, error_detail: str | None = None, duration_seconds: float | None = None) -> None:
@@ -152,10 +127,11 @@ def _budgeted_provider_call(provider_name: str, resolved_model: str, call, *args
     try:
         result = call(*args, **kwargs)
     except Exception as exc:
+        failure = classify_provider_failure(provider_name, exc)
         _record_budget_attempt(
             provider_name,
             resolved_model,
-            _classify_budget_outcome(exc),
+            failure.budget_outcome,
             duration_seconds=time.monotonic() - started,
             detail=str(exc)[:220],
         )
@@ -424,10 +400,14 @@ def install_router() -> None:
             except Exception as exc:
                 detail = str(exc).replace("\n", " ")[:220]
                 failures.append(f"{name}:{detail}")
-                _record_attempt(name, _classify_failure(detail), error_detail=detail, duration_seconds=time.monotonic() - last_call_at[name])
-                is_rate_limited = "429" in detail or "quota" in detail.lower()
-                is_groq_payload_too_large = name == "groq" and "groq http 413" in detail.lower()
-                if is_rate_limited or is_groq_payload_too_large:
+                failure = classify_provider_failure(name, exc)
+                _record_attempt(
+                    name,
+                    failure.telemetry_result,
+                    error_detail=detail,
+                    duration_seconds=time.monotonic() - last_call_at[name],
+                )
+                if failure.open_circuit:
                     cooldown.add(name)
                     print(f"Planning provider circuit-open for this run: {name}")
                 else:
