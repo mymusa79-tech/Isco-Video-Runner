@@ -1,0 +1,49 @@
+name: Repair Taxonomy Router Compat Once
+
+on:
+  push:
+    branches:
+      - fix/p1-taxonomy-router-contract-compat
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !contains(github.event.head_commit.message, '[router-compat-applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Add compatibility projection without restoring duplicate taxonomy
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/task_level_planner_router.py')
+          text = path.read_text(encoding='utf-8')
+          marker = '\ndef _summarize_telemetry_by_provider(attempts: list[dict]) -> dict:\n'
+          if 'def _classify_failure(' in text:
+              raise SystemExit('compat projection already exists')
+          if marker not in text:
+              raise SystemExit('expected insertion marker not found')
+          wrapper = '''\n\ndef _classify_failure(detail: str) -> str:\n    \"\"\"Compatibility projection for legacy Runner tests/callers.\n\n    Classification authority remains provider_failure.classify_provider_failure;\n    this helper exposes only its stable telemetry category and owns no policy.\n    \"\"\"\n    return classify_provider_failure(\"unknown\", detail).telemetry_result\n'''
+          path.write_text(text.replace(marker, wrapper + marker, 1), encoding='utf-8')
+          PY
+          python -m py_compile scripts/task_level_planner_router.py scripts/provider_failure.py
+          git diff --check
+
+      - name: Commit repair and remove one-shot workflow
+        run: |
+          set -euo pipefail
+          rm .github/workflows/repair-taxonomy-router-compat-once.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/task_level_planner_router.py .github/workflows/repair-taxonomy-router-compat-once.yml
+          git commit -m 'fix: preserve taxonomy router compatibility [router-compat-applied]'
+          git push origin HEAD:fix/p1-taxonomy-router-contract-compat
