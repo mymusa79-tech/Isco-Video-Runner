@@ -18,7 +18,7 @@ jobs:
           ref: f86eca1732c723d8becae24339d4f61ee105a400
           path: runner
           persist-credentials: false
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Verify exact Runner checkout
         working-directory: runner
