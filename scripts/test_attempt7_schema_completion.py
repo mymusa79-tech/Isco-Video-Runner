@@ -78,7 +78,7 @@ class Attempt7SchemaCompletionRegressionTests(unittest.TestCase):
             )
 
         self.assertEqual(len(calls), 2)
-        self.assertIn("ONE bounded schema-completion request", calls[1])
+        self.assertIn("ONE bounded target-completion request", calls[1])
         self.assertIn('"id": "sec_5"', calls[1])
         self.assertIn('"id": "sec_8"', calls[1])
         self.assertEqual([section.narration for section in sections], before)
