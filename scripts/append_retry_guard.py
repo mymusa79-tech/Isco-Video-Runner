@@ -80,12 +80,27 @@ def _validate_addition_bounds(
     for spec in target_specs:
         section_id = str(spec["id"])
         words = _word_count(additions[section_id])
-        minimum_append_words = int(spec["minimum_append_words"])
+        current_words = int(spec["current_words"])
+        section_minimum, section_maximum = [int(v) for v in spec["hard_section_band"]]
+        preferred_minimum = int(spec["minimum_append_words"])
         maximum_append_words = int(spec["maximum_append_words"])
-        if not minimum_append_words <= words <= maximum_append_words:
+        projected_words = current_words + words
+
+        if words > maximum_append_words:
             raise RuntimeError(
                 f"Append-only retry addition {section_id} has {words} words; "
-                f"required {minimum_append_words}-{maximum_append_words}"
+                f"maximum allowed is {maximum_append_words}"
+            )
+        if not section_minimum <= projected_words <= section_maximum:
+            raise RuntimeError(
+                f"Append-only retry addition {section_id} would produce {projected_words} section words; "
+                f"required final section band is {section_minimum}-{section_maximum}"
+            )
+        if words < preferred_minimum:
+            print(
+                f"Append-only retry addition {section_id} undershot preferred safety target "
+                f"{preferred_minimum} with {words} words, but projected section length "
+                f"{projected_words} satisfies the hard {section_minimum}-{section_maximum} band"
             )
         total_append_words += words
 
@@ -205,7 +220,9 @@ Hard individual Film section band: {section_minimum}-{section_maximum} words eac
 
 This repair is APPEND-ONLY. Python will add append_text without replacing existing narration. Return every listed target
 exactly once, in the exact listed order. A missing target makes the entire repair invalid; there is no second content call.
-Keep each append_text inside its own minimum_append_words/maximum_append_words range.
+Treat minimum_append_words as the preferred safety target and maximum_append_words as an absolute maximum. The host
+will always enforce the true resulting hard section band of {section_minimum}-{section_maximum}; never return so little
+that the resulting section would remain below {section_minimum} words.
 
 Deepen the SAME existing key_point with genuinely new spoken Arabic: a concrete example, consequence, distinction,
 clarification, or practical implication. Do not repeat the current narration merely to inflate length. Do not add generic
