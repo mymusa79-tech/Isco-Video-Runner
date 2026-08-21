@@ -476,3 +476,19 @@ def install_router() -> None:
 
     staged.json_text = budget_scoped_task_router
     orchestrator.build_plan = routed_build_plan
+
+
+def run() -> None:
+    install_router()
+    request = json.loads(Path(os.environ["REQUEST_FILE"]).read_text(encoding="utf-8"))
+    out = orchestrator.produce(
+        topic=request["topic"],
+        requested_format=request["format"],
+        dry_run=False,
+        do_research=True,
+    )
+    print(f"Production completed: {out.name}")
+
+
+if __name__ == "__main__":
+    run()
