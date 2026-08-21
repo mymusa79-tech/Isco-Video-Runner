@@ -1,0 +1,285 @@
+name: Prepare P2-11 Thumbnail Provider Interleaving V2
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [synchronize]
+    paths:
+      - ".github/workflows/prepare-p2-11-thumbnail-interleaving-v2.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact private Engine base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ae09e7f3ecfc0c49e96041f058d9e0b38924bb69
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Apply guarded P2-11 patch and prepare Engine commit object
+        working-directory: engine
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          REPO: mymusa79-tech/Isco-Video-Agent
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          thumbnail_path = Path("src/isco_video_agent/thumbnail.py")
+          text = thumbnail_path.read_text(encoding="utf-8")
+
+          old = '''def _review_items_for_query(
+              *,
+              query: str,
+              pexels_key: str,
+              pixabay_key: str | None,
+              thumb_dir: Path,
+              concept_index: int,
+          ) -> list[dict]:
+              """Build one provider-aware board for one query without consuming an AI call."""
+              review_items: list[dict] = []
+              pexels_photos = search_photos(
+                  pexels_key,
+                  query,
+                  orientation="landscape",
+                  per_page=12,
+              )
+              pexels_slots = PEXELS_PRIMARY_BOARD_SLOTS if pixabay_key else MAX_VISUAL_CANDIDATES_PER_HYPOTHESIS
+              _append_review_items(
+                  review_items=review_items,
+                  provider="pexels",
+                  photos=pexels_photos,
+                  file_fn=photo_file,
+                  download_fn=download,
+                  thumb_dir=thumb_dir,
+                  concept_index=concept_index,
+                  max_total=pexels_slots,
+              )
+
+              if pixabay_key and len(review_items) < MAX_VISUAL_CANDIDATES_PER_HYPOTHESIS:
+                  pixabay_photos = pixabay_provider.search_photos(
+                      pixabay_key,
+                      query,
+                      orientation="landscape",
+                      per_page=12,
+                  )
+                  _append_review_items(
+                      review_items=review_items,
+                      provider="pixabay",
+                      photos=pixabay_photos,
+                      file_fn=pixabay_provider.photo_file,
+                      download_fn=pixabay_provider.download,
+                      thumb_dir=thumb_dir,
+                      concept_index=concept_index,
+                      max_total=MAX_VISUAL_CANDIDATES_PER_HYPOTHESIS,
+                  )
+              return review_items
+          '''
+          new = '''def _provider_review_sources(
+              *,
+              provider: str,
+              photos: list[dict],
+              file_fn,
+              max_items: int,
+          ) -> list[dict]:
+              """Collect usable provider candidates without assigning board positions yet."""
+              sources: list[dict] = []
+              for photo in photos:
+                  if len(sources) >= max_items:
+                      break
+                  image_url = file_fn(photo)
+                  if not image_url:
+                      continue
+                  sources.append({"provider": provider, "photo": photo, "image_url": image_url})
+              return sources
+
+
+          def _interleave_provider_sources(
+              primary: list[dict], fallback: list[dict], *, max_total: int
+          ) -> list[dict]:
+              """Mix providers deterministically while keeping Pexels first when available."""
+              mixed: list[dict] = []
+              primary_index = 0
+              fallback_index = 0
+              while len(mixed) < max_total and (
+                  primary_index < len(primary) or fallback_index < len(fallback)
+              ):
+                  if primary_index < len(primary):
+                      mixed.append(primary[primary_index])
+                      primary_index += 1
+                  if len(mixed) >= max_total:
+                      break
+                  if fallback_index < len(fallback):
+                      mixed.append(fallback[fallback_index])
+                      fallback_index += 1
+              return mixed
+
+
+          def _review_items_for_query(
+              *,
+              query: str,
+              pexels_key: str,
+              pixabay_key: str | None,
+              thumb_dir: Path,
+              concept_index: int,
+          ) -> list[dict]:
+              """Build one provider-aware, position-decorrelated board without an AI call."""
+              pexels_photos = search_photos(
+                  pexels_key,
+                  query,
+                  orientation="landscape",
+                  per_page=12,
+              )
+              pexels_slots = PEXELS_PRIMARY_BOARD_SLOTS if pixabay_key else MAX_VISUAL_CANDIDATES_PER_HYPOTHESIS
+              pexels_sources = _provider_review_sources(
+                  provider="pexels",
+                  photos=pexels_photos,
+                  file_fn=photo_file,
+                  max_items=pexels_slots,
+              )
+
+              pixabay_sources: list[dict] = []
+              if pixabay_key:
+                  pixabay_photos = pixabay_provider.search_photos(
+                      pixabay_key,
+                      query,
+                      orientation="landscape",
+                      per_page=12,
+                  )
+                  pixabay_sources = _provider_review_sources(
+                      provider="pixabay",
+                      photos=pixabay_photos,
+                      file_fn=pixabay_provider.photo_file,
+                      max_items=MAX_VISUAL_CANDIDATES_PER_HYPOTHESIS - len(pexels_sources),
+                  )
+
+              sources = _interleave_provider_sources(
+                  pexels_sources,
+                  pixabay_sources,
+                  max_total=MAX_VISUAL_CANDIDATES_PER_HYPOTHESIS,
+              )
+              review_items: list[dict] = []
+              for attempt, source in enumerate(sources, 1):
+                  destination = thumb_dir / f"{concept_index}-review-{attempt}.jpg"
+                  if source["provider"] == "pexels":
+                      raw_path = download(source["image_url"], destination)
+                  else:
+                      raw_path = pixabay_provider.download(source["image_url"], destination)
+                  preview = make_image_review_preview(
+                      raw_path, thumb_dir / f"{concept_index}-preview-{attempt}.jpg"
+                  )
+                  review_items.append(
+                      {
+                          "provider": source["provider"],
+                          "photo": source["photo"],
+                          "raw": raw_path,
+                          "preview": preview,
+                      }
+                  )
+              return review_items
+          '''
+          if text.count(old) != 1:
+              raise SystemExit(f"thumbnail provider board block: expected one match, found {text.count(old)}")
+          text = text.replace(old, new, 1)
+
+          old_policy = '"up_to_4_pexels_then_fill_to_6_with_pixabay" if pixabay_key else "up_to_6_pexels"'
+          new_policy = '"up_to_4_pexels_plus_pixabay_fill_interleaved_pexels_first" if pixabay_key else "up_to_6_pexels"'
+          if text.count(old_policy) != 1:
+              raise SystemExit("thumbnail board policy string not found exactly once")
+          text = text.replace(old_policy, new_policy, 1)
+          thumbnail_path.write_text(text, encoding="utf-8")
+
+          test_path = Path("tests/test_thumbnail_pixabay_fallback.py")
+          tests = test_path.read_text(encoding="utf-8")
+          if tests.count("selected_index: int = 6") != 1:
+              raise SystemExit("selected_index default contract not found")
+          tests = tests.replace("selected_index: int = 6", "selected_index: int = 4", 1)
+
+          old_empty = "package = self._build(pexels_photos=[], pixabay_photos=pixabay_photos)"
+          new_empty = "package = self._build(pexels_photos=[], pixabay_photos=pixabay_photos, selected_index=6)"
+          if tests.count(old_empty) != 1:
+              raise SystemExit("empty Pexels fallback fixture not found")
+          tests = tests.replace(old_empty, new_empty, 1)
+
+          rights_marker = "\n\nclass ThumbnailRightsTests(unittest.TestCase):\n"
+          order_test = '''
+
+          class ThumbnailProviderOrderTests(unittest.TestCase):
+              def test_mixed_board_interleaves_providers_with_pexels_first(self) -> None:
+                  pexels_photos = [
+                      {"id": index, "url": f"https://www.pexels.com/photo/{index}/"}
+                      for index in range(1, 7)
+                  ]
+                  pixabay_photos = [
+                      {"id": 200 + index, "url": f"https://pixabay.com/photos/{200 + index}/"}
+                      for index in range(1, 7)
+                  ]
+
+                  with tempfile.TemporaryDirectory() as tmp, patch.object(
+                      thumbnail, "search_photos", return_value=pexels_photos
+                  ) as pexels_search, patch.object(
+                      thumbnail, "photo_file", side_effect=lambda photo: f"https://images.pexels.com/{photo['id']}.jpg"
+                  ), patch.object(
+                      thumbnail, "download", side_effect=lambda _url, path: _write(path)
+                  ), patch.object(
+                      thumbnail.pixabay_provider, "search_photos", return_value=pixabay_photos
+                  ) as pixabay_search, patch.object(
+                      thumbnail.pixabay_provider, "photo_file", side_effect=lambda photo: f"https://cdn.pixabay.com/{photo['id']}.jpg"
+                  ), patch.object(
+                      thumbnail.pixabay_provider, "download", side_effect=lambda _url, path: _write(path)
+                  ), patch.object(
+                      thumbnail, "make_image_review_preview", side_effect=lambda _raw, path: _write(path, b"preview")
+                  ):
+                      items = thumbnail._review_items_for_query(
+                          query="sunrise path",
+                          pexels_key="p",
+                          pixabay_key="x",
+                          thumb_dir=Path(tmp),
+                          concept_index=1,
+                      )
+
+                  self.assertEqual(pexels_search.call_count, 1)
+                  self.assertEqual(pixabay_search.call_count, 1)
+                  self.assertEqual(
+                      [item["provider"] for item in items],
+                      ["pexels", "pixabay", "pexels", "pixabay", "pexels", "pexels"],
+                  )
+                  self.assertEqual(
+                      [item["photo"]["id"] for item in items],
+                      [1, 201, 2, 202, 3, 4],
+                  )
+          '''
+          order_test = "\n".join(line[10:] if line.startswith("          ") else line for line in order_test.splitlines())
+          if tests.count(rights_marker) != 1:
+              raise SystemExit("ThumbnailRightsTests insertion marker not found")
+          tests = tests.replace(rights_marker, order_test + rights_marker, 1)
+          test_path.write_text(tests, encoding="utf-8")
+          PY
+
+          python -m py_compile src/isco_video_agent/thumbnail.py tests/test_thumbnail_pixabay_fallback.py
+          git diff --check
+          python -m unittest tests.test_thumbnail_pixabay_fallback -q
+
+          changed="$(git diff --name-only | sort)"
+          test "$changed" = $'src/isco_video_agent/thumbnail.py\ntests/test_thumbnail_pixabay_fallback.py'
+          grep -q 'up_to_4_pexels_plus_pixabay_fill_interleaved_pexels_first' src/isco_video_agent/thumbnail.py
+
+          base_commit="$(git rev-parse HEAD)"
+          base_tree="$(git rev-parse HEAD^{tree})"
+          thumbnail_blob="$(gh api --method POST "repos/$REPO/git/blobs" -f content="$(cat src/isco_video_agent/thumbnail.py)" -f encoding=utf-8 --jq '.sha')"
+          test_blob="$(gh api --method POST "repos/$REPO/git/blobs" -f content="$(cat tests/test_thumbnail_pixabay_fallback.py)" -f encoding=utf-8 --jq '.sha')"
+          tree_json="$(jq -n --arg base "$base_tree" --arg thumbnail "$thumbnail_blob" --arg test "$test_blob" '{base_tree:$base,tree:[{path:"src/isco_video_agent/thumbnail.py",mode:"100644",type:"blob",sha:$thumbnail},{path:"tests/test_thumbnail_pixabay_fallback.py",mode:"100644",type:"blob",sha:$test}]}')"
+          tree_sha="$(printf '%s' "$tree_json" | gh api --method POST "repos/$REPO/git/trees" --input - --jq '.sha')"
+          commit_json="$(jq -n --arg msg 'fix: interleave thumbnail providers to reduce position bias' --arg tree "$tree_sha" --arg parent "$base_commit" '{message:$msg,tree:$tree,parents:[$parent]}')"
+          commit_sha="$(printf '%s' "$commit_json" | gh api --method POST "repos/$REPO/git/commits" --input - --jq '.sha')"
+          echo "BASE_COMMIT_SHA=$base_commit"
+          echo "PREPARED_COMMIT_SHA=$commit_sha"
