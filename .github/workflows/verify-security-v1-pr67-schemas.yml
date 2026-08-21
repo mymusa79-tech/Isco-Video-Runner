@@ -1,0 +1,73 @@
+name: Verify Security V1 PR67 Schemas
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  combined-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ENGINE_SHA: f2ca91dfb3918c3e3f4458fe351d57cf59501fa1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {persist-credentials: false, fetch-depth: 1}
+      - name: Checkout exact private Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with: {python-version: "3.12"}
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+      - name: Focused Security V1 PR67 tests
+        working-directory: engine
+        run: python -m unittest tests.test_model_output_schemas -v
+      - name: Full Engine suite
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"; rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research; then exit 1; fi
+      - name: Full Runner regression suite
+        env: {PYTHONPATH: "${{ github.workspace }}/engine/src:${{ github.workspace }}"}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' | sort | sed -e 's#/#.#g' -e 's#\.py$##')
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+      - name: Verifier sanity
+        run: |
+          test "$ENGINE_SHA" = "f2ca91dfb3918c3e3f4458fe351d57cf59501fa1"
+          git diff --check
+          test -f .github/workflows/verify-security-v1-pr67-schemas.yml
