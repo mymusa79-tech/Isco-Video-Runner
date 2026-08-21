@@ -98,7 +98,18 @@ jobs:
               | sort | sed -e 's#/#.#g' -e 's#\.py$##'
           )
           test "${#test_modules[@]}" -gt 0
-          python -m unittest "${test_modules[@]}" -q
+          printf 'Runner test modules (%d):\n' "${#test_modules[@]}" | tee "$RUNNER_TEMP/runner-regression.log"
+          printf '  %s\n' "${test_modules[@]}" | tee -a "$RUNNER_TEMP/runner-regression.log"
+          python -m unittest "${test_modules[@]}" -v 2>&1 | tee -a "$RUNNER_TEMP/runner-regression.log"
+
+      - name: Upload Runner regression diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-regression-diagnostic
+          path: ${{ runner.temp }}/runner-regression.log
+          if-no-files-found: warn
+          retention-days: 1
 
       - name: Scope and syntax sanity
         run: |
