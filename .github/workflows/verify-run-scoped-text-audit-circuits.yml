@@ -1,0 +1,106 @@
+name: Verify Run Scoped Text Audit Circuits
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  combined-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact private Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3b47adad72350284a74788eee3333b19a5b1f3ee
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        env:
+          ENGINE_SHA: 3b47adad72350284a74788eee3333b19a5b1f3ee
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused run-scoped audit circuit regressions
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}/scripts:${{ github.workspace }}
+        run: |
+          python -m unittest engine.tests.test_text_audit_router engine.tests.test_text_audit_run_scoped_circuit -v
+          python -m unittest scripts.test_run_v3_voice -v
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Full Engine suite
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research; then exit 1; fi
+
+      - name: Full Runner regression suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}/scripts:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' | sort | sed -e 's#/#.#g' -e 's#\.py$##')
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Scope and syntax sanity
+        run: |
+          set -euo pipefail
+          python -m py_compile engine/src/isco_video_agent/text_audit_router.py engine/tests/test_text_audit_run_scoped_circuit.py scripts/run_v3_voice.py
+          git diff --check
+          test "$(grep -c 'with text_audit_circuit_scope()' scripts/run_v3_voice.py)" -eq 1
+          test "$(grep -c 'run_gold_enforce_phase4' scripts/run_v3_voice.py)" -ge 2
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('scripts/run_v3_voice.py').read_text(encoding='utf-8')
+          scope = text.index('with text_audit_circuit_scope():')
+          core = text.index('out = orchestrator.produce(', scope)
+          gold = text.index('run_gold_enforce_phase4(', core)
+          if not (scope < core < gold):
+              raise SystemExit('text-audit scope placement invariant failed')
+          PY
