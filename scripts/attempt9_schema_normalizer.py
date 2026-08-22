@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import scripts.append_retry_guard as append_guard
+from scripts.attempt10_append_bound_recovery import install_attempt10_append_bound_recovery
 
 
 _MARKER = "_isco_attempt9_schema_normalizer"
@@ -110,6 +111,11 @@ def _normalize_additions_payload(data: Any, expected_ids: list[str]) -> dict[str
 
 def install_attempt9_schema_normalizer() -> None:
     """Harden append-retry schema handling while preserving every semantic hard gate."""
+    # Attempt 10 extends only the already-existing aggregate-underlength completion
+    # mechanism: discard a first-pass bound-invalid target and spend the same single
+    # completion call. Installing it here keeps run_v3's proven installer order intact.
+    install_attempt10_append_bound_recovery()
+
     current_subset = append_guard._parse_ordered_subset_for_schema_completion
     current_complete = append_guard._parse_safe_partial_additions
     if getattr(current_subset, _MARKER, False) and getattr(current_complete, _MARKER, False):
