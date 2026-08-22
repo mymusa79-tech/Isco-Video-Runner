@@ -1,0 +1,142 @@
+name: Editorial Room Stage 7 PR Certify V6
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 02aeb6f4d9172553b3360b7add5fdcef59944985
+
+jobs:
+  certify-stage7-v6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact merged Engine main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Reapply exact V5 Stage 7 candidate and fixture migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          src = Path('.github/workflows/editorial-room-stage7-pr-certify-v5.yml').read_text(encoding='utf-8')
+          names = [
+              'Apply exact Stage 7 V3 production candidate',
+              'Reuse exact Stage 7 V3 contracts',
+              'Migrate legacy packaging fixtures to locked EditorialIntent',
+          ]
+          blocks = []
+          for name in names:
+              marker = f'      - name: {name}\n'
+              start = src.index(marker)
+              run_marker = '        run: |\n'
+              start = src.index(run_marker, start) + len(run_marker)
+              next_step = src.find('      - name:', start)
+              end = len(src) if next_step < 0 else next_step
+              lines = src[start:end].splitlines()
+              block = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines).rstrip() + '\n'
+              blocks.append(block)
+          Path('/tmp/apply-stage7-v6.sh').write_text('set -euo pipefail\n' + '\n'.join(blocks), encoding='utf-8')
+          PY
+          cd engine
+          bash /tmp/apply-stage7-v6.sh
+          git diff --check
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime and ffmpeg
+        working-directory: engine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Stage 7 contracts
+        working-directory: engine
+        run: python -m unittest tests.test_editorial_stage7 -v
+
+      - name: Stage 5-6 HEI and packaging compatibility
+        working-directory: engine
+        run: >-
+          python -m unittest
+          tests.test_editorial_adapters tests.test_editorial_stage6 tests.test_human_editorial_intent
+          tests.test_packaging_benchmark_p2 tests.test_packaging_early_brief_p2 tests.test_packaging_experiments_p2
+          tests.test_packaging_identity_integrity_p1 tests.test_packaging_learning_p2 tests.test_thumbnail_packaging_contract -q
+
+      - name: Full Engine regression with diagnostics
+        id: full_engine
+        working-directory: engine
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          python -m unittest discover -s tests -q 2>&1 | tee "$RUNNER_TEMP/stage7-full-engine.log"
+          rc=${PIPESTATUS[0]}
+          {
+            echo "exit_code=$rc"
+            grep -nE '^(FAIL|ERROR):|FAILED \(|^Traceback \(most recent call last\):|AssertionError|^Ran [0-9]+ tests' "$RUNNER_TEMP/stage7-full-engine.log" || true
+          } > "$RUNNER_TEMP/stage7-failure-summary.txt"
+          exit "$rc"
+
+      - name: Upload Stage 7 V6 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage7-v6-diagnostics
+          path: |
+            ${{ runner.temp }}/stage7-full-engine.log
+            ${{ runner.temp }}/stage7-failure-summary.txt
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Final Stage 7 diff review
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git checkout -- state/history.json 2>/dev/null || true
+          mapfile -t changed < <(git status --porcelain --untracked-files=all | sed -E 's/^.. //')
+          allowed=(src/isco_video_agent/production_pipeline.py src/isco_video_agent/packaging_integrity.py src/isco_video_agent/thumbnail.py tests/test_editorial_stage7.py tests/test_packaging_identity_integrity_p1.py tests/test_thumbnail_packaging_contract.py)
+          for path in "${changed[@]}"; do
+            ok=false
+            for want in "${allowed[@]}"; do [[ "$path" == "$want" ]] && ok=true; done
+            $ok || { echo "unexpected dirty path: $path" >&2; exit 1; }
+          done
+
+      - name: Prepare verified Stage 7 artifact
+        working-directory: engine
+        run: |
+          mkdir -p "$RUNNER_TEMP/stage7/src/isco_video_agent" "$RUNNER_TEMP/stage7/tests"
+          cp src/isco_video_agent/production_pipeline.py src/isco_video_agent/packaging_integrity.py src/isco_video_agent/thumbnail.py "$RUNNER_TEMP/stage7/src/isco_video_agent/"
+          cp tests/test_editorial_stage7.py tests/test_packaging_identity_integrity_p1.py tests/test_thumbnail_packaging_contract.py "$RUNNER_TEMP/stage7/tests/"
+          git diff > "$RUNNER_TEMP/stage7/stage7.patch"
+
+      - name: Upload verified Stage 7 closure
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage7-verified-closure-v6
+          path: ${{ runner.temp }}/stage7
+          retention-days: 1

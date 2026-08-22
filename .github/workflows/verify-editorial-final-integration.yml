@@ -1,0 +1,149 @@
+name: Verify Editorial Final Integration
+
+on:
+  push:
+    branches: ["verify/editorial-room-stage5-9-final-current-main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EDITORIAL_ENGINE_SHA: 2a8d246d03bb5247da23b3c7b7e97e995b4619bf
+
+jobs:
+  combined-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact Runner verifier candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate exact Engine SHA
+        run: |
+          set -euo pipefail
+          [[ "$EDITORIAL_ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          echo "runner=$GITHUB_SHA engine=$EDITORIAL_ENGINE_SHA"
+
+      - name: Checkout exact private Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.EDITORIAL_ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$EDITORIAL_ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install media and locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+          python -m pip check
+
+      - name: Focused Editorial Stage 5-6 contracts
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_editorial_room \
+            tests.test_resilient_planner_persona_binding \
+            tests.test_editorial_adapters \
+            tests.test_editorial_stage6 \
+            tests.test_repair_dossier \
+            tests.test_short_quality_gate \
+            tests.test_orchestrator_visual_selection_integration -v
+
+      - name: Human Editorial Intent and M7 compatibility
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_human_editorial_intent -v
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Engine worktree sanity
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          mapfile -t dirty_paths < <(git status --porcelain --untracked-files=no | sed -E 's/^.. //')
+          for path in "${dirty_paths[@]}"; do
+            if [ "$path" != "state/history.json" ]; then
+              git status --short
+              git diff
+              echo "ERROR: unexplained tracked mutation after tests: $path" >&2
+              exit 1
+            fi
+          done
+          if [ "${#dirty_paths[@]}" -gt 0 ]; then
+            git checkout -- state/history.json
+          fi
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Full Runner regression suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Runner diff and production isolation sanity
+        run: |
+          set -euo pipefail
+          git diff --check origin/main...HEAD || git diff --check
+          test -f .github/workflows/produce-resilient-v4.yml
+          test -f .github/workflows/verify-editorial-final-integration.yml
+          grep -q '860b61b0f99b285cc2917cba079e29bfa9e2c119' .github/workflows/produce-resilient-v4.yml
+          test "$EDITORIAL_ENGINE_SHA" != '860b61b0f99b285cc2917cba079e29bfa9e2c119'
