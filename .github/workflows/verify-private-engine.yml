@@ -119,7 +119,7 @@ jobs:
           python -m unittest \
             tests.test_cinematic_m7_live_binding \
             tests.test_cinematic_m7_visual_timeline \
-            tests.test_director_brain_deterministic_contract \
+            tests.test_director_brain_deterministic_contract_current_main \
             tests.test_director_brain_phase_a -q
 
       - name: Focused M7 Runner binding contracts
