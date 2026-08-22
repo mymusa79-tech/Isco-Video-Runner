@@ -1,0 +1,135 @@
+name: Editorial Room Stage 6 Visual Fixture Closure
+
+on:
+  push:
+    branches: ["verify/editorial-room-stage5-9-current-main"]
+    paths:
+      - .github/workflows/editorial-room-stage6-visual-fixture-closure.yml
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 998f7ec48ab5fb10cbd563e74949685db5d7ea78
+
+jobs:
+  verify-fixture-closure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact Engine Stage 6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Apply visual-selection fixture isolation only
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/test_orchestrator_visual_selection_integration.py")
+          text = path.read_text(encoding="utf-8")
+          anchor = '            patch.object(tone_quality, "json_text", side_effect=self._fake_audit_pass),\n'
+          if text.count(anchor) != 1:
+              raise SystemExit(f"visual fixture tone anchor count={text.count(anchor)}")
+          replacement = (
+              anchor
+              + '            # This integration fixture intentionally builds 1-2 section Film plans\n'
+              + '            # to test visual-selection wiring, so isolate the independent Stage 6\n'
+              + '            # Macro/Ear gate just as the pre-existing section-length gate is isolated.\n'
+              + '            # Real production remains fail-closed; Stage 6 has dedicated contract tests.\n'
+              + '            patch.object(\n'
+              + '                tone_quality, "_long_editorial_review",\n'
+              + '                return_value={"passed": True, "reasons": [], "structural_flags": []},\n'
+              + '            ),\n'
+          )
+          path.write_text(text.replace(anchor, replacement, 1), encoding="utf-8")
+          PY
+          git diff --check
+          test "$(git diff --name-only)" = "tests/test_orchestrator_visual_selection_integration.py"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install ffmpeg and locked Engine runtime
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Targeted visual-selection integration
+        working-directory: engine
+        run: python -m unittest tests.test_orchestrator_visual_selection_integration -v
+
+      - name: Focused Stage 6 contracts
+        working-directory: engine
+        run: |
+          python -m unittest \
+            tests.test_editorial_room \
+            tests.test_resilient_planner_persona_binding \
+            tests.test_editorial_adapters \
+            tests.test_editorial_stage6 \
+            tests.test_repair_dossier \
+            tests.test_short_quality_gate -v
+
+      - name: Full Engine regression with ffmpeg
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Final diff review
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          if git status --porcelain --untracked-files=no | grep -q 'state/history.json'; then
+            git checkout -- state/history.json
+          fi
+          changed="$(git diff --name-only | sort)"
+          test "$changed" = "tests/test_orchestrator_visual_selection_integration.py" || {
+            echo "Unexpected fixture closure diff:" >&2
+            printf '%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Prepare verified fixture artifact
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage6-visual-fixture/tests"
+          cp tests/test_orchestrator_visual_selection_integration.py "$RUNNER_TEMP/stage6-visual-fixture/tests/"
+          git diff -- tests/test_orchestrator_visual_selection_integration.py > "$RUNNER_TEMP/stage6-visual-fixture/fixture.patch"
+          test -s "$RUNNER_TEMP/stage6-visual-fixture/fixture.patch"
+
+      - name: Upload verified fixture closure
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: stage6-visual-fixture-closure
+          path: ${{ runner.temp }}/stage6-visual-fixture
+          if-no-files-found: error
+          retention-days: 1
