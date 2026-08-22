@@ -23,6 +23,7 @@ from isco_video_agent.research_quarantine import ResearchQuarantineExtractor
 
 
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+_VIDEO_SUFFIXES = frozenset({".mp4", ".mov", ".mkv", ".webm", ".m4v"})
 _INSTALLED = False
 
 
@@ -57,10 +58,28 @@ def _validated_alternate_query(value: object) -> str:
     return validate_alternate_visual_query(value).as_downstream_data()
 
 
-def _scan_media_before_vision(media: str | Path) -> None:
-    """Convert one representative local frame to PGM, then fail closed through the Engine firewall.
+def _production_ocr(path: Path) -> str:
+    tesseract = shutil.which("tesseract")
+    if not tesseract:
+        raise RuntimeError("local_ocr_unavailable")
+    completed = subprocess.run(
+        [tesseract, str(path), "stdout", "--psm", "6", "-l", "eng+ara"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=20,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError("local_ocr_failed")
+    return completed.stdout
 
-    No media content, OCR text, or detection detail is ever promoted into a model prompt.
+
+def _scan_media_before_vision(media: str | Path) -> None:
+    """Sample local media to PGM frames and fail closed before any cloud Vision call.
+
+    Images yield one frame. Videos yield up to the first three one-second samples.
+    No media content, OCR text, or detection detail is promoted into a model prompt.
     """
     source = Path(media)
     if not source.is_file():
@@ -70,21 +89,26 @@ def _scan_media_before_vision(media: str | Path) -> None:
         raise RuntimeError("multimodal_injection_firewall_block:ffmpeg_unavailable")
 
     with tempfile.TemporaryDirectory(prefix="isco-security-frame-") as tmp:
-        frame = Path(tmp) / "frame.pgm"
-        command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y"]
-        if source.suffix.lower() in {".mp4", ".mov", ".mkv", ".webm", ".m4v"}:
-            command.extend(["-ss", "0.5"])
-        command.extend(
-            [
-                "-i",
-                str(source),
-                "-frames:v",
-                "1",
-                "-vf",
-                "scale=640:-2:force_original_aspect_ratio=decrease,format=gray",
-                str(frame),
-            ]
-        )
+        root = Path(tmp)
+        pattern = root / "frame-%02d.pgm"
+        video = source.suffix.lower() in _VIDEO_SUFFIXES
+        filters = "scale=640:-2:force_original_aspect_ratio=decrease,format=gray"
+        if video:
+            filters = "fps=1," + filters
+        command = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(source),
+            "-frames:v",
+            "3" if video else "1",
+            "-vf",
+            filters,
+            str(pattern),
+        ]
         completed = subprocess.run(
             command,
             check=False,
@@ -93,9 +117,12 @@ def _scan_media_before_vision(media: str | Path) -> None:
             text=True,
             timeout=30,
         )
-        if completed.returncode != 0 or not frame.is_file():
+        frames = sorted(root.glob("frame-*.pgm"))
+        if completed.returncode != 0 or not frames:
             raise RuntimeError("multimodal_injection_firewall_block:frame_extract_failed")
-        require_normal_vision_safe(MultimodalInjectionFirewall().scan_frame(frame))
+        firewall = MultimodalInjectionFirewall(ocr_backend=_production_ocr)
+        for frame in frames:
+            require_normal_vision_safe(firewall.scan_frame(frame))
 
 
 def _wrap_search(original: Callable[..., Any]) -> Callable[..., Any]:
