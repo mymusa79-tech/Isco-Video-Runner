@@ -122,7 +122,7 @@ jobs:
 
       - name: Run combined Runner Voice and Gold contracts
         env:
-          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine/src
+          PYTHONPATH: ${{ github.workspace }}/scripts:${{ github.workspace }}:${{ github.workspace }}/engine/src
         run: |
           set -euo pipefail
           python -m unittest \
@@ -133,7 +133,7 @@ jobs:
 
       - name: Assert Gold and Voice namespaces are disjoint
         env:
-          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine/src
+          PYTHONPATH: ${{ github.workspace }}/scripts:${{ github.workspace }}:${{ github.workspace }}/engine/src
         run: |
           python - <<'PY'
           from isco_video_agent.ai_budget import Capability
@@ -178,7 +178,7 @@ jobs:
 
       - name: ECAPA real-model smoke against approved references
         env:
-          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/engine/src
+          PYTHONPATH: ${{ github.workspace }}/scripts:${{ github.workspace }}:${{ github.workspace }}/engine/src
         run: |
           set -euo pipefail
           python - <<'PY'
