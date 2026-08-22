@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -202,6 +204,21 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
     return output
 
 
+def execute_child_subprocess(child_request: dict[str, Any], *, runtime_root: Path) -> Path:
+    validate_control_request(child_request, str(child_request.get("request_sha256") or ""))
+    child_dir = Path(runtime_root) / str(child_request.get("request_id") or "child")
+    child_dir.mkdir(parents=True, exist_ok=True)
+    request_path = child_dir / "child-control-request.json"
+    request_path.write_text(json.dumps(child_request, ensure_ascii=False, indent=2), encoding="utf-8")
+    env = os.environ.copy()
+    env["CONTROL_PLANE_PRODUCTION_ENABLED"] = "true"
+    env["ISCO_CONTROL_REQUEST_PATH"] = str(request_path.resolve())
+    env["ISCO_CONTROL_REQUEST_SHA256"] = str(child_request.get("request_sha256") or "")
+    before = _output_dirs()
+    subprocess.run([sys.executable, str(Path(__file__).resolve())], check=True, env=env)
+    return _new_output_dir(before)
+
+
 def execute_bundle(parent_request: dict[str, Any], *, runtime_root: Path) -> Path:
     parent_output = execute_control_request(parent_request, runtime_dir=Path(runtime_root) / "parent")
     if parent_request.get("approval_scope") != "long_plus_sibling_shorts":
@@ -212,10 +229,7 @@ def execute_bundle(parent_request: dict[str, Any], *, runtime_root: Path) -> Pat
         raise RuntimeError("Approved long+Shorts request completed without sibling-short-plan.json")
 
     def execute_child(child_request: dict[str, Any]) -> Path:
-        return execute_control_request(
-            child_request,
-            runtime_dir=Path(runtime_root) / str(child_request.get("request_id") or "child"),
-        )
+        return execute_child_subprocess(child_request, runtime_root=runtime_root)
 
     completed = orchestrate_sibling_shorts(parent_request, sibling_plan, execute_short=execute_child)
     staged = stage_sibling_assets(parent_output, completed)
@@ -224,8 +238,10 @@ def execute_bundle(parent_request: dict[str, Any], *, runtime_root: Path) -> Pat
             {
                 "schema_version": 1,
                 "parent_request_id": parent_request.get("request_id"),
+                "parent_request_sha256": parent_request.get("request_sha256"),
                 "short_count": len(staged),
                 "shorts": staged,
+                "execution_mode": "sequential_isolated_subprocesses",
                 "partial_delivery_allowed": False,
                 "youtube_publish_mode": "manual_in_youtube_studio",
             },
