@@ -1,0 +1,196 @@
+name: Verify Security V1 Latest Engine Final
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  security-final-certification:
+    if: github.head_ref == 'verify/security-v1-latest-engine-final'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ENGINE_LATEST_SHA: 860b61b0f99b285cc2917cba079e29bfa9e2c119
+      CERTIFIED_PRODUCTION_ENGINE_SHA: eb3370d50ea392b3e31443ff62b99cb5743b65c9
+      RUNNER_BASE_SHA: 8d85fbe210b8428f08c55ffa0ab1ab88d04e57b2
+      APPROVED_BRIEF_SHA256: 56ba4a23a30ceb3e19bc9b2f9493930179f4cf442f3f86c8a79426ac589a7a92
+    steps:
+      - name: Checkout verifier carrier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify isolated verifier and unchanged Production V4
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse origin/main)" = "$RUNNER_BASE_SHA"
+          actual="$(git diff --name-only origin/main...HEAD)"
+          test "$actual" = '.github/workflows/verify-security-v1-latest-engine-final.yml'
+          git diff --check origin/main...HEAD
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          text = Path('.github/workflows/produce-resilient-v4.yml').read_text(encoding='utf-8')
+          checkout = re.findall(r'^\s+ref:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          env_pin = re.findall(r'^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          expected = os.environ['CERTIFIED_PRODUCTION_ENGINE_SHA']
+          if checkout != [expected] or env_pin != [expected]:
+              raise SystemExit(f'Production V4 pin changed during certification: checkout={checkout} env={env_pin}')
+          required = [
+              'ISCO_APPROVED_BRIEF_SHA256:',
+              'verify_brief_approval(',
+              'security_v1_supply_chain_preflight.py lock',
+              'security_v1_supply_chain_preflight.py voice',
+              'tesseract-ocr-ara',
+          ]
+          missing = [x for x in required if x not in text]
+          if missing:
+              raise SystemExit(f'Security V1 production activation drift: missing={missing}')
+          if 'push:' in text or 'inputs.topic' in text or 'inputs.format' in text:
+              raise SystemExit('Production workflow authority/request surface drift')
+          print('Verifier isolation and current certified Production Security V1 activation PASS')
+          PY
+
+      - name: Checkout exact latest Engine main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_LATEST_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact latest Engine
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_LATEST_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+
+      - name: Install security and media dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core openssl tesseract-ocr tesseract-ocr-ara
+          tesseract --version
+          tesseract --list-langs | grep -Fx eng
+          tesseract --list-langs | grep -Fx ara
+
+      - name: Supply-chain preflight before install
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py lock --lock requirements-lock.txt
+
+      - name: Install locked Engine and audit dependencies
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Verify exact Piper voice artifact integrity
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          voice_dir="$RUNNER_TEMP/piper-voices"
+          mkdir -p "$voice_dir"
+          python -m piper.download_voices --data-dir "$voice_dir" ar_JO-kareem-medium
+          test -f "$voice_dir/ar_JO-kareem-medium.onnx"
+          test -f "$voice_dir/ar_JO-kareem-medium.onnx.json"
+          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py voice \
+            --voice-dir "$voice_dir" \
+            --manifest security/piper_voice_hashes.json
+
+      - name: Focused Security V1 Engine contracts
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_multimodal_firewall \
+            tests.test_research_quarantine \
+            tests.test_model_output_schemas \
+            tests.test_brief_approval_binding \
+            tests.test_supply_chain_integrity \
+            -v
+
+      - name: Verify approved brief cryptographic binding on latest Engine
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from isco_video_agent.brief_approval_binding import verify_brief_approval
+          brief = json.loads(Path('production/approved_brief.json').read_text(encoding='utf-8'))
+          digest = verify_brief_approval(brief, os.environ['APPROVED_BRIEF_SHA256'])
+          print('Approved brief binding PASS:', digest)
+          PY
+
+      - name: Full latest Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Focused Runner Security V1 production binding
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m unittest scripts.test_security_v1_live_binding scripts.test_m7_live_binding -v
+
+      - name: Full Runner regression against latest Engine
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Security closure invariants
+        run: |
+          set -euo pipefail
+          test -f scripts/security_v1_live_binding.py
+          test -f scripts/security_v1_supply_chain_preflight.py
+          grep -F 'install_security_v1_live_binding' scripts/m7_live_binding.py
+          for f in \
+            engine/src/isco_video_agent/multimodal_firewall.py \
+            engine/src/isco_video_agent/research_quarantine.py \
+            engine/src/isco_video_agent/model_output_schemas.py \
+            engine/src/isco_video_agent/brief_approval_binding.py \
+            engine/src/isco_video_agent/supply_chain_integrity.py \
+            engine/security/piper_voice_hashes.json; do
+              test -f "$f"
+          done
+          git diff --check
+          echo 'SECURITY V1 LATEST-ENGINE CERTIFICATION PASS'
