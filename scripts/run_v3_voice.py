@@ -18,6 +18,7 @@ from scripts.m7_live_binding import install_m7_live_binding
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
+from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
 from scripts.task_level_planner_router import get_used_providers, install_router, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
 from scripts.voice_identity_observer import install_voice_identity_observer
@@ -190,6 +191,7 @@ def main() -> None:
     install_planner_quality_guard()
     install_attempt9_schema_normalizer()
     install_append_retry_guard()
+    install_runtime_closure()
     install_brand_anchor_guard()
     install_product_proof_fallback()
     install_voice_mesh()
@@ -259,6 +261,8 @@ def main() -> None:
         telemetry_path = write_planning_telemetry(out)
         _attach_voice_audit_to_telemetry(telemetry_path, out)
         raise
+
+    run_post_gold_observers(out)
 
     ledger.write(out / "ai-budget.json")
     production_id = _production_id()
