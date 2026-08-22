@@ -61,6 +61,24 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
         self.assertNotIn("verify_brief_approval", step)
         self.assertNotIn("approved_brief.json", step)
 
+    def test_invalid_brief_does_not_expose_telegram_notification_secrets(self) -> None:
+        start = self.text.index("- name: Notify Telegram")
+        next_step = self.text.index("\n      - name:", start + 1)
+        step = self.text[start:next_step]
+        self.assertIn("if: always() && steps.validate_brief.outcome == 'success'", step)
+        self.assertIn("TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}", step)
+
+    def test_plaintext_production_secrets_and_state_are_cleaned_last(self) -> None:
+        notify = self.text.index("- name: Notify Telegram")
+        cleanup = self.text.index("- name: Remove plaintext production secrets and state")
+        self.assertLess(notify, cleanup)
+        block = self.text[cleanup:]
+        self.assertIn('rm -rf "$RUNNER_TEMP/isco-secrets"', block)
+        self.assertIn('rm -rf "$RUNNER_TEMP/isco-state"', block)
+        self.assertIn('rm -f "$RUNNER_TEMP/isco-request.json"', block)
+        self.assertIn('rm -f "$RUNNER_TEMP/piper-preflight.wav"', block)
+        self.assertNotIn("\n      - name:", block[len("- name: Remove plaintext production secrets and state"):])
+
     def test_workflow_dispatch_has_no_topic_or_format_inputs(self) -> None:
         header = self.text[: self.text.index("jobs:")]
         self.assertRegex(header, r"on:\s*\n\s+workflow_dispatch:\s*\n")
