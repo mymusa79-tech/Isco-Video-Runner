@@ -16,7 +16,7 @@ env:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -43,11 +43,31 @@ jobs:
         run: |
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
-      - name: Capture exact Stage 8 traceback
+      - name: Capture exact focused compatibility traceback
         working-directory: engine
         run: |
           set +e
-          ISCO_DEFER_YOUTUBE_ANALYTICS=1 python -m unittest tests.test_editorial_stage8 -v 2>&1 | tee "$RUNNER_TEMP/stage8-test.log"
+          ISCO_DEFER_YOUTUBE_ANALYTICS=1 python -m unittest \
+            tests.test_editorial_room \
+            tests.test_resilient_planner_persona_binding \
+            tests.test_editorial_adapters \
+            tests.test_editorial_stage6 \
+            tests.test_editorial_stage7 \
+            tests.test_editorial_stage8 \
+            tests.test_repair_dossier \
+            tests.test_short_quality_gate \
+            tests.test_orchestrator_visual_selection_integration \
+            tests.test_packaging_identity_integrity_p1 \
+            tests.test_thumbnail_packaging_contract \
+            tests.test_thumbnail_alternate_query_recovery \
+            tests.test_thumbnail_candidate_board \
+            tests.test_thumbnail_pixabay_fallback \
+            tests.test_learning_and_critic \
+            tests.test_learning_metrics_source \
+            tests.test_final_critic_provenance_batch \
+            tests.test_final_critic_selected_visuals \
+            tests.test_gold_finalizer \
+            tests.test_gold_shadow_phase2a -v 2>&1 | tee "$RUNNER_TEMP/stage8-focused.log"
           code=${PIPESTATUS[0]}
           echo "$code" > "$RUNNER_TEMP/stage8-exit-code.txt"
           exit "$code"
@@ -55,8 +75,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stage8-exact-diagnostic
+          name: stage8-focused-diagnostic
           path: |
-            ${{ runner.temp }}/stage8-test.log
+            ${{ runner.temp }}/stage8-focused.log
             ${{ runner.temp }}/stage8-exit-code.txt
           retention-days: 1
