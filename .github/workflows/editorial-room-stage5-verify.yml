@@ -1,0 +1,51 @@
+name: Editorial Room Stage 5 Verify
+
+on:
+  push:
+    branches: ["verify/editorial-room-stage4-9-closure"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-stage5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout Engine Stage 5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: feature/editorial-room-stage5-adapters
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install Engine runtime
+        working-directory: engine
+        run: |
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+      - name: Stage 5 focused tests
+        working-directory: engine
+        run: python -m unittest tests.test_editorial_room tests.test_editorial_adapters -v
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+      - name: Tracked-worktree isolation
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git diff --check
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            git status --short
+            git diff
+            echo 'ERROR: tests mutated tracked files' >&2
+            exit 1
+          fi

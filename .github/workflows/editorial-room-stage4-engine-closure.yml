@@ -1,0 +1,106 @@
+name: Editorial Room Stage 4 Engine Closure
+
+on:
+  push:
+    branches: ["verify/editorial-room-stage4-9-closure"]
+
+permissions:
+  contents: read
+
+jobs:
+  stage4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout Engine closure branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: feature/editorial-room-stage4-9-closure
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: true
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+      - name: Apply Stage 4 production persona binding
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/isco_video_agent/resilient_planner.py")
+          text = path.read_text(encoding="utf-8")
+
+          old_import = "from .config import load_editorial_policy\nfrom .editorial_room import intent_from_dict\n"
+          new_import = (
+              "from .config import load_channel_persona, load_editorial_policy\n"
+              "from .editorial_room import intent_from_dict, validate_channel_persona\n"
+          )
+          if old_import in text:
+              text = text.replace(old_import, new_import, 1)
+          elif new_import not in text:
+              raise SystemExit("Stage 4 import anchor not found")
+
+          old_contract = '''    policy = load_editorial_policy()\n    learned = learning_context(fmt)\n    policy_json = json.dumps(policy, ensure_ascii=False)\n'''
+          new_contract = '''    policy = load_editorial_policy()\n    persona = validate_channel_persona(load_channel_persona())\n    persona_version = int(persona["version"])\n    editorial_contract = {\n        "contract_version": 1,\n        "editorial_policy": policy,\n        "channel_persona": persona,\n        "authority": "channel_persona_is_mandatory_writer_and_editor_source",\n    }\n    learned = learning_context(fmt)\n    policy_json = json.dumps(editorial_contract, ensure_ascii=False)\n'''
+          if old_contract in text:
+              text = text.replace(old_contract, new_contract, 1)
+          elif new_contract not in text:
+              raise SystemExit("Stage 4 contract anchor not found")
+
+          old_intent = '''    editorial_intent = intent_from_dict(outline["editorial_intent"])\n    editorial_intent_dict = editorial_intent.to_dict()\n'''
+          new_intent = '''    editorial_intent = intent_from_dict(outline["editorial_intent"])\n    if editorial_intent.persona_version != persona_version:\n        raise RuntimeError(\n            "Editorial intent persona version mismatch: "\n            + f"intent={editorial_intent.persona_version} channel={persona_version}"\n        )\n    editorial_intent_dict = editorial_intent.to_dict()\n'''
+          if old_intent in text:
+              text = text.replace(old_intent, new_intent, 1)
+          elif new_intent not in text:
+              raise SystemExit("Stage 4 persona version anchor not found")
+
+          path.write_text(text, encoding="utf-8")
+          PY
+          git diff --check
+          git add src/isco_video_agent/resilient_planner.py
+      - name: Focused Stage 4 tests
+        working-directory: engine
+        run: python -m unittest tests.test_editorial_room tests.test_resilient_planner_persona_binding -v
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+      - name: Verify tests did not mutate tracked files
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          if [ -n "$(git diff --name-only)" ]; then
+            echo 'ERROR: tests mutated tracked files after source patch was staged' >&2
+            git status --short
+            git diff --name-only
+            git diff
+            exit 1
+          fi
+          git diff --cached --check
+      - name: Commit and push Stage 4 only after Green
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          if git diff --cached --quiet; then
+            echo 'Stage 4 patch already present; nothing to commit.'
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(editorial): bind channel persona into production planner"
+          git push origin HEAD:feature/editorial-room-stage4-9-closure
