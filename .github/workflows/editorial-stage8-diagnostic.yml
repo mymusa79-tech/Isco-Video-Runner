@@ -3,6 +3,8 @@ name: Editorial Stage 8 Diagnostic
 on:
   push:
     branches: ["verify/editorial-room-stage5-9-final-current-main"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
