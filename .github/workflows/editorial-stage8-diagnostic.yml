@@ -34,7 +34,8 @@ jobs:
           set -euo pipefail
           test "$(git -C engine rev-parse HEAD)" = "$ENGINE_SHA"
           python .github/scripts/apply-editorial-stage8.py engine
-          python -m py_compile engine/src/isco_video_agent/editorial_learning.py engine/src/isco_video_agent/learning.py engine/src/isco_video_agent/final_critic.py engine/src/isco_video_agent/production_pipeline.py engine/tests/test_editorial_stage8.py
+          python .github/scripts/patch-editorial-stage8-compat.py engine
+          python -m py_compile engine/src/isco_video_agent/editorial_learning.py engine/src/isco_video_agent/learning.py engine/src/isco_video_agent/final_critic.py engine/src/isco_video_agent/production_pipeline.py engine/tests/test_editorial_stage8.py engine/tests/test_final_critic_provenance_batch.py engine/tests/test_gold_shadow_phase2a.py
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
