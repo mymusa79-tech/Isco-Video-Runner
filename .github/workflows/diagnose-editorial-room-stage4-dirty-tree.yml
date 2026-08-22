@@ -1,3 +1,4 @@
+# Diagnostic only; no Engine writes.
 name: Diagnose Editorial Room Stage 4 Dirty Tree
 
 on:
