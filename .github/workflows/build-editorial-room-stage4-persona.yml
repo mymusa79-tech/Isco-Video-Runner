@@ -103,10 +103,14 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check
-          test -n "$(git status --porcelain)"
-          test -z "$(git status --porcelain | grep -v '^ M src/isco_video_agent/resilient_planner.py$' || true)"
+          changed_tracked="$(git diff --name-only)"
+          test -n "$changed_tracked"
+          unexpected="$(printf '%s\n' "$changed_tracked" | grep -v '^src/isco_video_agent/resilient_planner.py$' || true)"
+          test -z "$unexpected"
           git config user.name "isco-verifier"
           git config user.email "isco-verifier@users.noreply.github.com"
           git add src/isco_video_agent/resilient_planner.py
+          git diff --cached --check
+          test "$(git diff --cached --name-only)" = "src/isco_video_agent/resilient_planner.py"
           git commit -m "editorial room: bind channel persona into production writer contract"
           git push origin HEAD:feature/editorial-room-channel-binding
