@@ -1,0 +1,125 @@
+name: Verify M10 Semantic Visual Aids
+
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 6818f746936a250acb081332340542df2d3988a4
+  RUNNER_BASE_SHA: c3f73c6a14f1c93b4485da90b2c8370b60fcd112
+
+jobs:
+  certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Verify current Runner ancestry
+        run: git merge-base --is-ancestor "$RUNNER_BASE_SHA" HEAD
+      - name: Checkout exact Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+      - name: Focused M10 semantic visual tests
+        working-directory: engine
+        run: |
+          python -m unittest tests.test_cinematic_m10_semantic_visuals -q
+          python -m unittest tests.test_director_brain_phase_a -q
+          python -m unittest tests.test_cinematic_v2_m10_cards -q
+          python -m unittest tests.test_cinematic_m7_adaptive_pacing -q
+          python -m unittest tests.test_cinematic_m7_visual_timeline -q
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research; then exit 1; fi
+      - name: Full Runner regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' | sort | sed -e 's#/#.#g' -e 's#\.py$##')
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+      - name: Semantic visual invariants
+        working-directory: engine
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          m10 = Path('src/isco_video_agent/cinematic_m10_semantic_visuals.py').read_text(encoding='utf-8')
+          director = Path('src/isco_video_agent/director_brain.py').read_text(encoding='utf-8')
+          runtime = Path('src/isco_video_agent/cinematic_m7_runtime.py').read_text(encoding='utf-8')
+          required_m10 = (
+              'POLICY_VERSION = "m10-semantic-visual-aids-v1"',
+              'MAX_SIMPLE_DIAGRAMS_PER_EPISODE = 2',
+              'MAX_TOTAL_VISUAL_AIDS_PER_EPISODE = 3',
+              '"stock", "archive", "text_card", "simple_diagram", "none"',
+              '"creates_cut": False',
+              '"external_graphic_assets": False',
+              'm11_archive_binding_deferred_stock_preserved',
+          )
+          for needle in required_m10:
+              if needle not in m10:
+                  raise SystemExit('missing M10 invariant: ' + needle)
+          for forbidden in ('flaticon', 'canva', 'lottiefiles', 'motionarray', 'envato'):
+              if forbidden in m10.lower():
+                  raise SystemExit('external graphic dependency forbidden: ' + forbidden)
+          if director.count('response = json_text(') != 1:
+              raise SystemExit('Director must retain exactly one provider call site')
+          for needle in ('representation_intent', 'simple_diagram', 'Prefer stock when unsure'):
+              if needle not in director:
+                  raise SystemExit('Director representation contract missing: ' + needle)
+          if 'semantic-visual-aids.json' not in runtime:
+              raise SystemExit('runtime semantic visual audit artifact missing')
+          if 'scene_plan=scene_plan' not in runtime:
+              raise SystemExit('runtime scene representation binding missing')
+          PY
+      - name: Verifier isolation and diff review
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only "$RUNNER_BASE_SHA"...HEAD)"
+          test "$changed" = ".github/workflows/verify-m10-semantic-visual-aids.yml"
+          git diff --check "$RUNNER_BASE_SHA"...HEAD
+          test "$(git -C engine rev-parse HEAD)" = "$ENGINE_SHA"
