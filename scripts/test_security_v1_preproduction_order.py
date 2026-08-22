@@ -5,7 +5,9 @@ import unittest
 from pathlib import Path
 
 
-WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "produce-resilient-v4.yml"
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github" / "workflows" / "produce-resilient-v4.yml"
+TELEGRAM_WORKFLOW = ROOT / ".github" / "workflows" / "telegram-editorial-control.yml"
 
 
 class SecurityV1PreproductionOrderTests(unittest.TestCase):
@@ -13,12 +15,14 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_approved_brief_gate_precedes_provider_and_state_secrets(self) -> None:
+    def test_approved_brief_gate_precedes_install_state_and_provider_secrets(self) -> None:
         gate = self.text.index("- name: Validate approved brief before secret materialization")
+        install = self.text.index("- name: Install locked engine and local voice fallback")
         restore = self.text.index("- name: Restore encrypted cross-run memory")
         materialize = self.text.index("- name: Materialize approved production secrets")
         providers = self.text.index("- name: Verify free provider authentication")
         produce = self.text.index("- name: Produce with task-level brain and voice meshes")
+        self.assertLess(gate, install)
         self.assertLess(gate, restore)
         self.assertLess(gate, materialize)
         self.assertLess(materialize, providers)
@@ -69,6 +73,31 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
         block = self.text[start : self.text.index("\n\n      - name:", start)]
         self.assertIn("persist-credentials: false", block)
         self.assertRegex(block, r"ref:\s+[0-9a-f]{40}")
+
+
+class TelegramControlSecurityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = TELEGRAM_WORKFLOW.read_text(encoding="utf-8")
+
+    def test_control_plane_production_stays_locked(self) -> None:
+        self.assertIn('CONTROL_PLANE_PRODUCTION_ENABLED: "false"', self.text)
+        self.assertNotIn("actions/workflows/produce-resilient-v4.yml/dispatches", self.text)
+
+    def test_state_encryption_requires_dedicated_key_without_bot_token_fallback(self) -> None:
+        self.assertNotIn("secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN", self.text)
+        self.assertEqual(self.text.count("STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}"), 2)
+
+    def test_research_runtime_verifies_supply_chain_before_pip_install(self) -> None:
+        preflight = self.text.index("security_v1_supply_chain_preflight.py lock")
+        pip_install = self.text.index("python -m pip install -r engine/requirements-lock.txt")
+        self.assertLess(preflight, pip_install)
+
+    def test_private_engine_research_checkout_does_not_persist_credentials(self) -> None:
+        marker = "repository: mymusa79-tech/Isco-Video-Agent"
+        start = self.text.index(marker)
+        block = self.text[start : self.text.index("\n\n      - name:", start)]
+        self.assertIn("persist-credentials: false", block)
 
 
 if __name__ == "__main__":
