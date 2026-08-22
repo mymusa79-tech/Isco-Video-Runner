@@ -1,0 +1,159 @@
+name: Editorial Room Stage 5-6 Final Certification
+
+on:
+  push:
+    branches: ["verify/editorial-room-stage5-6-only-final"]
+    paths:
+      - .github/workflows/editorial-room-stage5-6-only-final.yml
+  pull_request:
+    branches: ["main"]
+    paths:
+      - .github/workflows/editorial-room-stage5-6-only-final.yml
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 2a8d246d03bb5247da23b3c7b7e97e995b4619bf
+
+jobs:
+  certify-stage5-6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact Engine Stage 5-6 candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused Editorial Room Stage 5-6 contracts
+        working-directory: engine
+        run: |
+          python -m unittest \
+            tests.test_editorial_room \
+            tests.test_resilient_planner_persona_binding \
+            tests.test_editorial_adapters \
+            tests.test_editorial_stage6 \
+            tests.test_repair_dossier \
+            tests.test_short_quality_gate \
+            tests.test_orchestrator_ledger_integration \
+            tests.test_orchestrator_visual_selection_integration -v
+
+      - name: HEI Director M7 compatibility
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          modules=()
+          for name in \
+            test_human_editorial_intent.py \
+            test_cinematic_director_m7.py \
+            test_cinematic_m7_live_binding.py; do
+            if test -f "tests/$name"; then
+              modules+=("tests.${name%.py}")
+            fi
+          done
+          if test "${#modules[@]}" -gt 0; then
+            python -m unittest "${modules[@]}" -v
+          fi
+
+      - name: Full Engine regression with ffmpeg
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Full Runner regression suite on current main lineage
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Stage 5-6 candidate diff sanity
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check HEAD^..HEAD
+          mapfile -t changed < <(git diff --name-only HEAD^..HEAD | sort)
+          expected=(
+            src/isco_video_agent/editorial_adapters.py
+            src/isco_video_agent/orchestrator.py
+            src/isco_video_agent/repair_dossier.py
+            src/isco_video_agent/short_quality_gate.py
+            src/isco_video_agent/tone_quality.py
+            tests/test_editorial_adapters.py
+            tests/test_editorial_stage6.py
+            tests/test_orchestrator_ledger_integration.py
+            tests/test_orchestrator_visual_selection_integration.py
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+          test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected_sorted[@]}")"
+          ! git diff HEAD^..HEAD -- src/isco_video_agent/orchestrator.py | grep -E '^\+.*(provider|json_text|route_text|gemini|openrouter)' 
+          ! git diff HEAD^..HEAD -- . | grep -E '^\+.*(workflow_dispatch|secrets\.|Production Run|dispatches)' 
+
+      - name: Verifier isolation sanity
+        run: |
+          set -euo pipefail
+          git diff --check origin/main...HEAD || git diff --check
+          changed="$(git diff --name-only origin/main...HEAD 2>/dev/null || git diff --name-only HEAD^)"
+          test "$changed" = ".github/workflows/editorial-room-stage5-6-only-final.yml"
