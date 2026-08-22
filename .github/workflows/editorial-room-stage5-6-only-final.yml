@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 env:
-  ENGINE_SHA: 2a8d246d03bb5247da23b3c7b7e97e995b4619bf
+  ENGINE_SHA: 02aeb6f4d9172553b3360b7add5fdcef59944985
 
 jobs:
   certify-stage5-6:
