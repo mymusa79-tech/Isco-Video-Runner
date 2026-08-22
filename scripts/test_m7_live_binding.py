@@ -15,7 +15,7 @@ class M7RunnerInstallerTests(unittest.TestCase):
         if original is not None:
             bridge.orchestrator.produce = original
 
-    def test_installer_is_idempotent_and_captures_keys_before_core_consumes_them(self) -> None:
+    def test_installer_is_idempotent_captures_keys_and_chains_security(self) -> None:
         calls = []
 
         def core(*args, **kwargs):
@@ -29,7 +29,9 @@ class M7RunnerInstallerTests(unittest.TestCase):
 
         with patch.object(bridge.orchestrator, "produce", core), patch.object(
             bridge, "live_m7_binding_scope", scope
-        ), patch.dict(
+        ), patch.object(
+            bridge, "install_security_v1_live_binding"
+        ) as security, patch.dict(
             os.environ,
             {"PEXELS_API_KEY": "pexels-secret", "PIXABAY_API_KEY": "pixabay-secret"},
             clear=False,
@@ -43,6 +45,7 @@ class M7RunnerInstallerTests(unittest.TestCase):
         self.assertEqual(result, "out")
         self.assertEqual(calls[0], ("scope", "pexels-secret", "pixabay-secret", True))
         self.assertEqual(calls[1][0], "core")
+        self.assertEqual(security.call_count, 2)
 
     def test_missing_pexels_preserves_core_authoritative_failure_path(self) -> None:
         calls = []
@@ -51,7 +54,9 @@ class M7RunnerInstallerTests(unittest.TestCase):
             calls.append("core")
             raise RuntimeError("missing pexels from core")
 
-        with patch.object(bridge.orchestrator, "produce", core), patch.dict(
+        with patch.object(bridge.orchestrator, "produce", core), patch.object(
+            bridge, "install_security_v1_live_binding"
+        ), patch.dict(
             os.environ, {"PEXELS_API_KEY": "", "PIXABAY_API_KEY": ""}, clear=False
         ):
             bridge.install_m7_live_binding()
