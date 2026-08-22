@@ -4,12 +4,16 @@ on:
   push:
     branches:
       - activate/editorial-room-stage9-final-integration
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   patch-stage9:
+    if: github.event_name == 'push' || github.head_ref == 'activate/editorial-room-stage9-final-integration'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Stage 9 branch
