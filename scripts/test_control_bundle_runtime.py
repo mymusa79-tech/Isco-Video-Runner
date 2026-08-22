@@ -50,21 +50,20 @@ class ControlBundleRuntimeTests(unittest.TestCase):
             control, "_new_output_dir", return_value=Path(temp) / "output-short"
         ), patch.object(control.subprocess, "run") as run:
             result = control.execute_child_subprocess(child, runtime_root=Path(temp) / "runtime")
-
-        self.assertEqual(result, Path(temp) / "output-short")
-        run.assert_called_once()
-        command = run.call_args.args[0]
-        kwargs = run.call_args.kwargs
-        self.assertEqual(command[0], control.sys.executable)
-        self.assertTrue(command[1].endswith("run_control_production.py"))
-        self.assertTrue(kwargs["check"])
-        env = kwargs["env"]
-        self.assertEqual(env["CONTROL_PLANE_PRODUCTION_ENABLED"], "true")
-        self.assertEqual(env["ISCO_CONTROL_REQUEST_SHA256"], child["request_sha256"])
-        request_path = Path(env["ISCO_CONTROL_REQUEST_PATH"])
-        stored = json.loads(request_path.read_text(encoding="utf-8"))
-        self.assertFalse(stored["production_dispatch_authorized"])
-        self.assertEqual(stored["request_sha256"], child["request_sha256"])
+            self.assertEqual(result, Path(temp) / "output-short")
+            run.assert_called_once()
+            command = run.call_args.args[0]
+            kwargs = run.call_args.kwargs
+            self.assertEqual(command[0], control.sys.executable)
+            self.assertTrue(command[1].endswith("run_control_production.py"))
+            self.assertTrue(kwargs["check"])
+            env = kwargs["env"]
+            self.assertEqual(env["CONTROL_PLANE_PRODUCTION_ENABLED"], "true")
+            self.assertEqual(env["ISCO_CONTROL_REQUEST_SHA256"], child["request_sha256"])
+            request_path = Path(env["ISCO_CONTROL_REQUEST_PATH"])
+            stored = json.loads(request_path.read_text(encoding="utf-8"))
+            self.assertFalse(stored["production_dispatch_authorized"])
+            self.assertEqual(stored["request_sha256"], child["request_sha256"])
 
     def test_child_runtime_rejects_persisted_dispatch_authority_before_subprocess(self):
         child = self._child()
