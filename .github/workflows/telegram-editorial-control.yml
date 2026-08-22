@@ -29,7 +29,7 @@ jobs:
 
       - name: Restore encrypted control-panel state
         env:
-          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN }}
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
           test -n "$STATE_ENCRYPTION_KEY"
@@ -121,6 +121,7 @@ jobs:
         if: steps.poll.outputs.needs_engine == 'true'
         run: |
           set -euo pipefail
+          PYTHONPATH=engine/src python scripts/security_v1_supply_chain_preflight.py lock --lock engine/requirements-lock.txt
           python -m pip install -r engine/requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e engine
           python -m pip check
@@ -142,7 +143,7 @@ jobs:
       - name: Persist encrypted control-panel state
         if: always()
         env:
-          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN }}
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
           test -n "$STATE_ENCRYPTION_KEY"
