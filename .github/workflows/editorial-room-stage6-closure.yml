@@ -16,12 +16,12 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Checkout Runner verifier
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Checkout Engine editorial branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
           ref: feature/editorial-room-stage5-9-current-main
@@ -30,88 +30,73 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Remove temporary Engine closure scaffolding in checkout
+      - name: Normalize temporary Engine CI scaffolding
         working-directory: engine
         run: |
           set -euo pipefail
-          git fetch origin main --depth=1
           git checkout origin/main -- .github/workflows/ci.yml
           git rm -f .github/workflows/editorial-room-stage6-engine-closure.yml
 
-      - name: Apply Stage 6 enforcement and fixture-isolation patch
+      - name: Apply exact Stage 6 closure patch
         working-directory: engine
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          orchestrator = Path("src/isco_video_agent/orchestrator.py")
-          text = orchestrator.read_text(encoding="utf-8")
-
-          write_anchor = '    _write_json(out / "repair-dossier.json", {\n'
-          if text.count(write_anchor) != 1:
-              raise SystemExit(f"repair-dossier write anchor count={text.count(write_anchor)}")
-          final_editorial = (
+          p = Path("src/isco_video_agent/orchestrator.py")
+          s = p.read_text(encoding="utf-8")
+          a = '    _write_json(out / "repair-dossier.json", {\n'
+          if s.count(a) != 1:
+              raise SystemExit(f"repair-dossier anchor count={s.count(a)}")
+          s = s.replace(a, (
               '    final_editorial = (\n'
               '        repair_outcome.dossier_after.editorial\n'
               '        if repair_outcome is not None and repair_outcome.dossier_after is not None\n'
               '        else dossier.editorial\n'
-              '    )\n'
-          )
-          text = text.replace(write_anchor, final_editorial + write_anchor, 1)
-
-          status_anchor = '        "repair_status": repair_outcome.status if repair_outcome is not None else "not_attempted_no_gemini_key",\n'
-          if text.count(status_anchor) != 1:
-              raise SystemExit(f"repair status anchor count={text.count(status_anchor)}")
-          status_fields = (
-              status_anchor
+              '    )\n' + a
+          ), 1)
+          a = '        "repair_status": repair_outcome.status if repair_outcome is not None else "not_attempted_no_gemini_key",\n'
+          if s.count(a) != 1:
+              raise SystemExit(f"repair-status anchor count={s.count(a)}")
+          s = s.replace(a, a
               + '        "editorial_status_initial": dossier.editorial.status,\n'
               + '        "editorial_status_final": final_editorial.status,\n'
-              + '        "editorial_issues_final": list(final_editorial.issues),\n'
-          )
-          text = text.replace(status_anchor, status_fields, 1)
-
-          novelty_anchor = '    if novelty and not dry_run:\n'
-          if text.count(novelty_anchor) != 1:
-              raise SystemExit(f"novelty gate anchor count={text.count(novelty_anchor)}")
-          editorial_gate = (
+              + '        "editorial_issues_final": list(final_editorial.issues),\n', 1)
+          a = '    if novelty and not dry_run:\n'
+          if s.count(a) != 1:
+              raise SystemExit(f"novelty anchor count={s.count(a)}")
+          s = s.replace(a, (
               '    if final_editorial.status == "block" and not dry_run:\n'
               '        details = "; ".join(final_editorial.issues)\n'
               '        raise RuntimeError(\n'
               '            "Editorial Room gate blocked real production after the single RepairDossier repair: " + details\n'
-              '        )\n'
-          )
-          text = text.replace(novelty_anchor, editorial_gate + novelty_anchor, 1)
-          orchestrator.write_text(text, encoding="utf-8")
+              '        )\n' + a
+          ), 1)
+          p.write_text(s, encoding="utf-8")
 
-          ledger_test = Path("tests/test_orchestrator_ledger_integration.py")
-          text = ledger_test.read_text(encoding="utf-8")
-          outputs_anchor = '        self._outputs: list = []\n'
-          if text.count(outputs_anchor) != 1:
-              raise SystemExit(f"ledger outputs anchor count={text.count(outputs_anchor)}")
-          isolation = (
-              '        # Ledger tests intentionally exercise legacy offline planner fallback,\n'
-              '        # not Editorial Room. Isolate Stage 6 so accounting assertions do not\n'
-              '        # manufacture an unrelated editorial repair.\n'
+          p = Path("tests/test_orchestrator_ledger_integration.py")
+          s = p.read_text(encoding="utf-8")
+          a = '        self._outputs: list = []\n'
+          if s.count(a) != 1:
+              raise SystemExit(f"ledger setUp anchor count={s.count(a)}")
+          s = s.replace(a, (
+              '        # Ledger tests exercise legacy offline planner fallback, not Editorial Room.\n'
               '        self._editorial_patch = patch.object(\n'
-              '            tone_quality,\n'
-              '            "_long_editorial_review",\n'
+              '            tone_quality, "_long_editorial_review",\n'
               '            return_value={"passed": True, "reasons": [], "structural_flags": []},\n'
               '        )\n'
-              '        self._editorial_patch.start()\n'
-          )
-          text = text.replace(outputs_anchor, isolation + outputs_anchor, 1)
-
-          env_stop_anchor = '        self._env_patch.stop()\n'
-          if text.count(env_stop_anchor) != 1:
-              raise SystemExit(f"ledger teardown anchor count={text.count(env_stop_anchor)}")
-          text = text.replace(env_stop_anchor, '        self._editorial_patch.stop()\n' + env_stop_anchor, 1)
-          ledger_test.write_text(text, encoding="utf-8")
+              '        self._editorial_patch.start()\n' + a
+          ), 1)
+          a = '        self._env_patch.stop()\n'
+          if s.count(a) != 1:
+              raise SystemExit(f"ledger tearDown anchor count={s.count(a)}")
+          s = s.replace(a, '        self._editorial_patch.stop()\n' + a, 1)
+          p.write_text(s, encoding="utf-8")
           PY
           git diff --check
 
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
 
@@ -126,45 +111,37 @@ jobs:
       - name: Focused Stage 6 regression
         working-directory: engine
         run: |
-          set -euo pipefail
-          python -m unittest \
-            tests.test_editorial_stage6 \
-            tests.test_editorial_room \
-            tests.test_repair_dossier \
-            tests.test_short_quality_gate \
-            tests.test_tone_quality \
-            tests.test_p0c_migration_contracts \
-            tests.test_orchestrator_ledger_integration -v
+          python -m unittest tests.test_editorial_stage6 tests.test_editorial_room tests.test_repair_dossier tests.test_short_quality_gate tests.test_tone_quality tests.test_p0c_migration_contracts tests.test_orchestrator_ledger_integration -v
 
       - name: Full Engine regression
         working-directory: engine
         run: python -m unittest discover -s tests -q
 
-      - name: Final diff review
+      - name: Final Stage 6 diff review
         working-directory: engine
         run: |
           set -euo pipefail
           git diff --check
           if git status --porcelain --untracked-files=no | grep -q 'state/history.json'; then
-            echo "Known test observer fixture mutation: state/history.json; restoring"
             git checkout -- state/history.json
           fi
-          changed_code="$(git diff --name-only -- src/isco_video_agent/orchestrator.py tests/test_orchestrator_ledger_integration.py | sort)"
-          expected_code="$(printf '%s\n' src/isco_video_agent/orchestrator.py tests/test_orchestrator_ledger_integration.py | sort)"
-          test "$changed_code" = "$expected_code" || { echo "Unexpected Stage 6 code scope:"; printf '%s\n' "$changed_code"; exit 1; }
+          changed="$(git diff --name-only -- src/isco_video_agent/orchestrator.py tests/test_orchestrator_ledger_integration.py | sort)"
+          expected="$(printf '%s\n' src/isco_video_agent/orchestrator.py tests/test_orchestrator_ledger_integration.py | sort)"
+          test "$changed" = "$expected" || { printf 'Unexpected Stage 6 code diff:\n%s\n' "$changed"; exit 1; }
 
       - name: Prepare verified closure artifact
         working-directory: engine
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/stage6-verified/src/isco_video_agent" "$RUNNER_TEMP/stage6-verified/tests"
-          cp src/isco_video_agent/orchestrator.py "$RUNNER_TEMP/stage6-verified/src/isco_video_agent/orchestrator.py"
-          cp tests/test_orchestrator_ledger_integration.py "$RUNNER_TEMP/stage6-verified/tests/test_orchestrator_ledger_integration.py"
-          git diff -- src/isco_video_agent/orchestrator.py tests/test_orchestrator_ledger_integration.py > "$RUNNER_TEMP/stage6-verified/stage6.patch"
-          test -s "$RUNNER_TEMP/stage6-verified/stage6.patch"
+          root="$RUNNER_TEMP/stage6-verified"
+          mkdir -p "$root/src/isco_video_agent" "$root/tests"
+          cp src/isco_video_agent/orchestrator.py "$root/src/isco_video_agent/orchestrator.py"
+          cp tests/test_orchestrator_ledger_integration.py "$root/tests/test_orchestrator_ledger_integration.py"
+          git diff -- src/isco_video_agent/orchestrator.py tests/test_orchestrator_ledger_integration.py > "$root/stage6.patch"
+          test -s "$root/stage6.patch"
 
       - name: Upload verified Stage 6 closure artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: stage6-verified-closure
           path: ${{ runner.temp }}/stage6-verified
