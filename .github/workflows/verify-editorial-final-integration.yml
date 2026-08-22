@@ -44,6 +44,27 @@ jobs:
         working-directory: engine
         run: test "$(git rev-parse HEAD)" = "$EDITORIAL_ENGINE_SHA"
 
+      - name: Apply exact Stage 8 candidate from dedicated verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          src = Path('.github/workflows/editorial-room-stage8-certify.yml').read_text(encoding='utf-8')
+          marker = '      - name: Apply Stage 8 candidate\n'
+          start = src.index(marker)
+          run_marker = '        run: |\n'
+          start = src.index(run_marker, start) + len(run_marker)
+          next_step = src.find('      - name:', start)
+          end = len(src) if next_step < 0 else next_step
+          lines = src[start:end].splitlines()
+          block = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines).rstrip() + '\n'
+          Path('/tmp/apply-stage8.sh').write_text('set -euo pipefail\n' + block, encoding='utf-8')
+          PY
+          cd engine
+          bash /tmp/apply-stage8.sh
+          git diff --check
+
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -67,7 +88,7 @@ jobs:
           pip-audit --no-deps -r requirements-lock.txt
           python -m pip check
 
-      - name: Focused Editorial Stage 5-7 contracts
+      - name: Focused Editorial Stage 5-8 contracts
         working-directory: engine
         run: |
           set -euo pipefail
@@ -77,6 +98,7 @@ jobs:
             tests.test_editorial_adapters \
             tests.test_editorial_stage6 \
             tests.test_editorial_stage7 \
+            tests.test_editorial_stage8 \
             tests.test_repair_dossier \
             tests.test_short_quality_gate \
             tests.test_orchestrator_visual_selection_integration \
@@ -84,7 +106,13 @@ jobs:
             tests.test_thumbnail_packaging_contract \
             tests.test_thumbnail_alternate_query_recovery \
             tests.test_thumbnail_candidate_board \
-            tests.test_thumbnail_pixabay_fallback -v
+            tests.test_thumbnail_pixabay_fallback \
+            tests.test_learning_and_critic \
+            tests.test_learning_metrics_source \
+            tests.test_final_critic_provenance_batch \
+            tests.test_final_critic_selected_visuals \
+            tests.test_gold_finalizer \
+            tests.test_gold_shadow_phase2a -v
 
       - name: Human Editorial Intent and M7 compatibility
         working-directory: engine
@@ -113,25 +141,36 @@ jobs:
             exit 1
           fi
 
-      - name: Engine worktree sanity
+      - name: Stage 8 candidate scope and worktree sanity
         working-directory: engine
         shell: bash
         run: |
           set -euo pipefail
+          git checkout -- state/history.json 2>/dev/null || true
           git diff --check
-          mapfile -t dirty_paths < <(git status --porcelain --untracked-files=no | sed -E 's/^.. //')
-          for path in "${dirty_paths[@]}"; do
-            if [ "$path" != "state/history.json" ]; then
-              git status --short
-              git diff
-              echo "ERROR: unexplained tracked mutation after tests: $path" >&2
-              exit 1
-            fi
+          mapfile -t changed < <(git status --porcelain --untracked-files=all | sed -E 's/^.. //')
+          allowed=(src/isco_video_agent/editorial_learning.py src/isco_video_agent/learning.py src/isco_video_agent/final_critic.py src/isco_video_agent/production_pipeline.py tests/test_editorial_stage8.py)
+          test "${#changed[@]}" -eq 5
+          for path in "${changed[@]}"; do
+            ok=false
+            for want in "${allowed[@]}"; do [[ "$path" == "$want" ]] && ok=true; done
+            $ok || { echo "ERROR: unexpected Stage 8 path: $path" >&2; exit 1; }
           done
-          if [ "${#dirty_paths[@]}" -gt 0 ]; then
-            git checkout -- state/history.json
-          fi
-          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Prepare verified Stage 8 artifact
+        working-directory: engine
+        run: |
+          mkdir -p "$RUNNER_TEMP/stage8/src/isco_video_agent" "$RUNNER_TEMP/stage8/tests"
+          cp src/isco_video_agent/editorial_learning.py src/isco_video_agent/learning.py src/isco_video_agent/final_critic.py src/isco_video_agent/production_pipeline.py "$RUNNER_TEMP/stage8/src/isco_video_agent/"
+          cp tests/test_editorial_stage8.py "$RUNNER_TEMP/stage8/tests/"
+          git diff > "$RUNNER_TEMP/stage8/stage8.patch"
+
+      - name: Upload verified Stage 8 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage8-verified-candidate-combined
+          path: ${{ runner.temp }}/stage8
+          retention-days: 1
 
       - name: Full Runner regression suite
         env:
