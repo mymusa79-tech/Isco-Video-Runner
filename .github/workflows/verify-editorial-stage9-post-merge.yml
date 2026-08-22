@@ -20,8 +20,9 @@ jobs:
       - name: Checkout verifier only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: verify/editorial-stage9-post-merge
           persist-credentials: false
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Checkout exact merged Runner main under test
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
