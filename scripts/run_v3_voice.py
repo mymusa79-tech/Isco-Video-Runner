@@ -212,6 +212,8 @@ def main() -> None:
     if pixabay:
         os.environ["PIXABAY_API_KEY"] = pixabay
     ledger = _production_budget_ledger(request["format"])
+    production_id = _production_id()
+    os.environ["ISCO_PRODUCTION_ID"] = production_id
 
     previous_defer = os.environ.get("ISCO_DEFER_YOUTUBE_ANALYTICS")
     os.environ["ISCO_DEFER_YOUTUBE_ANALYTICS"] = "1"
@@ -261,7 +263,6 @@ def main() -> None:
         raise
 
     ledger.write(out / "ai-budget.json")
-    production_id = _production_id()
     manifest = _write_production_manifest(out, production_id=production_id, fmt=plan.format)
 
     # Analytics remains strictly post-acceptance. Gold has already passed and state has
