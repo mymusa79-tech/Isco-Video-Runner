@@ -14,8 +14,8 @@ jobs:
     timeout-minutes: 45
     env:
       ENGINE_LATEST_SHA: 860b61b0f99b285cc2917cba079e29bfa9e2c119
-      CERTIFIED_PRODUCTION_ENGINE_SHA: eb3370d50ea392b3e31443ff62b99cb5743b65c9
-      RUNNER_BASE_SHA: 8d85fbe210b8428f08c55ffa0ab1ab88d04e57b2
+      CERTIFIED_PRODUCTION_ENGINE_SHA: 860b61b0f99b285cc2917cba079e29bfa9e2c119
+      RUNNER_BASE_SHA: c54668a52b9e09debb14ec31df7c1f3a83ebd485
       APPROVED_BRIEF_SHA256: 56ba4a23a30ceb3e19bc9b2f9493930179f4cf442f3f86c8a79426ac589a7a92
     steps:
       - name: Checkout verifier carrier
@@ -164,7 +164,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python -m unittest scripts.test_security_v1_live_binding scripts.test_m7_live_binding -v
+          python -m unittest scripts.test_security_v1_live_binding scripts.test_m7_live_binding scripts.test_human_editorial_intent_binding -v
 
       - name: Full Runner regression against latest Engine
         env:
@@ -183,7 +183,9 @@ jobs:
           set -euo pipefail
           test -f scripts/security_v1_live_binding.py
           test -f scripts/security_v1_supply_chain_preflight.py
+          test -f scripts/test_human_editorial_intent_binding.py
           grep -F 'install_security_v1_live_binding' scripts/m7_live_binding.py
+          grep -F 'with _human_editorial_intent_scope():' scripts/m7_live_binding.py
           for f in \
             engine/src/isco_video_agent/multimodal_firewall.py \
             engine/src/isco_video_agent/research_quarantine.py \
