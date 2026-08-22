@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  EDITORIAL_ENGINE_SHA: 342cbbe2dc49bc917028b8c7dc976500508b7df7
+  EDITORIAL_ENGINE_SHA: 10858bccc1d3a2c29a66f9c89029d6c6ae254b93
 
 jobs:
   combined-regression:
@@ -83,6 +83,8 @@ jobs:
 
       - name: Focused Editorial Stage 5-8 contracts
         working-directory: engine
+        env:
+          ISCO_DEFER_YOUTUBE_ANALYTICS: "1"
         run: |
           set -euo pipefail
           python -m unittest \
