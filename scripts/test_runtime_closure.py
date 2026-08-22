@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -70,6 +71,24 @@ class RuntimeClosureTests(unittest.TestCase):
         audit.assert_called_once_with(Path("output/example"), api_key="")
         self.assertEqual(result["mode"], "observe_only")
         self.assertEqual(result["decision"], "audit_error")
+
+    def test_post_gold_observer_reads_existing_secret_file_without_deleting_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            key_path = Path(temp_dir) / "groq"
+            key_path.write_text("secret-token", encoding="utf-8")
+            with patch.dict(
+                os.environ,
+                {"GROQ_API_KEY_FILE": str(key_path)},
+                clear=True,
+            ), patch.object(
+                runtime_closure,
+                "run_groq_audio_audit",
+                return_value={"decision": "pass"},
+            ) as audit:
+                result = runtime_closure.run_post_gold_observers(Path("output/example"))
+            audit.assert_called_once_with(Path("output/example"), api_key="secret-token")
+            self.assertEqual(result["decision"], "pass")
+            self.assertTrue(key_path.exists())
 
     def test_runtime_closure_installs_run71_recovery(self) -> None:
         with patch.object(runtime_closure, "install_attempt10_append_bound_recovery") as install:
