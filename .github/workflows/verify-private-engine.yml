@@ -112,18 +112,20 @@ jobs:
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
 
-      - name: Focused M7 Engine and Runner binding contracts
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+      - name: Focused M7 Engine contracts
+        working-directory: engine
         run: |
           set -euo pipefail
           python -m unittest \
-            engine.tests.test_cinematic_m7_live_binding \
-            engine.tests.test_cinematic_m7_visual_timeline \
-            engine.tests.test_director_brain_deterministic_contract \
-            engine.tests.test_director_brain_phase_a \
-            scripts.test_m7_live_binding \
-            scripts.test_run_v3_voice -q
+            tests.test_cinematic_m7_live_binding \
+            tests.test_cinematic_m7_visual_timeline \
+            tests.test_director_brain_deterministic_contract \
+            tests.test_director_brain_phase_a -q
+
+      - name: Focused M7 Runner binding contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python -m unittest scripts.test_m7_live_binding scripts.test_run_v3_voice -q
 
       - name: Full Engine suite
         working-directory: engine
