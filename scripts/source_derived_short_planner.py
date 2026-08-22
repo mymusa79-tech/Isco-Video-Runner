@@ -112,8 +112,16 @@ def build_source_short_blueprint(control_request: dict[str, Any]) -> dict[str, A
     return plan_as_dict(plan)
 
 
+def _validated_blueprint(control_request: dict[str, Any]) -> dict[str, Any]:
+    expected = build_source_short_blueprint(control_request)
+    stored = control_request.get("source_short_plan")
+    if not isinstance(stored, dict) or stored != expected:
+        raise SourceDerivedShortError("source_short_blueprint_changed_after_parent_derivation")
+    return expected
+
+
 def build_production_plan(control_request: dict[str, Any]) -> ProductionPlan:
-    blueprint = build_source_short_blueprint(control_request)
+    blueprint = _validated_blueprint(control_request)
     excerpt = control_request["source_episode_excerpt"]
     beat_texts = [_clean(item.get("text")) for item in blueprint["beats"]]
     if len(beat_texts) < 2:
@@ -159,6 +167,7 @@ def build_production_plan(control_request: dict[str, Any]) -> ProductionPlan:
 
 def install_source_derived_short_planner(control_request: dict[str, Any]) -> None:
     expected_topic = _clean(control_request.get("approved_topic"))
+    _validated_blueprint(control_request)
 
     def routed_build_plan(_api_key, topic, requested_format, _content_model, **_kwargs):
         if _clean(topic) != expected_topic:
