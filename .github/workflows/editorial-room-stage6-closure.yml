@@ -1,0 +1,185 @@
+name: Editorial Room Stage 6 Closure
+
+on:
+  push:
+    branches: ["verify/editorial-room-stage5-9-current-main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  close-stage6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout Engine editorial branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: feature/editorial-room-stage5-9-current-main
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Apply Stage 6 enforcement and fixture-isolation patch
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          orchestrator = Path("src/isco_video_agent/orchestrator.py")
+          text = orchestrator.read_text(encoding="utf-8")
+          old = '''    final_structure_issues = (
+              repair_outcome.dossier_after.structure_issues
+              if repair_outcome is not None and repair_outcome.dossier_after is not None
+              else dossier.structure_issues
+          )
+          _write_json(out / "repair-dossier.json", {
+              "needed_repair_initially": dossier.needs_repair,
+              "issue_notes": dossier.issue_notes(),
+              "repair_status": repair_outcome.status if repair_outcome is not None else "not_attempted_no_gemini_key",
+          })
+          '''
+          new = '''    final_structure_issues = (
+              repair_outcome.dossier_after.structure_issues
+              if repair_outcome is not None and repair_outcome.dossier_after is not None
+              else dossier.structure_issues
+          )
+          final_editorial = (
+              repair_outcome.dossier_after.editorial
+              if repair_outcome is not None and repair_outcome.dossier_after is not None
+              else dossier.editorial
+          )
+          _write_json(out / "repair-dossier.json", {
+              "needed_repair_initially": dossier.needs_repair,
+              "issue_notes": dossier.issue_notes(),
+              "repair_status": repair_outcome.status if repair_outcome is not None else "not_attempted_no_gemini_key",
+              "editorial_status_initial": dossier.editorial.status,
+              "editorial_status_final": final_editorial.status,
+              "editorial_issues_final": list(final_editorial.issues),
+          })
+          '''
+          if old not in text:
+              raise SystemExit("orchestrator Stage 6 insertion anchor not found exactly once")
+          if text.count(old) != 1:
+              raise SystemExit("orchestrator Stage 6 insertion anchor is not unique")
+          text = text.replace(old, new, 1)
+
+          old_gate = '''    if final_structure_issues and not dry_run:
+              details = "; ".join(f"{issue.section_id} {issue.detail}" for issue in final_structure_issues)
+              raise RuntimeError(
+                  "Final Film section-length invariant failed before TTS after the single RepairDossier repair: " + details
+              )
+          if novelty and not dry_run:
+          '''
+          new_gate = '''    if final_structure_issues and not dry_run:
+              details = "; ".join(f"{issue.section_id} {issue.detail}" for issue in final_structure_issues)
+              raise RuntimeError(
+                  "Final Film section-length invariant failed before TTS after the single RepairDossier repair: " + details
+              )
+          if final_editorial.status == "block" and not dry_run:
+              details = "; ".join(final_editorial.issues)
+              raise RuntimeError(
+                  "Editorial Room gate blocked real production after the single RepairDossier repair: " + details
+              )
+          if novelty and not dry_run:
+          '''
+          if old_gate not in text or text.count(old_gate) != 1:
+              raise SystemExit("orchestrator final editorial gate anchor invalid")
+          orchestrator.write_text(text.replace(old_gate, new_gate, 1), encoding="utf-8")
+
+          ledger_test = Path("tests/test_orchestrator_ledger_integration.py")
+          text = ledger_test.read_text(encoding="utf-8")
+          old_setup = '''        self._env_patch.start()
+              self._outputs: list = []
+          '''
+          new_setup = '''        self._env_patch.start()
+              # Ledger tests intentionally exercise legacy offline planner fallback,
+              # not Editorial Room. Isolate the new Stage 6 deterministic editor so
+              # these accounting assertions do not manufacture an unrelated repair.
+              self._editorial_patch = patch.object(
+                  tone_quality,
+                  "_long_editorial_review",
+                  return_value={"passed": True, "reasons": [], "structural_flags": []},
+              )
+              self._editorial_patch.start()
+              self._outputs: list = []
+          '''
+          if old_setup not in text or text.count(old_setup) != 1:
+              raise SystemExit("ledger fixture setup anchor invalid")
+          text = text.replace(old_setup, new_setup, 1)
+          old_teardown = '''    def tearDown(self) -> None:
+              self._env_patch.stop()
+              for out in self._outputs:
+          '''
+          new_teardown = '''    def tearDown(self) -> None:
+              self._editorial_patch.stop()
+              self._env_patch.stop()
+              for out in self._outputs:
+          '''
+          if old_teardown not in text or text.count(old_teardown) != 1:
+              raise SystemExit("ledger fixture teardown anchor invalid")
+          ledger_test.write_text(text.replace(old_teardown, new_teardown, 1), encoding="utf-8")
+          PY
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' src/isco_video_agent/orchestrator.py tests/test_orchestrator_ledger_integration.py | sort)"
+          test "$changed" = "$expected" || { echo "Unexpected patch scope:"; printf '%s\n' "$changed"; exit 1; }
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Stage 6 regression
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_editorial_stage6 \
+            tests.test_editorial_room \
+            tests.test_repair_dossier \
+            tests.test_short_quality_gate \
+            tests.test_tone_quality \
+            tests.test_p0c_migration_contracts \
+            tests.test_orchestrator_ledger_integration -v
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Final diff review
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git diff --check
+          git status --short
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' src/isco_video_agent/orchestrator.py tests/test_orchestrator_ledger_integration.py | sort)"
+          test "$changed" = "$expected"
+
+      - name: Commit and push Stage 6 closure
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/isco_video_agent/orchestrator.py tests/test_orchestrator_ledger_integration.py
+          git commit -m "feat(editorial): enforce Stage 6 final review gate"
+          git push origin HEAD:feature/editorial-room-stage5-9-current-main
