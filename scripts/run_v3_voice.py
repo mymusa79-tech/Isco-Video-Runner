@@ -14,6 +14,7 @@ from scripts.append_retry_guard import install_append_retry_guard
 from scripts.attempt9_schema_normalizer import install_attempt9_schema_normalizer
 from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
+from scripts.m7_live_binding import install_m7_live_binding
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
@@ -193,6 +194,7 @@ def main() -> None:
     install_product_proof_fallback()
     install_voice_mesh()
     install_voice_identity_observer()
+    install_m7_live_binding()
     start_progress()
     install_progress_hooks()
 
