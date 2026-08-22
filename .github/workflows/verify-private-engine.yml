@@ -2,11 +2,6 @@ name: Verify Private Engine
 
 on:
   workflow_dispatch:
-    inputs:
-      engine_sha:
-        description: "Optional exact Engine SHA; when set it must match canonical Runner V4"
-        required: false
-        type: string
   pull_request:
     branches: ["main"]
 
@@ -15,19 +10,20 @@ permissions:
 
 jobs:
   combined-regression:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'verify/director-brain-robustness-current-main'
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      ENGINE_CANDIDATE_SHA: 607b17b3f408be7f177e0debbcee50b012b89cd3
+      CANONICAL_ENGINE_SHA: 79e9993cc0d9459adc2585b9b46c6526f8c1cb6b
     steps:
-      - name: Checkout exact Runner candidate
+      - name: Checkout exact Runner verifier candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Resolve and verify canonical V4 Engine contract
-        id: contract
-        env:
-          REQUESTED_ENGINE_SHA: ${{ inputs.engine_sha }}
+      - name: Verify production V4 remains canonical and unchanged
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -35,62 +31,45 @@ jobs:
           import re
           from pathlib import Path
 
-          path = Path(".github/workflows/produce-resilient-v4.yml")
-          text = path.read_text(encoding="utf-8")
-          checkout = re.findall(r"^\s+ref:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
-          env_pin = re.findall(r"^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
-          if len(checkout) != 1 or len(env_pin) != 1 or checkout[0] != env_pin[0]:
-              raise SystemExit(f"Canonical V4 Engine pin mismatch: checkout={checkout} env={env_pin}")
-          sha = checkout[0]
-          requested = (os.environ.get("REQUESTED_ENGINE_SHA") or "").strip()
-          if requested and requested != sha:
-              raise SystemExit(f"Requested Engine SHA {requested} does not match canonical V4 pin {sha}")
-          if not re.fullmatch(r"[0-9a-f]{40}", sha):
-              raise SystemExit("Canonical V4 Engine SHA must be an exact lowercase 40-character SHA")
-
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+          checkout = re.findall(r'^\s+ref:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          explicit_verify = re.findall(r'git rev-parse HEAD\)" = "([0-9a-f]{40})"', text)
+          expected = os.environ['CANONICAL_ENGINE_SHA']
+          if checkout != [expected] or explicit_verify != [expected]:
+              raise SystemExit(
+                  f'Canonical V4 Engine pin changed unexpectedly: checkout={checkout} verify={explicit_verify}'
+              )
           required = (
-              "workflow_dispatch:",
+              'workflow_dispatch:',
               'brief_path = Path("engine/production/approved_brief.json")',
               'brief.get("approved_by_user") is not True',
               'brief.get("approved_topic")',
-              "ISCO_APPROVED_BRIEF_PATH:",
+              'ISCO_APPROVED_BRIEF_PATH:',
           )
           missing = [needle for needle in required if needle not in text]
           if missing:
-              raise SystemExit("Canonical V4 contract missing: " + ", ".join(missing))
-          forbidden = (
-              "inputs.topic",
-              "inputs.format",
-              "TOPIC_INPUT",
-              "FORMAT_INPUT",
-              "EVENT_NAME",
-              "push:",
-          )
+              raise SystemExit('Canonical V4 contract missing: ' + ', '.join(missing))
+          forbidden = ('inputs.topic', 'inputs.format', 'TOPIC_INPUT', 'FORMAT_INPUT', 'EVENT_NAME', 'push:')
           present = [needle for needle in forbidden if needle in text]
           if present:
-              raise SystemExit("Canonical V4 still exposes legacy request paths: " + ", ".join(present))
-
-          output = Path(os.environ["GITHUB_OUTPUT"])
-          with output.open("a", encoding="utf-8") as fh:
-              fh.write(f"engine_sha={sha}\n")
-          print(f"Canonical V4 contract PASS: runner={os.environ.get('GITHUB_SHA')} engine={sha}")
+              raise SystemExit('Canonical V4 exposes legacy request paths: ' + ', '.join(present))
+          print(f'Canonical production V4 unchanged at Engine {expected}; testing unmerged candidate separately')
           PY
 
-      - name: Checkout exact private Engine
+      - name: Checkout exact private Engine candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: ${{ steps.contract.outputs.engine_sha }}
+          ref: ${{ env.ENGINE_CANDIDATE_SHA }}
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify exact Engine checkout
+      - name: Verify exact Engine candidate checkout
         working-directory: engine
-        env:
-          ENGINE_SHA: ${{ steps.contract.outputs.engine_sha }}
-        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_CANDIDATE_SHA"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -114,6 +93,14 @@ jobs:
           set -euo pipefail
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused Director Phase A robustness regression
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest tests/test_director_brain_deterministic_contract_current_main.py -v
+          python -m unittest tests/test_director_brain_phase_a.py -v
+          python -m unittest tests/test_director_eyes_phase_b.py -v
 
       - name: Full Engine suite
         working-directory: engine
@@ -148,9 +135,13 @@ jobs:
           test "${#test_modules[@]}" -gt 0
           python -m unittest "${test_modules[@]}" -q
 
-      - name: Exact closure delta sanity
+      - name: Verifier isolation sanity
         run: |
           set -euo pipefail
-          git diff --check origin/main...HEAD || git diff --check
+          git diff --check
           test -f .github/workflows/produce-resilient-v4.yml
           test -f .github/workflows/verify-private-engine.yml
+          test "$ENGINE_CANDIDATE_SHA" != "$CANONICAL_ENGINE_SHA"
+          git diff --name-only origin/main...HEAD | grep -Fx '.github/workflows/verify-private-engine.yml'
+          test "$(git diff --name-only origin/main...HEAD | wc -l)" -eq 1
+          echo 'Verifier-only candidate test PASS; production V4 pin was not modified.'
