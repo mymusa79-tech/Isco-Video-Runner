@@ -1,0 +1,154 @@
+name: Voice Roster Listening Samples
+
+on:
+  push:
+    branches: ["agent/voice-roster-listening-samples"]
+    paths:
+      - ".github/workflows/voice-roster-listening-samples.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/voice-roster-listening-samples.yml"
+  workflow_dispatch:
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+    steps:
+      - name: Generate uniform Arabic voice samples
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          mkdir -p samples
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+          import wave
+          from pathlib import Path
+
+          voices = [
+              "Charon",
+              "Orus",
+              "Algenib",
+              "Sadaltager",
+              "Iapetus",
+              "Schedar",
+              "Umbriel",
+              "Zubenelgenubi",
+          ]
+          model = os.environ.get("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview")
+          api_key = os.environ["GEMINI_API_KEY"].strip()
+          endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+          prompt = (
+              "اقرأ النص التالي بالعربية الفصحى. الأداء المطلوب: راوي بالغ طبيعي، هادئ ودافئ وواثق، "
+              "بطريقة محادثة إنسانية من دون نبرة مذيع أو مبالغة. النص: "
+              "في بعض الأيام، لا تحتاج إلى أن تغيّر حياتك كلها. يكفي أن تتوقف لحظة، وتسمع صوتك أنت، "
+              "بعيدًا عن ضجيج الآخرين. الخطوة الصغيرة التي تختارها بوعي اليوم قد تكون بداية طريق مختلف تمامًا."
+          )
+          out_dir = Path("samples")
+          results = []
+
+          def write_wav(path: Path, pcm: bytes):
+              with wave.open(str(path), "wb") as wf:
+                  wf.setnchannels(1)
+                  wf.setsampwidth(2)
+                  wf.setframerate(24000)
+                  wf.writeframes(pcm)
+
+          for index, voice in enumerate(voices, start=1):
+              payload = {
+                  "contents": [{"parts": [{"text": prompt}]}],
+                  "generationConfig": {
+                      "responseModalities": ["AUDIO"],
+                      "speechConfig": {
+                          "voiceConfig": {
+                              "prebuiltVoiceConfig": {"voiceName": voice}
+                          }
+                      },
+                  },
+                  "model": model,
+              }
+              body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+              success = False
+              last_error = None
+              for attempt in range(1, 4):
+                  req = urllib.request.Request(
+                      endpoint,
+                      data=body,
+                      method="POST",
+                      headers={
+                          "x-goog-api-key": api_key,
+                          "Content-Type": "application/json",
+                      },
+                  )
+                  try:
+                      with urllib.request.urlopen(req, timeout=120) as response:
+                          data = json.load(response)
+                      encoded = data["candidates"][0]["content"]["parts"][0]["inlineData"]["data"]
+                      pcm = base64.b64decode(encoded)
+                      if len(pcm) < 24000:
+                          raise RuntimeError(f"audio payload unexpectedly small: {len(pcm)} bytes")
+                      wav_path = out_dir / f"{index:02d}-{voice}.wav"
+                      write_wav(wav_path, pcm)
+                      results.append({
+                          "voice": voice,
+                          "file": wav_path.name,
+                          "status": "ok",
+                          "pcm_bytes": len(pcm),
+                      })
+                      print(f"Generated {voice}: {wav_path} ({len(pcm)} PCM bytes)")
+                      success = True
+                      break
+                  except urllib.error.HTTPError as exc:
+                      last_error = f"HTTP {exc.code}"
+                      retryable = exc.code in {429, 500, 502, 503, 504}
+                      print(f"{voice} attempt {attempt} failed: {last_error}")
+                      if not retryable or attempt == 3:
+                          break
+                      time.sleep(15 * attempt)
+                  except Exception as exc:
+                      last_error = f"{type(exc).__name__}: {exc}"
+                      print(f"{voice} attempt {attempt} failed: {last_error}")
+                      if attempt == 3:
+                          break
+                      time.sleep(10 * attempt)
+              if not success:
+                  results.append({"voice": voice, "status": "error", "error": last_error})
+              if index != len(voices):
+                  time.sleep(5)
+
+          metadata = {
+              "model": model,
+              "sample_rate_hz": 24000,
+              "sample_width_bytes": 2,
+              "channels": 1,
+              "prompt": prompt,
+              "voices": results,
+          }
+          (out_dir / "metadata.json").write_text(
+              json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          ok = sum(item["status"] == "ok" for item in results)
+          print(f"Generated {ok}/{len(voices)} voice samples")
+          if ok == 0:
+              raise SystemExit("No voice samples were generated")
+          PY
+
+      - name: Upload listening samples
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: arabic-gemini-voice-roster-samples
+          path: samples/
+          if-no-files-found: error
+          retention-days: 7
