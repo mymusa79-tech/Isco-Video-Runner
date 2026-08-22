@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  EDITORIAL_ENGINE_SHA: 2a8d246d03bb5247da23b3c7b7e97e995b4619bf
+  EDITORIAL_ENGINE_SHA: 342cbbe2dc49bc917028b8c7dc976500508b7df7
 
 jobs:
   combined-regression:
@@ -67,7 +67,7 @@ jobs:
           pip-audit --no-deps -r requirements-lock.txt
           python -m pip check
 
-      - name: Focused Editorial Stage 5-6 contracts
+      - name: Focused Editorial Stage 5-7 contracts
         working-directory: engine
         run: |
           set -euo pipefail
@@ -76,9 +76,15 @@ jobs:
             tests.test_resilient_planner_persona_binding \
             tests.test_editorial_adapters \
             tests.test_editorial_stage6 \
+            tests.test_editorial_stage7 \
             tests.test_repair_dossier \
             tests.test_short_quality_gate \
-            tests.test_orchestrator_visual_selection_integration -v
+            tests.test_orchestrator_visual_selection_integration \
+            tests.test_packaging_identity_integrity_p1 \
+            tests.test_thumbnail_packaging_contract \
+            tests.test_thumbnail_alternate_query_recovery \
+            tests.test_thumbnail_candidate_board \
+            tests.test_thumbnail_pixabay_fallback -v
 
       - name: Human Editorial Intent and M7 compatibility
         working-directory: engine
