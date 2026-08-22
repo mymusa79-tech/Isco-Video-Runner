@@ -1,20 +1,115 @@
-name: Local Brain Smoke
+name: Voice Finalists Arabic Rounds 2-3 Scratch
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/local-brain-smoke.yml
-  workflow_dispatch:
+  pull_request:
+
+concurrency:
+  group: voice-finalists-ar-scratch
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  smoke:
+  generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
-      - name: Verify runner
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install Gemini SDK
+        run: python -m pip install google-genai==2.17.0
+      - name: Generate blind Arabic rounds 2 and 3
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -euo pipefail
-          echo "runner-ok"
-          uname -a
-          free -h
-          df -h .
+          test -n "$GEMINI_API_KEY"
+          python - <<'PY'
+          import base64, os, re, time, wave
+          from pathlib import Path
+          from google import genai
+
+          rounds = {
+              "round2": {
+                  "text": (
+                      "ليس كل تأخر علامة على أنك خسرت. أحيانًا أنت فقط تتعلم كيف تمشي بطريقة لا تضطرك إلى العودة من البداية كل مرة. "
+                      "لا تقارن فصلًا مرتبكًا من حياتك بنهاية واضحة في حياة شخص آخر. المهم الآن ليس أين وصلت، بل هل ما زلت تتحرك في الاتجاه الذي اخترته."
+                  ),
+                  "voices": {"A": "Sadaltager", "B": "Rasalgethi", "C": "Charon"},
+              },
+              "round3": {
+                  "text": (
+                      "سيأتي يوم تنظر فيه إلى هذه المرحلة وتدرك أن أصعب ما فيها لم يكن الطريق، بل قرارك أن تبدأ. "
+                      "لذلك لا تنتظر أن يختفي الخوف، ولا أن تصبح الظروف مثالية. خذ الخطوة التي تستطيعها اليوم؛ "
+                      "فالنسخة التي تريد أن تصبحها تُبنى من هذه اللحظات الصغيرة."
+                  ),
+                  "voices": {"A": "Charon", "B": "Sadaltager", "C": "Rasalgethi"},
+              },
+          }
+
+          direction_prefix = (
+              "اقرأ النص التالي فقط دون إضافة أو حذف. فصحى عربية طبيعية، نبرة هادئة وواثقة وناضجة، "
+              "كأنك تخاطب شخصًا واحدًا لا جمهورًا. لا تستخدم أسلوب مذيع أخبار أو إعلان، وتجنب المبالغة المسرحية "
+              "والحزن المصطنع والنبرة الآلية. اجعل الوقفات طبيعية عند التحولات الفكرية، وأنهِ النص بقوة هادئة.\n\n"
+              "النص: "
+          )
+
+          root = Path("voice-finalists-ar-rounds-2-3")
+          root.mkdir(exist_ok=True)
+          client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+          def synthesize(direction, voice, round_name, label):
+              for attempt in range(1, 9):
+                  try:
+                      return client.interactions.create(
+                          model="gemini-3.1-flash-tts-preview",
+                          input=direction,
+                          response_format={"type": "audio"},
+                          generation_config={"speech_config": [{"voice": voice}]},
+                      )
+                  except Exception as exc:
+                      msg = str(exc).lower()
+                      rate_limited = "429" in msg or "quota" in msg or "too_many_requests" in msg
+                      if attempt < 8 and rate_limited:
+                          m = re.search(r"retry in\s+([0-9.]+)s", msg)
+                          wait_s = (float(m.group(1)) + 5.0) if m else 65.0
+                          wait_s = max(10.0, min(wait_s, 120.0))
+                          print(
+                              f"Free-tier rate limit for {round_name}/{label}; "
+                              f"waiting {wait_s:.1f}s before retry {attempt + 1}/8"
+                          )
+                          time.sleep(wait_s)
+                          continue
+                      raise
+
+          for round_name, cfg in rounds.items():
+              out = root / round_name
+              out.mkdir(exist_ok=True)
+              direction = direction_prefix + cfg["text"]
+              for label, voice in cfg["voices"].items():
+                  interaction = synthesize(direction, voice, round_name, label)
+                  if not interaction.output_audio or not interaction.output_audio.data:
+                      raise RuntimeError(f"No audio returned for {round_name}/{label}")
+                  pcm = base64.b64decode(interaction.output_audio.data)
+                  with wave.open(str(out / f"{label}.wav"), "wb") as wf:
+                      wf.setnchannels(1)
+                      wf.setsampwidth(2)
+                      wf.setframerate(24000)
+                      wf.writeframes(pcm)
+                  time.sleep(2)
+
+          (root / "README.txt").write_text(
+              "Blind Arabic finalists rounds 2 and 3. Rank A/B/C separately in each round.\n"
+              "Each round uses the same three finalist voices, same Gemini 3.1 Flash TTS Preview model, and identical direction within that round.\n"
+              "Voice positions rotate between rounds to reduce order bias.\n",
+              encoding="utf-8",
+          )
+          PY
+      - name: Upload samples
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: voice-finalists-ar-rounds-2-3
+          path: voice-finalists-ar-rounds-2-3/
+          if-no-files-found: error
+          retention-days: 1
