@@ -1,0 +1,251 @@
+name: Build Editorial Room Stage 4 Closure
+
+on:
+  push:
+    branches: [verify/editorial-room-channel-binding]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Runner verifier branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout private Engine editorial branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: feature/editorial-room-channel-binding
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify exact Engine pre-patch head
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "efe639e668d7536f86affb5f7264ca0c60c68fc0"
+
+      - name: Bind mandatory channel persona to production writer contract
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/isco_video_agent/resilient_planner.py")
+          text = path.read_text(encoding="utf-8")
+
+          old = "from .config import load_editorial_policy\n"
+          new = "from .config import load_channel_persona, load_editorial_policy\n"
+          if text.count(old) != 1:
+              raise SystemExit(f"config import anchor drifted: {text.count(old)}")
+          text = text.replace(old, new, 1)
+
+          old = "from .editorial_room import intent_from_dict\n"
+          new = "from .editorial_room import intent_from_dict, validate_channel_persona\n"
+          if text.count(old) != 1:
+              raise SystemExit(f"editorial_room import anchor drifted: {text.count(old)}")
+          text = text.replace(old, new, 1)
+
+          old = '''    policy = load_editorial_policy()\n    learned = learning_context(fmt)\n    policy_json = json.dumps(policy, ensure_ascii=False)\n    research_json = json.dumps(research_context or {}, ensure_ascii=False)\n'''
+          new = '''    policy = load_editorial_policy()\n    persona = validate_channel_persona(load_channel_persona())\n    learned = learning_context(fmt)\n    writer_contract = {\n        "contract_version": 1,\n        "editorial_policy": policy,\n        "channel_persona": persona,\n        "authority": "channel_persona_is_mandatory_writer_and_editor_source",\n    }\n    policy_json = json.dumps(writer_contract, ensure_ascii=False)\n    research_json = json.dumps(research_context or {}, ensure_ascii=False)\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f"writer contract anchor drifted: {text.count(old)}")
+          text = text.replace(old, new, 1)
+
+          old = '''    editorial_intent = intent_from_dict(outline["editorial_intent"])\n    editorial_intent_dict = editorial_intent.to_dict()\n'''
+          new = '''    editorial_intent = intent_from_dict(outline["editorial_intent"])\n    if editorial_intent.persona_version != int(persona["version"]):\n        raise RuntimeError(\n            "Editorial intent persona version mismatch: "\n            + f"intent={editorial_intent.persona_version} bound={persona['version']}"\n        )\n    editorial_intent_dict = editorial_intent.to_dict()\n'''
+          if text.count(old) != 1:
+              raise SystemExit(f"persona version anchor drifted: {text.count(old)}")
+          text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+          test_path = Path("tests/test_resilient_planner_persona_binding.py")
+          if test_path.exists():
+              raise SystemExit("persona binding test file already exists; inspect drift before replacing")
+          test_path.write_text(r'''from __future__ import annotations
+
+import json
+import unittest
+from unittest.mock import patch
+
+from isco_video_agent import resilient_planner
+from isco_video_agent.editorial_room import EditorialContractError
+
+
+_VALID_PERSONA = {
+    "version": 1,
+    "channel": "نداء اليقظة",
+    "writing_voice": {
+        "tone": "هادئ وصريح وإنساني ويعامل المشاهد كشخص بالغ.",
+        "cadence": ["ابدأ بملاحظة ملموسة."],
+        "signature_moves": ["اكشف الافتراض الخفي."],
+        "banned_ai_phrases": ["في عالمنا المتسارع"],
+    },
+    "dialogue_contract": {"rule": "A/B only for dialogue_qa."},
+    "analysis_lens": {
+        "principle": "اكشف الحلقة بدل التشجيع العام.",
+        "required_moves": ["اربط الفكرة بموقف يومي."],
+        "generic_rejection_rule": "ارفض النص القابل للنقل إلى قناة عامة.",
+    },
+}
+
+
+def _intent(*, persona_version: int = 1) -> dict:
+    return {
+        "editorial_thesis": "التقدم الحقيقي يحتاج مقياسًا يناسب مسارك لا مقارنة عمياء.",
+        "viewer_starting_belief": "أظن أن التأخر يعني أنني أسير أبطأ من الآخرين.",
+        "hidden_assumption": "أفترض أن كل الناس يتحركون على خط زمني واحد قابل للمقارنة.",
+        "editorial_turn": "المشكلة قد تكون في المقياس الذي أحكم به لا في سرعة تقدمي.",
+        "stakes": "المقياس الخاطئ يجعل التقدم الفعلي يبدو كأنه فشل مستمر.",
+        "viewer_promise": "ستخرج بمقياس عملي تختبر به تقدمك بصورة أكثر عدلًا.",
+        "evidence_boundaries": ["لا تشخيص طبي", "لا ادعاء سببي بلا دليل"],
+        "earned_payoff": "قارن خطوتك التالية بنقطة بدايتك قبل أن تقارن حياتك بمسار شخص آخر.",
+        "persona_version": persona_version,
+    }
+
+
+def _outline(*, persona_version: int = 1) -> dict:
+    return {
+        "pillar": "understand",
+        "hook": "هل المقياس الذي تستخدمه عادل أصلًا؟",
+        "title_options": ["عنوان 1", "عنوان 2", "عنوان 3"],
+        "thumbnail_concepts": ["فكرة 1", "فكرة 2", "فكرة 3"],
+        "cta": "اختبر المقياس هذا الأسبوع.",
+        "closing_payoff": "قارن خطوتك التالية بنقطة بدايتك.",
+        "narrative_format": "direct_cinematic",
+        "opener_variant": "لنبدأ من السؤال الذي نتجاوزه عادة.",
+        "closer_variant": "خذ المقياس الجديد معك إلى خطوتك التالية.",
+        "transition_variants": ["ثم يظهر فرق مهم", "وهنا يتغير السؤال", "ومن هذه النقطة نرى الأثر"],
+        "editorial_intent": _intent(persona_version=persona_version),
+        "section_briefs": [
+            {
+                "id": f"s{i}",
+                "purpose": f"distinct purpose {i}",
+                "visual_query": f"safe scene {i}",
+                "on_screen_text": f"نقطة {i}",
+                "emotion": "reflective",
+                "expected_seconds": 30,
+            }
+            for i in range(1, 6)
+        ],
+    }
+
+
+def _script() -> dict[str, dict]:
+    return {
+        f"s{i}": {"narration": " ".join(["فكرة"] * 84), "key_point": f"distinct idea {i}"}
+        for i in range(1, 6)
+    }
+
+
+class ResilientPlannerPersonaBindingTests(unittest.TestCase):
+    def test_persona_is_bound_into_outline_and_writer_without_extra_provider_call(self) -> None:
+        payloads: list[dict] = []
+
+        def fake_outline(*args, **kwargs):
+            del args
+            payloads.append(json.loads(kwargs["policy_json"]))
+            return _outline()
+
+        def fake_writer(*args, **kwargs):
+            del args
+            payloads.append(json.loads(kwargs["policy_json"]))
+            return _script()
+
+        with (
+            patch.object(resilient_planner, "choose_format", return_value="story"),
+            patch.object(resilient_planner, "load_editorial_policy", return_value={"version": 1, "marker": "policy"}),
+            patch.object(resilient_planner, "load_channel_persona", return_value=_VALID_PERSONA),
+            patch.object(resilient_planner, "learning_context", return_value={}),
+            patch.object(resilient_planner, "_outline", side_effect=fake_outline),
+            patch.object(resilient_planner, "_write_full_script", side_effect=fake_writer),
+        ):
+            plan = resilient_planner.build_plan("key", "موضوع", "story", "model")
+
+        self.assertEqual(len(payloads), 2)
+        for payload in payloads:
+            self.assertEqual(payload["editorial_policy"]["marker"], "policy")
+            self.assertEqual(payload["channel_persona"]["channel"], "نداء اليقظة")
+            self.assertEqual(payload["channel_persona"]["version"], 1)
+            self.assertIn("mandatory", payload["authority"])
+        self.assertEqual(plan.editorial_intent["persona_version"], 1)
+
+    def test_invalid_persona_fails_before_outline_provider_path(self) -> None:
+        broken = dict(_VALID_PERSONA)
+        broken["channel"] = "قناة أخرى"
+        with (
+            patch.object(resilient_planner, "choose_format", return_value="story"),
+            patch.object(resilient_planner, "load_editorial_policy", return_value={"version": 1}),
+            patch.object(resilient_planner, "load_channel_persona", return_value=broken),
+            patch.object(resilient_planner, "_outline", side_effect=AssertionError("outline must not run")),
+        ):
+            with self.assertRaises(EditorialContractError):
+                resilient_planner.build_plan("key", "موضوع", "story", "model")
+
+    def test_persona_version_mismatch_fails_before_full_writer(self) -> None:
+        persona_v2 = dict(_VALID_PERSONA)
+        persona_v2["version"] = 2
+        with (
+            patch.object(resilient_planner, "choose_format", return_value="story"),
+            patch.object(resilient_planner, "load_editorial_policy", return_value={"version": 1}),
+            patch.object(resilient_planner, "load_channel_persona", return_value=persona_v2),
+            patch.object(resilient_planner, "learning_context", return_value={}),
+            patch.object(resilient_planner, "_outline", return_value=_outline(persona_version=1)),
+            patch.object(resilient_planner, "_write_full_script", side_effect=AssertionError("writer must not run")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "persona version mismatch"):
+                resilient_planner.build_plan("key", "موضوع", "story", "model")
+
+
+if __name__ == "__main__":
+    unittest.main()
+''', encoding="utf-8")
+          PY
+          python -m py_compile src/isco_video_agent/resilient_planner.py tests/test_resilient_planner_persona_binding.py tests/test_sensitive_visual_planning_prompt.py
+          git diff --check
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Stage 4 regression
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest -q \
+            tests.test_editorial_room \
+            tests.test_resilient_planner_persona_binding \
+            tests.test_sensitive_visual_planning_prompt
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Commit verified Stage 4 closure to Engine branch
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git diff --check
+          test -n "$(git status --porcelain)"
+          git config user.name "isco-verifier"
+          git config user.email "isco-verifier@users.noreply.github.com"
+          git add src/isco_video_agent/resilient_planner.py tests/test_resilient_planner_persona_binding.py
+          test -z "$(git status --porcelain | grep -v '^M  src/isco_video_agent/resilient_planner.py$' | grep -v '^A  tests/test_resilient_planner_persona_binding.py$' || true)"
+          git commit -m "editorial room: bind channel persona into production writer contract"
+          git push origin HEAD:feature/editorial-room-channel-binding

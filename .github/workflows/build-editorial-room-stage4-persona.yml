@@ -1,0 +1,137 @@
+name: Build Editorial Room Stage 4 Persona Binding
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Runner verifier branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout private Engine editorial branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: feature/editorial-room-channel-binding
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify exact Engine pre-patch head
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "653dbdaf3dda2d6859207687dbcdf04a1841050e"
+
+      - name: Bind mandatory channel persona to production writer contract
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/isco_video_agent/resilient_planner.py")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = [
+              (
+                  "from .config import load_editorial_policy\n",
+                  "from .config import load_channel_persona, load_editorial_policy\n",
+                  "config import",
+              ),
+              (
+                  "from .editorial_room import intent_from_dict\n",
+                  "from .editorial_room import intent_from_dict, validate_channel_persona\n",
+                  "editorial_room import",
+              ),
+              (
+                  '''    policy = load_editorial_policy()\n    learned = learning_context(fmt)\n    policy_json = json.dumps(policy, ensure_ascii=False)\n    research_json = json.dumps(research_context or {}, ensure_ascii=False)\n''',
+                  '''    policy = load_editorial_policy()\n    persona = validate_channel_persona(load_channel_persona())\n    learned = learning_context(fmt)\n    writer_contract = {\n        "contract_version": 1,\n        "editorial_policy": policy,\n        "channel_persona": persona,\n        "authority": "channel_persona_is_mandatory_writer_and_editor_source",\n    }\n    policy_json = json.dumps(writer_contract, ensure_ascii=False)\n    research_json = json.dumps(research_context or {}, ensure_ascii=False)\n''',
+                  "writer contract",
+              ),
+              (
+                  '''    editorial_intent = intent_from_dict(outline["editorial_intent"])\n    editorial_intent_dict = editorial_intent.to_dict()\n''',
+                  '''    editorial_intent = intent_from_dict(outline["editorial_intent"])\n    if editorial_intent.persona_version != int(persona["version"]):\n        raise RuntimeError(\n            "Editorial intent persona version mismatch: "\n            + f"intent={editorial_intent.persona_version} bound={persona['version']}"\n        )\n    editorial_intent_dict = editorial_intent.to_dict()\n''',
+                  "persona version",
+              ),
+          ]
+          for old, new, label in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"{label} anchor drifted: {text.count(old)}")
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+          python -m py_compile src/isco_video_agent/resilient_planner.py tests/test_resilient_planner_persona_binding.py
+          git diff --check
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Stage 4 regression
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest -q \
+            tests.test_editorial_room \
+            tests.test_resilient_planner_persona_binding \
+            tests.test_sensitive_visual_planning_prompt
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Validate verified Engine diff
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git diff --check
+          echo "Tracked diff:"
+          git diff --name-status
+          changed_tracked="$(git diff --name-only)"
+          test -n "$changed_tracked"
+          unexpected="$(printf '%s\n' "$changed_tracked" | grep -v '^src/isco_video_agent/resilient_planner.py$' || true)"
+          test -z "$unexpected"
+
+      - name: Commit verified persona binding
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git config user.name "isco-verifier"
+          git config user.email "isco-verifier@users.noreply.github.com"
+          git add src/isco_video_agent/resilient_planner.py
+          git diff --cached --check
+          echo "Cached diff:"
+          git diff --cached --name-status
+          test "$(git diff --cached --name-only)" = "src/isco_video_agent/resilient_planner.py"
+          git commit -m "editorial room: bind channel persona into production writer contract"
+
+      - name: Verify Engine remote head before push
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          echo "Local HEAD: $(git rev-parse HEAD)"
+          git ls-remote --heads origin feature/editorial-room-channel-binding
+
+      - name: Push verified persona binding
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          git push origin HEAD:feature/editorial-room-channel-binding
