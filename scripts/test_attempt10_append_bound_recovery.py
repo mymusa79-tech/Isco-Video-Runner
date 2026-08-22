@@ -165,9 +165,12 @@ class Attempt10AppendBoundRecoveryTests(unittest.TestCase):
                 additions = []
                 for index in range(1, 9):
                     if index == 5:
+                        # 18 words: 90 + 18 = 108, genuinely below the 110 hard floor.
+                        # The first whole sentence is exactly 14 words, enough to carry
+                        # the short completion from 96 to 110 without a third call.
                         text = (
-                            "هذا شرح أول يضيف زاوية واضحة ومحددة تربط الفكرة مباشرة بسلوك يومي يمكن ملاحظته. "
-                            "وهذه جملة أخرى تبقى ضمن نفس المعنى."
+                            "هذا شرح أول يضيف زاوية واضحة تربط الفكرة مباشرة بسلوك يومي يمكن ملاحظته بوضوح. "
+                            "وهذه جملة أخرى مفيدة."
                         )
                     else:
                         text = " ".join(["إضافة"] * 26)
@@ -228,14 +231,17 @@ class Attempt10AppendBoundRecoveryTests(unittest.TestCase):
                     "additions": [
                         {
                             "id": f"sec_{index}",
-                            "append_text": " ".join(["إضافة"] * (69 if index == 8 else 26)),
+                            "append_text": " ".join(["إضافة"] * (18 if index == 8 else 26)),
                         }
                         for index in range(1, 9)
                     ]
                 }
             return {
                 "additions": [
-                    {"id": "sec_8", "append_text": " ".join(["إضافة"] * 69)}
+                    {
+                        "id": "sec_8",
+                        "append_text": " ".join(["إضافة"] * 60),
+                    }
                 ]
             }
 
@@ -253,7 +259,3 @@ class Attempt10AppendBoundRecoveryTests(unittest.TestCase):
                     minimum=800,
                 )
         self.assertEqual(calls, 2)
-
-
-if __name__ == "__main__":
-    unittest.main()
