@@ -1,2 +1,0 @@
-Trigger Stage 8 certification after workflow definition became part of PR head.
-Temporary; remove during Stage 9 cleanup.
