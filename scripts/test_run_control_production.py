@@ -23,6 +23,7 @@ class ControlRequestProductionTests(unittest.TestCase):
             "format": "moment" if kind == "short" else "film",
             "weekly_option_id": "telegram:s:1",
             "content_boundaries": [],
+            "production_dispatch_authorized": False,
             "status": "approved_waiting_production_activation",
         }
         request["request_sha256"] = control._canonical_request_hash(request)
@@ -40,6 +41,13 @@ class ControlRequestProductionTests(unittest.TestCase):
             path.write_text(json.dumps(tampered, ensure_ascii=False), encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError, "changed after Telegram approval"):
                 control.load_control_request(path, request["request_sha256"])
+
+    def test_stored_request_can_never_arrive_dispatch_authorized(self):
+        request = self._request()
+        request["production_dispatch_authorized"] = True
+        request["request_sha256"] = control._canonical_request_hash(request)
+        with self.assertRaisesRegex(RuntimeError, "must remain non-dispatching"):
+            control.validate_control_request(request, request["request_sha256"])
 
     def test_short_brief_can_be_materialized_without_long_research_pack(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -90,8 +98,10 @@ class ControlRequestProductionTests(unittest.TestCase):
             path = control.write_sibling_short_plan(root, request)
             data = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(data["short_count"], 3)
+            self.assertEqual(data["source_request_sha256"], request["request_sha256"])
             self.assertFalse(data["automatic_production_started"])
             self.assertTrue(all(item["production_dispatch_authorized"] is False for item in data["semantic_jobs"]))
+            self.assertEqual(data["youtube_publish_mode"], "manual_in_youtube_studio")
 
     def test_sibling_plan_refuses_to_fabricate_minimum_quota(self):
         request = self._request(kind="long", scope="long_plus_sibling_shorts")
@@ -103,6 +113,18 @@ class ControlRequestProductionTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(RuntimeError, "enough independent jobs"):
+                control.write_sibling_short_plan(root, request)
+
+    def test_sibling_quota_cannot_escape_two_to_three(self):
+        request = self._request(kind="long", scope="long_plus_sibling_shorts")
+        request["sibling_shorts"] = {"minimum": 1, "maximum": 4}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "plan.json").write_text(
+                json.dumps({"sections": [{"key_point": "أ"}, {"key_point": "ب"}, {"key_point": "ج"}]}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "within 2–3"):
                 control.write_sibling_short_plan(root, request)
 
 
