@@ -83,7 +83,7 @@ class UnifiedDeliveryTests(unittest.TestCase):
     def test_bundle_request_blocks_partial_short_delivery(self):
         root = self._root()
         request = {"request_id": "req-1", "request_sha256": "abc", "approval_scope": "long_plus_sibling_shorts", "approved_topic": "موضوع"}
-        with self.assertRaisesRegex(RuntimeError, "partial"):
+        with self.assertRaisesRegex(RuntimeError, "2–3"):
             build_delivery_manifest(
                 root,
                 repository="mymusa79-tech/Isco-Video-Runner",
