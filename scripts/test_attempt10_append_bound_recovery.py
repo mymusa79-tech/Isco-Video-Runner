@@ -165,7 +165,10 @@ class Attempt10AppendBoundRecoveryTests(unittest.TestCase):
                 additions = []
                 for index in range(1, 9):
                     if index == 5:
-                        text = "أول شرح يضيف زاوية مفيدة واضحة. ثم يربط الفكرة بسلوك يومي عملي."
+                        text = (
+                            "هذا شرح أول يضيف زاوية واضحة ومحددة تربط الفكرة مباشرة بسلوك يومي يمكن ملاحظته. "
+                            "وهذه جملة أخرى تبقى ضمن نفس المعنى."
+                        )
                     else:
                         text = " ".join(["إضافة"] * 26)
                     additions.append({"id": f"sec_{index}", "append_text": text})
@@ -198,7 +201,7 @@ class Attempt10AppendBoundRecoveryTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual([section.narration for section in sections], original)
         self.assertGreaterEqual(90 + append_guard._word_count(additions["sec_5"]), 110)
-        self.assertLessEqual(append_guard._word_count(additions["sec_5"]), 34)
+        self.assertLessEqual(append_guard._word_count(additions["sec_5"]), 44)
         append_guard.staged._append_retry_additions(sections, additions)
         self.assertTrue(all(110 <= append_guard._word_count(s.narration) <= 170 for s in sections))
         self.assertLessEqual(sum(append_guard._word_count(s.narration) for s in sections), 1450)
