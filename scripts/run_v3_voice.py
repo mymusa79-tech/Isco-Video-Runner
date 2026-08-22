@@ -11,6 +11,7 @@ from isco_video_agent.config import secret
 from isco_video_agent.text_audit_router import text_audit_circuit_scope
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.append_retry_guard import install_append_retry_guard
+from scripts.attempt9_schema_normalizer import install_attempt9_schema_normalizer
 from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.planner_quality_guard import install_planner_quality_guard
@@ -186,6 +187,7 @@ def main() -> None:
     install_schema_guard()
     install_router()
     install_planner_quality_guard()
+    install_attempt9_schema_normalizer()
     install_append_retry_guard()
     install_brand_anchor_guard()
     install_product_proof_fallback()
