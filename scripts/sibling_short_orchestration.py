@@ -7,10 +7,15 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from isco_video_agent.short_topic_gate import evaluate_short_topic
+from scripts.source_derived_short_planner import build_source_short_blueprint
 
 SCHEMA_VERSION = 1
 MIN_SIBLING_SHORTS = 2
 MAX_SIBLING_SHORTS = 3
+
+
+def _clean(value: object) -> str:
+    return " ".join(str(value or "").strip().split())
 
 
 def _canonical_hash(document: dict[str, Any]) -> str:
@@ -24,6 +29,10 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _score01(value: object) -> float:
@@ -93,7 +102,7 @@ def _semantic_jobs(plan: dict[str, Any]) -> list[str]:
             raise RuntimeError("Sibling Short plan must remain non-dispatching before orchestration")
         if item.get("status") != "planned_not_dispatched":
             raise RuntimeError("Sibling Short plan contains an unexpected status")
-        job = " ".join(str(item.get("semantic_job") or "").strip().split())
+        job = _clean(item.get("semantic_job"))
         key = job.casefold()
         if not job or key in seen:
             raise RuntimeError("Sibling Short jobs must be non-empty and distinct")
@@ -104,7 +113,39 @@ def _semantic_jobs(plan: dict[str, Any]) -> list[str]:
     return jobs
 
 
-def build_sibling_requests(parent_request: dict[str, Any], sibling_plan: dict[str, Any]) -> list[dict[str, Any]]:
+def _source_excerpt(source_plan: dict[str, Any], job: str) -> dict[str, Any]:
+    sections = source_plan.get("sections")
+    if not isinstance(sections, list):
+        raise RuntimeError("Source long production plan has no sections")
+    matches = [
+        section
+        for section in sections
+        if isinstance(section, dict) and _clean(section.get("key_point")).casefold() == _clean(job).casefold()
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("Sibling semantic job must map to exactly one source long section")
+    section = matches[0]
+    narration = _clean(section.get("narration"))
+    visual_query = _clean(section.get("visual_query"))
+    key_point = _clean(section.get("key_point"))
+    if not narration or not visual_query or not key_point:
+        raise RuntimeError("Source long section lacks narration, visual query, or key point")
+    return {
+        "source_section_id": _clean(section.get("id")) or "unknown",
+        "source_key_point": key_point,
+        "source_on_screen_text": _clean(section.get("on_screen_text")),
+        "source_visual_query": visual_query,
+        "source_emotion": _clean(section.get("emotion")) or "reflective",
+        "source_narration": narration,
+        "source_narration_sha256": _sha256_text(narration),
+    }
+
+
+def build_sibling_requests(
+    parent_request: dict[str, Any],
+    sibling_plan: dict[str, Any],
+    source_plan: dict[str, Any],
+) -> list[dict[str, Any]]:
     if parent_request.get("approved_by_user") is not True:
         raise RuntimeError("Sibling Shorts require explicit parent user approval")
     if parent_request.get("kind") != "long":
@@ -113,18 +154,18 @@ def build_sibling_requests(parent_request: dict[str, Any], sibling_plan: dict[st
         raise RuntimeError("Parent request did not approve sibling Shorts")
     if parent_request.get("production_dispatch_authorized") is not False:
         raise RuntimeError("Stored parent request must remain non-dispatching")
-    parent_id = str(parent_request.get("request_id") or "").strip()
-    parent_sha = str(parent_request.get("request_sha256") or "").strip()
-    parent_topic = str(parent_request.get("approved_topic") or "").strip()
+    parent_id = _clean(parent_request.get("request_id"))
+    parent_sha = _clean(parent_request.get("request_sha256"))
+    parent_topic = _clean(parent_request.get("approved_topic"))
     if not parent_id or not parent_sha or not parent_topic:
         raise RuntimeError("Parent control request provenance is incomplete")
     if sibling_plan.get("source_request_id") != parent_id:
         raise RuntimeError("Sibling Short plan does not belong to the approved parent request")
     if sibling_plan.get("source_request_sha256") != parent_sha:
         raise RuntimeError("Sibling Short plan parent request hash mismatch")
-    if str(sibling_plan.get("source_topic") or "").strip() != parent_topic:
+    if _clean(sibling_plan.get("source_topic")) != parent_topic:
         raise RuntimeError("Sibling Short plan source topic does not match the approved parent topic")
-    source_plan_sha = str(sibling_plan.get("source_production_plan_sha256") or "").strip()
+    source_plan_sha = _clean(sibling_plan.get("source_production_plan_sha256"))
     if len(source_plan_sha) != 64:
         raise RuntimeError("Sibling Short plan has no valid source production-plan hash")
     if sibling_plan.get("automatic_production_started") is not False:
@@ -138,6 +179,7 @@ def build_sibling_requests(parent_request: dict[str, Any], sibling_plan: dict[st
 
     requests: list[dict[str, Any]] = []
     for index, job in enumerate(jobs, 1):
+        excerpt = _source_excerpt(source_plan, job)
         request: dict[str, Any] = {
             "schema_version": SCHEMA_VERSION,
             "request_id": f"{parent_id}-s{index}",
@@ -166,12 +208,14 @@ def build_sibling_requests(parent_request: dict[str, Any], sibling_plan: dict[st
             "source_sibling_plan_sha256": sibling_plan_sha,
             "source_long_topic": parent_topic,
             "source_semantic_job": job,
+            "source_episode_excerpt": excerpt,
             "sibling_index": index,
             "sibling_count": len(jobs),
             "production_dispatch_authorized": False,
             "status": "approved_waiting_production_activation",
             "youtube_publish_mode": "manual_in_youtube_studio",
         }
+        request["source_short_plan"] = build_source_short_blueprint(request)
         request["request_sha256"] = _canonical_hash(request)
         requests.append(request)
     return requests
@@ -215,13 +259,16 @@ def validate_completed_short(output_dir: Path, request: dict[str, Any]) -> dict[
         raise RuntimeError("Sibling Short Gold contract is not accepted")
     if not rights:
         raise RuntimeError("Sibling Short rights manifest is empty")
-    if str(plan.get("topic") or "").strip() != str(request.get("approved_topic") or "").strip():
+    if _clean(plan.get("topic")) != _clean(request.get("approved_topic")):
         raise RuntimeError("Sibling Short plan topic does not match its approved semantic job")
+    if plan.get("format") != "moment":
+        raise RuntimeError("Sibling Short final plan escaped the moment format")
 
     return {
         "request_id": request.get("request_id"),
         "request_sha256": request.get("request_sha256"),
         "semantic_job": request.get("source_semantic_job"),
+        "source_section_id": (request.get("source_episode_excerpt") or {}).get("source_section_id"),
         "source_production_plan_sha256": request.get("source_production_plan_sha256"),
         "source_sibling_plan_sha256": request.get("source_sibling_plan_sha256"),
         "output_dir": str(root),
@@ -247,10 +294,11 @@ def orchestrate_sibling_shorts(
     source_plan_path = sibling_plan_path.parent / "plan.json"
     if not source_plan_path.is_file():
         raise RuntimeError("Sibling Short orchestration cannot find the source production plan")
-    expected_source_sha = str(plan.get("source_production_plan_sha256") or "")
+    expected_source_sha = _clean(plan.get("source_production_plan_sha256"))
     if _sha256_file(source_plan_path) != expected_source_sha:
         raise RuntimeError("Sibling Short source production plan changed after planning")
-    requests = build_sibling_requests(parent_request, plan)
+    source_plan = _read_object(source_plan_path)
+    requests = build_sibling_requests(parent_request, plan, source_plan)
     completed: list[dict[str, Any]] = []
     for request in requests:
         output = Path(execute_short(request))
@@ -279,6 +327,7 @@ def stage_sibling_assets(parent_output_dir: Path, completed: Iterable[dict[str, 
         record = {
             "slot": f"S{index}",
             "semantic_job": item.get("semantic_job"),
+            "source_section_id": item.get("source_section_id"),
             "request_id": item.get("request_id"),
             "request_sha256": item.get("request_sha256"),
             "source_production_plan_sha256": item.get("source_production_plan_sha256"),
