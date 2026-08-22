@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 72844260a086c91fd36fc584598baba6bae15bc9
+          ref: 18343de73ec9996b7f7f2e9a7769cbc120effe2d
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          test "$(git -C engine rev-parse HEAD)" = "72844260a086c91fd36fc584598baba6bae15bc9"
+          test "$(git -C engine rev-parse HEAD)" = "18343de73ec9996b7f7f2e9a7769cbc120effe2d"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
