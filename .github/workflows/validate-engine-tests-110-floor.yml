@@ -1,0 +1,27 @@
+name: Locate post-PR16 production run
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/validate-engine-tests-110-floor.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TARGET_SHA: 3d95fde6535a25c45e807bf0c5e305323ccb6fe6
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Query runs for merge SHA
+        run: |
+          set -euo pipefail
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${TARGET_SHA}&per_page=20" \
+            --jq '.workflow_runs[] | [.id,.name,.run_number,.event,.status,(.conclusion // ""),.head_sha,.created_at,.html_url] | @tsv'
