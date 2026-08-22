@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 1
+          fetch-depth: 2
 
       - name: Checkout exact Engine Stage 5-6 candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,7 +35,7 @@ jobs:
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
-          fetch-depth: 1
+          fetch-depth: 2
 
       - name: Verify exact Engine checkout
         working-directory: engine
