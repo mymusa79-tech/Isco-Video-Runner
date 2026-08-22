@@ -1,0 +1,74 @@
+name: Diagnose Editorial Room Stage 4 Dirty Tree
+
+on:
+  push:
+    branches: [verify/editorial-room-channel-binding]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Runner verifier branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout private Engine editorial branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: feature/editorial-room-channel-binding
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Stage 4 regression
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest -q \
+            tests.test_editorial_room \
+            tests.test_resilient_planner_persona_binding \
+            tests.test_sensitive_visual_planning_prompt
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests -q
+
+      - name: Reveal post-test working tree exactly
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          echo '=== git status --porcelain=v1 ==='
+          git status --porcelain=v1
+          echo '=== tracked changed names ==='
+          git diff --name-status
+          echo '=== tracked diff stat ==='
+          git diff --stat
+          echo '=== tracked diff ==='
+          git diff -- . ':(exclude)*.pyc'
+          echo '=== untracked files ==='
+          git ls-files --others --exclude-standard
+
+      - name: Fail closed if tests mutated tracked files
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          test -z "$(git diff --name-only)"
