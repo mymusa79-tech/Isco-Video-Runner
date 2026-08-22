@@ -120,3 +120,5 @@ class TelegramControlSecurityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# CI retrigger after live-tree reconciliation; no production behavior change.
