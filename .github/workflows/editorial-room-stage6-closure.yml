@@ -3,6 +3,8 @@ name: Editorial Room Stage 6 Closure
 on:
   push:
     branches: ["verify/editorial-room-stage5-9-current-main"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
