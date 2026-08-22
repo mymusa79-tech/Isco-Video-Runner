@@ -1,0 +1,376 @@
+name: Editorial Room Stage 8 Certify
+
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 342cbbe2dc49bc917028b8c7dc976500508b7df7
+
+jobs:
+  certify-stage8:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact Stage 7 Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Apply Stage 8 candidate
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          editorial_learning = '''from __future__ import annotations
+
+from .editorial_room import EditorialContractError, intent_from_dict
+from .models import ProductionPlan
+
+_FORBIDDEN_AUTHORITIES = ("safety", "factuality", "rights", "cultural")
+_SHORT_FORMATS = {"moment", "short"}
+
+
+def editorial_learning_identity(plan: ProductionPlan) -> dict:
+    """Return a deterministic, soft-only EditorialIntent learning identity."""
+    data = plan.editorial_intent
+    if not isinstance(data, dict) or not data:
+        raise EditorialContractError("editorial_intent_missing")
+    supplied_fingerprint = str(data.get("editorial_fingerprint", "")).strip()
+    if not supplied_fingerprint:
+        raise EditorialContractError("editorial_intent_fingerprint_missing")
+    intent = intent_from_dict(data)
+    if supplied_fingerprint != intent.editorial_fingerprint:
+        raise EditorialContractError("editorial_intent_fingerprint_mismatch")
+    kind = "short" if str(plan.format).strip().lower() in _SHORT_FORMATS else "long"
+    return {
+        "schema_version": 1,
+        "editorial_fingerprint": intent.editorial_fingerprint,
+        "persona_version": intent.persona_version,
+        "cohort_kind": kind,
+        "cohort_id": f"{kind}:{intent.editorial_fingerprint}",
+        "policy": "soft_only",
+        "automatic_policy_influence": False,
+        "forbidden_authorities": list(_FORBIDDEN_AUTHORITIES),
+        "intent_contract": {
+            "viewer_promise": intent.viewer_promise,
+            "editorial_turn": intent.editorial_turn,
+            "earned_payoff": intent.earned_payoff,
+        },
+    }
+
+
+def validate_editorial_learning_identity(identity: dict, *, format_hint: str | None = None) -> dict:
+    if not isinstance(identity, dict):
+        raise ValueError("editorial learning identity must be a dict")
+    fingerprint = str(identity.get("editorial_fingerprint", "")).strip()
+    persona_version = str(identity.get("persona_version", "")).strip()
+    cohort_kind = str(identity.get("cohort_kind", "")).strip().lower()
+    cohort_id = str(identity.get("cohort_id", "")).strip()
+    if not fingerprint or not persona_version or cohort_kind not in {"long", "short"}:
+        raise ValueError("invalid editorial learning identity")
+    if cohort_id != f"{cohort_kind}:{fingerprint}":
+        raise ValueError("editorial learning cohort mismatch")
+    if identity.get("policy") != "soft_only" or identity.get("automatic_policy_influence") is not False:
+        raise ValueError("editorial learning must remain soft-only")
+    forbidden = tuple(str(x) for x in identity.get("forbidden_authorities", []))
+    if forbidden != _FORBIDDEN_AUTHORITIES:
+        raise ValueError("editorial learning authority boundary mismatch")
+    if format_hint:
+        expected = "short" if format_hint.strip().lower() in _SHORT_FORMATS else "long"
+        if cohort_kind != expected:
+            raise ValueError("editorial learning format cohort mismatch")
+    contract = identity.get("intent_contract", {})
+    if not isinstance(contract, dict) or any(not str(contract.get(k, "")).strip() for k in ("viewer_promise", "editorial_turn", "earned_payoff")):
+        raise ValueError("editorial intent fulfillment contract missing")
+    return identity
+'''
+          Path('src/isco_video_agent/editorial_learning.py').write_text(editorial_learning, encoding='utf-8')
+
+          p = Path('src/isco_video_agent/learning.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''def learning_context(format: str | None = None) -> dict:\n'''
+          new = '''def learning_context(format: str | None = None, *, editorial_identity: dict | None = None) -> dict:\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+
+          marker = '''\ndef record_feedback(\n'''
+          insert = '''\ndef record_editorial_identity(output: str, editorial_identity: dict) -> bool:\n    """Attach soft-only editorial cohort metadata to an already accepted production."""\n    from .editorial_learning import validate_editorial_learning_identity\n\n    target = output.strip()\n    if not target:\n        return False\n    identity = validate_editorial_learning_identity(editorial_identity)\n    data = load_history()\n    videos = data.get("videos", [])\n    if not isinstance(videos, list):\n        return False\n    changed = False\n    for item in reversed(videos):\n        if (\n            isinstance(item, dict)\n            and str(item.get("output", "")) == target\n            and item.get("release_status") == "accepted_after_final_critic"\n        ):\n            item["editorial_learning"] = {\n                "schema_version": identity["schema_version"],\n                "editorial_fingerprint": identity["editorial_fingerprint"],\n                "persona_version": identity["persona_version"],\n                "cohort_kind": identity["cohort_kind"],\n                "cohort_id": identity["cohort_id"],\n                "policy": "soft_only",\n                "automatic_policy_influence": False,\n                "forbidden_authorities": list(identity["forbidden_authorities"]),\n            }\n            changed = True\n            break\n    if changed:\n        _save_history(data)\n    return changed\n\n\n'''
+          assert s.count(marker) == 1
+          s = s.replace(marker, insert + marker, 1)
+
+          old_return = '''    return {\n        "policy": "Learning may tune creative preferences only. It cannot override cultural, factuality, rights, monetization, security, user-approval, or zero-cost gates.",\n        "reinforce": reinforce[-20:],\n        "avoid": avoid[-20:],\n        "recent_human_feedback": recent_notes,\n        "recent_metrics": metrics,\n    }\n'''
+          new_return = '''    result = {\n        "policy": "Learning may tune creative preferences only. It cannot override cultural, factuality, rights, monetization, security, user-approval, or zero-cost gates.",\n        "reinforce": reinforce[-20:],\n        "avoid": avoid[-20:],\n        "recent_human_feedback": recent_notes,\n        "recent_metrics": metrics,\n    }\n    if editorial_identity is not None:\n        from .editorial_learning import validate_editorial_learning_identity\n\n        identity = validate_editorial_learning_identity(editorial_identity, format_hint=requested or None)\n        cohort_id = identity["cohort_id"]\n        videos = data.get("videos", [])\n        cohort_history = []\n        if isinstance(videos, list):\n            cohort_history = [\n                dict(item.get("editorial_learning", {}))\n                for item in videos\n                if isinstance(item, dict)\n                and item.get("release_status") == "accepted_after_final_critic"\n                and isinstance(item.get("editorial_learning"), dict)\n                and item["editorial_learning"].get("cohort_id") == cohort_id\n            ][-6:]\n        result["editorial_identity"] = {\n            "schema_version": identity["schema_version"],\n            "editorial_fingerprint": identity["editorial_fingerprint"],\n            "persona_version": identity["persona_version"],\n            "cohort_kind": identity["cohort_kind"],\n            "cohort_id": cohort_id,\n            "policy": "soft_only",\n            "automatic_policy_influence": False,\n            "forbidden_authorities": list(identity["forbidden_authorities"]),\n        }\n        result["editorial_cohort_history"] = cohort_history\n        result["editorial_intent_contract"] = dict(identity["intent_contract"])\n    return result\n'''
+          assert s.count(old_return) == 1
+          s = s.replace(old_return, new_return, 1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('src/isco_video_agent/final_critic.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''_CREATIVE_LEARNING_KEYS = (\n    "policy",\n    "reinforce",\n    "avoid",\n    "recent_human_feedback",\n)\n'''
+          new = '''_CREATIVE_LEARNING_KEYS = (\n    "policy",\n    "reinforce",\n    "avoid",\n    "recent_human_feedback",\n    "editorial_identity",\n    "editorial_cohort_history",\n    "editorial_intent_contract",\n)\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+          old = '''- LEARNING_CONTEXT may tune creative preference only; it can NEVER override safety, cultural, factuality, rights,\n  monetization, approval, or zero-cost rules.\n- VISUAL_AUDITS_SELECTED_ONLY contains only footage that is actually in the final cut: exactly one primary winner per\n'''
+          new = '''- LEARNING_CONTEXT may tune creative preference only; it can NEVER override safety, cultural, factuality, rights,\n  monetization, approval, or zero-cost rules.\n- If EDITORIAL_INTENT_CONTRACT is present inside LEARNING_CONTEXT, it is the locked creative promise for this episode.\n  Verify that the final narration actually fulfills viewer_promise, visibly executes editorial_turn, and earns earned_payoff.\n  Put any material failure to fulfill that contract in critical_issues. Do not invent a new promise.\n- VISUAL_AUDITS_SELECTED_ONLY contains only footage that is actually in the final cut: exactly one primary winner per\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+          old = '''    return {\n        "status": status,\n        "hard_blocks": hard_blocks,\n        "model_review": model_review,\n'''
+          new = '''    intent_contract = creative_learning_context.get("editorial_intent_contract", {})\n    identity = creative_learning_context.get("editorial_identity", {})\n    return {\n        "status": status,\n        "hard_blocks": hard_blocks,\n        "model_review": model_review,\n        "editorial_intent_fulfillment": {\n            "policy": "same_final_release_critic_call",\n            "evaluated": bool(intent_contract),\n            "editorial_fingerprint": str(identity.get("editorial_fingerprint", "")),\n            "persona_version": str(identity.get("persona_version", "")),\n            "viewer_promise": str(intent_contract.get("viewer_promise", "")),\n            "editorial_turn": str(intent_contract.get("editorial_turn", "")),\n            "earned_payoff": str(intent_contract.get("earned_payoff", "")),\n            "failure_channel": "model_review.critical_issues",\n            "additional_model_calls": 0,\n        },\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('src/isco_video_agent/production_pipeline.py')
+          s = p.read_text(encoding='utf-8')
+          old = '''from .final_critic import audit_final_release\nfrom .gold_finalizer import finalize_gold_output\nfrom .learning import learning_context, mark_production_accepted, remove_production_record\n'''
+          new = '''from .editorial_learning import editorial_learning_identity\nfrom .final_critic import audit_final_release\nfrom .gold_finalizer import finalize_gold_output\nfrom .learning import learning_context, mark_production_accepted, record_editorial_identity, remove_production_record\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+          old = '''    reports = report_dir or output_dir\n    try:\n        reports.mkdir(parents=True, exist_ok=True)\n'''
+          new = '''    reports = report_dir or output_dir\n    try:\n        editorial_identity = editorial_learning_identity(plan)\n        reports.mkdir(parents=True, exist_ok=True)\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+          old = '''            opening_visual_audit=opening_visual_audit,\n            learning_context=learning_context(plan.format),\n            model=content_model,\n'''
+          new = '''            opening_visual_audit=opening_visual_audit,\n            learning_context=learning_context(plan.format, editorial_identity=editorial_identity),\n            model=content_model,\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+          old = '''    )\n\n    # Read-only YouTube learning is deliberately last: it cannot affect planning,\n'''
+          new = '''    )\n\n    # Editorial fingerprint/cohort tracking is soft-only metadata recorded after acceptance.\n    try:\n        record_editorial_identity(output_key, editorial_learning_identity(plan))\n    except Exception:\n        pass\n\n    # Read-only YouTube learning is deliberately last: it cannot affect planning,\n'''
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+
+          tests = '''from __future__ import annotations
+
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from isco_video_agent.anti_repetition import append_history
+from isco_video_agent.editorial_learning import editorial_learning_identity
+from isco_video_agent.editorial_room import EditorialContractError, make_editorial_intent
+from isco_video_agent.final_critic import audit_final_release
+from isco_video_agent.learning import learning_context, mark_production_accepted, record_editorial_identity
+from isco_video_agent.models import ProductionPlan, ScriptSection
+from isco_video_agent.production_pipeline import _run_final_critic
+
+
+def _intent():
+    return make_editorial_intent(
+        editorial_thesis="العودة بعد السقوط تُبنى من خطوة صغيرة قابلة للتكرار.",
+        viewer_starting_belief="المشاهد يظن أن السقوط يعني أن عليه العودة دفعة واحدة.",
+        hidden_assumption="الافتراض الخفي أن الخطوات الصغيرة لا تُحسب كعودة حقيقية.",
+        editorial_turn="بدل انتظار قفزة كبيرة، ابدأ بخطوة صغيرة قابلة للتنفيذ اليوم.",
+        stakes="انتظار العودة الكاملة قد يطيل التوقف ويضعف الثقة.",
+        viewer_promise="ستتعلم كيف تبدأ العودة بعد السقوط بخطوة صغيرة قابلة للتنفيذ اليوم.",
+        evidence_boundaries=("لا نقدم علاجًا طبيًا.", "لا نعمم مسارًا واحدًا على الجميع."),
+        earned_payoff="اختر خطوة صغيرة قابلة للتنفيذ اليوم وابدأ منها عودتك.",
+    )
+
+
+def _plan(fmt="film"):
+    intent = _intent()
+    return ProductionPlan(
+        topic="العودة بعد السقوط",
+        pillar="act",
+        format=fmt,
+        hook="السقوط لا يطلب منك قفزة.",
+        title_options=["كيف تبدأ العودة؟"],
+        thumbnail_concepts=["خطوة أولى"],
+        sections=[ScriptSection(id="s1", narration="ابدأ بخطوة صغيرة قابلة للتنفيذ اليوم ثم كررها.", visual_query="single step")],
+        cta="ابدأ اليوم",
+        closing_payoff="خطوة واحدة اليوم تكفي لتبدأ.",
+        editorial_intent=intent.to_dict(),
+    )
+
+
+def _good_review():
+    return {
+        "human_feel": 0.95,
+        "language_quality": 0.95,
+        "opening_strength": 0.95,
+        "narrative_progression": 0.95,
+        "cultural_fit": 0.98,
+        "originality": 0.95,
+        "monetization_safety": 0.98,
+        "critical_issues": [],
+        "improvements": [],
+        "summary": "fulfilled",
+    }
+
+
+class EditorialStage8Tests(unittest.TestCase):
+    def test_long_and_short_cohorts_are_separate_and_soft_only(self):
+        long_id = editorial_learning_identity(_plan("film"))
+        short_id = editorial_learning_identity(_plan("moment"))
+        self.assertEqual(long_id["cohort_kind"], "long")
+        self.assertEqual(short_id["cohort_kind"], "short")
+        self.assertTrue(long_id["cohort_id"].startswith("long:"))
+        self.assertTrue(short_id["cohort_id"].startswith("short:"))
+        self.assertEqual(long_id["policy"], "soft_only")
+        self.assertIs(long_id["automatic_policy_influence"], False)
+        self.assertEqual(long_id["forbidden_authorities"], ["safety", "factuality", "rights", "cultural"])
+
+    def test_tampered_fingerprint_fails_closed(self):
+        plan = _plan()
+        plan.editorial_intent = dict(plan.editorial_intent)
+        plan.editorial_intent["editorial_fingerprint"] = "0" * 64
+        with self.assertRaises(EditorialContractError):
+            editorial_learning_identity(plan)
+
+    def test_learning_context_returns_only_same_editorial_cohort_without_policy_influence(self):
+        with tempfile.TemporaryDirectory() as td:
+            state = Path(td) / "history.json"
+            with patch.dict(os.environ, {"ISCO_HISTORY_PATH": str(state)}, clear=False):
+                long_plan = _plan("film")
+                short_plan = _plan("moment")
+                long_id = editorial_learning_identity(long_plan)
+                short_id = editorial_learning_identity(short_plan)
+                append_history({"topic": "long", "output": "output/long/final.mp4"})
+                self.assertTrue(mark_production_accepted("output/long/final.mp4"))
+                self.assertTrue(record_editorial_identity("output/long/final.mp4", long_id))
+                append_history({"topic": "short", "output": "output/short/final.mp4"})
+                self.assertTrue(mark_production_accepted("output/short/final.mp4"))
+                self.assertTrue(record_editorial_identity("output/short/final.mp4", short_id))
+                ctx = learning_context("film", editorial_identity=long_id)
+                self.assertEqual(len(ctx["editorial_cohort_history"]), 1)
+                self.assertEqual(ctx["editorial_cohort_history"][0]["cohort_kind"], "long")
+                self.assertEqual(ctx["reinforce"], [])
+                self.assertEqual(ctx["avoid"], [])
+                self.assertIn("cannot override", ctx["policy"])
+
+    def test_final_critic_uses_same_call_for_locked_intent_fulfillment(self):
+        plan = _plan()
+        identity = editorial_learning_identity(plan)
+        ctx = learning_context(plan.format, editorial_identity=identity)
+        visual = [{"section": "s1", "is_selected": True, "status": "pass"}]
+        with patch("isco_video_agent.final_critic.json_text", return_value=_good_review()) as model_call:
+            result = audit_final_release(
+                "key",
+                plan=plan,
+                quality={"duration_ok": True, "audio_ok": True},
+                visual_audits=visual,
+                rights_manifest={"visuals": [{"provider": "pexels"}]},
+                monetization_check={"status": "PASS_WITH_UPLOAD_ACTIONS"},
+                opening_visual_audit={"status": "pass"},
+                learning_context=ctx,
+                model="model",
+            )
+        self.assertEqual(model_call.call_count, 1)
+        prompt = model_call.call_args.args[1]
+        self.assertIn(identity["intent_contract"]["viewer_promise"], prompt)
+        self.assertIn(identity["intent_contract"]["editorial_turn"], prompt)
+        self.assertIn(identity["intent_contract"]["earned_payoff"], prompt)
+        self.assertIn(identity["editorial_fingerprint"], prompt)
+        fulfillment = result["editorial_intent_fulfillment"]
+        self.assertTrue(fulfillment["evaluated"])
+        self.assertEqual(fulfillment["additional_model_calls"], 0)
+        self.assertEqual(fulfillment["failure_channel"], "model_review.critical_issues")
+
+    def test_enforcing_pipeline_rejects_invalid_intent_before_any_provider_call(self):
+        plan = _plan()
+        plan.editorial_intent = {}
+        with tempfile.TemporaryDirectory() as td:
+            with patch("isco_video_agent.production_pipeline._ledger_call_status") as provider_call:
+                with self.assertRaises(EditorialContractError):
+                    _run_final_critic(
+                        output_dir=Path(td),
+                        plan=plan,
+                        gemini="key",
+                        content_model="model",
+                        release_mode="enforce",
+                    )
+                provider_call.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()
+'''
+          Path('tests/test_editorial_stage8.py').write_text(tests, encoding='utf-8')
+          PY
+          python -m py_compile src/isco_video_agent/editorial_learning.py src/isco_video_agent/learning.py src/isco_video_agent/final_critic.py src/isco_video_agent/production_pipeline.py tests/test_editorial_stage8.py
+          git diff --check
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime and ffmpeg
+        working-directory: engine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Stage 8 contracts
+        working-directory: engine
+        run: python -m unittest tests.test_editorial_stage8 -v
+
+      - name: Stage 5-7 and Final Critic compatibility
+        working-directory: engine
+        run: >-
+          python -m unittest
+          tests.test_editorial_adapters tests.test_editorial_stage6 tests.test_editorial_stage7
+          tests.test_human_editorial_intent tests.test_learning_and_critic tests.test_learning_metrics_source
+          tests.test_final_critic_provenance_batch tests.test_final_critic_selected_visuals
+          tests.test_gold_finalizer tests.test_gold_shadow_phase2a
+          tests.test_packaging_identity_integrity_p1 tests.test_thumbnail_packaging_contract -q
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Stage 8 exact scope review
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -- state/history.json 2>/dev/null || true
+          git diff --check
+          mapfile -t changed < <(git status --porcelain --untracked-files=all | sed -E 's/^.. //')
+          allowed=(src/isco_video_agent/editorial_learning.py src/isco_video_agent/learning.py src/isco_video_agent/final_critic.py src/isco_video_agent/production_pipeline.py tests/test_editorial_stage8.py)
+          test "${#changed[@]}" -eq 5
+          for path in "${changed[@]}"; do
+            ok=false
+            for want in "${allowed[@]}"; do [[ "$path" == "$want" ]] && ok=true; done
+            $ok || { echo "unexpected Stage 8 path: $path" >&2; exit 1; }
+          done
+
+      - name: Prepare verified Stage 8 artifact
+        working-directory: engine
+        run: |
+          mkdir -p "$RUNNER_TEMP/stage8/src/isco_video_agent" "$RUNNER_TEMP/stage8/tests"
+          cp src/isco_video_agent/editorial_learning.py src/isco_video_agent/learning.py src/isco_video_agent/final_critic.py src/isco_video_agent/production_pipeline.py "$RUNNER_TEMP/stage8/src/isco_video_agent/"
+          cp tests/test_editorial_stage8.py "$RUNNER_TEMP/stage8/tests/"
+          git diff > "$RUNNER_TEMP/stage8/stage8.patch"
+
+      - name: Upload verified Stage 8 candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage8-verified-candidate
+          path: ${{ runner.temp }}/stage8
+          retention-days: 1
