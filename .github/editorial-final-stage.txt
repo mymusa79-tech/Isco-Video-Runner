@@ -1,0 +1,4 @@
+stage=6
+engine_branch=feature/editorial-room-stage5-9-final-current-main
+engine_head=2a8d246d03bb5247da23b3c7b7e97e995b4619bf
+production_run_allowed=false
