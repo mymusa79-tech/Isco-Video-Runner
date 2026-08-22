@@ -37,6 +37,38 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             },
         }
 
+    def _source_plan(self) -> dict:
+        return {
+            "topic": "موضوع الحلقة",
+            "format": "film",
+            "sections": [
+                {
+                    "id": "s1",
+                    "key_point": "الفكرة الأولى",
+                    "on_screen_text": "أنت تؤجل البداية",
+                    "visual_query": "person standing at starting line sunrise",
+                    "emotion": "curious",
+                    "narration": "أحيانًا لا يكون ما ينقصك هو الوقت. أنت تنتظر شعورًا كاملًا بالاستعداد قبل أن تبدأ. ابدأ بما تملكه الآن ثم صحح المسار وأنت تتحرك.",
+                },
+                {
+                    "id": "s2",
+                    "key_point": "الفكرة الثانية",
+                    "on_screen_text": "الكمال يؤخر الحركة",
+                    "visual_query": "hands erasing repeated notes desk",
+                    "emotion": "reflective",
+                    "narration": "السعي للكمال يبدو جادًا لكنه قد يصبح طريقة مؤدبة للتأجيل. كل تعديل قبل التجربة يبقى افتراضًا. التجربة الصغيرة تعطيك معلومة لا يمنحها التفكير وحده.",
+                },
+                {
+                    "id": "s3",
+                    "key_point": "الفكرة الثالثة",
+                    "on_screen_text": "خطوة صغيرة تغيّر المسار",
+                    "visual_query": "single step on quiet road morning",
+                    "emotion": "hopeful",
+                    "narration": "الحركة الصغيرة لا تبدو بطولية لكنها تكسر الجمود. عندما تفعل شيئًا واضحًا اليوم يصبح الغد مبنيًا على دليل لا على أمنية. اجعل الخطوة قابلة للتكرار.",
+                },
+            ],
+        }
+
     def _plan(self, jobs=None, *, source_plan_sha: str | None = None) -> dict:
         jobs = jobs or ["الفكرة الأولى", "الفكرة الثانية", "الفكرة الثالثة"]
         return {
@@ -60,22 +92,7 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
 
     def _write_source_and_sibling_plan(self, root: Path, jobs=None) -> Path:
         source_plan = root / "plan.json"
-        source_plan.write_text(
-            json.dumps(
-                {
-                    "topic": "موضوع الحلقة",
-                    "format": "film",
-                    "sections": [
-                        {"key_point": "الفكرة الأولى"},
-                        {"key_point": "الفكرة الثانية"},
-                        {"key_point": "الفكرة الثالثة"},
-                    ],
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+        source_plan.write_text(json.dumps(self._source_plan(), ensure_ascii=False, indent=2), encoding="utf-8")
         plan_path = root / "sibling-short-plan.json"
         plan_path.write_text(
             json.dumps(self._plan(jobs, source_plan_sha=sibling._sha256_file(source_plan)), ensure_ascii=False, indent=2),
@@ -102,8 +119,8 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
         )
         return root
 
-    def test_child_requests_inherit_parent_bundle_without_persisted_dispatch_right(self):
-        requests = sibling.build_sibling_requests(self._parent(), self._plan())
+    def test_child_requests_inherit_parent_and_exact_source_section(self):
+        requests = sibling.build_sibling_requests(self._parent(), self._plan(), self._source_plan())
         self.assertEqual(len(requests), 3)
         self.assertEqual([item["sibling_index"] for item in requests], [1, 2, 3])
         self.assertEqual(len({item["approved_topic"] for item in requests}), 3)
@@ -116,6 +133,13 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertEqual(len(request["source_sibling_plan_sha256"]), 64)
             self.assertEqual(request["youtube_publish_mode"], "manual_in_youtube_studio")
             self.assertEqual(request["short_admission"]["evidence_source"], "approved_parent_candidate_metrics")
+            excerpt = request["source_episode_excerpt"]
+            self.assertEqual(excerpt["source_key_point"], request["approved_topic"])
+            self.assertTrue(excerpt["source_narration"])
+            self.assertEqual(len(excerpt["source_narration_sha256"]), 64)
+            self.assertEqual(request["source_short_plan"]["source_kind"], "long_episode")
+            self.assertEqual(request["source_short_plan"]["semantic_job"], request["approved_topic"])
+            self.assertGreaterEqual(len(request["source_short_plan"]["beats"]), 2)
             self.assertEqual(request["request_sha256"], sibling._canonical_hash({k: v for k, v in request.items() if k != "request_sha256"}))
 
     def test_parent_candidate_must_pass_short_topic_admission(self):
@@ -123,23 +147,27 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
         for key in ("hook_potential", "retention_potential", "emotional_pull", "audience_fit", "title_thumbnail_potential", "production_feasibility"):
             parent["candidate"][key] = 0.2
         with self.assertRaisesRegex(RuntimeError, "not strong enough"):
-            sibling.build_sibling_requests(parent, self._plan())
+            sibling.build_sibling_requests(parent, self._plan(), self._source_plan())
 
     def test_plan_must_have_two_to_three_distinct_jobs(self):
         with self.assertRaisesRegex(RuntimeError, "2–3"):
-            sibling.build_sibling_requests(self._parent(), self._plan(["واحدة"]))
+            sibling.build_sibling_requests(self._parent(), self._plan(["واحدة"]), self._source_plan())
         with self.assertRaisesRegex(RuntimeError, "distinct"):
-            sibling.build_sibling_requests(self._parent(), self._plan(["نفس الفكرة", "نفس الفكرة"]))
+            sibling.build_sibling_requests(self._parent(), self._plan(["نفس الفكرة", "نفس الفكرة"]), self._source_plan())
 
     def test_sibling_plan_requires_parent_request_and_long_plan_hashes(self):
         plan = self._plan()
         plan["source_request_sha256"] = "other"
         with self.assertRaisesRegex(RuntimeError, "parent request hash mismatch"):
-            sibling.build_sibling_requests(self._parent(), plan)
+            sibling.build_sibling_requests(self._parent(), plan, self._source_plan())
         plan = self._plan()
         plan["source_production_plan_sha256"] = "bad"
         with self.assertRaisesRegex(RuntimeError, "production-plan hash"):
-            sibling.build_sibling_requests(self._parent(), plan)
+            sibling.build_sibling_requests(self._parent(), plan, self._source_plan())
+
+    def test_job_must_map_to_exactly_one_real_long_section(self):
+        with self.assertRaisesRegex(RuntimeError, "exactly one"):
+            sibling.build_sibling_requests(self._parent(), self._plan(["غير موجود", "الفكرة الثانية"]), self._source_plan())
 
     def test_orchestration_executes_sequentially_and_validates_all_children(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -155,7 +183,7 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertEqual(calls, ["req-parent-s1", "req-parent-s2", "req-parent-s3"])
             self.assertEqual(len(completed), 3)
             self.assertTrue(all(item["delivery_allowed"] for item in completed))
-            self.assertTrue(all(len(item["source_production_plan_sha256"]) == 64 for item in completed))
+            self.assertEqual([item["source_section_id"] for item in completed], ["s1", "s2", "s3"])
 
     def test_orchestration_blocks_if_long_plan_changes_after_sibling_planning(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -196,6 +224,7 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
                     "request_sha256": f"sha-{index}",
                     "approved_topic": job,
                     "source_semantic_job": job,
+                    "source_episode_excerpt": {"source_section_id": f"s{index}"},
                     "source_production_plan_sha256": "a" * 64,
                     "source_sibling_plan_sha256": "b" * 64,
                 }
@@ -205,7 +234,7 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertEqual([item["video"] for item in staged], ["short-01.mp4", "short-02.mp4"])
             self.assertTrue((parent / "short-01.mp4").is_file())
             self.assertTrue((parent / "short-02-intelligence.json").is_file())
-            self.assertTrue(all(item["source_production_plan_sha256"] == "a" * 64 for item in staged))
+            self.assertEqual([item["source_section_id"] for item in staged], ["s1", "s2"])
 
 
 if __name__ == "__main__":
