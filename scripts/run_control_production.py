@@ -23,6 +23,14 @@ def _canonical_request_hash(request: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def validate_control_request(request: dict[str, Any], expected_sha256: str) -> dict[str, Any]:
     if not isinstance(request, dict):
         raise RuntimeError("Control request must be an object")
@@ -114,6 +122,7 @@ def write_sibling_short_plan(output_dir: Path, request: dict[str, Any]) -> Path 
         "schema_version": 1,
         "source_request_id": request.get("request_id"),
         "source_request_sha256": request.get("request_sha256"),
+        "source_production_plan_sha256": _sha256_file(plan_path),
         "source_topic": request.get("approved_topic"),
         "short_count": len(selected),
         "semantic_jobs": [
