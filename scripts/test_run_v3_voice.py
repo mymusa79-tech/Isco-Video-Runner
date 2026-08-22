@@ -161,6 +161,7 @@ class _MainPatchMixin:
             "install_product_proof_fallback",
             "install_voice_mesh",
             "install_voice_identity_observer",
+            "install_m7_live_binding",
             "start_progress",
             "install_progress_hooks",
         ]
