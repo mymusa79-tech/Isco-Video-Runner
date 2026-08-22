@@ -104,7 +104,7 @@ jobs:
 
       - name: Run Gold Phase 2B 3 4 plus Packaging Runner regressions
         env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}/scripts:${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
           python -m unittest \
@@ -162,7 +162,7 @@ jobs:
 
       - name: Run full Runner regression suite
         env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}/scripts:${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
           mapfile -t test_modules < <(
@@ -195,7 +195,7 @@ jobs:
 
       - name: Verify safety authority and isolation invariants
         env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}/scripts:${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
           python - <<'PY'
