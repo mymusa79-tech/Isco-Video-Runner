@@ -98,6 +98,7 @@ jobs:
           python -m pip check
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
+          python -m pip install 'piper-tts==1.4.2'
 
       - name: Verify exact Piper voice artifact integrity
         working-directory: engine
