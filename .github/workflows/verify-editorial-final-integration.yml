@@ -44,25 +44,18 @@ jobs:
         working-directory: engine
         run: test "$(git rev-parse HEAD)" = "$EDITORIAL_ENGINE_SHA"
 
-      - name: Apply exact Stage 8 candidate from dedicated verifier
+      - name: Apply indentation-safe Stage 8 candidate
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          src = Path('.github/workflows/editorial-room-stage8-certify.yml').read_text(encoding='utf-8')
-          marker = '      - name: Apply Stage 8 candidate\n'
-          start = src.index(marker)
-          run_marker = '        run: |\n'
-          start = src.index(run_marker, start) + len(run_marker)
-          next_step = src.find('      - name:', start)
-          end = len(src) if next_step < 0 else next_step
-          lines = src[start:end].splitlines()
-          block = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines).rstrip() + '\n'
-          Path('/tmp/apply-stage8.sh').write_text('set -euo pipefail\n' + block, encoding='utf-8')
-          PY
+          python .github/scripts/apply-editorial-stage8.py engine
+          python -m py_compile \
+            engine/src/isco_video_agent/editorial_learning.py \
+            engine/src/isco_video_agent/learning.py \
+            engine/src/isco_video_agent/final_critic.py \
+            engine/src/isco_video_agent/production_pipeline.py \
+            engine/tests/test_editorial_stage8.py
           cd engine
-          bash /tmp/apply-stage8.sh
           git diff --check
 
       - name: Set up Python
