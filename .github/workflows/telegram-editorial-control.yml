@@ -29,7 +29,7 @@ jobs:
 
       - name: Restore encrypted control-panel state
         env:
-          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$STATE_ENCRYPTION_KEY"
@@ -142,7 +142,7 @@ jobs:
       - name: Persist encrypted control-panel state
         if: always()
         env:
-          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN }}
         run: |
           set -euo pipefail
           test -n "$STATE_ENCRYPTION_KEY"
