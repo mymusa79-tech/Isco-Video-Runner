@@ -13,6 +13,7 @@ from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.attempt9_schema_normalizer import install_attempt9_schema_normalizer
 from scripts.brand_anchor_guard import install_brand_anchor_guard
+from scripts.cinematic_v2_runtime_installer import install_cinematic_v2_runtime
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
@@ -193,6 +194,7 @@ def main() -> None:
     install_product_proof_fallback()
     install_voice_mesh()
     install_voice_identity_observer()
+    install_cinematic_v2_runtime()
     start_progress()
     install_progress_hooks()
 
