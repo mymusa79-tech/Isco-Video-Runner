@@ -477,7 +477,7 @@ jobs:
             --run-number "$GITHUB_RUN_NUMBER"
 
       - name: Notify Telegram
-        if: always()
+        if: always() && steps.validate_brief.outcome == 'success'
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -607,3 +607,11 @@ jobs:
               echo "Telegram sendMessage failed"
             fi
           fi
+
+      - name: Remove plaintext production secrets and state
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/isco-secrets" || true
+          rm -rf "$RUNNER_TEMP/isco-state" || true
+          rm -f "$RUNNER_TEMP/isco-request.json" || true
+          rm -f "$RUNNER_TEMP/piper-preflight.wav" || true
