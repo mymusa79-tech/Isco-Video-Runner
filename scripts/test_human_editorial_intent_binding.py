@@ -150,6 +150,47 @@ class HumanEditorialIntentRunnerBindingTests(unittest.TestCase):
             binding.orchestrator.append_history = original_append
             binding.recent_videos = original_recent
 
+    def test_scope_is_safe_noop_when_exact_hei_module_is_absent(self) -> None:
+        original_import = binding.import_module
+        original_write = binding.engine_m7._write_timeline
+        original_append = binding.orchestrator.append_history
+
+        def missing_hei(name: str):
+            if name == binding._HUMAN_EDITORIAL_INTENT_MODULE:
+                raise ModuleNotFoundError(
+                    f"No module named '{binding._HUMAN_EDITORIAL_INTENT_MODULE}'",
+                    name=binding._HUMAN_EDITORIAL_INTENT_MODULE,
+                )
+            return original_import(name)
+
+        try:
+            binding.import_module = missing_hei
+            with binding._human_editorial_intent_scope():
+                self.assertIs(binding.engine_m7._write_timeline, original_write)
+                self.assertIs(binding.orchestrator.append_history, original_append)
+        finally:
+            binding.import_module = original_import
+
+        self.assertIs(binding.engine_m7._write_timeline, original_write)
+        self.assertIs(binding.orchestrator.append_history, original_append)
+
+    def test_loader_does_not_hide_missing_transitive_dependency(self) -> None:
+        original_import = binding.import_module
+
+        def missing_dependency(name: str):
+            raise ModuleNotFoundError(
+                "No module named 'editorial_dependency'",
+                name="editorial_dependency",
+            )
+
+        try:
+            binding.import_module = missing_dependency
+            with self.assertRaises(ModuleNotFoundError) as caught:
+                binding._load_human_editorial_intent()
+            self.assertEqual(caught.exception.name, "editorial_dependency")
+        finally:
+            binding.import_module = original_import
+
     def test_scope_restores_engine_and_history_hooks(self) -> None:
         original_write = binding.engine_m7._write_timeline
         original_append = binding.orchestrator.append_history
