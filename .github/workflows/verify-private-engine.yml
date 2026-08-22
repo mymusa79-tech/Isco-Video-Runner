@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 45
     env:
       ENGINE_CANDIDATE_SHA: 09239088c92c0e411a488f9636092fca8b54c229
-      RUNNER_CANDIDATE_SHA: 8a744052817a04455a3975f3e3e888317df54da1
+      RUNNER_CANDIDATE_SHA: cf4539a69d000b9b9dff6b1ab631c174da022413
     steps:
       - name: Checkout verifier carrier
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
