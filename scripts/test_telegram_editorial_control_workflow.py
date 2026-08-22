@@ -12,6 +12,7 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn('CONTROL_PLANE_PRODUCTION_ENABLED: "false"', self.text)
         self.assertNotIn("workflow run produce-resilient-v4", self.text)
         self.assertNotIn("gh workflow run", self.text)
+        self.assertNotIn("run_control_production.py", self.text)
 
     def test_polling_is_paused_while_production_v4_is_active(self):
         self.assertIn("produce-resilient-v4.yml/runs?per_page=20", self.text)
@@ -22,20 +23,21 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn("Prime Telegram offset on first activation", self.text)
         self.assertIn("historical updates ignored", self.text)
 
-    def test_control_state_is_encrypted_at_rest(self):
+    def test_control_state_is_encrypted_at_rest_without_new_required_secret(self):
         self.assertIn("state/control-panel.json.enc", self.text)
         self.assertIn("openssl enc -aes-256-cbc -salt -pbkdf2", self.text)
-        self.assertIn("STATE_ENCRYPTION_KEY", self.text)
+        self.assertIn("secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN", self.text)
         self.assertNotIn("state/control-panel.json\n", self.text)
 
     def test_engine_is_only_checked_out_when_research_is_pending(self):
         self.assertIn("if: steps.poll.outputs.needs_engine == 'true'", self.text)
         self.assertIn("860b61b0f99b285cc2917cba079e29bfa9e2c119", self.text)
 
-    def test_schedule_is_dashboard_poll_only(self):
+    def test_schedule_runs_simple_client_surface_only(self):
         self.assertIn('cron: "*/5 * * * *"', self.text)
-        self.assertIn("python scripts/telegram_control_panel.py poll", self.text)
-        self.assertNotIn("run_control_production.py", self.text)
+        self.assertIn("python scripts/telegram_control_simple_ui.py poll", self.text)
+        self.assertIn("python scripts/telegram_control_simple_ui.py research", self.text)
+        self.assertNotIn("python scripts/telegram_control_panel.py poll", self.text)
 
 
 if __name__ == "__main__":
