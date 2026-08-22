@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: c29038f36e8cb3fddb229b0d48b7e15df7da2d11
+          ref: 798cc58ce94dffddd14336cabe37da3882e82fad
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -41,7 +41,7 @@ jobs:
       - name: Verify exact candidate SHAs
         run: |
           set -euo pipefail
-          test "$(git -C engine rev-parse HEAD)" = "c29038f36e8cb3fddb229b0d48b7e15df7da2d11"
+          test "$(git -C engine rev-parse HEAD)" = "798cc58ce94dffddd14336cabe37da3882e82fad"
           test "$(git -C candidate-runner rev-parse HEAD)" = "f5f1fb4a42b4e16467a20a0f8a166831d9213d15"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
