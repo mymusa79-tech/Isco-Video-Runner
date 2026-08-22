@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 17102aa8f66e1aefadc94547a9b079aa074bb28f
+          ref: eb3370d50ea392b3e31443ff62b99cb5743b65c9
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -37,7 +37,7 @@ jobs:
 
       - name: Verify exact Engine pin
         working-directory: engine
-        run: test "$(git rev-parse HEAD)" = "17102aa8f66e1aefadc94547a9b079aa074bb28f"
+        run: test "$(git rev-parse HEAD)" = "eb3370d50ea392b3e31443ff62b99cb5743b65c9"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         id: setup_python
@@ -49,8 +49,9 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core openssl
+          sudo apt-get install -y ffmpeg fonts-noto-core openssl tesseract-ocr tesseract-ocr-ara
           cd engine
+          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py lock --lock requirements-lock.txt
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-deps -e .
           python -m pip check
@@ -60,6 +61,9 @@ jobs:
           python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium
           test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx"
           test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"
+          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py voice \
+            --voice-dir "$RUNNER_TEMP/piper-voices" \
+            --manifest security/piper_voice_hashes.json
 
       - name: Restore encrypted cross-run memory
         id: restore_state
@@ -114,6 +118,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_ALLOWED_USER_ID: ${{ secrets.TELEGRAM_ALLOWED_USER_ID }}
+          ISCO_APPROVED_BRIEF_SHA256: 56ba4a23a30ceb3e19bc9b2f9493930179f4cf442f3f86c8a79426ac589a7a92
         run: |
           set -euo pipefail
           test -n "$GEMINI_API_KEY"
@@ -139,10 +144,12 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
+          from isco_video_agent.brief_approval_binding import verify_brief_approval
           brief_path = Path("engine/production/approved_brief.json")
           brief = json.loads(brief_path.read_text(encoding="utf-8"))
           if not isinstance(brief, dict) or brief.get("approved_by_user") is not True:
               raise SystemExit("Production brief is missing explicit user approval")
+          verify_brief_approval(brief, os.environ["ISCO_APPROVED_BRIEF_SHA256"])
           topic = str(brief.get("approved_topic") or "").strip()
           fmt = str(brief.get("format") or "").strip().lower()
           if not topic or fmt not in {"film", "moment", "story"}:
@@ -150,7 +157,7 @@ jobs:
           Path(os.environ["RUNNER_TEMP"], "isco-request.json").write_text(
               json.dumps({"topic": topic, "format": fmt}, ensure_ascii=False), encoding="utf-8"
           )
-          print(f"Approved production brief loaded: format={fmt}")
+          print(f"Approved production brief loaded and hash-bound: format={fmt}")
           PY
 
       - name: Verify free provider authentication
@@ -184,8 +191,9 @@ jobs:
           YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
           YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
           YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
-          ISCO_ENGINE_SHA: 17102aa8f66e1aefadc94547a9b079aa074bb28f
+          ISCO_ENGINE_SHA: eb3370d50ea392b3e31443ff62b99cb5743b65c9
           ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
+          ISCO_APPROVED_BRIEF_SHA256: 56ba4a23a30ceb3e19bc9b2f9493930179f4cf442f3f86c8a79426ac589a7a92
           TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token
           TELEGRAM_CHAT_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-chat-id
           TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
