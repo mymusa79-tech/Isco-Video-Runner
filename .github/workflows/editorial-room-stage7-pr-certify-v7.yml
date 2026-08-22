@@ -1,0 +1,189 @@
+name: Editorial Room Stage 7 PR Certify V7
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 02aeb6f4d9172553b3360b7add5fdcef59944985
+
+jobs:
+  certify-stage7-v7:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact merged Engine main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Reapply exact V5 Stage 7 candidate and fixture migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          src = Path('.github/workflows/editorial-room-stage7-pr-certify-v5.yml').read_text(encoding='utf-8')
+          names = [
+              'Apply exact Stage 7 V3 production candidate',
+              'Reuse exact Stage 7 V3 contracts',
+              'Migrate legacy packaging fixtures to locked EditorialIntent',
+          ]
+          blocks = []
+          for name in names:
+              marker = f'      - name: {name}\n'
+              start = src.index(marker)
+              run_marker = '        run: |\n'
+              start = src.index(run_marker, start) + len(run_marker)
+              next_step = src.find('      - name:', start)
+              end = len(src) if next_step < 0 else next_step
+              lines = src[start:end].splitlines()
+              blocks.append('\n'.join(line[10:] if line.startswith('          ') else line for line in lines).rstrip() + '\n')
+          Path('/tmp/apply-stage7-v7.sh').write_text('set -euo pipefail\n' + '\n'.join(blocks), encoding='utf-8')
+          PY
+          cd engine
+          bash /tmp/apply-stage7-v7.sh
+          git diff --check
+
+      - name: Migrate remaining legacy thumbnail fixtures to EditorialIntent
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          files = [
+              Path('tests/test_thumbnail_alternate_query_recovery.py'),
+              Path('tests/test_thumbnail_candidate_board.py'),
+              Path('tests/test_thumbnail_pixabay_fallback.py'),
+          ]
+          helper = '''\n\ndef _intent():\n    return make_editorial_intent(\n        editorial_thesis="العودة بعد السقوط تُبنى من خطوة صغيرة قابلة للتكرار.",\n        viewer_starting_belief="المشاهد يظن أن السقوط يعني أن عليه العودة دفعة واحدة.",\n        hidden_assumption="الافتراض الخفي أن الخطوات الصغيرة لا تُحسب كعودة حقيقية.",\n        editorial_turn="بدل انتظار قفزة كبيرة، ابدأ بخطوة صغيرة قابلة للتنفيذ اليوم.",\n        stakes="انتظار العودة الكاملة قد يطيل التوقف ويضعف الثقة.",\n        viewer_promise="ستتعلم كيف تبدأ العودة بعد السقوط بخطوة صغيرة قابلة للتنفيذ اليوم.",\n        evidence_boundaries=("لا نقدم علاجًا طبيًا.", "لا نعمم مسارًا واحدًا على الجميع."),\n        earned_payoff="اختر خطوة صغيرة قابلة للتنفيذ اليوم وابدأ منها عودتك.",\n    )\n'''
+          for p in files:
+              s = p.read_text(encoding='utf-8')
+              marker = 'from isco_video_agent import thumbnail\n'
+              if p.name == 'test_thumbnail_pixabay_fallback.py':
+                  marker = 'from isco_video_agent import production_pipeline, thumbnail\n'
+              assert s.count(marker) == 1, p
+              s = s.replace(marker, marker + 'from isco_video_agent.editorial_room import make_editorial_intent\n', 1)
+              anchor = '\n\ndef _plan():\n'
+              assert s.count(anchor) == 1, p
+              s = s.replace(anchor, helper + anchor, 1)
+              old = '        closing_payoff="payoff",\n    )\n'
+              new = '        closing_payoff="payoff",\n        editorial_intent=_intent().to_dict(),\n    )\n'
+              assert s.count(old) == 1, p
+              s = s.replace(old, new, 1)
+              # These tests mock _concepts(), so stamp mocked candidates with the
+              # mandatory Stage-7 binding fields instead of weakening production.
+              old = 'def _concept(index: int) -> dict:\n    slot = chr(64 + index)\n'
+              if old not in s:
+                  raise AssertionError(p)
+              new = 'def _concept(index: int) -> dict:\n    slot = chr(64 + index)\n    intent = _intent()\n'
+              s = s.replace(old, new, 1)
+              # Keep each packaging hypothesis distinct but semantically anchored.
+              s = s.replace('"packaging_hypothesis": f"فرضية {index}",', '"packaging_hypothesis": f"زاوية عملية للعودة بعد السقوط بخطوة صغيرة {index}",', 1)
+              s = s.replace('"viewer_promise": f"وعد {index}",', '"viewer_promise": intent.viewer_promise,\n        "viewer_promise_expression": f"ستتعلم كيف تبدأ العودة بعد السقوط بخطوة صغيرة قابلة للتنفيذ اليوم {index}",\n        "locked_viewer_promise": intent.viewer_promise,\n        "editorial_fingerprint": intent.editorial_fingerprint,\n        "persona_version": intent.persona_version,', 1)
+              p.write_text(s, encoding='utf-8')
+          PY
+          python -m py_compile tests/test_thumbnail_alternate_query_recovery.py tests/test_thumbnail_candidate_board.py tests/test_thumbnail_pixabay_fallback.py
+          git diff --check
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime and ffmpeg
+        working-directory: engine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Stage 7 and migrated thumbnail contracts
+        working-directory: engine
+        run: >-
+          python -m unittest
+          tests.test_editorial_stage7
+          tests.test_thumbnail_alternate_query_recovery
+          tests.test_thumbnail_candidate_board
+          tests.test_thumbnail_pixabay_fallback -v
+
+      - name: Stage 5-6 HEI and packaging compatibility
+        working-directory: engine
+        run: >-
+          python -m unittest
+          tests.test_editorial_adapters tests.test_editorial_stage6 tests.test_human_editorial_intent
+          tests.test_packaging_benchmark_p2 tests.test_packaging_early_brief_p2 tests.test_packaging_experiments_p2
+          tests.test_packaging_identity_integrity_p1 tests.test_packaging_learning_p2 tests.test_thumbnail_packaging_contract -q
+
+      - name: Full Engine regression with diagnostics
+        id: full_engine
+        working-directory: engine
+        shell: bash
+        run: |
+          set -o pipefail
+          set +e
+          python -m unittest discover -s tests -q 2>&1 | tee "$RUNNER_TEMP/stage7-full-engine.log"
+          rc=${PIPESTATUS[0]}
+          {
+            echo "exit_code=$rc"
+            grep -nE '^(FAIL|ERROR):|FAILED \(|^Traceback \(most recent call last\):|AssertionError|^Ran [0-9]+ tests|^OK$' "$RUNNER_TEMP/stage7-full-engine.log" || true
+          } > "$RUNNER_TEMP/stage7-failure-summary.txt"
+          exit "$rc"
+
+      - name: Upload Stage 7 V7 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage7-v7-diagnostics
+          path: |
+            ${{ runner.temp }}/stage7-full-engine.log
+            ${{ runner.temp }}/stage7-failure-summary.txt
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Final Stage 7 diff review
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git checkout -- state/history.json 2>/dev/null || true
+          mapfile -t changed < <(git status --porcelain --untracked-files=all | sed -E 's/^.. //')
+          allowed=(src/isco_video_agent/production_pipeline.py src/isco_video_agent/packaging_integrity.py src/isco_video_agent/thumbnail.py tests/test_editorial_stage7.py tests/test_packaging_identity_integrity_p1.py tests/test_thumbnail_packaging_contract.py tests/test_thumbnail_alternate_query_recovery.py tests/test_thumbnail_candidate_board.py tests/test_thumbnail_pixabay_fallback.py)
+          for path in "${changed[@]}"; do
+            ok=false
+            for want in "${allowed[@]}"; do [[ "$path" == "$want" ]] && ok=true; done
+            $ok || { echo "unexpected dirty path: $path" >&2; exit 1; }
+          done
+
+      - name: Prepare verified Stage 7 artifact
+        working-directory: engine
+        run: |
+          mkdir -p "$RUNNER_TEMP/stage7/src/isco_video_agent" "$RUNNER_TEMP/stage7/tests"
+          cp src/isco_video_agent/production_pipeline.py src/isco_video_agent/packaging_integrity.py src/isco_video_agent/thumbnail.py "$RUNNER_TEMP/stage7/src/isco_video_agent/"
+          cp tests/test_editorial_stage7.py tests/test_packaging_identity_integrity_p1.py tests/test_thumbnail_packaging_contract.py tests/test_thumbnail_alternate_query_recovery.py tests/test_thumbnail_candidate_board.py tests/test_thumbnail_pixabay_fallback.py "$RUNNER_TEMP/stage7/tests/"
+          git diff > "$RUNNER_TEMP/stage7/stage7.patch"
+
+      - name: Upload verified Stage 7 closure
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage7-verified-closure-v7
+          path: ${{ runner.temp }}/stage7
+          retention-days: 1
