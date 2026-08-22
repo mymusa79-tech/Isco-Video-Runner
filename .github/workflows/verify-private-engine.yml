@@ -124,7 +124,7 @@ jobs:
 
       - name: Focused M7 Runner binding contracts
         env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}:${{ github.workspace }}/scripts
         run: python -m unittest scripts.test_m7_live_binding scripts.test_run_v3_voice -q
 
       - name: Full Engine suite
@@ -150,7 +150,7 @@ jobs:
 
       - name: Full Runner regression suite
         env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}:${{ github.workspace }}/scripts
         run: |
           set -euo pipefail
           mapfile -t test_modules < <(
