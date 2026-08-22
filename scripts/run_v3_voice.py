@@ -13,6 +13,7 @@ from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.attempt9_schema_normalizer import install_attempt9_schema_normalizer
 from scripts.brand_anchor_guard import install_brand_anchor_guard
+from scripts.cinematic_v2_runtime_installer import install_cinematic_v2_runtime
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.planner_quality_guard import install_planner_quality_guard
@@ -39,9 +40,6 @@ def _resolve_plan_source() -> str:
 
 
 def _tag_plan_source(out_dir: Path) -> None:
-    """Record which planner actually produced this run's plan into every JSON
-    artifact the workflow uploads (plan.json, quality-final.json), so a video's real
-    planning source is never just an inference from log-scrollback."""
     source = _resolve_plan_source()
     for filename in ("plan.json", "quality-final.json"):
         path = out_dir / filename
@@ -59,13 +57,6 @@ def _latest_output_dir() -> Path | None:
 
 
 def _attach_failure_tone_diagnostics(out_dir: Path) -> None:
-    """Copy the full tone audit into quality-precheck.json on failed production.
-
-    The Engine already writes tone-quality-audit.json before enforcing the tone gate,
-    but V4's failure artifact uploads quality-precheck.json and not that sidecar. Keep
-    this observational only: enrich the already-uploaded precheck when both files are
-    valid JSON objects, and never mask the original production exception.
-    """
     precheck_path = out_dir / "quality-precheck.json"
     tone_path = out_dir / "tone-quality-audit.json"
     if not precheck_path.is_file() or not tone_path.is_file():
@@ -83,7 +74,6 @@ def _attach_failure_tone_diagnostics(out_dir: Path) -> None:
 
 
 def _attach_voice_audit_to_telemetry(telemetry_path: Path, output_dir: Path) -> None:
-    """Embed Voice Observer evidence in durable telemetry without making it a gate."""
     voice_path = output_dir / "voice-identity-audit.json"
     if not voice_path.is_file() or not telemetry_path.is_file():
         return
@@ -106,11 +96,6 @@ def _production_id() -> str:
 
 
 def _production_budget_ledger(fmt: str) -> BudgetLedger:
-    """Production is the enforcing owner of the AI attempt budget.
-
-    Tests and offline diagnostics may keep BudgetLedger's observe-only default, but a
-    real V4 run must never silently exceed task-local or run-wide provider ceilings.
-    """
     os.environ["ISCO_AI_BUDGET_ENFORCE"] = "1"
     return BudgetLedger(fmt)
 
@@ -162,7 +147,6 @@ def _attach_observer_evidence_to_telemetry(
     output_dir: Path,
     gold_enforce: dict | None = None,
 ) -> None:
-    """Make existing release telemetry the durable provenance/Gold envelope."""
     data = json.loads(telemetry_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise RuntimeError("planning telemetry must be a JSON object")
@@ -199,6 +183,7 @@ def main() -> None:
     install_product_proof_fallback()
     install_voice_mesh()
     install_voice_identity_observer()
+    install_cinematic_v2_runtime()
     start_progress()
     install_progress_hooks()
 
@@ -209,9 +194,6 @@ def main() -> None:
     groq = (os.environ.get("GROQ_API_KEY") or "").strip()
     if not gemini or not pexels:
         raise RuntimeError("Gemini and Pexels secrets are required for V4 production")
-    # Runner remains the one-time owner of provider inputs needed both by the core and
-    # by post-render Gold packaging. Restored env copies are consumed once by the core;
-    # Gold reuses only these in-process values.
     os.environ["GEMINI_API_KEY"] = gemini
     os.environ["PEXELS_API_KEY"] = pexels
     if pixabay:
@@ -221,10 +203,6 @@ def main() -> None:
     previous_defer = os.environ.get("ISCO_DEFER_YOUTUBE_ANALYTICS")
     os.environ["ISCO_DEFER_YOUTUBE_ANALYTICS"] = "1"
     try:
-        # Share text-audit provider health only across the core audits/re-audits of
-        # this one production run. The Engine context resets even on failure, so a
-        # later run never inherits a stale circuit. Gold Final Critic has its own
-        # separately bounded provider policy and remains outside this scope.
         with text_audit_circuit_scope():
             out = orchestrator.produce(
                 topic=request["topic"],
@@ -257,17 +235,11 @@ def main() -> None:
             ledger=ledger,
         )
     except Exception:
-        # Preserve the enforcing failure as the workflow result, but flush the exact
-        # same-ledger evidence and Voice Observer diagnostics first. No manifest,
-        # analytics, release, or accepted publication evidence is written on failure.
         ledger.write(out / "ai-budget.json")
         telemetry_path = write_planning_telemetry(out)
         _attach_voice_audit_to_telemetry(telemetry_path, out)
         raise
 
-    # G1/G2 is deliberately observe-only and runs only after Gold accepted the exact
-    # final render. A missing/rate-limited Groq key or transcription mismatch never
-    # changes the release verdict; the observer records audit_error/review evidence.
     try:
         run_groq_audio_audit(out, api_key=groq)
     except Exception as exc:
@@ -277,8 +249,6 @@ def main() -> None:
     production_id = _production_id()
     manifest = _write_production_manifest(out, production_id=production_id, fmt=plan.format)
 
-    # Analytics remains strictly post-acceptance. Gold has already passed and state has
-    # been accepted before any channel metric can be collected or attached.
     try:
         collect_latest_video_metrics_from_env(
             format_hint=plan.format,
