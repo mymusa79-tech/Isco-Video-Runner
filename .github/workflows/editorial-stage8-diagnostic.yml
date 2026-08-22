@@ -1,0 +1,60 @@
+name: Editorial Stage 8 Diagnostic
+
+on:
+  push:
+    branches: ["verify/editorial-room-stage5-9-final-current-main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 10858bccc1d3a2c29a66f9c89029d6c6ae254b93
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Apply Stage 8 candidate
+        run: |
+          set -euo pipefail
+          test "$(git -C engine rev-parse HEAD)" = "$ENGINE_SHA"
+          python .github/scripts/apply-editorial-stage8.py engine
+          python -m py_compile engine/src/isco_video_agent/editorial_learning.py engine/src/isco_video_agent/learning.py engine/src/isco_video_agent/final_critic.py engine/src/isco_video_agent/production_pipeline.py engine/tests/test_editorial_stage8.py
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install Engine
+        working-directory: engine
+        run: |
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+      - name: Capture exact Stage 8 traceback
+        working-directory: engine
+        run: |
+          set +e
+          ISCO_DEFER_YOUTUBE_ANALYTICS=1 python -m unittest tests.test_editorial_stage8 -v 2>&1 | tee "$RUNNER_TEMP/stage8-test.log"
+          code=${PIPESTATUS[0]}
+          echo "$code" > "$RUNNER_TEMP/stage8-exit-code.txt"
+          exit "$code"
+      - name: Upload diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage8-exact-diagnostic
+          path: |
+            ${{ runner.temp }}/stage8-test.log
+            ${{ runner.temp }}/stage8-exit-code.txt
+          retention-days: 1
