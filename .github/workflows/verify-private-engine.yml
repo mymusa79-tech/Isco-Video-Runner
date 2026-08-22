@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  EDITORIAL_ENGINE_SHA: 9e689f4b016289800d31dde91e9b04cd2b59c415
+  EDITORIAL_ENGINE_SHA: 998f7ec48ab5fb10cbd563e74949685db5d7ea78
 
 jobs:
   combined-regression:

@@ -1,3 +1,3 @@
 stage=6
 engine_branch=feature/editorial-room-stage5-9-current-main
-engine_head=9e689f4b016289800d31dde91e9b04cd2b59c415
+engine_head=998f7ec48ab5fb10cbd563e74949685db5d7ea78
