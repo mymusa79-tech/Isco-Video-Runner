@@ -14,6 +14,7 @@ from isco_video_agent.short_planner import DEFAULT_SIBLING_SPACING_HOURS, select
 import scripts.run_v3_voice as production
 from scripts.shorts_production_binding import finalize_short_quality, prepare_short_render
 from scripts.sibling_short_orchestration import orchestrate_sibling_shorts, stage_sibling_assets
+from scripts.source_derived_short_planner import install_source_derived_short_planner
 from scripts.unified_delivery import write_delivery_manifest
 
 
@@ -187,6 +188,8 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
     runtime_request = dict(request)
     runtime_request["production_dispatch_authorized"] = True
     original_gold = production.run_gold_enforce_phase4
+    original_install_router = production.install_router
+    original_resolve_plan_source = production._resolve_plan_source
     short_pre: dict[str, Any] | None = None
     before = _output_dirs()
 
@@ -201,11 +204,16 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
         return result
 
     production.run_gold_enforce_phase4 = controlled_gold
+    if request["kind"] == "short":
+        production.install_router = lambda: install_source_derived_short_planner(request)
+        production._resolve_plan_source = lambda: "source_derived_long_episode_short"
     try:
         production.main()
         output = _new_output_dir(before)
     finally:
         production.run_gold_enforce_phase4 = original_gold
+        production.install_router = original_install_router
+        production._resolve_plan_source = original_resolve_plan_source
         _restore_runtime_env(previous_env)
 
     if request["kind"] == "long":
@@ -251,6 +259,7 @@ def execute_bundle(parent_request: dict[str, Any], *, runtime_root: Path) -> Pat
                 "short_count": len(staged),
                 "shorts": staged,
                 "execution_mode": "sequential_isolated_subprocesses",
+                "short_source_mode": "exact_long_episode_sections",
                 "partial_delivery_allowed": False,
                 "youtube_publish_mode": "manual_in_youtube_studio",
             },
