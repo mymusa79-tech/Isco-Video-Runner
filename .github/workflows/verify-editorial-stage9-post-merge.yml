@@ -1,0 +1,159 @@
+name: Verify Editorial Stage 9 Post Merge
+
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RUNNER_SHA: 43e062afff5db55d795dcfc3827361f0f87c88a7
+  ENGINE_SHA: 568da9edfb68ebf9ea6e7d6aed0b6a9ee9a1180a
+
+jobs:
+  exact-main-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout verifier only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact merged Runner main under test
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Runner
+          ref: ${{ env.RUNNER_SHA }}
+          path: runner-under-test
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact merged Runner checkout
+        working-directory: runner-under-test
+        run: test "$(git rev-parse HEAD)" = "$RUNNER_SHA"
+
+      - name: Checkout exact merged Engine main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install media and OCR dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core tesseract-ocr tesseract-ocr-eng tesseract-ocr-ara
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Exact Stage 9 integration contracts on merged Runner
+        working-directory: runner-under-test
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}/runner-under-test
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            scripts.test_editorial_stage9_integration \
+            scripts.test_telegram_editorial_control_workflow \
+            scripts.test_human_editorial_intent_binding \
+            scripts.test_m7_live_binding \
+            scripts.test_security_v1_live_binding \
+            scripts.test_security_v1_preproduction_order -q
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Full Runner regression on exact merged main
+        working-directory: runner-under-test
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}/runner-under-test
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Post-merge pin and safety invariants
+        working-directory: runner-under-test
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          engine = "568da9edfb68ebf9ea6e7d6aed0b6a9ee9a1180a"
+          old = "860b61b0f99b285cc2917cba079e29bfa9e2c119"
+          production = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
+          telegram = Path(".github/workflows/telegram-editorial-control.yml").read_text(encoding="utf-8")
+          hei = Path(".github/workflows/verify-human-editorial-intent-m7.yml").read_text(encoding="utf-8")
+          runner = Path("scripts/run_v3_voice.py").read_text(encoding="utf-8")
+          assert production.count(engine) == 3
+          assert telegram.count(engine) == 1
+          assert hei.count(engine) == 1
+          assert old not in production and old not in telegram and old not in hei
+          assert 'CONTROL_PLANE_PRODUCTION_ENABLED: "false"' in telegram
+          assert "workflow_dispatch:" in production
+          assert "\n  push:" not in production
+          assert "\n  schedule:" not in production
+          assert runner.count("production_id = _production_id()") == 1
+          assert runner.count('os.environ["ISCO_PRODUCTION_ID"] = production_id') == 1
+          assert runner.index('os.environ["ISCO_PRODUCTION_ID"] = production_id') < runner.index("orchestrator.produce(")
+          PY
+          git diff --check "$RUNNER_SHA^" "$RUNNER_SHA"
+
+      - name: Verify verifier isolation
+        run: |
+          set -euo pipefail
+          test "$(git diff --name-only "$RUNNER_SHA"...HEAD | wc -l)" -eq 1
+          test "$(git diff --name-only "$RUNNER_SHA"...HEAD)" = ".github/workflows/verify-editorial-stage9-post-merge.yml"
+          test "$(git -C runner-under-test rev-parse HEAD)" = "$RUNNER_SHA"
+          test "$(git -C engine rev-parse HEAD)" = "$ENGINE_SHA"
