@@ -103,6 +103,9 @@ class HumanEditorialIntentRunnerBindingTests(unittest.TestCase):
         }
 
     def test_scope_enriches_timeline_and_persists_signature_in_history(self) -> None:
+        if binding._load_human_editorial_intent() is None:
+            self.skipTest("HEI Engine module not installed; pre-HEI no-op is covered separately")
+
         captured: dict[str, object] = {}
         original_write = binding.engine_m7._write_timeline
         original_append = binding.orchestrator.append_history
@@ -192,11 +195,16 @@ class HumanEditorialIntentRunnerBindingTests(unittest.TestCase):
             binding.import_module = original_import
 
     def test_scope_restores_engine_and_history_hooks(self) -> None:
+        original_loader = binding._load_human_editorial_intent
         original_write = binding.engine_m7._write_timeline
         original_append = binding.orchestrator.append_history
-        with binding._human_editorial_intent_scope():
-            self.assertIsNot(binding.engine_m7._write_timeline, original_write)
-            self.assertIsNot(binding.orchestrator.append_history, original_append)
+        try:
+            binding._load_human_editorial_intent = lambda: (lambda timeline, **kwargs: timeline)
+            with binding._human_editorial_intent_scope():
+                self.assertIsNot(binding.engine_m7._write_timeline, original_write)
+                self.assertIsNot(binding.orchestrator.append_history, original_append)
+        finally:
+            binding._load_human_editorial_intent = original_loader
         self.assertIs(binding.engine_m7._write_timeline, original_write)
         self.assertIs(binding.orchestrator.append_history, original_append)
 
