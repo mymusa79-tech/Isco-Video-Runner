@@ -4,6 +4,10 @@ import unittest
 from pathlib import Path
 
 
+ENGINE_SHA = "568da9edfb68ebf9ea6e7d6aed0b6a9ee9a1180a"
+OLD_ENGINE_SHA = "860b61b0f99b285cc2917cba079e29bfa9e2c119"
+
+
 class TelegramEditorialControlWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.text = Path(".github/workflows/telegram-editorial-control.yml").read_text(encoding="utf-8")
@@ -32,7 +36,8 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
 
     def test_engine_is_only_checked_out_when_research_is_pending(self):
         self.assertIn("if: steps.poll.outputs.needs_engine == 'true'", self.text)
-        self.assertIn("860b61b0f99b285cc2917cba079e29bfa9e2c119", self.text)
+        self.assertIn(ENGINE_SHA, self.text)
+        self.assertNotIn(OLD_ENGINE_SHA, self.text)
 
     def test_schedule_runs_simple_client_surface_only(self):
         self.assertIn('cron: "*/5 * * * *"', self.text)
