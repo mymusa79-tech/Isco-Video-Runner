@@ -1,0 +1,172 @@
+name: Telegram Editorial Control
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: telegram-editorial-control
+  cancel-in-progress: false
+
+env:
+  ENGINE_SHA: 860b61b0f99b285cc2917cba079e29bfa9e2c119
+  CONTROL_PLANE_PRODUCTION_ENABLED: "false"
+
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Restore encrypted control-panel state
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          mkdir -p "$RUNNER_TEMP/isco-control"
+          state="$RUNNER_TEMP/isco-control/control-panel.json"
+          encrypted="$RUNNER_TEMP/isco-control/control-panel.json.enc"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state || true
+          if git show origin/control-plane-state:state/control-panel.json.enc > "$encrypted" 2>/dev/null; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+              -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+            echo "CONTROL_STATE_FRESH=false" >> "$GITHUB_ENV"
+          else
+            printf '%s\n' '{"schema_version":1,"telegram_offset":0,"sessions":{},"requests":{},"pending_actions":[],"last_event_at":null}' > "$state"
+            echo "CONTROL_STATE_FRESH=true" >> "$GITHUB_ENV"
+          fi
+          chmod 600 "$state"
+          echo "CONTROL_STATE_PATH=$state" >> "$GITHUB_ENV"
+
+      - name: Materialize Telegram secrets
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_ALLOWED_USER_ID: ${{ secrets.TELEGRAM_ALLOWED_USER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/isco-control/secrets"
+          printf '%s' "$TELEGRAM_BOT_TOKEN" > "$RUNNER_TEMP/isco-control/secrets/telegram-token"
+          printf '%s' "$TELEGRAM_CHAT_ID" > "$RUNNER_TEMP/isco-control/secrets/telegram-chat"
+          printf '%s' "$TELEGRAM_ALLOWED_USER_ID" > "$RUNNER_TEMP/isco-control/secrets/telegram-user"
+          echo "TELEGRAM_BOT_TOKEN_FILE=$RUNNER_TEMP/isco-control/secrets/telegram-token" >> "$GITHUB_ENV"
+          echo "TELEGRAM_CHAT_ID_FILE=$RUNNER_TEMP/isco-control/secrets/telegram-chat" >> "$GITHUB_ENV"
+          echo "TELEGRAM_ALLOWED_USER_ID_FILE=$RUNNER_TEMP/isco-control/secrets/telegram-user" >> "$GITHUB_ENV"
+
+      - name: Prime Telegram offset on first activation
+        if: env.CONTROL_STATE_FRESH == 'true'
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from scripts.telegram_control_panel import TelegramClient, _read_secret_file, load_state, save_state
+          state_path = Path(__import__('os').environ['CONTROL_STATE_PATH'])
+          token = _read_secret_file('TELEGRAM_BOT_TOKEN_FILE')
+          if not token:
+              raise SystemExit(0)
+          state = load_state(state_path)
+          updates = TelegramClient(token).call('getUpdates', {'offset': 0, 'timeout': 0, 'allowed_updates': ['message', 'callback_query']}) or []
+          ids = [int(item['update_id']) for item in updates if isinstance(item, dict) and 'update_id' in item]
+          if ids:
+              state['telegram_offset'] = max(ids) + 1
+          save_state(state_path, state)
+          print(f"Telegram control offset primed at {state['telegram_offset']}; historical updates ignored")
+          PY
+
+      - name: Poll authorized Telegram commands
+        id: poll
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          active="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/runs?per_page=20" \
+            --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+          if [ "$active" -gt 0 ]; then
+            echo "Production V4 is active; Telegram polling paused to avoid getUpdates contention"
+            echo "needs_engine=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python scripts/telegram_control_simple_ui.py poll --state "$CONTROL_STATE_PATH"
+
+      - name: Checkout exact private Engine for research only
+        if: steps.poll.outputs.needs_engine == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python for research only
+        if: steps.poll.outputs.needs_engine == 'true'
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine research runtime
+        if: steps.poll.outputs.needs_engine == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install -r engine/requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e engine
+          python -m pip check
+
+      - name: Execute one pending editorial research request
+        if: steps.poll.outputs.needs_engine == 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          GEMINI_CONTENT_MODEL: gemini-2.5-flash
+          TRENDS_GEO: SA
+          YOUTUBE_REGION: SA
+          YOUTUBE_LANGUAGE: ar
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python scripts/telegram_control_simple_ui.py research --state "$CONTROL_STATE_PATH"
+
+      - name: Persist encrypted control-panel state
+        if: always()
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          encrypted="$RUNNER_TEMP/isco-control/control-panel.json.enc"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$CONTROL_STATE_PATH" -out "$encrypted"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/isco-control-state-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$encrypted" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "Control-panel state unchanged"
+          else
+            git commit -m "state: update encrypted Telegram control panel"
+            git push origin HEAD:control-plane-state
+          fi
+
+      - name: Remove plaintext control secrets and state
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/isco-control/secrets" || true
+          rm -f "$RUNNER_TEMP/isco-control/control-panel.json" || true
