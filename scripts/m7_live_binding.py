@@ -2,12 +2,33 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from importlib import import_module
 from pathlib import Path
+from typing import Callable
 
 import isco_video_agent.cinematic_m7_live_binding as engine_m7
 import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.anti_repetition import recent_videos
-from isco_video_agent.human_editorial_intent import apply_human_editorial_intent
+
+
+_HUMAN_EDITORIAL_INTENT_MODULE = "isco_video_agent.human_editorial_intent"
+
+
+def _load_human_editorial_intent() -> Callable | None:
+    """Load the optional HEI layer only when the matching Engine candidate is present.
+
+    Runner may be reviewed or verified while Production V4 is still pinned to the
+    pre-HEI Engine. In that state the exact new module is intentionally absent and
+    the wrapper must preserve the already-active M7 behavior. Missing transitive
+    dependencies or any unrelated import failure remain authoritative failures.
+    """
+    try:
+        module = import_module(_HUMAN_EDITORIAL_INTENT_MODULE)
+    except ModuleNotFoundError as exc:
+        if exc.name == _HUMAN_EDITORIAL_INTENT_MODULE:
+            return None
+        raise
+    return module.apply_human_editorial_intent
 
 
 @contextmanager
@@ -17,7 +38,15 @@ def _human_editorial_intent_scope():
     This wrapper adds no AI calls and does not own cuts, asset selection, transitions,
     rendering, rights, Gold, or history acceptance. It only enriches the persisted
     visual timeline and records its structural signature in accepted history.
+
+    Before the Engine HEI module is atomically activated, this scope is a strict
+    no-op so the Runner remains compatible with the currently pinned M7 Engine.
     """
+    apply_human_editorial_intent = _load_human_editorial_intent()
+    if apply_human_editorial_intent is None:
+        yield
+        return
+
     original_write_timeline = engine_m7._write_timeline
     original_append_history = orchestrator.append_history
     state: dict[str, str | None] = {"signature": None}
