@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  ENGINE_SHA: 95400700c10799838157c89905dfab95507f17e4
+  ENGINE_SHA: 8a3ae298bdb5fef6ee1bef04f07c4d5af6e63a0c
   RUNNER_BASE_SHA: 523e371a485a18df31e30b3bf0587ac58e455395
 
 jobs:
@@ -72,7 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           for pattern in \
-            test_editorial_stage8.py \
+            'test_editorial_stage8*.py' \
             test_learning_and_critic.py \
             test_youtube_analytics_learning.py \
             test_p0_3_final_critic_score_provenance.py
@@ -90,6 +90,7 @@ jobs:
           learning = Path("src/isco_video_agent/learning.py").read_text(encoding="utf-8")
           critic = Path("src/isco_video_agent/final_critic.py").read_text(encoding="utf-8")
           required_learning = (
+              'if fmt in {"moment", "short"}',
               '"editorial_cohort"',
               '"soft_advisory_only"',
               '"safety"',
