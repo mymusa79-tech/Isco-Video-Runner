@@ -39,97 +39,66 @@ jobs:
 
           orchestrator = Path("src/isco_video_agent/orchestrator.py")
           text = orchestrator.read_text(encoding="utf-8")
-          old = '''    final_structure_issues = (
-              repair_outcome.dossier_after.structure_issues
-              if repair_outcome is not None and repair_outcome.dossier_after is not None
-              else dossier.structure_issues
-          )
-          _write_json(out / "repair-dossier.json", {
-              "needed_repair_initially": dossier.needs_repair,
-              "issue_notes": dossier.issue_notes(),
-              "repair_status": repair_outcome.status if repair_outcome is not None else "not_attempted_no_gemini_key",
-          })
-          '''
-          new = '''    final_structure_issues = (
-              repair_outcome.dossier_after.structure_issues
-              if repair_outcome is not None and repair_outcome.dossier_after is not None
-              else dossier.structure_issues
-          )
-          final_editorial = (
-              repair_outcome.dossier_after.editorial
-              if repair_outcome is not None and repair_outcome.dossier_after is not None
-              else dossier.editorial
-          )
-          _write_json(out / "repair-dossier.json", {
-              "needed_repair_initially": dossier.needs_repair,
-              "issue_notes": dossier.issue_notes(),
-              "repair_status": repair_outcome.status if repair_outcome is not None else "not_attempted_no_gemini_key",
-              "editorial_status_initial": dossier.editorial.status,
-              "editorial_status_final": final_editorial.status,
-              "editorial_issues_final": list(final_editorial.issues),
-          })
-          '''
-          if old not in text:
-              raise SystemExit("orchestrator Stage 6 insertion anchor not found exactly once")
-          if text.count(old) != 1:
-              raise SystemExit("orchestrator Stage 6 insertion anchor is not unique")
-          text = text.replace(old, new, 1)
 
-          old_gate = '''    if final_structure_issues and not dry_run:
-              details = "; ".join(f"{issue.section_id} {issue.detail}" for issue in final_structure_issues)
-              raise RuntimeError(
-                  "Final Film section-length invariant failed before TTS after the single RepairDossier repair: " + details
-              )
-          if novelty and not dry_run:
-          '''
-          new_gate = '''    if final_structure_issues and not dry_run:
-              details = "; ".join(f"{issue.section_id} {issue.detail}" for issue in final_structure_issues)
-              raise RuntimeError(
-                  "Final Film section-length invariant failed before TTS after the single RepairDossier repair: " + details
-              )
-          if final_editorial.status == "block" and not dry_run:
-              details = "; ".join(final_editorial.issues)
-              raise RuntimeError(
-                  "Editorial Room gate blocked real production after the single RepairDossier repair: " + details
-              )
-          if novelty and not dry_run:
-          '''
-          if old_gate not in text or text.count(old_gate) != 1:
-              raise SystemExit("orchestrator final editorial gate anchor invalid")
-          orchestrator.write_text(text.replace(old_gate, new_gate, 1), encoding="utf-8")
+          write_anchor = '    _write_json(out / "repair-dossier.json", {\n'
+          if text.count(write_anchor) != 1:
+              raise SystemExit(f"repair-dossier write anchor count={text.count(write_anchor)}")
+          final_editorial = (
+              '    final_editorial = (\n'
+              '        repair_outcome.dossier_after.editorial\n'
+              '        if repair_outcome is not None and repair_outcome.dossier_after is not None\n'
+              '        else dossier.editorial\n'
+              '    )\n'
+          )
+          text = text.replace(write_anchor, final_editorial + write_anchor, 1)
+
+          status_anchor = '        "repair_status": repair_outcome.status if repair_outcome is not None else "not_attempted_no_gemini_key",\n'
+          if text.count(status_anchor) != 1:
+              raise SystemExit(f"repair status anchor count={text.count(status_anchor)}")
+          status_fields = (
+              status_anchor
+              + '        "editorial_status_initial": dossier.editorial.status,\n'
+              + '        "editorial_status_final": final_editorial.status,\n'
+              + '        "editorial_issues_final": list(final_editorial.issues),\n'
+          )
+          text = text.replace(status_anchor, status_fields, 1)
+
+          novelty_anchor = '    if novelty and not dry_run:\n'
+          if text.count(novelty_anchor) != 1:
+              raise SystemExit(f"novelty gate anchor count={text.count(novelty_anchor)}")
+          editorial_gate = (
+              '    if final_editorial.status == "block" and not dry_run:\n'
+              '        details = "; ".join(final_editorial.issues)\n'
+              '        raise RuntimeError(\n'
+              '            "Editorial Room gate blocked real production after the single RepairDossier repair: " + details\n'
+              '        )\n'
+          )
+          text = text.replace(novelty_anchor, editorial_gate + novelty_anchor, 1)
+          orchestrator.write_text(text, encoding="utf-8")
 
           ledger_test = Path("tests/test_orchestrator_ledger_integration.py")
           text = ledger_test.read_text(encoding="utf-8")
-          old_setup = '''        self._env_patch.start()
-              self._outputs: list = []
-          '''
-          new_setup = '''        self._env_patch.start()
-              # Ledger tests intentionally exercise legacy offline planner fallback,
-              # not Editorial Room. Isolate the new Stage 6 deterministic editor so
-              # these accounting assertions do not manufacture an unrelated repair.
-              self._editorial_patch = patch.object(
-                  tone_quality,
-                  "_long_editorial_review",
-                  return_value={"passed": True, "reasons": [], "structural_flags": []},
-              )
-              self._editorial_patch.start()
-              self._outputs: list = []
-          '''
-          if old_setup not in text or text.count(old_setup) != 1:
-              raise SystemExit("ledger fixture setup anchor invalid")
-          text = text.replace(old_setup, new_setup, 1)
-          old_teardown = '''    def tearDown(self) -> None:
-              self._env_patch.stop()
-              for out in self._outputs:
-          '''
-          new_teardown = '''    def tearDown(self) -> None:
-              self._editorial_patch.stop()
-              self._env_patch.stop()
-              for out in self._outputs:
-          '''
-          if old_teardown not in text or text.count(old_teardown) != 1:
-              raise SystemExit("ledger fixture teardown anchor invalid")
-          ledger_test.write_text(text.replace(old_teardown, new_teardown, 1), encoding="utf-8")
+          outputs_anchor = '        self._outputs: list = []\n'
+          if text.count(outputs_anchor) != 1:
+              raise SystemExit(f"ledger outputs anchor count={text.count(outputs_anchor)}")
+          isolation = (
+              '        # Ledger tests intentionally exercise legacy offline planner fallback,\n'
+              '        # not Editorial Room. Isolate Stage 6 so accounting assertions do not\n'
+              '        # manufacture an unrelated editorial repair.\n'
+              '        self._editorial_patch = patch.object(\n'
+              '            tone_quality,\n'
+              '            "_long_editorial_review",\n'
+              '            return_value={"passed": True, "reasons": [], "structural_flags": []},\n'
+              '        )\n'
+              '        self._editorial_patch.start()\n'
+          )
+          text = text.replace(outputs_anchor, isolation + outputs_anchor, 1)
+
+          env_stop_anchor = '        self._env_patch.stop()\n'
+          if text.count(env_stop_anchor) != 1:
+              raise SystemExit(f"ledger teardown anchor count={text.count(env_stop_anchor)}")
+          text = text.replace(env_stop_anchor, '        self._editorial_patch.stop()\n' + env_stop_anchor, 1)
+          ledger_test.write_text(text, encoding="utf-8")
           PY
           git diff --check
           changed="$(git diff --name-only | sort)"
