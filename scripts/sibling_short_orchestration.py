@@ -18,6 +18,14 @@ def _canonical_hash(document: dict[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _score01(value: object) -> float:
     try:
         parsed = float(value)
@@ -112,8 +120,13 @@ def build_sibling_requests(parent_request: dict[str, Any], sibling_plan: dict[st
         raise RuntimeError("Parent control request provenance is incomplete")
     if sibling_plan.get("source_request_id") != parent_id:
         raise RuntimeError("Sibling Short plan does not belong to the approved parent request")
+    if sibling_plan.get("source_request_sha256") != parent_sha:
+        raise RuntimeError("Sibling Short plan parent request hash mismatch")
     if str(sibling_plan.get("source_topic") or "").strip() != parent_topic:
         raise RuntimeError("Sibling Short plan source topic does not match the approved parent topic")
+    source_plan_sha = str(sibling_plan.get("source_production_plan_sha256") or "").strip()
+    if len(source_plan_sha) != 64:
+        raise RuntimeError("Sibling Short plan has no valid source production-plan hash")
     if sibling_plan.get("automatic_production_started") is not False:
         raise RuntimeError("Sibling Short plan already claims automatic production started")
 
@@ -121,6 +134,7 @@ def build_sibling_requests(parent_request: dict[str, Any], sibling_plan: dict[st
     admission = _short_admission_from_parent(parent_request)
     candidate = parent_request.get("candidate")
     assert isinstance(candidate, dict)
+    sibling_plan_sha = _canonical_hash(sibling_plan)
 
     requests: list[dict[str, Any]] = []
     for index, job in enumerate(jobs, 1):
@@ -148,6 +162,8 @@ def build_sibling_requests(parent_request: dict[str, Any], sibling_plan: dict[st
             "short_admission": dict(admission),
             "parent_control_request_id": parent_id,
             "parent_control_request_sha256": parent_sha,
+            "source_production_plan_sha256": source_plan_sha,
+            "source_sibling_plan_sha256": sibling_plan_sha,
             "source_long_topic": parent_topic,
             "source_semantic_job": job,
             "sibling_index": index,
@@ -206,6 +222,8 @@ def validate_completed_short(output_dir: Path, request: dict[str, Any]) -> dict[
         "request_id": request.get("request_id"),
         "request_sha256": request.get("request_sha256"),
         "semantic_job": request.get("source_semantic_job"),
+        "source_production_plan_sha256": request.get("source_production_plan_sha256"),
+        "source_sibling_plan_sha256": request.get("source_sibling_plan_sha256"),
         "output_dir": str(root),
         "duration_seconds": quality.get("duration_seconds") or quality.get("video_stream_duration"),
         "final_video": str(final),
@@ -224,7 +242,14 @@ def orchestrate_sibling_shorts(
     *,
     execute_short: Callable[[dict[str, Any]], Path],
 ) -> list[dict[str, Any]]:
+    sibling_plan_path = Path(sibling_plan_path)
     plan = _read_object(sibling_plan_path)
+    source_plan_path = sibling_plan_path.parent / "plan.json"
+    if not source_plan_path.is_file():
+        raise RuntimeError("Sibling Short orchestration cannot find the source production plan")
+    expected_source_sha = str(plan.get("source_production_plan_sha256") or "")
+    if _sha256_file(source_plan_path) != expected_source_sha:
+        raise RuntimeError("Sibling Short source production plan changed after planning")
     requests = build_sibling_requests(parent_request, plan)
     completed: list[dict[str, Any]] = []
     for request in requests:
@@ -256,6 +281,8 @@ def stage_sibling_assets(parent_output_dir: Path, completed: Iterable[dict[str, 
             "semantic_job": item.get("semantic_job"),
             "request_id": item.get("request_id"),
             "request_sha256": item.get("request_sha256"),
+            "source_production_plan_sha256": item.get("source_production_plan_sha256"),
+            "source_sibling_plan_sha256": item.get("source_sibling_plan_sha256"),
             "duration_seconds": item.get("duration_seconds"),
             "delivery_allowed": True,
         }
