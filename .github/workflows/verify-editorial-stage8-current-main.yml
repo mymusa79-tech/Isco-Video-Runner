@@ -1,0 +1,156 @@
+name: Verify Editorial Stage 8 Current Main
+
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 95400700c10799838157c89905dfab95507f17e4
+  RUNNER_BASE_SHA: 523e371a485a18df31e30b3bf0587ac58e455395
+
+jobs:
+  stage8-certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify verifier is based on current Runner main
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$RUNNER_BASE_SHA" HEAD
+
+      - name: Checkout exact Stage 8 Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install media and OCR dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core tesseract-ocr tesseract-ocr-eng tesseract-ocr-ara
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused Stage 8 learning analytics and final critic
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          for pattern in \
+            test_editorial_stage8.py \
+            test_learning_and_critic.py \
+            test_youtube_analytics_learning.py \
+            test_p0_3_final_critic_score_provenance.py
+          do
+            python -m unittest discover -s tests -p "$pattern" -q
+          done
+
+      - name: Stage 8 invariants
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          learning = Path("src/isco_video_agent/learning.py").read_text(encoding="utf-8")
+          critic = Path("src/isco_video_agent/final_critic.py").read_text(encoding="utf-8")
+          required_learning = (
+              '"editorial_cohort"',
+              '"soft_advisory_only"',
+              '"safety"',
+              '"factuality"',
+              '"rights"',
+              '"cultural"',
+              '"editorial_fingerprint"',
+              '"intellectual_fingerprint"',
+          )
+          missing = [x for x in required_learning if x not in learning]
+          if missing:
+              raise SystemExit("Stage 8 learning invariant missing: " + ", ".join(missing))
+          if critic.count("json_text(api_key, prompt, model=model)") != 1:
+              raise SystemExit("Stage 8 must reuse exactly one Final Critic model call")
+          for needle in (
+              "editorial_intent_achieved",
+              "editorial_intent_not_achieved",
+              "<EDITORIAL_INTENT>",
+              "editorial_intent_contract",
+          ):
+              if needle not in critic:
+                  raise SystemExit(f"Stage 8 Final Critic invariant missing: {needle}")
+          PY
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Full Runner regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Verifier isolation and diff review
+        run: |
+          set -euo pipefail
+          test "$(git diff --name-only "$RUNNER_BASE_SHA"...HEAD | wc -l)" -eq 1
+          test "$(git diff --name-only "$RUNNER_BASE_SHA"...HEAD)" = ".github/workflows/verify-editorial-stage8-current-main.yml"
+          git diff --check "$RUNNER_BASE_SHA"...HEAD
+          test "$(git -C engine rev-parse HEAD)" = "$ENGINE_SHA"
