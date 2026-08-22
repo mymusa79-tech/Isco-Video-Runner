@@ -1,0 +1,111 @@
+name: Verify Cinematic V2 Final Integration Build
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-focused-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Runner verifier branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout private Engine integration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: agent/cinematic-v2-final-integration
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Verify integration branch pre-patch head
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "c29038f36e8cb3fddb229b0d48b7e15df7da2d11"
+          git merge-base --is-ancestor c39702f0a551b2a045662e3bff5118db32fb460f HEAD
+
+      - name: Bind M7 M8 M9 M10 runtime to production seams
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/isco_video_agent/orchestrator.py")
+          text = path.read_text(encoding="utf-8")
+
+          import_anchor = "from .visual_selection import VisualCandidateCache, select_with_recovery\n"
+          import_insert = import_anchor + "from .cinematic_v2_runtime import (\n    apply_planned_cards, build_cinematic_timeline, prepare_clip_with_m8,\n)\n"
+          if text.count(import_anchor) != 1:
+              raise SystemExit("orchestrator import anchor drifted")
+          text = text.replace(import_anchor, import_insert, 1)
+
+          visual_anchor = '    VISUAL_SOURCES = (("pexels", pexels, pexels_search_videos, pexels_download), ("pixabay", pixabay, pixabay_provider.search_videos, pixabay_provider.download))\n'
+          visual_insert = '''    cinematic_timeline = build_cinematic_timeline(plan, section_durations)\n    _write_json(out / "cinematic-timeline.json", cinematic_timeline)\n    color_normalization_reports: list[dict] = []\n\n    def _prepare_v2(raw, dest, seconds, portrait, fps=30):\n        normalized, report = prepare_clip_with_m8(\n            raw, dest, seconds, portrait=portrait, fps=fps, legacy_prepare_clip=prepare_clip\n        )\n        if report is not None:\n            color_normalization_reports.append({"source": str(raw), "dest": str(dest), **report})\n        return normalized\n\n''' + visual_anchor
+          if text.count(visual_anchor) != 1:
+              raise SystemExit("orchestrator VISUAL_SOURCES anchor drifted")
+          text = text.replace(visual_anchor, visual_insert, 1)
+
+          prepare_anchor = "normalized = prepare_clip("
+          if text.count(prepare_anchor) != 3:
+              raise SystemExit(f"expected exactly 3 production prepare_clip seams, got {text.count(prepare_anchor)}")
+          text = text.replace(prepare_anchor, "normalized = _prepare_v2(")
+
+          audit_anchor = '    _write_json(out / "visual-audit.json", visual_audits)\n'
+          audit_insert = '    _write_json(out / "color-normalization.json", color_normalization_reports)\n' + audit_anchor
+          if text.count(audit_anchor) != 1:
+              raise SystemExit("visual audit anchor drifted")
+          text = text.replace(audit_anchor, audit_insert, 1)
+
+          mux_anchor = '    final = mux(base_video, narration, out / "final.mp4", music=music, target_lufs=target_lufs, music_gain=music_gain)\n'
+          mux_insert = '    base_video = apply_planned_cards(base_video, cinematic_timeline, out, portrait=portrait)\n' + mux_anchor
+          if text.count(mux_anchor) != 1:
+              raise SystemExit("mux anchor drifted")
+          text = text.replace(mux_anchor, mux_insert, 1)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+          python -m py_compile src/isco_video_agent/cinematic_v2_runtime.py src/isco_video_agent/orchestrator.py tests/test_cinematic_v2_runtime.py
+          git diff --check
+
+      - name: Install locked Engine
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Cinematic V2 verification
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest -q \
+            tests.test_cinematic_v2_runtime \
+            tests.test_cinematic_v2_m8_color_kernel \
+            tests.test_cinematic_v2_m10_cards \
+            tests.test_cinematic_v2_m11_cc0
+
+      - name: Commit verified binding to Engine integration branch
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain --untracked-files=no | grep -v '^ M src/isco_video_agent/orchestrator.py$' || true)"
+          git diff --check
+          git config user.name "isco-verifier"
+          git config user.email "isco-verifier@users.noreply.github.com"
+          git add src/isco_video_agent/orchestrator.py
+          git commit -m "cinematic v2: bind M7-M10 runtime to production timeline"
+          git push origin HEAD:agent/cinematic-v2-final-integration
