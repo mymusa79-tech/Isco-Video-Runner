@@ -61,7 +61,7 @@ def _unique_texts(plan: dict[str, Any]) -> list[str]:
 
 
 def _duration(quality: dict[str, Any]) -> float:
-    for key in ("video_stream_duration", "duration"):
+    for key in ("video_stream_duration", "duration_seconds", "duration"):
         try:
             value = float(quality.get(key) or 0.0)
         except (TypeError, ValueError):
@@ -75,8 +75,8 @@ def _hook_and_text_contract(texts: list[str], duration_s: float) -> tuple[dict[s
     count = len(texts)
     total_ms = max(count, int(round(duration_s * 1000)))
     boundaries = [round(total_ms * index / count) for index in range(count + 1)]
-    beats = []
-    events = []
+    beats: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
     for index, text in enumerate(texts):
         start_ms = int(boundaries[index])
         end_ms = int(boundaries[index + 1])
@@ -105,8 +105,22 @@ def _hook_and_text_contract(texts: list[str], duration_s: float) -> tuple[dict[s
 
 def _remux_progressive_video(video: Path, audio_source: Path, output: Path) -> Path:
     command = [
-        "ffmpeg", "-y", "-i", str(video), "-i", str(audio_source),
-        "-map", "0:v:0", "-map", "1:a?", "-c:v", "copy", "-c:a", "copy", "-shortest", str(output),
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video),
+        "-i",
+        str(audio_source),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a?",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "copy",
+        "-shortest",
+        str(output),
     ]
     subprocess.run(command, check=True, capture_output=True)
     if not output.is_file() or output.stat().st_size <= 1024:
@@ -115,12 +129,7 @@ def _remux_progressive_video(video: Path, audio_source: Path, output: Path) -> P
 
 
 def prepare_short_render(output_dir: Path, control_request: dict[str, Any]) -> dict[str, Any]:
-    """Apply Short-native hook/text contracts before Gold reviews the final bytes.
-
-    This is active only for an explicitly approved Telegram control request of kind=short.
-    It starts from picture.mp4 (the pre-hero-text visual) to avoid double captions, then
-    carries forward the core final audio stream without re-synthesizing or adding AI calls.
-    """
+    """Apply Short-native hook/text contracts before Gold reviews the final bytes."""
     root = Path(output_dir)
     if control_request.get("kind") != "short" or control_request.get("approved_by_user") is not True:
         raise RuntimeError("Shorts production requires an explicit approved short control request")
@@ -146,11 +155,14 @@ def prepare_short_render(output_dir: Path, control_request: dict[str, Any]) -> d
 
     sections = plan.get("sections") or []
     first_section = sections[0] if sections and isinstance(sections[0], dict) else {}
+    reframe = float(topic_result.get("reframe_score") or 0.0)
+    knowledge = float(topic_result.get("knowledge_gap_score") or 0.0)
+    tension_type = "reframe" if reframe >= knowledge else "knowledge_gap"
     first_frame = validate_first_frame(
         {
             "first_frame_end_ms": min(1000, max(1, int(duration_s * 1000 / len(texts)))),
             "hook_commit_ms": hook["hook_commit_ms"],
-            "tension_type": "reframe",
+            "tension_type": tension_type,
             "text": texts[0],
             "visual_cue": str(first_section.get("visual_query") or ""),
             "logo_or_intro_before_hook": False,
@@ -203,6 +215,73 @@ def _accepted_gold(gold: dict[str, Any]) -> bool:
     )
 
 
+def _score01(model_review: dict[str, Any], field: str) -> float:
+    value = model_review.get(field)
+    if isinstance(value, bool):
+        raise RuntimeError(f"Final Critic score is invalid: {field}")
+    try:
+        score = float(value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"Final Critic score is missing or invalid: {field}") from exc
+    if score < 0.0 or score > 1.0:
+        raise RuntimeError(f"Final Critic score is outside 0..1: {field}")
+    return score
+
+
+def _final_critic_evidence(critic: dict[str, Any]) -> dict[str, float]:
+    model_review = critic.get("model_review")
+    if critic.get("status") != "pass" or not isinstance(model_review, dict) or model_review.get("status") != "pass":
+        raise RuntimeError("Shorts final quality requires a passing Final Critic")
+    hard_blocks = critic.get("hard_blocks")
+    critical = model_review.get("critical_issues")
+    if hard_blocks or critical:
+        raise RuntimeError("Shorts final quality cannot inherit a blocked Final Critic")
+    names = (
+        "human_feel",
+        "language_quality",
+        "opening_strength",
+        "narrative_progression",
+        "cultural_fit",
+        "monetization_safety",
+    )
+    return {name: _score01(model_review, name) for name in names}
+
+
+def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
+    lowered = " ".join(text.casefold().split())
+    return any(needle in lowered for needle in needles)
+
+
+def _satisfaction_flags(plan: dict[str, Any], scores: dict[str, float], *, factual_pass: bool, content_pass: bool) -> dict[str, bool]:
+    whole = json.dumps(plan, ensure_ascii=False)
+    fake_loop = _contains_any(
+        whole,
+        (
+            "شاهد للنهاية",
+            "انتظر للنهاية",
+            "لا تمرر",
+            "watch until the end",
+            "wait until the end",
+        ),
+    )
+    manipulative_cta = _contains_any(
+        whole,
+        (
+            "اشترك الآن وإلا",
+            "اضغط الآن قبل",
+            "subscribe now or",
+            "click now before",
+        ),
+    )
+    return {
+        "hook_truthful": factual_pass and scores["opening_strength"] >= 0.70,
+        "standalone_value": content_pass and scores["human_feel"] >= 0.72 and scores["narrative_progression"] >= 0.72,
+        "payoff_complete": content_pass and scores["narrative_progression"] >= 0.72,
+        "fake_loop": fake_loop,
+        "manipulative_cta": manipulative_cta,
+    }
+
+
 def finalize_short_quality(output_dir: Path, control_request: dict[str, Any], pre_gold: dict[str, Any]) -> dict[str, Any]:
     root = Path(output_dir)
     plan = _read(root / "plan.json")
@@ -210,25 +289,28 @@ def finalize_short_quality(output_dir: Path, control_request: dict[str, Any], pr
     factual = _read(root / "factuality-audit.json")
     content = _read(root / "content-quality-audit.json")
     tone = _read(root / "tone-quality-audit.json")
-    _read(root / "rights-manifest.json")
+    rights = _read(root / "rights-manifest.json")
     gold = _read(root / "gold-enforce-report.json")
+    critic = _read(root / "final-critic.json")
 
     gold_pass = _accepted_gold(gold)
     factual_pass = factual.get("status") == "pass"
     content_pass = content.get("status") == "pass"
     tone_pass = tone.get("status") == "pass"
-    if not (gold_pass and factual_pass and content_pass and tone_pass):
+    rights_pass = bool(rights.get("visuals"))
+    if not (gold_pass and factual_pass and content_pass and tone_pass and rights_pass):
         raise RuntimeError("Shorts final quality cannot project existing hard gates as passed")
 
+    scores = _final_critic_evidence(critic)
+    identity_voice = round(scores["human_feel"] * 10.0, 3)
+    identity_tone = round(min(scores["language_quality"], scores["cultural_fit"]) * 10.0, 3)
     identity = evaluate_channel_identity(
         {
             "story_bible_ref": "config/story_bible.yaml",
             "visual_bible_ref": "config/visual_bible.yaml",
             "channel_persona_ref": "config/channel_persona.json",
-            # These are binary projections of already-enforced actual output gates,
-            # not new model scores. Any failed gate above stops before this projection.
-            "channel_voice_match_score": 10.0,
-            "tone_consistency_score": 10.0,
+            "channel_voice_match_score": identity_voice,
+            "tone_consistency_score": identity_tone,
         }
     )
     if identity.get("decision") != "pass":
@@ -240,43 +322,44 @@ def finalize_short_quality(output_dir: Path, control_request: dict[str, Any], pr
     payoff_text = str(events[-1].get("text") or "") if events else ""
     payoff_start = float(events[-1].get("start") or 0.0) if events else 0.0
     payoff_end = float(events[-1].get("end") or duration_s) if events else duration_s
+    promise_match_score = round(min(scores["opening_strength"], scores["narrative_progression"]) * 10.0, 3)
     promise = validate_promise_payoff(
         {
             "hook_promise": hook_text,
             "payoff": payoff_text,
-            "promise_payoff_match_score": 10.0 if gold_pass else 0.0,
+            "promise_payoff_match_score": promise_match_score,
             "duration_s": duration_s,
             "payoff_start_s": payoff_start,
             "payoff_end_s": payoff_end,
         }
     )
-    satisfaction = evaluate_satisfaction(
-        {
-            "hook_truthful": gold_pass,
-            "standalone_value": gold_pass,
-            "payoff_complete": gold_pass,
-            "fake_loop": False,
-            "manipulative_cta": False,
-        }
+    satisfaction_inputs = _satisfaction_flags(
+        plan,
+        scores,
+        factual_pass=factual_pass,
+        content_pass=content_pass,
     )
+    satisfaction = evaluate_satisfaction(satisfaction_inputs)
     length = validate_actual_length(
         actual_duration_s=duration_s,
         recommendation=pre_gold["length_recommendation"],
     )
 
+    safety_pass = gold_pass and scores["monetization_safety"] >= 0.90
+    cultural_pass = tone_pass and scores["cultural_fit"] >= 0.90
     evidence = {
-        "safety_pass": gold_pass,
-        "cultural_pass": tone_pass,
-        "islamic_pass": tone_pass,
+        "safety_pass": safety_pass,
+        "cultural_pass": cultural_pass,
+        "islamic_pass": cultural_pass,
         "factual_pass": factual_pass,
-        "rights_pass": gold_pass,
+        "rights_pass": rights_pass,
         "content_quality_pass": content_pass,
         "topic_admission_pass": pre_gold["topic_admission"].get("decision") == "pass",
         "identity_admission_pass": identity.get("decision") == "pass",
         "single_action_pass": bool(pre_gold["topic_admission"].get("single_action_contract")),
-        "hook_contract_pass": True,
+        "hook_contract_pass": pre_gold["hook_contract"].get("hook_commit_ms", 999999) <= 3000,
         "progressive_text_pass": pre_gold.get("progressive_text_applied") is True,
-        "payoff_pass": bool(payoff_text),
+        "payoff_pass": promise.get("decision") == "pass",
         "first_frame_contract_pass": pre_gold["first_frame"].get("decision") == "pass",
         "promise_payoff_pass": promise.get("decision") == "pass",
         "satisfaction_pass": satisfaction.get("decision") == "pass",
@@ -302,9 +385,19 @@ def finalize_short_quality(output_dir: Path, control_request: dict[str, Any], pr
         "satisfaction": satisfaction,
         "length": length,
         "quality_gate": quality_result,
+        "evidence_provenance": {
+            "source": "final-critic.json model_review + existing hard gates",
+            "synthetic_perfect_scores": False,
+            "identity_voice_score_source": "final_critic.model_review.human_feel",
+            "identity_tone_score_source": "min(language_quality,cultural_fit)",
+            "promise_payoff_score_source": "min(opening_strength,narrative_progression)",
+            "final_critic_scores_0_to_1": scores,
+        },
         "gold_inherited": True,
         "delivery_allowed": True,
         "youtube_publish_mode": "manual_in_youtube_studio",
     }
-    (root / "short-intelligence.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    (root / "short-intelligence.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return report
