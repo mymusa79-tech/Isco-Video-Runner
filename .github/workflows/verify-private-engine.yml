@@ -79,7 +79,19 @@ jobs:
 
       - name: Full Engine suite
         working-directory: engine
-        run: python -m unittest discover -s tests -q
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee "$RUNNER_TEMP/full-engine.log"
+
+      - name: Upload Full Engine diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: authoritative-full-engine-log
+          path: ${{ runner.temp }}/full-engine.log
+          if-no-files-found: warn
+          retention-days: 1
 
       - name: Approved-Brief CLI contract matrix
         working-directory: engine
