@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      ENGINE_SHA: 0e326dc070a733f31fa15e9f545d336ff6517bef
+      ENGINE_SHA: 2c7ea2463c998af8b4fc2d5aadba8165eef2a7c8
     steps:
       - name: Checkout Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -57,11 +57,12 @@ jobs:
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
 
-      - name: Focused Human Editorial Intent Engine tests
+      - name: Focused Human Editorial Intent and current-main compatibility tests
         working-directory: engine
         run: |
           set -euo pipefail
           python -m unittest tests.test_human_editorial_intent -v
+          python -m unittest tests.test_editorial_room_director_m7_binding_current_main -v
 
       - name: Full Engine suite
         working-directory: engine
