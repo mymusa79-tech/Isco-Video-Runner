@@ -140,10 +140,25 @@ jobs:
         run: |
           set -euo pipefail
           git diff --check
+          mapfile -t dirty_paths < <(git status --porcelain --untracked-files=no | sed -E 's/^.. //')
+          for path in "${dirty_paths[@]}"; do
+            case "$path" in
+              src/isco_video_agent/orchestrator.py|tests/test_orchestrator_ledger_integration.py|state/history.json) ;;
+              *)
+                git status --short
+                echo "ERROR: unexplained tracked mutation after Stage 6 tests: $path" >&2
+                exit 1
+                ;;
+            esac
+          done
+          if printf '%s\n' "${dirty_paths[@]}" | grep -qx 'state/history.json'; then
+            echo "Known test observer fixture mutation: state/history.json; restoring before final scope assertion"
+            git checkout -- state/history.json
+          fi
           git status --short
           changed="$(git diff --name-only | sort)"
           expected="$(printf '%s\n' src/isco_video_agent/orchestrator.py tests/test_orchestrator_ledger_integration.py | sort)"
-          test "$changed" = "$expected"
+          test "$changed" = "$expected" || { echo "Unexpected final Stage 6 diff scope:"; printf '%s\n' "$changed"; exit 1; }
 
       - name: Commit and push Stage 6 closure
         working-directory: engine
