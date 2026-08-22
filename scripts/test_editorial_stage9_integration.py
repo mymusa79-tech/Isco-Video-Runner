@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 
+# Stage 9 final integration contract: exact Engine pin + one production provenance id.
 ENGINE_SHA = "568da9edfb68ebf9ea6e7d6aed0b6a9ee9a1180a"
 OLD_ENGINE_SHA = "860b61b0f99b285cc2917cba079e29bfa9e2c119"
 
