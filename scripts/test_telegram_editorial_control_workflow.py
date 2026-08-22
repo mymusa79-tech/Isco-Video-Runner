@@ -23,10 +23,11 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn("Prime Telegram offset on first activation", self.text)
         self.assertIn("historical updates ignored", self.text)
 
-    def test_control_state_is_encrypted_at_rest_without_new_required_secret(self):
+    def test_control_state_is_encrypted_at_rest_with_dedicated_state_key(self):
         self.assertIn("state/control-panel.json.enc", self.text)
         self.assertIn("openssl enc -aes-256-cbc -salt -pbkdf2", self.text)
-        self.assertIn("secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN", self.text)
+        self.assertEqual(self.text.count("STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}"), 2)
+        self.assertNotIn("secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN", self.text)
         self.assertNotIn("state/control-panel.json\n", self.text)
 
     def test_engine_is_only_checked_out_when_research_is_pending(self):
