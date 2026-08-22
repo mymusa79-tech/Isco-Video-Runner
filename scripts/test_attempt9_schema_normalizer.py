@@ -85,11 +85,15 @@ class Attempt9SchemaNormalizerIntegrationTests(unittest.TestCase):
         self.original_subset = append_guard._parse_ordered_subset_for_schema_completion
         self.original_complete = append_guard._parse_safe_partial_additions
         self.original_engine_parser = staged._parse_append_only_response
+        self.original_retry_attempted = append_guard._RETRY_ATTEMPTED.get()
+        self.original_active_closer = append_guard._ACTIVE_CLOSER.get()
 
     def tearDown(self) -> None:
         append_guard._parse_ordered_subset_for_schema_completion = self.original_subset
         append_guard._parse_safe_partial_additions = self.original_complete
         staged._parse_append_only_response = self.original_engine_parser
+        append_guard._RETRY_ATTEMPTED.set(self.original_retry_attempted)
+        append_guard._ACTIVE_CLOSER.set(self.original_active_closer)
 
     def test_installer_keeps_existing_semantic_order_gate(self) -> None:
         install_attempt9_schema_normalizer()
