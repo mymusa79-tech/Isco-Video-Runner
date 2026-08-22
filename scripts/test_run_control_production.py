@@ -76,12 +76,13 @@ class ControlRequestProductionTests(unittest.TestCase):
             brief = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(len(brief["research_pack"]), 2)
 
-    def test_sibling_plan_selects_distinct_jobs_without_dispatch(self):
+    def test_sibling_plan_selects_distinct_jobs_without_dispatch_and_hashes_exact_long_plan(self):
         request = self._request(kind="long", scope="long_plus_sibling_shorts")
         request["sibling_shorts"] = {"minimum": 2, "maximum": 3}
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            (root / "plan.json").write_text(
+            plan_path = root / "plan.json"
+            plan_path.write_text(
                 json.dumps(
                     {
                         "sections": [
@@ -99,6 +100,8 @@ class ControlRequestProductionTests(unittest.TestCase):
             data = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(data["short_count"], 3)
             self.assertEqual(data["source_request_sha256"], request["request_sha256"])
+            self.assertEqual(data["source_production_plan_sha256"], control._sha256_file(plan_path))
+            self.assertEqual(len(data["source_production_plan_sha256"]), 64)
             self.assertFalse(data["automatic_production_started"])
             self.assertTrue(all(item["production_dispatch_authorized"] is False for item in data["semantic_jobs"]))
             self.assertEqual(data["youtube_publish_mode"], "manual_in_youtube_studio")
