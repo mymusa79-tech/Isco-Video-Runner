@@ -14,6 +14,7 @@ from scripts.append_retry_guard import install_append_retry_guard
 from scripts.attempt9_schema_normalizer import install_attempt9_schema_normalizer
 from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
+from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
@@ -180,6 +181,11 @@ def _attach_observer_evidence_to_telemetry(
         voice = json.loads(voice_path.read_text(encoding="utf-8"))
         if isinstance(voice, dict):
             data["voice_identity_audit"] = voice
+    audio_path = output_dir / "audio-transcript-audit.json"
+    if audio_path.exists():
+        audio = json.loads(audio_path.read_text(encoding="utf-8"))
+        if isinstance(audio, dict):
+            data["groq_audio_audit"] = audio
     telemetry_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -200,6 +206,7 @@ def main() -> None:
     gemini = secret("GEMINI_API_KEY")
     pexels = secret("PEXELS_API_KEY")
     pixabay = secret("PIXABAY_API_KEY")
+    groq = (os.environ.get("GROQ_API_KEY") or "").strip()
     if not gemini or not pexels:
         raise RuntimeError("Gemini and Pexels secrets are required for V4 production")
     # Runner remains the one-time owner of provider inputs needed both by the core and
@@ -257,6 +264,14 @@ def main() -> None:
         telemetry_path = write_planning_telemetry(out)
         _attach_voice_audit_to_telemetry(telemetry_path, out)
         raise
+
+    # G1/G2 is deliberately observe-only and runs only after Gold accepted the exact
+    # final render. A missing/rate-limited Groq key or transcription mismatch never
+    # changes the release verdict; the observer records audit_error/review evidence.
+    try:
+        run_groq_audio_audit(out, api_key=groq)
+    except Exception as exc:
+        print(f"Groq Audio Audit integration skipped ({type(exc).__name__}); production unchanged")
 
     ledger.write(out / "ai-budget.json")
     production_id = _production_id()
