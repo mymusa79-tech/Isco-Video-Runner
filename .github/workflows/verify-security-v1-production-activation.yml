@@ -1,0 +1,199 @@
+name: Verify Security V1 Production Activation
+
+on:
+  pull_request:
+    branches: ["activate/security-v1-editorial-production"]
+
+permissions:
+  contents: read
+
+jobs:
+  combined-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact Runner verifier candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify activation workflow contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          engine_sha = "eb3370d50ea392b3e31443ff62b99cb5743b65c9"
+          brief_sha = "56ba4a23a30ceb3e19bc9b2f9493930179f4cf442f3f86c8a79426ac589a7a92"
+          text = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
+          checkout = re.findall(r"^\s+ref:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
+          env_pin = re.findall(r"^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
+          if checkout != [engine_sha] or env_pin != [engine_sha]:
+              raise SystemExit(f"wrong Engine pin: checkout={checkout} env={env_pin}")
+          if f'test "$(git rev-parse HEAD)" = "{engine_sha}"' not in text:
+              raise SystemExit("missing exact Engine checkout verification")
+          if text.count(f"ISCO_APPROVED_BRIEF_SHA256: {brief_sha}") != 2:
+              raise SystemExit("approved brief hash is not bound at prepare+produce boundaries")
+          required = (
+              "workflow_dispatch:",
+              "tesseract-ocr",
+              "tesseract-ocr-ara",
+              "security_v1_supply_chain_preflight.py lock",
+              "security_v1_supply_chain_preflight.py voice",
+              "verify_brief_approval(brief, os.environ[\"ISCO_APPROVED_BRIEF_SHA256\"])",
+          )
+          missing = [item for item in required if item not in text]
+          if missing:
+              raise SystemExit("activation contract missing: " + ", ".join(missing))
+          if "push:" in text:
+              raise SystemExit("Production V4 must remain manual-only")
+          print("Production V4 activation contract PASS")
+          PY
+
+      - name: Checkout exact private Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: eb3370d50ea392b3e31443ff62b99cb5743b65c9
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "eb3370d50ea392b3e31443ff62b99cb5743b65c9"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install local security media dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core tesseract-ocr tesseract-ocr-ara
+          tesseract --list-langs | tee "$RUNNER_TEMP/tesseract-langs.txt"
+          grep -qx 'eng' "$RUNNER_TEMP/tesseract-langs.txt"
+          grep -qx 'ara' "$RUNNER_TEMP/tesseract-langs.txt"
+
+      - name: Verify critical package artifacts before install
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python scripts/security_v1_supply_chain_preflight.py lock --lock engine/requirements-lock.txt
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Verify Piper voice artifact integrity
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m pip install 'piper-tts==1.4.2'
+          mkdir -p "$RUNNER_TEMP/piper-voices"
+          python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium
+          python scripts/security_v1_supply_chain_preflight.py voice \
+            --voice-dir "$RUNNER_TEMP/piper-voices" \
+            --manifest engine/security/piper_voice_hashes.json
+
+      - name: Verify approved brief cryptographic binding
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src
+          ISCO_APPROVED_BRIEF_SHA256: 56ba4a23a30ceb3e19bc9b2f9493930179f4cf442f3f86c8a79426ac589a7a92
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from isco_video_agent.brief_approval_binding import verify_brief_approval
+          brief = json.loads(Path("engine/production/approved_brief.json").read_text(encoding="utf-8"))
+          digest = verify_brief_approval(brief, os.environ["ISCO_APPROVED_BRIEF_SHA256"])
+          print("Approved brief binding PASS", digest)
+          PY
+
+      - name: Focused Security V1 Engine contracts
+        working-directory: engine
+        run: |
+          python -m unittest -q \
+            tests.test_brief_approval_binding \
+            tests.test_research_quarantine \
+            tests.test_model_output_schemas \
+            tests.test_multimodal_firewall \
+            tests.test_supply_chain_integrity
+
+      - name: Focused Editorial Director M7 contracts
+        working-directory: engine
+        run: |
+          python -m unittest -q \
+            tests.test_editorial_room \
+            tests.test_editorial_room_director_m7_binding_current_main \
+            tests.test_resilient_planner \
+            tests.test_resilient_planner_persona_binding \
+            tests.test_director_brain_deterministic_contract_current_main \
+            tests.test_director_eyes_phase_b \
+            tests.test_cinematic_m7_live_binding \
+            tests.test_cinematic_m7_visual_timeline
+
+      - name: Focused Runner production-binding contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}:${{ github.workspace }}/scripts
+        run: |
+          python -m unittest -q \
+            scripts.test_security_v1_live_binding \
+            scripts.test_m7_live_binding \
+            scripts.test_run_v3_voice
+
+      - name: Full Engine suite
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Full Runner regression suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}:${{ github.workspace }}/scripts
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Verifier isolation and no-production invariants
+        run: |
+          set -euo pipefail
+          git diff --check origin/activate/security-v1-editorial-production...HEAD
+          mapfile -t changed < <(git diff --name-only origin/activate/security-v1-editorial-production...HEAD)
+          test "${#changed[@]}" -eq 1
+          test "${changed[0]}" = ".github/workflows/verify-security-v1-production-activation.yml"
+          ! git diff --name-only origin/activate/security-v1-editorial-production...HEAD | grep -q 'produce-resilient-v4.yml'
+          echo "Verifier isolation PASS; no Production dispatch"
