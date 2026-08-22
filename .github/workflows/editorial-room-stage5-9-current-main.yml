@@ -38,14 +38,17 @@ jobs:
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
-      - name: Focused Editorial Room tests
+      - name: Focused Editorial Room Stage 6 tests
         working-directory: engine
         run: |
           set -euo pipefail
           python -m unittest \
             tests.test_editorial_room \
             tests.test_resilient_planner_persona_binding \
-            tests.test_editorial_adapters -v
+            tests.test_editorial_adapters \
+            tests.test_editorial_stage6 \
+            tests.test_repair_dossier \
+            tests.test_short_quality_gate -v
       - name: Full Engine regression
         working-directory: engine
         run: python -m unittest discover -s tests -q
