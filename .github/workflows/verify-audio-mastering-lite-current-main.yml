@@ -1,0 +1,114 @@
+name: Verify Audio Mastering Lite Current Main
+
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 98c82518a960bd772ccbad414fa7c51d4318b0f5
+  RUNNER_BASE_SHA: ecb0b6b10e6e2020810f347ff1dcb42c39cd97a4
+
+jobs:
+  certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify current Runner ancestry
+        run: git merge-base --is-ancestor "$RUNNER_BASE_SHA" HEAD
+
+      - name: Checkout exact Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused Audio Mastering Lite tests
+        working-directory: engine
+        run: python -m unittest tests.test_cinematic_audio_mastering_lite -q
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research; then
+            exit 1
+          fi
+
+      - name: Full Runner regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' | sort | sed -e 's#/#.#g' -e 's#\.py$##')
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Audio mastering contract invariants
+        working-directory: engine
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('src/isco_video_agent/cinematic_audio_mastering.py').read_text(encoding='utf-8')
+          for needle in ('PROFILE_VERSION = "audio-mastering-lite-charon-v1"', 'hpf_hz=70.0', 'ratio=1.6', 'existing_mux_two_pass_loudnorm_and_limiter', 'zero_additional_ai_calls'):
+              if needle not in text:
+                  raise SystemExit('missing invariant: ' + needle)
+          if 'loudnorm=' in text or 'alimiter=' in text:
+              raise SystemExit('Mastering Lite must not take final loudness authority')
+          PY
+
+      - name: Verifier isolation and diff review
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only "$RUNNER_BASE_SHA"...HEAD)"
+          test "$changed" = ".github/workflows/verify-audio-mastering-lite-current-main.yml"
+          git diff --check "$RUNNER_BASE_SHA"...HEAD
+          test "$(git -C engine rev-parse HEAD)" = "$ENGINE_SHA"
