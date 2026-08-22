@@ -88,19 +88,28 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          from isco_video_agent.cinematic_m10_semantic_visuals import (
+              MAX_SIMPLE_DIAGRAMS_PER_EPISODE,
+              MAX_TOTAL_VISUAL_AIDS_PER_EPISODE,
+              POLICY_VERSION,
+              REPRESENTATION_INTENTS,
+          )
+
+          assert POLICY_VERSION == "m10-semantic-visual-aids-v1"
+          assert REPRESENTATION_INTENTS == frozenset(
+              {"stock", "archive", "text_card", "simple_diagram", "none"}
+          )
+          assert MAX_SIMPLE_DIAGRAMS_PER_EPISODE == 2
+          assert MAX_TOTAL_VISUAL_AIDS_PER_EPISODE == 3
+
           m10 = Path('src/isco_video_agent/cinematic_m10_semantic_visuals.py').read_text(encoding='utf-8')
           director = Path('src/isco_video_agent/director_brain.py').read_text(encoding='utf-8')
           runtime = Path('src/isco_video_agent/cinematic_m7_runtime.py').read_text(encoding='utf-8')
-          required_m10 = (
-              'POLICY_VERSION = "m10-semantic-visual-aids-v1"',
-              'MAX_SIMPLE_DIAGRAMS_PER_EPISODE = 2',
-              'MAX_TOTAL_VISUAL_AIDS_PER_EPISODE = 3',
-              '"stock", "archive", "text_card", "simple_diagram", "none"',
+          for needle in (
               '"creates_cut": False',
               '"external_graphic_assets": False',
               'm11_archive_binding_deferred_stock_preserved',
-          )
-          for needle in required_m10:
+          ):
               if needle not in m10:
                   raise SystemExit('missing M10 invariant: ' + needle)
           for forbidden in ('flaticon', 'canva', 'lottiefiles', 'motionarray', 'envato'):
