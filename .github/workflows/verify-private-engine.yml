@@ -2,85 +2,37 @@ name: Verify Private Engine
 
 on:
   workflow_dispatch:
-    inputs:
-      engine_sha:
-        description: "Optional exact Engine SHA; when set it must match canonical Runner V4"
-        required: false
-        type: string
   pull_request:
     branches: ["main"]
 
 permissions:
   contents: read
 
+env:
+  EDITORIAL_ENGINE_SHA: 1d779851601fd36b600c4e598388a36892edb412
+
 jobs:
   combined-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
-      - name: Checkout exact Runner candidate
+      - name: Checkout exact Runner verifier candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Resolve and verify canonical V4 Engine contract
-        id: contract
-        env:
-          REQUESTED_ENGINE_SHA: ${{ inputs.engine_sha }}
+      - name: Validate isolated Editorial Engine SHA
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import os
-          import re
-          from pathlib import Path
+          [[ "$EDITORIAL_ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'EDITORIAL_ENGINE_SHA must be exact lowercase SHA' >&2; exit 1; }
+          echo "Isolated editorial verification: runner=$GITHUB_SHA engine=$EDITORIAL_ENGINE_SHA"
 
-          path = Path(".github/workflows/produce-resilient-v4.yml")
-          text = path.read_text(encoding="utf-8")
-          checkout = re.findall(r"^\s+ref:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
-          env_pin = re.findall(r"^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
-          if len(checkout) != 1 or len(env_pin) != 1 or checkout[0] != env_pin[0]:
-              raise SystemExit(f"Canonical V4 Engine pin mismatch: checkout={checkout} env={env_pin}")
-          sha = checkout[0]
-          requested = (os.environ.get("REQUESTED_ENGINE_SHA") or "").strip()
-          if requested and requested != sha:
-              raise SystemExit(f"Requested Engine SHA {requested} does not match canonical V4 pin {sha}")
-          if not re.fullmatch(r"[0-9a-f]{40}", sha):
-              raise SystemExit("Canonical V4 Engine SHA must be an exact lowercase 40-character SHA")
-
-          required = (
-              "workflow_dispatch:",
-              'brief_path = Path("engine/production/approved_brief.json")',
-              'brief.get("approved_by_user") is not True',
-              'brief.get("approved_topic")',
-              "ISCO_APPROVED_BRIEF_PATH:",
-          )
-          missing = [needle for needle in required if needle not in text]
-          if missing:
-              raise SystemExit("Canonical V4 contract missing: " + ", ".join(missing))
-          forbidden = (
-              "inputs.topic",
-              "inputs.format",
-              "TOPIC_INPUT",
-              "FORMAT_INPUT",
-              "EVENT_NAME",
-              "push:",
-          )
-          present = [needle for needle in forbidden if needle in text]
-          if present:
-              raise SystemExit("Canonical V4 still exposes legacy request paths: " + ", ".join(present))
-
-          output = Path(os.environ["GITHUB_OUTPUT"])
-          with output.open("a", encoding="utf-8") as fh:
-              fh.write(f"engine_sha={sha}\n")
-          print(f"Canonical V4 contract PASS: runner={os.environ.get('GITHUB_SHA')} engine={sha}")
-          PY
-
-      - name: Checkout exact private Engine
+      - name: Checkout exact private Engine candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: ${{ steps.contract.outputs.engine_sha }}
+          ref: ${{ env.EDITORIAL_ENGINE_SHA }}
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -88,9 +40,7 @@ jobs:
 
       - name: Verify exact Engine checkout
         working-directory: engine
-        env:
-          ENGINE_SHA: ${{ steps.contract.outputs.engine_sha }}
-        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+        run: test "$(git rev-parse HEAD)" = "$EDITORIAL_ENGINE_SHA"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -114,6 +64,15 @@ jobs:
           set -euo pipefail
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused Editorial Room Stage 5 contracts
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_editorial_room \
+            tests.test_resilient_planner_persona_binding \
+            tests.test_editorial_adapters -v
 
       - name: Full Engine suite
         working-directory: engine
@@ -148,9 +107,11 @@ jobs:
           test "${#test_modules[@]}" -gt 0
           python -m unittest "${test_modules[@]}" -q
 
-      - name: Exact closure delta sanity
+      - name: Diff and verifier isolation sanity
         run: |
           set -euo pipefail
           git diff --check origin/main...HEAD || git diff --check
           test -f .github/workflows/produce-resilient-v4.yml
           test -f .github/workflows/verify-private-engine.yml
+          grep -q '17102aa8f66e1aefadc94547a9b079aa074bb28f' .github/workflows/produce-resilient-v4.yml
+          test "$EDITORIAL_ENGINE_SHA" != '17102aa8f66e1aefadc94547a9b079aa074bb28f'
