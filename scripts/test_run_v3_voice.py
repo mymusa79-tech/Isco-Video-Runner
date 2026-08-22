@@ -155,6 +155,7 @@ class _MainPatchMixin:
             "install_schema_guard",
             "install_router",
             "install_planner_quality_guard",
+            "install_attempt9_schema_normalizer",
             "install_append_retry_guard",
             "install_brand_anchor_guard",
             "install_product_proof_fallback",
