@@ -1,0 +1,381 @@
+name: Editorial Room Stage 7 Closure
+
+on:
+  push:
+    branches: ["verify/editorial-room-stage5-9-final-current-main"]
+    paths:
+      - .github/workflows/editorial-room-stage7-closure.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 2a8d246d03bb5247da23b3c7b7e97e995b4619bf
+
+jobs:
+  verify-stage7:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout exact Engine Stage 6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+      - name: Apply Stage 7 candidate
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path("src/isco_video_agent/production_pipeline.py")
+          s = p.read_text(encoding="utf-8")
+          old = '        narrative_format=str(data.get("narrative_format", "direct_cinematic")),\n    )\n'
+          new = '        narrative_format=str(data.get("narrative_format", "direct_cinematic")),\n        editorial_intent=data.get("editorial_intent", {}),\n    )\n'
+          assert s.count(old) == 1
+          p.write_text(s.replace(old, new), encoding="utf-8")
+
+          p = Path("src/isco_video_agent/packaging_integrity.py")
+          s = p.read_text(encoding="utf-8")
+          old = 'from .models import ProductionPlan\n'
+          new = 'from .editorial_room import EditorialContractError, intent_from_dict\nfrom .models import ProductionPlan\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          addition = r'''
+
+
+def _ratio_value(value: float | None) -> float:
+    return 0.0 if value is None else float(value)
+
+
+def audit_editorial_packaging_binding(plan: ProductionPlan, candidate: dict) -> dict:
+    """Bind one packaging hypothesis to the plan's locked EditorialIntent.
+
+    This is deterministic release authority and makes no provider/model call. A/B/C may
+    explore different click hypotheses, but the underlying viewer promise, fingerprint,
+    and persona version stay identical. Lexical alignment is intentionally conservative:
+    zero evidence blocks; weak paraphrase evidence is review, not an invented semantic
+    detector.
+    """
+    issues: list[str] = []
+    try:
+        intent = intent_from_dict(getattr(plan, "editorial_intent", None))
+    except EditorialContractError as exc:
+        return {
+            "schema_version": 1,
+            "mode": "deterministic_editorial_gate",
+            "status": "block",
+            "score": 0.0,
+            "issues": [f"editorial_intent_invalid:{exc}"],
+            "release_authority": True,
+        }
+
+    if candidate.get("editorial_fingerprint") != intent.editorial_fingerprint:
+        issues.append("editorial_fingerprint_mismatch")
+    if candidate.get("persona_version") != intent.persona_version:
+        issues.append("editorial_persona_version_mismatch")
+    if str(candidate.get("locked_viewer_promise", "")).strip() != intent.viewer_promise:
+        issues.append("locked_viewer_promise_mismatch")
+    if str(candidate.get("viewer_promise", "")).strip() != intent.viewer_promise:
+        issues.append("viewer_promise_not_locked")
+
+    title = str(candidate.get("title_ar", "")).strip()
+    thumb = str(candidate.get("text_ar", "")).strip() if candidate.get("text_mode", "short_text") != "none" else ""
+    hypothesis = str(candidate.get("packaging_hypothesis", "")).strip()
+    expression = str(candidate.get("viewer_promise_expression", "")).strip()
+    if not title or not hypothesis or not expression:
+        issues.append("editorial_packaging_fields_missing")
+
+    package_expression = "\n".join(x for x in (title, thumb, hypothesis, expression) if x)
+    promise_alignment = max(
+        _ratio_value(_support_ratio(intent.viewer_promise, expression)),
+        _ratio_value(_support_ratio(expression, intent.viewer_promise)),
+    )
+    turn_alignment = _ratio_value(_support_ratio(intent.editorial_turn, package_expression))
+    payoff_alignment = _ratio_value(_support_ratio(intent.earned_payoff, package_expression))
+    thesis_alignment = _ratio_value(_support_ratio(intent.editorial_thesis, package_expression))
+    score = _weighted(
+        (
+            (promise_alignment, 0.45),
+            (turn_alignment, 0.25),
+            (payoff_alignment, 0.20),
+            (thesis_alignment, 0.10),
+        )
+    )
+    has_semantic_anchor = max(promise_alignment, turn_alignment, payoff_alignment, thesis_alignment) > 0.0
+    if not has_semantic_anchor:
+        issues.append("editorial_packaging_has_no_intent_anchor")
+
+    hard_issue = bool(issues)
+    if hard_issue:
+        status = "block"
+    elif score >= 0.30:
+        status = "pass"
+    else:
+        status = "review"
+
+    return {
+        "schema_version": 1,
+        "mode": "deterministic_editorial_gate",
+        "status": status,
+        "score": round(score, 4),
+        "components": {
+            "viewer_promise_expression_alignment": round(promise_alignment, 4),
+            "editorial_turn_alignment": round(turn_alignment, 4),
+            "earned_payoff_alignment": round(payoff_alignment, 4),
+            "editorial_thesis_alignment": round(thesis_alignment, 4),
+        },
+        "issues": issues,
+        "editorial_fingerprint": intent.editorial_fingerprint,
+        "persona_version": intent.persona_version,
+        "locked_viewer_promise": intent.viewer_promise,
+        "release_authority": True,
+        "interpretation": "A/B/C may vary packaging angle, never the locked EditorialIntent promise.",
+    }
+          '''
+          assert "def audit_editorial_packaging_binding" not in s
+          p.write_text(s + addition, encoding="utf-8")
+
+          p = Path("src/isco_video_agent/thumbnail.py")
+          s = p.read_text(encoding="utf-8")
+          old = 'from .media.ffmpeg import make_image_review_preview\n'
+          new = 'from .editorial_room import intent_from_dict\nfrom .media.ffmpeg import make_image_review_preview\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = 'from .packaging_integrity import audit_packaging_promise\n'
+          new = 'from .packaging_integrity import audit_editorial_packaging_binding, audit_packaging_promise\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = 'def _concepts(api_key: str, plan: ProductionPlan, model: str) -> list[dict]:\n    sections = list(getattr(plan, "sections", []) or [])\n'
+          new = 'def _concepts(api_key: str, plan: ProductionPlan, model: str) -> list[dict]:\n    intent = intent_from_dict(getattr(plan, "editorial_intent", None))\n    sections = list(getattr(plan, "sections", []) or [])\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '            "closing_payoff": plan.closing_payoff,\n            "transcript": [\n'
+          new = '            "closing_payoff": plan.closing_payoff,\n            "editorial_intent": intent.to_dict(),\n            "transcript": [\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '- Each of the 3 hypotheses must use a meaningfully different visual idea, title angle, and viewer promise.\n'
+          new = '- All 3 hypotheses MUST express the SAME locked EditorialIntent viewer promise. They may phrase it differently, but may not invent a different promise.\n- Each hypothesis must use a meaningfully different visual idea, title angle, and packaging_hypothesis. Preserve at least one meaningful anchor from the locked viewer promise/editorial turn/earned payoff in the package wording.\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '        promise = _clean_contract_text(item.get("viewer_promise", ""), limit=360)\n'
+          new = '        promise_expression = _clean_contract_text(item.get("viewer_promise", ""), limit=360)\n        promise = intent.viewer_promise\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '        if not hypothesis or not promise or not title_role or not thumbnail_role:\n'
+          new = '        if not hypothesis or not promise_expression or not title_role or not thumbnail_role:\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '            or hypothesis_key in used_hypotheses\n            or promise_key in used_promises\n'
+          new = '            or hypothesis_key in used_hypotheses\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '        used_hypotheses.add(hypothesis_key)\n        used_promises.add(promise_key)\n'
+          new = '        used_hypotheses.add(hypothesis_key)\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '                "viewer_promise": promise,\n                "title_role": title_role,\n'
+          new = '                "viewer_promise": promise,\n                "viewer_promise_expression": promise_expression,\n                "locked_viewer_promise": intent.viewer_promise,\n                "editorial_fingerprint": intent.editorial_fingerprint,\n                "persona_version": intent.persona_version,\n                "title_role": title_role,\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '        concept.setdefault("hypothesis_type", hypothesis_type(chr(64 + index)))\n        primary_query = concept["visual_query_en"]\n'
+          new = '        concept.setdefault("hypothesis_type", hypothesis_type(chr(64 + index)))\n        editorial_binding = audit_editorial_packaging_binding(plan, concept)\n        concept["editorial_binding"] = editorial_binding\n        if editorial_binding["status"] == "block":\n            issues = ", ".join(editorial_binding.get("issues", []))\n            raise RuntimeError(f"Editorial packaging gate blocked {concept[\'candidate_id\']}: {issues}")\n        primary_query = concept["visual_query_en"]\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          old = '            "promise_integrity_status_counts": integrity_counts,\n            "provider_attempt_ceiling": 4,\n'
+          new = '            "promise_integrity_status_counts": integrity_counts,\n            "editorial_binding_mode": "deterministic_release_gate",\n            "editorial_binding_status_counts": {\n                status: sum(1 for item in candidates_out if item["editorial_binding"]["status"] == status)\n                for status in ("pass", "review", "block")\n            },\n            "locked_editorial_fingerprint": candidates_out[0]["editorial_fingerprint"] if candidates_out else None,\n            "provider_attempt_ceiling": 4,\n'
+          assert s.count(old) == 1
+          s = s.replace(old, new)
+          p.write_text(s, encoding="utf-8")
+
+          Path("tests/test_editorial_stage7.py").write_text(r'''from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from isco_video_agent.editorial_room import make_editorial_intent
+from isco_video_agent.models import ProductionPlan, ScriptSection
+from isco_video_agent.packaging_integrity import audit_editorial_packaging_binding
+from isco_video_agent.production_pipeline import _plan_from_json
+from isco_video_agent import thumbnail
+
+
+class EditorialStage7Tests(unittest.TestCase):
+    def _intent(self):
+        return make_editorial_intent(
+            editorial_thesis="الشعور بالتأخر يتضخم حين تستخدم مقياسًا لا يناسب حياتك.",
+            viewer_starting_belief="المشاهد يظن أن سرعة الآخرين دليل على أنه متأخر فعلًا.",
+            hidden_assumption="الافتراض الخفي هو أن كل الناس يجب أن يتقدموا بالإيقاع نفسه.",
+            editorial_turn="بدل سؤال كم تأخرت، افحص المقياس الذي تستخدمه للحكم على تقدمك.",
+            stakes="المقياس الخاطئ يحول التقدم الحقيقي إلى شعور دائم بالفشل.",
+            viewer_promise="ستتعلم كيف تميز بين التأخر الحقيقي ومقارنة نفسك بمقياس لا يناسب حياتك.",
+            evidence_boundaries=("لا نقدم تشخيصًا طبيًا.", "لا نعمم مسارًا واحدًا على الجميع."),
+            earned_payoff="اختر مقياس تقدم مرتبطًا بظروفك وقارن نفسك بخطوتك السابقة.",
+        )
+
+    def _plan(self):
+        intent = self._intent()
+        return ProductionPlan(
+            topic="لماذا تشعر أنك متأخر عن الجميع؟",
+            pillar="understand",
+            format="film",
+            hook="قد لا تكون متأخرًا؛ ربما تستخدم مقياسًا لا يخص حياتك.",
+            title_options=["هل أنت متأخر فعلًا؟"],
+            thumbnail_concepts=["ساعة ومسار مختلف"],
+            sections=[ScriptSection(id="s1", narration="نقارن سرعتنا بالآخرين ثم ننسى اختلاف نقطة البداية والظروف.", visual_query="person walking different path", key_point="افحص مقياس المقارنة")],
+            cta="جرّب مقياسًا واحدًا هذا الأسبوع.",
+            closing_payoff="اختر مقياس تقدم مرتبطًا بظروفك وقارن نفسك بخطوتك السابقة.",
+            editorial_intent=intent.to_dict(),
+        )
+
+    def _candidate(self, plan):
+        intent = self._intent()
+        return {
+            "candidate_id": "packaging-a",
+            "title_ar": "هل مقياسك يجعلك متأخرًا؟",
+            "text_mode": "short_text",
+            "text_ar": "المقياس الخطأ",
+            "packaging_hypothesis": "إعادة تعريف التأخر عبر كشف مقياس المقارنة الخاطئ.",
+            "viewer_promise": intent.viewer_promise,
+            "viewer_promise_expression": "ستعرف هل أنت متأخر فعلًا أم تحاكم حياتك بمقياس لا يناسبك.",
+            "locked_viewer_promise": intent.viewer_promise,
+            "editorial_fingerprint": intent.editorial_fingerprint,
+            "persona_version": intent.persona_version,
+        }
+
+    def test_valid_candidate_is_bound_to_same_intent(self):
+        plan = self._plan()
+        result = audit_editorial_packaging_binding(plan, self._candidate(plan))
+        self.assertIn(result["status"], {"pass", "review"})
+        self.assertTrue(result["release_authority"])
+        self.assertEqual(result["editorial_fingerprint"], plan.editorial_intent["editorial_fingerprint"])
+
+    def test_missing_intent_fails_closed(self):
+        plan = self._plan()
+        plan.editorial_intent = {}
+        result = audit_editorial_packaging_binding(plan, self._candidate(self._plan()))
+        self.assertEqual(result["status"], "block")
+        self.assertTrue(any(x.startswith("editorial_intent_invalid:") for x in result["issues"]))
+
+    def test_fingerprint_mismatch_blocks(self):
+        plan = self._plan()
+        candidate = self._candidate(plan)
+        candidate["editorial_fingerprint"] = "wrong"
+        result = audit_editorial_packaging_binding(plan, candidate)
+        self.assertEqual(result["status"], "block")
+        self.assertIn("editorial_fingerprint_mismatch", result["issues"])
+
+    def test_unrelated_expression_blocks_even_with_stamped_metadata(self):
+        plan = self._plan()
+        candidate = self._candidate(plan)
+        candidate.update({
+            "title_ar": "وصفة فطائر منزلية",
+            "text_ar": "مطبخ سريع",
+            "packaging_hypothesis": "مكونات وطهي وجبة لذيذة.",
+            "viewer_promise_expression": "ستتعلم وصفة فطائر ومقاديرها ووقت خبزها.",
+        })
+        result = audit_editorial_packaging_binding(plan, candidate)
+        self.assertEqual(result["status"], "block")
+        self.assertIn("editorial_packaging_has_no_intent_anchor", result["issues"])
+
+    def test_plan_json_reload_preserves_editorial_intent(self):
+        plan = self._plan()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "plan.json"
+            path.write_text(json.dumps(plan.to_dict(), ensure_ascii=False), encoding="utf-8")
+            loaded = _plan_from_json(path)
+        self.assertEqual(loaded.editorial_intent, plan.editorial_intent)
+
+    def test_abc_share_locked_promise_without_extra_planner_calls(self):
+        plan = self._plan()
+        raw = {"concepts": [
+            {"title_ar":"هل أنت متأخر فعلًا؟","text_mode":"short_text","text_ar":"مقياس خاطئ","visual_query_en":"person comparing clocks","alternate_visual_query_en":"different life paths","text_position":"left","packaging_hypothesis":"وضوح المقياس الخاطئ.","viewer_promise":"ستفهم لماذا يبدو تقدم الآخرين أسرع حين تستخدم مقياسًا لا يناسبك.","title_role":"يسأل عن التأخر.","thumbnail_role":"يكشف المقياس.","angle":"clarity","why_it_can_work":"واضح"},
+            {"title_ar":"المقارنة التي تسرق تقدمك","text_mode":"short_text","text_ar":"سباق غيرك","visual_query_en":"runner on separate lanes","alternate_visual_query_en":"people walking separate roads","text_position":"right","packaging_hypothesis":"توتر المقارنة بسباق الآخرين.","viewer_promise":"ستعيد تقييم إحساسك بالتأخر عندما ترى أن مسارك لا يقاس بسرعة غيرك.","title_role":"يصنع التوتر.","thumbnail_role":"يجسد السباق.","angle":"tension","why_it_can_work":"متوتر"},
+            {"title_ar":"غيّر المقياس أولًا","text_mode":"none","text_ar":"","visual_query_en":"single ruler beside winding road","alternate_visual_query_en":"measuring tape different paths","text_position":"center","packaging_hypothesis":"اختزال الفكرة في تغيير المقياس.","viewer_promise":"ستخرج بمقياس تقدم يناسب ظروفك بدل مقارنة خطوتك بإيقاع الآخرين.","title_role":"يقدم التحول.","thumbnail_role":"يجسد المقياس بصريًا.","angle":"minimalist","why_it_can_work":"بسيط"}
+        ]}
+        with patch.object(thumbnail, "json_text", return_value=raw) as model_call:
+            concepts = thumbnail._concepts("fake", plan, "fake-model")
+        model_call.assert_called_once()
+        self.assertEqual(len(concepts), 3)
+        self.assertEqual({x["viewer_promise"] for x in concepts}, {plan.editorial_intent["viewer_promise"]})
+        self.assertEqual({x["editorial_fingerprint"] for x in concepts}, {plan.editorial_intent["editorial_fingerprint"]})
+        self.assertEqual({x["persona_version"] for x in concepts}, {plan.editorial_intent["persona_version"]})
+        self.assertEqual(len({x["packaging_hypothesis"] for x in concepts}), 3)
+
+
+if __name__ == "__main__":
+    unittest.main()
+''', encoding="utf-8")
+          PY
+          git diff --check
+          git diff -- src/isco_video_agent/production_pipeline.py src/isco_video_agent/packaging_integrity.py src/isco_video_agent/thumbnail.py tests/test_editorial_stage7.py
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install media and locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+      - name: Focused Stage 7 contracts
+        working-directory: engine
+        run: python -m unittest tests.test_editorial_stage7 -v
+      - name: Focused Stage 5-6 compatibility
+        working-directory: engine
+        run: |
+          python -m unittest tests.test_editorial_adapters tests.test_editorial_stage6 tests.test_human_editorial_intent -q
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+      - name: Final diff review
+        working-directory: engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          mapfile -t changed < <(git status --porcelain --untracked-files=all | sed -E 's/^.. //')
+          printf '%s\n' "${changed[@]}"
+          allowed=(src/isco_video_agent/production_pipeline.py src/isco_video_agent/packaging_integrity.py src/isco_video_agent/thumbnail.py tests/test_editorial_stage7.py state/history.json)
+          for path in "${changed[@]}"; do
+            ok=false
+            for want in "${allowed[@]}"; do [[ "$path" == "$want" ]] && ok=true; done
+            $ok || { echo "unexpected dirty path: $path" >&2; exit 1; }
+          done
+          git checkout -- state/history.json 2>/dev/null || true
+      - name: Prepare Stage 7 artifact
+        working-directory: engine
+        run: |
+          mkdir -p "$RUNNER_TEMP/stage7/src/isco_video_agent" "$RUNNER_TEMP/stage7/tests"
+          cp src/isco_video_agent/production_pipeline.py "$RUNNER_TEMP/stage7/src/isco_video_agent/"
+          cp src/isco_video_agent/packaging_integrity.py "$RUNNER_TEMP/stage7/src/isco_video_agent/"
+          cp src/isco_video_agent/thumbnail.py "$RUNNER_TEMP/stage7/src/isco_video_agent/"
+          cp tests/test_editorial_stage7.py "$RUNNER_TEMP/stage7/tests/"
+          git diff > "$RUNNER_TEMP/stage7/stage7.patch"
+      - name: Upload Stage 7 verified closure
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage7-verified-closure
+          path: ${{ runner.temp }}/stage7
+          retention-days: 1
