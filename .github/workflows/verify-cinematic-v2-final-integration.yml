@@ -1,8 +1,8 @@
 name: Verify Cinematic V2 Final Integration Build
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches: [verify/cinematic-v2-final-integration]
 
 permissions:
   contents: read
@@ -109,5 +109,3 @@ jobs:
           git add src/isco_video_agent/orchestrator.py
           git commit -m "cinematic v2: bind M7-M10 runtime to production timeline"
           git push origin HEAD:agent/cinematic-v2-final-integration
-
-# synchronize trigger 1
