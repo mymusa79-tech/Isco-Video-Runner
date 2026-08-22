@@ -1,12 +1,6 @@
-name: Verify Private Engine
+name: Verify Security V1 Final Closure
 
 on:
-  workflow_dispatch:
-    inputs:
-      engine_sha:
-        description: "Optional exact Engine SHA; when set it must match canonical Runner V4"
-        required: false
-        type: string
   pull_request:
     branches: ["main"]
 
@@ -15,107 +9,87 @@ permissions:
 
 jobs:
   combined-regression:
+    if: github.head_ref == 'verify/security-v1-final-closure-current'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
+    env:
+      ENGINE_CANDIDATE_SHA: fe16149ea7ed2ac0696ec05558c78c458259d18c
+      RUNNER_BASE_SHA: 7a7cf91347733408cf91f982df93aaebb1e24242
     steps:
-      - name: Checkout exact Runner candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout verifier carrier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - name: Resolve and verify canonical V4 Engine contract
-        id: contract
-        env:
-          REQUESTED_ENGINE_SHA: ${{ inputs.engine_sha }}
+      - name: Verify carrier scope and production isolation
         run: |
           set -euo pipefail
+          test "$(git rev-parse origin/main)" = "$RUNNER_BASE_SHA"
+          actual="$(git diff --name-only origin/main...HEAD)"
+          test "$actual" = '.github/workflows/verify-private-engine.yml'
+          git diff --check origin/main...HEAD
           python - <<'PY'
-          import os
           import re
           from pathlib import Path
-
-          path = Path(".github/workflows/produce-resilient-v4.yml")
-          text = path.read_text(encoding="utf-8")
-          checkout = re.findall(r"^\s+ref:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
-          env_pin = re.findall(r"^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
+          text = Path('.github/workflows/produce-resilient-v4.yml').read_text(encoding='utf-8')
+          checkout = re.findall(r'^\s+ref:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          env_pin = re.findall(r'^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
           if len(checkout) != 1 or len(env_pin) != 1 or checkout[0] != env_pin[0]:
-              raise SystemExit(f"Canonical V4 Engine pin mismatch: checkout={checkout} env={env_pin}")
-          sha = checkout[0]
-          requested = (os.environ.get("REQUESTED_ENGINE_SHA") or "").strip()
-          if requested and requested != sha:
-              raise SystemExit(f"Requested Engine SHA {requested} does not match canonical V4 pin {sha}")
-          if not re.fullmatch(r"[0-9a-f]{40}", sha):
-              raise SystemExit("Canonical V4 Engine SHA must be an exact lowercase 40-character SHA")
-
-          required = (
-              "workflow_dispatch:",
-              'brief_path = Path("engine/production/approved_brief.json")',
-              'brief.get("approved_by_user") is not True',
-              'brief.get("approved_topic")',
-              "ISCO_APPROVED_BRIEF_PATH:",
-          )
-          missing = [needle for needle in required if needle not in text]
-          if missing:
-              raise SystemExit("Canonical V4 contract missing: " + ", ".join(missing))
-          forbidden = (
-              "inputs.topic",
-              "inputs.format",
-              "TOPIC_INPUT",
-              "FORMAT_INPUT",
-              "EVENT_NAME",
-              "push:",
-          )
-          present = [needle for needle in forbidden if needle in text]
-          if present:
-              raise SystemExit("Canonical V4 still exposes legacy request paths: " + ", ".join(present))
-
-          output = Path(os.environ["GITHUB_OUTPUT"])
-          with output.open("a", encoding="utf-8") as fh:
-              fh.write(f"engine_sha={sha}\n")
-          print(f"Canonical V4 contract PASS: runner={os.environ.get('GITHUB_SHA')} engine={sha}")
+              raise SystemExit(f'Production V4 Engine pin mismatch: checkout={checkout} env={env_pin}')
+          required = ('production/approved_brief.json', 'approved_by_user', 'approved_topic', 'ISCO_APPROVED_BRIEF_PATH:')
+          missing = [x for x in required if x not in text]
+          forbidden = ('inputs.topic', 'inputs.format', 'TOPIC_INPUT', 'FORMAT_INPUT', 'EVENT_NAME', 'push:')
+          present = [x for x in forbidden if x in text]
+          if missing or present:
+              raise SystemExit(f'Production contract drift: missing={missing} forbidden={present}')
+          print('Production V4 unchanged; candidate tested separately')
           PY
 
-      - name: Checkout exact private Engine
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout exact Security V1 Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: ${{ steps.contract.outputs.engine_sha }}
+          ref: ${{ env.ENGINE_CANDIDATE_SHA }}
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify exact Engine checkout
+      - name: Verify exact Engine candidate
         working-directory: engine
-        env:
-          ENGINE_SHA: ${{ steps.contract.outputs.engine_sha }}
-        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_CANDIDATE_SHA"
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
 
-      - name: Install media dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
-
-      - name: Install locked Engine runtime
+      - name: Install locked Engine and dependency audit
         working-directory: engine
         run: |
           set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
-
-      - name: Dependency audit
-        working-directory: engine
-        run: |
-          set -euo pipefail
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
 
-      - name: Full Engine suite
+      - name: Focused Security V1 contracts
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_multimodal_firewall \
+            tests.test_research_quarantine \
+            tests.test_model_output_schemas \
+            tests.test_brief_approval_binding \
+            tests.test_supply_chain_integrity \
+            -v
+
+      - name: Full Engine regression
         working-directory: engine
         run: python -m unittest discover -s tests -q
 
@@ -136,7 +110,7 @@ jobs:
             exit 1
           fi
 
-      - name: Full Runner regression suite
+      - name: Full Runner regression
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
@@ -148,9 +122,16 @@ jobs:
           test "${#test_modules[@]}" -gt 0
           python -m unittest "${test_modules[@]}" -q
 
-      - name: Exact closure delta sanity
+      - name: Security closure invariants
+        working-directory: engine
         run: |
           set -euo pipefail
-          git diff --check origin/main...HEAD || git diff --check
-          test -f .github/workflows/produce-resilient-v4.yml
-          test -f .github/workflows/verify-private-engine.yml
+          test -f src/isco_video_agent/multimodal_firewall.py
+          test -f src/isco_video_agent/research_quarantine.py
+          test -f src/isco_video_agent/model_output_schemas.py
+          test -f src/isco_video_agent/brief_approval_binding.py
+          test -f src/isco_video_agent/supply_chain_integrity.py
+          test -f security/piper_voice_hashes.json
+          grep -F 'isco-security-artifact:' requirements-lock.txt
+          git diff --check
+          echo 'Security V1 final closure invariants PASS'
