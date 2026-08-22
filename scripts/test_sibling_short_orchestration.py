@@ -10,7 +10,7 @@ from scripts import sibling_short_orchestration as sibling
 
 class SiblingShortOrchestrationTests(unittest.TestCase):
     def _parent(self) -> dict:
-        request = {
+        return {
             "schema_version": 1,
             "request_id": "req-parent",
             "request_sha256": "parent-sha",
@@ -36,14 +36,14 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
                 "evidence_quality": 0.75,
             },
         }
-        return request
 
-    def _plan(self, jobs=None) -> dict:
+    def _plan(self, jobs=None, *, source_plan_sha: str | None = None) -> dict:
         jobs = jobs or ["الفكرة الأولى", "الفكرة الثانية", "الفكرة الثالثة"]
         return {
             "schema_version": 1,
             "source_request_id": "req-parent",
             "source_request_sha256": "parent-sha",
+            "source_production_plan_sha256": source_plan_sha or ("a" * 64),
             "source_topic": "موضوع الحلقة",
             "short_count": len(jobs),
             "semantic_jobs": [
@@ -57,6 +57,31 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             ],
             "automatic_production_started": False,
         }
+
+    def _write_source_and_sibling_plan(self, root: Path, jobs=None) -> Path:
+        source_plan = root / "plan.json"
+        source_plan.write_text(
+            json.dumps(
+                {
+                    "topic": "موضوع الحلقة",
+                    "format": "film",
+                    "sections": [
+                        {"key_point": "الفكرة الأولى"},
+                        {"key_point": "الفكرة الثانية"},
+                        {"key_point": "الفكرة الثالثة"},
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        plan_path = root / "sibling-short-plan.json"
+        plan_path.write_text(
+            json.dumps(self._plan(jobs, source_plan_sha=sibling._sha256_file(source_plan)), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return plan_path
 
     def _completed_output(self, root: Path, request: dict) -> Path:
         root.mkdir(parents=True, exist_ok=True)
@@ -87,6 +112,8 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertFalse(request["production_dispatch_authorized"])
             self.assertEqual(request["parent_control_request_id"], "req-parent")
             self.assertEqual(request["parent_control_request_sha256"], "parent-sha")
+            self.assertEqual(request["source_production_plan_sha256"], "a" * 64)
+            self.assertEqual(len(request["source_sibling_plan_sha256"]), 64)
             self.assertEqual(request["youtube_publish_mode"], "manual_in_youtube_studio")
             self.assertEqual(request["short_admission"]["evidence_source"], "approved_parent_candidate_metrics")
             self.assertEqual(request["request_sha256"], sibling._canonical_hash({k: v for k, v in request.items() if k != "request_sha256"}))
@@ -101,15 +128,23 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
     def test_plan_must_have_two_to_three_distinct_jobs(self):
         with self.assertRaisesRegex(RuntimeError, "2–3"):
             sibling.build_sibling_requests(self._parent(), self._plan(["واحدة"]))
-        plan = self._plan(["نفس الفكرة", "نفس الفكرة"])
         with self.assertRaisesRegex(RuntimeError, "distinct"):
+            sibling.build_sibling_requests(self._parent(), self._plan(["نفس الفكرة", "نفس الفكرة"]))
+
+    def test_sibling_plan_requires_parent_request_and_long_plan_hashes(self):
+        plan = self._plan()
+        plan["source_request_sha256"] = "other"
+        with self.assertRaisesRegex(RuntimeError, "parent request hash mismatch"):
+            sibling.build_sibling_requests(self._parent(), plan)
+        plan = self._plan()
+        plan["source_production_plan_sha256"] = "bad"
+        with self.assertRaisesRegex(RuntimeError, "production-plan hash"):
             sibling.build_sibling_requests(self._parent(), plan)
 
     def test_orchestration_executes_sequentially_and_validates_all_children(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            plan_path = root / "sibling-short-plan.json"
-            plan_path.write_text(json.dumps(self._plan(), ensure_ascii=False), encoding="utf-8")
+            plan_path = self._write_source_and_sibling_plan(root)
             calls = []
 
             def execute(request):
@@ -120,12 +155,20 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertEqual(calls, ["req-parent-s1", "req-parent-s2", "req-parent-s3"])
             self.assertEqual(len(completed), 3)
             self.assertTrue(all(item["delivery_allowed"] for item in completed))
+            self.assertTrue(all(len(item["source_production_plan_sha256"]) == 64 for item in completed))
+
+    def test_orchestration_blocks_if_long_plan_changes_after_sibling_planning(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            plan_path = self._write_source_and_sibling_plan(root)
+            (root / "plan.json").write_text(json.dumps({"tampered": True}), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "source production plan changed"):
+                sibling.orchestrate_sibling_shorts(self._parent(), plan_path, execute_short=lambda _: root / "unused")
 
     def test_orchestration_stops_on_first_failed_child_and_never_claims_partial_success(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            plan_path = root / "sibling-short-plan.json"
-            plan_path.write_text(json.dumps(self._plan(), ensure_ascii=False), encoding="utf-8")
+            plan_path = self._write_source_and_sibling_plan(root)
             calls = []
 
             def execute(request):
@@ -153,6 +196,8 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
                     "request_sha256": f"sha-{index}",
                     "approved_topic": job,
                     "source_semantic_job": job,
+                    "source_production_plan_sha256": "a" * 64,
+                    "source_sibling_plan_sha256": "b" * 64,
                 }
                 output = self._completed_output(root / f"child-{index}", request)
                 completed.append(sibling.validate_completed_short(output, request))
@@ -160,6 +205,7 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertEqual([item["video"] for item in staged], ["short-01.mp4", "short-02.mp4"])
             self.assertTrue((parent / "short-01.mp4").is_file())
             self.assertTrue((parent / "short-02-intelligence.json").is_file())
+            self.assertTrue(all(item["source_production_plan_sha256"] == "a" * 64 for item in staged))
 
 
 if __name__ == "__main__":
