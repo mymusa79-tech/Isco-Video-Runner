@@ -7,6 +7,19 @@ from scripts.attempt10_append_bound_recovery import install_attempt10_append_bou
 from scripts.groq_audio_audit import run_groq_audio_audit
 
 
+def _groq_key() -> str:
+    direct = (os.environ.get("GROQ_API_KEY") or "").strip()
+    if direct:
+        return direct
+    file_name = (os.environ.get("GROQ_API_KEY_FILE") or "").strip()
+    if not file_name:
+        return ""
+    try:
+        return Path(file_name).read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return ""
+
+
 def install_runtime_closure() -> None:
     """Install the remaining pre-production runtime recovery without changing hard gates."""
     install_attempt10_append_bound_recovery()
@@ -22,7 +35,7 @@ def run_post_gold_observers(output_dir: Path) -> dict:
     try:
         return run_groq_audio_audit(
             Path(output_dir),
-            api_key=(os.environ.get("GROQ_API_KEY") or "").strip(),
+            api_key=_groq_key(),
         )
     except Exception as exc:
         print(f"Runtime post-Gold observer skipped ({type(exc).__name__}); production unchanged")
