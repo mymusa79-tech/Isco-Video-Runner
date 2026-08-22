@@ -19,19 +19,17 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout exact Runner verifier candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
           fetch-depth: 1
-
       - name: Validate exact Engine SHA
         run: |
           set -euo pipefail
           [[ "$EDITORIAL_ENGINE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
           echo "runner=$GITHUB_SHA engine=$EDITORIAL_ENGINE_SHA"
-
       - name: Checkout exact private Engine candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
           ref: ${{ env.EDITORIAL_ENGINE_SHA }}
@@ -39,30 +37,29 @@ jobs:
           path: engine
           persist-credentials: false
           fetch-depth: 1
-
       - name: Verify exact Engine checkout
         working-directory: engine
         run: test "$(git rev-parse HEAD)" = "$EDITORIAL_ENGINE_SHA"
-
-      - name: Apply indentation-safe Stage 8 candidate
+      - name: Apply Stage 8 candidate and compatibility migrations
         shell: bash
         run: |
           set -euo pipefail
           python .github/scripts/apply-editorial-stage8.py engine
+          python .github/scripts/patch-editorial-stage8-compat.py engine
           python -m py_compile \
             engine/src/isco_video_agent/editorial_learning.py \
             engine/src/isco_video_agent/learning.py \
             engine/src/isco_video_agent/final_critic.py \
             engine/src/isco_video_agent/production_pipeline.py \
-            engine/tests/test_editorial_stage8.py
+            engine/tests/test_editorial_stage8.py \
+            engine/tests/test_final_critic_provenance_batch.py \
+            engine/tests/test_gold_shadow_phase2a.py
           cd engine
           git diff --check
-
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
-
       - name: Install media and locked Engine runtime
         working-directory: engine
         run: |
@@ -72,7 +69,6 @@ jobs:
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
-
       - name: Dependency audit
         working-directory: engine
         run: |
@@ -80,7 +76,6 @@ jobs:
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
           python -m pip check
-
       - name: Focused Editorial Stage 5-8 contracts
         working-directory: engine
         env:
@@ -108,34 +103,25 @@ jobs:
             tests.test_final_critic_selected_visuals \
             tests.test_gold_finalizer \
             tests.test_gold_shadow_phase2a -v
-
       - name: Human Editorial Intent and M7 compatibility
         working-directory: engine
-        run: |
-          set -euo pipefail
-          python -m unittest tests.test_human_editorial_intent -v
-
+        run: python -m unittest tests.test_human_editorial_intent -v
       - name: Full Engine regression
         working-directory: engine
         run: python -m unittest discover -s tests -q
-
       - name: Approved-Brief CLI contract matrix
         working-directory: engine
         run: |
           set -euo pipefail
           missing="$RUNNER_TEMP/isco-no-approved-brief.json"
           rm -f "$missing"
-          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
-            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
-          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
-            --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --format auto --dry-run --no-research
           isco-video produce --format auto --dry-run --no-research
-          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
-            --format auto --dry-run --no-research; then
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research; then
             echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
             exit 1
           fi
-
       - name: Stage 8 candidate scope and worktree sanity
         working-directory: engine
         shell: bash
@@ -144,41 +130,34 @@ jobs:
           git checkout -- state/history.json 2>/dev/null || true
           git diff --check
           mapfile -t changed < <(git status --porcelain --untracked-files=all | sed -E 's/^.. //')
-          allowed=(src/isco_video_agent/editorial_learning.py src/isco_video_agent/learning.py src/isco_video_agent/final_critic.py src/isco_video_agent/production_pipeline.py tests/test_editorial_stage8.py)
-          test "${#changed[@]}" -eq 5
+          allowed=(src/isco_video_agent/editorial_learning.py src/isco_video_agent/learning.py src/isco_video_agent/final_critic.py src/isco_video_agent/production_pipeline.py tests/test_editorial_stage8.py tests/test_final_critic_provenance_batch.py tests/test_gold_shadow_phase2a.py)
+          test "${#changed[@]}" -eq 7
           for path in "${changed[@]}"; do
             ok=false
             for want in "${allowed[@]}"; do [[ "$path" == "$want" ]] && ok=true; done
             $ok || { echo "ERROR: unexpected Stage 8 path: $path" >&2; exit 1; }
           done
-
       - name: Prepare verified Stage 8 artifact
         working-directory: engine
         run: |
           mkdir -p "$RUNNER_TEMP/stage8/src/isco_video_agent" "$RUNNER_TEMP/stage8/tests"
           cp src/isco_video_agent/editorial_learning.py src/isco_video_agent/learning.py src/isco_video_agent/final_critic.py src/isco_video_agent/production_pipeline.py "$RUNNER_TEMP/stage8/src/isco_video_agent/"
-          cp tests/test_editorial_stage8.py "$RUNNER_TEMP/stage8/tests/"
+          cp tests/test_editorial_stage8.py tests/test_final_critic_provenance_batch.py tests/test_gold_shadow_phase2a.py "$RUNNER_TEMP/stage8/tests/"
           git diff > "$RUNNER_TEMP/stage8/stage8.patch"
-
       - name: Upload verified Stage 8 artifact
         uses: actions/upload-artifact@v4
         with:
           name: stage8-verified-candidate-combined
           path: ${{ runner.temp }}/stage8
           retention-days: 1
-
       - name: Full Runner regression suite
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
-          mapfile -t test_modules < <(
-            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
-              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
-          )
+          mapfile -t test_modules < <(find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' | sort | sed -e 's#/#.#g' -e 's#\.py$##')
           test "${#test_modules[@]}" -gt 0
           python -m unittest "${test_modules[@]}" -q
-
       - name: Runner diff and production isolation sanity
         run: |
           set -euo pipefail
