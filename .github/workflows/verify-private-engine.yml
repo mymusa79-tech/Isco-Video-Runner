@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  EDITORIAL_ENGINE_SHA: 1d779851601fd36b600c4e598388a36892edb412
+  EDITORIAL_ENGINE_SHA: 9e689f4b016289800d31dde91e9b04cd2b59c415
 
 jobs:
   combined-regression:
@@ -65,14 +65,17 @@ jobs:
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
 
-      - name: Focused Editorial Room Stage 5 contracts
+      - name: Focused Editorial Room Stage 6 contracts
         working-directory: engine
         run: |
           set -euo pipefail
           python -m unittest \
             tests.test_editorial_room \
             tests.test_resilient_planner_persona_binding \
-            tests.test_editorial_adapters -v
+            tests.test_editorial_adapters \
+            tests.test_editorial_stage6 \
+            tests.test_repair_dossier \
+            tests.test_short_quality_gate -v
 
       - name: Full Engine suite
         working-directory: engine
