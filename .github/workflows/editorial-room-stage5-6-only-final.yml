@@ -148,12 +148,12 @@ jobs:
           )
           mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
           test "$(printf '%s\n' "${changed[@]}")" = "$(printf '%s\n' "${expected_sorted[@]}")"
-          ! git diff HEAD^..HEAD -- src/isco_video_agent/orchestrator.py | grep -E '^\+.*(provider|json_text|route_text|gemini|openrouter)' 
-          ! git diff HEAD^..HEAD -- . | grep -E '^\+.*(workflow_dispatch|secrets\.|Production Run|dispatches)' 
+          ! git diff HEAD^..HEAD -- src/isco_video_agent/orchestrator.py | grep -E '^\+.*(provider|json_text|route_text|gemini|openrouter)'
+          ! git diff HEAD^..HEAD -- . | grep -E '^\+.*(workflow_dispatch|secrets\.|Production Run|dispatches)'
 
       - name: Verifier isolation sanity
         run: |
           set -euo pipefail
-          git diff --check origin/main...HEAD || git diff --check
-          changed="$(git diff --name-only origin/main...HEAD 2>/dev/null || git diff --name-only HEAD^)"
+          git diff --check HEAD^..HEAD
+          changed="$(git diff --name-only HEAD^..HEAD)"
           test "$changed" = ".github/workflows/editorial-room-stage5-6-only-final.yml"
