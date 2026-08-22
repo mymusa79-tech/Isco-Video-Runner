@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  ENGINE_SHA: 8a3ae298bdb5fef6ee1bef04f07c4d5af6e63a0c
+  ENGINE_SHA: 833a3c65a5fad6edf961960fa31ab5ea12024a0c
   RUNNER_BASE_SHA: 523e371a485a18df31e30b3bf0587ac58e455395
 
 jobs:
@@ -99,10 +99,14 @@ jobs:
               '"cultural"',
               '"editorial_fingerprint"',
               '"intellectual_fingerprint"',
+              'ISCO_PRODUCTION_ID',
+              '_accepted_intent_for_production(data, pid)',
           )
           missing = [x for x in required_learning if x not in learning]
           if missing:
               raise SystemExit("Stage 8 learning invariant missing: " + ", ".join(missing))
+          if "_latest_accepted_intent" in learning:
+              raise SystemExit("Stage 8 must not infer editorial provenance from recency")
           if critic.count("json_text(api_key, prompt, model=model)") != 1:
               raise SystemExit("Stage 8 must reuse exactly one Final Critic model call")
           for needle in (
