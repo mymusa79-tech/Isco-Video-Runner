@@ -12,6 +12,7 @@ from isco_video_agent.brief_approval_binding import attach_approval_binding
 from isco_video_agent.short_planner import DEFAULT_SIBLING_SPACING_HOURS, select_sibling_jobs
 
 import scripts.run_v3_voice as production
+from scripts.native_short_planner_router import install_native_short_router
 from scripts.shorts_production_binding import finalize_short_quality, prepare_short_render
 from scripts.sibling_short_orchestration import orchestrate_sibling_shorts, stage_sibling_assets
 from scripts.source_derived_short_planner import install_source_derived_short_planner
@@ -49,6 +50,8 @@ def validate_control_request(request: dict[str, Any], expected_sha256: str) -> d
         raise RuntimeError("Control request kind is unsupported")
     if request.get("production_dispatch_authorized") is not False:
         raise RuntimeError("Stored control request must remain non-dispatching")
+    if request.get("kind") == "short" and request.get("approval_scope") not in {"short_only", "short_sibling"}:
+        raise RuntimeError("Short control request has an unsupported approval scope")
     return request
 
 
@@ -158,6 +161,15 @@ def _restore_runtime_env(previous: dict[str, str | None]) -> None:
             os.environ[key] = value
 
 
+def _short_router_for_request(request: dict[str, Any]):
+    scope = request.get("approval_scope")
+    if scope == "short_sibling":
+        return (lambda: install_source_derived_short_planner(request)), "source_derived_long_episode_short"
+    if scope == "short_only":
+        return install_native_short_router, "native_short_resilient_mesh"
+    raise RuntimeError("Unsupported Short approval scope")
+
+
 def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Path:
     validate_control_request(request, str(request.get("request_sha256") or ""))
     runtime_dir = Path(runtime_dir)
@@ -205,8 +217,9 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
 
     production.run_gold_enforce_phase4 = controlled_gold
     if request["kind"] == "short":
-        production.install_router = lambda: install_source_derived_short_planner(request)
-        production._resolve_plan_source = lambda: "source_derived_long_episode_short"
+        short_install, plan_source = _short_router_for_request(request)
+        production.install_router = short_install
+        production._resolve_plan_source = lambda: plan_source
     try:
         production.main()
         output = _new_output_dir(before)
