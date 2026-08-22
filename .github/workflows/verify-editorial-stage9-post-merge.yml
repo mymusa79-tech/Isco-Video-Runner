@@ -30,7 +30,7 @@ jobs:
           ref: ${{ env.RUNNER_SHA }}
           path: runner-under-test
           persist-credentials: false
-          fetch-depth: 1
+          fetch-depth: 2
 
       - name: Verify exact merged Runner checkout
         working-directory: runner-under-test
