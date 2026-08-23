@@ -193,10 +193,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REQUEST_ID: ${{ steps.reserve.outputs.production_request_id }}
           REQUEST_SHA256: ${{ steps.reserve.outputs.production_request_sha256 }}
+          AUTHORIZATION_ID: ${{ steps.reserve.outputs.production_authorization_id }}
         run: |
           set -euo pipefail
           test -n "$REQUEST_ID"
           test -n "$REQUEST_SHA256"
+          test -n "$AUTHORIZATION_ID"
           gh workflow run telegram-production-request.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
@@ -206,7 +208,8 @@ jobs:
           python scripts/telegram_production_queue.py mark-dispatched \
             --state "$CONTROL_STATE_PATH" \
             --request-id "$REQUEST_ID" \
-            --sha256 "$REQUEST_SHA256"
+            --sha256 "$REQUEST_SHA256" \
+            --authorization-id "$AUTHORIZATION_ID"
 
       - name: Persist encrypted control-panel state
         if: always()
