@@ -12,7 +12,7 @@ from scripts import narrative_music_dynamics as dynamics
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg/ffprobe required")
 class NarrativeMusicDynamicsFfmpegTests(unittest.TestCase):
-    def test_real_ffmpeg_renders_time_varying_music_bed_to_exact_duration(self) -> None:
+    def test_real_ffmpeg_renders_restrained_time_varying_music_to_exact_duration(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = root / "music.wav"
@@ -36,8 +36,8 @@ class NarrativeMusicDynamicsFfmpegTests(unittest.TestCase):
                 env=secret_free_subprocess_env(),
             )
             schedule = [
-                {"start_seconds": 0.0, "end_seconds": 1.5, "adjustment_db": -0.8},
-                {"start_seconds": 1.5, "end_seconds": 3.0, "adjustment_db": 1.8},
+                {"start_seconds": 0.0, "end_seconds": 1.5, "adjustment_db": dynamics._target_db("linger")},
+                {"start_seconds": 1.5, "end_seconds": 3.0, "adjustment_db": dynamics._target_db("accelerate")},
                 {"start_seconds": 3.0, "end_seconds": 4.0, "adjustment_db": dynamics.OUTRO_ADJUSTMENT_DB},
             ]
             expression = dynamics._ffmpeg_volume_expression(dynamics._ramp_pieces(schedule))

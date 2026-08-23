@@ -12,27 +12,25 @@ from isco_video_agent.media.ffmpeg import duration
 from isco_video_agent.security import secret_free_subprocess_env
 
 
-SCHEMA_VERSION = 1
-RAMP_SECONDS = 1.2
-MAX_ABS_ADJUSTMENT_DB = 2.0
-OUTRO_ADJUSTMENT_DB = -1.8
-_INTENT_DB = {
-    "payoff": 1.8,
-    "emotional_reinforcement": 1.2,
-    "metaphor": 0.8,
-    "counterpoint": 0.6,
-    "callback": 0.4,
-    "literal_illustration": -0.4,
-    "establishing_context": -0.8,
+SCHEMA_VERSION = 2
+RAMP_SECONDS = 1.6
+MAX_ABS_ADJUSTMENT_DB = 1.5
+OUTRO_ADJUSTMENT_DB = -1.5
+_PACING_ROLE_DB = {
+    "linger": -0.9,
+    "steady": 0.0,
+    "build": 0.6,
+    "accelerate": 1.1,
+    "release": -0.8,
 }
 
 
 class NarrativeMusicDynamicsError(RuntimeError):
-    """Fail-closed error for a bound semantic music-dynamics render."""
+    """Internal validation error for optional narrative music dynamics."""
 
 
 def _clean(value: object) -> str:
-    return " ".join(str(value or "").strip().split())
+    return " ".join(str(value or "").strip().split()).casefold()
 
 
 def _db_to_gain(db: float) -> float:
@@ -43,11 +41,8 @@ def _clamp_db(value: float) -> float:
     return max(-MAX_ABS_ADJUSTMENT_DB, min(MAX_ABS_ADJUSTMENT_DB, float(value)))
 
 
-def _target_db(intent: str, *, hero: bool = False) -> float:
-    db = float(_INTENT_DB.get(_clean(intent), 0.0))
-    if hero:
-        db += 0.2
-    return round(_clamp_db(db), 3)
+def _target_db(role: str) -> float:
+    return round(_clamp_db(float(_PACING_ROLE_DB.get(_clean(role), 0.0))), 3)
 
 
 def _read_timeline(path: Path) -> dict[str, Any]:
@@ -60,17 +55,24 @@ def _read_timeline(path: Path) -> dict[str, Any]:
     return data
 
 
-def _semantic_bound(timeline: dict[str, Any]) -> bool:
-    meta = timeline.get("human_editorial_intent")
-    return isinstance(meta, dict) and meta.get("status") == "bound"
+def _adaptive_pacing_available(timeline: dict[str, Any]) -> bool:
+    shots = timeline.get("final_cut_visuals")
+    if not isinstance(shots, list):
+        return False
+    for shot in shots:
+        if not isinstance(shot, dict):
+            continue
+        pacing = shot.get("adaptive_pacing")
+        role = _clean(pacing.get("role")) if isinstance(pacing, dict) else ""
+        if role in _PACING_ROLE_DB:
+            return True
+    return False
 
 
 def _raw_segments(timeline: dict[str, Any]) -> list[dict[str, Any]]:
-    if not _semantic_bound(timeline):
-        return []
     shots = timeline.get("final_cut_visuals")
     if not isinstance(shots, list) or not shots:
-        raise NarrativeMusicDynamicsError("semantic_timeline_has_no_final_cut_visuals")
+        raise NarrativeMusicDynamicsError("timeline_has_no_final_cut_visuals")
 
     result: list[dict[str, Any]] = []
     for index, shot in enumerate(shots, 1):
@@ -84,23 +86,24 @@ def _raw_segments(timeline: dict[str, Any]) -> list[dict[str, Any]]:
         if start < 0 or end <= start:
             raise NarrativeMusicDynamicsError("final_cut_visual_has_non_positive_duration")
 
-        intent_meta = shot.get("human_editorial_intent")
-        if isinstance(intent_meta, dict) and intent_meta.get("status") == "bound":
-            intent = _clean(intent_meta.get("intent"))
-            db = _target_db(intent, hero=bool(intent_meta.get("hero") is True))
-            source = "bound_m7_editorial_intent"
+        pacing = shot.get("adaptive_pacing")
+        role = _clean(pacing.get("role")) if isinstance(pacing, dict) else ""
+        if role in _PACING_ROLE_DB:
+            adjustment_db = _target_db(role)
+            derivation = "m7_adaptive_pacing_role"
         else:
-            intent = "preserved_external_authority"
-            db = 0.0
-            source = "preserved_m6_or_legacy_authority"
+            role = "neutral_missing_pacing_role"
+            adjustment_db = 0.0
+            derivation = "neutral_fallback_no_m7_pacing_role"
+
         result.append(
             {
                 "index": index,
                 "start_seconds": round(start, 3),
                 "end_seconds": round(end, 3),
-                "intent": intent,
-                "adjustment_db": round(db, 3),
-                "derivation": source,
+                "pacing_role": role,
+                "adjustment_db": round(adjustment_db, 3),
+                "derivation": derivation,
             }
         )
     result.sort(key=lambda item: (item["start_seconds"], item["end_seconds"], item["index"]))
@@ -117,7 +120,7 @@ def _coverage_schedule(
         raise NarrativeMusicDynamicsError("invalid_audio_duration_for_music_dynamics")
     timeline_seconds = float(timeline.get("duration_seconds") or 0.0)
     if timeline_seconds <= 0:
-        raise NarrativeMusicDynamicsError("semantic_timeline_duration_missing")
+        raise NarrativeMusicDynamicsError("timeline_duration_missing")
     if abs(timeline_seconds - narrative_seconds) > 1.0:
         raise NarrativeMusicDynamicsError(
             f"timeline_narration_duration_mismatch:{timeline_seconds:.3f}:{narrative_seconds:.3f}"
@@ -142,7 +145,7 @@ def _coverage_schedule(
                 {
                     "start_seconds": round(cursor, 3),
                     "end_seconds": round(start, 3),
-                    "intent": "timeline_gap_preserved",
+                    "pacing_role": "timeline_gap_neutral",
                     "adjustment_db": 0.0,
                     "derivation": "neutral_gap_fill",
                 }
@@ -157,7 +160,7 @@ def _coverage_schedule(
             {
                 "start_seconds": round(cursor, 3),
                 "end_seconds": round(narrative_seconds, 3),
-                "intent": "timeline_tail_preserved",
+                "pacing_role": "timeline_tail_neutral",
                 "adjustment_db": 0.0,
                 "derivation": "neutral_tail_fill",
             }
@@ -167,12 +170,14 @@ def _coverage_schedule(
             {
                 "start_seconds": round(narrative_seconds, 3),
                 "end_seconds": round(total_seconds, 3),
-                "intent": "outro_quiet_tail",
+                "pacing_role": "outro_quiet_tail",
                 "adjustment_db": OUTRO_ADJUSTMENT_DB,
                 "derivation": "professional_ending_guard",
             }
         )
 
+    # M7 may split one semantic scene into several shots. Do not pump the music on
+    # every edit: adjacent shots with the same role collapse into one musical phrase.
     merged: list[dict[str, Any]] = []
     for segment in schedule:
         if segment["end_seconds"] <= segment["start_seconds"]:
@@ -183,8 +188,8 @@ def _coverage_schedule(
             and abs(float(merged[-1]["end_seconds"]) - float(segment["start_seconds"])) <= tolerance
         ):
             merged[-1]["end_seconds"] = segment["end_seconds"]
-            if merged[-1]["intent"] != segment["intent"]:
-                merged[-1]["intent"] = "mixed_same_gain"
+            if merged[-1]["pacing_role"] != segment["pacing_role"]:
+                merged[-1]["pacing_role"] = "mixed_same_gain"
             continue
         merged.append(dict(segment))
     return merged
@@ -307,12 +312,31 @@ def _write_report(path: Path, report: dict[str, Any]) -> None:
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def install_narrative_music_dynamics() -> None:
-    """Bind subtle M7-role music movement before the existing ducking/mastering mux.
+def _fallback_report(*, reason: str, timeline_path: Path, source_music: Path) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "status": "fallback_original_music",
+        "reason": reason[:320],
+        "source_timeline": timeline_path.name,
+        "source_music": source_music.name,
+        "ai_calls_added": 0,
+        "music_bed_only": True,
+        "production_blocked": False,
+        "sidechain_ducking_authority": "engine_mux_unchanged",
+        "final_loudness_limiter_authority": "engine_mux_unchanged",
+        "narration_authority_changed": False,
+        "rights_provenance_changed": False,
+    }
 
-    The wrapper changes only the music-bed source. Engine sidechain ducking, two-pass
-    loudness correction, limiter, narration authority, final mux, and rights provenance
-    remain unchanged. No model/provider call is added.
+
+def install_narrative_music_dynamics() -> None:
+    """Bind restrained M7 pacing-role music movement before the existing mux.
+
+    This is optional editorial polish, never a new production authority. M7 adaptive
+    pacing decides the musical contour; Human Editorial Intent does not directly drive
+    gain. Existing sidechain ducking, two-pass loudness, limiter, narration, track
+    selection and rights provenance stay authoritative. Any polish-specific failure
+    falls back to the original music bed rather than blocking production.
     """
     current = orchestrator.mux
     if getattr(current, "_isco_narrative_music_dynamics", False):
@@ -326,64 +350,110 @@ def install_narrative_music_dynamics() -> None:
         if narration is None or music is None or not timeline_path.is_file():
             return current(video, narration, output, music=music, **kwargs)
 
-        timeline = _read_timeline(timeline_path)
-        if not _semantic_bound(timeline):
+        source_music = Path(music)
+        dynamic_music = output_dir / "narrative-music-dynamics.wav"
+        try:
+            timeline = _read_timeline(timeline_path)
+        except Exception as exc:
+            _write_report(
+                report_path,
+                _fallback_report(
+                    reason=f"timeline_read:{type(exc).__name__}:{exc}",
+                    timeline_path=timeline_path,
+                    source_music=source_music,
+                ),
+            )
+            return current(video, narration, output, music=music, **kwargs)
+
+        if not _adaptive_pacing_available(timeline):
             _write_report(
                 report_path,
                 {
                     "schema_version": SCHEMA_VERSION,
                     "status": "not_applicable",
-                    "reason": "timeline_has_no_bound_semantic_editorial_intent",
+                    "reason": "timeline_has_no_m7_adaptive_pacing_roles",
                     "ai_calls_added": 0,
+                    "production_blocked": False,
                     "renderer_authority_changed": False,
                 },
             )
+            # Baseline mux is deliberately outside every polish exception handler.
+            # If it fails, that real production failure propagates exactly once.
             return current(video, narration, output, music=music, **kwargs)
 
-        narrative_seconds = duration(Path(narration))
-        requested_outro = kwargs.get("outro_seconds", DEFAULT_OUTRO_SECONDS)
-        effective_outro = normalize_outro_seconds(max(0.0, float(requested_outro)))
-        total_seconds = narrative_seconds + effective_outro
-        schedule = _coverage_schedule(
-            timeline,
-            narrative_seconds=narrative_seconds,
-            total_seconds=total_seconds,
-        )
-        if not schedule:
-            raise NarrativeMusicDynamicsError("semantic_timeline_produced_no_music_schedule")
-        pieces = _ramp_pieces(schedule)
-        expression = _ffmpeg_volume_expression(pieces)
-        dynamic_music = output_dir / "narrative-music-dynamics.wav"
         try:
+            narrative_seconds = duration(Path(narration))
+            requested_outro = kwargs.get("outro_seconds", DEFAULT_OUTRO_SECONDS)
+            effective_outro = normalize_outro_seconds(max(0.0, float(requested_outro)))
+            total_seconds = narrative_seconds + effective_outro
+            schedule = _coverage_schedule(
+                timeline,
+                narrative_seconds=narrative_seconds,
+                total_seconds=total_seconds,
+            )
+            if not schedule:
+                raise NarrativeMusicDynamicsError("adaptive_pacing_produced_no_music_schedule")
+            pieces = _ramp_pieces(schedule)
+            expression = _ffmpeg_volume_expression(pieces)
             _render_dynamic_music(
-                Path(music),
+                source_music,
                 dynamic_music,
                 total_seconds=total_seconds,
                 expression=expression,
             )
+        except Exception as exc:
+            dynamic_music.unlink(missing_ok=True)
             _write_report(
                 report_path,
-                {
-                    "schema_version": SCHEMA_VERSION,
-                    "status": "applied",
-                    "mode": "m7_narrative_music_dynamics",
-                    "source_timeline": timeline_path.name,
-                    "source_music": Path(music).name,
-                    "narrative_seconds": round(narrative_seconds, 3),
-                    "total_music_seconds": round(total_seconds, 3),
-                    "ramp_seconds": RAMP_SECONDS,
-                    "max_abs_adjustment_db": MAX_ABS_ADJUSTMENT_DB,
-                    "segments": schedule,
-                    "ai_calls_added": 0,
-                    "music_bed_only": True,
-                    "sidechain_ducking_authority": "engine_mux_unchanged",
-                    "final_loudness_limiter_authority": "engine_mux_unchanged",
-                    "narration_authority_changed": False,
-                    "rights_provenance_changed": False,
-                    "transient_music_render_deleted_after_mux": True,
-                },
+                _fallback_report(
+                    reason=f"pre_mux:{type(exc).__name__}:{exc}",
+                    timeline_path=timeline_path,
+                    source_music=source_music,
+                ),
             )
+            return current(video, narration, output, music=music, **kwargs)
+
+        _write_report(
+            report_path,
+            {
+                "schema_version": SCHEMA_VERSION,
+                "status": "applied",
+                "mode": "m7_adaptive_pacing_music_dynamics",
+                "source_timeline": timeline_path.name,
+                "source_music": source_music.name,
+                "narrative_seconds": round(narrative_seconds, 3),
+                "total_music_seconds": round(total_seconds, 3),
+                "ramp_seconds": RAMP_SECONDS,
+                "max_abs_adjustment_db": MAX_ABS_ADJUSTMENT_DB,
+                "role_adjustments_db": dict(_PACING_ROLE_DB),
+                "segments": schedule,
+                "ai_calls_added": 0,
+                "music_bed_only": True,
+                "production_blocked": False,
+                "sidechain_ducking_authority": "engine_mux_unchanged",
+                "final_loudness_limiter_authority": "engine_mux_unchanged",
+                "narration_authority_changed": False,
+                "rights_provenance_changed": False,
+                "transient_music_render_deleted_after_mux": True,
+            },
+        )
+        try:
             return current(video, narration, output, music=dynamic_music, **kwargs)
+        except Exception as exc:
+            # One bounded retry without the optional polish proves whether the new bed
+            # caused the failure. If the baseline mux also fails, propagate that real
+            # production failure rather than pretending the polish recovered it.
+            dynamic_music.unlink(missing_ok=True)
+            output.unlink(missing_ok=True)
+            _write_report(
+                report_path,
+                _fallback_report(
+                    reason=f"dynamic_mux_retry_original:{type(exc).__name__}:{exc}",
+                    timeline_path=timeline_path,
+                    source_music=source_music,
+                ),
+            )
+            return current(video, narration, output, music=music, **kwargs)
         finally:
             dynamic_music.unlink(missing_ok=True)
 
