@@ -55,6 +55,30 @@ class TelegramProductionQueueTests(unittest.TestCase):
         self.assertEqual(same["authorization_id"], action["authorization_id"])
         self.assertFalse(request["production_dispatch_authorized"])
 
+    def test_dedicated_production_authorization_requires_exact_durable_reservation(self):
+        state = {"requests": {"r": _request()}, "production_queue": []}
+        _, action = queue.enqueue_latest_request(state, chat_id=77)
+        with self.assertRaisesRegex(RuntimeError, "explicit Telegram dispatch authorization"):
+            queue.validate_dispatch_authorization(
+                state, action["request_id"], action["request_sha256"], action["authorization_id"]
+            )
+        queue.reserve_dispatch(state, action["request_id"], action["request_sha256"])
+        authorized = queue.validate_dispatch_authorization(
+            state, action["request_id"], action["request_sha256"], action["authorization_id"]
+        )
+        self.assertEqual(authorized["status"], "dispatch_reserved")
+        with self.assertRaisesRegex(RuntimeError, "explicit Telegram dispatch authorization"):
+            queue.validate_dispatch_authorization(
+                state, action["request_id"], action["request_sha256"], "wrong-auth"
+            )
+        queue.mark_dispatched(
+            state, action["request_id"], action["request_sha256"], action["authorization_id"]
+        )
+        authorized = queue.validate_dispatch_authorization(
+            state, action["request_id"], action["request_sha256"], action["authorization_id"]
+        )
+        self.assertEqual(authorized["status"], "dispatched")
+
     def test_mark_dispatched_requires_prior_reservation_and_exact_authorization(self):
         request = _request()
         state = {"requests": {"r": request}, "production_queue": []}
