@@ -99,7 +99,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m unittest tests.test_editorial_room_director_m7_binding_current_main -v
-          python -m unittest tests.test_cinematic_m7_runtime -v
+          python -m unittest tests.test_cinematic_m7_adaptive_pacing -v
           python -m unittest tests.test_cinematic_m7_visual_timeline -v
 
       - name: Focused Runner live binding tests
