@@ -12,17 +12,16 @@ from isco_video_agent.ai_budget import AttemptOutcome, Capability, Priority, Tas
 from isco_video_agent.anti_repetition import recent_videos
 from isco_video_agent.cinematic_m7_live_binding import live_m7_binding_scope
 from isco_video_agent.media.ffmpeg import make_image_review_preview
-from isco_video_agent.providers.gemini import audit_image_preview
 from isco_video_agent.text_audit_router import _classify_exception
 from scripts.security_v1_live_binding import install_security_v1_live_binding
 
 
 _HUMAN_EDITORIAL_INTENT_MODULE = "isco_video_agent.human_editorial_intent"
 _M11_RUNTIME_MODULE = "isco_video_agent.cinematic_m11_runtime"
+_M11_REVIEW_MODULE = "isco_video_agent.cinematic_m11_visual_review"
 
 
 def _load_human_editorial_intent() -> Callable | None:
-    """Load HEI only when the matching Engine candidate is present."""
     try:
         module = import_module(_HUMAN_EDITORIAL_INTENT_MODULE)
     except ModuleNotFoundError as exc:
@@ -33,7 +32,6 @@ def _load_human_editorial_intent() -> Callable | None:
 
 
 def _load_m11_runtime() -> Any | None:
-    """Load M11 only with an Engine that actually carries the certified runtime."""
     try:
         return import_module(_M11_RUNTIME_MODULE)
     except ModuleNotFoundError as exc:
@@ -44,12 +42,10 @@ def _load_m11_runtime() -> Any | None:
 
 @contextmanager
 def _human_editorial_intent_scope():
-    """Bind deterministic editorial metadata at M7's final timeline write seam."""
     apply_human_editorial_intent = _load_human_editorial_intent()
     if apply_human_editorial_intent is None:
         yield
         return
-
     original_write_timeline = engine_m7._write_timeline
     original_append_history = orchestrator.append_history
     state: dict[str, str | None] = {"signature": None}
@@ -62,9 +58,7 @@ def _human_editorial_intent_scope():
             if isinstance(item, dict) and item.get("editorial_visual_signature")
         ]
         enriched = apply_human_editorial_intent(
-            timeline,
-            scene_plan=scene_plan,
-            recent_signatures=recent_signatures,
+            timeline, scene_plan=scene_plan, recent_signatures=recent_signatures
         )
         diversity = enriched.get("human_editorial_intent", {}).get("episode_diversity", {})
         signature = diversity.get("visual_structure_signature")
@@ -86,12 +80,10 @@ def _human_editorial_intent_scope():
         orchestrator.append_history = original_append_history
 
 
-def _m11_review_fn(*, output_dir: Path, gemini_api_key: str, content_model: str, ledger: Any):
-    """Return a P2, one-attempt-per-opportunity visual safety reviewer.
-
-    M11 is an enhancement, so budget denial or reviewer failure returns BLOCK and the
-    Engine keeps the already-certified M7 stock shot. No approval shopping is allowed.
-    """
+def _m11_review_fn(
+    *, output_dir: Path, gemini_api_key: str, content_model: str, ledger: Any, audit_fn: Callable
+):
+    """One budget-accounted P2 review per archive opportunity; no approval shopping."""
     def review(image: Path, item: dict[str, Any], candidate: Any) -> dict[str, Any]:
         if not gemini_api_key or ledger is None:
             return {"status": "block", "reason": "M11 visual reviewer unavailable"}
@@ -109,15 +101,13 @@ def _m11_review_fn(*, output_dir: Path, gemini_api_key: str, content_model: str,
         ledger.register_task(spec)
         if not ledger.authorize(task_id):
             return {"status": "block", "reason": "M11 P2 AI budget denied enhancement review"}
-
         preview = output_dir / "m11" / "review" / f"{candidate.provider.value}-{candidate.object_id}.jpg"
         try:
             make_image_review_preview(Path(image), preview)
-            result = audit_image_preview(
+            result = audit_fn(
                 gemini_api_key,
                 preview,
-                episode_topic=str(item.get("query") or "")[:500],
-                thumbnail_concept=str(item.get("director_evidence") or "")[:500],
+                intended_visual=str(item.get("director_evidence") or item.get("query") or "")[:600],
                 model=content_model,
             )
         except Exception as exc:
@@ -130,21 +120,15 @@ def _m11_review_fn(*, output_dir: Path, gemini_api_key: str, content_model: str,
                 outcome=_classify_exception(exc),
             )
             raise
-
         ledger.record_attempt(
             task_id,
             provider="gemini",
             requested_model=content_model,
             resolved_model=content_model,
             capability=Capability.VISION,
-            outcome=(
-                AttemptOutcome.CONTENT_BLOCKED
-                if result.get("status") == "block"
-                else AttemptOutcome.SUCCESS
-            ),
+            outcome=(AttemptOutcome.CONTENT_BLOCKED if result.get("status") == "block" else AttemptOutcome.SUCCESS),
         )
         return result
-
     return review
 
 
@@ -156,12 +140,11 @@ def _m11_archive_scope(
     content_model: str = "gemini-2.5-flash",
     ledger: Any = None,
 ):
-    """Bind reviewed M11 after M7 safe-stock selection, before final concat/rights."""
     runtime = _load_m11_runtime()
     if runtime is None:
         yield
         return
-
+    review_module = import_module(_M11_REVIEW_MODULE)
     original_materialize = engine_m7.materialize_semantic_body
 
     def materialize_bound(timeline: dict, **kwargs):
@@ -182,11 +165,10 @@ def _m11_archive_scope(
                 gemini_api_key=gemini_api_key,
                 content_model=content_model,
                 ledger=ledger,
+                audit_fn=review_module.audit_archive_image,
             ),
         )
         if report.get("status") == "applied":
-            # HEI wraps this symbol outside M11, so the second write recomputes source
-            # mix against the bytes that will actually be rendered.
             engine_m7._write_timeline(output_dir, timeline)
         return prepared, credits, audits
 
@@ -211,7 +193,6 @@ def _optional_smithsonian_key() -> str:
 
 
 def install_m7_live_binding() -> None:
-    """Install M7 + HEI + reviewed M11, then keep Security V1 outermost."""
     current = orchestrator.produce
     if getattr(current, "_isco_m7_live_binding", False):
         install_security_v1_live_binding()
@@ -233,9 +214,7 @@ def install_m7_live_binding() -> None:
                 ledger=kwargs.get("ledger"),
             ):
                 with live_m7_binding_scope(
-                    orchestrator,
-                    pexels_api_key=pexels,
-                    pixabay_api_key=pixabay,
+                    orchestrator, pexels_api_key=pexels, pixabay_api_key=pixabay
                 ):
                     return current(*args, **kwargs)
 
