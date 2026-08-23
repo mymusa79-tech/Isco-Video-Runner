@@ -129,6 +129,50 @@ def _carry_whole_sentences(
     return completion_text + " " + " ".join(carried)
 
 
+def _trim_whole_sentences_to_fit(
+    completion_text: str,
+    *,
+    current_words: int,
+    section_minimum: int,
+    maximum_append_words: int,
+) -> str | None:
+    """Drop only whole trailing sentences from an over-max completion response.
+
+    Run #84: a target discarded on the first pass for over_max_append got its one
+    completion-round response back 2 words over the same absolute maximum, with no
+    existing recovery - the under-floor carry above only ever adds text, never
+    removes it. This is the symmetric case: no mid-sentence truncation is performed,
+    and if dropping whole trailing sentences cannot bring the response at or under
+    maximum_append_words while the resulting section still clears the hard
+    section_minimum floor, the existing validator remains authoritative and the
+    repair fails closed exactly as before.
+    """
+    completion_text = str(completion_text or "").strip()
+    if not completion_text:
+        return None
+
+    total_words = append_guard._word_count(completion_text)
+    if total_words <= maximum_append_words:
+        return completion_text
+
+    sentences = [part.strip() for part in _SENTENCE_SPLIT.split(completion_text) if part.strip()]
+    if not sentences:
+        return None
+
+    kept = list(sentences)
+    kept_words = total_words
+    while kept and kept_words > maximum_append_words:
+        dropped = kept.pop()
+        kept_words -= append_guard._word_count(dropped)
+
+    if not kept or kept_words > maximum_append_words:
+        return None
+    if current_words + kept_words < section_minimum:
+        return None
+
+    return " ".join(kept)
+
+
 def _install_completion_underfloor_carry() -> None:
     current_validator = append_guard._validate_addition_bounds
     if getattr(current_validator, _VALIDATE_MARKER, False):
@@ -169,6 +213,31 @@ def _install_completion_underfloor_carry() -> None:
                     additions[section_id] = combined
                     carried_ids.append(section_id)
 
+        # Run #84: symmetric to the under-floor carry above, but for a response that
+        # came back over its maximum_append_words. This only ever fires on a response
+        # already headed for _validate_addition_bounds with words > maximum_append_words -
+        # the first pass never calls this validator for an over-bound target (it is
+        # discarded straight into the completion round instead) - so this cannot mask a
+        # first-pass rejection, only rescue an otherwise-fatal completion-round result.
+        trimmed_ids: list[str] = []
+        specs_by_id = {str(spec["id"]): spec for spec in target_specs}
+        for section_id, text in list(additions.items()):
+            spec = specs_by_id.get(section_id)
+            if spec is None:
+                continue
+            maximum_append_words = int(spec["maximum_append_words"])
+            if append_guard._word_count(text) <= maximum_append_words:
+                continue
+            trimmed = _trim_whole_sentences_to_fit(
+                text,
+                current_words=int(spec["current_words"]),
+                section_minimum=int(spec["hard_section_band"][0]),
+                maximum_append_words=maximum_append_words,
+            )
+            if trimmed is not None:
+                additions[section_id] = trimmed
+                trimmed_ids.append(section_id)
+
         original_validator(
             additions,
             target_specs,
@@ -183,6 +252,12 @@ def _install_completion_underfloor_carry() -> None:
             print(
                 "Run 71 completion underfloor carry recovery: ids="
                 + ",".join(carried_ids)
+                + " provider_calls_added=0 whole_sentence_only=true hard_bounds_unchanged=true"
+            )
+        if trimmed_ids:
+            print(
+                "Run 84 completion over-max trim recovery: ids="
+                + ",".join(trimmed_ids)
                 + " provider_calls_added=0 whole_sentence_only=true hard_bounds_unchanged=true"
             )
 
@@ -202,6 +277,7 @@ def install_attempt10_append_bound_recovery() -> None:
     print(
         "Attempt 10 append bound recovery installed: first-pass under/over-bound targets "
         "may consume only the existing one bounded completion call; a second under-floor "
-        "result may reuse only safe whole sentences from its discarded first-pass text "
-        "with zero extra provider calls; final Film 110-170 / 800-1450 gates remain strict"
+        "result may reuse only safe whole sentences from its discarded first-pass text, and "
+        "a second over-max result may drop only whole trailing sentences to fit, both with "
+        "zero extra provider calls; final Film 110-170 / 800-1450 gates remain strict"
     )

@@ -9,6 +9,7 @@ from scripts.attempt10_append_bound_recovery import (
     _FIRST_PASS_UNDERFLOOR,
     _carry_whole_sentences,
     _recoverable_first_pass_split,
+    _trim_whole_sentences_to_fit,
     install_attempt10_append_bound_recovery,
 )
 
@@ -259,3 +260,62 @@ class Attempt10AppendBoundRecoveryTests(unittest.TestCase):
                     minimum=800,
                 )
         self.assertEqual(calls, 2)
+
+    def test_trim_whole_sentences_drops_only_trailing_sentence_to_fit(self) -> None:
+        first = " ".join(["إضافة"] * 19) + " اولى."
+        second = " ".join(["زياده"] * 19) + " ثانية."
+        trimmed = _trim_whole_sentences_to_fit(
+            f"{first} {second}",
+            current_words=100,
+            section_minimum=110,
+            maximum_append_words=35,
+        )
+        self.assertEqual(trimmed, first)
+
+    def test_trim_whole_sentences_fails_closed_when_result_would_drop_under_floor(self) -> None:
+        short_first = " ".join(["زياده"] * 4) + " قصيرة."
+        filler_second = " ".join(["كبيرة"] * 39) + " اخيرة."
+        trimmed = _trim_whole_sentences_to_fit(
+            f"{short_first} {filler_second}",
+            current_words=100,
+            section_minimum=110,
+            maximum_append_words=35,
+        )
+        self.assertIsNone(trimmed)
+
+    def test_trim_whole_sentences_fails_closed_without_a_sentence_boundary(self) -> None:
+        trimmed = _trim_whole_sentences_to_fit(
+            " ".join(["إضافة"] * 75),
+            current_words=90,
+            section_minimum=110,
+            maximum_append_words=35,
+        )
+        self.assertIsNone(trimmed)
+
+    def test_run84_completion_over_max_trims_whole_trailing_sentences(self) -> None:
+        """Regression for Run #84: sec_8 was discarded on the first pass for
+        over_max_append, then its one completion-round response came back 2 words
+        over the same maximum_append_words with no existing recovery. When the
+        oversize response has a trailing whole sentence that can be dropped without
+        pushing the section back under the hard floor, the guard now trims it in
+        place instead of failing the whole repair."""
+        install_attempt10_append_bound_recovery()
+        spec = self._spec()
+        first = " ".join(["إضافة"] * 19) + " اولى."
+        second = " ".join(["زياده"] * 19) + " ثانية."
+        additions = {"sec_8": f"{first} {second}"}
+
+        append_guard._validate_addition_bounds(additions, [spec], aggregate_headroom=200)
+
+        self.assertEqual(additions["sec_8"], first)
+        self.assertLessEqual(append_guard._word_count(additions["sec_8"]), spec["maximum_append_words"])
+
+    def test_run84_completion_over_max_trim_fails_closed_when_result_would_underfloor(self) -> None:
+        install_attempt10_append_bound_recovery()
+        spec = self._spec()
+        short_first = " ".join(["زياده"] * 4) + " قصيرة."
+        filler_second = " ".join(["كبيرة"] * 39) + " اخيرة."
+        additions = {"sec_8": f"{short_first} {filler_second}"}
+
+        with self.assertRaisesRegex(RuntimeError, "maximum allowed"):
+            append_guard._validate_addition_bounds(additions, [spec], aggregate_headroom=200)
