@@ -354,20 +354,34 @@ def install_narrative_music_dynamics() -> None:
         dynamic_music = output_dir / "narrative-music-dynamics.wav"
         try:
             timeline = _read_timeline(timeline_path)
-            if not _adaptive_pacing_available(timeline):
-                _write_report(
-                    report_path,
-                    {
-                        "schema_version": SCHEMA_VERSION,
-                        "status": "not_applicable",
-                        "reason": "timeline_has_no_m7_adaptive_pacing_roles",
-                        "ai_calls_added": 0,
-                        "production_blocked": False,
-                        "renderer_authority_changed": False,
-                    },
-                )
-                return current(video, narration, output, music=music, **kwargs)
+        except Exception as exc:
+            _write_report(
+                report_path,
+                _fallback_report(
+                    reason=f"timeline_read:{type(exc).__name__}:{exc}",
+                    timeline_path=timeline_path,
+                    source_music=source_music,
+                ),
+            )
+            return current(video, narration, output, music=music, **kwargs)
 
+        if not _adaptive_pacing_available(timeline):
+            _write_report(
+                report_path,
+                {
+                    "schema_version": SCHEMA_VERSION,
+                    "status": "not_applicable",
+                    "reason": "timeline_has_no_m7_adaptive_pacing_roles",
+                    "ai_calls_added": 0,
+                    "production_blocked": False,
+                    "renderer_authority_changed": False,
+                },
+            )
+            # Baseline mux is deliberately outside every polish exception handler.
+            # If it fails, that real production failure propagates exactly once.
+            return current(video, narration, output, music=music, **kwargs)
+
+        try:
             narrative_seconds = duration(Path(narration))
             requested_outro = kwargs.get("outro_seconds", DEFAULT_OUTRO_SECONDS)
             effective_outro = normalize_outro_seconds(max(0.0, float(requested_outro)))
