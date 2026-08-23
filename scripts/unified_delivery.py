@@ -28,9 +28,11 @@ def _request_summary(request: dict[str, Any] | None) -> dict[str, Any] | None:
     return {
         "request_id": request.get("request_id"),
         "request_sha256": request.get("request_sha256"),
+        "source": request.get("source"),
         "approval_scope": request.get("approval_scope"),
         "approved_topic": request.get("approved_topic"),
         "approved_at": request.get("approved_at"),
+        "parent_approved_brief_sha256": request.get("parent_approved_brief_sha256"),
     }
 
 
@@ -39,7 +41,7 @@ def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> li
         raise RuntimeError("Unified long-form delivery must contain 2–3 sibling Shorts")
     normalized: list[dict[str, Any]] = []
     seen_jobs: set[str] = set()
-    for index, item in enumerate(short_assets, 1):
+    for item in short_assets:
         if not isinstance(item, dict) or item.get("delivery_allowed") is not True:
             raise RuntimeError("Unified delivery contains an unapproved sibling Short")
         semantic_job = " ".join(str(item.get("semantic_job") or "").strip().split())
@@ -52,6 +54,23 @@ def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> li
             raise RuntimeError("Unified delivery sibling Short video is missing")
         normalized.append(dict(item))
     return normalized
+
+
+def _cinematic_reports(root: Path) -> dict[str, Any]:
+    known = {
+        "m7_visual_timeline": "visual-timeline.json",
+        "audio_mastering": "audio-mastering.json",
+        "sfx": "sfx-plan.json",
+        "m9_transitions": "m9-transitions.json",
+        "m10_cards": "m10-cards.json",
+        "m11_archive": "m11-report.json",
+        "contextual_cta": "cta-plan.json",
+    }
+    reports = {key: name for key, name in known.items() if (root / name).is_file()}
+    m8 = sorted(path.name for path in root.glob("*.m8.json") if path.is_file())
+    if m8:
+        reports["m8_color_normalization"] = m8
+    return reports
 
 
 def build_delivery_manifest(
@@ -114,6 +133,10 @@ def build_delivery_manifest(
         "production_manifest": "production-manifest.json",
         "rights_manifest": "rights-manifest.json" if (root / "rights-manifest.json").is_file() else None,
         "gold_report": "gold-enforce-report.json" if (root / "gold-enforce-report.json").is_file() else None,
+        "canonical_bundle_request": "canonical-bundle-request.json" if (root / "canonical-bundle-request.json").is_file() else None,
+        "sibling_short_plan": "sibling-short-plan.json" if (root / "sibling-short-plan.json").is_file() else None,
+        "sibling_short_results": "sibling-short-results.json" if (root / "sibling-short-results.json").is_file() else None,
+        "cinematic_reports": _cinematic_reports(root),
     }
     if kind == "long" and len(title_thumbnail_pairs) != 3:
         raise RuntimeError("Long-form unified delivery must expose exactly three A/B/C packaging pairs")
