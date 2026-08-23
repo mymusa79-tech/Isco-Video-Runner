@@ -42,6 +42,27 @@ class AudioMasteringLiveBindingTests(unittest.TestCase):
         install_audio.assert_called_once_with()
         self.assertTrue(getattr(orchestrator.produce, "_isco_m7_live_binding", False))
 
+    def test_no_narration_preserves_native_mux_without_mastering(self) -> None:
+        calls: list[tuple] = []
+
+        def fake_mux(video, audio, output, *args, **kwargs):
+            calls.append((video, audio, output, args, kwargs))
+            return Path(output)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            output = root / "final.mp4"
+            orchestrator.mux = fake_mux
+            with patch.object(runtime, "master_narration_lite") as master:
+                runtime.install_audio_mastering_runtime()
+                result = orchestrator.mux(root / "video.mp4", None, output, target_lufs=-14.0)
+            self.assertEqual(result, output)
+            self.assertEqual(len(calls), 1)
+            self.assertIsNone(calls[0][1])
+            self.assertEqual(calls[0][4]["target_lufs"], -14.0)
+            master.assert_not_called()
+            self.assertFalse((root / "audio-mastering.json").exists())
+
     def test_mastered_audio_is_passed_to_existing_mux_and_report_is_written(self) -> None:
         calls: list[tuple] = []
 
