@@ -10,7 +10,7 @@ concurrency:
 jobs:
   produce:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     permissions:
       contents: write
     steps:
@@ -240,6 +240,10 @@ jobs:
             engine/output/*/thumbnail-*.jpg
             engine/output/*/rights-manifest.json
             engine/output/*/gold-enforce-report.json
+            engine/output/*/canonical-bundle-request.json
+            engine/output/*/sibling-short-plan.json
+            engine/output/*/sibling-short-results.json
+            engine/output/*/delivery-manifest.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -268,19 +272,11 @@ jobs:
           critic = root / 'final-critic.json'
           budget = root / 'ai-budget.json'
           manifest = root / 'production-manifest.json'
+          delivery = root / 'delivery-manifest.json'
           opening_audit = root / 'opening-visual-audit.json'
-          if not final.exists():
-              raise SystemExit('Missing final.mp4')
-          if not quality.exists():
-              raise SystemExit('Missing quality-final.json')
-          if not plan.exists():
-              raise SystemExit('Missing plan.json')
-          if not critic.exists():
-              raise SystemExit('Missing final-critic.json')
-          if not budget.exists():
-              raise SystemExit('Missing ai-budget.json')
-          if not manifest.exists():
-              raise SystemExit('Missing production-manifest.json')
+          for required in (final, quality, plan, critic, budget, manifest):
+              if not required.exists():
+                  raise SystemExit(f'Missing {required.name}')
           packaging = validate_packaging_delivery(root)
           q = json.loads(quality.read_text(encoding='utf-8'))
           failures = []
@@ -299,6 +295,34 @@ jobs:
           size = final.stat().st_size
           if size < 1024 * 1024:
               raise SystemExit(f'final.mp4 unexpectedly small: {size} bytes')
+          if q.get('format') != 'moment':
+              if not delivery.is_file():
+                  raise SystemExit('Missing canonical delivery-manifest.json for long-form production')
+              d = json.loads(delivery.read_text(encoding='utf-8'))
+              if d.get('delivery_kind') != 'long_plus_shorts':
+                  raise SystemExit('Canonical long-form delivery_kind is not long_plus_shorts')
+              if int(d.get('short_count', 0) or 0) not in {2, 3}:
+                  raise SystemExit('Canonical long-form delivery must contain 2-3 sibling Shorts')
+              if len(d.get('title_thumbnail_pairs') or []) != 3:
+                  raise SystemExit('Canonical long-form delivery must expose A/B/C packaging')
+              if d.get('youtube_publish_mode') != 'manual_in_youtube_studio':
+                  raise SystemExit('Canonical delivery attempted to change manual YouTube publication')
+              if d.get('publication_performed') is not False:
+                  raise SystemExit('Canonical delivery falsely claims publication')
+              if d.get('partial_delivery_allowed') is not False:
+                  raise SystemExit('Canonical delivery attempted to allow partial delivery')
+              shorts = d.get('shorts') or []
+              jobs = []
+              for item in shorts:
+                  if not isinstance(item, dict) or item.get('delivery_allowed') is not True:
+                      raise SystemExit('Canonical delivery contains an unapproved sibling Short')
+                  video_name = str(item.get('video') or '')
+                  job = str(item.get('semantic_job') or '').strip().casefold()
+                  if not video_name or not (root / video_name).is_file() or not job:
+                      raise SystemExit('Canonical delivery sibling Short is missing video or semantic job')
+                  jobs.append(job)
+              if len(jobs) != len(set(jobs)):
+                  raise SystemExit('Canonical delivery sibling Short semantic jobs are not distinct')
           output_root = Path('engine') / root
           final_path = Path('engine') / final
           quality_path = Path('engine') / quality
@@ -307,6 +331,7 @@ jobs:
           critic_path = Path('engine') / critic
           budget_path = Path('engine') / budget
           manifest_path = Path('engine') / manifest
+          delivery_path = (Path('engine') / delivery) if delivery.exists() else None
           opening_audit_path = (Path('engine') / opening_audit) if opening_audit.exists() else None
           with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as fh:
               fh.write(f'output_root={output_root.as_posix()}\n')
@@ -317,15 +342,18 @@ jobs:
               fh.write(f'critic_path={critic_path.as_posix()}\n')
               fh.write(f'budget_path={budget_path.as_posix()}\n')
               fh.write(f'manifest_path={manifest_path.as_posix()}\n')
+              fh.write(f'delivery_path={delivery_path.as_posix() if delivery_path else ""}\n')
               fh.write(f'opening_audit_path={opening_audit_path.as_posix() if opening_audit_path else ""}\n')
           print('Final review PASS:', final)
           print('Final quality:', json.dumps(q, ensure_ascii=False, sort_keys=True))
           print('Final critic observe-only status:', json.loads(critic.read_text(encoding='utf-8')).get('status'))
           print('Packaging delivery validation PASS:', ', '.join(sorted(packaging)))
+          if delivery.exists():
+              print('Unified long+Shorts delivery validation PASS:', delivery)
           print('Final review output root:', output_root.as_posix())
           PY
 
-      - name: Upload final video
+      - name: Upload final delivery bundle
         id: upload_final
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -340,11 +368,24 @@ jobs:
             ${{ steps.final_review.outputs.critic_path }}
             ${{ steps.final_review.outputs.budget_path }}
             ${{ steps.final_review.outputs.manifest_path }}
+            ${{ steps.final_review.outputs.delivery_path }}
             ${{ steps.final_review.outputs.opening_audit_path }}
             ${{ steps.final_review.outputs.output_root }}/thumbnail-plan.json
             ${{ steps.final_review.outputs.output_root }}/thumbnail-*.jpg
             ${{ steps.final_review.outputs.output_root }}/rights-manifest.json
             ${{ steps.final_review.outputs.output_root }}/gold-enforce-report.json
+            ${{ steps.final_review.outputs.output_root }}/canonical-bundle-request.json
+            ${{ steps.final_review.outputs.output_root }}/sibling-short-plan.json
+            ${{ steps.final_review.outputs.output_root }}/sibling-short-results.json
+            ${{ steps.final_review.outputs.output_root }}/short-*
+            ${{ steps.final_review.outputs.output_root }}/visual-timeline.json
+            ${{ steps.final_review.outputs.output_root }}/audio-mastering.json
+            ${{ steps.final_review.outputs.output_root }}/sfx-plan.json
+            ${{ steps.final_review.outputs.output_root }}/m9-transitions.json
+            ${{ steps.final_review.outputs.output_root }}/m10-cards.json
+            ${{ steps.final_review.outputs.output_root }}/m11-report.json
+            ${{ steps.final_review.outputs.output_root }}/cta-plan.json
+            ${{ steps.final_review.outputs.output_root }}/*.m8.json
           if-no-files-found: error
           retention-days: 7
 
@@ -362,7 +403,7 @@ jobs:
         run: |
           python ../scripts/telegram_publish_gate.py
 
-      - name: Create GitHub Release with final video
+      - name: Create GitHub Release with unified delivery bundle
         id: create_release
         if: success() && steps.publish_approval.outputs.effective_decision == 'approved'
         env:
@@ -375,6 +416,7 @@ jobs:
           FINAL_CRITIC_PATH: ${{ steps.final_review.outputs.critic_path }}
           FINAL_BUDGET_PATH: ${{ steps.final_review.outputs.budget_path }}
           FINAL_MANIFEST_PATH: ${{ steps.final_review.outputs.manifest_path }}
+          FINAL_DELIVERY_PATH: ${{ steps.final_review.outputs.delivery_path }}
           FINAL_OPENING_AUDIT_PATH: ${{ steps.final_review.outputs.opening_audit_path }}
         run: |
           set -euo pipefail
@@ -400,6 +442,8 @@ jobs:
           critic = Path(os.environ['FINAL_CRITIC_PATH'])
           budget = Path(os.environ['FINAL_BUDGET_PATH'])
           manifest = Path(os.environ['FINAL_MANIFEST_PATH'])
+          delivery_value = os.environ.get('FINAL_DELIVERY_PATH', '').strip()
+          delivery = Path(delivery_value) if delivery_value else None
           opening_value = os.environ.get('FINAL_OPENING_AUDIT_PATH', '').strip()
           opening = Path(opening_value) if opening_value else None
           packaging = validate_packaging_delivery(root)
@@ -413,6 +457,8 @@ jobs:
               raise SystemExit(f'Release budget escaped reviewed output root: {budget}')
           if manifest != root / 'production-manifest.json':
               raise SystemExit(f'Release manifest escaped reviewed output root: {manifest}')
+          if delivery is not None and delivery != root / 'delivery-manifest.json':
+              raise SystemExit(f'Release delivery manifest escaped reviewed output root: {delivery}')
           if telemetry is not None and telemetry != root / 'planning-telemetry.json':
               raise SystemExit(f'Release telemetry escaped reviewed output root: {telemetry}')
           if opening is not None and opening != root / 'opening-visual-audit.json':
@@ -426,6 +472,14 @@ jobs:
           q = json.loads(quality.read_text(encoding='utf-8'))
           if q.get('duration_ok') is not True:
               raise SystemExit('Release blocked: duration_ok is not true for reviewed output')
+          if q.get('format') != 'moment':
+              if delivery is None or not delivery.is_file():
+                  raise SystemExit('Release blocked: missing reviewed long+Shorts delivery manifest')
+              d = json.loads(delivery.read_text(encoding='utf-8'))
+              if d.get('delivery_kind') != 'long_plus_shorts' or int(d.get('short_count', 0) or 0) not in {2, 3}:
+                  raise SystemExit('Release blocked: incomplete long+Shorts bundle')
+              if d.get('youtube_publish_mode') != 'manual_in_youtube_studio' or d.get('publication_performed') is not False:
+                  raise SystemExit('Release blocked: YouTube publication contract changed')
           if telemetry is not None and not telemetry.is_file():
               raise SystemExit(f'Release telemetry path was exported but file is missing: {telemetry}')
           if opening is not None and not opening.is_file():
@@ -434,6 +488,18 @@ jobs:
           print('Packaging release validation PASS:', ', '.join(sorted(packaging)))
           PY
           tag="video-${RUN_NUMBER}"
+          if [ -n "$FINAL_DELIVERY_PATH" ]; then
+            RELEASE_TAG="$tag" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.unified_delivery import finalize_release_manifest
+          finalize_release_manifest(
+              Path(os.environ['FINAL_DELIVERY_PATH']),
+              repository=os.environ['GITHUB_REPOSITORY'],
+              release_tag=os.environ['RELEASE_TAG'],
+          )
+          PY
+          fi
           release_assets=("$FINAL_VIDEO_PATH" "$FINAL_CRITIC_PATH" "$FINAL_BUDGET_PATH" "$FINAL_MANIFEST_PATH" "$FINAL_OUTPUT_ROOT/thumbnail-plan.json" "$FINAL_OUTPUT_ROOT/thumbnail-1.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-2.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-3.jpg" "$FINAL_OUTPUT_ROOT/rights-manifest.json" "$FINAL_OUTPUT_ROOT/gold-enforce-report.json")
           if [ -n "$FINAL_TELEMETRY_PATH" ]; then
             release_assets+=("$FINAL_TELEMETRY_PATH")
@@ -441,10 +507,29 @@ jobs:
           if [ -n "$FINAL_OPENING_AUDIT_PATH" ]; then
             release_assets+=("$FINAL_OPENING_AUDIT_PATH")
           fi
+          if [ -n "$FINAL_DELIVERY_PATH" ]; then
+            release_assets+=("$FINAL_DELIVERY_PATH")
+          fi
+          for candidate in \
+            "$FINAL_OUTPUT_ROOT"/canonical-bundle-request.json \
+            "$FINAL_OUTPUT_ROOT"/sibling-short-plan.json \
+            "$FINAL_OUTPUT_ROOT"/sibling-short-results.json \
+            "$FINAL_OUTPUT_ROOT"/short-* \
+            "$FINAL_OUTPUT_ROOT"/visual-timeline.json \
+            "$FINAL_OUTPUT_ROOT"/audio-mastering.json \
+            "$FINAL_OUTPUT_ROOT"/sfx-plan.json \
+            "$FINAL_OUTPUT_ROOT"/m9-transitions.json \
+            "$FINAL_OUTPUT_ROOT"/m10-cards.json \
+            "$FINAL_OUTPUT_ROOT"/m11-report.json \
+            "$FINAL_OUTPUT_ROOT"/cta-plan.json \
+            "$FINAL_OUTPUT_ROOT"/*.m8.json
+          do
+            if [ -f "$candidate" ]; then release_assets+=("$candidate"); fi
+          done
           gh release create "$tag" "${release_assets[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --title "Isco Video #${RUN_NUMBER}" \
-            --notes "Automated production run ${RUN_NUMBER}."
+            --title "Isco Video Bundle #${RUN_NUMBER}" \
+            --notes "Production bundle ${RUN_NUMBER}: long-form video, 2-3 sibling Shorts, A/B/C packaging and review evidence. YouTube publication remains manual."
 
       - name: Checkout agent-state writer
         id: checkout_state_writer
@@ -510,8 +595,8 @@ jobs:
           fi
           if [ "$JOB_STATUS" = "success" ]; then
             release_tag="video-${GITHUB_RUN_NUMBER}"
-            video_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${release_tag}/final.mp4"
-            video_name="Isco Video #${GITHUB_RUN_NUMBER}"
+            video_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${release_tag}"
+            video_name="Isco Video Bundle #${GITHUB_RUN_NUMBER}"
             if [ -f "$RUNNER_TEMP/isco-request.json" ]; then
               extracted="$(python - <<'PY'
           import json, os
@@ -541,9 +626,9 @@ jobs:
           )"
             fi
             if [ "$plan_source" = "product_proof_fallback" ]; then
-              message="⚠️ الفيديو جاهز — تم استخدام المحتوى الاحتياطي المعتمد (fallback)، وليس تخطيطًا حيًا"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"
+              message="⚠️ الحزمة جاهزة — تم استخدام المحتوى الاحتياطي المعتمد (fallback)"$'\n'"🎬 الحلقة + 2–3 Shorts + A/B/C"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"
             else
-              message="✅ الفيديو جاهز: ${video_name}"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"
+              message="✅ الحزمة جاهزة: ${video_name}"$'\n'"🎬 الحلقة + 2–3 Shorts + A/B/C"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"
             fi
           else
             stage="unknown"
@@ -557,7 +642,7 @@ jobs:
               "Provider authentication:${VERIFY_PROVIDERS_OUTCOME}" \
               "Production:${PRODUCE_VIDEO_OUTCOME}" \
               "Final review:${FINAL_REVIEW_OUTCOME}" \
-              "Upload final video:${UPLOAD_FINAL_OUTCOME}" \
+              "Upload final bundle:${UPLOAD_FINAL_OUTCOME}" \
               "Create release:${CREATE_RELEASE_OUTCOME}"
             do
               name="${item%%:*}"
