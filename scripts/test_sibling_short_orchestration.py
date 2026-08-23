@@ -117,6 +117,18 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
         (root / "plan.json").write_text(
             json.dumps({"topic": request["approved_topic"], "format": "moment"}, ensure_ascii=False), encoding="utf-8"
         )
+        (root / "final-master-qc.json").write_text(
+            json.dumps(
+                {
+                    "status": "pass",
+                    "production_stage": "post_render_pre_gold_acceptance",
+                    "full_decode_ok": True,
+                    "final_media_mutated": False,
+                    "blocking_findings": [],
+                }
+            ),
+            encoding="utf-8",
+        )
         return root
 
     def test_child_requests_inherit_parent_and_exact_source_section(self):
@@ -184,6 +196,7 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertEqual(len(completed), 3)
             self.assertTrue(all(item["delivery_allowed"] for item in completed))
             self.assertEqual([item["source_section_id"] for item in completed], ["s1", "s2", "s3"])
+            self.assertTrue(all(Path(item["final_master_qc"]).name == "final-master-qc.json" for item in completed))
 
     def test_orchestration_blocks_if_long_plan_changes_after_sibling_planning(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -234,6 +247,8 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertEqual([item["video"] for item in staged], ["short-01.mp4", "short-02.mp4"])
             self.assertTrue((parent / "short-01.mp4").is_file())
             self.assertTrue((parent / "short-02-intelligence.json").is_file())
+            self.assertTrue((parent / "short-01-master-qc.json").is_file())
+            self.assertTrue((parent / "short-02-master-qc.json").is_file())
             self.assertEqual([item["source_section_id"] for item in staged], ["s1", "s2"])
 
 
