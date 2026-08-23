@@ -163,18 +163,33 @@ def reserve_dispatch(state: dict[str, Any], request_id: str, request_sha256: str
     raise RuntimeError("Pending Telegram production dispatch was not found for reservation")
 
 
-def mark_dispatched(state: dict[str, Any], request_id: str, request_sha256: str, *, run_url: str = "") -> dict[str, Any]:
+def mark_dispatched(
+    state: dict[str, Any],
+    request_id: str,
+    request_sha256: str,
+    authorization_id: str,
+    *,
+    run_url: str = "",
+) -> dict[str, Any]:
+    authorization_id = str(authorization_id or "").strip()
+    if not authorization_id:
+        raise RuntimeError("Telegram dispatch authorization id is required")
     for item in _queue(state):
         if not isinstance(item, dict):
             continue
-        if item.get("request_id") == request_id and item.get("request_sha256") == request_sha256 and item.get("status") == "dispatch_reserved":
+        if (
+            item.get("request_id") == request_id
+            and item.get("request_sha256") == request_sha256
+            and item.get("authorization_id") == authorization_id
+            and item.get("status") == "dispatch_reserved"
+        ):
             item["status"] = "dispatched"
             item["dispatched_at"] = _now()
             if run_url:
                 item["dispatch_run_url"] = run_url
             state["last_event_at"] = item["dispatched_at"]
             return item
-    raise RuntimeError("Reserved Telegram production dispatch was not found")
+    raise RuntimeError("Exact reserved Telegram production dispatch was not found")
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -210,6 +225,7 @@ def main() -> None:
     mark.add_argument("--state", required=True, type=Path)
     mark.add_argument("--request-id", required=True)
     mark.add_argument("--sha256", required=True)
+    mark.add_argument("--authorization-id", required=True)
     mark.add_argument("--run-url", default="")
 
     args = parser.parse_args()
@@ -225,7 +241,13 @@ def main() -> None:
         )
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))
     elif args.command == "mark-dispatched":
-        item = mark_dispatched(state, args.request_id, args.sha256, run_url=args.run_url)
+        item = mark_dispatched(
+            state,
+            args.request_id,
+            args.sha256,
+            args.authorization_id,
+            run_url=args.run_url,
+        )
         _save(args.state, state)
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))
 
