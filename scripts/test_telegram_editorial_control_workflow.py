@@ -19,6 +19,7 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn("gh workflow run telegram-production-request.yml", self.text)
         self.assertIn('-f request_id="$REQUEST_ID"', self.text)
         self.assertIn('-f request_sha256="$REQUEST_SHA256"', self.text)
+        self.assertIn('-f authorization_id="$AUTHORIZATION_ID"', self.text)
         self.assertIn('-f engine_sha="$ENGINE_SHA"', self.text)
         self.assertNotIn("python scripts/run_control_production.py", self.text)
 
