@@ -13,6 +13,7 @@ from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.attempt9_schema_normalizer import install_attempt9_schema_normalizer
 from scripts.brand_anchor_guard import install_brand_anchor_guard
+from scripts.final_master_qc import run_final_master_qc
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.m7_live_binding import install_m7_live_binding
 from scripts.planner_quality_guard import install_planner_quality_guard
@@ -182,6 +183,11 @@ def _attach_observer_evidence_to_telemetry(
         voice = json.loads(voice_path.read_text(encoding="utf-8"))
         if isinstance(voice, dict):
             data["voice_identity_audit"] = voice
+    master_qc_path = output_dir / "final-master-qc.json"
+    if master_qc_path.exists():
+        master_qc = json.loads(master_qc_path.read_text(encoding="utf-8"))
+        if isinstance(master_qc, dict):
+            data["final_master_qc"] = master_qc
     telemetry_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -248,6 +254,9 @@ def main() -> None:
 
     _tag_plan_source(out)
     try:
+        # Final Master QC is the last media-integrity gate on the exact rendered file.
+        # It runs before Gold can accept/mutate state and never changes final.mp4.
+        run_final_master_qc(out)
         plan, critic, gold_enforce = run_gold_enforce_phase4(
             output_dir=out,
             gemini=gemini,
