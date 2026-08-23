@@ -20,13 +20,30 @@ class EditorialStage9IntegrationTests(unittest.TestCase):
         for text in (production, telegram, hei):
             self.assertNotIn(OLD_ENGINE_SHA, text)
 
-    def test_production_keeps_manual_dispatch_and_telegram_production_lock(self) -> None:
+    def test_production_keeps_manual_canonical_dispatch_and_explicit_telegram_start(self) -> None:
         production = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
         telegram = Path(".github/workflows/telegram-editorial-control.yml").read_text(encoding="utf-8")
+        telegram_target = Path(".github/workflows/telegram-production-request.yml").read_text(encoding="utf-8")
+
         self.assertIn("workflow_dispatch:", production)
         self.assertNotIn("\n  push:", production)
         self.assertNotIn("\n  schedule:", production)
-        self.assertIn('CONTROL_PLANE_PRODUCTION_ENABLED: "false"', telegram)
+
+        self.assertIn('CONTROL_PLANE_PRODUCTION_ENABLED: "true"', telegram)
+        self.assertIn("Reserve explicit production dispatch", telegram)
+        self.assertIn("Persist dispatch reservation before workflow dispatch", telegram)
+        self.assertIn("gh workflow run telegram-production-request.yml", telegram)
+        self.assertIn('-f authorization_id="$AUTHORIZATION_ID"', telegram)
+        self.assertNotIn("python scripts/run_control_production.py", telegram)
+
+        target_header = telegram_target[: telegram_target.index("jobs:")]
+        self.assertIn("workflow_dispatch:", target_header)
+        self.assertNotIn("\n  push:", target_header)
+        self.assertNotIn("\n  schedule:", target_header)
+        self.assertNotIn("\n  pull_request:", target_header)
+        self.assertIn("authorization_id:", target_header)
+        self.assertIn("validate_dispatch_authorization", telegram_target)
+        self.assertIn("telegram_production_queue.py consume", telegram_target)
 
     def test_one_production_id_is_bound_before_engine_and_reused_after_gold(self) -> None:
         runner = Path("scripts/run_v3_voice.py").read_text(encoding="utf-8")

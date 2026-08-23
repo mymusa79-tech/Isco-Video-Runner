@@ -98,13 +98,25 @@ class TelegramControlSecurityTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.text = TELEGRAM_WORKFLOW.read_text(encoding="utf-8")
 
-    def test_control_plane_production_stays_locked(self) -> None:
-        self.assertIn('CONTROL_PLANE_PRODUCTION_ENABLED: "false"', self.text)
+    def test_control_plane_production_requires_explicit_durable_authorization(self) -> None:
+        self.assertIn('CONTROL_PLANE_PRODUCTION_ENABLED: "true"', self.text)
+        self.assertIn("actions: write", self.text)
+        reserve = self.text.index("- name: Reserve explicit production dispatch")
+        persist = self.text.index("- name: Persist dispatch reservation before workflow dispatch")
+        dispatch = self.text.index("- name: Dispatch one explicitly reserved production request")
+        self.assertLess(reserve, persist)
+        self.assertLess(persist, dispatch)
+        self.assertIn("gh workflow run telegram-production-request.yml", self.text)
+        self.assertIn('-f authorization_id="$AUTHORIZATION_ID"', self.text)
         self.assertNotIn("actions/workflows/produce-resilient-v4.yml/dispatches", self.text)
+        self.assertNotIn("python scripts/run_control_production.py", self.text)
 
     def test_state_encryption_requires_dedicated_key_without_bot_token_fallback(self) -> None:
+        dedicated = "STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}"
         self.assertNotIn("secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN", self.text)
-        self.assertEqual(self.text.count("STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}"), 2)
+        dedicated_count = self.text.count(dedicated)
+        self.assertGreaterEqual(dedicated_count, 3)
+        self.assertEqual(self.text.count("-pass env:STATE_ENCRYPTION_KEY"), dedicated_count)
 
     def test_research_runtime_verifies_supply_chain_before_pip_install(self) -> None:
         preflight = self.text.index("security_v1_supply_chain_preflight.py lock")

@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: telegram-editorial-control
@@ -14,7 +15,7 @@ concurrency:
 
 env:
   ENGINE_SHA: 64ab711bc904e9581c3cc6c8280d1321ae738eb1
-  CONTROL_PLANE_PRODUCTION_ENABLED: "false"
+  CONTROL_PLANE_PRODUCTION_ENABLED: "true"
 
 jobs:
   control:
@@ -42,7 +43,7 @@ jobs:
               -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
             echo "CONTROL_STATE_FRESH=false" >> "$GITHUB_ENV"
           else
-            printf '%s\n' '{"schema_version":1,"telegram_offset":0,"sessions":{},"requests":{},"pending_actions":[],"last_event_at":null}' > "$state"
+            printf '%s\n' '{"schema_version":1,"telegram_offset":0,"sessions":{},"requests":{},"pending_actions":[],"production_queue":[],"last_event_at":null}' > "$state"
             echo "CONTROL_STATE_FRESH=true" >> "$GITHUB_ENV"
           fi
           chmod 600 "$state"
@@ -91,14 +92,20 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          active="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/runs?per_page=20" \
+          active_v4="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/runs?per_page=20" \
             --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+          active_telegram="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/telegram-production-request.yml/runs?per_page=20" \
+            --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+          active=$((active_v4 + active_telegram))
           if [ "$active" -gt 0 ]; then
-            echo "Production V4 is active; Telegram polling paused to avoid getUpdates contention"
+            echo "A production workflow is active; Telegram polling paused and control state is read-only"
+            echo "production_active=true" >> "$GITHUB_OUTPUT"
             echo "needs_engine=false" >> "$GITHUB_OUTPUT"
+            echo "needs_production=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          python scripts/telegram_control_simple_ui.py poll --state "$CONTROL_STATE_PATH"
+          echo "production_active=false" >> "$GITHUB_OUTPUT"
+          python scripts/telegram_control_active_ui.py poll --state "$CONTROL_STATE_PATH"
 
       - name: Checkout exact private Engine for research only
         if: steps.poll.outputs.needs_engine == 'true'
@@ -138,10 +145,72 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python scripts/telegram_control_simple_ui.py research --state "$CONTROL_STATE_PATH"
+          python scripts/telegram_control_active_ui.py research --state "$CONTROL_STATE_PATH"
+
+      - name: Reserve explicit production dispatch
+        id: reserve
+        if: steps.poll.outputs.needs_production == 'true'
+        env:
+          REQUEST_ID: ${{ steps.poll.outputs.production_request_id }}
+          REQUEST_SHA256: ${{ steps.poll.outputs.production_request_sha256 }}
+        run: |
+          set -euo pipefail
+          test -n "$REQUEST_ID"
+          test -n "$REQUEST_SHA256"
+          python scripts/telegram_production_queue.py reserve \
+            --state "$CONTROL_STATE_PATH" \
+            --request-id "$REQUEST_ID" \
+            --sha256 "$REQUEST_SHA256" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Persist dispatch reservation before workflow dispatch
+        if: steps.poll.outputs.needs_production == 'true'
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          encrypted="$RUNNER_TEMP/isco-control/control-panel.reserved.json.enc"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$CONTROL_STATE_PATH" -out "$encrypted"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/isco-control-reservation-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$encrypted" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "Dispatch reservation already durable"
+          else
+            git commit -m "state: reserve explicit Telegram production dispatch"
+            git push origin HEAD:control-plane-state
+          fi
+
+      - name: Dispatch one explicitly reserved production request
+        if: steps.poll.outputs.needs_production == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_ID: ${{ steps.reserve.outputs.production_request_id }}
+          REQUEST_SHA256: ${{ steps.reserve.outputs.production_request_sha256 }}
+          AUTHORIZATION_ID: ${{ steps.reserve.outputs.production_authorization_id }}
+        run: |
+          set -euo pipefail
+          test -n "$REQUEST_ID"
+          test -n "$REQUEST_SHA256"
+          test -n "$AUTHORIZATION_ID"
+          gh workflow run telegram-production-request.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f request_id="$REQUEST_ID" \
+            -f request_sha256="$REQUEST_SHA256" \
+            -f authorization_id="$AUTHORIZATION_ID" \
+            -f engine_sha="$ENGINE_SHA"
 
       - name: Persist encrypted control-panel state
-        if: always()
+        if: always() && steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true'
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
@@ -169,5 +238,4 @@ jobs:
       - name: Remove plaintext control secrets and state
         if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/isco-control/secrets" || true
-          rm -f "$RUNNER_TEMP/isco-control/control-panel.json" || true
+          rm -rf "$RUNNER_TEMP/isco-control" || true
