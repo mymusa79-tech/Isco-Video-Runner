@@ -204,6 +204,7 @@ jobs:
             --ref main \
             -f request_id="$REQUEST_ID" \
             -f request_sha256="$REQUEST_SHA256" \
+            -f authorization_id="$AUTHORIZATION_ID" \
             -f engine_sha="$ENGINE_SHA"
           python scripts/telegram_production_queue.py mark-dispatched \
             --state "$CONTROL_STATE_PATH" \
