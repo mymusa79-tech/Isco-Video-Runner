@@ -27,16 +27,22 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         reserve = self.text.index("telegram_production_queue.py reserve")
         durable = self.text.index("Persist dispatch reservation before workflow dispatch")
         dispatch = self.text.index("gh workflow run telegram-production-request.yml")
-        mark = self.text.index("telegram_production_queue.py mark-dispatched")
         self.assertLess(reserve, durable)
         self.assertLess(durable, dispatch)
-        self.assertLess(dispatch, mark)
         self.assertIn('control-panel.reserved.json.enc', self.text)
         self.assertIn('state: reserve explicit Telegram production dispatch', self.text)
         self.assertIn('--github-output "$GITHUB_OUTPUT"', self.text)
         self.assertIn('AUTHORIZATION_ID: ${{ steps.reserve.outputs.production_authorization_id }}', self.text)
-        self.assertIn('--authorization-id "$AUTHORIZATION_ID"', self.text)
-        self.assertIn('--state "$CONTROL_STATE_PATH"', self.text)
+        self.assertNotIn("telegram_production_queue.py mark-dispatched", self.text)
+
+    def test_dedicated_production_workflow_owns_authorization_consumption(self):
+        self.assertIn('-f authorization_id="$AUTHORIZATION_ID"', self.text)
+        self.assertIn("if: always() && steps.poll.outputs.needs_production != 'true'", self.text)
+        reservation = self.text.index("Persist dispatch reservation before workflow dispatch")
+        dispatch = self.text.index("gh workflow run telegram-production-request.yml")
+        generic_persist = self.text.index("Persist encrypted control-panel state")
+        self.assertLess(reservation, dispatch)
+        self.assertLess(dispatch, generic_persist)
 
     def test_polling_is_paused_while_any_production_path_is_active(self):
         self.assertIn("produce-resilient-v4.yml/runs?per_page=20", self.text)
