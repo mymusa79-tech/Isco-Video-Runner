@@ -218,6 +218,7 @@ def _repair_all_residual_underlength(
     narrative_format: str,
     current_words: int,
     minimum: int,
+    editorial_intent_json: str = "",
 ) -> dict[str, str]:
     """Repair every residual short Film section without ever applying a partial plan.
 
@@ -309,6 +310,16 @@ def _repair_all_residual_underlength(
         if closing_targeted
         else "The final section is not short in this repair."
     )
+    # Run #75: the Engine's own internal underlength-retry branch (large aggregate
+    # deficits, reached before this post-build guard ever runs) always passes
+    # editorial_intent_json to this function's monkey-patched slot. The post-build
+    # guard below doesn't have easy access to it and omits it - that path stays
+    # correct since this stays optional. Only add the block when it's actually given.
+    editorial_intent_block = (
+        f"\nCANONICAL EDITORIAL_INTENT (immutable during append-only repair):\n{editorial_intent_json}\n"
+        if editorial_intent_json
+        else ""
+    )
 
     prompt = f"""
 This is the bounded residual section-length repair for the Arabic YouTube channel نداء اليقظة.
@@ -320,6 +331,7 @@ Selected narrative_format: {narrative_format} — {format_rule}
 Current total spoken words: {current_words}
 Aggregate Film contract: {minimum}-{aggregate_maximum} words.
 Hard individual Film section band: {section_minimum}-{section_maximum} words each.
+{editorial_intent_block}
 
 This repair is APPEND-ONLY. Python will add append_text without replacing existing narration. Return every listed target
 exactly once, in the exact listed order. Treat minimum_append_words as the preferred safety target and
