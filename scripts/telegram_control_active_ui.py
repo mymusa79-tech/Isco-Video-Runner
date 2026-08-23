@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,9 @@ from scripts.telegram_production_queue import enqueue_request, pending_dispatch
 _BASE_POLL = panel.poll
 PRODUCTION_TARGET_KEY = "production_target"
 ACTIVE_RESEARCH_SESSION_KEY = "active_research_session_id"
+SAVED_SUGGESTIONS_KEY = "saved_suggestions"
+MAX_SAVED_SUGGESTIONS = 30
+SAVED_PAGE_SIZE = 5
 
 
 def _production_enabled() -> bool:
@@ -19,8 +24,9 @@ def _production_enabled() -> bool:
 
 def _main_keyboard() -> list[list[dict[str, str]]]:
     rows = list(simple._main_keyboard())
+    rows.insert(1, [{"text": "📚 اقتراحات محفوظة", "callback_data": "cmd:saved"}])
     if _production_enabled():
-        rows.insert(1, [{"text": "🚀 ابدأ الإنتاج المعتمد", "callback_data": "cmd:produce_latest"}])
+        rows.insert(2, [{"text": "🚀 ابدأ الإنتاج المعتمد", "callback_data": "cmd:produce_latest"}])
     return rows
 
 
@@ -34,11 +40,19 @@ def _menu_text() -> str:
         production = "🔒 إنتاج Telegram مقفول حاليًا."
     return (
         "🎛 نداء اليقظة\n\n"
-        "اختر ما تحتاجه فقط. التفاصيل تظهر عند طلبها.\n\n"
+        "اختر ما تحتاجه فقط. التفاصيل تظهر عند طلبها.\n"
+        "📚 الاقتراحات التي لا تختارها تبقى محفوظة للرجوع إليها.\n\n"
         f"{production}\n\n"
         "🔒 لا نشر إلى YouTube من هذه اللوحة.\n"
         "الرفع والنشر والجدولة تبقى يدويًا بيدك داخل YouTube Studio."
     )
+
+
+def _command_kind(text: str) -> str | None:
+    value = panel._normalize_command(text)
+    if value in {"المحفوظة", "اقتراحات محفوظة", "الاقتراحات المحفوظة", "المواضيع المحفوظة"}:
+        return "saved"
+    return simple._command_kind(text)
 
 
 def _approval_text(request: dict[str, Any]) -> str:
@@ -86,6 +100,194 @@ def _current_target(state: dict[str, Any]) -> dict[str, str] | None:
     }
 
 
+def _saved_store(state: dict[str, Any]) -> list[dict[str, Any]]:
+    value = state.setdefault(SAVED_SUGGESTIONS_KEY, [])
+    if not isinstance(value, list):
+        raise RuntimeError("Telegram saved-suggestions state is malformed")
+    return value
+
+
+def _candidate_copy(candidate: dict[str, Any]) -> dict[str, Any]:
+    copied = json.loads(json.dumps(candidate, ensure_ascii=False))
+    if not isinstance(copied, dict):
+        raise RuntimeError("Saved Telegram candidate could not be copied")
+    return copied
+
+
+def _suggestion_key(kind: str, title: str) -> str:
+    return f"{kind}|{' '.join(title.casefold().split())}"
+
+
+def _available_saved(state: dict[str, Any]) -> list[dict[str, Any]]:
+    items = []
+    for item in _saved_store(state):
+        if not isinstance(item, dict) or item.get("status") != "available":
+            continue
+        candidate = item.get("candidate")
+        if not isinstance(candidate, dict) or not str(candidate.get("title") or "").strip():
+            continue
+        items.append(item)
+    return sorted(
+        items,
+        key=lambda item: (str(item.get("last_seen_at") or item.get("saved_at") or ""), str(item.get("archive_id") or "")),
+        reverse=True,
+    )
+
+
+def _prune_saved(state: dict[str, Any]) -> None:
+    store = _saved_store(state)
+    available = _available_saved(state)
+    keep_ids = {str(item.get("archive_id") or "") for item in available[:MAX_SAVED_SUGGESTIONS]}
+    state[SAVED_SUGGESTIONS_KEY] = [
+        item
+        for item in store
+        if isinstance(item, dict)
+        and item.get("status") == "available"
+        and str(item.get("archive_id") or "") in keep_ids
+    ]
+
+
+def _archive_session_candidates(state: dict[str, Any], session: dict[str, Any]) -> list[str]:
+    candidates = session.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        raise RuntimeError("Telegram research session has no candidates to save")
+    kind = str(session.get("kind") or "long")
+    session_id = str(session.get("session_id") or "").strip()
+    if kind not in {"long", "short"} or not session_id:
+        raise RuntimeError("Telegram research session cannot be archived")
+    store = _saved_store(state)
+    now = panel._now()
+    ids: list[str] = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            raise RuntimeError("Telegram research candidate is malformed")
+        title = str(candidate.get("title") or "").strip()
+        if not title:
+            raise RuntimeError("Telegram research candidate has no title")
+        key = _suggestion_key(kind, title)
+        existing = next(
+            (
+                item
+                for item in store
+                if isinstance(item, dict)
+                and item.get("status") == "available"
+                and item.get("dedupe_key") == key
+            ),
+            None,
+        )
+        if existing is None:
+            existing = {
+                "schema_version": 1,
+                "archive_id": secrets.token_hex(4),
+                "status": "available",
+                "kind": kind,
+                "dedupe_key": key,
+                "saved_at": now,
+            }
+            store.append(existing)
+        existing["candidate"] = _candidate_copy(candidate)
+        existing["source_session_id"] = session_id
+        existing["last_seen_at"] = now
+        ids.append(str(existing["archive_id"]))
+    session["saved_suggestion_ids"] = ids
+    _prune_saved(state)
+    live_ids = {str(item.get("archive_id") or "") for item in _available_saved(state)}
+    session["saved_suggestion_ids"] = [archive_id for archive_id in ids if archive_id in live_ids]
+    return list(session["saved_suggestion_ids"])
+
+
+def _consume_saved_candidate(state: dict[str, Any], session: dict[str, Any], index: int) -> None:
+    ids = session.get("saved_suggestion_ids")
+    if not isinstance(ids, list) or not 0 <= index < len(ids):
+        return
+    archive_id = str(ids[index] or "")
+    if not archive_id:
+        return
+    state[SAVED_SUGGESTIONS_KEY] = [
+        item
+        for item in _saved_store(state)
+        if not (isinstance(item, dict) and str(item.get("archive_id") or "") == archive_id)
+    ]
+
+
+def _saved_page(state: dict[str, Any], page: int) -> tuple[str, list[list[dict[str, str]]]]:
+    items = _available_saved(state)
+    if not items:
+        return (
+            "📚 الاقتراحات المحفوظة\n\nلا توجد أفكار محفوظة حاليًا. عندما أقدم لك 3 اقتراحات، أي فكرة لا تختارها ستبقى هنا.",
+            [[{"text": "✨ اقترح", "callback_data": "cmd:suggest"}], [{"text": "↩️ اللوحة", "callback_data": "cmd:menu"}]],
+        )
+    pages = max(1, (len(items) + SAVED_PAGE_SIZE - 1) // SAVED_PAGE_SIZE)
+    page = min(max(0, page), pages - 1)
+    start = page * SAVED_PAGE_SIZE
+    current = items[start : start + SAVED_PAGE_SIZE]
+    lines = [
+        "📚 الاقتراحات المحفوظة",
+        "",
+        f"{len(items)} فكرة غير مختارة محفوظة — صفحة {page + 1}/{pages}.",
+        "اختيار فكرة هنا لا يبدأ الإنتاج؛ ستراها أولًا ثم تؤكدها بالطريقة المعتادة.",
+    ]
+    rows: list[list[dict[str, str]]] = []
+    for item in current:
+        candidate = item["candidate"]
+        title = str(candidate.get("title") or "").strip()
+        icon = "🎬" if item.get("kind") == "long" else "📱"
+        short_title = title if len(title) <= 42 else title[:39].rstrip() + "…"
+        rows.append([{"text": f"{icon} {short_title}", "callback_data": f"cmd:savedpick-{item['archive_id']}"}])
+    nav: list[dict[str, str]] = []
+    if page > 0:
+        nav.append({"text": "⬅️ أحدث", "callback_data": f"cmd:savedpage-{page - 1}"})
+    if page + 1 < pages:
+        nav.append({"text": "أقدم ➡️", "callback_data": f"cmd:savedpage-{page + 1}"})
+    if nav:
+        rows.append(nav)
+    rows.append([{"text": "↩️ اللوحة", "callback_data": "cmd:menu"}])
+    return "\n".join(lines), rows
+
+
+def _find_saved(state: dict[str, Any], archive_id: str) -> dict[str, Any] | None:
+    for item in _available_saved(state):
+        if str(item.get("archive_id") or "") == archive_id:
+            return item
+    return None
+
+
+def _has_pending_research(state: dict[str, Any]) -> bool:
+    return any(
+        isinstance(item, dict) and item.get("status") == "pending"
+        for item in state.get("pending_actions", [])
+    )
+
+
+def _activate_saved_suggestion(state: dict[str, Any], archive_id: str) -> dict[str, Any]:
+    if _has_pending_research(state):
+        raise RuntimeError("Wait for the current Telegram research to finish before selecting a saved suggestion")
+    item = _find_saved(state, archive_id)
+    if item is None:
+        raise RuntimeError("Saved Telegram suggestion is unavailable")
+    candidate = item.get("candidate")
+    if not isinstance(candidate, dict):
+        raise RuntimeError("Saved Telegram suggestion candidate is malformed")
+    kind = str(item.get("kind") or "")
+    if kind not in {"long", "short"}:
+        raise RuntimeError("Saved Telegram suggestion kind is unsupported")
+    _clear_current_selection(state)
+    session_id = secrets.token_hex(4)
+    session = {
+        "schema_version": 1,
+        "session_id": session_id,
+        "kind": kind,
+        "created_at": panel._now(),
+        "source": "saved_suggestion",
+        "candidates": [_candidate_copy(candidate)],
+        "saved_suggestion_ids": [archive_id],
+    }
+    state.setdefault("sessions", {})[session_id] = session
+    state[ACTIVE_RESEARCH_SESSION_KEY] = session_id
+    state["last_event_at"] = panel._now()
+    return session
+
+
 def _approve_current(
     state: dict[str, Any], session: dict[str, Any], index: int, scope: str
 ) -> dict[str, Any]:
@@ -94,6 +296,7 @@ def _approve_current(
     if not session_id or session_id != active_session:
         raise RuntimeError("This Telegram selection is not from the current research session")
     request = simple._approve(state, session, index, scope)
+    _consume_saved_candidate(state, session, index)
     state[PRODUCTION_TARGET_KEY] = {
         "request_id": str(request.get("request_id") or ""),
         "request_sha256": str(request.get("request_sha256") or ""),
@@ -108,6 +311,40 @@ def _handle_command(kind, client, state, releases, chat_id) -> None:
         _clear_current_selection(state)
         simple._handle_command(kind, client, state, releases, chat_id)
         return
+    if kind == "saved" or (isinstance(kind, str) and kind.startswith("savedpage-")):
+        page = 0
+        if isinstance(kind, str) and kind.startswith("savedpage-"):
+            try:
+                page = int(kind.removeprefix("savedpage-"))
+            except ValueError:
+                page = 0
+        text, keyboard = _saved_page(state, page)
+        client.send(chat_id, text, keyboard=keyboard)
+        return
+    if isinstance(kind, str) and kind.startswith("savedpick-"):
+        archive_id = kind.removeprefix("savedpick-").strip()
+        try:
+            session = _activate_saved_suggestion(state, archive_id)
+        except RuntimeError as exc:
+            message = str(exc)
+            if "research to finish" in message:
+                text = "⏳ يوجد بحث جديد قيد التنفيذ الآن. انتظر انتهاءه أولًا حتى لا يتغير اختيارك المحفوظ أثناء العمل."
+            else:
+                text = "هذه الفكرة المحفوظة لم تعد متاحة. افتح القائمة من جديد."
+            client.send(chat_id, text, keyboard=_main_keyboard())
+            return
+        candidate = session["candidates"][0]
+        pick = "pickshort" if session.get("kind") == "short" else "pick"
+        text = "📚 فكرة محفوظة\n\n" + panel._candidate_detail(candidate, 0)
+        client.send(
+            chat_id,
+            text,
+            keyboard=[
+                [{"text": "✅ استخدام هذا الموضوع", "callback_data": f"{pick}:{session['session_id']}:0"}],
+                [{"text": "↩️ المحفوظة", "callback_data": "cmd:saved"}],
+            ],
+        )
+        return
     if kind == "produce_latest":
         if not _production_enabled():
             client.send(chat_id, "🔒 إنتاج Telegram مقفول حاليًا.", keyboard=_main_keyboard())
@@ -116,7 +353,7 @@ def _handle_command(kind, client, state, releases, chat_id) -> None:
         if target is None:
             client.send(
                 chat_id,
-                "لا يوجد اختيار صالح من جلسة البحث الحالية. اضغط «✨ اقترح»، انتظر 3 خيارات جديدة، ثم اختر واحدًا قبل بدء الإنتاج.",
+                "لا يوجد اختيار صالح من جلسة الاختيار الحالية. اطلب 3 خيارات جديدة أو اختر فكرة من «📚 اقتراحات محفوظة»، ثم أكدها قبل بدء الإنتاج.",
                 keyboard=_main_keyboard(),
             )
             return
@@ -128,7 +365,7 @@ def _handle_command(kind, client, state, releases, chat_id) -> None:
         )
         if status == "no_ready_request":
             state.pop(PRODUCTION_TARGET_KEY, None)
-            text = "الاختيار الحالي لم يعد صالحًا للإنتاج. اطلب 3 خيارات جديدة واختر من بينها مرة أخرى."
+            text = "الاختيار الحالي لم يعد صالحًا للإنتاج. اختر موضوعًا من جديد ثم أكده."
         elif status == "already_queued":
             text = "⏳ طلب الإنتاج المعتمد موجود بالفعل في طابور الإرسال. لن أكرر التشغيل."
         elif status == "already_reserved_recent":
@@ -149,6 +386,7 @@ def _handle_command(kind, client, state, releases, chat_id) -> None:
         return
     if kind == "status":
         text = panel._status_text(state, releases)
+        text += f"\n📚 اقتراحات محفوظة: {len(_available_saved(state))}"
         text += "\n\n🟢 إنتاج Telegram: مفعّل بضغطة تشغيل مستقلة" if _production_enabled() else "\n\n🔒 إنتاج Telegram: مقفول"
         text += "\n🔒 نشر YouTube: يدوي فقط"
         client.send(chat_id, text, keyboard=_main_keyboard())
@@ -167,6 +405,12 @@ def _research_current(state_path: Path) -> None:
         _clear_current_selection(state)
         panel.save_state(state_path, state)
         raise RuntimeError("Current Telegram research did not create exactly one fresh selection session")
+    session = sessions[new_ids[0]]
+    if not isinstance(session, dict):
+        _clear_current_selection(state)
+        panel.save_state(state_path, state)
+        raise RuntimeError("Fresh Telegram research session is malformed")
+    _archive_session_candidates(state, session)
     state[ACTIVE_RESEARCH_SESSION_KEY] = new_ids[0]
     state.pop(PRODUCTION_TARGET_KEY, None)
     panel.save_state(state_path, state)
@@ -186,6 +430,7 @@ def _install() -> None:
     simple._install()
     panel._main_keyboard = _main_keyboard
     panel._menu_text = _menu_text
+    panel._command_kind = _command_kind
     panel._approval_text = _approval_text
     panel._approve = _approve_current
     panel._handle_command = _handle_command
