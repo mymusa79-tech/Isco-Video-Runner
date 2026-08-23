@@ -33,7 +33,7 @@ jobs:
           old = os.environ['OLD_SHA']
           new = os.environ['NEW_SHA']
           expected = {
-              Path('.github/workflows/produce-resilient-v4.yml'): 2,
+              Path('.github/workflows/produce-resilient-v4.yml'): 3,
               Path('.github/workflows/telegram-editorial-control.yml'): 1,
               Path('.github/workflows/verify-human-editorial-intent-m7.yml'): 1,
           }
@@ -47,11 +47,11 @@ jobs:
                   raise SystemExit(f'{path}: replacement count mismatch')
               path.write_text(updated, encoding='utf-8')
 
-          production = expected.keys().__iter__().__next__().read_text(encoding='utf-8')
+          production = Path('.github/workflows/produce-resilient-v4.yml').read_text(encoding='utf-8')
           telegram = Path('.github/workflows/telegram-editorial-control.yml').read_text(encoding='utf-8')
           hei = Path('.github/workflows/verify-human-editorial-intent-m7.yml').read_text(encoding='utf-8')
-          if production.count(new) != 2:
-              raise SystemExit('Production V4 must contain exactly two canonical Engine pins')
+          if production.count(new) != 3:
+              raise SystemExit('Production V4 must contain exactly three canonical Engine pin occurrences')
           if telegram.count(new) != 1 or 'CONTROL_PLANE_PRODUCTION_ENABLED: "false"' not in telegram:
               raise SystemExit('Telegram pin/production-lock contract mismatch')
           if hei.count(new) != 1:
