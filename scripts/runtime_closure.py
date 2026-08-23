@@ -26,8 +26,36 @@ def _groq_key() -> str:
         return ""
 
 
+def install_canonical_v4_bundle_post_manifest() -> None:
+    """Make canonical V4 long-form delivery atomic with 2–3 sibling Shorts.
+
+    The hook runs only after the long render has passed Gold and its production
+    manifest has been written. Moment/Short children and explicit control-plane
+    productions are ignored by the bundle layer.
+    """
+    import scripts.run_v3_voice as production
+
+    current = production._write_production_manifest
+    if getattr(current, "_isco_canonical_v4_bundle", False):
+        return
+
+    def wrapped(out: Path, *, production_id: str, fmt: str):
+        manifest = current(out, production_id=production_id, fmt=fmt)
+        if fmt != "moment" and not str(os.environ.get("ISCO_CONTROL_REQUEST_ID") or "").strip():
+            from scripts.canonical_v4_bundle import build_canonical_v4_bundle
+
+            delivery = build_canonical_v4_bundle(Path(out))
+            if delivery is None or not Path(delivery).is_file():
+                raise RuntimeError("Canonical V4 long-form production finished without unified delivery manifest")
+        return manifest
+
+    wrapped._isco_canonical_v4_bundle = True
+    wrapped._isco_canonical_v4_original = current
+    production._write_production_manifest = wrapped
+
+
 def install_runtime_closure() -> None:
-    """Install bounded production recovery plus cinematic audio/visual stages."""
+    """Install bounded production recovery plus cinematic and delivery stages."""
     install_attempt10_append_bound_recovery()
     install_audio_mastering_live_binding()
     install_sfx_live_binding()
@@ -35,6 +63,7 @@ def install_runtime_closure() -> None:
     install_m9_live_binding()
     install_m10_live_binding()
     install_cta_live_binding()
+    install_canonical_v4_bundle_post_manifest()
 
 
 def run_post_gold_observers(output_dir: Path) -> dict:
