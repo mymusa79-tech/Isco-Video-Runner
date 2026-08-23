@@ -73,10 +73,12 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn(ENGINE_SHA, self.text)
         self.assertNotIn(OLD_ENGINE_SHA, self.text)
 
-    def test_schedule_runs_active_explicit_start_surface(self):
+    def test_schedule_runs_topic_memory_policy_entrypoint(self):
         self.assertIn('cron: "*/5 * * * *"', self.text)
-        self.assertIn("python scripts/telegram_control_active_ui.py poll", self.text)
-        self.assertIn("python scripts/telegram_control_active_ui.py research", self.text)
+        self.assertIn("python scripts/telegram_topic_memory_ui.py poll", self.text)
+        self.assertIn("python scripts/telegram_topic_memory_ui.py research", self.text)
+        self.assertNotIn("python scripts/telegram_control_active_ui.py poll", self.text)
+        self.assertNotIn("python scripts/telegram_control_active_ui.py research", self.text)
         self.assertNotIn("python scripts/telegram_control_panel.py poll", self.text)
 
 

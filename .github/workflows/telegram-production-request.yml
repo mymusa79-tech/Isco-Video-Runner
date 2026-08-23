@@ -441,6 +441,75 @@ jobs:
             --notes "Explicitly started from an immutable Telegram-approved request with one-time durable second-action authorization. YouTube publication is manual."
           echo "release_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
 
+      - name: Record successful topic in encrypted used-topic history
+        id: used_topic
+        if: success() && steps.request.outcome == 'success'
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          state="$RUNNER_TEMP/isco-control/control-panel.json"
+          request="$ISCO_CONTROL_REQUEST_PATH"
+          test -f "$state"
+          test -f "$request"
+          marker="$RUNNER_TEMP/isco-control/used-topic-changed"
+          CONTROL_STATE_PATH="$state" CONTROL_REQUEST_PATH="$request" RELEASE_TAG="$RELEASE_TAG" CHANGE_MARKER="$marker" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from scripts import telegram_control_active_ui as ui
+          from scripts import telegram_control_panel as panel
+
+          state_path = Path(os.environ["CONTROL_STATE_PATH"])
+          request_path = Path(os.environ["CONTROL_REQUEST_PATH"])
+          state = panel.load_state(state_path)
+          request = json.loads(request_path.read_text(encoding="utf-8"))
+          before = json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+          previous = next(
+              (
+                  item for item in state.get(ui.USED_TOPICS_KEY, [])
+                  if isinstance(item, dict) and str(item.get("request_id") or "") == str(request.get("request_id") or "")
+              ),
+              None,
+          )
+          prior_used_at = str((previous or {}).get("used_at") or "").strip() or None
+          record = ui._mark_request_used(
+              state,
+              request,
+              release_tag=os.environ["RELEASE_TAG"],
+              used_at=prior_used_at,
+          )
+          after = json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+          changed = before != after
+          if changed:
+              panel.save_state(state_path, state)
+          Path(os.environ["CHANGE_MARKER"]).write_text("true" if changed else "false", encoding="utf-8")
+          print(f"Used-topic history {'updated' if changed else 'already current'}: {record['topic']}")
+          PY
+          if [ "$(cat "$marker")" != "true" ]; then
+            echo "Used-topic history already contains this completed request"
+            exit 0
+          fi
+          encrypted="$RUNNER_TEMP/isco-control/control-panel.used.json.enc"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/isco-control-used-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$encrypted" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "Successful topic history changed locally but produced no durable encrypted delta" >&2
+            exit 1
+          fi
+          git commit -m "state: record successful Telegram topic"
+          git push origin HEAD:control-plane-state
+
       - name: Checkout agent-state writer
         if: success() && steps.release_guard.outputs.already_released != 'true' && steps.restore_state.outputs.save_allowed == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
