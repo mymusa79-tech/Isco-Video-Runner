@@ -55,19 +55,40 @@ class TelegramProductionQueueTests(unittest.TestCase):
         self.assertEqual(same["authorization_id"], action["authorization_id"])
         self.assertFalse(request["production_dispatch_authorized"])
 
-    def test_mark_dispatched_requires_prior_reservation_and_preserves_stored_request(self):
+    def test_mark_dispatched_requires_prior_reservation_and_exact_authorization(self):
         request = _request()
         state = {"requests": {"r": request}, "production_queue": []}
         _, action = queue.enqueue_latest_request(state, chat_id=77)
-        with self.assertRaisesRegex(RuntimeError, "Reserved"):
-            queue.mark_dispatched(state, action["request_id"], action["request_sha256"])
+        auth = action["authorization_id"]
+        with self.assertRaisesRegex(RuntimeError, "Exact reserved"):
+            queue.mark_dispatched(state, action["request_id"], action["request_sha256"], auth)
         queue.reserve_dispatch(state, action["request_id"], action["request_sha256"])
-        queue.mark_dispatched(state, action["request_id"], action["request_sha256"])
+        with self.assertRaisesRegex(RuntimeError, "Exact reserved"):
+            queue.mark_dispatched(state, action["request_id"], action["request_sha256"], "wrong-auth")
+        queue.mark_dispatched(state, action["request_id"], action["request_sha256"], auth)
         self.assertEqual(state["production_queue"][0]["status"], "dispatched")
         self.assertFalse(request["production_dispatch_authorized"])
         self.assertEqual(request["status"], "approved_waiting_production_activation")
         status, _ = queue.enqueue_latest_request(state, chat_id=77)
         self.assertEqual(status, "already_dispatched_recent")
+
+    def test_mark_dispatched_never_marks_an_older_reserved_retry(self):
+        request = _request()
+        state = {"requests": {"r": request}, "production_queue": []}
+        _, first = queue.enqueue_latest_request(state, chat_id=77)
+        queue.reserve_dispatch(state, first["request_id"], first["request_sha256"])
+        state["production_queue"][0]["reserved_at"] = "2026-08-20T00:00:00+00:00"
+        status, second = queue.enqueue_latest_request(state, chat_id=77)
+        self.assertEqual(status, "retry_queued")
+        queue.reserve_dispatch(state, second["request_id"], second["request_sha256"])
+        queue.mark_dispatched(
+            state,
+            second["request_id"],
+            second["request_sha256"],
+            second["authorization_id"],
+        )
+        self.assertEqual(state["production_queue"][0]["status"], "dispatch_reserved")
+        self.assertEqual(state["production_queue"][1]["status"], "dispatched")
 
     def test_release_tag_is_deterministic_and_kind_scoped(self):
         self.assertEqual(queue.release_tag_for(_request("abc-123")), "video-telegram-abc-123")
