@@ -1,0 +1,206 @@
+name: Verify M10 Semantic Visual Aids
+
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ENGINE_SHA: 11a49c6b5fe1dfe7a34c1d377ae827d7a49bff15
+  RUNNER_BASE_SHA: 74041c96711fec3fc46a64217251045fda567ca8
+
+jobs:
+  certification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout exact Runner verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify current Runner ancestry
+        run: git merge-base --is-ancestor "$RUNNER_BASE_SHA" HEAD
+
+      - name: Checkout exact Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused M10 semantic visual tests
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_cinematic_m10_semantic_visuals -v
+          python -m unittest tests.test_director_brain_phase_a -v
+          python -m unittest tests.test_cinematic_v2_m10_cards -v
+          python -m unittest tests.test_cinematic_m7_adaptive_pacing -v
+          python -m unittest tests.test_cinematic_m7_visual_timeline -v
+
+      - name: Focused M11 and editorial compatibility tests
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_cinematic_v2_m11_cc0 -v
+          python -m unittest tests.test_cinematic_m11_runtime -v
+          python -m unittest tests.test_cinematic_m11_visual_review -v
+          python -m unittest tests.test_m11_rights_integration -v
+          python -m unittest tests.test_m11_archive_policy_contract -v
+          python -m unittest tests.test_human_editorial_intent -v
+          python -m unittest tests.test_editorial_room_director_m7_binding_current_main -v
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Focused Runner M11 HEI M7 tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m unittest scripts.test_m11_live_binding -v
+          python -m unittest scripts.test_human_editorial_intent_binding -v
+          python -m unittest scripts.test_m7_live_binding -v
+
+      - name: Full Runner regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' | sort | sed -e 's#/#.#g' -e 's#\.py$##')
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Semantic visual invariants
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from isco_video_agent.cinematic_m10_semantic_visuals import (
+              MAX_SIMPLE_DIAGRAMS_PER_EPISODE,
+              MAX_TOTAL_VISUAL_AIDS_PER_EPISODE,
+              POLICY_VERSION,
+              REPRESENTATION_INTENTS,
+              enforce_episode_visual_aid_policy,
+              normalize_scene_representation,
+          )
+
+          assert POLICY_VERSION == "m10-semantic-visual-aids-v1"
+          assert REPRESENTATION_INTENTS == frozenset(
+              {"stock", "archive", "text_card", "simple_diagram", "none"}
+          )
+          assert MAX_SIMPLE_DIAGRAMS_PER_EPISODE == 2
+          assert MAX_TOTAL_VISUAL_AIDS_PER_EPISODE == 3
+
+          legacy = normalize_scene_representation({})
+          assert legacy["representation_intent"] == "stock"
+          assert legacy["stock_is_default"] is True
+          assert legacy["creates_cut"] is False
+          assert legacy["external_graphic_assets"] is False
+
+          guarded = enforce_episode_visual_aid_policy([
+              {
+                  "scene_id": "hero",
+                  "hero": True,
+                  "representation_intent": "simple_diagram",
+                  "visual_aid": {"kind": "compare", "items": ["أ", "ب"]},
+              },
+              {
+                  "scene_id": "body-1",
+                  "representation_intent": "text_card",
+                  "text_card": {"kind": "quote", "primary_text": "اختبار"},
+              },
+              {
+                  "scene_id": "body-2",
+                  "representation_intent": "simple_diagram",
+                  "visual_aid": {"kind": "gap", "items": ["أ", "ب"]},
+              },
+          ])
+          assert guarded[0]["representation_intent"] == "stock"
+          assert not (
+              guarded[1]["representation_intent"] in {"text_card", "simple_diagram"}
+              and guarded[2]["representation_intent"] in {"text_card", "simple_diagram"}
+          )
+
+          m10_source = Path("src/isco_video_agent/cinematic_m10_semantic_visuals.py").read_text(encoding="utf-8").lower()
+          for forbidden in ("flaticon", "canva", "lottiefiles", "motionarray", "envato"):
+              if forbidden in m10_source:
+                  raise SystemExit("external graphic dependency forbidden: " + forbidden)
+          PY
+
+      - name: M10 plus M11 authority invariants
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from isco_video_agent.cinematic_m10_semantic_visuals import apply_scene_representation
+          from isco_video_agent.cinematic_m11_runtime import MAX_ARCHIVE_SHOTS, OPENING_GUARD_SECONDS, ENDING_GUARD_SECONDS
+
+          assert MAX_ARCHIVE_SHOTS == 2
+          assert OPENING_GUARD_SECONDS == 30.0
+          assert ENDING_GUARD_SECONDS == 12.0
+          source = Path("src/isco_video_agent/cinematic_m10_semantic_visuals.py").read_text(encoding="utf-8")
+          assert 'if intent == "archive":' in source
+          assert 'm11_archive_binding_deferred_stock_preserved' in source
+          assert callable(apply_scene_representation)
+          PY
+
+      - name: Verifier isolation and diff review
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only "$RUNNER_BASE_SHA"...HEAD)"
+          test "$changed" = ".github/workflows/verify-m10-semantic-visual-aids.yml"
+          git diff --check "$RUNNER_BASE_SHA"...HEAD
+          test "$(git -C engine rev-parse HEAD)" = "$ENGINE_SHA"
