@@ -59,7 +59,7 @@ class RuntimeClosureTests(unittest.TestCase):
             audit.assert_called_once_with(Path("output/example"),api_key="secret-token")
             self.assertEqual(result["decision"],"pass"); self.assertTrue(key_path.exists())
 
-    def test_runtime_closure_installs_cinematic_chain_then_cta(self) -> None:
+    def test_runtime_closure_installs_cinematic_chain_then_cta_then_bundle(self) -> None:
         calls=[]
         with patch.object(runtime_closure,"install_attempt10_append_bound_recovery",side_effect=lambda:calls.append("recovery")) as recovery, \
              patch.object(runtime_closure,"install_audio_mastering_live_binding",side_effect=lambda:calls.append("audio")) as audio, \
@@ -67,11 +67,42 @@ class RuntimeClosureTests(unittest.TestCase):
              patch.object(runtime_closure,"install_m8_live_binding",side_effect=lambda:calls.append("m8")) as m8, \
              patch.object(runtime_closure,"install_m9_live_binding",side_effect=lambda:calls.append("m9")) as m9, \
              patch.object(runtime_closure,"install_m10_live_binding",side_effect=lambda:calls.append("m10")) as m10, \
-             patch.object(runtime_closure,"install_cta_live_binding",side_effect=lambda:calls.append("cta")) as cta:
+             patch.object(runtime_closure,"install_cta_live_binding",side_effect=lambda:calls.append("cta")) as cta, \
+             patch.object(runtime_closure,"install_canonical_v4_bundle_post_manifest",side_effect=lambda:calls.append("bundle")) as bundle:
             runtime_closure.install_runtime_closure()
         recovery.assert_called_once_with(); audio.assert_called_once_with(); sfx.assert_called_once_with()
-        m8.assert_called_once_with(); m9.assert_called_once_with(); m10.assert_called_once_with(); cta.assert_called_once_with()
-        self.assertEqual(calls,["recovery","audio","sfx","m8","m9","m10","cta"])
+        m8.assert_called_once_with(); m9.assert_called_once_with(); m10.assert_called_once_with(); cta.assert_called_once_with(); bundle.assert_called_once_with()
+        self.assertEqual(calls,["recovery","audio","sfx","m8","m9","m10","cta","bundle"])
+
+    def test_manifest_hook_runs_bundle_only_for_canonical_long(self) -> None:
+        import scripts.run_v3_voice as production
+        original = production._write_production_manifest
+        calls=[]
+        production._write_production_manifest=lambda out, *, production_id, fmt: calls.append(("manifest",fmt)) or {"format":fmt}
+        try:
+            with patch("scripts.canonical_v4_bundle.build_canonical_v4_bundle", return_value=Path("delivery-manifest.json")) as build, \
+                 patch.object(Path,"is_file",return_value=True), patch.dict(os.environ,{},clear=False):
+                os.environ.pop("ISCO_CONTROL_REQUEST_ID",None)
+                runtime_closure.install_canonical_v4_bundle_post_manifest()
+                result=production._write_production_manifest(Path("output/x"),production_id="p",fmt="film")
+                self.assertEqual(result,{"format":"film"})
+                build.assert_called_once_with(Path("output/x"))
+        finally:
+            production._write_production_manifest=original
+
+    def test_manifest_hook_skips_moment_and_control_plane(self) -> None:
+        import scripts.run_v3_voice as production
+        original = production._write_production_manifest
+        production._write_production_manifest=lambda out, *, production_id, fmt: {"format":fmt}
+        try:
+            with patch("scripts.canonical_v4_bundle.build_canonical_v4_bundle") as build:
+                runtime_closure.install_canonical_v4_bundle_post_manifest()
+                production._write_production_manifest(Path("output/x"),production_id="p",fmt="moment")
+                with patch.dict(os.environ,{"ISCO_CONTROL_REQUEST_ID":"explicit-control"},clear=False):
+                    production._write_production_manifest(Path("output/y"),production_id="p",fmt="film")
+                build.assert_not_called()
+        finally:
+            production._write_production_manifest=original
 
 
 if __name__ == "__main__": unittest.main()
