@@ -193,6 +193,19 @@ class CanonicalV4BundleTests(unittest.TestCase):
             self.assertFalse((root / "delivery-manifest.json").exists())
             self.assertFalse((root / "sibling-short-results.json").exists())
 
+    def test_child_subprocess_has_hard_timeout_and_fails_closed(self) -> None:
+        request = {"request_id": "canonical-x-s1", "request_sha256": "a" * 64}
+        with tempfile.TemporaryDirectory() as td, patch.object(
+            bundle.subprocess,
+            "run",
+            side_effect=bundle.subprocess.TimeoutExpired(cmd=["python"], timeout=bundle.SHORT_CHILD_TIMEOUT_SECONDS),
+        ) as run:
+            with self.assertRaisesRegex(RuntimeError, "sibling child timed out"):
+                bundle._execute_child(request, runtime_root=Path(td))
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(run.call_args.kwargs["timeout"], bundle.SHORT_CHILD_TIMEOUT_SECONDS)
+        self.assertTrue(run.call_args.kwargs["check"])
+
     def test_tampered_approved_brief_hash_fails_before_child_dispatch(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
