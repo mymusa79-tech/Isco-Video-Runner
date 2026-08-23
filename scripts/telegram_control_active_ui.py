@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
+import unicodedata
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,17 @@ ACTIVE_RESEARCH_SESSION_KEY = "active_research_session_id"
 SAVED_SUGGESTIONS_KEY = "saved_suggestions"
 MAX_SAVED_SUGGESTIONS = 30
 SAVED_PAGE_SIZE = 5
+
+# Conservative automatic-review policy. A saved idea is never deleted because of
+# one or two missed searches. Long and Short libraries are reviewed independently.
+SAVED_WEAK_SCORE = 0.55
+SAVED_WEAK_MIN_AGE_DAYS = 21
+SAVED_WEAK_MISSED_REVIEWS = 3
+SAVED_MARGINAL_SCORE = 0.70
+SAVED_MARGINAL_MIN_AGE_DAYS = 60
+SAVED_MARGINAL_MISSED_REVIEWS = 6
+SAVED_HARD_STALE_DAYS = 180
+SAVED_HARD_STALE_MISSED_REVIEWS = 10
 
 
 def _production_enabled() -> bool:
@@ -41,7 +55,7 @@ def _menu_text() -> str:
     return (
         "🎛 نداء اليقظة\n\n"
         "اختر ما تحتاجه فقط. التفاصيل تظهر عند طلبها.\n"
-        "📚 الاقتراحات التي لا تختارها تبقى محفوظة للرجوع إليها.\n\n"
+        "📚 الاقتراحات التي لا تختارها تبقى محفوظة وتُراجع تلقائيًا مع كل بحث جديد من نفس النوع.\n\n"
         f"{production}\n\n"
         "🔒 لا نشر إلى YouTube من هذه اللوحة.\n"
         "الرفع والنشر والجدولة تبقى يدويًا بيدك داخل YouTube Studio."
@@ -114,8 +128,47 @@ def _candidate_copy(candidate: dict[str, Any]) -> dict[str, Any]:
     return copied
 
 
+def _normalize_title(title: str) -> str:
+    value = unicodedata.normalize("NFKC", str(title or "")).casefold().replace("ـ", "")
+    value = "".join(ch for ch in value if unicodedata.category(ch) != "Mn")
+    value = value.translate(str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ٱ": "ا", "ى": "ي"}))
+    value = re.sub(r"[^\w\s]", " ", value, flags=re.UNICODE)
+    return " ".join(value.split())
+
+
 def _suggestion_key(kind: str, title: str) -> str:
-    return f"{kind}|{' '.join(title.casefold().split())}"
+    return f"{kind}|{_normalize_title(title)}"
+
+
+def _candidate_score(candidate: dict[str, Any]) -> float:
+    raw = candidate.get("control_score")
+    if raw is None:
+        raw = candidate.get("opportunity_score")
+    try:
+        value = float(raw or 0.0)
+    except (TypeError, ValueError):
+        value = 0.0
+    return max(0.0, min(1.0, value))
+
+
+def _timestamp(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _age_days(item: dict[str, Any], now: datetime) -> int | None:
+    saved = _timestamp(item.get("saved_at")) or _timestamp(item.get("last_seen_at"))
+    if saved is None:
+        return None
+    return max(0, int((now - saved).total_seconds() // 86400))
 
 
 def _available_saved(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -129,38 +182,157 @@ def _available_saved(state: dict[str, Any]) -> list[dict[str, Any]]:
         items.append(item)
     return sorted(
         items,
-        key=lambda item: (str(item.get("last_seen_at") or item.get("saved_at") or ""), str(item.get("archive_id") or "")),
+        key=lambda item: (
+            str(item.get("last_seen_at") or item.get("saved_at") or ""),
+            str(item.get("archive_id") or ""),
+        ),
         reverse=True,
     )
 
 
-def _prune_saved(state: dict[str, Any]) -> None:
-    store = _saved_store(state)
+def _retention_rank(item: dict[str, Any]) -> tuple[float, int, str, str]:
+    candidate = item.get("candidate") if isinstance(item.get("candidate"), dict) else {}
+    misses = int(item.get("missed_reviews", 0) or 0)
+    return (
+        _candidate_score(candidate),
+        -misses,
+        str(item.get("last_seen_at") or item.get("saved_at") or ""),
+        str(item.get("archive_id") or ""),
+    )
+
+
+def _prune_saved(state: dict[str, Any], *, protected_ids: set[str] | None = None) -> None:
     available = _available_saved(state)
-    keep_ids = {str(item.get("archive_id") or "") for item in available[:MAX_SAVED_SUGGESTIONS]}
+    protected = set(protected_ids or set())
+    protected_items = [item for item in available if str(item.get("archive_id") or "") in protected]
+    other_items = [item for item in available if str(item.get("archive_id") or "") not in protected]
+    protected_items.sort(key=_retention_rank, reverse=True)
+    other_items.sort(key=_retention_rank, reverse=True)
+    keep = protected_items[:MAX_SAVED_SUGGESTIONS]
+    if len(keep) < MAX_SAVED_SUGGESTIONS:
+        keep.extend(other_items[: MAX_SAVED_SUGGESTIONS - len(keep)])
+    keep_ids = {str(item.get("archive_id") or "") for item in keep}
     state[SAVED_SUGGESTIONS_KEY] = [
         item
-        for item in store
+        for item in _saved_store(state)
         if isinstance(item, dict)
         and item.get("status") == "available"
         and str(item.get("archive_id") or "") in keep_ids
     ]
 
 
+def _automatic_prune_reason(item: dict[str, Any], now: datetime) -> str | None:
+    candidate = item.get("candidate")
+    if not isinstance(candidate, dict) or not str(candidate.get("title") or "").strip():
+        return "malformed"
+    age = _age_days(item, now)
+    misses = int(item.get("missed_reviews", 0) or 0)
+    score = _candidate_score(candidate)
+    if age is not None and age >= SAVED_HARD_STALE_DAYS and misses >= SAVED_HARD_STALE_MISSED_REVIEWS:
+        return "hard_stale"
+    if (
+        age is not None
+        and age >= SAVED_WEAK_MIN_AGE_DAYS
+        and misses >= SAVED_WEAK_MISSED_REVIEWS
+        and score < SAVED_WEAK_SCORE
+    ):
+        return "weak_and_repeatedly_absent"
+    if (
+        age is not None
+        and age >= SAVED_MARGINAL_MIN_AGE_DAYS
+        and misses >= SAVED_MARGINAL_MISSED_REVIEWS
+        and score < SAVED_MARGINAL_SCORE
+    ):
+        return "marginal_and_stale"
+    return None
+
+
+def _review_saved_suggestions(
+    state: dict[str, Any],
+    kind: str,
+    fresh_candidates: list[dict[str, Any]],
+    *,
+    now_text: str | None = None,
+) -> dict[str, Any]:
+    if kind not in {"long", "short"}:
+        raise RuntimeError("Saved-suggestion review kind is unsupported")
+    now_text = now_text or panel._now()
+    now = _timestamp(now_text)
+    if now is None:
+        raise RuntimeError("Saved-suggestion review timestamp is invalid")
+    fresh_keys = {
+        _suggestion_key(kind, str(candidate.get("title") or ""))
+        for candidate in fresh_candidates
+        if isinstance(candidate, dict) and str(candidate.get("title") or "").strip()
+    }
+    kept: list[dict[str, Any]] = []
+    report: dict[str, Any] = {
+        "kind": kind,
+        "reviewed_at": now_text,
+        "reviewed": 0,
+        "refreshed": 0,
+        "kept": 0,
+        "pruned": [],
+    }
+    for item in _saved_store(state):
+        if not isinstance(item, dict) or item.get("status") != "available":
+            continue
+        candidate = item.get("candidate")
+        item_kind = str(item.get("kind") or "")
+        title = str(candidate.get("title") or "").strip() if isinstance(candidate, dict) else ""
+        if item_kind not in {"long", "short"} or not title:
+            report["pruned"].append({"archive_id": str(item.get("archive_id") or ""), "reason": "malformed"})
+            continue
+        if item_kind != kind:
+            kept.append(item)
+            continue
+        report["reviewed"] += 1
+        item["review_count"] = int(item.get("review_count", 0) or 0) + 1
+        item["last_reviewed_at"] = now_text
+        key = str(item.get("dedupe_key") or _suggestion_key(item_kind, title))
+        item["dedupe_key"] = key
+        if key in fresh_keys:
+            item["missed_reviews"] = 0
+            item["last_seen_at"] = now_text
+            report["refreshed"] += 1
+            kept.append(item)
+            continue
+        item["missed_reviews"] = int(item.get("missed_reviews", 0) or 0) + 1
+        reason = _automatic_prune_reason(item, now)
+        if reason is not None:
+            report["pruned"].append(
+                {
+                    "archive_id": str(item.get("archive_id") or ""),
+                    "title": title[:180],
+                    "reason": reason,
+                }
+            )
+            continue
+        kept.append(item)
+    state[SAVED_SUGGESTIONS_KEY] = kept
+    report["kept"] = sum(
+        1
+        for item in kept
+        if isinstance(item, dict) and item.get("status") == "available" and str(item.get("kind") or "") == kind
+    )
+    return report
+
+
 def _archive_session_candidates(state: dict[str, Any], session: dict[str, Any]) -> list[str]:
     candidates = session.get("candidates")
     if not isinstance(candidates, list) or not candidates:
         raise RuntimeError("Telegram research session has no candidates to save")
+    if not all(isinstance(candidate, dict) for candidate in candidates):
+        raise RuntimeError("Telegram research candidate is malformed")
     kind = str(session.get("kind") or "long")
     session_id = str(session.get("session_id") or "").strip()
     if kind not in {"long", "short"} or not session_id:
         raise RuntimeError("Telegram research session cannot be archived")
-    store = _saved_store(state)
     now = panel._now()
+    session["saved_review"] = _review_saved_suggestions(state, kind, candidates, now_text=now)
+    store = _saved_store(state)
     ids: list[str] = []
     for candidate in candidates:
-        if not isinstance(candidate, dict):
-            raise RuntimeError("Telegram research candidate is malformed")
         title = str(candidate.get("title") or "").strip()
         if not title:
             raise RuntimeError("Telegram research candidate has no title")
@@ -183,14 +355,17 @@ def _archive_session_candidates(state: dict[str, Any], session: dict[str, Any]) 
                 "kind": kind,
                 "dedupe_key": key,
                 "saved_at": now,
+                "review_count": 0,
             }
             store.append(existing)
         existing["candidate"] = _candidate_copy(candidate)
         existing["source_session_id"] = session_id
         existing["last_seen_at"] = now
+        existing["last_reviewed_at"] = now
+        existing["missed_reviews"] = 0
         ids.append(str(existing["archive_id"]))
     session["saved_suggestion_ids"] = ids
-    _prune_saved(state)
+    _prune_saved(state, protected_ids=set(ids))
     live_ids = {str(item.get("archive_id") or "") for item in _available_saved(state)}
     session["saved_suggestion_ids"] = [archive_id for archive_id in ids if archive_id in live_ids]
     return list(session["saved_suggestion_ids"])
@@ -225,7 +400,7 @@ def _saved_page(state: dict[str, Any], page: int) -> tuple[str, list[list[dict[s
         "📚 الاقتراحات المحفوظة",
         "",
         f"{len(items)} فكرة غير مختارة محفوظة — صفحة {page + 1}/{pages}.",
-        "اختيار فكرة هنا لا يبدأ الإنتاج؛ ستراها أولًا ثم تؤكدها بالطريقة المعتادة.",
+        "تُراجع الأفكار تلقائيًا مع كل بحث جديد من نفس النوع. اختيار فكرة هنا لا يبدأ الإنتاج؛ ستراها أولًا ثم تؤكدها بالطريقة المعتادة.",
     ]
     rows: list[list[dict[str, str]]] = []
     for item in current:
