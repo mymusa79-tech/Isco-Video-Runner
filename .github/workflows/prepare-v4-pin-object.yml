@@ -7,71 +7,81 @@ on:
       - ".github/prepare-v4-pin-object-trigger"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact PR branch
+      - name: Checkout runner main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.head_ref }}
+          ref: main
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Stage exact atomic current Engine pins
+      - name: Create remote commit object with updated V4 pin
         env:
-          OLD_SHA: 089a97adde5d2e64b35262f944865241384f1429
-          NEW_SHA: 64ab711bc904e9581c3cc6c8280d1321ae738eb1
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OLD_SHA: a1eb2fdeffe14fa369844e35caa61708f79285d0
+          NEW_SHA: 7629bc87a0adcd1a1c0864ecf833478076f01ad3
         run: |
           set -euo pipefail
           python - <<'PY'
-          import hashlib, json, os
+          import json, os, subprocess, urllib.request
           from pathlib import Path
 
+          repo = os.environ['REPO']
+          token = os.environ['GH_TOKEN']
           old = os.environ['OLD_SHA']
           new = os.environ['NEW_SHA']
-          expected = {
-              Path('.github/workflows/produce-resilient-v4.yml'): 3,
-              Path('.github/workflows/telegram-editorial-control.yml'): 1,
-              Path('.github/workflows/verify-human-editorial-intent-m7.yml'): 1,
-          }
-          stage = Path('pin-stage')
-          manifest = {'old_sha': old, 'new_sha': new, 'files': {}}
-          for path, count in expected.items():
-              text = path.read_text(encoding='utf-8')
-              if text.count(old) != count:
-                  raise SystemExit(f'{path}: expected {count} old pins, found {text.count(old)}')
-              updated = text.replace(old, new)
-              if old in updated or updated.count(new) < count:
-                  raise SystemExit(f'{path}: replacement contract mismatch')
-              dest = stage / path
-              dest.parent.mkdir(parents=True, exist_ok=True)
-              dest.write_text(updated, encoding='utf-8')
-              manifest['files'][path.as_posix()] = {
-                  'replacements': count,
-                  'sha256': hashlib.sha256(updated.encode('utf-8')).hexdigest(),
-              }
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+          count = text.count(old)
+          if count != 2:
+              raise SystemExit(f'Expected exactly 2 old V4 engine pins, found {count}')
+          updated = text.replace(old, new)
+          if updated.count(new) != 2:
+              raise SystemExit('Updated V4 engine pin count is not exactly 2')
 
-          production = (stage / '.github/workflows/produce-resilient-v4.yml').read_text(encoding='utf-8')
-          telegram = (stage / '.github/workflows/telegram-editorial-control.yml').read_text(encoding='utf-8')
-          hei = (stage / '.github/workflows/verify-human-editorial-intent-m7.yml').read_text(encoding='utf-8')
-          if production.count(new) != 3:
-              raise SystemExit('Production V4 canonical pin count mismatch')
-          if telegram.count(new) != 1 or 'CONTROL_PLANE_PRODUCTION_ENABLED: "false"' not in telegram:
-              raise SystemExit('Telegram pin/production-lock contract mismatch')
-          if hei.count(new) != 1:
-              raise SystemExit('HEI/M7 verifier pin contract mismatch')
-          (stage / 'manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
-          print('Atomic M7 pin staging PASS')
+          base_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          base_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+
+          def api(path, method='GET', payload=None):
+              url = f'https://api.github.com/repos/{repo}{path}'
+              data = None if payload is None else json.dumps(payload).encode('utf-8')
+              req = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.github+json',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'Content-Type': 'application/json',
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  body = resp.read().decode('utf-8')
+                  return json.loads(body) if body else {}
+
+          blob = api('/git/blobs', 'POST', {'content': updated, 'encoding': 'utf-8'})
+          tree = api('/git/trees', 'POST', {
+              'base_tree': base_tree,
+              'tree': [{
+                  'path': '.github/workflows/produce-resilient-v4.yml',
+                  'mode': '100644',
+                  'type': 'blob',
+                  'sha': blob['sha'],
+              }],
+          })
+          commit = api('/git/commits', 'POST', {
+              'message': 'ci: pin V4 to merged content-tone engine',
+              'tree': tree['sha'],
+              'parents': [base_commit],
+          })
+          print(f'BASE_COMMIT_SHA={base_commit}')
+          print(f'PREPARED_COMMIT_SHA={commit["sha"]}')
+          print('Prepared diff: exactly two SHA replacements')
           PY
-
-      - name: Upload staged pin files
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: current-m7-pin-stage
-          path: pin-stage
-          if-no-files-found: error
-          include-hidden-files: true
-          retention-days: 1
