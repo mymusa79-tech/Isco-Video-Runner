@@ -241,9 +241,18 @@ def validate_completed_short(output_dir: Path, request: dict[str, Any]) -> dict[
     gold = _read_object(root / "gold-enforce-report.json")
     rights = _read_object(root / "rights-manifest.json")
     plan = _read_object(root / "plan.json")
+    master_qc = _read_object(root / "final-master-qc.json")
 
     if quality.get("format") != "moment" or quality.get("duration_ok") is not True:
         raise RuntimeError("Sibling Short failed its final moment-duration contract")
+    if not (
+        master_qc.get("status") == "pass"
+        and master_qc.get("production_stage") == "post_render_pre_gold_acceptance"
+        and master_qc.get("full_decode_ok") is True
+        and master_qc.get("final_media_mutated") is False
+        and not list(master_qc.get("blocking_findings") or [])
+    ):
+        raise RuntimeError("Sibling Short failed Final Master QC")
     if intelligence.get("delivery_allowed") is not True:
         raise RuntimeError("Sibling Short intelligence did not allow delivery")
     if intelligence.get("request_id") != request.get("request_id"):
@@ -279,6 +288,7 @@ def validate_completed_short(output_dir: Path, request: dict[str, Any]) -> dict[
         "gold_report": str(root / "gold-enforce-report.json"),
         "rights_manifest": str(root / "rights-manifest.json"),
         "plan": str(root / "plan.json"),
+        "final_master_qc": str(root / "final-master-qc.json"),
         "delivery_allowed": True,
     }
 
@@ -323,6 +333,7 @@ def stage_sibling_assets(parent_output_dir: Path, completed: Iterable[dict[str, 
             ("rights_manifest", f"{prefix}-rights.json", "rights_manifest"),
             ("quality_report", f"{prefix}-quality.json", "quality_report"),
             ("plan", f"{prefix}-plan.json", "plan"),
+            ("final_master_qc", f"{prefix}-master-qc.json", "final_master_qc"),
         )
         record = {
             "slot": f"S{index}",
