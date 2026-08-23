@@ -1,0 +1,150 @@
+name: TEMP Verify Audio Mastering Live
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      ENGINE_SHA: 64ab711bc904e9581c3cc6c8280d1321ae738eb1
+    steps:
+      - name: Checkout Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Checkout exact private Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused Engine Audio Mastering tests
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_cinematic_audio_mastering_lite -v
+
+      - name: Real FFmpeg Audio Mastering smoke
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/audio-mastering-smoke"
+          AUDIO_SMOKE="$RUNNER_TEMP/audio-mastering-smoke" python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          from isco_video_agent.cinematic_audio_mastering import MAX_DURATION_DRIFT_SECONDS, master_narration_lite
+          root = Path(os.environ['AUDIO_SMOKE'])
+          src = root / 'source.wav'
+          dest = root / 'mastered.wav'
+          subprocess.run([
+              'ffmpeg','-y','-hide_banner','-loglevel','error',
+              '-f','lavfi','-i','sine=frequency=220:sample_rate=48000:duration=2.0',
+              '-c:a','pcm_s16le',str(src)
+          ], check=True)
+          master_narration_lite(src, dest)
+          def probe(path):
+              return json.loads(subprocess.check_output([
+                  'ffprobe','-v','error','-show_streams','-show_format','-of','json',str(path)
+              ], text=True))
+          before = probe(src)
+          after = probe(dest)
+          bdur = float(before['format']['duration'])
+          adur = float(after['format']['duration'])
+          audio = [s for s in after['streams'] if s.get('codec_type') == 'audio']
+          assert len(audio) == 1
+          assert audio[0]['codec_name'] == 'pcm_s24le'
+          assert abs(bdur - adur) <= MAX_DURATION_DRIFT_SECONDS
+          assert dest.stat().st_size > 512
+          print(f'Audio mastering FFmpeg smoke PASS duration_drift={abs(bdur-adur):.6f}s')
+          PY
+
+      - name: Focused Runner Audio plus M7 M11 tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m unittest scripts.test_cinematic_audio_mastering_runtime -v
+          python -m unittest scripts.test_m7_live_binding -v
+          python -m unittest scripts.test_m11_live_binding -v
+
+      - name: Audio production reachability contract
+        run: |
+          set -euo pipefail
+          test -f scripts/cinematic_audio_mastering_runtime.py
+          grep -F 'from scripts.cinematic_audio_mastering_runtime import install_audio_mastering_runtime' scripts/m7_live_binding.py >/dev/null
+          grep -F 'install_audio_mastering_runtime()' scripts/m7_live_binding.py >/dev/null
+          grep -F 'install_m7_live_binding()' scripts/run_v3_voice.py >/dev/null
+          grep -F 'master_narration_lite(source, mastered)' scripts/cinematic_audio_mastering_runtime.py >/dev/null
+          grep -F 'return current(video, mastered, output, *args, **kwargs)' scripts/cinematic_audio_mastering_runtime.py >/dev/null
+          grep -F 'if audio is None:' scripts/cinematic_audio_mastering_runtime.py >/dev/null
+          grep -F 'after_narration_concat_before_final_mux' scripts/cinematic_audio_mastering_runtime.py >/dev/null
+          grep -F 'existing_mux_two_pass_loudnorm_and_limiter' engine/src/isco_video_agent/cinematic_audio_mastering.py >/dev/null
+          grep -F 'zero_additional_ai_calls' engine/src/isco_video_agent/cinematic_audio_mastering.py >/dev/null
+          python - <<'PY'
+          from pathlib import Path
+          runner = Path('scripts/run_v3_voice.py').read_text(encoding='utf-8')
+          m7 = Path('scripts/m7_live_binding.py').read_text(encoding='utf-8')
+          if runner.index('install_m7_live_binding()') > runner.index('out = orchestrator.produce('):
+              raise SystemExit('M7/audio activation occurs after production')
+          if m7.index('install_audio_mastering_runtime()') > m7.index('current = orchestrator.produce'):
+              raise SystemExit('Audio mastering is not installed at M7 activation entry')
+          print('Audio production reachability PASS')
+          PY
+
+      - name: Full Engine regression
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Full Runner regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' | sort | sed -e 's#/#.#g' -e 's#\.py$##')
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Final diff sanity
+        run: |
+          set -euo pipefail
+          git diff --check origin/main...HEAD
+          ! grep -R -E 'GEMINI_API_KEY|GROQ_API_KEY|OPENROUTER_API_KEY|PEXELS_API_KEY|PIXABAY_API_KEY' scripts/cinematic_audio_mastering_runtime.py scripts/test_cinematic_audio_mastering_runtime.py
