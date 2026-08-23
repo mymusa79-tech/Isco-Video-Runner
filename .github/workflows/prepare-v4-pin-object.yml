@@ -73,4 +73,5 @@ jobs:
           name: current-m7-pin-stage
           path: pin-stage
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 1
