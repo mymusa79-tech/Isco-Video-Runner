@@ -108,10 +108,14 @@ def enqueue_latest_request(state: dict[str, Any], *, chat_id: int | str) -> tupl
             return "already_queued", item
         if item.get("status") == "dispatch_reserved" and _age_seconds(str(item.get("reserved_at") or "")) < RECENT_DISPATCH_SECONDS:
             return "already_reserved_recent", item
-        if item.get("status") == "dispatched" and _age_seconds(str(item.get("dispatched_at") or "")) < RECENT_DISPATCH_SECONDS:
+        if item.get("status") == "dispatch_consumed" and _age_seconds(str(item.get("consumed_at") or "")) < RECENT_DISPATCH_SECONDS:
             return "already_dispatched_recent", item
 
-    attempt = 1 + sum(1 for item in matches if item.get("status") in {"dispatch_reserved", "dispatched", "failed"})
+    attempt = 1 + sum(
+        1
+        for item in matches
+        if item.get("status") in {"dispatch_reserved", "dispatch_consumed", "failed"}
+    )
     requested_at = _now()
     action = {
         "schema_version": 1,
@@ -179,39 +183,27 @@ def validate_dispatch_authorization(
             item.get("request_id") == request_id
             and item.get("request_sha256") == request_sha256
             and item.get("authorization_id") == authorization_id
-            and item.get("status") in {"dispatch_reserved", "dispatched"}
+            and item.get("status") == "dispatch_reserved"
         ):
             return item
     raise RuntimeError("Exact explicit Telegram dispatch authorization was not found")
 
 
-def mark_dispatched(
+def consume_dispatch_authorization(
     state: dict[str, Any],
     request_id: str,
     request_sha256: str,
     authorization_id: str,
     *,
-    run_url: str = "",
+    workflow_run_id: str = "",
 ) -> dict[str, Any]:
-    authorization_id = str(authorization_id or "").strip()
-    if not authorization_id:
-        raise RuntimeError("Telegram dispatch authorization id is required")
-    for item in _queue(state):
-        if not isinstance(item, dict):
-            continue
-        if (
-            item.get("request_id") == request_id
-            and item.get("request_sha256") == request_sha256
-            and item.get("authorization_id") == authorization_id
-            and item.get("status") == "dispatch_reserved"
-        ):
-            item["status"] = "dispatched"
-            item["dispatched_at"] = _now()
-            if run_url:
-                item["dispatch_run_url"] = run_url
-            state["last_event_at"] = item["dispatched_at"]
-            return item
-    raise RuntimeError("Exact reserved Telegram production dispatch was not found")
+    item = validate_dispatch_authorization(state, request_id, request_sha256, authorization_id)
+    item["status"] = "dispatch_consumed"
+    item["consumed_at"] = _now()
+    if workflow_run_id:
+        item["workflow_run_id"] = str(workflow_run_id)
+    state["last_event_at"] = item["consumed_at"]
+    return item
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -243,12 +235,12 @@ def main() -> None:
     reserve.add_argument("--sha256", required=True)
     reserve.add_argument("--github-output", default="")
 
-    mark = sub.add_parser("mark-dispatched")
-    mark.add_argument("--state", required=True, type=Path)
-    mark.add_argument("--request-id", required=True)
-    mark.add_argument("--sha256", required=True)
-    mark.add_argument("--authorization-id", required=True)
-    mark.add_argument("--run-url", default="")
+    consume = sub.add_parser("consume")
+    consume.add_argument("--state", required=True, type=Path)
+    consume.add_argument("--request-id", required=True)
+    consume.add_argument("--sha256", required=True)
+    consume.add_argument("--authorization-id", required=True)
+    consume.add_argument("--workflow-run-id", default="")
 
     args = parser.parse_args()
     state = _load(args.state)
@@ -262,13 +254,13 @@ def main() -> None:
             production_request_sha256=item["request_sha256"],
         )
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))
-    elif args.command == "mark-dispatched":
-        item = mark_dispatched(
+    elif args.command == "consume":
+        item = consume_dispatch_authorization(
             state,
             args.request_id,
             args.sha256,
             args.authorization_id,
-            run_url=args.run_url,
+            workflow_run_id=args.workflow_run_id,
         )
         _save(args.state, state)
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))
