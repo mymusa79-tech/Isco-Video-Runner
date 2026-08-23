@@ -206,14 +206,9 @@ jobs:
             -f request_sha256="$REQUEST_SHA256" \
             -f authorization_id="$AUTHORIZATION_ID" \
             -f engine_sha="$ENGINE_SHA"
-          python scripts/telegram_production_queue.py mark-dispatched \
-            --state "$CONTROL_STATE_PATH" \
-            --request-id "$REQUEST_ID" \
-            --sha256 "$REQUEST_SHA256" \
-            --authorization-id "$AUTHORIZATION_ID"
 
       - name: Persist encrypted control-panel state
-        if: always()
+        if: always() && steps.poll.outputs.needs_production != 'true'
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
@@ -241,5 +236,4 @@ jobs:
       - name: Remove plaintext control secrets and state
         if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/isco-control/secrets" || true
-          rm -f "$RUNNER_TEMP/isco-control/control-panel.json" || true
+          rm -rf "$RUNNER_TEMP/isco-control" || true
