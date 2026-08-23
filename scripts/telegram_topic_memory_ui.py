@@ -6,10 +6,49 @@ from scripts import telegram_control_active_ui as ui
 from scripts import telegram_control_panel as panel
 
 
+def _light_topic_key(token: str) -> str:
+    """Return a conservative Arabic morphology key used only as a second-pass match."""
+    value = ui._normalize_title(token)
+    if not value or " " in value:
+        return value
+    if value.startswith("ال") and len(value) > 4:
+        value = value[2:]
+    if value[:1] in {"و", "ف"} and len(value) > 4:
+        value = value[1:]
+    # Imperfect verb prefixes are useful for pairs such as نستنزف / استنزاف
+    # and نخاف / الخوف. This key is never sufficient alone: the caller requires
+    # at least three matching content anchors, which keeps the rule conservative.
+    if value[:1] in {"ن", "ي", "ت"} and len(value) > 3:
+        value = value[1:]
+    for suffix in ("كما", "هما", "كم", "كن", "هم", "هن", "ها", "نا", "ك", "ه", "ي"):
+        if value.endswith(suffix) and len(value) - len(suffix) >= 3:
+            value = value[: -len(suffix)]
+            break
+    skeleton = "".join(ch for ch in value if ch not in {"ا", "و", "ي"})
+    return skeleton if len(skeleton) >= 2 else value
+
+
+def _same_topic_across_formats(left: str, right: str) -> bool:
+    if ui._same_topic_title(left, right):
+        return True
+    left_tokens = ui._topic_tokens(left)
+    right_tokens = ui._topic_tokens(right)
+    if min(len(left_tokens), len(right_tokens)) < 3:
+        return False
+    left_keys = {_light_topic_key(token) for token in left_tokens if _light_topic_key(token)}
+    right_keys = {_light_topic_key(token) for token in right_tokens if _light_topic_key(token)}
+    if min(len(left_keys), len(right_keys)) < 3:
+        return False
+    common = len(left_keys & right_keys)
+    containment = common / min(len(left_keys), len(right_keys))
+    jaccard = common / len(left_keys | right_keys)
+    return common >= 3 and containment >= 0.80 and jaccard >= 0.60
+
+
 def _is_used_topic_globally(state: dict[str, Any], kind: str, title: str) -> bool:
     del kind  # A completed topic is blocked across long and short research.
     return any(
-        ui._same_topic_title(title, str(item.get("topic") or ""))
+        _same_topic_across_formats(title, str(item.get("topic") or ""))
         for item in ui._used_topics(state)
     )
 
