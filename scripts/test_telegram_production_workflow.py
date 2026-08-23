@@ -19,17 +19,21 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         self.assertIn("group: isco-video-resilient-v4", self.text)
         self.assertIn("cancel-in-progress: false", self.text)
 
-    def test_exact_immutable_approval_is_required_before_any_production(self):
+    def test_exact_immutable_approval_and_second_action_authorization_are_required(self):
         self.assertIn("request_id:", self.text)
         self.assertIn("request_sha256:", self.text)
-        self.assertIn("Restore exact encrypted Telegram approval state", self.text)
+        self.assertIn("authorization_id:", self.text)
+        self.assertIn("Restore exact encrypted Telegram approval and dispatch authorization", self.text)
         self.assertIn("state/control-panel.json.enc", self.text)
         self.assertIn("validate_ready_request(request)", self.text)
+        self.assertIn("validate_dispatch_authorization(state, request_id, expected, authorization_id)", self.text)
         self.assertIn('request.get("request_sha256") != expected', self.text)
         self.assertIn("approved-request.json", self.text)
 
-    def test_engine_is_exactly_pinned_to_current_certified_engine(self):
+    def test_runner_and_engine_are_exactly_bound(self):
         self.assertIn(f"EXPECTED_ENGINE_SHA: {ENGINE_SHA}", self.text)
+        self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', self.text)
+        self.assertIn('test "${GITHUB_REF_NAME}" = "main"', self.text)
         self.assertIn('test "$REQUESTED_ENGINE_SHA" = "$EXPECTED_ENGINE_SHA"', self.text)
         self.assertIn("ref: ${{ inputs.engine_sha }}", self.text)
         self.assertIn('test "$(git rev-parse HEAD)" = "$REQUESTED_ENGINE_SHA"', self.text)
@@ -46,6 +50,27 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         self.assertIn("Create one deterministic delivery release", self.text)
         self.assertIn('gh release create "$RELEASE_TAG"', self.text)
 
+    def test_delivery_stays_staged_until_real_release_step(self):
+        validate = self.text.index("Validate exact staged delivery package")
+        finalize = self.text.index("finalize_release_manifest(")
+        release = self.text.index('gh release create "$RELEASE_TAG"')
+        self.assertLess(validate, finalize)
+        self.assertLess(finalize, release)
+        self.assertIn('data.get("release_state") != "staged"', self.text)
+        self.assertIn('data.get("release_tag") is not None', self.text)
+        self.assertIn('data.get("delivery_url") is not None', self.text)
+
+    def test_final_master_qc_is_required_for_validation_diagnostics_and_release(self):
+        self.assertIn('master_qc = root / "final-master-qc.json"', self.text)
+        self.assertIn('qc.get("status") == "pass"', self.text)
+        self.assertIn('qc.get("full_decode_ok") is True', self.text)
+        self.assertIn('qc.get("final_media_mutated") is False', self.text)
+        self.assertIn('not list(qc.get("blocking_findings") or [])', self.text)
+        self.assertIn('embedded.get("file") != "final-master-qc.json"', self.text)
+        self.assertIn("Upload Telegram production diagnostics on failure", self.text)
+        self.assertGreaterEqual(self.text.count("engine/output/*/final-master-qc.json"), 1)
+        self.assertIn('"final-master-qc.json", "final-critic.json"', self.text)
+
     def test_delivery_is_manual_youtube_only(self):
         self.assertIn('youtube_publish_mode") != "manual_in_youtube_studio"', self.text)
         self.assertIn('publication_performed") is not False', self.text)
@@ -60,10 +85,11 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         for needle in forbidden:
             self.assertNotIn(needle, self.text)
 
-    def test_plaintext_control_material_is_removed(self):
+    def test_plaintext_control_and_runtime_material_are_removed(self):
         self.assertIn("Remove plaintext control secrets and state", self.text)
         self.assertIn('rm -rf "$RUNNER_TEMP/isco-secrets"', self.text)
-        self.assertIn("approved-request.json", self.text)
+        self.assertIn('rm -rf "$RUNNER_TEMP/isco-control"', self.text)
+        self.assertIn('rm -rf "$RUNNER_TEMP/isco-state"', self.text)
 
 
 if __name__ == "__main__":
