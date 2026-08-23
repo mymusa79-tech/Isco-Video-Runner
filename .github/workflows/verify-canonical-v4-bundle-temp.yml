@@ -1,0 +1,108 @@
+name: TEMP Verify Canonical V4 Long Plus Shorts
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ENGINE_SHA: 64ab711bc904e9581c3cc6c8280d1321ae738eb1
+    steps:
+      - name: Checkout Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Checkout exact Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact Engine
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+      - name: Focused canonical bundle and existing Shorts contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m unittest scripts.test_canonical_v4_short_child -v
+          python -m unittest scripts.test_canonical_v4_bundle -v
+          python -m unittest scripts.test_unified_delivery_canonical -v
+          python -m unittest scripts.test_runtime_closure -v
+          python -m unittest scripts.test_source_derived_short_planner -v
+          python -m unittest scripts.test_sibling_short_orchestration -v
+          python -m unittest scripts.test_shorts_production_binding -v
+          python -m unittest scripts.test_run_control_production -v
+      - name: Focused current cinematic chain compatibility
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m unittest scripts.test_cta_live_binding -v
+          python -m unittest scripts.test_m10_live_binding -v
+          python -m unittest scripts.test_m9_live_binding -v
+          python -m unittest scripts.test_m8_live_binding -v
+          python -m unittest scripts.test_sfx_live_binding -v
+          python -m unittest scripts.test_audio_mastering_live_binding -v
+      - name: Canonical V4 workflow policy sanity
+        run: |
+          set -euo pipefail
+          workflow=.github/workflows/produce-resilient-v4.yml
+          grep -F 'timeout-minutes: 120' "$workflow" >/dev/null
+          grep -F 'ref: 64ab711bc904e9581c3cc6c8280d1321ae738eb1' "$workflow" >/dev/null
+          grep -F 'delivery-manifest.json' "$workflow" >/dev/null
+          grep -F 'short-*' "$workflow" >/dev/null
+          grep -F 'long_plus_shorts' "$workflow" >/dev/null
+          grep -F 'manual_in_youtube_studio' "$workflow" >/dev/null
+          grep -F 'm11-report.json' "$workflow" >/dev/null
+          grep -F 'cta-plan.json' "$workflow" >/dev/null
+          if grep -F 'CONTROL_PLANE_PRODUCTION_ENABLED' "$workflow" >/dev/null; then
+            echo 'Canonical V4 must not enable Telegram/control-plane production' >&2
+            exit 1
+          fi
+          if grep -E 'youtube.*(upload|publish)|videos\.insert' -i "$workflow" >/dev/null; then
+            echo 'Canonical V4 must not auto-publish to YouTube' >&2
+            exit 1
+          fi
+      - name: Canonical provenance and no-partial-delivery sanity
+        run: |
+          set -euo pipefail
+          grep -F 'SOURCE = "canonical_v4_approved_brief"' scripts/canonical_v4_bundle.py >/dev/null
+          grep -F 'SOURCE = "canonical_v4_approved_brief"' scripts/canonical_v4_short_child.py >/dev/null
+          grep -F 'post_gold_source_episode_evidence_only' scripts/canonical_v4_bundle.py >/dev/null
+          grep -F 'partial_delivery_allowed' scripts/canonical_v4_bundle.py >/dev/null
+          grep -F 'manual_in_youtube_studio' scripts/canonical_v4_bundle.py >/dev/null
+          grep -F 'verify_brief_approval' scripts/canonical_v4_bundle.py >/dev/null
+          grep -F 'install_canonical_v4_bundle_post_manifest()' scripts/runtime_closure.py >/dev/null
+      - name: Full Runner regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python -m unittest discover -s scripts -p 'test_*.py' -q
+      - name: Diff sanity
+        run: |
+          set -euo pipefail
+          git diff --check origin/main...HEAD
+          git diff --name-only origin/main...HEAD
