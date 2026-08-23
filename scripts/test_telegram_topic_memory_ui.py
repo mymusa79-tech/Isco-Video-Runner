@@ -33,6 +33,7 @@ def _request(request_id: str, *, kind: str, topic: str) -> dict:
 
 class TelegramTopicMemoryPolicyTests(unittest.TestCase):
     def setUp(self):
+        self._original_same_topic_title = ui._same_topic_title
         self._original_is_used_topic = ui._is_used_topic
         self._original_approve_current = ui._approve_current
         self._original_menu_text = ui._menu_text
@@ -40,6 +41,7 @@ class TelegramTopicMemoryPolicyTests(unittest.TestCase):
         memory._install_policy()
 
     def tearDown(self):
+        ui._same_topic_title = self._original_same_topic_title
         ui._is_used_topic = self._original_is_used_topic
         ui._approve_current = self._original_approve_current
         ui._menu_text = self._original_menu_text
