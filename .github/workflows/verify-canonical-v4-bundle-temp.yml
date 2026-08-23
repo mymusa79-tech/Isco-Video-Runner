@@ -83,8 +83,10 @@ jobs:
             echo 'Canonical V4 must not enable Telegram/control-plane production' >&2
             exit 1
           fi
-          if grep -E 'youtube.*(upload|publish)|videos\.insert' -i "$workflow" >/dev/null; then
-            echo 'Canonical V4 must not auto-publish to YouTube' >&2
+          # Reject executable YouTube publication mechanisms, not metadata fields such
+          # as youtube_publish_mode=manual_in_youtube_studio.
+          if grep -E -i 'videos[[:space:]]*\(\)[[:space:]]*\.insert|videos\.insert|upload_to_youtube|publish_to_youtube|youtube[- ]+(upload|publish)|youtube_(upload|publish)_(script|command)' "$workflow" >/dev/null; then
+            echo 'Canonical V4 must not contain an executable YouTube upload/publish path' >&2
             exit 1
           fi
       - name: Canonical provenance and no-partial-delivery sanity
