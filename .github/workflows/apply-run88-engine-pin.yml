@@ -20,13 +20,14 @@ jobs:
 
       - name: Apply exact Engine pin to PR branch
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           REPO: ${{ github.repository }}
           HEAD_REF: ${{ github.head_ref }}
           OLD_SHA: 735fe3aa9bd42080ffc7e6b9ba25c04599e64b8e
           NEW_SHA: df9397fd3782e7a9f83b3c8732af27858bcee722
         run: |
           set -euo pipefail
+          test -n "$GH_TOKEN"
           python - <<'PY'
           import json, os, subprocess, urllib.request
           from pathlib import Path
