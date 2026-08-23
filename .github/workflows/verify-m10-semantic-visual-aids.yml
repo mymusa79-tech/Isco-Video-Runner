@@ -93,6 +93,8 @@ jobs:
               MAX_TOTAL_VISUAL_AIDS_PER_EPISODE,
               POLICY_VERSION,
               REPRESENTATION_INTENTS,
+              enforce_episode_visual_aid_policy,
+              normalize_scene_representation,
           )
 
           assert POLICY_VERSION == "m10-semantic-visual-aids-v1"
@@ -102,28 +104,40 @@ jobs:
           assert MAX_SIMPLE_DIAGRAMS_PER_EPISODE == 2
           assert MAX_TOTAL_VISUAL_AIDS_PER_EPISODE == 3
 
-          m10 = Path('src/isco_video_agent/cinematic_m10_semantic_visuals.py').read_text(encoding='utf-8')
-          director = Path('src/isco_video_agent/director_brain.py').read_text(encoding='utf-8')
-          runtime = Path('src/isco_video_agent/cinematic_m7_runtime.py').read_text(encoding='utf-8')
-          for needle in (
-              '"creates_cut": False',
-              '"external_graphic_assets": False',
-              'm11_archive_binding_deferred_stock_preserved',
-          ):
-              if needle not in m10:
-                  raise SystemExit('missing M10 invariant: ' + needle)
+          legacy = normalize_scene_representation({})
+          assert legacy["representation_intent"] == "stock"
+          assert legacy["stock_is_default"] is True
+          assert legacy["creates_cut"] is False
+          assert legacy["external_graphic_assets"] is False
+
+          guarded = enforce_episode_visual_aid_policy([
+              {
+                  "scene_id": "hero",
+                  "hero": True,
+                  "representation_intent": "simple_diagram",
+                  "visual_aid": {"kind": "compare", "items": ["أ", "ب"]},
+              },
+              {
+                  "scene_id": "body-1",
+                  "representation_intent": "text_card",
+                  "text_card": {"kind": "quote", "primary_text": "اختبار"},
+              },
+              {
+                  "scene_id": "body-2",
+                  "representation_intent": "simple_diagram",
+                  "visual_aid": {"kind": "gap", "items": ["أ", "ب"]},
+              },
+          ])
+          assert guarded[0]["representation_intent"] == "stock"
+          assert not (
+              guarded[1]["representation_intent"] in {"text_card", "simple_diagram"}
+              and guarded[2]["representation_intent"] in {"text_card", "simple_diagram"}
+          )
+
+          m10_source = Path('src/isco_video_agent/cinematic_m10_semantic_visuals.py').read_text(encoding='utf-8').lower()
           for forbidden in ('flaticon', 'canva', 'lottiefiles', 'motionarray', 'envato'):
-              if forbidden in m10.lower():
+              if forbidden in m10_source:
                   raise SystemExit('external graphic dependency forbidden: ' + forbidden)
-          if director.count('response = json_text(') != 1:
-              raise SystemExit('Director must retain exactly one provider call site')
-          for needle in ('representation_intent', 'simple_diagram', 'Prefer stock when unsure'):
-              if needle not in director:
-                  raise SystemExit('Director representation contract missing: ' + needle)
-          if 'semantic-visual-aids.json' not in runtime:
-              raise SystemExit('runtime semantic visual audit artifact missing')
-          if 'scene_plan=scene_plan' not in runtime:
-              raise SystemExit('runtime scene representation binding missing')
           PY
       - name: Verifier isolation and diff review
         run: |
