@@ -98,11 +98,13 @@ jobs:
             --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
           active=$((active_v4 + active_telegram))
           if [ "$active" -gt 0 ]; then
-            echo "A production workflow is active; Telegram polling paused to prevent overlapping or duplicate dispatch"
+            echo "A production workflow is active; Telegram polling paused and control state is read-only"
+            echo "production_active=true" >> "$GITHUB_OUTPUT"
             echo "needs_engine=false" >> "$GITHUB_OUTPUT"
             echo "needs_production=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "production_active=false" >> "$GITHUB_OUTPUT"
           python scripts/telegram_control_active_ui.py poll --state "$CONTROL_STATE_PATH"
 
       - name: Checkout exact private Engine for research only
@@ -208,7 +210,7 @@ jobs:
             -f engine_sha="$ENGINE_SHA"
 
       - name: Persist encrypted control-panel state
-        if: always() && steps.poll.outputs.needs_production != 'true'
+        if: always() && steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true'
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
