@@ -46,7 +46,7 @@ jobs:
           python -m pip check
       - name: Focused Engine SFX tests
         working-directory: engine
-        run: python -m unittest tests.test_cinematic_v2_sfx -v
+        run: python -m unittest tests.test_cinematic_sfx -v
       - name: Focused Runner SFX and audio chain tests
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
