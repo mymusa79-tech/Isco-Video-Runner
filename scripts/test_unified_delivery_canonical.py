@@ -32,6 +32,10 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
             "m10-cards.json","m11-report.json","cta-plan.json",
         ):
             _json(root/name,{"status":"ok"})
+        _json(
+            root/"narrative-music-dynamics.json",
+            {"status":"applied","mode":"m7_narrative_music_dynamics","segments":[{"start_seconds":0.0,"end_seconds":10.0,"adjustment_db":-0.8}]},
+        )
         _json(root/"clip-1.m8.json", {"status":"applied"})
         return root
 
@@ -57,6 +61,10 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
             self.assertEqual(manifest["control_request"]["source"],"canonical_v4_approved_brief")
             self.assertEqual(manifest["cinematic_reports"]["m11_archive"],"m11-report.json")
             self.assertEqual(manifest["cinematic_reports"]["contextual_cta"],"cta-plan.json")
+            dynamics=manifest["cinematic_reports"]["narrative_music_dynamics"]
+            self.assertEqual(dynamics["file"],"narrative-music-dynamics.json")
+            self.assertEqual(dynamics["evidence"]["status"],"applied")
+            self.assertEqual(dynamics["evidence"]["segments"][0]["adjustment_db"],-0.8)
             self.assertEqual(manifest["cinematic_reports"]["m8_color_normalization"],["clip-1.m8.json"])
             self.assertEqual(manifest["canonical_bundle_request"],"canonical-bundle-request.json")
 

@@ -66,7 +66,13 @@ def _cinematic_reports(root: Path) -> dict[str, Any]:
         "m11_archive": "m11-report.json",
         "contextual_cta": "cta-plan.json",
     }
-    reports = {key: name for key, name in known.items() if (root / name).is_file()}
+    reports: dict[str, Any] = {key: name for key, name in known.items() if (root / name).is_file()}
+    dynamics_path = root / "narrative-music-dynamics.json"
+    if dynamics_path.is_file():
+        reports["narrative_music_dynamics"] = {
+            "file": dynamics_path.name,
+            "evidence": _read_object(dynamics_path),
+        }
     m8 = sorted(path.name for path in root.glob("*.m8.json") if path.is_file())
     if m8:
         reports["m8_color_normalization"] = m8
