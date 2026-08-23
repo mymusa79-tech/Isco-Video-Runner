@@ -7,6 +7,7 @@ from scripts.attempt10_append_bound_recovery import install_attempt10_append_bou
 from scripts.audio_mastering_live_binding import install_audio_mastering_live_binding
 from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
+from scripts.m9_live_binding import install_m9_live_binding
 from scripts.sfx_live_binding import install_sfx_live_binding
 
 
@@ -29,6 +30,7 @@ def install_runtime_closure() -> None:
     install_audio_mastering_live_binding()
     install_sfx_live_binding()
     install_m8_live_binding()
+    install_m9_live_binding()
 
 
 def run_post_gold_observers(output_dir: Path) -> dict:
