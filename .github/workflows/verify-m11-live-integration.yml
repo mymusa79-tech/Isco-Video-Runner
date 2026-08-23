@@ -61,6 +61,28 @@ jobs:
           python -m unittest tests.test_m11_archive_policy_contract -v
           python -m unittest tests.test_human_editorial_intent -v
           python -m unittest tests.test_editorial_room_director_m7_binding_current_main -v
+      - name: Real M11 FFmpeg renderer smoke
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/m11-smoke"
+          ffmpeg -y -f lavfi -i color=size=1200x800:duration=1 -frames:v 1 "$RUNNER_TEMP/m11-smoke/input.png" >/dev/null 2>&1
+          M11_SMOKE="$RUNNER_TEMP/m11-smoke" python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          from isco_video_agent.cinematic_m11_runtime import _render_archive_clip
+          root = Path(os.environ["M11_SMOKE"])
+          dest = _render_archive_clip(root / "input.png", root / "archive.mp4", 4.2, fps=30)
+          data = json.loads(subprocess.check_output([
+              "ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(dest)
+          ], text=True))
+          video = [x for x in data["streams"] if x.get("codec_type") == "video"]
+          audio = [x for x in data["streams"] if x.get("codec_type") == "audio"]
+          duration = float(data["format"]["duration"])
+          assert len(video) == 1 and not audio
+          assert video[0]["width"] == 1920 and video[0]["height"] == 1080
+          assert 4.0 <= duration <= 4.4, duration
+          PY
       - name: Full Engine suite
         working-directory: engine
         run: |
