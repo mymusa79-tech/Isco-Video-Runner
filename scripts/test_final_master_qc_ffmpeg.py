@@ -48,9 +48,11 @@ class FinalMasterQCFfmpegTests(unittest.TestCase):
                 ],
                 check=True,
                 env=secret_free_subprocess_env(),
+                timeout=60,
             )
             scan = qc._run_full_scan(final, has_audio=True)
             self.assertEqual(scan["returncode"], 0)
+            self.assertFalse(scan["timed_out"])
             self.assertEqual(scan["black_events"], [])
             stderr = scan["stderr"]
             self.assertEqual(qc._parse_silence_events(stderr, final_seconds=3.0), [])
