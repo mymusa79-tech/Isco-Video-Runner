@@ -18,6 +18,7 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
         _json(root/"plan.json", {"format":"film","topic":"موضوع"})
         _json(root/"quality-final.json", {"format":"film"})
         _json(root/"production-manifest.json", {"format":"film"})
+        _json(root/"final-master-qc.json", {"status":"pass","production_stage":"post_render_pre_gold_acceptance","full_decode_ok":True,"blocking_findings":[]})
         (root/"final.mp4").write_bytes(b"video")
         candidates=[]
         for i in range(1,4):
@@ -34,7 +35,7 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
             _json(root/name,{"status":"ok"})
         _json(
             root/"narrative-music-dynamics.json",
-            {"status":"applied","mode":"m7_narrative_music_dynamics","segments":[{"start_seconds":0.0,"end_seconds":10.0,"adjustment_db":-0.8}]},
+            {"status":"applied","mode":"m7_adaptive_pacing_music_dynamics","segments":[{"start_seconds":0.0,"end_seconds":10.0,"adjustment_db":-0.8}]},
         )
         _json(root/"clip-1.m8.json", {"status":"applied"})
         return root
@@ -65,8 +66,24 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
             self.assertEqual(dynamics["file"],"narrative-music-dynamics.json")
             self.assertEqual(dynamics["evidence"]["status"],"applied")
             self.assertEqual(dynamics["evidence"]["segments"][0]["adjustment_db"],-0.8)
+            master_qc=manifest["final_master_qc"]
+            self.assertEqual(master_qc["file"],"final-master-qc.json")
+            self.assertEqual(master_qc["evidence"]["status"],"pass")
+            self.assertTrue(master_qc["evidence"]["full_decode_ok"])
             self.assertEqual(manifest["cinematic_reports"]["m8_color_normalization"],["clip-1.m8.json"])
             self.assertEqual(manifest["canonical_bundle_request"],"canonical-bundle-request.json")
+
+    def test_missing_or_blocked_master_qc_cannot_enter_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root=self._root(td)
+            (root/"final-master-qc.json").unlink()
+            with self.assertRaises(RuntimeError):
+                build_delivery_manifest(root,repository="r/x",release_tag=None)
+        with tempfile.TemporaryDirectory() as td:
+            root=self._root(td)
+            _json(root/"final-master-qc.json", {"status":"block","blocking_findings":["full_decode_failed"]})
+            with self.assertRaises(RuntimeError):
+                build_delivery_manifest(root,repository="r/x",release_tag=None)
 
     def test_partial_or_duplicate_short_set_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:
