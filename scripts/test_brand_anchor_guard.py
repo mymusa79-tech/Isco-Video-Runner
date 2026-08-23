@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
@@ -58,6 +59,38 @@ class BrandAnchorGuardTests(unittest.TestCase):
         self.assertNotIn("وإلى نداءٍ جديد", text)
         self.assertNotIn("من أثقال وهمية", text)
         self.assertTrue(text.startswith("عندما تهدأ الأصوات تسترد مساحتك."))
+
+    def test_run80_strip_skipped_when_opener_result_would_drop_under_film_floor(self) -> None:
+        """Regression for Run #80: stripping a near-duplicate anchor sentence removes
+        the WHOLE matching sentence, not just the literal anchor phrase, and this
+        guard runs after every word-band/floor check in build_plan has already
+        passed - nothing downstream re-verifies it. Section_1 landed at 102/110
+        after this stripped a longer near-duplicate opener paraphrase down to the
+        shorter 20-word canonical anchor. Only apply the strip when the result
+        still clears the Film 110-word floor; otherwise keep the section exactly
+        as handed to this guard."""
+        original_first = " ".join(["كلمة"] * 200) + " جملة قريبة من الافتتاحية طويلة جدًا يجب حذفها."
+        plan = self._plan(original_first, "نهاية عادية.")
+        with patch(
+            "scripts.brand_anchor_guard._strip_anchor_like_sentences",
+            return_value=" ".join(["كلمة"] * 80),
+        ):
+            _enforce_brand_anchors_once(plan)
+        # 80-word stripped remainder + 20-word opener = 100 words, under the
+        # 110-word floor - the strip must be skipped and the original kept.
+        self.assertEqual(plan.sections[0].narration, original_first)
+
+    def test_run80_strip_skipped_when_closer_result_would_drop_under_film_floor(self) -> None:
+        original_last = " ".join(["كلمة"] * 200) + " جملة قريبة من الختام طويلة جدًا يجب حذفها."
+        plan = self._plan("بداية عادية.", original_last)
+        with patch(
+            "scripts.brand_anchor_guard._strip_anchor_like_sentences",
+            return_value=" ".join(["كلمة"] * 80),
+        ):
+            _enforce_brand_anchors_once(plan)
+        # 80-word stripped remainder + 16-word closer = 96 words, under the
+        # 110-word floor - the strip must be skipped and the original kept.
+        self.assertEqual(plan.sections[-1].narration, original_last)
 
     def test_middle_sections_are_untouched(self) -> None:
         plan = self._plan("بداية.", "نهاية.")

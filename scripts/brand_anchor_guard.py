@@ -53,17 +53,41 @@ def _enforce_brand_anchors_once(plan):
 
     opener = str(getattr(plan, "identity_opener", "") or "").strip()
     closer = str(getattr(plan, "identity_closer", "") or "").strip()
+    # Run #80: this guard runs after every word-band/floor check in the build_plan
+    # chain has already passed, with nothing downstream to re-verify it. Stripping
+    # a near-duplicate anchor sentence removes the WHOLE matching sentence, not
+    # just the literal anchor phrase, and can legitimately remove enough words to
+    # push the opening/closing section back under the hard Film 110-word floor
+    # (observed: section_1 102 words, section_8 106 words after this ran on a
+    # freshly-regenerated quality-review repair). Only apply the strip when the
+    # result still clears the floor; otherwise keep the section exactly as it
+    # was handed to this guard rather than silently reintroducing an under-floor
+    # result this late in the pipeline.
+    film_floor = staged._FILM_SECTION_MIN_WORDS if getattr(plan, "format", None) == "film" else None
 
     first = plan.sections[0]
     last = plan.sections[-1]
 
+    def _strip_would_regress_below_floor(candidate: str, original: str) -> bool:
+        if film_floor is None:
+            return False
+        # Only block the strip when it would newly break an already-compliant
+        # section; a section that was already under floor before this guard ran
+        # has an existing problem outside this guard's scope and stripping still
+        # proceeds, matching prior behavior.
+        return staged._word_count(original) >= film_floor > staged._word_count(candidate)
+
     if opener:
         cleaned_first = _strip_anchor_like_sentences(first.narration, opener)
-        first.narration = staged._insert_after_first_sentence(cleaned_first, opener)
+        candidate = staged._insert_after_first_sentence(cleaned_first, opener)
+        if not _strip_would_regress_below_floor(candidate, first.narration):
+            first.narration = candidate
 
     if closer:
         cleaned_last = _strip_anchor_like_sentences(last.narration, closer)
-        last.narration = f"{cleaned_last.rstrip()} {closer}".strip()
+        candidate = f"{cleaned_last.rstrip()} {closer}".strip()
+        if not _strip_would_regress_below_floor(candidate, last.narration):
+            last.narration = candidate
 
     return plan
 
