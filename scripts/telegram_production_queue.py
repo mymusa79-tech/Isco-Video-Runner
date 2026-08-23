@@ -21,6 +21,11 @@ def _request_hash(request: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _authorization_id(*, request_id: str, request_sha256: str, requested_at: str, attempt: int, chat_id: int | str) -> str:
+    payload = f"{request_id}|{request_sha256}|{requested_at}|{attempt}|{chat_id}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:32]
+
+
 def validate_ready_request(request: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(request, dict):
         raise RuntimeError("Telegram production request must be an object")
@@ -101,10 +106,13 @@ def enqueue_latest_request(state: dict[str, Any], *, chat_id: int | str) -> tupl
     for item in reversed(matches):
         if item.get("status") == "pending_dispatch":
             return "already_queued", item
+        if item.get("status") == "dispatch_reserved" and _age_seconds(str(item.get("reserved_at") or "")) < RECENT_DISPATCH_SECONDS:
+            return "already_reserved_recent", item
         if item.get("status") == "dispatched" and _age_seconds(str(item.get("dispatched_at") or "")) < RECENT_DISPATCH_SECONDS:
             return "already_dispatched_recent", item
 
-    attempt = 1 + sum(1 for item in matches if item.get("status") in {"dispatched", "failed"})
+    attempt = 1 + sum(1 for item in matches if item.get("status") in {"dispatch_reserved", "dispatched", "failed"})
+    requested_at = _now()
     action = {
         "schema_version": 1,
         "request_id": request_id,
@@ -115,10 +123,17 @@ def enqueue_latest_request(state: dict[str, Any], *, chat_id: int | str) -> tupl
         "chat_id": chat_id,
         "attempt": attempt,
         "status": "pending_dispatch",
-        "requested_at": _now(),
+        "requested_at": requested_at,
+        "authorization_id": _authorization_id(
+            request_id=request_id,
+            request_sha256=request_sha256,
+            requested_at=requested_at,
+            attempt=attempt,
+            chat_id=chat_id,
+        ),
     }
     queue.append(action)
-    state["last_event_at"] = _now()
+    state["last_event_at"] = requested_at
     return ("retry_queued" if matches else "queued"), action
 
 
@@ -133,18 +148,33 @@ def pending_dispatch(state: dict[str, Any]) -> dict[str, Any] | None:
     return min(pending, key=lambda item: (str(item.get("requested_at") or ""), int(item.get("attempt", 1) or 1)))
 
 
-def mark_dispatched(state: dict[str, Any], request_id: str, request_sha256: str, *, run_url: str = "") -> dict[str, Any]:
+def reserve_dispatch(state: dict[str, Any], request_id: str, request_sha256: str) -> dict[str, Any]:
     for item in _queue(state):
         if not isinstance(item, dict):
             continue
         if item.get("request_id") == request_id and item.get("request_sha256") == request_sha256 and item.get("status") == "pending_dispatch":
+            authorization_id = str(item.get("authorization_id") or "").strip()
+            if not authorization_id:
+                raise RuntimeError("Pending Telegram dispatch has no explicit authorization id")
+            item["status"] = "dispatch_reserved"
+            item["reserved_at"] = _now()
+            state["last_event_at"] = item["reserved_at"]
+            return item
+    raise RuntimeError("Pending Telegram production dispatch was not found for reservation")
+
+
+def mark_dispatched(state: dict[str, Any], request_id: str, request_sha256: str, *, run_url: str = "") -> dict[str, Any]:
+    for item in _queue(state):
+        if not isinstance(item, dict):
+            continue
+        if item.get("request_id") == request_id and item.get("request_sha256") == request_sha256 and item.get("status") == "dispatch_reserved":
             item["status"] = "dispatched"
             item["dispatched_at"] = _now()
             if run_url:
                 item["dispatch_run_url"] = run_url
-            state["last_event_at"] = _now()
+            state["last_event_at"] = item["dispatched_at"]
             return item
-    raise RuntimeError("Pending Telegram production dispatch was not found")
+    raise RuntimeError("Reserved Telegram production dispatch was not found")
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -158,17 +188,43 @@ def _save(path: Path, state: dict[str, Any]) -> None:
     Path(path).write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _github_output(path: str, **values: object) -> None:
+    if not path:
+        return
+    with Path(path).open("a", encoding="utf-8") as handle:
+        for key, value in values.items():
+            handle.write(f"{key}={value}\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
+
+    reserve = sub.add_parser("reserve")
+    reserve.add_argument("--state", required=True, type=Path)
+    reserve.add_argument("--request-id", required=True)
+    reserve.add_argument("--sha256", required=True)
+    reserve.add_argument("--github-output", default="")
+
     mark = sub.add_parser("mark-dispatched")
     mark.add_argument("--state", required=True, type=Path)
     mark.add_argument("--request-id", required=True)
     mark.add_argument("--sha256", required=True)
     mark.add_argument("--run-url", default="")
+
     args = parser.parse_args()
-    if args.command == "mark-dispatched":
-        state = _load(args.state)
+    state = _load(args.state)
+    if args.command == "reserve":
+        item = reserve_dispatch(state, args.request_id, args.sha256)
+        _save(args.state, state)
+        _github_output(
+            args.github_output,
+            production_authorization_id=item["authorization_id"],
+            production_request_id=item["request_id"],
+            production_request_sha256=item["request_sha256"],
+        )
+        print(json.dumps(item, ensure_ascii=False, sort_keys=True))
+    elif args.command == "mark-dispatched":
         item = mark_dispatched(state, args.request_id, args.sha256, run_url=args.run_url)
         _save(args.state, state)
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))
