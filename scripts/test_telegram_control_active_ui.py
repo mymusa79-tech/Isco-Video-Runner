@@ -6,6 +6,7 @@ from unittest import mock
 
 from scripts import telegram_control_active_ui as ui
 from scripts import telegram_production_queue as queue
+from scripts import telegram_topic_memory_ui as memory
 
 
 class _Client:
@@ -262,15 +263,15 @@ class TelegramActiveUiTests(unittest.TestCase):
         self.assertEqual(kept["candidate"]["control_score"], 0.91)
         self.assertEqual(report["refreshed"], 1)
 
-    def test_arabic_title_normalization_and_small_wording_change_match_same_topic(self):
+    def test_arabic_title_normalization_and_policy_match_small_wording_change(self):
         self.assertEqual(ui._suggestion_key("long", "أَيْنَ تذهبُ طاقتك؟"), ui._suggestion_key("long", "اين تذهب طاقتك"))
         self.assertTrue(
-            ui._same_topic_title(
+            memory._same_topic_across_formats(
                 "لماذا نستنزف طاقتنا في محاولة إرضاء الآخرين؟",
                 "استنزاف طاقتنا في محاولة إرضاء الآخرين",
             )
         )
-        self.assertFalse(ui._same_topic_title("الخوف من الفشل", "الخوف من النجاح"))
+        self.assertFalse(memory._same_topic_across_formats("الخوف من الفشل", "الخوف من النجاح"))
 
     def test_successful_request_moves_topic_to_used_and_removes_saved_copy(self):
         topic = "لماذا نستنزف طاقتنا في إرضاء الآخرين؟"
@@ -299,11 +300,12 @@ class TelegramActiveUiTests(unittest.TestCase):
             _candidate("موضوع جديد 2"),
             _candidate("موضوع جديد 3"),
         ]
-        kept, blocked = ui._filter_used_candidates(state, "long", candidates)
+        with mock.patch.object(ui, "_is_used_topic", memory._is_used_topic_globally):
+            kept, blocked = ui._filter_used_candidates(state, "long", candidates)
         self.assertEqual(blocked, 1)
         self.assertEqual([item["title"] for item in kept[:3]], ["موضوع جديد 1", "موضوع جديد 2", "موضوع جديد 3"])
 
-    def test_used_topic_block_is_format_scoped(self):
+    def test_base_used_topic_primitive_is_format_scoped_before_policy_layer(self):
         state = {ui.USED_TOPICS_KEY: []}
         used_short = _request("req-short", kind="short", topic="الخوف من رأي الآخرين")
         ui._mark_request_used(state, used_short, release_tag="rel-short", used_at="2026-08-20T00:00:00+00:00")
