@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  ENGINE_SHA: 6818f746936a250acb081332340542df2d3988a4
+  ENGINE_SHA: cd45602518ea87f2fd41e273cbbfecf9c6abbd90
   RUNNER_BASE_SHA: c3f73c6a14f1c93b4485da90b2c8370b60fcd112
 
 jobs:
