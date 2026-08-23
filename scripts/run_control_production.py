@@ -18,6 +18,8 @@ from scripts.sibling_short_orchestration import orchestrate_sibling_shorts, stag
 from scripts.source_derived_short_planner import install_source_derived_short_planner
 from scripts.unified_delivery import write_delivery_manifest
 
+CONTROL_CHILD_TIMEOUT_SECONDS = 1200
+
 
 def _canonical_request_hash(request: dict[str, Any]) -> str:
     subject = {key: value for key, value in request.items() if key != "request_sha256"}
@@ -245,7 +247,17 @@ def execute_child_subprocess(child_request: dict[str, Any], *, runtime_root: Pat
     env["ISCO_CONTROL_REQUEST_PATH"] = str(request_path.resolve())
     env["ISCO_CONTROL_REQUEST_SHA256"] = str(child_request.get("request_sha256") or "")
     before = _output_dirs()
-    subprocess.run([sys.executable, str(Path(__file__).resolve())], check=True, env=env)
+    try:
+        subprocess.run(
+            [sys.executable, str(Path(__file__).resolve())],
+            check=True,
+            env=env,
+            timeout=CONTROL_CHILD_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Sibling Short production timed out after {CONTROL_CHILD_TIMEOUT_SECONDS}s"
+        ) from exc
     return _new_output_dir(before)
 
 
