@@ -74,6 +74,22 @@ class RuntimeClosureTests(unittest.TestCase):
         m8.assert_called_once_with(); m9.assert_called_once_with(); m10.assert_called_once_with(); cta.assert_called_once_with(); bundle.assert_called_once_with()
         self.assertEqual(calls,["recovery","audio","sfx","m8","m9","m10","cta","bundle"])
 
+    def test_bundle_activation_is_exact_workflow_or_explicit_opt_in(self) -> None:
+        with patch.dict(os.environ,{},clear=True):
+            self.assertFalse(runtime_closure._canonical_v4_bundle_enabled())
+        with patch.dict(os.environ,{"ISCO_CANONICAL_V4_BUNDLE_ENABLED":"1"},clear=True):
+            self.assertTrue(runtime_closure._canonical_v4_bundle_enabled())
+        with patch.dict(os.environ,{
+            "GITHUB_EVENT_NAME":"workflow_dispatch",
+            "GITHUB_WORKFLOW_REF":"mymusa79-tech/Isco-Video-Runner/.github/workflows/produce-resilient-v4.yml@refs/heads/main",
+        },clear=True):
+            self.assertTrue(runtime_closure._canonical_v4_bundle_enabled())
+        with patch.dict(os.environ,{
+            "GITHUB_EVENT_NAME":"pull_request",
+            "GITHUB_WORKFLOW_REF":"mymusa79-tech/Isco-Video-Runner/.github/workflows/verify-canonical-v4-bundle-temp.yml@refs/pull/241/merge",
+        },clear=True):
+            self.assertFalse(runtime_closure._canonical_v4_bundle_enabled())
+
     def test_manifest_hook_runs_bundle_only_for_canonical_long(self) -> None:
         import scripts.run_v3_voice as production
         original = production._write_production_manifest
@@ -81,7 +97,8 @@ class RuntimeClosureTests(unittest.TestCase):
         production._write_production_manifest=lambda out, *, production_id, fmt: calls.append(("manifest",fmt)) or {"format":fmt}
         try:
             with patch("scripts.canonical_v4_bundle.build_canonical_v4_bundle", return_value=Path("delivery-manifest.json")) as build, \
-                 patch.object(Path,"is_file",return_value=True), patch.dict(os.environ,{},clear=False):
+                 patch.object(Path,"is_file",return_value=True), \
+                 patch.dict(os.environ,{"ISCO_CANONICAL_V4_BUNDLE_ENABLED":"1"},clear=False):
                 os.environ.pop("ISCO_CONTROL_REQUEST_ID",None)
                 runtime_closure.install_canonical_v4_bundle_post_manifest()
                 result=production._write_production_manifest(Path("output/x"),production_id="p",fmt="film")
@@ -90,16 +107,23 @@ class RuntimeClosureTests(unittest.TestCase):
         finally:
             production._write_production_manifest=original
 
-    def test_manifest_hook_skips_moment_and_control_plane(self) -> None:
+    def test_manifest_hook_skips_unactivated_long_moment_and_control_plane(self) -> None:
         import scripts.run_v3_voice as production
         original = production._write_production_manifest
         production._write_production_manifest=lambda out, *, production_id, fmt: {"format":fmt}
         try:
-            with patch("scripts.canonical_v4_bundle.build_canonical_v4_bundle") as build:
+            with patch("scripts.canonical_v4_bundle.build_canonical_v4_bundle") as build, patch.dict(os.environ,{
+                "GITHUB_EVENT_NAME":"pull_request",
+                "GITHUB_WORKFLOW_REF":"mymusa79-tech/Isco-Video-Runner/.github/workflows/verify-canonical-v4-bundle-temp.yml@refs/pull/241/merge",
+            },clear=False):
+                os.environ.pop("ISCO_CANONICAL_V4_BUNDLE_ENABLED",None)
+                os.environ.pop("ISCO_CONTROL_REQUEST_ID",None)
                 runtime_closure.install_canonical_v4_bundle_post_manifest()
-                production._write_production_manifest(Path("output/x"),production_id="p",fmt="moment")
-                with patch.dict(os.environ,{"ISCO_CONTROL_REQUEST_ID":"explicit-control"},clear=False):
-                    production._write_production_manifest(Path("output/y"),production_id="p",fmt="film")
+                production._write_production_manifest(Path("output/generic"),production_id="p",fmt="film")
+                with patch.dict(os.environ,{"ISCO_CANONICAL_V4_BUNDLE_ENABLED":"1"},clear=False):
+                    production._write_production_manifest(Path("output/moment"),production_id="p",fmt="moment")
+                    with patch.dict(os.environ,{"ISCO_CONTROL_REQUEST_ID":"explicit-control"},clear=False):
+                        production._write_production_manifest(Path("output/control"),production_id="p",fmt="film")
                 build.assert_not_called()
         finally:
             production._write_production_manifest=original
