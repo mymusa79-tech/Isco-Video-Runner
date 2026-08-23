@@ -182,7 +182,7 @@ class _MainPatchMixin:
 
 
 class MainPhase4FlowTests(_MainPatchMixin, unittest.TestCase):
-    def test_success_runs_one_gold_enforcer_then_writes_gold_evidence(self) -> None:
+    def test_success_runs_qc_before_one_gold_enforcer_then_writes_gold_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             request_path = Path(d) / "request.json"
             request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
@@ -190,6 +190,10 @@ class MainPhase4FlowTests(_MainPatchMixin, unittest.TestCase):
             out_dir.mkdir(parents=True)
             (out_dir / "final.mp4").write_bytes(b"fake-final")
             calls: list = []
+
+            def qc(out):
+                calls.append(("qc", out))
+                return {"status": "pass"}
 
             def gold(**kwargs):
                 calls.append(("gold", kwargs["output_dir"]))
@@ -199,7 +203,9 @@ class MainPhase4FlowTests(_MainPatchMixin, unittest.TestCase):
 
             with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), patch.object(
                 run_v3_voice.orchestrator, "produce", return_value=out_dir
-            ) as produce, patch.object(run_v3_voice, "run_gold_enforce_phase4", side_effect=gold) as enforcer, patch.object(
+            ) as produce, patch.object(run_v3_voice, "run_final_master_qc", side_effect=qc) as master_qc, patch.object(
+                run_v3_voice, "run_gold_enforce_phase4", side_effect=gold
+            ) as enforcer, patch.object(
                 run_v3_voice, "_tag_plan_source", side_effect=lambda o: calls.append(("tag", o))
             ), patch.object(
                 run_v3_voice,
@@ -209,8 +215,9 @@ class MainPhase4FlowTests(_MainPatchMixin, unittest.TestCase):
                 run_v3_voice.main()
 
             produce.assert_called_once()
+            master_qc.assert_called_once_with(out_dir)
             enforcer.assert_called_once()
-            self.assertEqual(calls, [("tag", out_dir), ("gold", out_dir), ("telemetry", out_dir)])
+            self.assertEqual(calls, [("tag", out_dir), ("qc", out_dir), ("gold", out_dir), ("telemetry", out_dir)])
             telemetry = json.loads((out_dir / "planning-telemetry.json").read_text(encoding="utf-8"))
             self.assertEqual(telemetry["final_critic"]["status"], "pass")
             self.assertEqual(telemetry["gold_enforce_report"]["release_authority"], "gold")
@@ -218,7 +225,7 @@ class MainPhase4FlowTests(_MainPatchMixin, unittest.TestCase):
             self.assertTrue((out_dir / "ai-budget.json").exists())
             self.analytics.assert_called_once()
 
-    def test_core_failure_never_invokes_gold_and_still_flushes_telemetry(self) -> None:
+    def test_core_failure_never_invokes_qc_or_gold_and_still_flushes_telemetry(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             request_path = Path(d) / "request.json"
             request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
@@ -229,14 +236,42 @@ class MainPhase4FlowTests(_MainPatchMixin, unittest.TestCase):
                 calls = []
                 with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), patch.object(
                     run_v3_voice.orchestrator, "produce", side_effect=RuntimeError("render failed")
-                ), patch.object(run_v3_voice, "run_gold_enforce_phase4") as enforcer, patch.object(
+                ), patch.object(run_v3_voice, "run_final_master_qc") as master_qc, patch.object(
+                    run_v3_voice, "run_gold_enforce_phase4"
+                ) as enforcer, patch.object(
                     run_v3_voice, "write_planning_telemetry", side_effect=lambda o: calls.append(o) or _write_fake_telemetry(o)
                 ):
                     with self.assertRaisesRegex(RuntimeError, "render failed"):
                         run_v3_voice.main()
+                master_qc.assert_not_called()
                 enforcer.assert_not_called()
                 self.assertEqual(calls, [out_dir])
                 self.analytics.assert_not_called()
+
+    def test_qc_failure_is_authoritative_and_prevents_gold_manifest_and_analytics(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            request_path = Path(d) / "request.json"
+            request_path.write_text(json.dumps({"topic": "x", "format": "film"}), encoding="utf-8")
+            out_dir = Path(d) / "output" / "run-1"
+            out_dir.mkdir(parents=True)
+            (out_dir / "final.mp4").write_bytes(b"fake-final")
+            with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), patch.object(
+                run_v3_voice.orchestrator, "produce", return_value=out_dir
+            ), patch.object(
+                run_v3_voice, "run_final_master_qc", side_effect=RuntimeError("master qc blocked")
+            ) as master_qc, patch.object(run_v3_voice, "run_gold_enforce_phase4") as enforcer, patch.object(
+                run_v3_voice, "_tag_plan_source"
+            ), patch.object(
+                run_v3_voice, "write_planning_telemetry", side_effect=lambda o: _write_fake_telemetry(o)
+            ):
+                with self.assertRaisesRegex(RuntimeError, "master qc blocked"):
+                    run_v3_voice.main()
+            master_qc.assert_called_once_with(out_dir)
+            enforcer.assert_not_called()
+            self.assertTrue((out_dir / "ai-budget.json").exists())
+            self.assertTrue((out_dir / "planning-telemetry.json").exists())
+            self.assertFalse((out_dir / "production-manifest.json").exists())
+            self.analytics.assert_not_called()
 
     def test_gold_failure_is_authoritative_and_prevents_manifest_and_analytics(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -247,13 +282,14 @@ class MainPhase4FlowTests(_MainPatchMixin, unittest.TestCase):
             (out_dir / "final.mp4").write_bytes(b"fake-final")
             with patch.dict(os.environ, {"REQUEST_FILE": str(request_path)}, clear=False), patch.object(
                 run_v3_voice.orchestrator, "produce", return_value=out_dir
-            ), patch.object(
+            ), patch.object(run_v3_voice, "run_final_master_qc", return_value={"status": "pass"}) as master_qc, patch.object(
                 run_v3_voice, "run_gold_enforce_phase4", side_effect=RuntimeError("gold blocked")
             ), patch.object(run_v3_voice, "_tag_plan_source"), patch.object(
                 run_v3_voice, "write_planning_telemetry", side_effect=lambda o: _write_fake_telemetry(o)
             ):
                 with self.assertRaisesRegex(RuntimeError, "gold blocked"):
                     run_v3_voice.main()
+            master_qc.assert_called_once_with(out_dir)
             self.assertTrue((out_dir / "ai-budget.json").exists())
             self.assertTrue((out_dir / "planning-telemetry.json").exists())
             self.assertFalse((out_dir / "production-manifest.json").exists())
