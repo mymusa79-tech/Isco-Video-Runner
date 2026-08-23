@@ -8,6 +8,16 @@ from pathlib import Path
 from scripts.unified_delivery import build_delivery_manifest, finalize_release_manifest, write_delivery_manifest
 
 
+def _passing_qc() -> dict:
+    return {
+        "status": "pass",
+        "production_stage": "post_render_pre_gold_acceptance",
+        "full_decode_ok": True,
+        "final_media_mutated": False,
+        "blocking_findings": [],
+    }
+
+
 class UnifiedDeliveryTests(unittest.TestCase):
     def _root(self, *, fmt: str = "film", candidates: int = 3) -> Path:
         temp = tempfile.TemporaryDirectory()
@@ -19,6 +29,7 @@ class UnifiedDeliveryTests(unittest.TestCase):
         (root / "production-manifest.json").write_text(json.dumps({"format": fmt}), encoding="utf-8")
         (root / "rights-manifest.json").write_text("{}", encoding="utf-8")
         (root / "gold-enforce-report.json").write_text("{}", encoding="utf-8")
+        (root / "final-master-qc.json").write_text(json.dumps(_passing_qc()), encoding="utf-8")
         payload = {
             "candidates": [
                 {
@@ -40,7 +51,9 @@ class UnifiedDeliveryTests(unittest.TestCase):
         assets = []
         for index in range(1, count + 1):
             name = f"short-{index:02d}.mp4"
+            qc_name = f"short-{index:02d}-master-qc.json"
             (root / name).write_bytes(b"s" * 2048)
+            (root / qc_name).write_text(json.dumps(_passing_qc()), encoding="utf-8")
             assets.append(
                 {
                     "slot": f"S{index}",
@@ -48,6 +61,7 @@ class UnifiedDeliveryTests(unittest.TestCase):
                     "request_id": f"req-s{index}",
                     "request_sha256": f"sha-{index}",
                     "video": name,
+                    "final_master_qc": qc_name,
                     "delivery_allowed": True,
                 }
             )
@@ -63,6 +77,7 @@ class UnifiedDeliveryTests(unittest.TestCase):
         self.assertEqual(manifest["youtube_publish_mode"], "manual_in_youtube_studio")
         self.assertFalse(manifest["publication_performed"])
         self.assertTrue(manifest["delivery_url"].endswith("/releases/tag/video-123"))
+        self.assertEqual(manifest["final_master_qc"]["evidence"]["status"], "pass")
 
     def test_staged_long_plus_shorts_is_complete_before_release_tag_exists(self):
         root = self._root()
@@ -79,6 +94,7 @@ class UnifiedDeliveryTests(unittest.TestCase):
         self.assertIsNone(manifest["delivery_url"])
         self.assertEqual(manifest["short_count"], 3)
         self.assertFalse(manifest["partial_delivery_allowed"])
+        self.assertTrue(all(item["final_master_qc"]["evidence"]["status"] == "pass" for item in manifest["shorts"]))
 
     def test_bundle_request_blocks_partial_short_delivery(self):
         root = self._root()
