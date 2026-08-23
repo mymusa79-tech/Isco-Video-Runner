@@ -28,8 +28,10 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertLess(dispatch, mark)
         self.assertIn('--state "$CONTROL_STATE_PATH"', self.text)
 
-    def test_polling_is_paused_while_canonical_production_v4_is_active(self):
+    def test_polling_is_paused_while_any_production_path_is_active(self):
         self.assertIn("produce-resilient-v4.yml/runs?per_page=20", self.text)
+        self.assertIn("telegram-production-request.yml/runs?per_page=20", self.text)
+        self.assertIn('active=$((active_v4 + active_telegram))', self.text)
         self.assertIn('select(.status != "completed")', self.text)
         self.assertIn("Telegram polling paused", self.text)
         self.assertIn('echo "needs_production=false"', self.text)
