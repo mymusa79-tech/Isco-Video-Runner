@@ -11,6 +11,10 @@ on:
         description: "Exact immutable approved Telegram request hash"
         required: true
         type: string
+      authorization_id:
+        description: "Exact durable authorization created by the second Telegram action"
+        required: true
+        type: string
       engine_sha:
         description: "Exact certified Engine SHA"
         required: true
@@ -41,25 +45,28 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Verify certified Engine input
+      - name: Verify exact Runner and certified Engine input
         env:
           REQUESTED_ENGINE_SHA: ${{ inputs.engine_sha }}
         run: |
           set -euo pipefail
-          test "$REQUESTED_ENGINE_SHA" = "$EXPECTED_ENGINE_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test "${GITHUB_REF_NAME}" = "main"
+          test "$REQUESTED_ENGINE_SHA" = "$EXPECTED_ENGINE_SHA"
 
-      - name: Restore exact encrypted Telegram approval state
+      - name: Restore exact encrypted Telegram approval and dispatch authorization
         id: request
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
           REQUEST_ID: ${{ inputs.request_id }}
           REQUEST_SHA256: ${{ inputs.request_sha256 }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
         run: |
           set -euo pipefail
           test -n "$STATE_ENCRYPTION_KEY"
           test -n "$REQUEST_ID"
           test -n "$REQUEST_SHA256"
+          test -n "$AUTHORIZATION_ID"
           mkdir -p "$RUNNER_TEMP/isco-control"
           encrypted="$RUNNER_TEMP/isco-control/control-panel.json.enc"
           state="$RUNNER_TEMP/isco-control/control-panel.json"
@@ -72,17 +79,23 @@ jobs:
           CONTROL_STATE_PATH="$state" CONTROL_REQUEST_PATH="$request" python - <<'PY'
           import json, os
           from pathlib import Path
-          from scripts.telegram_production_queue import release_tag_for, validate_ready_request
+          from scripts.telegram_production_queue import (
+              release_tag_for,
+              validate_dispatch_authorization,
+              validate_ready_request,
+          )
 
           state = json.loads(Path(os.environ["CONTROL_STATE_PATH"]).read_text(encoding="utf-8"))
           request_id = os.environ["REQUEST_ID"]
           expected = os.environ["REQUEST_SHA256"]
+          authorization_id = os.environ["AUTHORIZATION_ID"]
           request = (state.get("requests") or {}).get(request_id)
           if not isinstance(request, dict):
               raise SystemExit("Approved Telegram request id is absent from encrypted state")
           validate_ready_request(request)
           if request.get("request_sha256") != expected:
               raise SystemExit("Approved Telegram request hash does not match workflow dispatch")
+          validate_dispatch_authorization(state, request_id, expected, authorization_id)
           output = Path(os.environ["CONTROL_REQUEST_PATH"])
           output.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
           output.chmod(0o600)
@@ -90,7 +103,7 @@ jobs:
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
               fh.write(f"release_tag={tag}\n")
               fh.write(f"kind={request['kind']}\n")
-          print(f"Exact Telegram approval validated: request={request_id} tag={tag}")
+          print(f"Exact Telegram approval and explicit dispatch authorization validated: request={request_id} tag={tag}")
           PY
           echo "ISCO_CONTROL_REQUEST_PATH=$request" >> "$GITHUB_ENV"
           echo "ISCO_CONTROL_REQUEST_SHA256=$REQUEST_SHA256" >> "$GITHUB_ENV"
@@ -277,11 +290,33 @@ jobs:
           set -euo pipefail
           python ../scripts/run_telegram_control_production.py
 
-      - name: Validate exact delivery package
+      - name: Upload Telegram production diagnostics on failure
+        if: failure() && steps.release_guard.outputs.already_released != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: telegram-production-diagnostics-${{ github.run_number }}
+          path: |
+            engine/output/*/final-master-qc.json
+            engine/output/*/quality-final.json
+            engine/output/*/quality-precheck.json
+            engine/output/*/plan.json
+            engine/output/*/planning-telemetry.json
+            engine/output/*/visual-audit.json
+            engine/output/*/final-critic.json
+            engine/output/*/ai-budget.json
+            engine/output/*/production-manifest.json
+            engine/output/*/rights-manifest.json
+            engine/output/*/gold-enforce-report.json
+            engine/output/*/delivery-manifest.json
+            engine/output/*/sibling-short-plan.json
+            engine/output/*/sibling-short-results.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Validate exact staged delivery package
         if: steps.release_guard.outputs.already_released != 'true'
         env:
           OUTPUT_DIR: ${{ steps.production.outputs.output_dir }}
-          RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -292,16 +327,29 @@ jobs:
           manifest = root / "delivery-manifest.json"
           quality = root / "quality-final.json"
           production = root / "production-manifest.json"
-          for path in (video, manifest, quality, production):
+          master_qc = root / "final-master-qc.json"
+          for path in (video, manifest, quality, production, master_qc):
               if not path.is_file():
                   raise SystemExit(f"Missing Telegram delivery asset: {path.name}")
           if video.stat().st_size <= 1024 * 1024:
               raise SystemExit("Telegram delivery final.mp4 is not >1MB")
           data = json.loads(manifest.read_text(encoding="utf-8"))
-          if data.get("release_tag") != os.environ["RELEASE_TAG"]:
-              raise SystemExit("Delivery manifest release tag mismatch")
+          if data.get("release_state") != "staged" or data.get("release_tag") is not None or data.get("delivery_url") is not None:
+              raise SystemExit("Telegram delivery claimed release before GitHub Release creation")
           if data.get("publication_performed") is not False or data.get("youtube_publish_mode") != "manual_in_youtube_studio":
               raise SystemExit("Telegram delivery attempted to claim automatic YouTube publication")
+          qc = json.loads(master_qc.read_text(encoding="utf-8"))
+          if not (
+              qc.get("status") == "pass"
+              and qc.get("production_stage") == "post_render_pre_gold_acceptance"
+              and qc.get("full_decode_ok") is True
+              and qc.get("final_media_mutated") is False
+              and not list(qc.get("blocking_findings") or [])
+          ):
+              raise SystemExit("Telegram delivery failed Final Master QC")
+          embedded = data.get("final_master_qc") or {}
+          if embedded.get("file") != "final-master-qc.json" or (embedded.get("evidence") or {}).get("status") != "pass":
+              raise SystemExit("Telegram delivery manifest is missing passing Final Master QC evidence")
           q = json.loads(quality.read_text(encoding="utf-8"))
           if q.get("duration_ok") is not True:
               raise SystemExit("Telegram delivery blocked: duration_ok is not true")
@@ -316,20 +364,33 @@ jobs:
           RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
         run: |
           set -euo pipefail
+          RELEASE_TAG="$RELEASE_TAG" OUTPUT_DIR="$OUTPUT_DIR" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.unified_delivery import finalize_release_manifest
+          finalize_release_manifest(
+              Path(os.environ["OUTPUT_DIR"]) / "delivery-manifest.json",
+              repository=os.environ["GITHUB_REPOSITORY"],
+              release_tag=os.environ["RELEASE_TAG"],
+          )
+          PY
           mapfile -t assets < <(OUTPUT_DIR="$OUTPUT_DIR" python - <<'PY'
           import os
           from pathlib import Path
           root = Path(os.environ["OUTPUT_DIR"])
           names = [
               "final.mp4", "delivery-manifest.json", "plan.json", "quality-final.json",
-              "final-critic.json", "ai-budget.json", "production-manifest.json",
+              "final-master-qc.json", "final-critic.json", "ai-budget.json", "production-manifest.json",
               "rights-manifest.json", "gold-enforce-report.json", "thumbnail-plan.json",
-              "sibling-short-plan.json", "sibling-short-results.json", "semantic-visual-aids.json",
-              "audio-mastering.json", "sfx-plan.json", "sfx-report.json",
+              "canonical-bundle-request.json", "sibling-short-plan.json", "sibling-short-results.json",
+              "semantic-visual-aids.json", "visual-timeline.json", "audio-mastering.json",
+              "sfx-plan.json", "sfx-report.json", "m9-transitions.json", "m10-cards.json",
+              "m11-report.json", "cta-plan.json", "narrative-music-dynamics.json",
           ]
           paths = [root / name for name in names if (root / name).is_file()]
           paths += sorted(root.glob("thumbnail-*.jpg"))
           paths += sorted(path for path in root.glob("short-*") if path.is_file())
+          paths += sorted(path for path in root.glob("*.m8.json") if path.is_file())
           seen = set()
           for path in paths:
               value = str(path)
@@ -338,11 +399,11 @@ jobs:
                   print(value)
           PY
           )
-          test "${#assets[@]}" -ge 4
+          test "${#assets[@]}" -ge 5
           gh release create "$RELEASE_TAG" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Telegram Production — ${{ inputs.request_id }}" \
-            --notes "Explicitly started from an immutable Telegram-approved request. YouTube publication is manual."
+            --notes "Explicitly started from an immutable Telegram-approved request with durable second-action authorization. YouTube publication is manual."
           echo "release_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout agent-state writer
@@ -408,5 +469,6 @@ jobs:
         if: always()
         run: |
           rm -rf "$RUNNER_TEMP/isco-secrets" || true
-          rm -f "$RUNNER_TEMP/isco-control/control-panel.json" || true
-          rm -f "$RUNNER_TEMP/isco-control/approved-request.json" || true
+          rm -rf "$RUNNER_TEMP/isco-control" || true
+          rm -rf "$RUNNER_TEMP/isco-state" || true
+          rm -f "$RUNNER_TEMP/piper-preflight.wav" || true
