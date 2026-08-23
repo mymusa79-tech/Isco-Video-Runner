@@ -22,6 +22,7 @@ SILENCE_THRESHOLD_DB = -55
 FREEZE_DETECT_SECONDS = 8.0
 FREEZE_BLOCK_SECONDS = 30.0
 FREEZE_NOISE_DB = -60
+FULL_SCAN_TIMEOUT_SECONDS = 1200
 _HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
 _HDR_PRIMARIES = {"bt2020"}
 _HDR_SPACES = {"bt2020nc", "bt2020c"}
@@ -128,31 +129,45 @@ def _run_full_scan(final_path: Path, *, has_audio: bool) -> dict[str, Any]:
     if has_audio:
         filters += f";[0:a:0]silencedetect=n={SILENCE_THRESHOLD_DB}dB:d={SILENCE_DETECT_SECONDS}[qc_a]"
         maps += ["-map", "[qc_a]"]
-    proc = subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-nostats",
-            "-v",
-            "info",
-            "-xerror",
-            "-i",
-            str(final_path),
-            "-filter_complex",
-            filters,
-            *maps,
-            "-f",
-            "null",
-            "-",
-        ],
-        check=False,
-        env=secret_free_subprocess_env(),
-        capture_output=True,
-        text=True,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-nostats",
+                "-v",
+                "info",
+                "-xerror",
+                "-i",
+                str(final_path),
+                "-filter_complex",
+                filters,
+                *maps,
+                "-f",
+                "null",
+                "-",
+            ],
+            check=False,
+            env=secret_free_subprocess_env(),
+            capture_output=True,
+            text=True,
+            timeout=FULL_SCAN_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raw_stderr = exc.stderr or ""
+        stderr = raw_stderr.decode("utf-8", errors="replace") if isinstance(raw_stderr, bytes) else str(raw_stderr)
+        return {
+            "returncode": 124,
+            "timed_out": True,
+            "black_events": _parse_black_events(stderr),
+            "silence_events": [],
+            "freeze_events": [],
+            "stderr": stderr,
+        }
     stderr = proc.stderr or ""
     return {
         "returncode": int(proc.returncode),
+        "timed_out": False,
         "black_events": _parse_black_events(stderr),
         "silence_events": [],
         "freeze_events": [],
@@ -275,7 +290,9 @@ def run_final_master_qc(output_dir: Path) -> dict[str, Any]:
     scan["silence_events"] = _parse_silence_events(stderr, final_seconds=final_seconds) if has_audio else []
     scan["freeze_events"] = _parse_freeze_events(stderr, final_seconds=final_seconds)
 
-    if scan["returncode"] != 0:
+    if scan.get("timed_out") is True:
+        blocking.append("full_decode_timeout")
+    elif scan["returncode"] != 0:
         blocking.append("full_decode_failed")
 
     for event in scan["black_events"]:
@@ -313,7 +330,9 @@ def run_final_master_qc(output_dir: Path) -> dict[str, Any]:
         "final_duration_seconds": round(final_seconds, 3),
         "m7_body_duration_seconds": round(body_end, 3),
         "outro_or_tail_seconds": round(max(0.0, final_seconds - body_end), 3),
-        "full_decode_ok": scan["returncode"] == 0,
+        "full_decode_ok": scan["returncode"] == 0 and scan.get("timed_out") is not True,
+        "full_decode_timed_out": scan.get("timed_out") is True,
+        "full_decode_timeout_seconds": FULL_SCAN_TIMEOUT_SECONDS,
         "stream_contract": stream_contract,
         "detectors": {
             "near_black": {
