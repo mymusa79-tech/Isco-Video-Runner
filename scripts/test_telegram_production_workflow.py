@@ -78,6 +78,27 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         self.assertIn('data.get("release_tag") is not None', self.text)
         self.assertIn('data.get("delivery_url") is not None', self.text)
 
+    def test_successful_topic_is_recorded_only_after_delivery_release_and_before_success_notification(self):
+        release = self.text.index('gh release create "$RELEASE_TAG"')
+        used = self.text.index("Record successful topic in encrypted used-topic history")
+        notify = self.text.index("Notify Telegram final status")
+        self.assertLess(release, used)
+        self.assertLess(used, notify)
+        self.assertIn("if: success() && steps.request.outcome == 'success'", self.text)
+        self.assertIn("ui._mark_request_used(", self.text)
+        self.assertIn("control-panel.used.json.enc", self.text)
+        self.assertIn("state: record successful Telegram topic", self.text)
+        self.assertIn("git push origin HEAD:control-plane-state", self.text)
+        self.assertNotIn("continue-on-error: true\n        env:\n          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}\n          RELEASE_TAG", self.text)
+
+    def test_used_topic_persistence_is_idempotent_for_an_existing_release(self):
+        used_block_start = self.text.index("Record successful topic in encrypted used-topic history")
+        used_block_end = self.text.index("Checkout agent-state writer")
+        block = self.text[used_block_start:used_block_end]
+        self.assertNotIn("already_released != 'true'", block)
+        self.assertIn("prior_used_at", block)
+        self.assertIn("Used-topic history already contains this completed request", block)
+
     def test_final_master_qc_is_required_for_validation_diagnostics_and_release(self):
         self.assertIn('master_qc = root / "final-master-qc.json"', self.text)
         self.assertIn('qc.get("status") == "pass"', self.text)
