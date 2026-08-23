@@ -29,21 +29,39 @@ class TelegramProductionQueueTests(unittest.TestCase):
         state["requests"]["r"]["approved_topic"] = "tampered"
         self.assertIsNone(queue.latest_ready_request(state))
 
-    def test_explicit_press_queues_once(self):
+    def test_explicit_press_queues_once_with_unique_authorization(self):
         state = {"requests": {"r": _request()}, "production_queue": []}
         status, action = queue.enqueue_latest_request(state, chat_id=77)
         self.assertEqual(status, "queued")
         self.assertEqual(action["status"], "pending_dispatch")
         self.assertEqual(action["chat_id"], 77)
+        self.assertEqual(len(action["authorization_id"]), 32)
         second, same = queue.enqueue_latest_request(state, chat_id=77)
         self.assertEqual(second, "already_queued")
         self.assertEqual(same["request_sha256"], action["request_sha256"])
         self.assertEqual(len(state["production_queue"]), 1)
 
-    def test_mark_dispatched_preserves_stored_request_as_non_dispatching(self):
+    def test_reservation_is_durable_gate_before_dispatch(self):
         request = _request()
         state = {"requests": {"r": request}, "production_queue": []}
         _, action = queue.enqueue_latest_request(state, chat_id=77)
+        reserved = queue.reserve_dispatch(state, action["request_id"], action["request_sha256"])
+        self.assertEqual(reserved["status"], "dispatch_reserved")
+        self.assertTrue(reserved["reserved_at"])
+        self.assertEqual(reserved["authorization_id"], action["authorization_id"])
+        self.assertIsNone(queue.pending_dispatch(state))
+        status, same = queue.enqueue_latest_request(state, chat_id=77)
+        self.assertEqual(status, "already_reserved_recent")
+        self.assertEqual(same["authorization_id"], action["authorization_id"])
+        self.assertFalse(request["production_dispatch_authorized"])
+
+    def test_mark_dispatched_requires_prior_reservation_and_preserves_stored_request(self):
+        request = _request()
+        state = {"requests": {"r": request}, "production_queue": []}
+        _, action = queue.enqueue_latest_request(state, chat_id=77)
+        with self.assertRaisesRegex(RuntimeError, "Reserved"):
+            queue.mark_dispatched(state, action["request_id"], action["request_sha256"])
+        queue.reserve_dispatch(state, action["request_id"], action["request_sha256"])
         queue.mark_dispatched(state, action["request_id"], action["request_sha256"])
         self.assertEqual(state["production_queue"][0]["status"], "dispatched")
         self.assertFalse(request["production_dispatch_authorized"])
