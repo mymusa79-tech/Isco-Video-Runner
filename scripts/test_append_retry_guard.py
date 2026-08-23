@@ -267,7 +267,7 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
         finally:
             self._restore_staged(saved)
 
-    def test_attempt6_trace_accepts_15_when_preferred_is_16_but_final_is_115(self) -> None:
+    def test_attempt6_trace_accepts_15_when_preferred_is_25_but_final_is_115(self) -> None:
         sections = self._sections(self.ATTEMPT6_TRACE_COUNTS)
         calls = 0
 
@@ -275,7 +275,7 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
             nonlocal calls
             del api_key, model
             calls += 1
-            self.assertIn('"minimum_append_words": 16', prompt)
+            self.assertIn('"minimum_append_words": 25', prompt)
             return {
                 "additions": [
                     {

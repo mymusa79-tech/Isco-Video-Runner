@@ -9,7 +9,15 @@ import isco_video_agent.resilient_planner as staged
 
 _RETRY_ATTEMPTED: ContextVar[bool] = ContextVar("isco_append_retry_attempted", default=False)
 _ACTIVE_CLOSER: ContextVar[str | None] = ContextVar("isco_append_retry_active_closer", default=None)
-_RESIDUAL_SAFETY_WORDS = 6
+# Run #74: a target's minimum_append_words is deficit-to-floor plus this safety
+# margin, split evenly across all under-floor targets and capped by remaining
+# aggregate headroom. At 6, a single-target case with ample headroom only ever
+# instructs 6 words of cushion above the exact 110-word floor - not enough to
+# absorb a model returning even a few words short of an "at least N words"
+# instruction (section "6" landed at exactly 109/110 with this margin). 15
+# gives real cushion in the common case while the existing min(...) cap still
+# protects the aggregate 1450-word ceiling when headroom is genuinely tight.
+_RESIDUAL_SAFETY_WORDS = 15
 
 
 def _word_count(text: str) -> int:
