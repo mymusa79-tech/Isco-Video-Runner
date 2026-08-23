@@ -55,7 +55,7 @@ class TelegramProductionQueueTests(unittest.TestCase):
         self.assertEqual(same["authorization_id"], action["authorization_id"])
         self.assertFalse(request["production_dispatch_authorized"])
 
-    def test_dedicated_production_authorization_requires_exact_durable_reservation(self):
+    def test_dedicated_production_authorization_must_be_reserved_then_is_consumed_once(self):
         state = {"requests": {"r": _request()}, "production_queue": []}
         _, action = queue.enqueue_latest_request(state, chat_id=77)
         with self.assertRaisesRegex(RuntimeError, "explicit Telegram dispatch authorization"):
@@ -67,52 +67,58 @@ class TelegramProductionQueueTests(unittest.TestCase):
             state, action["request_id"], action["request_sha256"], action["authorization_id"]
         )
         self.assertEqual(authorized["status"], "dispatch_reserved")
+        consumed = queue.consume_dispatch_authorization(
+            state,
+            action["request_id"],
+            action["request_sha256"],
+            action["authorization_id"],
+            workflow_run_id="123",
+        )
+        self.assertEqual(consumed["status"], "dispatch_consumed")
+        self.assertEqual(consumed["workflow_run_id"], "123")
+        self.assertTrue(consumed["consumed_at"])
         with self.assertRaisesRegex(RuntimeError, "explicit Telegram dispatch authorization"):
             queue.validate_dispatch_authorization(
-                state, action["request_id"], action["request_sha256"], "wrong-auth"
+                state, action["request_id"], action["request_sha256"], action["authorization_id"]
             )
-        queue.mark_dispatched(
-            state, action["request_id"], action["request_sha256"], action["authorization_id"]
-        )
-        authorized = queue.validate_dispatch_authorization(
-            state, action["request_id"], action["request_sha256"], action["authorization_id"]
-        )
-        self.assertEqual(authorized["status"], "dispatched")
-
-    def test_mark_dispatched_requires_prior_reservation_and_exact_authorization(self):
-        request = _request()
-        state = {"requests": {"r": request}, "production_queue": []}
-        _, action = queue.enqueue_latest_request(state, chat_id=77)
-        auth = action["authorization_id"]
-        with self.assertRaisesRegex(RuntimeError, "Exact reserved"):
-            queue.mark_dispatched(state, action["request_id"], action["request_sha256"], auth)
-        queue.reserve_dispatch(state, action["request_id"], action["request_sha256"])
-        with self.assertRaisesRegex(RuntimeError, "Exact reserved"):
-            queue.mark_dispatched(state, action["request_id"], action["request_sha256"], "wrong-auth")
-        queue.mark_dispatched(state, action["request_id"], action["request_sha256"], auth)
-        self.assertEqual(state["production_queue"][0]["status"], "dispatched")
-        self.assertFalse(request["production_dispatch_authorized"])
-        self.assertEqual(request["status"], "approved_waiting_production_activation")
+        with self.assertRaisesRegex(RuntimeError, "explicit Telegram dispatch authorization"):
+            queue.consume_dispatch_authorization(
+                state, action["request_id"], action["request_sha256"], action["authorization_id"]
+            )
         status, _ = queue.enqueue_latest_request(state, chat_id=77)
         self.assertEqual(status, "already_dispatched_recent")
 
-    def test_mark_dispatched_never_marks_an_older_reserved_retry(self):
+    def test_wrong_authorization_cannot_consume_reserved_action(self):
+        state = {"requests": {"r": _request()}, "production_queue": []}
+        _, action = queue.enqueue_latest_request(state, chat_id=77)
+        queue.reserve_dispatch(state, action["request_id"], action["request_sha256"])
+        with self.assertRaisesRegex(RuntimeError, "explicit Telegram dispatch authorization"):
+            queue.consume_dispatch_authorization(
+                state, action["request_id"], action["request_sha256"], "wrong-auth"
+            )
+        self.assertEqual(state["production_queue"][0]["status"], "dispatch_reserved")
+
+    def test_retry_gets_distinct_authorization_and_never_reuses_consumed_attempt(self):
         request = _request()
         state = {"requests": {"r": request}, "production_queue": []}
         _, first = queue.enqueue_latest_request(state, chat_id=77)
         queue.reserve_dispatch(state, first["request_id"], first["request_sha256"])
-        state["production_queue"][0]["reserved_at"] = "2026-08-20T00:00:00+00:00"
+        queue.consume_dispatch_authorization(
+            state, first["request_id"], first["request_sha256"], first["authorization_id"]
+        )
+        state["production_queue"][0]["consumed_at"] = "2026-08-20T00:00:00+00:00"
         status, second = queue.enqueue_latest_request(state, chat_id=77)
         self.assertEqual(status, "retry_queued")
+        self.assertNotEqual(first["authorization_id"], second["authorization_id"])
         queue.reserve_dispatch(state, second["request_id"], second["request_sha256"])
-        queue.mark_dispatched(
+        queue.consume_dispatch_authorization(
             state,
             second["request_id"],
             second["request_sha256"],
             second["authorization_id"],
         )
-        self.assertEqual(state["production_queue"][0]["status"], "dispatch_reserved")
-        self.assertEqual(state["production_queue"][1]["status"], "dispatched")
+        self.assertEqual(state["production_queue"][0]["status"], "dispatch_consumed")
+        self.assertEqual(state["production_queue"][1]["status"], "dispatch_consumed")
 
     def test_release_tag_is_deterministic_and_kind_scoped(self):
         self.assertEqual(queue.release_tag_for(_request("abc-123")), "video-telegram-abc-123")
