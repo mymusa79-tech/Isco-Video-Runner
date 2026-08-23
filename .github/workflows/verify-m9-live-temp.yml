@@ -1,0 +1,83 @@
+name: TEMP Verify M9 Current-M7 Transitions
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ENGINE_SHA: 64ab711bc904e9581c3cc6c8280d1321ae738eb1
+    steps:
+      - name: Checkout Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Checkout exact Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact Engine
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+      - name: Focused current-M7 and Runner M9 tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          (cd engine && python -m unittest tests.test_cinematic_m7_visual_timeline -v)
+          python -m unittest scripts.test_m9_live_binding -v
+          python -m unittest scripts.test_runtime_closure -v
+          python -m unittest scripts.test_m8_live_binding -v
+          python -m unittest scripts.test_m7_live_binding -v
+      - name: Real timing-preserving dissolve smoke
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/m9-smoke
+          ffmpeg -y -hide_banner -loglevel error -f lavfi -i color=c=black:s=320x180:r=30:d=2 -c:v libx264 -pix_fmt yuv420p /tmp/m9-smoke/a.mp4
+          ffmpeg -y -hide_banner -loglevel error -f lavfi -i color=c=white:s=320x180:r=30:d=2 -c:v libx264 -pix_fmt yuv420p /tmp/m9-smoke/b.mp4
+          python - <<'PY'
+          from pathlib import Path
+          from scripts.m9_live_binding import _render_pair
+          from isco_video_agent.media.ffmpeg import duration
+          root = Path('/tmp/m9-smoke')
+          out = _render_pair(root/'a.mp4', root/'b.mp4', root/'pair.mp4')
+          actual = duration(out)
+          assert 3.90 <= actual <= 4.10, actual
+          print({'duration_seconds': actual})
+          PY
+      - name: Wiring and policy sanity
+        run: |
+          set -euo pipefail
+          git diff --check origin/main...HEAD
+          grep -F 'install_m9_live_binding()' scripts/runtime_closure.py >/dev/null
+          grep -F 'm9-transitions.json' scripts/m9_live_binding.py >/dev/null
+          grep -F 'm7_transition_type_mutated' scripts/m9_live_binding.py >/dev/null
+          grep -F '_MAX_DISSOLVE_RATIO = 0.15' scripts/m9_live_binding.py >/dev/null
+          grep -F '_OPENING_GUARD_SECONDS = 30.0' scripts/m9_live_binding.py >/dev/null
