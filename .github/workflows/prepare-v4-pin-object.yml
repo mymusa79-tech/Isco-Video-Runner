@@ -13,75 +13,58 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout runner main
+      - name: Checkout exact PR branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: main
-          persist-credentials: false
+          ref: ${{ github.head_ref }}
+          persist-credentials: true
           fetch-depth: 1
 
-      - name: Create remote commit object with updated V4 pin
+      - name: Atomically update current Engine pin surfaces
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          OLD_SHA: a1eb2fdeffe14fa369844e35caa61708f79285d0
-          NEW_SHA: 7629bc87a0adcd1a1c0864ecf833478076f01ad3
+          OLD_SHA: 089a97adde5d2e64b35262f944865241384f1429
+          NEW_SHA: 64ab711bc904e9581c3cc6c8280d1321ae738eb1
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, subprocess, urllib.request
+          import os
           from pathlib import Path
 
-          repo = os.environ['REPO']
-          token = os.environ['GH_TOKEN']
           old = os.environ['OLD_SHA']
           new = os.environ['NEW_SHA']
-          path = Path('.github/workflows/produce-resilient-v4.yml')
-          text = path.read_text(encoding='utf-8')
-          count = text.count(old)
-          if count != 2:
-              raise SystemExit(f'Expected exactly 2 old V4 engine pins, found {count}')
-          updated = text.replace(old, new)
-          if updated.count(new) != 2:
-              raise SystemExit('Updated V4 engine pin count is not exactly 2')
+          expected = {
+              Path('.github/workflows/produce-resilient-v4.yml'): 2,
+              Path('.github/workflows/telegram-editorial-control.yml'): 1,
+              Path('.github/workflows/verify-human-editorial-intent-m7.yml'): 1,
+          }
+          for path, count in expected.items():
+              text = path.read_text(encoding='utf-8')
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f'{path}: expected {count} old pins, found {actual}')
+              updated = text.replace(old, new)
+              if updated.count(new) < count:
+                  raise SystemExit(f'{path}: replacement count mismatch')
+              path.write_text(updated, encoding='utf-8')
 
-          base_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          base_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
-
-          def api(path, method='GET', payload=None):
-              url = f'https://api.github.com/repos/{repo}{path}'
-              data = None if payload is None else json.dumps(payload).encode('utf-8')
-              req = urllib.request.Request(
-                  url,
-                  data=data,
-                  method=method,
-                  headers={
-                      'Authorization': f'Bearer {token}',
-                      'Accept': 'application/vnd.github+json',
-                      'X-GitHub-Api-Version': '2022-11-28',
-                      'Content-Type': 'application/json',
-                  },
-              )
-              with urllib.request.urlopen(req, timeout=30) as resp:
-                  body = resp.read().decode('utf-8')
-                  return json.loads(body) if body else {}
-
-          blob = api('/git/blobs', 'POST', {'content': updated, 'encoding': 'utf-8'})
-          tree = api('/git/trees', 'POST', {
-              'base_tree': base_tree,
-              'tree': [{
-                  'path': '.github/workflows/produce-resilient-v4.yml',
-                  'mode': '100644',
-                  'type': 'blob',
-                  'sha': blob['sha'],
-              }],
-          })
-          commit = api('/git/commits', 'POST', {
-              'message': 'ci: pin V4 to merged content-tone engine',
-              'tree': tree['sha'],
-              'parents': [base_commit],
-          })
-          print(f'BASE_COMMIT_SHA={base_commit}')
-          print(f'PREPARED_COMMIT_SHA={commit["sha"]}')
-          print('Prepared diff: exactly two SHA replacements')
+          production = expected.keys().__iter__().__next__().read_text(encoding='utf-8')
+          telegram = Path('.github/workflows/telegram-editorial-control.yml').read_text(encoding='utf-8')
+          hei = Path('.github/workflows/verify-human-editorial-intent-m7.yml').read_text(encoding='utf-8')
+          if production.count(new) != 2:
+              raise SystemExit('Production V4 must contain exactly two canonical Engine pins')
+          if telegram.count(new) != 1 or 'CONTROL_PLANE_PRODUCTION_ENABLED: "false"' not in telegram:
+              raise SystemExit('Telegram pin/production-lock contract mismatch')
+          if hei.count(new) != 1:
+              raise SystemExit('HEI/M7 verifier pin contract mismatch')
+          if any(old in path.read_text(encoding='utf-8') for path in expected):
+              raise SystemExit('Old Engine pin remains in canonical pin surfaces')
+          print('Atomic M7 production pin replacement PASS')
           PY
+          git diff --check
+          git config user.name "isco-integration-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/workflows/produce-resilient-v4.yml \
+                  .github/workflows/telegram-editorial-control.yml \
+                  .github/workflows/verify-human-editorial-intent-m7.yml
+          git commit -m "integration: activate current M7 Engine across production surfaces"
+          git push origin "HEAD:${{ github.head_ref }}"
