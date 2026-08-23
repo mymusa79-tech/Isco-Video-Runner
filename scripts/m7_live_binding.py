@@ -13,6 +13,7 @@ from isco_video_agent.anti_repetition import recent_videos
 from isco_video_agent.cinematic_m7_live_binding import live_m7_binding_scope
 from isco_video_agent.media.ffmpeg import make_image_review_preview
 from isco_video_agent.text_audit_router import _classify_exception
+from scripts.cinematic_audio_mastering_runtime import install_audio_mastering_runtime
 from scripts.security_v1_live_binding import install_security_v1_live_binding
 
 
@@ -193,6 +194,10 @@ def _optional_smithsonian_key() -> str:
 
 
 def install_m7_live_binding() -> None:
+    # M7 is the canonical cinematic production activation point. Keep downstream
+    # zero-cost audio mastering attached here so production cannot activate M7 while
+    # silently bypassing the mastered narration seam.
+    install_audio_mastering_runtime()
     current = orchestrator.produce
     if getattr(current, "_isco_m7_live_binding", False):
         install_security_v1_live_binding()
