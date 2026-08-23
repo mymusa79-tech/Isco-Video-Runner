@@ -33,7 +33,17 @@ def _request(request_id: str, *, kind: str, topic: str) -> dict:
 
 class TelegramTopicMemoryPolicyTests(unittest.TestCase):
     def setUp(self):
+        self._original_is_used_topic = ui._is_used_topic
+        self._original_approve_current = ui._approve_current
+        self._original_menu_text = ui._menu_text
+        self._original_used_page = ui._used_page
         memory._install_policy()
+
+    def tearDown(self):
+        ui._is_used_topic = self._original_is_used_topic
+        ui._approve_current = self._original_approve_current
+        ui._menu_text = self._original_menu_text
+        ui._used_page = self._original_used_page
 
     def test_completed_short_blocks_same_topic_from_long_research(self):
         state = {ui.USED_TOPICS_KEY: []}
@@ -66,6 +76,16 @@ class TelegramTopicMemoryPolicyTests(unittest.TestCase):
         )
         self.assertEqual(blocked, 1)
         self.assertEqual([item["title"] for item in kept], ["فكرة شورت جديدة"])
+
+    def test_cross_format_match_requires_multiple_content_anchors(self):
+        self.assertTrue(
+            memory._same_topic_across_formats(
+                "لماذا نستنزف طاقتنا في محاولة إرضاء الآخرين؟",
+                "استنزاف طاقتك في إرضاء الآخرين",
+            )
+        )
+        self.assertFalse(memory._same_topic_across_formats("الخوف من الفشل", "الخوف من النجاح"))
+        self.assertFalse(memory._same_topic_across_formats("الثقة رغم رأي الآخرين", "الخوف من رأي الآخرين"))
 
     def test_approval_keeps_saved_idea_until_successful_production(self):
         saved = {
