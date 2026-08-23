@@ -28,8 +28,13 @@ def _light_topic_key(token: str) -> str:
     return skeleton if len(skeleton) >= 2 else value
 
 
+def _base_same_topic_title(left: str, right: str) -> bool:
+    matcher = getattr(ui, "_ORIGINAL_SAME_TOPIC_TITLE", ui._same_topic_title)
+    return bool(matcher(left, right))
+
+
 def _same_topic_across_formats(left: str, right: str) -> bool:
-    if ui._same_topic_title(left, right):
+    if _base_same_topic_title(left, right):
         return True
     left_tokens = ui._topic_tokens(left)
     right_tokens = ui._topic_tokens(right)
@@ -92,6 +97,9 @@ def _install_policy() -> None:
         ui._ORIGINAL_MENU_TEXT = ui._menu_text
     if not hasattr(ui, "_ORIGINAL_USED_PAGE"):
         ui._ORIGINAL_USED_PAGE = ui._used_page
+    if not hasattr(ui, "_ORIGINAL_SAME_TOPIC_TITLE"):
+        ui._ORIGINAL_SAME_TOPIC_TITLE = ui._same_topic_title
+    ui._same_topic_title = _same_topic_across_formats
     ui._is_used_topic = _is_used_topic_globally
     ui._approve_current = _approve_without_consuming_saved
     ui._menu_text = _menu_text_global_history
