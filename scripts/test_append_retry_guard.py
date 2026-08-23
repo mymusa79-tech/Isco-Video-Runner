@@ -303,7 +303,7 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
         finally:
             self._restore_staged(saved)
 
-    def test_attempt6_trace_accepts_15_when_preferred_is_25_but_final_is_115(self) -> None:
+    def test_attempt6_trace_accepts_15_when_preferred_is_40_but_final_is_115(self) -> None:
         sections = self._sections(self.ATTEMPT6_TRACE_COUNTS)
         calls = 0
 
@@ -311,7 +311,7 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
             nonlocal calls
             del api_key, model
             calls += 1
-            self.assertIn('"minimum_append_words": 25', prompt)
+            self.assertIn('"minimum_append_words": 40', prompt)
             return {
                 "additions": [
                     {
@@ -338,6 +338,59 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
         staged._append_retry_additions(sections, additions)
         self.assertEqual(staged._word_count(sections[1].narration), 115)
         self.assertEqual(_residual_deficit(sections), 0)
+        _RETRY_ATTEMPTED.set(False)
+
+    def test_run78_23_word_undershoot_now_clears_floor_with_wider_safety_margin(self) -> None:
+        """Regression for Run #78: a short first draft left 7 of 8 sections under the
+        110-word floor at once (current_words=590, deficit=210 - the same
+        all-sections-short shape as Run #77's deficit=289). The one-shot completion
+        call's response for sec_6 undershot its preferred minimum_append_words by 23
+        words, landed at 87/110, and there was no salvageable first-pass content left
+        for attempt10's whole-sentence carry to reuse. At the old 15-word safety
+        margin this fixture's minimum_append_words would have been 60 (45-word
+        deficit + 15); the same 23-word undershoot (60-23=37 added words) would still
+        land under the floor (65+37=102, matching Run #77's sec_2 shape almost
+        exactly). At the current 30-word margin minimum_append_words is 75, so the
+        identical 23-word undershoot (75-23=52) now clears the floor (65+52=117)."""
+        counts = [130] + [65] * 7
+        sections = self._sections(counts)
+        calls = 0
+
+        def fake_json(api_key, prompt, model):
+            nonlocal calls
+            del api_key, model
+            calls += 1
+            if calls == 1:
+                additions = [
+                    {"id": f"sec_{i}", "append_text": " ".join(["كلمة"] * 5)}
+                    for i in range(2, 9)
+                ]
+                return {"additions": additions}
+            self.assertIn('"minimum_append_words": 75', prompt)
+            additions = [
+                {"id": f"sec_{i}", "append_text": " ".join(["كلمة"] * 52)}
+                for i in range(2, 9)
+            ]
+            return {"additions": additions}
+
+        _RETRY_ATTEMPTED.set(False)
+        with patch.object(staged, "json_text", side_effect=fake_json):
+            additions = _repair_all_residual_underlength(
+                "key",
+                topic="topic",
+                model="model",
+                sections=sections,
+                policy_json="{}",
+                research_json="{}",
+                narrative_format="problem_reveal_solution",
+                current_words=sum(counts),
+                minimum=800,
+            )
+        self.assertEqual(calls, 2)
+        staged._append_retry_additions(sections, additions)
+        for section in sections:
+            self.assertGreaterEqual(staged._word_count(section.narration), 110)
+            self.assertLessEqual(staged._word_count(section.narration), 170)
         _RETRY_ATTEMPTED.set(False)
 
     def test_internal_engine_retry_can_repair_closing_before_anchor_in_same_single_call(self) -> None:
