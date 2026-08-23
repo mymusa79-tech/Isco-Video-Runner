@@ -59,18 +59,19 @@ class RuntimeClosureTests(unittest.TestCase):
             audit.assert_called_once_with(Path("output/example"),api_key="secret-token")
             self.assertEqual(result["decision"],"pass"); self.assertTrue(key_path.exists())
 
-    def test_runtime_closure_installs_recovery_audio_sfx_m8_m9_then_m10(self) -> None:
+    def test_runtime_closure_installs_cinematic_chain_then_cta(self) -> None:
         calls=[]
         with patch.object(runtime_closure,"install_attempt10_append_bound_recovery",side_effect=lambda:calls.append("recovery")) as recovery, \
              patch.object(runtime_closure,"install_audio_mastering_live_binding",side_effect=lambda:calls.append("audio")) as audio, \
              patch.object(runtime_closure,"install_sfx_live_binding",side_effect=lambda:calls.append("sfx")) as sfx, \
              patch.object(runtime_closure,"install_m8_live_binding",side_effect=lambda:calls.append("m8")) as m8, \
              patch.object(runtime_closure,"install_m9_live_binding",side_effect=lambda:calls.append("m9")) as m9, \
-             patch.object(runtime_closure,"install_m10_live_binding",side_effect=lambda:calls.append("m10")) as m10:
+             patch.object(runtime_closure,"install_m10_live_binding",side_effect=lambda:calls.append("m10")) as m10, \
+             patch.object(runtime_closure,"install_cta_live_binding",side_effect=lambda:calls.append("cta")) as cta:
             runtime_closure.install_runtime_closure()
         recovery.assert_called_once_with(); audio.assert_called_once_with(); sfx.assert_called_once_with()
-        m8.assert_called_once_with(); m9.assert_called_once_with(); m10.assert_called_once_with()
-        self.assertEqual(calls,["recovery","audio","sfx","m8","m9","m10"])
+        m8.assert_called_once_with(); m9.assert_called_once_with(); m10.assert_called_once_with(); cta.assert_called_once_with()
+        self.assertEqual(calls,["recovery","audio","sfx","m8","m9","m10","cta"])
 
 
 if __name__ == "__main__": unittest.main()
