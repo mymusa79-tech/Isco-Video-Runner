@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ENGINE_SHA: 104f292c0ad33fe71e84cb9e7946e92e0a453904
+      ENGINE_SHA: 56af62e2620c930de0a305e32d18d5e0d4ad4980
     steps:
       - name: Checkout Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -101,10 +101,13 @@ jobs:
           git diff --check origin/main...HEAD
           grep -F 'with _m11_archive_scope(' scripts/m7_live_binding.py >/dev/null
           grep -F 'runtime.apply_m11_overrides(' scripts/m7_live_binding.py >/dev/null
-          grep -F 'if report.get("status") == "applied"' scripts/m7_live_binding.py >/dev/null
+          grep -F 'kind="M11_ARCHIVE_REVIEW"' scripts/m7_live_binding.py >/dev/null
+          grep -F 'priority=Priority.P2' scripts/m7_live_binding.py >/dev/null
+          grep -F 'AttemptOutcome.CONTENT_BLOCKED' scripts/m7_live_binding.py >/dev/null
           grep -F 'install_security_v1_live_binding()' scripts/m7_live_binding.py >/dev/null
           test -f engine/src/isco_video_agent/cinematic_m11_runtime.py
           test -f engine/config/m11_archive_policy.yaml
+          grep -F 'visual_review_required' engine/src/isco_video_agent/cinematic_m11_runtime.py >/dev/null
           grep -F 'CC0-1.0-EXPLICIT' engine/src/isco_video_agent/rights.py >/dev/null
           grep -F 'archive_and_public_domain_art:' engine/config/visual_bible.yaml >/dev/null
 
