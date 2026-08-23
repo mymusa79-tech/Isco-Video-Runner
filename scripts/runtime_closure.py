@@ -6,6 +6,7 @@ from pathlib import Path
 from scripts.attempt10_append_bound_recovery import install_attempt10_append_bound_recovery
 from scripts.audio_mastering_live_binding import install_audio_mastering_live_binding
 from scripts.groq_audio_audit import run_groq_audio_audit
+from scripts.m8_live_binding import install_m8_live_binding
 from scripts.sfx_live_binding import install_sfx_live_binding
 
 
@@ -23,10 +24,11 @@ def _groq_key() -> str:
 
 
 def install_runtime_closure() -> None:
-    """Install bounded production recovery plus cinematic audio stages."""
+    """Install bounded production recovery plus cinematic audio/visual stages."""
     install_attempt10_append_bound_recovery()
     install_audio_mastering_live_binding()
     install_sfx_live_binding()
+    install_m8_live_binding()
 
 
 def run_post_gold_observers(output_dir: Path) -> dict:

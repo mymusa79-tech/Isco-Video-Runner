@@ -90,7 +90,7 @@ class RuntimeClosureTests(unittest.TestCase):
             self.assertEqual(result["decision"], "pass")
             self.assertTrue(key_path.exists())
 
-    def test_runtime_closure_installs_recovery_audio_then_sfx(self) -> None:
+    def test_runtime_closure_installs_recovery_audio_sfx_then_m8(self) -> None:
         calls: list[str] = []
         with patch.object(
             runtime_closure, "install_attempt10_append_bound_recovery", side_effect=lambda: calls.append("recovery")
@@ -98,12 +98,15 @@ class RuntimeClosureTests(unittest.TestCase):
             runtime_closure, "install_audio_mastering_live_binding", side_effect=lambda: calls.append("audio")
         ) as audio, patch.object(
             runtime_closure, "install_sfx_live_binding", side_effect=lambda: calls.append("sfx")
-        ) as sfx:
+        ) as sfx, patch.object(
+            runtime_closure, "install_m8_live_binding", side_effect=lambda: calls.append("m8")
+        ) as m8:
             runtime_closure.install_runtime_closure()
         recovery.assert_called_once_with()
         audio.assert_called_once_with()
         sfx.assert_called_once_with()
-        self.assertEqual(calls, ["recovery", "audio", "sfx"])
+        m8.assert_called_once_with()
+        self.assertEqual(calls, ["recovery", "audio", "sfx", "m8"])
 
 
 if __name__ == "__main__":
