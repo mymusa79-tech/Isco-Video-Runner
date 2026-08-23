@@ -42,7 +42,7 @@ class AudioMasteringLiveBindingTests(unittest.TestCase):
             master.assert_called_once()
             self.assertEqual(Path(result), root / "narration-mastered.wav")
             self.assertEqual(Path(result).read_bytes(), b"mastered-narration")
-            report = json.loads((root / "audio-mastering-report.json").read_text(encoding="utf-8"))
+            report = json.loads((root / "audio-mastering.json").read_text(encoding="utf-8"))
             self.assertEqual(report["status"], "applied")
             self.assertEqual(report["production_stage"], "post_concat_pre_sfx_pre_mux")
             self.assertEqual(report["source"], "narration.wav")
@@ -66,7 +66,7 @@ class AudioMasteringLiveBindingTests(unittest.TestCase):
 
             self.assertEqual(Path(result), root / "other.wav")
             master.assert_not_called()
-            self.assertFalse((root / "audio-mastering-report.json").exists())
+            self.assertFalse((root / "audio-mastering.json").exists())
 
     def test_mastering_failure_is_fail_closed_and_hook_is_restored(self) -> None:
         with tempfile.TemporaryDirectory() as td:
