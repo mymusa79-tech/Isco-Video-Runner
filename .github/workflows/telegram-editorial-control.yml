@@ -92,10 +92,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          active="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/runs?per_page=20" \
+          active_v4="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/runs?per_page=20" \
             --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+          active_telegram="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/telegram-production-request.yml/runs?per_page=20" \
+            --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+          active=$((active_v4 + active_telegram))
           if [ "$active" -gt 0 ]; then
-            echo "Production V4 is active; Telegram polling paused to avoid getUpdates contention"
+            echo "A production workflow is active; Telegram polling paused to prevent overlapping or duplicate dispatch"
             echo "needs_engine=false" >> "$GITHUB_OUTPUT"
             echo "needs_production=false" >> "$GITHUB_OUTPUT"
             exit 0
