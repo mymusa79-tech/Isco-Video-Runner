@@ -9,7 +9,6 @@ from typing import Any
 
 from isco_video_agent.brief_approval_binding import attach_approval_binding
 
-import scripts.run_v3_voice as production
 from scripts.shorts_production_binding import finalize_short_quality, prepare_short_render
 from scripts.source_derived_short_planner import install_source_derived_short_planner
 
@@ -82,6 +81,11 @@ def _materialize_brief(request: dict[str, Any], path: Path) -> tuple[Path, str]:
 
 
 def execute(request: dict[str, Any], *, runtime_dir: Path) -> Path:
+    # Import the full production graph only when an actual child execution begins.
+    # Request validation and unit-contract imports must remain side-effect free and
+    # must not depend on script-mode sys.path behavior used by the production entrypoint.
+    import scripts.run_v3_voice as production
+
     validate_request(request, str(request.get("request_sha256") or ""))
     runtime_dir = Path(runtime_dir)
     runtime_dir.mkdir(parents=True, exist_ok=True)
