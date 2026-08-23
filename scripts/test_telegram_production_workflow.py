@@ -30,6 +30,24 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         self.assertIn('request.get("request_sha256") != expected', self.text)
         self.assertIn("approved-request.json", self.text)
 
+    def test_authorization_is_consumed_and_persisted_once_before_any_production(self):
+        restore = self.text.index("Restore exact encrypted Telegram approval and dispatch authorization")
+        consume = self.text.index("Consume and persist one-time dispatch authorization")
+        idempotency = self.text.index("Idempotency guard")
+        engine = self.text.index("Checkout exact private Engine")
+        production = self.text.index("Run exact approved Telegram production")
+        self.assertLess(restore, consume)
+        self.assertLess(consume, idempotency)
+        self.assertLess(consume, engine)
+        self.assertLess(consume, production)
+        self.assertIn("telegram_production_queue.py consume", self.text)
+        self.assertIn('--authorization-id "$AUTHORIZATION_ID"', self.text)
+        self.assertIn('--workflow-run-id "$GITHUB_RUN_ID"', self.text)
+        self.assertIn("state: consume Telegram production authorization", self.text)
+        self.assertIn("control-panel.consumed.json.enc", self.text)
+        self.assertIn("One-time Telegram authorization consumption produced no durable state delta", self.text)
+        self.assertIn("persist-credentials: true", self.text)
+
     def test_runner_and_engine_are_exactly_bound(self):
         self.assertIn(f"EXPECTED_ENGINE_SHA: {ENGINE_SHA}", self.text)
         self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', self.text)
