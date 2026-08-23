@@ -33,13 +33,16 @@ def install_audio_mastering_runtime() -> None:
 
     The Engine's existing mux remains the sole loudness-normalization/limiter authority.
     Mastering failure is authoritative for narrated production: no silent fallback to the
-    unmastered narration is allowed after this runtime has been installed.
+    unmastered narration is allowed after this runtime has been installed. Formats with no
+    narration remain non-applicable and retain the native mux behavior unchanged.
     """
     current = orchestrator.mux
     if getattr(current, _MARKER, False):
         return
 
     def mux_with_audio_mastering(video, audio, output, *args, **kwargs):
+        if audio is None:
+            return current(video, audio, output, *args, **kwargs)
         source = Path(audio)
         output_path = Path(output)
         mastered = output_path.parent / _MASTERED_NAME
