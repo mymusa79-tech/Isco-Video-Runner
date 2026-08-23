@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      ENGINE_SHA: df9397fd3782e7a9f83b3c8732af27858bcee722
+      ENGINE_SHA: 5f66ab7281160e588236687e0a3c6862fa817b7a
     steps:
       - name: Checkout Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
