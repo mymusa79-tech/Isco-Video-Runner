@@ -72,6 +72,8 @@ def _handle_command(kind, client, state, releases, chat_id) -> None:
             text = "لا يوجد قرار معتمد جاهز للإنتاج. اختر «✨ اقترح» واعتمد موضوعًا أولًا."
         elif status == "already_queued":
             text = "⏳ طلب الإنتاج المعتمد موجود بالفعل في طابور الإرسال. لن أكرر التشغيل."
+        elif status == "already_reserved_recent":
+            text = "🔒 تم حجز هذا الطلب للتشغيل بالفعل. لن أعيد إرساله تلقائيًا؛ أي محاولة لاحقة تحتاج إجراءً صريحًا جديدًا."
         elif status == "already_dispatched_recent":
             text = "✅ تم إرسال هذا الطلب للإنتاج بالفعل مؤخرًا. لن أنشئ محاولة مكررة."
         elif status == "retry_queued":
@@ -79,7 +81,7 @@ def _handle_command(kind, client, state, releases, chat_id) -> None:
         else:
             text = (
                 "🚀 تم تأكيد بدء الإنتاج للقرار المعتمد.\n"
-                "سيُرسل الطلب مرة واحدة إلى مسار الإنتاج المحمي، وستصلك التحديثات في Telegram."
+                "سيُحجز القرار أولًا داخل الحالة المشفرة، ثم يُرسل مرة واحدة إلى مسار الإنتاج المحمي."
             )
         if action is not None:
             text += f"\n\nرقم الطلب: {action.get('request_id')}"
