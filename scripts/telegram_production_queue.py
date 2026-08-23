@@ -163,6 +163,28 @@ def reserve_dispatch(state: dict[str, Any], request_id: str, request_sha256: str
     raise RuntimeError("Pending Telegram production dispatch was not found for reservation")
 
 
+def validate_dispatch_authorization(
+    state: dict[str, Any],
+    request_id: str,
+    request_sha256: str,
+    authorization_id: str,
+) -> dict[str, Any]:
+    authorization_id = str(authorization_id or "").strip()
+    if not authorization_id:
+        raise RuntimeError("Telegram dispatch authorization id is required")
+    for item in _queue(state):
+        if not isinstance(item, dict):
+            continue
+        if (
+            item.get("request_id") == request_id
+            and item.get("request_sha256") == request_sha256
+            and item.get("authorization_id") == authorization_id
+            and item.get("status") in {"dispatch_reserved", "dispatched"}
+        ):
+            return item
+    raise RuntimeError("Exact explicit Telegram dispatch authorization was not found")
+
+
 def mark_dispatched(
     state: dict[str, Any],
     request_id: str,
