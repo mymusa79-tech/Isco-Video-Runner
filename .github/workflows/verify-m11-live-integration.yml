@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ENGINE_SHA: 02cc8200c82e020bee99b553161eb4213ffc60ef
+      ENGINE_SHA: 104f292c0ad33fe71e84cb9e7946e92e0a453904
     steps:
       - name: Checkout Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -106,6 +106,7 @@ jobs:
           test -f engine/src/isco_video_agent/cinematic_m11_runtime.py
           test -f engine/config/m11_archive_policy.yaml
           grep -F 'CC0-1.0-EXPLICIT' engine/src/isco_video_agent/rights.py >/dev/null
+          grep -F 'archive_and_public_domain_art:' engine/config/visual_bible.yaml >/dev/null
 
       - name: Upload Engine unittest diagnostics
         if: always()
