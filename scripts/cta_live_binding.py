@@ -151,6 +151,14 @@ def cta_live_scope() -> Iterator[None]:
             rendered.unlink(missing_ok=True)
             rendered.with_suffix(".cta.ass").unlink(missing_ok=True)
 
+    # orchestrator.py's _verify_resilient_router_installed() checks this marker on the
+    # live build_plan callable. build_plan_bound still routes real planning through
+    # original_build_plan (the resilient router's routed_build_plan, or whatever
+    # already-wrapped callable install_router() put in place), so it must carry that
+    # callable's own marker forward rather than silently dropping it - the same lesson
+    # already documented and applied in product_proof_plan.py (run 31870165348).
+    build_plan_bound._is_resilient_router = getattr(original_build_plan, "_is_resilient_router", False)
+
     orchestrator.build_plan = build_plan_bound
     orchestrator.mux = mux_bound
     try:
