@@ -10,6 +10,7 @@ from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
+from scripts.narrative_music_dynamics import install_narrative_music_dynamics
 from scripts.sfx_live_binding import install_sfx_live_binding
 
 
@@ -83,6 +84,7 @@ def install_runtime_closure() -> None:
     install_m9_live_binding()
     install_m10_live_binding()
     install_cta_live_binding()
+    install_narrative_music_dynamics()
     install_canonical_v4_bundle_post_manifest()
 
 
