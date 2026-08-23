@@ -236,6 +236,7 @@ jobs:
             engine/output/*/ai-budget.json
             engine/output/*/production-manifest.json
             engine/output/*/opening-visual-audit.json
+            engine/output/*/final-master-qc.json
             engine/output/*/thumbnail-plan.json
             engine/output/*/thumbnail-*.jpg
             engine/output/*/rights-manifest.json
@@ -274,11 +275,23 @@ jobs:
           manifest = root / 'production-manifest.json'
           delivery = root / 'delivery-manifest.json'
           opening_audit = root / 'opening-visual-audit.json'
-          for required in (final, quality, plan, critic, budget, manifest):
+          final_master_qc = root / 'final-master-qc.json'
+          for required in (final, quality, plan, critic, budget, manifest, final_master_qc):
               if not required.exists():
                   raise SystemExit(f'Missing {required.name}')
           packaging = validate_packaging_delivery(root)
           q = json.loads(quality.read_text(encoding='utf-8'))
+          qc = json.loads(final_master_qc.read_text(encoding='utf-8'))
+          if not isinstance(qc, dict):
+              raise SystemExit('Final Master QC evidence is not an object')
+          if (
+              qc.get('status') != 'pass'
+              or qc.get('production_stage') != 'post_render_pre_gold_acceptance'
+              or qc.get('full_decode_ok') is not True
+              or qc.get('final_media_mutated') is not False
+              or list(qc.get('blocking_findings') or [])
+          ):
+              raise SystemExit('Final Master QC evidence failed canonical final review')
           failures = []
           if q.get('duration_ok') is not True:
               failures.append('duration_ok=false')
@@ -333,6 +346,7 @@ jobs:
           manifest_path = Path('engine') / manifest
           delivery_path = (Path('engine') / delivery) if delivery.exists() else None
           opening_audit_path = (Path('engine') / opening_audit) if opening_audit.exists() else None
+          final_master_qc_path = Path('engine') / final_master_qc
           with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as fh:
               fh.write(f'output_root={output_root.as_posix()}\n')
               fh.write(f'final_path={final_path.as_posix()}\n')
@@ -344,8 +358,10 @@ jobs:
               fh.write(f'manifest_path={manifest_path.as_posix()}\n')
               fh.write(f'delivery_path={delivery_path.as_posix() if delivery_path else ""}\n')
               fh.write(f'opening_audit_path={opening_audit_path.as_posix() if opening_audit_path else ""}\n')
+              fh.write(f'final_master_qc_path={final_master_qc_path.as_posix()}\n')
           print('Final review PASS:', final)
           print('Final quality:', json.dumps(q, ensure_ascii=False, sort_keys=True))
+          print('Final Master QC PASS:', json.dumps(qc, ensure_ascii=False, sort_keys=True))
           print('Final critic observe-only status:', json.loads(critic.read_text(encoding='utf-8')).get('status'))
           print('Packaging delivery validation PASS:', ', '.join(sorted(packaging)))
           if delivery.exists():
@@ -370,6 +386,7 @@ jobs:
             ${{ steps.final_review.outputs.manifest_path }}
             ${{ steps.final_review.outputs.delivery_path }}
             ${{ steps.final_review.outputs.opening_audit_path }}
+            ${{ steps.final_review.outputs.final_master_qc_path }}
             ${{ steps.final_review.outputs.output_root }}/thumbnail-plan.json
             ${{ steps.final_review.outputs.output_root }}/thumbnail-*.jpg
             ${{ steps.final_review.outputs.output_root }}/rights-manifest.json
@@ -418,6 +435,7 @@ jobs:
           FINAL_MANIFEST_PATH: ${{ steps.final_review.outputs.manifest_path }}
           FINAL_DELIVERY_PATH: ${{ steps.final_review.outputs.delivery_path }}
           FINAL_OPENING_AUDIT_PATH: ${{ steps.final_review.outputs.opening_audit_path }}
+          FINAL_MASTER_QC_PATH: ${{ steps.final_review.outputs.final_master_qc_path }}
         run: |
           set -euo pipefail
           test -n "$FINAL_OUTPUT_ROOT"
@@ -426,6 +444,7 @@ jobs:
           test -n "$FINAL_CRITIC_PATH"
           test -n "$FINAL_BUDGET_PATH"
           test -n "$FINAL_MANIFEST_PATH"
+          test -n "$FINAL_MASTER_QC_PATH"
           python - <<'PY'
           import json
           import os
@@ -446,6 +465,7 @@ jobs:
           delivery = Path(delivery_value) if delivery_value else None
           opening_value = os.environ.get('FINAL_OPENING_AUDIT_PATH', '').strip()
           opening = Path(opening_value) if opening_value else None
+          final_master_qc = Path(os.environ['FINAL_MASTER_QC_PATH'])
           packaging = validate_packaging_delivery(root)
           if video != root / 'final.mp4':
               raise SystemExit(f'Release video escaped reviewed output root: {video}')
@@ -457,15 +477,28 @@ jobs:
               raise SystemExit(f'Release budget escaped reviewed output root: {budget}')
           if manifest != root / 'production-manifest.json':
               raise SystemExit(f'Release manifest escaped reviewed output root: {manifest}')
+          if final_master_qc != root / 'final-master-qc.json':
+              raise SystemExit(f'Release Final Master QC escaped reviewed output root: {final_master_qc}')
           if delivery is not None and delivery != root / 'delivery-manifest.json':
               raise SystemExit(f'Release delivery manifest escaped reviewed output root: {delivery}')
           if telemetry is not None and telemetry != root / 'planning-telemetry.json':
               raise SystemExit(f'Release telemetry escaped reviewed output root: {telemetry}')
           if opening is not None and opening != root / 'opening-visual-audit.json':
               raise SystemExit(f'Release opening audit escaped reviewed output root: {opening}')
-          for required in (video, quality, critic, budget, manifest):
+          for required in (video, quality, critic, budget, manifest, final_master_qc):
               if not required.is_file():
                   raise SystemExit(f'Missing reviewed release asset: {required}')
+          qc = json.loads(final_master_qc.read_text(encoding='utf-8'))
+          if not isinstance(qc, dict):
+              raise SystemExit('Release blocked: Final Master QC evidence is not an object')
+          if (
+              qc.get('status') != 'pass'
+              or qc.get('production_stage') != 'post_render_pre_gold_acceptance'
+              or qc.get('full_decode_ok') is not True
+              or qc.get('final_media_mutated') is not False
+              or list(qc.get('blocking_findings') or [])
+          ):
+              raise SystemExit('Release blocked: Final Master QC evidence is not passing')
           size = video.stat().st_size
           if size <= 1024 * 1024:
               raise SystemExit(f'Release blocked: final.mp4 is not >1MB: {size} bytes')
@@ -485,6 +518,7 @@ jobs:
           if opening is not None and not opening.is_file():
               raise SystemExit(f'Release opening audit path was exported but file is missing: {opening}')
           print(f'Release asset validation PASS: root={root} size={size} duration_ok=true')
+          print('Final Master QC release validation PASS:', final_master_qc)
           print('Packaging release validation PASS:', ', '.join(sorted(packaging)))
           PY
           tag="video-${RUN_NUMBER}"
@@ -500,7 +534,7 @@ jobs:
           )
           PY
           fi
-          release_assets=("$FINAL_VIDEO_PATH" "$FINAL_CRITIC_PATH" "$FINAL_BUDGET_PATH" "$FINAL_MANIFEST_PATH" "$FINAL_OUTPUT_ROOT/thumbnail-plan.json" "$FINAL_OUTPUT_ROOT/thumbnail-1.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-2.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-3.jpg" "$FINAL_OUTPUT_ROOT/rights-manifest.json" "$FINAL_OUTPUT_ROOT/gold-enforce-report.json")
+          release_assets=("$FINAL_VIDEO_PATH" "$FINAL_CRITIC_PATH" "$FINAL_BUDGET_PATH" "$FINAL_MANIFEST_PATH" "$FINAL_MASTER_QC_PATH" "$FINAL_OUTPUT_ROOT/thumbnail-plan.json" "$FINAL_OUTPUT_ROOT/thumbnail-1.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-2.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-3.jpg" "$FINAL_OUTPUT_ROOT/rights-manifest.json" "$FINAL_OUTPUT_ROOT/gold-enforce-report.json")
           if [ -n "$FINAL_TELEMETRY_PATH" ]; then
             release_assets+=("$FINAL_TELEMETRY_PATH")
           fi
@@ -668,7 +702,7 @@ jobs:
           fi
           if [ -n "$progress_message_id" ]; then
             echo "Telegram notify: editMessageText (message_id=${progress_message_id})"
-            if curl --fail-with-body --silent --show-error \
+            if curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 35 \
                 --request POST \
                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \
                 --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
@@ -681,7 +715,7 @@ jobs:
             fi
           else
             echo "Telegram notify: sendMessage (no saved progress message_id)"
-            if curl --fail-with-body --silent --show-error \
+            if curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 35 \
                 --request POST \
                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
                 --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
