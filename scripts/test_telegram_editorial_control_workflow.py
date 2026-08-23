@@ -22,10 +22,17 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn('-f engine_sha="$ENGINE_SHA"', self.text)
         self.assertNotIn("python scripts/run_control_production.py", self.text)
 
-    def test_dispatch_is_marked_only_after_workflow_dispatch_succeeds(self):
+    def test_dispatch_is_durably_reserved_before_workflow_launch(self):
+        reserve = self.text.index("telegram_production_queue.py reserve")
+        durable = self.text.index("Persist dispatch reservation before workflow dispatch")
         dispatch = self.text.index("gh workflow run telegram-production-request.yml")
         mark = self.text.index("telegram_production_queue.py mark-dispatched")
+        self.assertLess(reserve, durable)
+        self.assertLess(durable, dispatch)
         self.assertLess(dispatch, mark)
+        self.assertIn('control-panel.reserved.json.enc', self.text)
+        self.assertIn('state: reserve explicit Telegram production dispatch', self.text)
+        self.assertIn('--github-output "$GITHUB_OUTPUT"', self.text)
         self.assertIn('--state "$CONTROL_STATE_PATH"', self.text)
 
     def test_polling_is_paused_while_any_production_path_is_active(self):
@@ -43,7 +50,7 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
     def test_control_state_is_encrypted_at_rest_with_dedicated_state_key(self):
         self.assertIn("state/control-panel.json.enc", self.text)
         self.assertIn("openssl enc -aes-256-cbc -salt -pbkdf2", self.text)
-        self.assertEqual(self.text.count("STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}"), 2)
+        self.assertGreaterEqual(self.text.count("STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}"), 3)
         self.assertNotIn("secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN", self.text)
         self.assertIn('"production_queue":[]', self.text)
 
