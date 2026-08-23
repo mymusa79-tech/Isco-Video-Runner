@@ -30,7 +30,7 @@ env:
 jobs:
   produce:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - name: Record job start time
         run: echo "JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
@@ -252,8 +252,6 @@ jobs:
         working-directory: engine
         env:
           CONTROL_PLANE_PRODUCTION_ENABLED: "true"
-          ISCO_CONTROL_REQUEST_PATH: ${{ env.ISCO_CONTROL_REQUEST_PATH }}
-          ISCO_CONTROL_REQUEST_SHA256: ${{ env.ISCO_CONTROL_REQUEST_SHA256 }}
           ISCO_CONTROL_RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
           GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
           GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
@@ -379,37 +377,32 @@ jobs:
           RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
           ALREADY_RELEASED: ${{ steps.release_guard.outputs.already_released }}
           JOB_STATUS: ${{ job.status }}
+          REQUEST_ID: ${{ inputs.request_id }}
         run: |
           set -euo pipefail
           test -n "$TELEGRAM_BOT_TOKEN"
           test -n "$TELEGRAM_CHAT_ID"
-          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          release_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}"
-          if [ "$JOB_STATUS" = "success" ]; then
-            if [ "$ALREADY_RELEASED" = "true" ]; then
-              message="✅ هذا الطلب كان منتجًا بالفعل"$'\n'"🔗 ${release_url}"
-            else
-              message="✅ الإنتاج جاهز"$'\n'"🎁 الحزمة: ${release_url}"$'\n'"🔒 نشر YouTube يدوي فقط"
-            fi
-          else
-            message="❌ فشل إنتاج Telegram المعتمد"$'\n'"🔗 ${run_url}"$'\n'"لم يتم نشر شيء على YouTube."
-          fi
           python - <<'PY'
           import json, os, urllib.parse, urllib.request
-          payload = urllib.parse.urlencode({"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": os.environ["MESSAGE"]}).encode()
+          server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["RELEASE_TAG"]
+          run_url = f"{server}/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          release_url = f"{server}/{repo}/releases/tag/{tag}"
+          if os.environ["JOB_STATUS"] == "success":
+              if os.environ.get("ALREADY_RELEASED") == "true":
+                  text = f"✅ هذا الطلب كان منتجًا بالفعل\n🔗 {release_url}"
+              else:
+                  text = f"✅ الإنتاج جاهز\n🎁 الحزمة: {release_url}\n🔒 نشر YouTube يدوي فقط"
+          else:
+              text = f"❌ فشل إنتاج Telegram المعتمد\nرقم الطلب: {os.environ['REQUEST_ID']}\n🔗 {run_url}\nلم يتم نشر شيء على YouTube."
+          payload = urllib.parse.urlencode({"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": text}).encode()
           url = "https://api.telegram.org/bot" + os.environ["TELEGRAM_BOT_TOKEN"] + "/sendMessage"
           with urllib.request.urlopen(urllib.request.Request(url, data=payload), timeout=25) as response:
               body = json.loads(response.read().decode("utf-8"))
           if not body.get("ok"):
               raise SystemExit("Telegram final notification failed")
           PY
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
-          ALREADY_RELEASED: ${{ steps.release_guard.outputs.already_released }}
-          JOB_STATUS: ${{ job.status }}
-          MESSAGE: ${{ job.status == 'success' && 'Production complete' || 'Production failed' }}
 
       - name: Remove plaintext control secrets and state
         if: always()
