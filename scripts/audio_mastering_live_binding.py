@@ -9,7 +9,7 @@ import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.cinematic_audio_mastering import master_narration_lite, mastering_report
 
 
-_REPORT_NAME = "audio-mastering-report.json"
+_REPORT_NAME = "audio-mastering.json"
 
 
 @contextmanager

@@ -24,6 +24,7 @@ from scripts.unified_delivery import write_delivery_manifest
 SOURCE = "canonical_v4_approved_brief"
 MIN_SHORTS = 2
 MAX_SHORTS = 3
+SHORT_CHILD_TIMEOUT_SECONDS = 1200
 
 
 def _read_object(path: Path) -> dict[str, Any]:
@@ -306,20 +307,26 @@ def _execute_child(request: dict[str, Any], *, runtime_root: Path) -> Path:
     request_path = request_dir / "request.json"
     result_path = request_dir / "result.json"
     request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
-    subprocess.run(
-        [
-            sys.executable,
-            str(Path(__file__).with_name("canonical_v4_short_child.py").resolve()),
-            "--request",
-            str(request_path.resolve()),
-            "--sha256",
-            str(request["request_sha256"]),
-            "--result",
-            str(result_path.resolve()),
-        ],
-        check=True,
-        env=os.environ.copy(),
-    )
+    try:
+        subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).with_name("canonical_v4_short_child.py").resolve()),
+                "--request",
+                str(request_path.resolve()),
+                "--sha256",
+                str(request["request_sha256"]),
+                "--result",
+                str(result_path.resolve()),
+            ],
+            check=True,
+            env=os.environ.copy(),
+            timeout=SHORT_CHILD_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Canonical V4 sibling child timed out after {SHORT_CHILD_TIMEOUT_SECONDS} seconds"
+        ) from exc
     result = _read_object(result_path)
     output = Path(str(result.get("output_dir") or ""))
     if not output.is_dir():

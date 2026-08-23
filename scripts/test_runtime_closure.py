@@ -59,7 +59,7 @@ class RuntimeClosureTests(unittest.TestCase):
             audit.assert_called_once_with(Path("output/example"),api_key="secret-token")
             self.assertEqual(result["decision"],"pass"); self.assertTrue(key_path.exists())
 
-    def test_runtime_closure_installs_cinematic_chain_then_cta_then_bundle(self) -> None:
+    def test_runtime_closure_installs_cinematic_chain_then_cta_music_then_bundle(self) -> None:
         calls=[]
         with patch.object(runtime_closure,"install_attempt10_append_bound_recovery",side_effect=lambda:calls.append("recovery")) as recovery, \
              patch.object(runtime_closure,"install_audio_mastering_live_binding",side_effect=lambda:calls.append("audio")) as audio, \
@@ -68,11 +68,13 @@ class RuntimeClosureTests(unittest.TestCase):
              patch.object(runtime_closure,"install_m9_live_binding",side_effect=lambda:calls.append("m9")) as m9, \
              patch.object(runtime_closure,"install_m10_live_binding",side_effect=lambda:calls.append("m10")) as m10, \
              patch.object(runtime_closure,"install_cta_live_binding",side_effect=lambda:calls.append("cta")) as cta, \
+             patch.object(runtime_closure,"install_narrative_music_dynamics",side_effect=lambda:calls.append("music")) as music, \
              patch.object(runtime_closure,"install_canonical_v4_bundle_post_manifest",side_effect=lambda:calls.append("bundle")) as bundle:
             runtime_closure.install_runtime_closure()
         recovery.assert_called_once_with(); audio.assert_called_once_with(); sfx.assert_called_once_with()
-        m8.assert_called_once_with(); m9.assert_called_once_with(); m10.assert_called_once_with(); cta.assert_called_once_with(); bundle.assert_called_once_with()
-        self.assertEqual(calls,["recovery","audio","sfx","m8","m9","m10","cta","bundle"])
+        m8.assert_called_once_with(); m9.assert_called_once_with(); m10.assert_called_once_with(); cta.assert_called_once_with()
+        music.assert_called_once_with(); bundle.assert_called_once_with()
+        self.assertEqual(calls,["recovery","audio","sfx","m8","m9","m10","cta","music","bundle"])
 
     def test_bundle_activation_is_exact_workflow_or_explicit_opt_in(self) -> None:
         with patch.dict(os.environ,{},clear=True):
