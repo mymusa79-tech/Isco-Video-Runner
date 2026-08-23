@@ -240,7 +240,7 @@ class Attempt10AppendBoundRecoveryTests(unittest.TestCase):
                 "additions": [
                     {
                         "id": "sec_8",
-                        "append_text": " ".join(["إضافة"] * 60),
+                        "append_text": " ".join(["إضافة"] * 75),
                     }
                 ]
             }
