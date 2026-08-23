@@ -29,7 +29,7 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
         for name in (
             "canonical-bundle-request.json","sibling-short-plan.json","sibling-short-results.json",
             "visual-timeline.json","audio-mastering.json","sfx-plan.json","m9-transitions.json",
-            "m10-cards.json","m11-report.json","cta-plan.json",
+            "m10-cards.json","m11-report.json","cta-plan.json","narrative-music-dynamics.json",
         ):
             _json(root/name,{"status":"ok"})
         _json(root/"clip-1.m8.json", {"status":"applied"})
@@ -57,6 +57,7 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
             self.assertEqual(manifest["control_request"]["source"],"canonical_v4_approved_brief")
             self.assertEqual(manifest["cinematic_reports"]["m11_archive"],"m11-report.json")
             self.assertEqual(manifest["cinematic_reports"]["contextual_cta"],"cta-plan.json")
+            self.assertEqual(manifest["cinematic_reports"]["narrative_music_dynamics"],"narrative-music-dynamics.json")
             self.assertEqual(manifest["cinematic_reports"]["m8_color_normalization"],["clip-1.m8.json"])
             self.assertEqual(manifest["canonical_bundle_request"],"canonical-bundle-request.json")
 
