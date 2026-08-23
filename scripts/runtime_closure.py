@@ -13,6 +13,10 @@ from scripts.m10_live_binding import install_m10_live_binding
 from scripts.sfx_live_binding import install_sfx_live_binding
 
 
+_CANONICAL_V4_WORKFLOW = "/.github/workflows/produce-resilient-v4.yml@"
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
 def _groq_key() -> str:
     direct = (os.environ.get("GROQ_API_KEY") or "").strip()
     if direct:
@@ -26,12 +30,27 @@ def _groq_key() -> str:
         return ""
 
 
+def _canonical_v4_bundle_enabled() -> bool:
+    """Return true only inside the canonical V4 workflow or an explicit test harness.
+
+    The delivery layer must never redefine the generic production-manifest helper.
+    GitHub production is identified by the exact workflow path, not by a mutable
+    display name. Local/focused contract tests may opt in explicitly.
+    """
+    explicit = str(os.environ.get("ISCO_CANONICAL_V4_BUNDLE_ENABLED") or "").strip().lower()
+    if explicit in _TRUE_VALUES:
+        return True
+    event = str(os.environ.get("GITHUB_EVENT_NAME") or "").strip()
+    workflow_ref = str(os.environ.get("GITHUB_WORKFLOW_REF") or "").strip()
+    return event == "workflow_dispatch" and _CANONICAL_V4_WORKFLOW in workflow_ref
+
+
 def install_canonical_v4_bundle_post_manifest() -> None:
     """Make canonical V4 long-form delivery atomic with 2–3 sibling Shorts.
 
-    The hook runs only after the long render has passed Gold and its production
-    manifest has been written. Moment/Short children and explicit control-plane
-    productions are ignored by the bundle layer.
+    The hook is inert for generic library/tests, Moments, and control-plane runs.
+    It activates only for canonical V4 after the long render has passed Gold and its
+    production manifest has been written.
     """
     import scripts.run_v3_voice as production
 
@@ -41,7 +60,8 @@ def install_canonical_v4_bundle_post_manifest() -> None:
 
     def wrapped(out: Path, *, production_id: str, fmt: str):
         manifest = current(out, production_id=production_id, fmt=fmt)
-        if fmt != "moment" and not str(os.environ.get("ISCO_CONTROL_REQUEST_ID") or "").strip():
+        control_request = str(os.environ.get("ISCO_CONTROL_REQUEST_ID") or "").strip()
+        if fmt != "moment" and _canonical_v4_bundle_enabled() and not control_request:
             from scripts.canonical_v4_bundle import build_canonical_v4_bundle
 
             delivery = build_canonical_v4_bundle(Path(out))
