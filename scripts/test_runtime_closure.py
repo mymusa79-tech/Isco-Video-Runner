@@ -90,10 +90,13 @@ class RuntimeClosureTests(unittest.TestCase):
             self.assertEqual(result["decision"], "pass")
             self.assertTrue(key_path.exists())
 
-    def test_runtime_closure_installs_run71_recovery(self) -> None:
-        with patch.object(runtime_closure, "install_attempt10_append_bound_recovery") as install:
+    def test_runtime_closure_installs_recovery_and_audio_mastering(self) -> None:
+        with patch.object(runtime_closure, "install_attempt10_append_bound_recovery") as recovery, patch.object(
+            runtime_closure, "install_audio_mastering_live_binding"
+        ) as audio:
             runtime_closure.install_runtime_closure()
-        install.assert_called_once_with()
+        recovery.assert_called_once_with()
+        audio.assert_called_once_with()
 
 
 if __name__ == "__main__":
