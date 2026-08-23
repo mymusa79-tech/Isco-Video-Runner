@@ -79,6 +79,22 @@ def latest_ready_request(state: dict[str, Any]) -> dict[str, Any] | None:
     return max(ready, key=lambda item: (str(item.get("approved_at") or ""), str(item.get("request_id") or "")))
 
 
+def ready_request_by_id(state: dict[str, Any], request_id: str, request_sha256: str) -> dict[str, Any] | None:
+    requests = state.get("requests")
+    if not isinstance(requests, dict):
+        return None
+    request = requests.get(str(request_id or ""))
+    if not isinstance(request, dict):
+        return None
+    try:
+        validate_ready_request(request)
+    except RuntimeError:
+        return None
+    if str(request.get("request_sha256") or "") != str(request_sha256 or ""):
+        return None
+    return request
+
+
 def _age_seconds(timestamp: str) -> float:
     try:
         value = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
@@ -89,10 +105,10 @@ def _age_seconds(timestamp: str) -> float:
         return float("inf")
 
 
-def enqueue_latest_request(state: dict[str, Any], *, chat_id: int | str) -> tuple[str, dict[str, Any] | None]:
-    request = latest_ready_request(state)
-    if request is None:
-        return "no_ready_request", None
+def _enqueue_ready_request(
+    state: dict[str, Any], request: dict[str, Any], *, chat_id: int | str
+) -> tuple[str, dict[str, Any] | None]:
+    validate_ready_request(request)
     request_id = str(request["request_id"])
     request_sha256 = str(request["request_sha256"])
     queue = _queue(state)
@@ -139,6 +155,22 @@ def enqueue_latest_request(state: dict[str, Any], *, chat_id: int | str) -> tupl
     queue.append(action)
     state["last_event_at"] = requested_at
     return ("retry_queued" if matches else "queued"), action
+
+
+def enqueue_request(
+    state: dict[str, Any], request_id: str, request_sha256: str, *, chat_id: int | str
+) -> tuple[str, dict[str, Any] | None]:
+    request = ready_request_by_id(state, request_id, request_sha256)
+    if request is None:
+        return "no_ready_request", None
+    return _enqueue_ready_request(state, request, chat_id=chat_id)
+
+
+def enqueue_latest_request(state: dict[str, Any], *, chat_id: int | str) -> tuple[str, dict[str, Any] | None]:
+    request = latest_ready_request(state)
+    if request is None:
+        return "no_ready_request", None
+    return _enqueue_ready_request(state, request, chat_id=chat_id)
 
 
 def pending_dispatch(state: dict[str, Any]) -> dict[str, Any] | None:
