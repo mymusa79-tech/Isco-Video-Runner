@@ -36,6 +36,16 @@ def _request_summary(request: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _passing_master_qc(document: dict[str, Any]) -> bool:
+    return bool(
+        document.get("status") == "pass"
+        and document.get("production_stage") == "post_render_pre_gold_acceptance"
+        and document.get("full_decode_ok") is True
+        and document.get("final_media_mutated") is False
+        and not list(document.get("blocking_findings") or [])
+    )
+
+
 def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if short_assets and not 2 <= len(short_assets) <= 3:
         raise RuntimeError("Unified long-form delivery must contain 2–3 sibling Shorts")
@@ -52,7 +62,18 @@ def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> li
         video = str(item.get("video") or "")
         if not video or not (root / video).is_file():
             raise RuntimeError("Unified delivery sibling Short video is missing")
-        normalized.append(dict(item))
+        qc_name = str(item.get("final_master_qc") or "")
+        if not qc_name or not (root / qc_name).is_file():
+            raise RuntimeError("Unified delivery sibling Short Final Master QC is missing")
+        qc = _read_object(root / qc_name)
+        if not _passing_master_qc(qc):
+            raise RuntimeError("Unified delivery sibling Short failed Final Master QC")
+        normalized_item = dict(item)
+        normalized_item["final_master_qc"] = {
+            "file": qc_name,
+            "evidence": qc,
+        }
+        normalized.append(normalized_item)
     return normalized
 
 
@@ -93,7 +114,7 @@ def build_delivery_manifest(
     production = _read_object(root / "production-manifest.json")
     packaging = _read_object(root / "thumbnail-plan.json", required=False)
     final_master_qc = _read_object(root / "final-master-qc.json")
-    if final_master_qc.get("status") != "pass":
+    if not _passing_master_qc(final_master_qc):
         raise RuntimeError("Unified delivery requires a passing Final Master QC report")
 
     fmt = str(plan.get("format") or quality.get("format") or production.get("format") or "")
