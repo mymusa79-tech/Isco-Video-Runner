@@ -27,90 +27,50 @@ class RuntimeClosureTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.text = RUNNER.read_text(encoding="utf-8")
         tree = ast.parse(cls.text)
-        cls.main = next(
-            node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main"
-        )
+        cls.main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
 
     def test_run71_installer_is_bound_after_append_guard(self) -> None:
-        calls = [
-            (node.lineno, _call_name(node))
-            for node in ast.walk(self.main)
-            if isinstance(node, ast.Call)
-        ]
-        append = [line for line, name in calls if name == "install_append_retry_guard"]
-        closure = [line for line, name in calls if name == "install_runtime_closure"]
-        produce = [line for line, name in calls if name == "produce"]
-        self.assertEqual(len(append), 1)
-        self.assertEqual(len(closure), 1)
-        self.assertEqual(len(produce), 1)
-        self.assertLess(append[0], closure[0])
-        self.assertLess(closure[0], produce[0])
+        calls=[(node.lineno,_call_name(node)) for node in ast.walk(self.main) if isinstance(node,ast.Call)]
+        append=[line for line,name in calls if name=="install_append_retry_guard"]
+        closure=[line for line,name in calls if name=="install_runtime_closure"]
+        produce=[line for line,name in calls if name=="produce"]
+        self.assertEqual(len(append),1); self.assertEqual(len(closure),1); self.assertEqual(len(produce),1)
+        self.assertLess(append[0],closure[0]); self.assertLess(closure[0],produce[0])
 
     def test_g1_g2_runs_once_after_gold_before_manifest(self) -> None:
-        calls = [
-            (node.lineno, _call_name(node))
-            for node in ast.walk(self.main)
-            if isinstance(node, ast.Call)
-        ]
-        gold = [line for line, name in calls if name == "run_gold_enforce_phase4"]
-        observer = [line for line, name in calls if name == "run_post_gold_observers"]
-        manifest = [line for line, name in calls if name == "_write_production_manifest"]
-        self.assertEqual(len(gold), 1)
-        self.assertEqual(len(observer), 1)
-        self.assertEqual(len(manifest), 1)
-        self.assertLess(gold[0], observer[0])
-        self.assertLess(observer[0], manifest[0])
+        calls=[(node.lineno,_call_name(node)) for node in ast.walk(self.main) if isinstance(node,ast.Call)]
+        gold=[line for line,name in calls if name=="run_gold_enforce_phase4"]
+        observer=[line for line,name in calls if name=="run_post_gold_observers"]
+        manifest=[line for line,name in calls if name=="_write_production_manifest"]
+        self.assertEqual(len(gold),1); self.assertEqual(len(observer),1); self.assertEqual(len(manifest),1)
+        self.assertLess(gold[0],observer[0]); self.assertLess(observer[0],manifest[0])
 
     def test_post_gold_observer_uses_optional_env_key_and_never_raises(self) -> None:
-        with patch.dict(os.environ, {}, clear=True), patch.object(
-            runtime_closure,
-            "run_groq_audio_audit",
-            side_effect=RuntimeError("synthetic"),
-        ) as audit:
-            result = runtime_closure.run_post_gold_observers(Path("output/example"))
-        audit.assert_called_once_with(Path("output/example"), api_key="")
-        self.assertEqual(result["mode"], "observe_only")
-        self.assertEqual(result["decision"], "audit_error")
+        with patch.dict(os.environ,{},clear=True), patch.object(runtime_closure,"run_groq_audio_audit",side_effect=RuntimeError("synthetic")) as audit:
+            result=runtime_closure.run_post_gold_observers(Path("output/example"))
+        audit.assert_called_once_with(Path("output/example"),api_key="")
+        self.assertEqual(result["mode"],"observe_only"); self.assertEqual(result["decision"],"audit_error")
 
     def test_post_gold_observer_reads_existing_secret_file_without_deleting_it(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            key_path = Path(temp_dir) / "groq"
-            key_path.write_text("secret-token", encoding="utf-8")
-            with patch.dict(
-                os.environ,
-                {"GROQ_API_KEY_FILE": str(key_path)},
-                clear=True,
-            ), patch.object(
-                runtime_closure,
-                "run_groq_audio_audit",
-                return_value={"decision": "pass"},
-            ) as audit:
-                result = runtime_closure.run_post_gold_observers(Path("output/example"))
-            audit.assert_called_once_with(Path("output/example"), api_key="secret-token")
-            self.assertEqual(result["decision"], "pass")
-            self.assertTrue(key_path.exists())
+            key_path=Path(temp_dir)/"groq"; key_path.write_text("secret-token",encoding="utf-8")
+            with patch.dict(os.environ,{"GROQ_API_KEY_FILE":str(key_path)},clear=True), patch.object(runtime_closure,"run_groq_audio_audit",return_value={"decision":"pass"}) as audit:
+                result=runtime_closure.run_post_gold_observers(Path("output/example"))
+            audit.assert_called_once_with(Path("output/example"),api_key="secret-token")
+            self.assertEqual(result["decision"],"pass"); self.assertTrue(key_path.exists())
 
-    def test_runtime_closure_installs_recovery_audio_sfx_m8_then_m9(self) -> None:
-        calls: list[str] = []
-        with patch.object(
-            runtime_closure, "install_attempt10_append_bound_recovery", side_effect=lambda: calls.append("recovery")
-        ) as recovery, patch.object(
-            runtime_closure, "install_audio_mastering_live_binding", side_effect=lambda: calls.append("audio")
-        ) as audio, patch.object(
-            runtime_closure, "install_sfx_live_binding", side_effect=lambda: calls.append("sfx")
-        ) as sfx, patch.object(
-            runtime_closure, "install_m8_live_binding", side_effect=lambda: calls.append("m8")
-        ) as m8, patch.object(
-            runtime_closure, "install_m9_live_binding", side_effect=lambda: calls.append("m9")
-        ) as m9:
+    def test_runtime_closure_installs_recovery_audio_sfx_m8_m9_then_m10(self) -> None:
+        calls=[]
+        with patch.object(runtime_closure,"install_attempt10_append_bound_recovery",side_effect=lambda:calls.append("recovery")) as recovery, \
+             patch.object(runtime_closure,"install_audio_mastering_live_binding",side_effect=lambda:calls.append("audio")) as audio, \
+             patch.object(runtime_closure,"install_sfx_live_binding",side_effect=lambda:calls.append("sfx")) as sfx, \
+             patch.object(runtime_closure,"install_m8_live_binding",side_effect=lambda:calls.append("m8")) as m8, \
+             patch.object(runtime_closure,"install_m9_live_binding",side_effect=lambda:calls.append("m9")) as m9, \
+             patch.object(runtime_closure,"install_m10_live_binding",side_effect=lambda:calls.append("m10")) as m10:
             runtime_closure.install_runtime_closure()
-        recovery.assert_called_once_with()
-        audio.assert_called_once_with()
-        sfx.assert_called_once_with()
-        m8.assert_called_once_with()
-        m9.assert_called_once_with()
-        self.assertEqual(calls, ["recovery", "audio", "sfx", "m8", "m9"])
+        recovery.assert_called_once_with(); audio.assert_called_once_with(); sfx.assert_called_once_with()
+        m8.assert_called_once_with(); m9.assert_called_once_with(); m10.assert_called_once_with()
+        self.assertEqual(calls,["recovery","audio","sfx","m8","m9","m10"])
 
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__ == "__main__": unittest.main()

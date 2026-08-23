@@ -8,6 +8,7 @@ from scripts.audio_mastering_live_binding import install_audio_mastering_live_bi
 from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
+from scripts.m10_live_binding import install_m10_live_binding
 from scripts.sfx_live_binding import install_sfx_live_binding
 
 
@@ -31,6 +32,7 @@ def install_runtime_closure() -> None:
     install_sfx_live_binding()
     install_m8_live_binding()
     install_m9_live_binding()
+    install_m10_live_binding()
 
 
 def run_post_gold_observers(output_dir: Path) -> dict:
