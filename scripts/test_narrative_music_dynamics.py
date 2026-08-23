@@ -139,10 +139,39 @@ class NarrativeMusicDynamicsTests(unittest.TestCase):
                 result = dynamics.orchestrator.mux(video, narration, root / "final.mp4", music=music, target_lufs=-16.0)
 
             self.assertEqual(result, root / "final.mp4")
+            self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0][3], music)
             report = json.loads((root / "narrative-music-dynamics.json").read_text(encoding="utf-8"))
             self.assertEqual(report["status"], "not_applicable")
             self.assertFalse(report["production_blocked"])
+
+    def test_nonadaptive_baseline_mux_failure_propagates_once_without_polish_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "visual-timeline.json").write_text(
+                json.dumps(_timeline(_shot(0.0, 20.0, None), duration_seconds=20.0)),
+                encoding="utf-8",
+            )
+            narration = root / "narration.wav"
+            music = root / "music.wav"
+            video = root / "picture.mp4"
+            for path in (narration, music, video):
+                path.write_bytes(b"x")
+            calls = []
+
+            def original(video_arg, narration_arg, output_arg, music=None, **kwargs):
+                calls.append(Path(music))
+                raise RuntimeError("baseline-mux-failure")
+
+            with patch.object(dynamics.orchestrator, "mux", original):
+                dynamics.install_narrative_music_dynamics()
+                with self.assertRaisesRegex(RuntimeError, "baseline-mux-failure"):
+                    dynamics.orchestrator.mux(video, narration, root / "final.mp4", music=music)
+
+            self.assertEqual(calls, [music])
+            report = json.loads((root / "narrative-music-dynamics.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "not_applicable")
+            self.assertNotEqual(report.get("status"), "fallback_original_music")
 
     def test_polish_pre_render_failure_falls_back_to_original_music(self) -> None:
         with tempfile.TemporaryDirectory() as td:
