@@ -8,14 +8,17 @@ from unittest.mock import patch
 
 import isco_video_agent.orchestrator as orchestrator
 import scripts.cinematic_audio_mastering_runtime as runtime
+import scripts.m7_live_binding as m7_binding
 
 
 class AudioMasteringLiveBindingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_mux = orchestrator.mux
+        self.original_produce = orchestrator.produce
 
     def tearDown(self) -> None:
         orchestrator.mux = self.original_mux
+        orchestrator.produce = self.original_produce
 
     def test_installer_is_idempotent(self) -> None:
         def fake_mux(*args, **kwargs):
@@ -27,6 +30,17 @@ class AudioMasteringLiveBindingTests(unittest.TestCase):
         runtime.install_audio_mastering_runtime()
         self.assertIs(orchestrator.mux, first)
         self.assertTrue(getattr(first, runtime._MARKER, False))
+
+    def test_m7_production_activation_reaches_audio_mastering_installer(self) -> None:
+        def fake_produce(*args, **kwargs):
+            return Path("output")
+
+        orchestrator.produce = fake_produce
+        with patch.object(m7_binding, "install_audio_mastering_runtime") as install_audio:
+            with patch.object(m7_binding, "install_security_v1_live_binding"):
+                m7_binding.install_m7_live_binding()
+        install_audio.assert_called_once_with()
+        self.assertTrue(getattr(orchestrator.produce, "_isco_m7_live_binding", False))
 
     def test_mastered_audio_is_passed_to_existing_mux_and_report_is_written(self) -> None:
         calls: list[tuple] = []
