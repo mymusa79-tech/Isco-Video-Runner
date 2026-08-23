@@ -92,6 +92,9 @@ def build_delivery_manifest(
     quality = _read_object(root / "quality-final.json")
     production = _read_object(root / "production-manifest.json")
     packaging = _read_object(root / "thumbnail-plan.json", required=False)
+    final_master_qc = _read_object(root / "final-master-qc.json")
+    if final_master_qc.get("status") != "pass":
+        raise RuntimeError("Unified delivery requires a passing Final Master QC report")
 
     fmt = str(plan.get("format") or quality.get("format") or production.get("format") or "")
     kind = "short" if fmt == "moment" or str(release_tag or "").startswith("short-") else "long"
@@ -139,6 +142,10 @@ def build_delivery_manifest(
         "production_manifest": "production-manifest.json",
         "rights_manifest": "rights-manifest.json" if (root / "rights-manifest.json").is_file() else None,
         "gold_report": "gold-enforce-report.json" if (root / "gold-enforce-report.json").is_file() else None,
+        "final_master_qc": {
+            "file": "final-master-qc.json",
+            "evidence": final_master_qc,
+        },
         "canonical_bundle_request": "canonical-bundle-request.json" if (root / "canonical-bundle-request.json").is_file() else None,
         "sibling_short_plan": "sibling-short-plan.json" if (root / "sibling-short-plan.json").is_file() else None,
         "sibling_short_results": "sibling-short-results.json" if (root / "sibling-short-results.json").is_file() else None,
