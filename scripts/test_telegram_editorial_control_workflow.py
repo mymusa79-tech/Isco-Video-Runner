@@ -33,6 +33,8 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn('control-panel.reserved.json.enc', self.text)
         self.assertIn('state: reserve explicit Telegram production dispatch', self.text)
         self.assertIn('--github-output "$GITHUB_OUTPUT"', self.text)
+        self.assertIn('AUTHORIZATION_ID: ${{ steps.reserve.outputs.production_authorization_id }}', self.text)
+        self.assertIn('--authorization-id "$AUTHORIZATION_ID"', self.text)
         self.assertIn('--state "$CONTROL_STATE_PATH"', self.text)
 
     def test_polling_is_paused_while_any_production_path_is_active(self):
