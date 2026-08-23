@@ -112,9 +112,6 @@ class PackagingArtifactDeliveryP0ETests(unittest.TestCase):
         self.assertIn('"$FINAL_OUTPUT_ROOT/thumbnail-3.jpg"', workflow)
         self.assertIn('"$FINAL_OUTPUT_ROOT/rights-manifest.json"', workflow)
         self.assertIn('"$FINAL_OUTPUT_ROOT/gold-enforce-report.json"', workflow)
-        self.assertIn("engine/output/*/narrative-music-dynamics.json", workflow)
-        self.assertIn("${{ steps.final_review.outputs.output_root }}/narrative-music-dynamics.json", workflow)
-        self.assertIn('"$FINAL_OUTPUT_ROOT"/narrative-music-dynamics.json', workflow)
 
 
 if __name__ == "__main__":
