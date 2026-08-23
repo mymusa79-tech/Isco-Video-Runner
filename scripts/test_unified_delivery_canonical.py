@@ -12,13 +12,23 @@ def _json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
+def _passing_qc() -> dict:
+    return {
+        "status":"pass",
+        "production_stage":"post_render_pre_gold_acceptance",
+        "full_decode_ok":True,
+        "final_media_mutated":False,
+        "blocking_findings":[],
+    }
+
+
 class UnifiedDeliveryCanonicalTests(unittest.TestCase):
     def _root(self, td: str) -> Path:
         root=Path(td)
         _json(root/"plan.json", {"format":"film","topic":"موضوع"})
         _json(root/"quality-final.json", {"format":"film"})
         _json(root/"production-manifest.json", {"format":"film"})
-        _json(root/"final-master-qc.json", {"status":"pass","production_stage":"post_render_pre_gold_acceptance","full_decode_ok":True,"blocking_findings":[]})
+        _json(root/"final-master-qc.json", _passing_qc())
         (root/"final.mp4").write_bytes(b"video")
         candidates=[]
         for i in range(1,4):
@@ -40,13 +50,25 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
         _json(root/"clip-1.m8.json", {"status":"applied"})
         return root
 
+    def _shorts(self, root: Path, count: int = 2) -> list[dict]:
+        shorts=[]
+        for i in range(1,count+1):
+            video=f"short-{i:02d}.mp4"
+            qc=f"short-{i:02d}-master-qc.json"
+            (root/video).write_bytes(b"short")
+            _json(root/qc, _passing_qc())
+            shorts.append({
+                "semantic_job":f"زاوية {i}",
+                "video":video,
+                "final_master_qc":qc,
+                "delivery_allowed":True,
+            })
+        return shorts
+
     def test_long_plus_shorts_manifest_is_one_manual_nonpartial_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root=self._root(td)
-            shorts=[]
-            for i in range(1,3):
-                video=f"short-{i:02d}.mp4"; (root/video).write_bytes(b"short")
-                shorts.append({"semantic_job":f"زاوية {i}","video":video,"delivery_allowed":True})
+            shorts=self._shorts(root)
             request={
                 "request_id":"canonical-x","request_sha256":"a"*64,"source":"canonical_v4_approved_brief",
                 "approval_scope":"long_plus_sibling_shorts","approved_topic":"موضوع","approved_at":"now",
@@ -70,6 +92,9 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
             self.assertEqual(master_qc["file"],"final-master-qc.json")
             self.assertEqual(master_qc["evidence"]["status"],"pass")
             self.assertTrue(master_qc["evidence"]["full_decode_ok"])
+            for item in manifest["shorts"]:
+                self.assertEqual(item["final_master_qc"]["evidence"]["status"],"pass")
+                self.assertTrue(item["final_master_qc"]["evidence"]["full_decode_ok"])
             self.assertEqual(manifest["cinematic_reports"]["m8_color_normalization"],["clip-1.m8.json"])
             self.assertEqual(manifest["canonical_bundle_request"],"canonical-bundle-request.json")
 
@@ -85,13 +110,34 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 build_delivery_manifest(root,repository="r/x",release_tag=None)
 
+    def test_missing_or_blocked_sibling_master_qc_cannot_enter_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root=self._root(td)
+            shorts=self._shorts(root)
+            (root/shorts[0]["final_master_qc"]).unlink()
+            with self.assertRaisesRegex(RuntimeError,"Final Master QC is missing"):
+                build_delivery_manifest(root,repository="r/x",release_tag=None,short_assets=shorts)
+        with tempfile.TemporaryDirectory() as td:
+            root=self._root(td)
+            shorts=self._shorts(root)
+            _json(root/shorts[1]["final_master_qc"], {
+                **_passing_qc(),
+                "status":"block",
+                "blocking_findings":["interior_audio_dropout"],
+            })
+            with self.assertRaisesRegex(RuntimeError,"failed Final Master QC"):
+                build_delivery_manifest(root,repository="r/x",release_tag=None,short_assets=shorts)
+
     def test_partial_or_duplicate_short_set_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root=self._root(td)
             (root/"short-01.mp4").write_bytes(b"s")
+            _json(root/"short-01-master-qc.json", _passing_qc())
             request={"approval_scope":"long_plus_sibling_shorts"}
             with self.assertRaises(RuntimeError):
-                build_delivery_manifest(root,repository="r/x",release_tag=None,request=request,short_assets=[{"semantic_job":"x","video":"short-01.mp4","delivery_allowed":True}])
+                build_delivery_manifest(root,repository="r/x",release_tag=None,request=request,short_assets=[{
+                    "semantic_job":"x","video":"short-01.mp4","final_master_qc":"short-01-master-qc.json","delivery_allowed":True
+                }])
 
     def test_release_finalization_never_claims_youtube_publication(self) -> None:
         with tempfile.TemporaryDirectory() as td:
