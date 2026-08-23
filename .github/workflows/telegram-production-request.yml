@@ -42,7 +42,7 @@ jobs:
       - name: Checkout exact Runner main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 0
 
       - name: Verify exact Runner and certified Engine input
@@ -107,6 +107,41 @@ jobs:
           PY
           echo "ISCO_CONTROL_REQUEST_PATH=$request" >> "$GITHUB_ENV"
           echo "ISCO_CONTROL_REQUEST_SHA256=$REQUEST_SHA256" >> "$GITHUB_ENV"
+
+      - name: Consume and persist one-time dispatch authorization
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/isco-control/control-panel.json"
+          test -f "$state"
+          python scripts/telegram_production_queue.py consume \
+            --state "$state" \
+            --request-id "$REQUEST_ID" \
+            --sha256 "$REQUEST_SHA256" \
+            --authorization-id "$AUTHORIZATION_ID" \
+            --workflow-run-id "$GITHUB_RUN_ID"
+          encrypted="$RUNNER_TEMP/isco-control/control-panel.consumed.json.enc"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/isco-control-consumed-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$encrypted" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "One-time Telegram authorization consumption produced no durable state delta" >&2
+            exit 1
+          fi
+          git commit -m "state: consume Telegram production authorization"
+          git push origin HEAD:control-plane-state
 
       - name: Idempotency guard
         id: release_guard
@@ -403,7 +438,7 @@ jobs:
           gh release create "$RELEASE_TAG" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Telegram Production — ${{ inputs.request_id }}" \
-            --notes "Explicitly started from an immutable Telegram-approved request with durable second-action authorization. YouTube publication is manual."
+            --notes "Explicitly started from an immutable Telegram-approved request with one-time durable second-action authorization. YouTube publication is manual."
           echo "release_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout agent-state writer
