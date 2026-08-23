@@ -205,6 +205,42 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
         _RETRY_ATTEMPTED.set(False)
         _ACTIVE_CLOSER.set(None)
 
+    def test_run75_engine_internal_call_with_editorial_intent_json_is_accepted(self) -> None:
+        """Regression for Run #75: TypeError: _repair_all_residual_underlength() got an
+        unexpected keyword argument 'editorial_intent_json'. The Engine's own internal
+        underlength-retry branch (large aggregate deficits, e.g. a fresh script far
+        below 800 words) always calls the monkey-patched slot with this keyword - the
+        post-build guard's own call site never needed it, which is exactly why this
+        stayed hidden through Runs #71/#73/#74 (small deficits never reach the
+        Engine-internal branch at all)."""
+        sections = self._sections(self.ATTEMPT4_COUNTS)
+        prompts: list[str] = []
+
+        def fake_json(api_key, prompt, model):
+            del api_key, model
+            prompts.append(prompt)
+            return {"additions": self._complete_additions(self.ATTEMPT4_COUNTS)}
+
+        _RETRY_ATTEMPTED.set(False)
+        with patch.object(staged, "json_text", side_effect=fake_json):
+            additions = _repair_all_residual_underlength(
+                "key",
+                topic="صوت الآخرين في رأسك",
+                model="model",
+                sections=sections,
+                policy_json="{}",
+                research_json="{}",
+                narrative_format="problem_reveal_solution",
+                current_words=801,
+                minimum=800,
+                editorial_intent_json='{"viewer_promise": "اختبار"}',
+            )
+        self.assertEqual(len(prompts), 1)
+        self.assertIn("CANONICAL EDITORIAL_INTENT", prompts[0])
+        self.assertIn('{"viewer_promise": "اختبار"}', prompts[0])
+        self.assertEqual(list(additions), [f"sec_{index}" for index in range(2, 8)])
+        _RETRY_ATTEMPTED.set(False)
+
     def test_attempt4_shape_repairs_all_six_short_sections_in_one_call(self) -> None:
         sections = self._sections(self.ATTEMPT4_COUNTS)
         self.assertEqual(sum(staged._word_count(s.narration) for s in sections), 801)
@@ -267,7 +303,7 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
         finally:
             self._restore_staged(saved)
 
-    def test_attempt6_trace_accepts_15_when_preferred_is_16_but_final_is_115(self) -> None:
+    def test_attempt6_trace_accepts_15_when_preferred_is_25_but_final_is_115(self) -> None:
         sections = self._sections(self.ATTEMPT6_TRACE_COUNTS)
         calls = 0
 
@@ -275,7 +311,7 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
             nonlocal calls
             del api_key, model
             calls += 1
-            self.assertIn('"minimum_append_words": 16', prompt)
+            self.assertIn('"minimum_append_words": 25', prompt)
             return {
                 "additions": [
                     {

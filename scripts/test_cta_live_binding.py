@@ -32,6 +32,23 @@ def _timeline():
 
 
 class CtaLiveBindingTests(unittest.TestCase):
+    def test_resilient_router_marker_survives_cta_scope(self) -> None:
+        """Regression for the Run #72 false-negative: orchestrator.py's
+        _verify_resilient_router_installed() reads build_plan._is_resilient_router.
+        cta_live_scope() must carry that marker forward onto build_plan_bound, not
+        silently drop it, or a genuinely-installed router gets rejected as missing."""
+        original_build = orchestrator.build_plan
+        routed = lambda *a, **k: None
+        routed._is_resilient_router = True
+        orchestrator.build_plan = routed
+        try:
+            with binding.cta_live_scope():
+                self.assertTrue(
+                    getattr(orchestrator.build_plan, "_is_resilient_router", False)
+                )
+        finally:
+            orchestrator.build_plan = original_build
+
     def test_spoken_cta_is_bound_before_core_consumes_plan(self) -> None:
         plan = _plan("اشترك لتكمل الرحلة معنا")
         original_narration = " ".join(section.narration for section in plan.sections)

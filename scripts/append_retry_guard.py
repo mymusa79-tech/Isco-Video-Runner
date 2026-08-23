@@ -9,7 +9,15 @@ import isco_video_agent.resilient_planner as staged
 
 _RETRY_ATTEMPTED: ContextVar[bool] = ContextVar("isco_append_retry_attempted", default=False)
 _ACTIVE_CLOSER: ContextVar[str | None] = ContextVar("isco_append_retry_active_closer", default=None)
-_RESIDUAL_SAFETY_WORDS = 6
+# Run #74: a target's minimum_append_words is deficit-to-floor plus this safety
+# margin, split evenly across all under-floor targets and capped by remaining
+# aggregate headroom. At 6, a single-target case with ample headroom only ever
+# instructs 6 words of cushion above the exact 110-word floor - not enough to
+# absorb a model returning even a few words short of an "at least N words"
+# instruction (section "6" landed at exactly 109/110 with this margin). 15
+# gives real cushion in the common case while the existing min(...) cap still
+# protects the aggregate 1450-word ceiling when headroom is genuinely tight.
+_RESIDUAL_SAFETY_WORDS = 15
 
 
 def _word_count(text: str) -> int:
@@ -210,6 +218,7 @@ def _repair_all_residual_underlength(
     narrative_format: str,
     current_words: int,
     minimum: int,
+    editorial_intent_json: str = "",
 ) -> dict[str, str]:
     """Repair every residual short Film section without ever applying a partial plan.
 
@@ -301,6 +310,16 @@ def _repair_all_residual_underlength(
         if closing_targeted
         else "The final section is not short in this repair."
     )
+    # Run #75: the Engine's own internal underlength-retry branch (large aggregate
+    # deficits, reached before this post-build guard ever runs) always passes
+    # editorial_intent_json to this function's monkey-patched slot. The post-build
+    # guard below doesn't have easy access to it and omits it - that path stays
+    # correct since this stays optional. Only add the block when it's actually given.
+    editorial_intent_block = (
+        f"\nCANONICAL EDITORIAL_INTENT (immutable during append-only repair):\n{editorial_intent_json}\n"
+        if editorial_intent_json
+        else ""
+    )
 
     prompt = f"""
 This is the bounded residual section-length repair for the Arabic YouTube channel نداء اليقظة.
@@ -312,6 +331,7 @@ Selected narrative_format: {narrative_format} — {format_rule}
 Current total spoken words: {current_words}
 Aggregate Film contract: {minimum}-{aggregate_maximum} words.
 Hard individual Film section band: {section_minimum}-{section_maximum} words each.
+{editorial_intent_block}
 
 This repair is APPEND-ONLY. Python will add append_text without replacing existing narration. Return every listed target
 exactly once, in the exact listed order. Treat minimum_append_words as the preferred safety target and
