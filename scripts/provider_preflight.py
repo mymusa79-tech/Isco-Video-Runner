@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Callable
@@ -33,11 +32,6 @@ def _read_secret(path: str | Path) -> str:
     return value
 
 
-def _safe_detail(response: requests.Response) -> str:
-    # Never persist response bodies: provider errors can echo request metadata.
-    return f"HTTP {response.status_code}"
-
-
 def _require_ok(provider: str, response: requests.Response) -> None:
     if response.ok:
         return
@@ -49,6 +43,19 @@ def _require_ok(provider: str, response: requests.Response) -> None:
     if 500 <= status <= 599:
         raise RuntimeError(f"{provider} readiness blocked by upstream outage: HTTP {status}")
     raise RuntimeError(f"{provider} readiness check failed: HTTP {status}")
+
+
+def _safe_failure_detail(exc: BaseException) -> str:
+    # Only RuntimeError strings created by this module are persisted. Requests transport
+    # exceptions can include a fully rendered URL; Pixabay credentials live in a query
+    # parameter, so persisting raw RequestException text could leak a secret.
+    if isinstance(exc, RuntimeError):
+        return str(exc)[:300]
+    if isinstance(exc, requests.Timeout):
+        return "provider readiness request timed out"
+    if isinstance(exc, requests.RequestException):
+        return "provider readiness transport failure"
+    return f"provider readiness malformed response ({type(exc).__name__})"
 
 
 def check_gemini(api_key: str, *, content_model: str, tts_model: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
@@ -127,8 +134,7 @@ def run_preflight(
         try:
             results.append(fn())
         except Exception as exc:
-            # Provider names + exception class/status category only; no keys/bodies.
-            results.append(ProviderCheck(provider, "block", None, f"{type(exc).__name__}: {exc}"[:300]))
+            results.append(ProviderCheck(provider, "block", None, _safe_failure_detail(exc)))
             failure = failure or exc
     output.parent.mkdir(parents=True, exist_ok=True)
     tmp = output.with_name(output.name + ".tmp")
