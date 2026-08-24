@@ -1,4 +1,5 @@
 name: Local Brain Smoke
+
 on:
   push:
     branches:
@@ -6,6 +7,10 @@ on:
     paths:
       - .github/workflows/local-brain-smoke.yml
   workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
