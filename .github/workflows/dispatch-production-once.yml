@@ -1,4 +1,4 @@
-name: Dispatch Canonical Production Once
+name: Inspect Canonical Production Dispatch
 
 on:
   push:
@@ -6,11 +6,11 @@ on:
       - fix/run104-engine-candidate-certification
 
 permissions:
-  actions: write
+  actions: read
   contents: write
 
 jobs:
-  dispatch:
+  inspect:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -21,34 +21,14 @@ jobs:
           persist-credentials: true
           fetch-depth: 1
 
-      - name: Dispatch canonical V4 production exactly once
+      - name: Record latest canonical production dispatch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
-          ACTIVE="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow produce-resilient-v4.yml --branch main --limit 20 --json status --jq '[.[] | select(.status != "completed")] | length')"
-          if [ "$ACTIVE" != "0" ]; then
-            printf '{"dispatched":false,"reason":"active_production_exists","main_sha":"%s"}\n' "$MAIN_SHA" > .one-shot-production-dispatch-result.json
-          else
-            START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            gh workflow run produce-resilient-v4.yml --ref main --repo "$GITHUB_REPOSITORY"
-            FOUND=""
-            for _ in $(seq 1 30); do
-              FOUND="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow produce-resilient-v4.yml --event workflow_dispatch --branch main --limit 10 --json databaseId,status,conclusion,url,headSha,createdAt --jq --arg sha "$MAIN_SHA" --arg start "$START" '[.[] | select(.headSha == $sha and .createdAt >= $start)] | sort_by(.createdAt) | reverse | .[0] // empty')"
-              if [ -n "$FOUND" ]; then
-                break
-              fi
-              sleep 2
-            done
-            if [ -z "$FOUND" ]; then
-              echo 'Canonical workflow dispatch was accepted but the new run could not be resolved in time' >&2
-              exit 1
-            fi
-            printf '{"dispatched":true,"main_sha":"%s","run":%s}\n' "$MAIN_SHA" "$FOUND" > .one-shot-production-dispatch-result.json
-          fi
+          gh run list --repo "$GITHUB_REPOSITORY" --workflow produce-resilient-v4.yml --event workflow_dispatch --branch main --limit 10 --json databaseId,status,conclusion,url,headSha,createdAt,event > .one-shot-production-dispatch-result.json
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add .one-shot-production-dispatch-result.json
-          git commit -m "chore: record one-shot production dispatch result"
+          git commit -m "chore: record production dispatch status"
           git push origin "HEAD:${GITHUB_REF_NAME}"
