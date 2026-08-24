@@ -1,15 +1,15 @@
 name: Apply Run104 Engine Pin
 
 on:
-  push:
-    branches:
-      - fix/run104-engine-candidate-certification
+  pull_request:
+    branches: ["main"]
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.head_ref == 'fix/run104-engine-candidate-certification'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -30,7 +30,6 @@ jobs:
           test "$(grep -o "$OLD_SHA" "$file" | wc -l)" -eq 0
           test "$(grep -o "$NEW_SHA" "$file" | wc -l)" -eq 3
           git diff --check
-          git diff --exit-code -- . ':!.github/workflows/produce-resilient-v4.yml' || true
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add "$file"
