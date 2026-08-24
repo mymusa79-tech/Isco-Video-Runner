@@ -1,0 +1,45 @@
+name: Verify Reliability Hygiene Diagnostic
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Write workflow hygiene report
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.workflow_hygiene import audit_workflows
+          issues = audit_workflows(Path('.'))
+          payload = [
+              {"path": item.path, "code": item.code, "detail": item.detail}
+              for item in issues
+          ]
+          Path('workflow-hygiene-report.json').write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(payload, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload hygiene report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: reliability-hygiene-diagnostic
+          path: workflow-hygiene-report.json
+          if-no-files-found: error
