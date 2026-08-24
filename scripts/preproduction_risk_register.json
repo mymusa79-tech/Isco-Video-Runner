@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "certification": "pre-production-v2",
+  "principles": {
+    "unknown_failure": "fail_closed",
+    "retry_owner_count": 1,
+    "partial_release_allowed": false,
+    "quality_gate_relaxation_allowed": false,
+    "production_run_required_for_certification": false
+  },
+  "risks": [
+    {"id":"provider-auth-drift","scope":"gemini/groq/openrouter/pexels/pixabay","control":"read-only provider_preflight before production","status":"implemented"},
+    {"id":"provider-model-drift","scope":"Gemini content/TTS","control":"models endpoint verifies configured capabilities","status":"implemented"},
+    {"id":"runner-image-drift","scope":"GitHub hosted runner","control":"explicit ubuntu-24.04 plus static contract","status":"pending_workflow_patch"},
+    {"id":"post-piper-dependency-drift","scope":"Python environment","control":"pip check after Piper plus exact closure evidence","status":"pending_workflow_patch"},
+    {"id":"release-rerun-collision","scope":"GitHub Release","control":"fail closed if video-${run_number} already exists","status":"implemented"},
+    {"id":"system-tool-missing","scope":"ffmpeg/ffprobe/tesseract","control":"environment capability preflight","status":"implemented"},
+    {"id":"plaintext-secret-residue","scope":"ephemeral runner","control":"always cleanup + static contract","status":"existing"},
+    {"id":"stale-checkpoint","scope":"planning checkpoint","control":"Runner+Engine+schema namespace","status":"existing"},
+    {"id":"runtime-patch-identity","scope":"run_v3_voice import/script mode","control":"dual-module runtime binding + markers","status":"existing"},
+    {"id":"non-idempotent-retry","scope":"provider/release/state side effects","control":"single retry owners; release namespace fail-closed","status":"existing_plus_v2"},
+    {"id":"gemini-auth-key-september-2026","scope":"account credential type","control":"live credential check; migration deadline tracked externally because API does not expose key type","status":"deadline_risk"}
+  ]
+}
