@@ -319,3 +319,86 @@ class Attempt10AppendBoundRecoveryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "maximum allowed"):
             append_guard._validate_addition_bounds(additions, [spec], aggregate_headroom=200)
+
+    def test_run98_narrow_indivisible_overage_is_accepted_as_is(self) -> None:
+        """Regression for Run #98: sec_5's one completion-round response came back as
+        a single indivisible sentence (no sentence boundary the trimmer could drop)
+        at 80 words against a maximum_append_words of 79 - exactly 1 word over. The
+        resulting section (100 + 80 = 180... use a spec where it still clears the
+        hard maximum) is accepted as-is instead of failing the whole repair."""
+        install_attempt10_append_bound_recovery()
+        spec = dict(self._spec())
+        spec["current_words"] = 90
+        spec["hard_section_band"] = [110, 170]
+        spec["maximum_append_words"] = 79
+        text = " ".join(["إضافة"] * 80)  # one indivisible run, no sentence boundary
+        additions = {"sec_8": text}
+
+        append_guard._validate_addition_bounds(additions, [spec], aggregate_headroom=200)
+
+        self.assertEqual(additions["sec_8"], text)
+        self.assertEqual(append_guard._word_count(additions["sec_8"]), 80)
+
+    def test_run98_narrow_overage_still_fails_closed_if_it_would_exceed_hard_section_maximum(self) -> None:
+        install_attempt10_append_bound_recovery()
+        spec = dict(self._spec())
+        spec["current_words"] = 100
+        spec["hard_section_band"] = [110, 170]
+        spec["maximum_append_words"] = 71
+        # 100 + 72 = 172 > hard maximum 170: a 1-word overage that would still
+        # breach the real hard section band must still fail closed.
+        text = " ".join(["إضافة"] * 72)
+        additions = {"sec_8": text}
+
+        with self.assertRaisesRegex(RuntimeError, "maximum allowed"):
+            append_guard._validate_addition_bounds(additions, [spec], aggregate_headroom=200)
+
+    def test_run98_narrow_overage_tolerance_does_not_extend_to_large_overages(self) -> None:
+        install_attempt10_append_bound_recovery()
+        spec = self._spec()
+        # 75 words against a maximum of 35 is far outside the narrow tolerance and
+        # has no sentence boundary at all - must still fail closed exactly as before.
+        additions = {"sec_8": " ".join(["إضافة"] * 75)}
+
+        with self.assertRaisesRegex(RuntimeError, "maximum allowed"):
+            append_guard._validate_addition_bounds(additions, [spec], aggregate_headroom=200)
+
+    def test_accept_narrow_indivisible_overage_helper_boundaries(self) -> None:
+        from scripts.attempt10_append_bound_recovery import _accept_narrow_indivisible_overage
+
+        # Exactly at the tolerance boundary (2 words over) and within section maximum.
+        self.assertTrue(
+            _accept_narrow_indivisible_overage(
+                " ".join(["كلمة"] * 37),
+                current_words=100,
+                section_maximum=170,
+                maximum_append_words=35,
+            )
+        )
+        # One word past the tolerance boundary.
+        self.assertFalse(
+            _accept_narrow_indivisible_overage(
+                " ".join(["كلمة"] * 38),
+                current_words=100,
+                section_maximum=170,
+                maximum_append_words=35,
+            )
+        )
+        # Within tolerance but breaches the true hard section maximum.
+        self.assertFalse(
+            _accept_narrow_indivisible_overage(
+                " ".join(["كلمة"] * 37),
+                current_words=134,
+                section_maximum=170,
+                maximum_append_words=35,
+            )
+        )
+        # Not actually over the budget at all.
+        self.assertFalse(
+            _accept_narrow_indivisible_overage(
+                " ".join(["كلمة"] * 35),
+                current_words=100,
+                section_maximum=170,
+                maximum_append_words=35,
+            )
+        )
