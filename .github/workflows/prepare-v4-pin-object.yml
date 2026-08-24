@@ -39,11 +39,11 @@ jobs:
           path = Path('.github/workflows/produce-resilient-v4.yml')
           text = path.read_text(encoding='utf-8')
           count = text.count(old)
-          if count != 2:
-              raise SystemExit(f'Expected exactly 2 old V4 engine pins, found {count}')
+          if count != 3:
+              raise SystemExit(f'Expected exactly 3 old V4 engine pins, found {count}')
           updated = text.replace(old, new)
-          if updated.count(new) != 2:
-              raise SystemExit('Updated V4 engine pin count is not exactly 2')
+          if updated.count(new) != 3:
+              raise SystemExit('Updated V4 engine pin count is not exactly 3')
 
           base_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           base_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
@@ -83,5 +83,5 @@ jobs:
           })
           print(f'BASE_COMMIT_SHA={base_commit}')
           print(f'PREPARED_COMMIT_SHA={commit["sha"]}')
-          print('Prepared diff: exactly two SHA replacements')
+          print('Prepared diff: exactly three SHA replacements')
           PY
