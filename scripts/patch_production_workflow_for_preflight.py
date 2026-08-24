@@ -6,6 +6,18 @@ from pathlib import Path
 PATH = Path(".github/workflows/produce-resilient-v4.yml")
 
 
+def transition(text: str, old: str, new: str) -> str:
+    old_count = text.count(old)
+    new_count = text.count(new)
+    if old_count == 1 and new_count == 0:
+        return text.replace(old, new, 1)
+    if old_count == 0 and new_count == 1:
+        return text
+    raise RuntimeError(
+        f"workflow transition ambiguous old={old_count} new={new_count}: {old[:80]!r}"
+    )
+
+
 def replace_once(text: str, old: str, new: str) -> str:
     count = text.count(old)
     if count != 1:
@@ -15,20 +27,28 @@ def replace_once(text: str, old: str, new: str) -> str:
 
 def main() -> None:
     text = PATH.read_text(encoding="utf-8")
-    text = replace_once(text, "    runs-on: ubuntu-latest\n", "    runs-on: ubuntu-24.04\n")
-    text = replace_once(
+    text = transition(text, "    runs-on: ubuntu-latest\n", "    runs-on: ubuntu-24.04\n")
+    text = transition(
         text,
         "      - name: Checkout private engine\n",
         "      - name: Verify exact Runner checkout\n"
         "        run: test \"$(git rev-parse HEAD)\" = \"$GITHUB_SHA\"\n\n"
         "      - name: Checkout private engine\n",
     )
-    text = replace_once(
+    text = transition(
         text,
         "          python -m pip install 'piper-tts==1.4.2'\n",
         "          python -m pip install 'piper-tts==1.4.2'\n"
         "          python -m pip check # post-piper-certification\n",
     )
+    text = transition(
+        text,
+        "      - name: Verify local voice fallback before cloud production\n",
+        "      - name: Require healthy restored cross-run memory\n"
+        "        run: test \"${{ steps.restore_state.outputs.save_allowed }}\" = \"true\"\n\n"
+        "      - name: Verify local voice fallback before cloud production\n",
+    )
+
     old_provider = '''      - name: Verify free provider authentication
         id: verify_providers
         env:
@@ -47,9 +67,11 @@ def main() -> None:
           print("Groq auth OK; Pixabay auth OK")
           PY
 '''
-    new_provider = '''      - name: Verify complete provider and environment readiness
+    new_provider = '''      # Release namespace preflight: existing release tag blocks this run before production.
+      - name: Verify complete provider and environment readiness
         id: verify_providers
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
           GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
           OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
@@ -70,15 +92,67 @@ def main() -> None:
             --pexels-key-file "$PEXELS_API_KEY_FILE" \\
             --pixabay-key-file "$PIXABAY_API_KEY_FILE"
 '''
-    text = replace_once(text, old_provider, new_provider)
-    # The environment preflight includes the Release namespace guard and emits this
-    # stable phrase in source/tests so static certification can detect its presence.
-    text = replace_once(
+    text = transition(text, old_provider, new_provider)
+
+    text = transition(
         text,
-        "      - name: Verify complete provider and environment readiness\n",
-        "      # Release namespace preflight: existing release tag blocks this run before production.\n"
-        "      - name: Verify complete provider and environment readiness\n",
+        "            engine/output/*/delivery-manifest.json\n",
+        "            engine/output/*/delivery-manifest.json\n"
+        "            ${{ runner.temp }}/provider-preflight.json\n"
+        "            ${{ runner.temp }}/preproduction-environment.json\n",
     )
+
+    text = transition(
+        text,
+        "      - name: Persist approved encrypted cross-run memory\n"
+        "        id: persist_state\n"
+        "        if: success() && steps.publish_approval.outputs.effective_decision == 'approved' && steps.restore_state.outputs.save_allowed == 'true'\n"
+        "        continue-on-error: true\n",
+        "      - name: Persist approved encrypted cross-run memory\n"
+        "        id: persist_state\n"
+        "        if: success() && steps.publish_approval.outputs.effective_decision == 'approved' && steps.restore_state.outputs.save_allowed == 'true'\n",
+    )
+    text = transition(
+        text,
+        "          python scripts/persistent_memory.py persist \\\n"
+        "            --repo state-writer \\\n"
+        "            --encrypted \"$encrypted\" \\\n"
+        "            --branch agent-state \\\n"
+        "            --run-number \"$GITHUB_RUN_NUMBER\"\n",
+        "          python scripts/state_persistence_strict.py \\\n"
+        "            --repo state-writer \\\n"
+        "            --encrypted \"$encrypted\" \\\n"
+        "            --branch agent-state \\\n"
+        "            --run-number \"$GITHUB_RUN_NUMBER\" \\\n"
+        "            --report \"$RUNNER_TEMP/state-persistence.json\"\n",
+    )
+
+    text = transition(
+        text,
+        "      - name: Notify Telegram\n",
+        "      - name: Upload state closure diagnostics\n"
+        "        if: always() && steps.persist_state.outcome == 'failure'\n"
+        "        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a\n"
+        "        with:\n"
+        "          name: isco-state-closure-${{ github.run_number }}\n"
+        "          path: ${{ runner.temp }}/state-persistence.json\n"
+        "          if-no-files-found: warn\n"
+        "          retention-days: 7\n\n"
+        "      - name: Notify Telegram\n",
+    )
+    text = transition(
+        text,
+        "          CREATE_RELEASE_OUTCOME: ${{ steps.create_release.outcome }}\n",
+        "          CREATE_RELEASE_OUTCOME: ${{ steps.create_release.outcome }}\n"
+        "          PERSIST_STATE_OUTCOME: ${{ steps.persist_state.outcome }}\n",
+    )
+    text = transition(
+        text,
+        "              \"Create release:${CREATE_RELEASE_OUTCOME}\"\n",
+        "              \"Create release:${CREATE_RELEASE_OUTCOME}\" \\\n"
+        "              \"Persist accepted state:${PERSIST_STATE_OUTCOME}\"\n",
+    )
+
     PATH.write_text(text, encoding="utf-8")
 
 
