@@ -52,6 +52,12 @@ _FAILURE_POLICIES: tuple[tuple[tuple[str, ...], FailurePolicy], ...] = (
 )
 
 
+_MANIFEST_WRAPPER_ORIGINAL_ATTRS = (
+    "_isco_release_transaction_original",
+    "_isco_canonical_v4_original",
+)
+
+
 def classify_failure(exc: BaseException) -> FailurePolicy:
     detail = f"{type(exc).__name__}: {exc}".lower()
     for markers, policy in _FAILURE_POLICIES:
@@ -96,6 +102,33 @@ def production_entrypoint_modules() -> list[object]:
         if same_file and main_module is not package_module:
             modules.append(main_module)
     return modules
+
+
+def manifest_wrapper_chain_has_marker(value: object, marker: str) -> bool:
+    """Detect one manifest guard anywhere in the known wrapper chain.
+
+    Runtime closure is intentionally safe to call more than once. The release guard
+    sits outside the canonical-bundle guard, so checking only the outer callable loses
+    the inner marker and alternately stacks both wrappers on each reinstall. Follow the
+    explicit original links instead; cycles or unknown wrapper shapes fail closed by
+    returning False rather than looping forever.
+    """
+    current = value
+    seen: set[int] = set()
+    while callable(current) and id(current) not in seen:
+        if getattr(current, marker, False):
+            return True
+        seen.add(id(current))
+        next_value = None
+        for attr in _MANIFEST_WRAPPER_ORIGINAL_ATTRS:
+            candidate = getattr(current, attr, None)
+            if callable(candidate) and candidate is not current:
+                next_value = candidate
+                break
+        if next_value is None:
+            return False
+        current = next_value
+    return False
 
 
 def _artifact_presence(out_dir: Path) -> list[str]:
@@ -273,7 +306,7 @@ def install_release_transaction_guard() -> None:
             setattr(production, "run_gold_enforce_phase4", wrapped_gold)
 
         current_manifest = getattr(production, "_write_production_manifest")
-        if not getattr(current_manifest, "_isco_release_transaction_delivery", False):
+        if not manifest_wrapper_chain_has_marker(current_manifest, "_isco_release_transaction_delivery"):
             def make_manifest_wrapper(current):
                 def guarded_manifest(out: Path, *, production_id: str, fmt: str):
                     out = Path(out)
