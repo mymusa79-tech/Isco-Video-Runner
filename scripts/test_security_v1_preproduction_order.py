@@ -17,7 +17,7 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
 
     def test_approved_brief_gate_precedes_install_state_and_provider_secrets(self) -> None:
         gate = self.text.index("- name: Validate approved brief before secret materialization")
-        install = self.text.index("- name: Install locked engine and local voice fallback")
+        install = self.text.index("- name: Install locked engine and verified local voice fallback")
         restore = self.text.index("- name: Restore encrypted cross-run memory")
         materialize = self.text.index("- name: Materialize approved production secrets")
         providers = self.text.index("- name: Verify free provider authentication")
