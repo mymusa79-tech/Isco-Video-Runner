@@ -12,7 +12,10 @@ import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.thumbnail as thumbnail
 from isco_video_agent.brief_approval_binding import verify_brief_approval
 from isco_video_agent.model_output_schemas import (
+    ModelOutputSchemaError,
+    VISUAL_QUERY_MAX_LENGTH,
     validate_alternate_visual_query,
+    validate_cross_provider_text,
     validate_visual_query,
 )
 from isco_video_agent.multimodal_firewall import (
@@ -24,6 +27,8 @@ from isco_video_agent.research_quarantine import ResearchQuarantineExtractor
 
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _VIDEO_SUFFIXES = frozenset({".mp4", ".mov", ".mkv", ".webm", ".m4v"})
+_PLAIN_STOCK_QUERY_RE = re.compile(r"^[A-Za-z0-9]+(?:[ '-][A-Za-z0-9]+)*$")
+_REPEATED_STOCK_SEPARATOR_RE = re.compile(r"(?: {2,}|--|''| -|- | '|' )")
 _INSTALLED = False
 
 
@@ -56,6 +61,59 @@ def _validated_visual_query(value: object) -> str:
 
 def _validated_alternate_query(value: object) -> str:
     return validate_alternate_visual_query(value).as_downstream_data()
+
+
+def _normalized_stock_query(value: object, *, alternate: bool = False) -> str:
+    """Normalize only the safe-overlong stock-query failure class.
+
+    Run #106 showed that a semantically valid plain-English stock query can exceed the
+    strict 80-character model-output contract before it reaches Pexels/Pixabay. The
+    security boundary remains authoritative: every query that already validates is
+    returned byte-for-byte unchanged, and every failure other than `visual_query_too_long`
+    remains a hard failure.
+
+    For the one recoverable length case, validate the *entire original value* through
+    the cross-provider injection firewall first, then additionally require the full
+    value to be ASCII plain-search syntax. Only after those checks do we shorten at a
+    word boundary to the existing 80-character ceiling and re-run the original visual
+    query validator. This prevents a malicious/non-English suffix from being hidden by
+    truncation while avoiding a needless Production failure for a safe verbose query.
+    """
+    validator = validate_alternate_visual_query if alternate else validate_visual_query
+    try:
+        return validator(value).as_downstream_data()
+    except ModelOutputSchemaError as exc:
+        if str(exc) != "visual_query_too_long":
+            raise
+
+    # Full-value security validation MUST happen before shortening. This retains
+    # fail-closed behavior for prompt injection, URLs, role markers, shell syntax,
+    # structured markup, newlines/control chars and >240-char cross-provider text.
+    full = validate_cross_provider_text(value).as_downstream_data()
+    if not full.isascii():
+        raise ModelOutputSchemaError("visual_query_non_english_or_non_ascii_rejected")
+    if not _PLAIN_STOCK_QUERY_RE.fullmatch(full):
+        raise ModelOutputSchemaError("visual_query_not_plain_english_search_terms")
+    if _REPEATED_STOCK_SEPARATOR_RE.search(full):
+        raise ModelOutputSchemaError("visual_query_malformed_separators")
+
+    words = full.split()
+    kept: list[str] = []
+    for word in words:
+        candidate = " ".join([*kept, word])
+        if len(candidate) > VISUAL_QUERY_MAX_LENGTH:
+            break
+        kept.append(word)
+
+    shortened = " ".join(kept)
+    if not shortened:
+        raise ModelOutputSchemaError("visual_query_too_long")
+    normalized = validator(shortened).as_downstream_data()
+    print(
+        "Security V1 normalized safe overlong stock query: "
+        f"{len(full)} -> {len(normalized)} chars"
+    )
+    return normalized
 
 
 def _production_ocr(path: Path) -> str:
@@ -131,11 +189,11 @@ def _wrap_search(original: Callable[..., Any]) -> Callable[..., Any]:
 
     def wrapped(*args, **kwargs):
         if len(args) >= 2:
-            safe = _validated_visual_query(args[1])
+            safe = _normalized_stock_query(args[1])
             args = (args[0], safe, *args[2:])
         elif "query" in kwargs:
             kwargs = dict(kwargs)
-            kwargs["query"] = _validated_visual_query(kwargs["query"])
+            kwargs["query"] = _normalized_stock_query(kwargs["query"])
         else:
             raise RuntimeError("Security V1 could not locate stock-search query")
         return original(*args, **kwargs)
@@ -183,6 +241,8 @@ def install_security_v1_live_binding() -> None:
     orchestrator.compact_signals = _quarantined_market_signals
 
     # All stock-provider queries, including model-generated alternate queries, cross a strict schema gate.
+    # Safe-but-overlong plain-English queries are shortened deterministically at this
+    # one boundary before provider access; unsafe content still fails closed.
     orchestrator.pexels_search_videos = _wrap_search(orchestrator.pexels_search_videos)
     orchestrator.pixabay_provider.search_videos = _wrap_search(orchestrator.pixabay_provider.search_videos)
     thumbnail.search_photos = _wrap_search(thumbnail.search_photos)
@@ -191,7 +251,7 @@ def install_security_v1_live_binding() -> None:
     current_alt = orchestrator.suggest_alternate_visual_query
     if not getattr(current_alt, "_isco_security_v1_alt_query", False):
         def secured_alt_query(*args, **kwargs):
-            return _validated_alternate_query(current_alt(*args, **kwargs))
+            return _normalized_stock_query(current_alt(*args, **kwargs), alternate=True)
 
         secured_alt_query._isco_security_v1_alt_query = True
         secured_alt_query._isco_security_v1_original = current_alt
