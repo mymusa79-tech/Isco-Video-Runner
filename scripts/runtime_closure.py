@@ -13,7 +13,11 @@ from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
-from scripts.runtime_reliability import install_core_reliability_guard
+from scripts.runtime_reliability import (
+    install_core_reliability_guard,
+    install_release_transaction_guard,
+    install_telemetry_reliability_binding,
+)
 from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.sfx_live_binding import install_sfx_live_binding
 
@@ -72,9 +76,9 @@ def install_canonical_v4_bundle_post_manifest() -> None:
 
 def install_runtime_closure() -> None:
     """Install bounded production recovery plus cinematic and delivery stages."""
-    # Order is deliberate. Provider/schema/content retry owners are installed first;
-    # the reliability wrapper is installed around Engine produce but checks contracts
-    # only when produce is actually called, after the later Runner installers finish.
+    # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
+    # Release journaling is installed AFTER the canonical bundle wrapper so
+    # `delivery_complete` means manifest + sibling-Short bundle have both returned.
     install_attempt10_append_bound_recovery()
     install_bounded_output_recovery()
     install_schema_repair_policy()
@@ -88,6 +92,8 @@ def install_runtime_closure() -> None:
     install_cta_live_binding()
     install_narrative_music_dynamics()
     install_canonical_v4_bundle_post_manifest()
+    install_release_transaction_guard()
+    install_telemetry_reliability_binding()
 
 
 def run_post_gold_observers(output_dir: Path) -> dict:
