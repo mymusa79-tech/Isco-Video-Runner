@@ -10,6 +10,7 @@ from pathlib import Path
 import isco_video_agent.opening_director as opening_director
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
+from isco_video_agent.security import safe_error
 import scripts.append_retry_guard as append_guard
 import scripts.task_level_planner_router as planner_router
 
@@ -39,13 +40,13 @@ _FAILURE_POLICIES: tuple[tuple[tuple[str, ...], FailurePolicy], ...] = (
     (("429", "quota", "rate limit"), FailurePolicy(FailureClass.PROVIDER_OVERLOAD, True, "provider_router")),
     (("timeout", "timed out", "connection", "network", "http 500", "http 502", "http 503", "http 504"), FailurePolicy(FailureClass.TRANSIENT_PROVIDER, True, "provider_router")),
     (("401", "403", "unauthorized", "forbidden", "authentication", "invalid api key", "bad request", "invalid argument"), FailurePolicy(FailureClass.PERMANENT_CONFIG, False, "preflight_or_provider_router")),
-    (("invalid json", "complete json object", "schema", "missing id", "duplicated section id", "exact section ids"), FailurePolicy(FailureClass.SCHEMA_INVALID, True, "schema_repair")),
-    (("under_section_floor", "over_section_ceiling", "over_max_append", "aggregate_overflow", "required final section band"), FailurePolicy(FailureClass.SEMANTIC_INVALID, True, "bounded_output_recovery")),
+    (("invalid json", "complete json object", "outline_schema_invalid", "missing id", "duplicated section id", "exact section ids"), FailurePolicy(FailureClass.SCHEMA_INVALID, True, "schema_repair")),
+    (("under_section_floor", "over_section_ceiling", "over_max_append", "aggregate_overflow", "required final section band", "pre-tts duration contract failed", "under-length", "underlength"), FailurePolicy(FailureClass.SEMANTIC_INVALID, True, "bounded_output_recovery")),
     (("ai budget authorization denied", "budget exhausted", "provider_attempt_hard_cap"), FailurePolicy(FailureClass.BUDGET_EXHAUSTED, False, "budget_ledger")),
-    (("no safe/relevant candidate", "fewer than three distinct", "could not assemble enough distinct", "no downloadable"), FailurePolicy(FailureClass.RESOURCE_UNAVAILABLE, True, "visual_recovery")),
-    (("runtime contract", "router is not installed", "invariant failed", "installer"), FailurePolicy(FailureClass.RUNTIME_CONTRACT, False, "runtime_preflight")),
-    (("ffmpeg", "ffprobe", "media", "audio", "video", "mux", "decode", "duration contract"), FailurePolicy(FailureClass.MEDIA_FAILURE, False, "media_pipeline")),
-    (("quality gate", "editorial room gate", "factuality", "tone/naturalness", "content-quality", "anti-repetition", "sensitive topic"), FailurePolicy(FailureClass.QUALITY_BLOCK, False, "quality_gate")),
+    (("no safe/relevant candidate", "fewer than three distinct", "could not assemble enough distinct", "no downloadable", "opening_sequence_unavailable"), FailurePolicy(FailureClass.RESOURCE_UNAVAILABLE, True, "visual_recovery")),
+    (("runtime contract", "router is not installed", "invariant failed", "installer order"), FailurePolicy(FailureClass.RUNTIME_CONTRACT, False, "runtime_preflight")),
+    (("ffmpeg", "ffprobe", "decode failed", "mux failed", "av sync", "final master qc", "audio mastering failed", "render failed"), FailurePolicy(FailureClass.MEDIA_FAILURE, False, "media_pipeline")),
+    (("quality gate", "editorial room gate", "factuality", "tone/naturalness", "content-quality", "content_quality", "anti-repetition", "sensitive topic"), FailurePolicy(FailureClass.QUALITY_BLOCK, False, "quality_gate")),
 )
 
 
@@ -114,8 +115,7 @@ def write_failure_envelope(
         "failure_class": policy.failure_class.value,
         "retryable": policy.retryable,
         "recovery_owner": policy.owner,
-        "exception_type": type(exc).__name__,
-        "detail": str(exc).replace("\n", " ")[:500],
+        "safe_error": safe_error(exc),
         "runner_sha": (os.environ.get("GITHUB_SHA") or "").strip() or None,
         "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "").strip() or None,
         "github_run_id": (os.environ.get("GITHUB_RUN_ID") or "").strip() or None,
@@ -142,7 +142,7 @@ def write_release_transaction(
         "at": datetime.now(timezone.utc).isoformat(),
     }
     if exc is not None:
-        event["exception_type"] = type(exc).__name__
+        event["safe_error"] = safe_error(exc)
     history = [item for item in history[-15:] if isinstance(item, dict)] + [event]
     payload = {
         "schema_version": 1,
