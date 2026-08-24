@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: a1eea541c8ec36b0c701093793c730ffcc53b03b
+          ref: 39d4a0ea613cf266c7b4c561acb4a01216909cd9
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -41,7 +41,7 @@ jobs:
 
       - name: Verify exact Engine pin
         working-directory: engine
-        run: test "$(git rev-parse HEAD)" = "a1eea541c8ec36b0c701093793c730ffcc53b03b"
+        run: test "$(git rev-parse HEAD)" = "39d4a0ea613cf266c7b4c561acb4a01216909cd9"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         id: setup_python
@@ -260,7 +260,7 @@ jobs:
           YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
           YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
           YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
-          ISCO_ENGINE_SHA: a1eea541c8ec36b0c701093793c730ffcc53b03b
+          ISCO_ENGINE_SHA: 39d4a0ea613cf266c7b4c561acb4a01216909cd9
           ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
           ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
           TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token
