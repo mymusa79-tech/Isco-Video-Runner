@@ -24,15 +24,38 @@ class ProviderFailureTaxonomyTests(unittest.TestCase):
         self.assertTrue(failure.open_circuit)
 
     def test_non_groq_413_does_not_expand_circuit_policy(self) -> None:
-        failure = classify_provider_failure("openrouter-free-router", RuntimeError("HTTP 413 payload too large"))
+        failure = classify_provider_failure(
+            "openrouter-free-router", RuntimeError("HTTP 413 payload too large")
+        )
         self.assertEqual(failure.telemetry_result, "payload_too_large")
         self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
         self.assertFalse(failure.open_circuit)
 
+    def test_auth_and_bad_request_are_session_permanent(self) -> None:
+        cases = [
+            ("HTTP 401 Unauthorized", "auth_error"),
+            ("HTTP 403 Forbidden", "auth_error"),
+            ("HTTP 400 Bad Request", "bad_request"),
+            ("invalid argument: response_format", "bad_request"),
+        ]
+        for detail, result in cases:
+            with self.subTest(detail=detail):
+                failure = classify_provider_failure("gemini", RuntimeError(detail))
+                self.assertEqual(failure.telemetry_result, result)
+                self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
+                self.assertTrue(failure.open_circuit)
+
     def test_schema_truncation_timeout_and_network_have_one_mapping(self) -> None:
         cases = [
             ("Provider returned invalid JSON", "invalid_json", AttemptOutcome.SCHEMA_INVALID),
+            ("GEMINI_EMPTY_OUTPUT", "invalid_json", AttemptOutcome.SCHEMA_INVALID),
+            ("MALFORMED_FUNCTION_CALL", "invalid_json", AttemptOutcome.SCHEMA_INVALID),
             ("premature response", "premature_response", AttemptOutcome.TRUNCATED),
+            (
+                "GEMINI_INTERACTION_INCOMPLETE_MAX_TOKENS",
+                "premature_response",
+                AttemptOutcome.TRUNCATED,
+            ),
             ("request timed out", "timeout", AttemptOutcome.TIMEOUT),
             ("network connection reset", "network_error", AttemptOutcome.NETWORK_ERROR),
         ]
@@ -42,6 +65,27 @@ class ProviderFailureTaxonomyTests(unittest.TestCase):
                 self.assertEqual(failure.telemetry_result, telemetry_result)
                 self.assertEqual(failure.budget_outcome, budget_outcome)
                 self.assertFalse(failure.open_circuit)
+
+    def test_provider_semantic_blocks_are_not_technical_failures(self) -> None:
+        for detail in (
+            "SAFETY",
+            "RECITATION",
+            "BLOCKLIST",
+            "PROHIBITED_CONTENT",
+            "SPII",
+            "MODEL_ARMOR",
+        ):
+            with self.subTest(detail=detail):
+                failure = classify_provider_failure("gemini", RuntimeError(detail))
+                self.assertEqual(failure.telemetry_result, "content_blocked")
+                self.assertEqual(failure.budget_outcome, AttemptOutcome.CONTENT_BLOCKED)
+                self.assertFalse(failure.open_circuit)
+
+    def test_server_errors_are_explicit_but_not_session_permanent(self) -> None:
+        failure = classify_provider_failure("gemini", RuntimeError("HTTP 503 server error"))
+        self.assertEqual(failure.telemetry_result, "server_error")
+        self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
+        self.assertFalse(failure.open_circuit)
 
     def test_unknown_failure_is_other_and_non_permanent(self) -> None:
         failure = classify_provider_failure("groq", RuntimeError("unexpected provider failure"))

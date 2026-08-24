@@ -15,11 +15,12 @@ class ProviderFailure:
 
 
 def classify_provider_failure(provider_name: str, error: Exception | str) -> ProviderFailure:
-    """Classify a provider failure once, preserving current circuit policy.
+    """Classify a provider failure once, preserving one retry/fallback owner.
 
-    The category names are stable Runner telemetry values. BudgetLedger keeps its
-    existing provider-neutral AttemptOutcome enum, so payload-too-large remains OTHER
-    there while still becoming explicit in planning telemetry.
+    Categories are stable Runner telemetry values. Session-permanent provider/config
+    failures open that provider's circuit for the rest of the run. Output-shape and
+    truncation failures remain eligible for another provider, while semantic content
+    blocks are recorded distinctly from technical failures.
     """
 
     detail = str(error)
@@ -39,16 +40,54 @@ def classify_provider_failure(provider_name: str, error: Exception | str) -> Pro
             normalized_provider == "groq",
         )
 
-    if "invalid json" in lower or "complete json object" in lower:
-        return ProviderFailure("invalid_json", AttemptOutcome.SCHEMA_INVALID, False)
+    if (
+        "401" in detail
+        or "403" in detail
+        or "unauthorized" in lower
+        or "forbidden" in lower
+        or "authentication" in lower
+        or "invalid api key" in lower
+    ):
+        return ProviderFailure("auth_error", AttemptOutcome.OTHER, True)
 
-    if "premature" in lower or "truncated" in lower:
+    if "http 400" in lower or "bad request" in lower or "invalid argument" in lower:
+        return ProviderFailure("bad_request", AttemptOutcome.OTHER, True)
+
+    if (
+        "gemini_interaction_incomplete" in lower
+        or "max_tokens" in lower
+        or "max tokens" in lower
+        or "premature" in lower
+        or "truncated" in lower
+    ):
         return ProviderFailure("premature_response", AttemptOutcome.TRUNCATED, False)
+
+    if (
+        "safety" in lower
+        or "recitation" in lower
+        or "blocklist" in lower
+        or "prohibited_content" in lower
+        or "prohibited content" in lower
+        or "spii" in lower
+        or "model_armor" in lower
+    ):
+        return ProviderFailure("content_blocked", AttemptOutcome.CONTENT_BLOCKED, False)
+
+    if (
+        "invalid json" in lower
+        or "complete json object" in lower
+        or "gemini_empty_output" in lower
+        or "malformed_function_call" in lower
+    ):
+        return ProviderFailure("invalid_json", AttemptOutcome.SCHEMA_INVALID, False)
 
     if "timeout" in lower or "timed out" in lower:
         return ProviderFailure("timeout", AttemptOutcome.TIMEOUT, False)
 
     if "connection" in lower or "network" in lower:
         return ProviderFailure("network_error", AttemptOutcome.NETWORK_ERROR, False)
+
+    if any(code in detail for code in ("500", "502", "503", "504")) or "server error" in lower:
+        return ProviderFailure("server_error", AttemptOutcome.OTHER, False)
 
     return ProviderFailure("other", AttemptOutcome.OTHER, False)
