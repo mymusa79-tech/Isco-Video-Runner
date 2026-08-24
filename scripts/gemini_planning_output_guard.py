@@ -11,6 +11,7 @@ _JSON_OBJECT_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
 }
+_JSON_ONLY_SUFFIX = "\nReturn ONLY one complete valid JSON object. No markdown fences or commentary."
 
 
 def _status_value(value: object) -> str:
@@ -43,7 +44,7 @@ def _guarded_gemini_json_text(
 
     interaction = client.interactions.create(
         model=gemini_provider._content_model(model),
-        input=enriched,
+        input=enriched + _JSON_ONLY_SUFFIX,
         **kwargs,
     )
     status = _status_value(getattr(interaction, "status", None))
