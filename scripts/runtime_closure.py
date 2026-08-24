@@ -17,6 +17,7 @@ from scripts.runtime_reliability import (
     install_core_reliability_guard,
     install_release_transaction_guard,
     install_telemetry_reliability_binding,
+    manifest_wrapper_chain_has_marker,
     production_entrypoint_modules,
 )
 from scripts.schema_repair_policy import install_schema_repair_policy
@@ -53,7 +54,7 @@ def install_canonical_v4_bundle_post_manifest() -> None:
     """Bind unified long+Short delivery in package imports and the real script entrypoint."""
     for production in production_entrypoint_modules():
         current = getattr(production, "_write_production_manifest")
-        if getattr(current, "_isco_canonical_v4_bundle", False):
+        if manifest_wrapper_chain_has_marker(current, "_isco_canonical_v4_bundle"):
             continue
 
         def make_wrapper(original):
