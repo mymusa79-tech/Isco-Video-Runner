@@ -172,6 +172,40 @@ class Run92OpeningFeasibilityGuardTests(unittest.TestCase):
         self.assertEqual(calls[0], ("wooden table sunlit room empty notebook", STOCK_CANDIDATE_POOL))
         self.assertEqual(calls[1], ("forest road", 7))
 
+    def test_run93_guard_shortens_before_a_previously_installed_length_validator(self) -> None:
+        """Regression for Run #93: the guard must wrap AROUND Security V1, not be wrapped
+        BY it. Security V1's real stock-search wrapper validates query length before
+        calling the original function. When it is installed first (as
+        install_m7_live_binding() does as a side effect) and this guard installs after,
+        the guard must become the outer layer so its shortening runs before that
+        validator ever sees the long original query - otherwise a long human-subject
+        opening query is rejected as visual_query_too_long before it can be shortened.
+        """
+        import isco_video_agent.orchestrator as orchestrator
+
+        calls: list[str] = []
+
+        def fake_pexels(_key, query, orientation="landscape", per_page=15):
+            calls.append(query)
+            return []
+
+        max_allowed_length = 40
+
+        def validating_wrapper(*args, **kwargs):
+            query = args[1] if len(args) >= 2 else kwargs["query"]
+            if len(str(query)) > max_allowed_length:
+                raise RuntimeError("visual_query_too_long")
+            return fake_pexels(*args, **kwargs)
+
+        original = "person sitting by wooden table in sunlit room looking pensively at empty notebook"
+        self.assertGreater(len(original), max_allowed_length)
+
+        with patch.object(orchestrator, "pexels_search_videos", validating_wrapper):
+            _install_stock_search_wrappers()
+            orchestrator.pexels_search_videos("key", original, orientation="landscape", per_page=12)
+
+        self.assertEqual(calls, ["wooden table sunlit room empty notebook"])
+
 
 if __name__ == "__main__":
     unittest.main()

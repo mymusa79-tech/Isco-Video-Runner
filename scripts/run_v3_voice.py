@@ -16,6 +16,7 @@ from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.final_master_qc import run_final_master_qc
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.m7_live_binding import install_m7_live_binding
+from scripts.opening_feasibility_guard import install_opening_feasibility_guard
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
@@ -203,6 +204,14 @@ def main() -> None:
     install_voice_mesh()
     install_voice_identity_observer()
     install_m7_live_binding()
+    # Run #93: install_m7_live_binding() installs Security V1 (its length-validating
+    # stock-search wrapper) as a side effect. The opening feasibility guard must wrap
+    # AROUND that validator - not be wrapped BY it - so its query-shortening logic runs
+    # before Security V1 sees the query, not after. Explicit, ordered installation here
+    # (matching every other guard in this sequence) guarantees that regardless of
+    # module import order; the previous implicit install-on-package-import in
+    # scripts/__init__.py raced Security V1's later install and sometimes lost.
+    install_opening_feasibility_guard()
     start_progress()
     install_progress_hooks()
 
