@@ -1,0 +1,55 @@
+name: Run 107 Engine Candidate Pin Helper
+
+on:
+  push:
+    branches:
+      - fix/run107-stock-asset-decode-recovery
+
+permissions:
+  contents: write
+
+jobs:
+  pin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout candidate branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/run107-stock-asset-decode-recovery
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Replace canonical Engine pin exactly three times
+        env:
+          OLD_ENGINE_SHA: 39d4a0ea613cf266c7b4c561acb4a01216909cd9
+          NEW_ENGINE_SHA: 6af7a355a5f38d54de0440cc2e28e994b6ba2404
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+          old = os.environ['OLD_ENGINE_SHA']
+          new = os.environ['NEW_ENGINE_SHA']
+          old_count = text.count(old)
+          new_count = text.count(new)
+          if old_count == 0 and new_count == 3:
+              print('Run 107 Engine candidate pin already applied; no-op')
+              raise SystemExit(0)
+          if old_count != 3 or new_count != 0:
+              raise SystemExit(f'Unexpected V4 pin geometry: old={old_count} new={new_count}')
+          updated = text.replace(old, new)
+          if updated.count(new) != 3 or updated.count(old) != 0:
+              raise SystemExit('Run 107 Engine pin replacement did not produce exactly three pins')
+          path.write_text(updated, encoding='utf-8')
+          PY
+
+          if git diff --quiet -- .github/workflows/produce-resilient-v4.yml; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/produce-resilient-v4.yml
+          git commit -m 'ci: pin V4 to Run 107 Engine candidate'
+          git push origin HEAD:fix/run107-stock-asset-decode-recovery
