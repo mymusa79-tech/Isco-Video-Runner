@@ -1,4 +1,4 @@
-name: Run 107 Engine Candidate Pin Helper
+name: Run 107 Engine Merge Pin Helper
 
 on:
   pull_request:
@@ -19,10 +19,10 @@ jobs:
           persist-credentials: true
           fetch-depth: 1
 
-      - name: Replace canonical Engine pin exactly three times
+      - name: Replace candidate Engine pin with merged Engine commit exactly three times
         env:
-          OLD_ENGINE_SHA: 39d4a0ea613cf266c7b4c561acb4a01216909cd9
-          NEW_ENGINE_SHA: 6af7a355a5f38d54de0440cc2e28e994b6ba2404
+          OLD_ENGINE_SHA: 6af7a355a5f38d54de0440cc2e28e994b6ba2404
+          NEW_ENGINE_SHA: 940ed205535ec06eb2a2cee3dc00819e961479ae
           HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
@@ -37,13 +37,13 @@ jobs:
           old_count = text.count(old)
           new_count = text.count(new)
           if old_count == 0 and new_count == 3:
-              print('Run 107 Engine candidate pin already applied; no-op')
+              print('Merged Engine pin already applied; no-op')
               raise SystemExit(0)
           if old_count != 3 or new_count != 0:
               raise SystemExit(f'Unexpected V4 pin geometry: old={old_count} new={new_count}')
           updated = text.replace(old, new)
           if updated.count(new) != 3 or updated.count(old) != 0:
-              raise SystemExit('Run 107 Engine pin replacement did not produce exactly three pins')
+              raise SystemExit('Merged Engine pin replacement did not produce exactly three pins')
           path.write_text(updated, encoding='utf-8')
           PY
 
@@ -53,5 +53,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add .github/workflows/produce-resilient-v4.yml
-          git commit -m 'ci: pin V4 to Run 107 Engine candidate'
+          git commit -m 'ci: pin V4 to merged Run 107 Engine fix'
           git push origin HEAD:"$HEAD_BRANCH"
