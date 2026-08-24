@@ -46,22 +46,24 @@ def _binary(name: str) -> str:
     return path
 
 
-def _release_namespace_status(repository: str, release_tag: str, *, timeout: int = 15) -> str:
+def _release_namespace_status(repository: str, release_tag: str, *, token: str = "", timeout: int = 15) -> str:
     url = f"https://api.github.com/repos/{repository}/releases/tags/{release_tag}"
-    response = requests.get(url, headers={"Accept": "application/vnd.github+json"}, timeout=timeout)
+    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    response = requests.get(url, headers=headers, timeout=timeout)
     if response.status_code == 404:
         return "available"
     if response.ok:
         raise RuntimeError(f"existing release tag blocks this run before production: {release_tag}")
     if response.status_code == 403:
-        # Never guess that a 403 means absence; rate limiting or policy could hide a collision.
         raise RuntimeError("release namespace preflight could not prove tag availability: HTTP 403")
     if response.status_code == 429 or 500 <= response.status_code <= 599:
         raise RuntimeError(f"release namespace preflight unavailable: HTTP {response.status_code}")
     raise RuntimeError(f"release namespace preflight failed: HTTP {response.status_code}")
 
 
-def run_environment_preflight(*, output: Path, repository: str, run_number: str) -> EnvironmentEvidence:
+def run_environment_preflight(*, output: Path, repository: str, run_number: str, github_token: str = "") -> EnvironmentEvidence:
     os_release = platform.freedesktop_os_release()
     os_version = str(os_release.get("VERSION_ID") or "")
     if os_version != EXPECTED_OS_VERSION:
@@ -75,7 +77,6 @@ def run_environment_preflight(*, output: Path, repository: str, run_number: str)
     onnxruntime = _version("onnxruntime")
     pathvalidate = _version("pathvalidate")
 
-    # pip check happens after Piper has mutated the environment, not before it.
     check = subprocess.run([sys.executable, "-m", "pip", "check"], text=True, capture_output=True)
     if check.returncode != 0:
         raise RuntimeError("post-Piper dependency graph is inconsistent")
@@ -84,7 +85,7 @@ def run_environment_preflight(*, output: Path, repository: str, run_number: str)
     ffprobe = _binary("ffprobe")
     tesseract = _binary("tesseract")
     release_tag = f"video-{run_number}"
-    release_namespace = _release_namespace_status(repository, release_tag)
+    release_namespace = _release_namespace_status(repository, release_tag, token=github_token)
 
     evidence = EnvironmentEvidence(
         os_version=os_version,
@@ -111,7 +112,12 @@ def main() -> None:
     if not repository or not run_number:
         raise RuntimeError("GitHub run identity is required for production environment preflight")
     output = Path(os.environ.get("RUNNER_TEMP") or ".") / "preproduction-environment.json"
-    evidence = run_environment_preflight(output=output, repository=repository, run_number=run_number)
+    evidence = run_environment_preflight(
+        output=output,
+        repository=repository,
+        run_number=run_number,
+        github_token=(os.environ.get("GITHUB_TOKEN") or "").strip(),
+    )
     print(
         "Environment preflight PASS: "
         f"Ubuntu {evidence.os_version}, Python {evidence.python}, Piper {evidence.piper_tts}, "
