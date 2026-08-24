@@ -1,22 +1,36 @@
 name: Verify Piper Runtime Closure Temp
 
 on:
-  push:
-    branches: ["reliability/preproduction-certification-v2"]
+  pull_request:
+    branches: ["main"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   inspect:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - name: Checkout Runner candidate
+      - name: Checkout Runner candidate branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
+          ref: reliability/preproduction-certification-v2
+          persist-credentials: true
           fetch-depth: 1
+
+      - name: Patch canonical Production V4 deterministically
+        run: |
+          set -euo pipefail
+          python scripts/patch_production_workflow_for_preflight.py
+          python scripts/preproduction_contract.py
+          if ! git diff --quiet -- .github/workflows/produce-resilient-v4.yml; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/workflows/produce-resilient-v4.yml
+            git commit -m "chore: harden canonical V4 pre-production boundary"
+            git push origin HEAD:reliability/preproduction-certification-v2
+          fi
 
       - name: Checkout exact production Engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -49,10 +63,7 @@ jobs:
                   dist = md.distribution(name)
               except md.PackageNotFoundError:
                   continue
-              packages[name] = {
-                  "version": dist.version,
-                  "requires": sorted(dist.requires or []),
-              }
+              packages[name] = {"version": dist.version, "requires": sorted(dist.requires or [])}
           Path("piper-runtime-closure.json").write_text(json.dumps(packages, indent=2, sort_keys=True), encoding="utf-8")
           PY
           python -m pip freeze --all > piper-runtime-freeze.txt
