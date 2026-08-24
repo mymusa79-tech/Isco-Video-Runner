@@ -100,7 +100,7 @@ class AppendRetryGuardParserTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(RuntimeError, "maximum allowed is 6"):
             _validate_addition_bounds(
-                {"s2": "واحد اثنان ثلاثة أربعة خمسة ستة سبعة",
+                {"s2": "واحد اثنان ثلاثة أربعة خمسة ستة سبعة"},
                 specs,
                 aggregate_headroom=20,
             )
