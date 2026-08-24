@@ -1,0 +1,68 @@
+name: Verify Piper Runtime Closure Temp
+
+on:
+  push:
+    branches: ["reliability/preproduction-certification-v2"]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact production Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: cae51d6c83262de0a785e0d805462e9392909754
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Resolve Piper delta on top of exact Engine lock
+        run: |
+          set -euo pipefail
+          python -m pip install -r engine/requirements-lock.txt
+          python -m pip install 'piper-tts==1.4.2'
+          python -m pip check
+          python - <<'PY'
+          import importlib.metadata as md
+          import json
+          from pathlib import Path
+          packages = {}
+          for name in ("piper-tts", "onnxruntime", "pathvalidate", "coloredlogs", "flatbuffers", "humanfriendly", "protobuf"):
+              try:
+                  dist = md.distribution(name)
+              except md.PackageNotFoundError:
+                  continue
+              packages[name] = {
+                  "version": dist.version,
+                  "requires": sorted(dist.requires or []),
+              }
+          Path("piper-runtime-closure.json").write_text(json.dumps(packages, indent=2, sort_keys=True), encoding="utf-8")
+          PY
+          python -m pip freeze --all > piper-runtime-freeze.txt
+
+      - name: Upload closure evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: piper-runtime-closure
+          path: |
+            piper-runtime-closure.json
+            piper-runtime-freeze.txt
+          if-no-files-found: error
+          retention-days: 1
