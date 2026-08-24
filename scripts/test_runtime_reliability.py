@@ -13,6 +13,7 @@ from scripts.runtime_reliability import (
     assert_runtime_contracts,
     classify_failure,
     write_failure_envelope,
+    write_release_transaction,
 )
 
 
@@ -68,6 +69,30 @@ class RuntimeReliabilityTests(unittest.TestCase):
             self.assertEqual(data["failure_class"], "transient_provider")
             self.assertEqual(data["stage"], "core_production")
             self.assertIn("plan.json", data["artifacts_present"])
+
+    def test_release_transaction_distinguishes_gold_acceptance_from_delivery_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            old = dict(os.environ)
+            try:
+                os.environ["ISCO_PRODUCTION_ID"] = "v4:123:1"
+                write_release_transaction(out, state="gold_started")
+                write_release_transaction(out, state="gold_accepted")
+                mid = json.loads((out / "release-transaction.json").read_text(encoding="utf-8"))
+                self.assertFalse(mid["complete"])
+                self.assertEqual(mid["state"], "gold_accepted")
+                write_release_transaction(out, state="delivery_complete")
+            finally:
+                os.environ.clear()
+                os.environ.update(old)
+            final = json.loads((out / "release-transaction.json").read_text(encoding="utf-8"))
+            self.assertTrue(final["complete"])
+            self.assertEqual(final["state"], "delivery_complete")
+            self.assertEqual(
+                [event["state"] for event in final["history"]],
+                ["gold_started", "gold_accepted", "delivery_complete"],
+            )
+            self.assertFalse((out / "release-transaction.json.tmp").exists())
 
     def test_runtime_contract_detects_router_marker_loss_before_provider_call(self) -> None:
         def unmarked(*args, **kwargs):
