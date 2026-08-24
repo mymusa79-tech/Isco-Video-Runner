@@ -17,7 +17,7 @@ OPENING_ESCALATION_SECONDS = 11.0
 OPENING_PROMISE_SECONDS = 12.0
 MAX_TAIL_SHOT_SECONDS = 45.0
 MAX_ADAPTIVE_OPENING_SLOTS = 6
-MAX_ADAPTIVE_OPENING_REVIEWS = 7
+MAX_ADAPTIVE_OPENING_REVIEWS = 8
 MAX_ADAPTIVE_SECTION_REVIEWS = 5
 STOCK_CANDIDATE_POOL = 40
 
@@ -122,15 +122,13 @@ def _adaptive_review_cap(section_seconds: float) -> int:
     specs = adaptive_opening_slot_specs(section_seconds)
     if not specs:
         return opening_director.MAX_OPENING_VISION_REVIEWS
-    # Keep the legacy four-review contract for the normal three-shot opening. When
-    # the first section creates extra tail slots, reserve two semantic-rejection
-    # reviews (bounded oversampling) instead of only one. This mirrors established
-    # retrieve -> prefilter -> rerank pipelines and fixes Run #105's 3-pass/2-block
-    # dead end without weakening Vision QA or increasing the hard cap above seven.
-    rejection_headroom = 1 if len(specs) <= 3 else 2
+    # Every multi-slot opening gets two bounded semantic-rejection spares. This closes
+    # the complete Run #105 failure class rather than only its observed four-slot case:
+    # 3..6 required passing assets map to 5..8 reviews. Vision criteria stay unchanged,
+    # and the run-wide AI budget remains the final hard ceiling.
     return min(
         MAX_ADAPTIVE_OPENING_REVIEWS,
-        max(opening_director.MAX_OPENING_VISION_REVIEWS, len(specs) + rejection_headroom),
+        max(opening_director.MAX_OPENING_VISION_REVIEWS, len(specs) + 2),
     )
 
 
