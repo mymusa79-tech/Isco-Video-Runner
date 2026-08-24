@@ -1,8 +1,8 @@
 name: Verify Piper Runtime Closure Temp
 
 on:
-  pull_request:
-    branches: ["main"]
+  push:
+    branches: ["reliability/preproduction-certification-v2"]
 
 permissions:
   contents: write
