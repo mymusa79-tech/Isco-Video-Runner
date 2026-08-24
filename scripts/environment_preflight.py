@@ -16,6 +16,8 @@ import requests
 EXPECTED_OS_VERSION = "24.04"
 EXPECTED_PYTHON = (3, 12)
 EXPECTED_PIPER = "1.4.2"
+MIN_FREE_BYTES = 6 * 1024 * 1024 * 1024
+REQUIRED_FFMPEG_FILTERS = {"blackdetect", "silencedetect", "freezedetect", "loudnorm", "subtitles"}
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,13 @@ class EnvironmentEvidence:
     ffmpeg: str
     ffprobe: str
     tesseract: str
+    openssl: str
+    gh: str
+    arabic_font: str
+    free_bytes: int
+    ffmpeg_libx264: bool
+    ffmpeg_filters: list[str]
+    tesseract_arabic: bool
     release_tag: str
     release_namespace: str
 
@@ -44,6 +53,56 @@ def _binary(name: str) -> str:
     if not path:
         raise RuntimeError(f"required runtime binary missing: {name}")
     return path
+
+
+def _secret_free_env() -> dict[str, str]:
+    markers = ("TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL")
+    return {key: value for key, value in os.environ.items() if not any(marker in key.upper() for marker in markers)}
+
+
+def _run_local(args: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        args,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=timeout,
+        env=_secret_free_env(),
+    )
+
+
+def _require_command(args: list[str], *, description: str, timeout: int = 30) -> str:
+    result = _run_local(args, timeout=timeout)
+    if result.returncode != 0:
+        raise RuntimeError(f"required runtime capability failed: {description}")
+    return result.stdout + result.stderr
+
+
+def _certify_ffmpeg() -> tuple[bool, list[str]]:
+    encoders = _require_command(["ffmpeg", "-hide_banner", "-encoders"], description="ffmpeg encoders")
+    if "libx264" not in encoders:
+        raise RuntimeError("required ffmpeg encoder missing: libx264")
+    filters_raw = _require_command(["ffmpeg", "-hide_banner", "-filters"], description="ffmpeg filters")
+    missing = sorted(name for name in REQUIRED_FFMPEG_FILTERS if name not in filters_raw)
+    if missing:
+        raise RuntimeError("required ffmpeg filters missing: " + ", ".join(missing))
+    return True, sorted(REQUIRED_FFMPEG_FILTERS)
+
+
+def _certify_tesseract_arabic() -> bool:
+    languages = _require_command(["tesseract", "--list-langs"], description="Tesseract language list")
+    available = {line.strip() for line in languages.splitlines() if line.strip()}
+    if "ara" not in available:
+        raise RuntimeError("required Tesseract Arabic language data missing: ara")
+    return True
+
+
+def _certify_arabic_font() -> str:
+    result = _run_local(["fc-match", "Noto Sans Arabic", "--format=%{family}"])
+    if result.returncode != 0 or not result.stdout.strip():
+        raise RuntimeError("required Arabic font resolution failed")
+    return result.stdout.strip()[:160]
 
 
 def _release_namespace_status(repository: str, release_tag: str, *, token: str = "", timeout: int = 15) -> str:
@@ -77,13 +136,28 @@ def run_environment_preflight(*, output: Path, repository: str, run_number: str,
     onnxruntime = _version("onnxruntime")
     pathvalidate = _version("pathvalidate")
 
-    check = subprocess.run([sys.executable, "-m", "pip", "check"], text=True, capture_output=True)
+    check = _run_local([sys.executable, "-m", "pip", "check"], timeout=60)
     if check.returncode != 0:
         raise RuntimeError("post-Piper dependency graph is inconsistent")
 
     ffmpeg = _binary("ffmpeg")
     ffprobe = _binary("ffprobe")
     tesseract = _binary("tesseract")
+    openssl = _binary("openssl")
+    gh = _binary("gh")
+    _binary("fc-match")
+
+    free_bytes = shutil.disk_usage(Path.cwd()).free
+    if free_bytes < MIN_FREE_BYTES:
+        raise RuntimeError(f"insufficient free disk before production: {free_bytes} bytes")
+
+    ffmpeg_libx264, ffmpeg_filters = _certify_ffmpeg()
+    tesseract_arabic = _certify_tesseract_arabic()
+    arabic_font = _certify_arabic_font()
+    _require_command(["ffprobe", "-version"], description="ffprobe version")
+    _require_command(["openssl", "version"], description="OpenSSL")
+    _require_command(["gh", "--version"], description="GitHub CLI")
+
     release_tag = f"video-{run_number}"
     release_namespace = _release_namespace_status(repository, release_tag, token=github_token)
 
@@ -96,12 +170,19 @@ def run_environment_preflight(*, output: Path, repository: str, run_number: str,
         ffmpeg=ffmpeg,
         ffprobe=ffprobe,
         tesseract=tesseract,
+        openssl=openssl,
+        gh=gh,
+        arabic_font=arabic_font,
+        free_bytes=free_bytes,
+        ffmpeg_libx264=ffmpeg_libx264,
+        ffmpeg_filters=ffmpeg_filters,
+        tesseract_arabic=tesseract_arabic,
         release_tag=release_tag,
         release_namespace=release_namespace,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     tmp = output.with_name(output.name + ".tmp")
-    tmp.write_text(json.dumps({"schema_version": 1, **asdict(evidence)}, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps({"schema_version": 2, **asdict(evidence)}, indent=2), encoding="utf-8")
     tmp.replace(output)
     return evidence
 
@@ -121,7 +202,7 @@ def main() -> None:
     print(
         "Environment preflight PASS: "
         f"Ubuntu {evidence.os_version}, Python {evidence.python}, Piper {evidence.piper_tts}, "
-        f"release namespace {evidence.release_namespace}"
+        f"free={evidence.free_bytes}, release namespace {evidence.release_namespace}"
     )
 
 
