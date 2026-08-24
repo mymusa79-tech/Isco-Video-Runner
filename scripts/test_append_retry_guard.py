@@ -489,6 +489,138 @@ class FilmResidualSectionBandRegressionTests(unittest.TestCase):
         self.assertEqual(calls, 1)
         _RETRY_ATTEMPTED.set(False)
 
+    def test_run99_missing_target_still_short_after_completion_gets_one_more_rescue_call(
+        self,
+    ) -> None:
+        """Regression for Run #99: sec_6 was never returned in the first response (so
+        attempt10's whole-sentence carry has no first-pass text to draw from), and its
+        one completion-round response still landed under the hard 110-word floor
+        (90 words). Previously this failed closed immediately. Now exactly one further
+        narrowly-scoped call is spent on that one still-short, never-stashed id."""
+        counts = [50] * 8
+        sections = self._sections(counts)
+        calls = 0
+
+        def fake_json(api_key, prompt, model):
+            nonlocal calls
+            del api_key, model
+            calls += 1
+            if calls == 1:
+                return {"additions": [{"id": "sec_1", "append_text": " ".join(["كلمة"] * 60)}]}
+            if calls == 2:
+                additions = []
+                for i in range(2, 9):
+                    words = 40 if i == 6 else 65
+                    additions.append({"id": f"sec_{i}", "append_text": " ".join(["كلمة"] * words)})
+                return {"additions": additions}
+            self.assertEqual(calls, 3)
+            self.assertIn("TARGETS_TO_COMPLETE:\n[{\"id\": \"sec_6\"", prompt)
+            return {"additions": [{"id": "sec_6", "append_text": " ".join(["كلمة"] * 65)}]}
+
+        _RETRY_ATTEMPTED.set(False)
+        with patch.object(staged, "json_text", side_effect=fake_json):
+            additions = _repair_all_residual_underlength(
+                "key",
+                topic="topic",
+                model="model",
+                sections=sections,
+                policy_json="{}",
+                research_json="{}",
+                narrative_format="problem_reveal_solution",
+                current_words=sum(counts),
+                minimum=800,
+            )
+        self.assertEqual(calls, 3)
+        staged._append_retry_additions(sections, additions)
+        for section in sections:
+            self.assertGreaterEqual(staged._word_count(section.narration), 110)
+            self.assertLessEqual(staged._word_count(section.narration), 170)
+        _RETRY_ATTEMPTED.set(False)
+
+    def test_run99_rescue_call_still_short_fails_closed_with_no_further_calls(self) -> None:
+        """The Run #99 rescue is spent at most once. If that one extra call is also
+        under the hard floor, the repair fails closed exactly as before - no fourth
+        call is ever attempted."""
+        counts = [50] * 8
+        sections = self._sections(counts)
+        calls = 0
+
+        def fake_json(api_key, prompt, model):
+            nonlocal calls
+            del api_key, prompt, model
+            calls += 1
+            if calls == 1:
+                return {"additions": [{"id": "sec_1", "append_text": " ".join(["كلمة"] * 60)}]}
+            if calls == 2:
+                additions = []
+                for i in range(2, 9):
+                    words = 40 if i == 6 else 65
+                    additions.append({"id": f"sec_{i}", "append_text": " ".join(["كلمة"] * words)})
+                return {"additions": additions}
+            self.assertEqual(calls, 3)
+            return {"additions": [{"id": "sec_6", "append_text": " ".join(["كلمة"] * 41)}]}
+
+        _RETRY_ATTEMPTED.set(False)
+        with patch.object(staged, "json_text", side_effect=fake_json):
+            with self.assertRaisesRegex(RuntimeError, "required final section band is 110-170"):
+                _repair_all_residual_underlength(
+                    "key",
+                    topic="topic",
+                    model="model",
+                    sections=sections,
+                    policy_json="{}",
+                    research_json="{}",
+                    narrative_format="problem_reveal_solution",
+                    current_words=sum(counts),
+                    minimum=800,
+                )
+        self.assertEqual(calls, 3)
+        _RETRY_ATTEMPTED.set(False)
+
+    def test_present_but_underfloor_target_still_short_gets_no_rescue_call(self) -> None:
+        """A target that WAS returned on the first pass (present-but-under-floor, so
+        attempt10's own stash-based carry is the mechanism responsible for it) must
+        NOT trigger the new Run #99 rescue path even if its one completion response
+        is also still short - that path is reserved for never-returned targets only.
+        Without attempt10 installed here, this fails closed after exactly 2 calls,
+        identical to pre-Run-99 behavior."""
+        counts = [50] * 8
+        sections = self._sections(counts)
+        calls = 0
+
+        def fake_json(api_key, prompt, model):
+            nonlocal calls
+            del api_key, prompt, model
+            calls += 1
+            if calls == 1:
+                # sec_6 IS returned here, but too short - present-but-under-floor.
+                additions = [{"id": "sec_1", "append_text": " ".join(["كلمة"] * 60)}]
+                additions.append({"id": "sec_6", "append_text": " ".join(["كلمة"] * 10)})
+                return {"additions": additions}
+            self.assertEqual(calls, 2)
+            additions = []
+            for i in [2, 3, 4, 5, 6, 7, 8]:
+                words = 40 if i == 6 else 65
+                additions.append({"id": f"sec_{i}", "append_text": " ".join(["كلمة"] * words)})
+            return {"additions": additions}
+
+        _RETRY_ATTEMPTED.set(False)
+        with patch.object(staged, "json_text", side_effect=fake_json):
+            with self.assertRaisesRegex(RuntimeError, "required final section band is 110-170"):
+                _repair_all_residual_underlength(
+                    "key",
+                    topic="topic",
+                    model="model",
+                    sections=sections,
+                    policy_json="{}",
+                    research_json="{}",
+                    narrative_format="problem_reveal_solution",
+                    current_words=sum(counts),
+                    minimum=800,
+                )
+        self.assertEqual(calls, 2)
+        _RETRY_ATTEMPTED.set(False)
+
     def test_post_build_guard_never_spends_second_call_after_internal_retry(self) -> None:
         saved = self._save_staged()
         calls: list[str] = []
