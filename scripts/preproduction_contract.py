@@ -7,7 +7,7 @@ from pathlib import Path
 
 PRODUCTION_WORKFLOW = Path(".github/workflows/produce-resilient-v4.yml")
 RELEASE_TRANSACTION = Path("scripts/release_transaction.py")
-EXPECTED_ENGINE_SHA = "cae51d6c83262de0a785e0d805462e9392909754"
+EXPECTED_ENGINE_SHA = "39d4a0ea613cf266c7b4c561acb4a01216909cd9"
 EXPECTED_RUNNER_IMAGE = "ubuntu-24.04"
 PROVIDERS = ("gemini", "groq", "openrouter", "pexels", "pixabay")
 
