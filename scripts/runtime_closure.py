@@ -13,6 +13,7 @@ from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
+from scripts.runtime_reliability import install_core_reliability_guard
 from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.sfx_live_binding import install_sfx_live_binding
 
@@ -35,12 +36,6 @@ def _groq_key() -> str:
 
 
 def _canonical_v4_bundle_enabled() -> bool:
-    """Return true only inside the canonical V4 workflow or an explicit test harness.
-
-    The delivery layer must never redefine the generic production-manifest helper.
-    GitHub production is identified by the exact workflow path, not by a mutable
-    display name. Local/focused contract tests may opt in explicitly.
-    """
     explicit = str(os.environ.get("ISCO_CANONICAL_V4_BUNDLE_ENABLED") or "").strip().lower()
     if explicit in _TRUE_VALUES:
         return True
@@ -50,12 +45,7 @@ def _canonical_v4_bundle_enabled() -> bool:
 
 
 def install_canonical_v4_bundle_post_manifest() -> None:
-    """Make canonical V4 long-form delivery atomic with 2–3 sibling Shorts.
-
-    The hook is inert for generic library/tests, Moments, and control-plane runs.
-    It activates only for canonical V4 after the long render has passed Gold and its
-    production manifest has been written.
-    """
+    """Make canonical V4 long-form delivery atomic with 2–3 sibling Shorts."""
     import scripts.run_v3_voice as production
 
     current = production._write_production_manifest
@@ -82,14 +72,14 @@ def install_canonical_v4_bundle_post_manifest() -> None:
 
 def install_runtime_closure() -> None:
     """Install bounded production recovery plus cinematic and delivery stages."""
-    # Order is deliberate: Attempt10 performs every zero-call deterministic repair
-    # first. The generic bounded recovery may then spend at most one targeted semantic
-    # reask for a still-invalid model output. Schema repair stays separate from provider
-    # retry/fallback ownership, and Gemini planning uses native JSON object mode.
+    # Order is deliberate. Provider/schema/content retry owners are installed first;
+    # the reliability wrapper is installed around Engine produce but checks contracts
+    # only when produce is actually called, after the later Runner installers finish.
     install_attempt10_append_bound_recovery()
     install_bounded_output_recovery()
     install_schema_repair_policy()
     install_gemini_planning_output_guard()
+    install_core_reliability_guard()
     install_audio_mastering_live_binding()
     install_sfx_live_binding()
     install_m8_live_binding()
@@ -101,12 +91,7 @@ def install_runtime_closure() -> None:
 
 
 def run_post_gold_observers(output_dir: Path) -> dict:
-    """Run G1/G2 only after Gold has accepted the final render.
-
-    This observer is non-authoritative: missing/rate-limited Groq access, transcript
-    review, or any audit error never changes Gold or production readiness. The audit
-    module writes durable evidence when possible and always returns a document.
-    """
+    """Run G1/G2 only after Gold has accepted the final render."""
     try:
         return run_groq_audio_audit(
             Path(output_dir),
