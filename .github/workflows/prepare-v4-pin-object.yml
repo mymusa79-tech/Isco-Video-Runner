@@ -7,7 +7,7 @@ on:
       - ".github/prepare-v4-pin-object-trigger"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   prepare:
@@ -20,68 +20,37 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Create remote commit object with updated V4 pin
+      - name: Prepare updated V4 workflow artifact
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
           OLD_SHA: cae51d6c83262de0a785e0d805462e9392909754
           NEW_SHA: a1eea541c8ec36b0c701093793c730ffcc53b03b
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os, subprocess, urllib.request
+          import os
           from pathlib import Path
 
-          repo = os.environ['REPO']
-          token = os.environ['GH_TOKEN']
           old = os.environ['OLD_SHA']
           new = os.environ['NEW_SHA']
-          path = Path('.github/workflows/produce-resilient-v4.yml')
-          text = path.read_text(encoding='utf-8')
+          source = Path('.github/workflows/produce-resilient-v4.yml')
+          text = source.read_text(encoding='utf-8')
           count = text.count(old)
           if count != 3:
               raise SystemExit(f'Expected exactly 3 old V4 engine pins, found {count}')
           updated = text.replace(old, new)
-          if updated.count(new) != 3:
-              raise SystemExit('Updated V4 engine pin count is not exactly 3')
-
-          base_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          base_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
-
-          def api(path, method='GET', payload=None):
-              url = f'https://api.github.com/repos/{repo}{path}'
-              data = None if payload is None else json.dumps(payload).encode('utf-8')
-              req = urllib.request.Request(
-                  url,
-                  data=data,
-                  method=method,
-                  headers={
-                      'Authorization': f'Bearer {token}',
-                      'Accept': 'application/vnd.github+json',
-                      'X-GitHub-Api-Version': '2022-11-28',
-                      'Content-Type': 'application/json',
-                  },
-              )
-              with urllib.request.urlopen(req, timeout=30) as resp:
-                  body = resp.read().decode('utf-8')
-                  return json.loads(body) if body else {}
-
-          blob = api('/git/blobs', 'POST', {'content': updated, 'encoding': 'utf-8'})
-          tree = api('/git/trees', 'POST', {
-              'base_tree': base_tree,
-              'tree': [{
-                  'path': '.github/workflows/produce-resilient-v4.yml',
-                  'mode': '100644',
-                  'type': 'blob',
-                  'sha': blob['sha'],
-              }],
-          })
-          commit = api('/git/commits', 'POST', {
-              'message': 'ci: pin V4 to Run #104 targeted-repair Engine candidate',
-              'tree': tree['sha'],
-              'parents': [base_commit],
-          })
-          print(f'BASE_COMMIT_SHA={base_commit}')
-          print(f'PREPARED_COMMIT_SHA={commit["sha"]}')
-          print('Prepared diff: exactly three SHA replacements')
+          if updated.count(new) != 3 or old in updated:
+              raise SystemExit('Updated V4 Engine pin contract is not exact 3/3')
+          out = Path('prepared-v4-pin')
+          out.mkdir(exist_ok=True)
+          target = out / 'produce-resilient-v4.yml'
+          target.write_text(updated, encoding='utf-8')
+          print('Prepared V4 workflow: exact three Engine SHA replacements; old SHA absent')
           PY
+
+      - name: Upload prepared V4 workflow
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: run104-v4-pin-candidate
+          path: prepared-v4-pin/produce-resilient-v4.yml
+          if-no-files-found: error
+          retention-days: 1
