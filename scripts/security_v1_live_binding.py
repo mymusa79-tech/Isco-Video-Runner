@@ -29,6 +29,12 @@ _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _VIDEO_SUFFIXES = frozenset({".mp4", ".mov", ".mkv", ".webm", ".m4v"})
 _PLAIN_STOCK_QUERY_RE = re.compile(r"^[A-Za-z0-9]+(?:[ '-][A-Za-z0-9]+)*$")
 _REPEATED_STOCK_SEPARATOR_RE = re.compile(r"(?: {2,}|--|''| -|- | '|' )")
+_RECOVERABLE_STOCK_MEDIA_ERRORS = frozenset(
+    {
+        "multimodal_injection_firewall_block:frame_unreadable",
+        "multimodal_injection_firewall_block:frame_extract_failed",
+    }
+)
 _INSTALLED = False
 
 
@@ -203,7 +209,37 @@ def _wrap_search(original: Callable[..., Any]) -> Callable[..., Any]:
     return wrapped
 
 
-def _wrap_vision_audit(original: Callable[..., Any]) -> Callable[..., Any]:
+def _recoverable_stock_media_block(exc: Exception) -> dict[str, Any] | None:
+    """Convert only candidate-local decode/read failures into a normal QA block.
+
+    The stock selector already owns a bounded candidate retry policy. A single corrupt
+    or locally undecodable preview is therefore equivalent to a candidate that failed
+    visual QA: reject that candidate without spending a cloud Vision call and let the
+    selector try the next already-bounded candidate. Security findings are deliberately
+    excluded from this recovery path and continue to raise fail-closed.
+    """
+    message = str(exc)
+    if message not in _RECOVERABLE_STOCK_MEDIA_ERRORS:
+        return None
+    return {
+        "status": "block",
+        "relevance": 0.0,
+        "visual_quality": 0.0,
+        "identifiable_person": False,
+        "sensitive_trait_implication_risk": False,
+        "prominent_logo_or_brand": False,
+        "cultural_conflict": False,
+        "cultural_islamic_suitability_risk": False,
+        "advertiser_conflict": False,
+        "obvious_synthetic_or_visual_artifact": True,
+        "reason": "local stock media decode/read failed before cloud Vision; candidate rejected",
+        "local_media_rejection": message.rsplit(":", 1)[-1],
+    }
+
+
+def _wrap_vision_audit(
+    original: Callable[..., Any], *, recover_unreadable_stock_media: bool = False
+) -> Callable[..., Any]:
     if getattr(original, "_isco_security_v1_vision", False):
         return original
 
@@ -211,7 +247,15 @@ def _wrap_vision_audit(original: Callable[..., Any]) -> Callable[..., Any]:
         preview = args[1] if len(args) >= 2 else kwargs.get("preview")
         if preview is None:
             raise RuntimeError("Security V1 could not locate vision preview")
-        _scan_media_before_vision(preview)
+        try:
+            _scan_media_before_vision(preview)
+        except RuntimeError as exc:
+            if recover_unreadable_stock_media:
+                blocked = _recoverable_stock_media_block(exc)
+                if blocked is not None:
+                    print(f"Security V1 rejected unreadable stock candidate locally: {blocked['local_media_rejection']}")
+                    return blocked
+            raise
         return original(*args, **kwargs)
 
     wrapped._isco_security_v1_vision = True
@@ -257,8 +301,12 @@ def install_security_v1_live_binding() -> None:
         secured_alt_query._isco_security_v1_original = current_alt
         orchestrator.suggest_alternate_visual_query = secured_alt_query
 
-    # Local multimodal firewall runs before any selected stock preview reaches Gemini Vision.
-    orchestrator.audit_video_preview = _wrap_vision_audit(orchestrator.audit_video_preview)
+    # Video stock selection already has bounded candidate recovery, so a candidate-local
+    # decode/read failure becomes a normal block and the selector tries the next candidate.
+    # Thumbnail review remains strictly fail-closed because its board semantics differ.
+    orchestrator.audit_video_preview = _wrap_vision_audit(
+        orchestrator.audit_video_preview, recover_unreadable_stock_media=True
+    )
     thumbnail.audit_image_preview = _wrap_vision_audit(thumbnail.audit_image_preview)
 
     _INSTALLED = True

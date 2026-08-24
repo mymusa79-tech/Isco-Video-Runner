@@ -184,6 +184,61 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
                 wrapped("key", Path("preview.mp4"))
         self.assertEqual(calls, [])
 
+    def test_video_vision_wrapper_rejects_unreadable_candidate_without_cloud_call(self) -> None:
+        calls: list[str] = []
+
+        def model(*_args, **_kwargs):
+            calls.append("model")
+            return {"status": "pass"}
+
+        wrapped = security_binding._wrap_vision_audit(model, recover_unreadable_stock_media=True)
+        with patch.object(
+            security_binding,
+            "_scan_media_before_vision",
+            side_effect=RuntimeError("multimodal_injection_firewall_block:frame_unreadable"),
+        ):
+            audit = wrapped("key", Path("preview.mp4"))
+        self.assertEqual(calls, [])
+        self.assertEqual(audit["status"], "block")
+        self.assertEqual(audit["local_media_rejection"], "frame_unreadable")
+        self.assertTrue(audit["obvious_synthetic_or_visual_artifact"])
+
+    def test_video_vision_wrapper_rejects_frame_extract_failure_without_cloud_call(self) -> None:
+        calls: list[str] = []
+
+        def model(*_args, **_kwargs):
+            calls.append("model")
+            return {"status": "pass"}
+
+        wrapped = security_binding._wrap_vision_audit(model, recover_unreadable_stock_media=True)
+        with patch.object(
+            security_binding,
+            "_scan_media_before_vision",
+            side_effect=RuntimeError("multimodal_injection_firewall_block:frame_extract_failed"),
+        ):
+            audit = wrapped("key", Path("preview.mp4"))
+        self.assertEqual(calls, [])
+        self.assertEqual(audit["status"], "block")
+        self.assertEqual(audit["local_media_rejection"], "frame_extract_failed")
+
+    def test_video_vision_wrapper_keeps_real_security_findings_fail_closed(self) -> None:
+        calls: list[str] = []
+
+        def model(*_args, **_kwargs):
+            calls.append("model")
+            return {"status": "pass"}
+
+        wrapped = security_binding._wrap_vision_audit(model, recover_unreadable_stock_media=True)
+        for code in ("qr_code_detected", "prompt_like_text_detected", "local_ocr_unavailable"):
+            with self.subTest(code=code), patch.object(
+                security_binding,
+                "_scan_media_before_vision",
+                side_effect=RuntimeError(f"multimodal_injection_firewall_block:{code}"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, code):
+                    wrapped("key", Path("preview.mp4"))
+        self.assertEqual(calls, [])
+
     def test_media_scan_fails_closed_when_frame_extraction_fails(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             source = Path(d) / "bad.mp4"
