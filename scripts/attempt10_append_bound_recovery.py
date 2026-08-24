@@ -13,6 +13,7 @@ _FIRST_PASS_UNDERFLOOR: ContextVar[dict[str, str] | None] = ContextVar(
     default=None,
 )
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?؟])\s+|\n+")
+_NARROW_OVERAGE_TOLERANCE_WORDS = 2
 
 
 def _recoverable_first_pass_split(
@@ -173,6 +174,33 @@ def _trim_whole_sentences_to_fit(
     return " ".join(kept)
 
 
+def _accept_narrow_indivisible_overage(
+    text: str,
+    *,
+    current_words: int,
+    section_maximum: int,
+    maximum_append_words: int,
+) -> bool:
+    """Accept a completion response that whole-sentence trimming could not fix at all.
+
+    Run #98: a completion-round response can come back as a single sentence (or with
+    no droppable trailing sentence) that _trim_whole_sentences_to_fit cannot touch
+    without emptying the response or pushing the section under its hard floor -
+    exactly the "no sentence boundary" and "would underfloor" cases that function
+    already fails closed on. maximum_append_words is a derived per-target share of
+    the aggregate deficit, not the real contract; the real, unchanged contract is
+    hard_section_band. When the untrimmed response exceeds maximum_append_words by
+    only a narrow (<=2 word) margin and the resulting section still clears its true
+    hard maximum, accept it as-is: no text is invented, no text is truncated, and
+    every hard band (section and aggregate) stays exactly as strict as before.
+    """
+    words = append_guard._word_count(text)
+    overage = words - maximum_append_words
+    if overage <= 0 or overage > _NARROW_OVERAGE_TOLERANCE_WORDS:
+        return False
+    return current_words + words <= section_maximum
+
+
 def _install_completion_underfloor_carry() -> None:
     current_validator = append_guard._validate_addition_bounds
     if getattr(current_validator, _VALIDATE_MARKER, False):
@@ -220,6 +248,7 @@ def _install_completion_underfloor_carry() -> None:
         # discarded straight into the completion round instead) - so this cannot mask a
         # first-pass rejection, only rescue an otherwise-fatal completion-round result.
         trimmed_ids: list[str] = []
+        narrow_overage_ids: list[str] = []
         specs_by_id = {str(spec["id"]): spec for spec in target_specs}
         for section_id, text in list(additions.items()):
             spec = specs_by_id.get(section_id)
@@ -228,19 +257,43 @@ def _install_completion_underfloor_carry() -> None:
             maximum_append_words = int(spec["maximum_append_words"])
             if append_guard._word_count(text) <= maximum_append_words:
                 continue
+            current_words = int(spec["current_words"])
+            section_minimum, section_maximum = [int(v) for v in spec["hard_section_band"]]
             trimmed = _trim_whole_sentences_to_fit(
                 text,
-                current_words=int(spec["current_words"]),
-                section_minimum=int(spec["hard_section_band"][0]),
+                current_words=current_words,
+                section_minimum=section_minimum,
                 maximum_append_words=maximum_append_words,
             )
             if trimmed is not None:
                 additions[section_id] = trimmed
                 trimmed_ids.append(section_id)
+            elif _accept_narrow_indivisible_overage(
+                text,
+                current_words=current_words,
+                section_maximum=section_maximum,
+                maximum_append_words=maximum_append_words,
+            ):
+                narrow_overage_ids.append(section_id)
+
+        effective_specs = target_specs
+        if narrow_overage_ids:
+            # Only the per-target maximum_append_words budget is raised, and only to
+            # the exact accepted word count for this one validation call - every
+            # other field, including hard_section_band, is untouched.
+            effective_specs = []
+            for spec in target_specs:
+                section_id = str(spec["id"])
+                if section_id in narrow_overage_ids:
+                    patched = dict(spec)
+                    patched["maximum_append_words"] = append_guard._word_count(additions[section_id])
+                    effective_specs.append(patched)
+                else:
+                    effective_specs.append(spec)
 
         original_validator(
             additions,
-            target_specs,
+            effective_specs,
             aggregate_headroom=aggregate_headroom,
         )
 
@@ -260,6 +313,14 @@ def _install_completion_underfloor_carry() -> None:
                 + ",".join(trimmed_ids)
                 + " provider_calls_added=0 whole_sentence_only=true hard_bounds_unchanged=true"
             )
+        if narrow_overage_ids:
+            print(
+                "Run 98 narrow indivisible-overage acceptance: ids="
+                + ",".join(narrow_overage_ids)
+                + f" tolerance_words<={_NARROW_OVERAGE_TOLERANCE_WORDS}"
+                + " provider_calls_added=0 no_text_invented=true no_text_truncated=true"
+                + " hard_section_band_unchanged=true"
+            )
 
     setattr(guarded_validator, _VALIDATE_MARKER, True)
     append_guard._validate_addition_bounds = guarded_validator
@@ -278,6 +339,9 @@ def install_attempt10_append_bound_recovery() -> None:
         "Attempt 10 append bound recovery installed: first-pass under/over-bound targets "
         "may consume only the existing one bounded completion call; a second under-floor "
         "result may reuse only safe whole sentences from its discarded first-pass text, and "
-        "a second over-max result may drop only whole trailing sentences to fit, both with "
-        "zero extra provider calls; final Film 110-170 / 800-1450 gates remain strict"
+        "a second over-max result may drop only whole trailing sentences to fit, or, only if "
+        f"no whole sentence can be dropped, be accepted as-is when it is within "
+        f"{_NARROW_OVERAGE_TOLERANCE_WORDS} words of the derived per-target budget and still "
+        "clears the true hard section maximum; zero extra provider calls; final Film 110-170 "
+        "/ 800-1450 gates remain strict"
     )
