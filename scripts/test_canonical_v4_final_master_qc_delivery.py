@@ -42,11 +42,14 @@ class CanonicalV4FinalMasterQCDeliveryTests(unittest.TestCase):
         end = self.text.index("\n\n      - name: Checkout agent-state writer", start)
         block = self.text[start:end]
         self.assertIn("FINAL_MASTER_QC_PATH: ${{ steps.final_review.outputs.final_master_qc_path }}", block)
+        self.assertIn("FINAL_PLAN_PATH: ${{ steps.final_review.outputs.plan_path }}", block)
         self.assertIn("test -n \"$FINAL_MASTER_QC_PATH\"", block)
+        self.assertIn("test -n \"$FINAL_PLAN_PATH\"", block)
         self.assertIn("final_master_qc != root / 'final-master-qc.json'", block)
-        self.assertIn("for required in (video, quality, critic, budget, manifest, final_master_qc):", block)
+        self.assertIn("plan != root / 'plan.json'", block)
+        self.assertIn("for required in (video, quality, plan, critic, budget, manifest, final_master_qc):", block)
         self.assertIn("qc.get('status') != 'pass'", block)
-        self.assertIn('release_assets=("$FINAL_VIDEO_PATH"', block)
+        self.assertIn('release_assets=("$FINAL_VIDEO_PATH" "$FINAL_QUALITY_PATH" "$FINAL_PLAN_PATH"', block)
         self.assertIn('"$FINAL_MASTER_QC_PATH"', block)
 
     def test_telegram_notification_calls_are_bounded(self) -> None:

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "certification": "pre-production-v2",
+  "principles": {
+    "unknown_failure": "fail_closed",
+    "retry_owner_count": 1,
+    "partial_release_allowed": false,
+    "quality_gate_relaxation_allowed": false,
+    "production_run_required_for_certification": false
+  },
+  "risks": [
+    {"id":"provider-auth-drift","scope":"gemini/groq/openrouter/pexels/pixabay","control":"read-only provider_preflight before production","status":"implemented"},
+    {"id":"provider-model-drift","scope":"Gemini content/TTS","control":"models endpoint verifies configured capabilities","status":"implemented"},
+    {"id":"runner-image-drift","scope":"GitHub hosted runner","control":"explicit ubuntu-24.04 in canonical production and critical private-engine verifier","status":"implemented"},
+    {"id":"post-piper-dependency-drift","scope":"Python environment","control":"verified Piper wheel plus pip check after Piper before full regression","status":"implemented"},
+    {"id":"piper-wheel-integrity","scope":"local TTS fallback supply chain","control":"binary-only Piper 1.4.2 wheel with exact trusted PyPI SHA256","status":"implemented"},
+    {"id":"system-tool-missing","scope":"ffmpeg/ffprobe/tesseract/system binaries","control":"environment capability preflight","status":"implemented"},
+    {"id":"runtime-capability-drift","scope":"ffmpeg codecs/filters, Arabic OCR and font resolution","control":"environment capability preflight before provider work","status":"implemented"},
+    {"id":"runner-regression-at-dispatch","scope":"Runner production support code","control":"full scripts/test_*.py regression before provider work","status":"implemented"},
+    {"id":"release-rerun-collision","scope":"GitHub Release","control":"fail closed if video-${run_number} already exists","status":"implemented"},
+    {"id":"partial-public-release","scope":"GitHub Release","control":"draft-create upload exact remote verify then publish; pre-publish failure cleans draft","status":"implemented"},
+    {"id":"restored-memory-integrity","scope":"cross-run production memory","control":"production hard-blocks unless restored state is explicitly save-safe","status":"implemented"},
+    {"id":"accepted-state-loss","scope":"cross-run production memory","control":"accepted state persistence is strict and emits closure evidence","status":"implemented"},
+    {"id":"plaintext-secret-residue","scope":"ephemeral runner","control":"always cleanup plus static contract","status":"existing"},
+    {"id":"stale-checkpoint","scope":"planning checkpoint","control":"Runner+Engine+schema namespace","status":"existing"},
+    {"id":"runtime-patch-identity","scope":"run_v3_voice import/script mode","control":"dual-module runtime binding plus markers","status":"existing"},
+    {"id":"non-idempotent-retry","scope":"provider/release/state side effects","control":"single retry owners; release namespace fail-closed","status":"existing_plus_v2"},
+    {"id":"gemini-auth-key-september-2026","scope":"account credential type","control":"live credential check; migration deadline tracked externally because API does not expose key type","status":"deadline_risk"}
+  ]
+}

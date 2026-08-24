@@ -16,17 +16,22 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
 
     def test_approved_brief_gate_precedes_install_state_and_provider_secrets(self) -> None:
-        gate = self.text.index("- name: Validate approved brief before secret materialization")
-        install = self.text.index("- name: Install locked engine and local voice fallback")
-        restore = self.text.index("- name: Restore encrypted cross-run memory")
-        materialize = self.text.index("- name: Materialize approved production secrets")
-        providers = self.text.index("- name: Verify free provider authentication")
-        produce = self.text.index("- name: Produce with task-level brain and voice meshes")
+        # Anchor ordering to stable step IDs / executable contracts rather than
+        # human-readable step names, which can legitimately evolve as a gate is
+        # strengthened (for example, provider auth -> complete readiness).
+        gate = self.text.index("id: validate_brief")
+        install = self.text.index("id: install_engine")
+        restore = self.text.index("id: restore_state")
+        materialize = self.text.index("id: prepare_request")
+        providers = self.text.index("id: verify_providers")
+        provider_contract = self.text.index("python scripts/provider_preflight.py")
+        produce = self.text.index("id: produce_video")
         self.assertLess(gate, install)
         self.assertLess(gate, restore)
         self.assertLess(gate, materialize)
         self.assertLess(materialize, providers)
-        self.assertLess(providers, produce)
+        self.assertLess(providers, provider_contract)
+        self.assertLess(provider_contract, produce)
 
     def test_brief_gate_has_no_provider_youtube_telegram_or_state_secret(self) -> None:
         gate_start = self.text.index("- name: Validate approved brief before secret materialization")

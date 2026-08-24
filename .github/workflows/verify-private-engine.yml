@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   combined-regression:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - name: Checkout exact Runner candidate
