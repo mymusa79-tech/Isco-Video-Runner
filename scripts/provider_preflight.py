@@ -1,0 +1,167 @@
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from dataclasses import dataclass, asdict
+from pathlib import Path
+from typing import Callable
+
+import requests
+
+
+DEFAULT_TIMEOUT_SECONDS = 20
+GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
+OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/v1/videos/search"
+PIXABAY_VIDEO_SEARCH_URL = "https://pixabay.com/api/videos/"
+
+
+@dataclass(frozen=True)
+class ProviderCheck:
+    provider: str
+    status: str
+    http_status: int | None = None
+    detail: str | None = None
+
+
+def _read_secret(path: str | Path) -> str:
+    value = Path(path).read_text(encoding="utf-8").strip()
+    if not value:
+        raise RuntimeError("provider credential file is empty")
+    return value
+
+
+def _safe_detail(response: requests.Response) -> str:
+    # Never persist response bodies: provider errors can echo request metadata.
+    return f"HTTP {response.status_code}"
+
+
+def _require_ok(provider: str, response: requests.Response) -> None:
+    if response.ok:
+        return
+    status = int(response.status_code)
+    if status in {401, 403}:
+        raise RuntimeError(f"{provider} credential rejected: HTTP {status}")
+    if status == 429:
+        raise RuntimeError(f"{provider} readiness blocked by rate/quota limit: HTTP 429")
+    if 500 <= status <= 599:
+        raise RuntimeError(f"{provider} readiness blocked by upstream outage: HTTP {status}")
+    raise RuntimeError(f"{provider} readiness check failed: HTTP {status}")
+
+
+def check_gemini(api_key: str, *, content_model: str, tts_model: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
+    response = requests.get(
+        GEMINI_MODELS_URL,
+        headers={"x-goog-api-key": api_key},
+        timeout=timeout,
+    )
+    _require_ok("gemini", response)
+    payload = response.json()
+    names = {str(item.get("name") or "").removeprefix("models/") for item in payload.get("models", []) if isinstance(item, dict)}
+    aliases = {
+        content_model: {content_model, "gemini-3.5-flash-lite"} if content_model == "gemini-2.5-flash" else {content_model},
+        tts_model: {tts_model},
+    }
+    missing = [requested for requested, accepted in aliases.items() if not (accepted & names)]
+    if missing:
+        raise RuntimeError("gemini configured model unavailable: " + ", ".join(missing))
+    return ProviderCheck("gemini", "pass", response.status_code, "credential and configured models available")
+
+
+def check_groq(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
+    response = requests.get(GROQ_MODELS_URL, headers={"Authorization": "Bearer " + api_key}, timeout=timeout)
+    _require_ok("groq", response)
+    return ProviderCheck("groq", "pass", response.status_code, "credential accepted")
+
+
+def check_openrouter(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
+    response = requests.get(OPENROUTER_KEY_URL, headers={"Authorization": "Bearer " + api_key}, timeout=timeout)
+    _require_ok("openrouter", response)
+    return ProviderCheck("openrouter", "pass", response.status_code, "credential accepted")
+
+
+def check_pexels(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
+    response = requests.get(
+        PEXELS_VIDEO_SEARCH_URL,
+        headers={"Authorization": api_key},
+        params={"query": "nature", "per_page": 1, "orientation": "landscape", "size": "medium", "locale": "en-US"},
+        timeout=timeout,
+    )
+    _require_ok("pexels", response)
+    return ProviderCheck("pexels", "pass", response.status_code, "credential and current video-search endpoint available")
+
+
+def check_pixabay(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
+    response = requests.get(
+        PIXABAY_VIDEO_SEARCH_URL,
+        params={"key": api_key, "q": "nature", "per_page": 3, "safesearch": "true"},
+        timeout=timeout,
+    )
+    _require_ok("pixabay", response)
+    return ProviderCheck("pixabay", "pass", response.status_code, "credential accepted")
+
+
+def run_preflight(
+    *,
+    gemini_key: str,
+    groq_key: str,
+    openrouter_key: str,
+    pexels_key: str,
+    pixabay_key: str,
+    content_model: str,
+    tts_model: str,
+    output: Path,
+) -> list[ProviderCheck]:
+    checks: list[tuple[str, Callable[[], ProviderCheck]]] = [
+        ("gemini", lambda: check_gemini(gemini_key, content_model=content_model, tts_model=tts_model)),
+        ("groq", lambda: check_groq(groq_key)),
+        ("openrouter", lambda: check_openrouter(openrouter_key)),
+        ("pexels", lambda: check_pexels(pexels_key)),
+        ("pixabay", lambda: check_pixabay(pixabay_key)),
+    ]
+    results: list[ProviderCheck] = []
+    failure: BaseException | None = None
+    for provider, fn in checks:
+        try:
+            results.append(fn())
+        except Exception as exc:
+            # Provider names + exception class/status category only; no keys/bodies.
+            results.append(ProviderCheck(provider, "block", None, f"{type(exc).__name__}: {exc}"[:300]))
+            failure = failure or exc
+    output.parent.mkdir(parents=True, exist_ok=True)
+    tmp = output.with_name(output.name + ".tmp")
+    tmp.write_text(json.dumps({"schema_version": 1, "checks": [asdict(item) for item in results]}, indent=2), encoding="utf-8")
+    tmp.replace(output)
+    if failure is not None:
+        raise RuntimeError("provider readiness preflight failed; see provider-preflight.json") from None
+    return results
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--content-model", default="gemini-2.5-flash")
+    parser.add_argument("--tts-model", default="gemini-3.1-flash-tts-preview")
+    parser.add_argument("--gemini-key-file", required=True)
+    parser.add_argument("--groq-key-file", required=True)
+    parser.add_argument("--openrouter-key-file", required=True)
+    parser.add_argument("--pexels-key-file", required=True)
+    parser.add_argument("--pixabay-key-file", required=True)
+    args = parser.parse_args()
+    run_preflight(
+        gemini_key=_read_secret(args.gemini_key_file),
+        groq_key=_read_secret(args.groq_key_file),
+        openrouter_key=_read_secret(args.openrouter_key_file),
+        pexels_key=_read_secret(args.pexels_key_file),
+        pixabay_key=_read_secret(args.pixabay_key_file),
+        content_model=args.content_model,
+        tts_model=args.tts_model,
+        output=args.output,
+    )
+    print("Provider readiness preflight PASS: gemini, groq, openrouter, pexels, pixabay")
+
+
+if __name__ == "__main__":
+    main()
