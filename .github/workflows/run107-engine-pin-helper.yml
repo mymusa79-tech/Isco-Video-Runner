@@ -1,21 +1,21 @@
 name: Run 107 Engine Candidate Pin Helper
 
 on:
-  push:
-    branches:
-      - fix/run107-stock-asset-decode-recovery
+  pull_request:
+    branches: ["main"]
 
 permissions:
   contents: write
 
 jobs:
   pin:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout candidate branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: fix/run107-stock-asset-decode-recovery
+          ref: ${{ github.event.pull_request.head.ref }}
           persist-credentials: true
           fetch-depth: 1
 
@@ -23,8 +23,10 @@ jobs:
         env:
           OLD_ENGINE_SHA: 39d4a0ea613cf266c7b4c561acb4a01216909cd9
           NEW_ENGINE_SHA: 6af7a355a5f38d54de0440cc2e28e994b6ba2404
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
+          test "$HEAD_BRANCH" = "fix/run107-stock-asset-decode-recovery"
           python - <<'PY'
           import os
           from pathlib import Path
@@ -52,4 +54,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add .github/workflows/produce-resilient-v4.yml
           git commit -m 'ci: pin V4 to Run 107 Engine candidate'
-          git push origin HEAD:fix/run107-stock-asset-decode-recovery
+          git push origin HEAD:"$HEAD_BRANCH"
