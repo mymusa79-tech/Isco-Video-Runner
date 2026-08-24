@@ -23,7 +23,7 @@ class StatePersistenceStrictTests(unittest.TestCase):
                         persist_strict(repo=Path(tmp), encrypted=Path(tmp) / "x.enc", branch="agent-state", run_number="1", report=report)
                     self.assertTrue(json.loads(report.read_text(encoding="utf-8"))["pushed"])
 
-    def test_failed_state_push_is_a_hard_incomplete-closure(self) -> None:
+    def test_failed_state_push_is_a_hard_incomplete_closure(self) -> None:
         status = PersistStatus(False, True, "push rejected")
         with tempfile.TemporaryDirectory() as tmp:
             report = Path(tmp) / "state.json"
