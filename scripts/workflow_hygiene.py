@@ -8,6 +8,18 @@ from pathlib import Path
 _RUN_SPECIFIC = re.compile(r"^run\d+[-_.]", re.I)
 _USES = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)", re.M)
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$", re.I)
+_ENGINE_ENV = re.compile(r"^\s*(?:ISCO_ENGINE_SHA|ENGINE_SHA|EXPECTED_ENGINE_SHA):\s*([0-9a-f]{40})\s*$", re.M)
+_ENGINE_CHECKOUT = re.compile(
+    r"repository:\s*mymusa79-tech/Isco-Video-Agent\s*\n\s*ref:\s*([0-9a-f]{40})",
+    re.M,
+)
+_CANONICAL_PIN_WORKFLOWS = (
+    "produce-resilient-v4.yml",
+    "telegram-editorial-control.yml",
+    "telegram-production-request.yml",
+    "verify-human-editorial-intent-m7.yml",
+    "verify-m11-live-integration.yml",
+)
 
 
 @dataclass(frozen=True)
@@ -17,11 +29,33 @@ class WorkflowIssue:
     detail: str
 
 
+def _canonical_engine_pin(workflow_dir: Path) -> str | None:
+    production = workflow_dir / "produce-resilient-v4.yml"
+    if not production.is_file():
+        return None
+    text = production.read_text(encoding="utf-8")
+    env_pins = re.findall(r"^\s*ISCO_ENGINE_SHA:\s*([0-9a-f]{40})\s*$", text, flags=re.M)
+    checkout_pins = _ENGINE_CHECKOUT.findall(text)
+    if len(env_pins) != 1 or len(checkout_pins) != 1 or env_pins[0] != checkout_pins[0]:
+        return None
+    return env_pins[0]
+
+
 def audit_workflows(root: Path) -> list[WorkflowIssue]:
     issues: list[WorkflowIssue] = []
     workflow_dir = root / ".github" / "workflows"
     if not workflow_dir.is_dir():
         return [WorkflowIssue(str(workflow_dir), "workflow_dir_missing", "workflow directory missing")]
+
+    canonical_pin = _canonical_engine_pin(workflow_dir)
+    if canonical_pin is None:
+        issues.append(
+            WorkflowIssue(
+                ".github/workflows/produce-resilient-v4.yml",
+                "canonical_engine_pin_invalid",
+                "production checkout ref and ISCO_ENGINE_SHA must be one identical full SHA",
+            )
+        )
 
     for path in sorted(workflow_dir.glob("*.y*ml")):
         rel = path.relative_to(root).as_posix()
@@ -52,6 +86,19 @@ def audit_workflows(root: Path) -> list[WorkflowIssue]:
                         rel,
                         "action_not_pinned_to_full_sha",
                         f"{action}@{ref}",
+                    )
+                )
+
+        if canonical_pin and path.name in _CANONICAL_PIN_WORKFLOWS:
+            pins = _ENGINE_ENV.findall(text)
+            if path.name == "produce-resilient-v4.yml":
+                pins += _ENGINE_CHECKOUT.findall(text)
+            if not pins or any(pin != canonical_pin for pin in pins):
+                issues.append(
+                    WorkflowIssue(
+                        rel,
+                        "engine_pin_drift",
+                        f"expected only canonical Engine SHA {canonical_pin}, found {pins}",
                     )
                 )
     return issues
