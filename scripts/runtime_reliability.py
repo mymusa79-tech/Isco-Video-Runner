@@ -64,6 +64,14 @@ def atomic_write_json(path: Path, payload: object) -> None:
     tmp.replace(path)
 
 
+def _read_json_object(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _artifact_presence(out_dir: Path) -> list[str]:
     known = (
         "research.json",
@@ -79,6 +87,7 @@ def _artifact_presence(out_dir: Path) -> list[str]:
         "gold-enforce-report.json",
         "production-manifest.json",
         "delivery-manifest.json",
+        "release-transaction.json",
     )
     return [name for name in known if (out_dir / name).exists()]
 
@@ -118,6 +127,36 @@ def write_failure_envelope(
     return target
 
 
+def write_release_transaction(
+    out_dir: Path,
+    *,
+    state: str,
+    exc: BaseException | None = None,
+) -> Path:
+    """Journal the acceptance->delivery boundary so partial post-Gold completion is visible."""
+    path = out_dir / "release-transaction.json"
+    previous = _read_json_object(path)
+    history = previous.get("history") if isinstance(previous.get("history"), list) else []
+    event = {
+        "state": state,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    if exc is not None:
+        event["exception_type"] = type(exc).__name__
+    history = [item for item in history[-15:] if isinstance(item, dict)] + [event]
+    payload = {
+        "schema_version": 1,
+        "production_id": (os.environ.get("ISCO_PRODUCTION_ID") or "").strip() or None,
+        "runner_sha": (os.environ.get("GITHUB_SHA") or "").strip() or None,
+        "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "").strip() or None,
+        "state": state,
+        "complete": state == "delivery_complete",
+        "history": history,
+    }
+    atomic_write_json(path, payload)
+    return path
+
+
 def _require_marker(name: str, value: object, marker: str) -> None:
     if not getattr(value, marker, False):
         raise RuntimeError(f"Runtime contract failed: {name} missing marker {marker}")
@@ -138,11 +177,6 @@ def assert_runtime_contracts() -> None:
 
 
 def install_core_reliability_guard() -> None:
-    """Put one runtime-contract/failure-evidence boundary around Engine production.
-
-    The wrapper is installed early but evaluates contracts at call time, after every
-    later Runner installer has run. It never retries, falls back, or changes a verdict.
-    """
     current = orchestrator.produce
     if getattr(current, "_isco_core_reliability_guard", False):
         return
@@ -166,3 +200,75 @@ def install_core_reliability_guard() -> None:
     guarded_produce._isco_core_reliability_guard = True
     guarded_produce._isco_core_reliability_original = current
     orchestrator.produce = guarded_produce
+
+
+def install_release_transaction_guard() -> None:
+    """Journal Gold acceptance and unified delivery without changing their order/policy."""
+    import scripts.run_v3_voice as production
+
+    current_gold = production.run_gold_enforce_phase4
+    if not getattr(current_gold, "_isco_release_transaction_gold", False):
+        def guarded_gold(*args, **kwargs):
+            out_dir = Path(kwargs.get("output_dir") or args[0])
+            write_release_transaction(out_dir, state="gold_started")
+            try:
+                result = current_gold(*args, **kwargs)
+            except Exception as exc:
+                write_release_transaction(out_dir, state="gold_failed", exc=exc)
+                try:
+                    write_failure_envelope(out_dir, stage="gold_enforcement", exc=exc)
+                except Exception:
+                    pass
+                raise
+            write_release_transaction(out_dir, state="gold_accepted")
+            return result
+
+        guarded_gold._isco_release_transaction_gold = True
+        guarded_gold._isco_release_transaction_original = current_gold
+        production.run_gold_enforce_phase4 = guarded_gold
+
+    current_manifest = production._write_production_manifest
+    if not getattr(current_manifest, "_isco_release_transaction_delivery", False):
+        def guarded_manifest(out: Path, *, production_id: str, fmt: str):
+            out = Path(out)
+            write_release_transaction(out, state="delivery_started")
+            try:
+                result = current_manifest(out, production_id=production_id, fmt=fmt)
+            except Exception as exc:
+                write_release_transaction(out, state="post_acceptance_incomplete_delivery", exc=exc)
+                try:
+                    write_failure_envelope(out, stage="post_gold_delivery", exc=exc)
+                except Exception:
+                    pass
+                raise
+            write_release_transaction(out, state="delivery_complete")
+            return result
+
+        guarded_manifest._isco_release_transaction_delivery = True
+        guarded_manifest._isco_release_transaction_original = current_manifest
+        production._write_production_manifest = guarded_manifest
+
+
+def install_telemetry_reliability_binding() -> None:
+    """Embed reliability evidence in an artifact the canonical workflow already uploads."""
+    import scripts.run_v3_voice as production
+
+    current = production.write_planning_telemetry
+    if getattr(current, "_isco_reliability_telemetry_binding", False):
+        return
+
+    def guarded_write(out_dir: Path) -> Path:
+        path = current(out_dir)
+        data = _read_json_object(path)
+        failure = _read_json_object(Path(out_dir) / "failure-envelope.json")
+        transaction = _read_json_object(Path(out_dir) / "release-transaction.json")
+        if failure:
+            data["failure_envelope"] = failure
+        if transaction:
+            data["release_transaction"] = transaction
+        atomic_write_json(path, data)
+        return path
+
+    guarded_write._isco_reliability_telemetry_binding = True
+    guarded_write._isco_reliability_telemetry_original = current
+    production.write_planning_telemetry = guarded_write
