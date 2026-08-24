@@ -1,4 +1,4 @@
-name: Dispatch Canonical Production Once Run 106
+name: Inspect Canonical Production Run 106
 
 on:
   push:
@@ -6,11 +6,11 @@ on:
       - fix/run104-engine-candidate-certification
 
 permissions:
-  actions: write
+  actions: read
   contents: write
 
 jobs:
-  dispatch:
+  inspect:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -21,41 +21,15 @@ jobs:
           persist-credentials: true
           fetch-depth: 1
 
-      - name: Dispatch canonical V4 production exactly once
+      - name: Record canonical production state without dispatching
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_MAIN_SHA: 0e8ff27ea5157d677bf404573f08575f82ac37e7
         run: |
           set -euo pipefail
-          # Let any earlier helper commit settle first, then enforce active-run exclusion.
-          sleep 10
-          MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
-          if [ "$MAIN_SHA" != "$EXPECTED_MAIN_SHA" ]; then
-            printf '{"dispatched":false,"reason":"main_moved","expected_main_sha":"%s","actual_main_sha":"%s"}\n' "$EXPECTED_MAIN_SHA" "$MAIN_SHA" > .one-shot-production-dispatch-result-run106.json
-          else
-            ACTIVE="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow produce-resilient-v4.yml --branch main --limit 20 --json status --jq '[.[] | select(.status != "completed")] | length')"
-            if [ "$ACTIVE" != "0" ]; then
-              printf '{"dispatched":false,"reason":"active_production_exists","main_sha":"%s","active_count":%s}\n' "$MAIN_SHA" "$ACTIVE" > .one-shot-production-dispatch-result-run106.json
-            else
-              START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-              gh workflow run produce-resilient-v4.yml --ref main --repo "$GITHUB_REPOSITORY"
-              FOUND=""
-              for _ in $(seq 1 30); do
-                FOUND="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow produce-resilient-v4.yml --event workflow_dispatch --branch main --limit 10 --json databaseId,status,conclusion,url,headSha,createdAt --jq --arg sha "$MAIN_SHA" --arg start "$START" '[.[] | select(.headSha == $sha and .createdAt >= $start)] | sort_by(.createdAt) | reverse | .[0] // empty')"
-                if [ -n "$FOUND" ]; then
-                  break
-                fi
-                sleep 2
-              done
-              if [ -z "$FOUND" ]; then
-                echo 'Canonical workflow dispatch was accepted but the new run could not be resolved in time' >&2
-                exit 1
-              fi
-              printf '{"dispatched":true,"main_sha":"%s","run":%s}\n' "$MAIN_SHA" "$FOUND" > .one-shot-production-dispatch-result-run106.json
-            fi
-          fi
+          RUN="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow produce-resilient-v4.yml --branch main --limit 5 --json databaseId,displayTitle,event,status,conclusion,url,headSha,createdAt,updatedAt --jq 'sort_by(.createdAt) | reverse | .[0]')"
+          printf '%s\n' "$RUN" > .one-shot-production-inspection-run106.json
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .one-shot-production-dispatch-result-run106.json
-          git commit -m "chore: record Run 106 one-shot production dispatch result"
+          git add .one-shot-production-inspection-run106.json
+          git commit -m "chore: record Run 106 production state"
           git push origin "HEAD:${GITHUB_REF_NAME}"
