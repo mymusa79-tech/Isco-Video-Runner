@@ -6,6 +6,7 @@ from math import ceil
 
 import isco_video_agent.opening_director as opening_director
 import isco_video_agent.orchestrator as orchestrator
+import isco_video_agent.section_visual_sequence as section_visual_sequence
 from isco_video_agent.section_visual_sequence import enforce_section_sequence_duration
 import scripts.planner_quality_guard as planner_quality_guard
 
@@ -16,7 +17,8 @@ OPENING_ESCALATION_SECONDS = 11.0
 OPENING_PROMISE_SECONDS = 12.0
 MAX_TAIL_SHOT_SECONDS = 45.0
 MAX_ADAPTIVE_OPENING_SLOTS = 6
-MAX_ADAPTIVE_OPENING_REVIEWS = 7
+MAX_ADAPTIVE_OPENING_REVIEWS = 8
+MAX_ADAPTIVE_SECTION_REVIEWS = 5
 STOCK_CANDIDATE_POOL = 40
 
 # Keep semantic/environment words that help stock retrieval. Only remove terms that
@@ -120,11 +122,31 @@ def _adaptive_review_cap(section_seconds: float) -> int:
     specs = adaptive_opening_slot_specs(section_seconds)
     if not specs:
         return opening_director.MAX_OPENING_VISION_REVIEWS
-    # One bounded spare review lets a single blocked candidate recover while every
-    # final-cut asset still receives the unchanged fail-closed Vision audit.
+    # Every multi-slot opening gets two bounded semantic-rejection spares. This closes
+    # the complete Run #105 failure class rather than only its observed four-slot case:
+    # 3..6 required passing assets map to 5..8 reviews. Vision criteria stay unchanged,
+    # and the run-wide AI budget remains the final hard ceiling.
     return min(
         MAX_ADAPTIVE_OPENING_REVIEWS,
-        max(opening_director.MAX_OPENING_VISION_REVIEWS, len(specs) + 1),
+        max(opening_director.MAX_OPENING_VISION_REVIEWS, len(specs) + 2),
+    )
+
+
+def _adaptive_section_review_cap(section_seconds: float) -> int:
+    """Give multi-shot body sections the same bounded rejection headroom as openings.
+
+    Engine's long-section selector can require three distinct passing assets while its
+    legacy four-review cap leaves only one semantic rejection spare. That is the exact
+    Run #105 failure geometry: enough stock exists, but two honest Vision BLOCKs consume
+    the spare reviews before all required slots can be proven. Two-slot sections already
+    have two spares at the legacy cap, so only three-slot sections grow from four to five.
+    """
+    specs = section_visual_sequence.section_slot_specs(section_seconds)
+    if not specs:
+        return section_visual_sequence.MAX_SECTION_SEQUENCE_VISION_REVIEWS
+    return min(
+        MAX_ADAPTIVE_SECTION_REVIEWS,
+        max(section_visual_sequence.MAX_SECTION_SEQUENCE_VISION_REVIEWS, len(specs) + 2),
     )
 
 
@@ -214,15 +236,19 @@ def _install_selection_wrappers() -> None:
 
     # Alternate queries are retrieval hints, not a replacement editorial intent.
     # Keep the original section intent stable for Vision across the existing normal
-    # section recovery paths too.
+    # section recovery paths too. Three-slot long sections also receive the same two
+    # bounded semantic-rejection spares that adaptive openings now receive.
     current_section_select = orchestrator.select_section_sequence
     if not getattr(current_section_select, "_isco_run92_stable_visual_intent", False):
         @wraps(current_section_select)
         def guarded_section_select(*args, **kwargs):
+            section_seconds = float(kwargs.get("section_seconds", 0.0) or 0.0)
             intended_visual = str(kwargs.get("intended_visual", ""))
             audit_fn = kwargs.get("audit_fn")
             if callable(audit_fn):
                 kwargs["audit_fn"] = _stable_intent_audit(audit_fn, intended_visual)
+            if "max_reviews" not in kwargs:
+                kwargs["max_reviews"] = _adaptive_section_review_cap(section_seconds)
             return current_section_select(*args, **kwargs)
 
         guarded_section_select._isco_run92_stable_visual_intent = True

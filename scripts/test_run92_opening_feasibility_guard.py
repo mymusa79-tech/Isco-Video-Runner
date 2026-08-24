@@ -4,11 +4,13 @@ import unittest
 from unittest.mock import patch
 
 import isco_video_agent.opening_director as opening_director
+import isco_video_agent.section_visual_sequence as section_visual_sequence
 from isco_video_agent.visual_selection import VisualCandidateCache
 
 from scripts.opening_feasibility_guard import (
     STOCK_CANDIDATE_POOL,
     _adaptive_review_cap,
+    _adaptive_section_review_cap,
     _install_stock_search_wrappers,
     _preserve_outline_visual_intent,
     _stable_intent_audit,
@@ -83,10 +85,22 @@ class Run92OpeningFeasibilityGuardTests(unittest.TestCase):
         self.assertEqual(len(specs), 6)
         self.assertAlmostEqual(sum(slot.seconds for slot in specs), 135.0)
         self.assertTrue(all(slot.seconds <= 45.0 for slot in specs))
-        self.assertEqual(_adaptive_review_cap(135.0), 7)
+        self.assertEqual(_adaptive_review_cap(135.0), 8)
 
     def test_short_first_section_still_uses_legacy_path(self) -> None:
         self.assertEqual(adaptive_opening_slot_specs(25.0), [])
+
+    def test_run105_all_opening_geometries_reserve_two_rejection_reviews(self) -> None:
+        self.assertEqual(_adaptive_review_cap(30.0), 5)
+        self.assertEqual(_adaptive_review_cap(62.3), 6)
+        self.assertEqual(_adaptive_review_cap(100.0), 7)
+        self.assertEqual(_adaptive_review_cap(135.0), 8)
+
+    def test_run105_same_failure_class_body_review_cap_is_bounded(self) -> None:
+        self.assertEqual(_adaptive_section_review_cap(45.0), 4)
+        self.assertEqual(_adaptive_section_review_cap(62.3), 4)
+        self.assertEqual(_adaptive_section_review_cap(100.0), 5)
+        self.assertEqual(_adaptive_section_review_cap(135.0), 5)
 
     def test_run92_geometry_can_select_four_distinct_real_assets(self) -> None:
         calls: list[int] = []
@@ -119,7 +133,112 @@ class Run92OpeningFeasibilityGuardTests(unittest.TestCase):
         self.assertEqual(len(result.slots), 4)
         selected_ids = [slot.review.candidate["id"] for slot in result.slots]
         self.assertEqual(len(set(selected_ids)), 4)
-        self.assertLessEqual(len(calls), 5)
+        self.assertLessEqual(len(calls), 6)
+
+    def test_run105_normal_three_slot_opening_recovers_after_two_semantic_blocks(self) -> None:
+        calls: list[int] = []
+
+        def audit_fn(**kwargs):
+            calls.append(int(kwargs["candidate"]["id"]))
+            if len(calls) <= 2:
+                return {"status": "block", "reason": "semantic mismatch"}
+            return {"status": "pass", "relevance": 0.95, "visual_quality": 0.95}
+
+        with patch.object(opening_director, "opening_slot_specs", adaptive_opening_slot_specs):
+            result = opening_director.select_opening_sequence(
+                {
+                    "pexels": [
+                        _candidate(151, 40),
+                        _candidate(152, 40),
+                        _candidate(153, 40),
+                        _candidate(154, 40),
+                        _candidate(155, 40),
+                    ]
+                },
+                section_seconds=30.0,
+                portrait=False,
+                narration_context="opening narration",
+                intended_visual="original visual intent",
+                audit_fn=audit_fn,
+                cache=VisualCandidateCache(excluded_assets={}),
+                max_reviews=_adaptive_review_cap(30.0),
+            )
+
+        self.assertEqual(result.status, "selected")
+        self.assertEqual(len(result.slots), 3)
+        self.assertEqual(len(calls), 5)
+        selected_ids = [slot.review.candidate["id"] for slot in result.slots]
+        self.assertEqual(len(set(selected_ids)), 3)
+
+    def test_run105_four_slots_recover_after_two_semantic_blocks(self) -> None:
+        calls: list[int] = []
+
+        def audit_fn(**kwargs):
+            calls.append(int(kwargs["candidate"]["id"]))
+            if len(calls) <= 2:
+                return {"status": "block", "reason": "semantic mismatch"}
+            return {"status": "pass", "relevance": 0.95, "visual_quality": 0.95}
+
+        with patch.object(opening_director, "opening_slot_specs", adaptive_opening_slot_specs):
+            result = opening_director.select_opening_sequence(
+                {
+                    "pexels": [
+                        _candidate(201, 70),
+                        _candidate(202, 70),
+                        _candidate(203, 70),
+                        _candidate(204, 70),
+                        _candidate(205, 70),
+                        _candidate(206, 70),
+                    ]
+                },
+                section_seconds=62.3,
+                portrait=False,
+                narration_context="opening narration",
+                intended_visual="original visual intent",
+                audit_fn=audit_fn,
+                cache=VisualCandidateCache(excluded_assets={}),
+                max_reviews=_adaptive_review_cap(62.3),
+            )
+
+        self.assertEqual(result.status, "selected")
+        self.assertEqual(len(result.slots), 4)
+        self.assertEqual(len(calls), 6)
+        selected_ids = [slot.review.candidate["id"] for slot in result.slots]
+        self.assertEqual(len(set(selected_ids)), 4)
+
+    def test_run105_three_slot_body_recovers_after_two_semantic_blocks(self) -> None:
+        calls: list[int] = []
+
+        def audit_fn(**kwargs):
+            calls.append(int(kwargs["candidate"]["id"]))
+            if len(calls) <= 2:
+                return {"status": "block", "reason": "semantic mismatch"}
+            return {"status": "pass", "relevance": 0.95, "visual_quality": 0.95}
+
+        result = section_visual_sequence.select_section_sequence(
+            {
+                "pexels": [
+                    _candidate(301, 70),
+                    _candidate(302, 70),
+                    _candidate(303, 70),
+                    _candidate(304, 70),
+                    _candidate(305, 70),
+                ]
+            },
+            section_seconds=100.0,
+            portrait=False,
+            narration_context="body narration",
+            intended_visual="original body visual intent",
+            audit_fn=audit_fn,
+            cache=VisualCandidateCache(excluded_assets={}),
+            max_reviews=_adaptive_section_review_cap(100.0),
+        )
+
+        self.assertEqual(result.status, "selected")
+        self.assertEqual(len(result.slots), 3)
+        self.assertEqual(len(calls), 5)
+        selected_ids = [slot.review.candidate["id"] for slot in result.slots]
+        self.assertEqual(len(set(selected_ids)), 3)
 
     def test_alternate_search_never_redefines_vision_intent(self) -> None:
         seen_intents: list[str] = []
