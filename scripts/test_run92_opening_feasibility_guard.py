@@ -85,15 +85,16 @@ class Run92OpeningFeasibilityGuardTests(unittest.TestCase):
         self.assertEqual(len(specs), 6)
         self.assertAlmostEqual(sum(slot.seconds for slot in specs), 135.0)
         self.assertTrue(all(slot.seconds <= 45.0 for slot in specs))
-        self.assertEqual(_adaptive_review_cap(135.0), 7)
+        self.assertEqual(_adaptive_review_cap(135.0), 8)
 
     def test_short_first_section_still_uses_legacy_path(self) -> None:
         self.assertEqual(adaptive_opening_slot_specs(25.0), [])
 
-    def test_run105_long_opening_reserves_two_rejection_reviews(self) -> None:
-        self.assertEqual(_adaptive_review_cap(30.0), 4)
+    def test_run105_all_opening_geometries_reserve_two_rejection_reviews(self) -> None:
+        self.assertEqual(_adaptive_review_cap(30.0), 5)
         self.assertEqual(_adaptive_review_cap(62.3), 6)
         self.assertEqual(_adaptive_review_cap(100.0), 7)
+        self.assertEqual(_adaptive_review_cap(135.0), 8)
 
     def test_run105_same_failure_class_body_review_cap_is_bounded(self) -> None:
         self.assertEqual(_adaptive_section_review_cap(45.0), 4)
@@ -133,6 +134,41 @@ class Run92OpeningFeasibilityGuardTests(unittest.TestCase):
         selected_ids = [slot.review.candidate["id"] for slot in result.slots]
         self.assertEqual(len(set(selected_ids)), 4)
         self.assertLessEqual(len(calls), 6)
+
+    def test_run105_normal_three_slot_opening_recovers_after_two_semantic_blocks(self) -> None:
+        calls: list[int] = []
+
+        def audit_fn(**kwargs):
+            calls.append(int(kwargs["candidate"]["id"]))
+            if len(calls) <= 2:
+                return {"status": "block", "reason": "semantic mismatch"}
+            return {"status": "pass", "relevance": 0.95, "visual_quality": 0.95}
+
+        with patch.object(opening_director, "opening_slot_specs", adaptive_opening_slot_specs):
+            result = opening_director.select_opening_sequence(
+                {
+                    "pexels": [
+                        _candidate(151, 40),
+                        _candidate(152, 40),
+                        _candidate(153, 40),
+                        _candidate(154, 40),
+                        _candidate(155, 40),
+                    ]
+                },
+                section_seconds=30.0,
+                portrait=False,
+                narration_context="opening narration",
+                intended_visual="original visual intent",
+                audit_fn=audit_fn,
+                cache=VisualCandidateCache(excluded_assets={}),
+                max_reviews=_adaptive_review_cap(30.0),
+            )
+
+        self.assertEqual(result.status, "selected")
+        self.assertEqual(len(result.slots), 3)
+        self.assertEqual(len(calls), 5)
+        selected_ids = [slot.review.candidate["id"] for slot in result.slots]
+        self.assertEqual(len(set(selected_ids)), 3)
 
     def test_run105_four_slots_recover_after_two_semantic_blocks(self) -> None:
         calls: list[int] = []
