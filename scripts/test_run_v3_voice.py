@@ -157,6 +157,7 @@ class _MainPatchMixin:
             "install_planner_quality_guard",
             "install_attempt9_schema_normalizer",
             "install_append_retry_guard",
+            "install_runtime_closure",
             "install_brand_anchor_guard",
             "install_product_proof_fallback",
             "install_voice_mesh",
