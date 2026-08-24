@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 import scripts.task_level_planner_router as router
+from scripts.checkpoint_namespace_guard import install_checkpoint_namespace_guard
 
 
 def _expected(prompt: str) -> int | None:
@@ -18,7 +19,12 @@ def _expected(prompt: str) -> int | None:
 
 
 def install_schema_guard() -> None:
+    # This installer runs before install_router(), so checkpoint namespace protection
+    # is active before the router loads any persisted response cache.
+    install_checkpoint_namespace_guard()
     original = router._normalize_outline
+    if getattr(original, "_isco_planning_schema_guard", False):
+        return
 
     def guarded(data: dict, prompt: str) -> dict:
         data = original(data, prompt)
@@ -58,5 +64,6 @@ def install_schema_guard() -> None:
         fixed["thumbnail_concepts"] = thumbs[:3]
         return fixed
 
+    guarded._isco_planning_schema_guard = True
     router._normalize_outline = guarded
     print("Planning schema guard installed")

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "principles": {
+    "retry_owner_count": 1,
+    "partial_apply_allowed": false,
+    "quality_gates_may_be_lowered_by_recovery": false,
+    "unknown_failure_policy": "fail_closed"
+  },
+  "classes": [
+    {"id": "provider_overload", "owner": "provider_router", "retryable": true, "max_semantic_reasks": 0, "examples": ["429", "quota", "rate_limit"]},
+    {"id": "transient_provider", "owner": "provider_router", "retryable": true, "max_semantic_reasks": 0, "examples": ["timeout", "network", "5xx"]},
+    {"id": "permanent_config", "owner": "preflight_or_provider_router", "retryable": false, "max_semantic_reasks": 0, "examples": ["401", "403", "bad_request", "invalid_argument"]},
+    {"id": "schema_invalid", "owner": "schema_repair", "retryable": true, "max_semantic_reasks": 1, "examples": ["invalid_json", "missing_fields", "duplicate_ids", "wrong_order", "truncated_json"]},
+    {"id": "semantic_invalid", "owner": "bounded_output_recovery", "retryable": true, "max_semantic_reasks": 1, "examples": ["under_section_floor", "over_section_ceiling", "aggregate_overflow"]},
+    {"id": "budget_exhausted", "owner": "budget_ledger", "retryable": false, "max_semantic_reasks": 0, "examples": ["task_attempt_cap", "run_attempt_cap"]},
+    {"id": "resource_unavailable", "owner": "visual_recovery", "retryable": true, "max_semantic_reasks": 1, "examples": ["no_safe_stock", "insufficient_distinct_assets", "download_unavailable"]},
+    {"id": "runtime_contract", "owner": "runtime_preflight", "retryable": false, "max_semantic_reasks": 0, "examples": ["wrapper_marker_lost", "installer_order_drift", "wrong_runtime_binding"]},
+    {"id": "media_failure", "owner": "media_pipeline", "retryable": false, "max_semantic_reasks": 0, "examples": ["ffmpeg_error", "decode_error", "av_sync", "corrupt_media"]},
+    {"id": "quality_block", "owner": "quality_gate", "retryable": false, "max_semantic_reasks": 0, "examples": ["factuality", "tone", "content_quality", "anti_repetition", "sensitive_topic"]},
+    {"id": "unexpected", "owner": "fail_closed", "retryable": false, "max_semantic_reasks": 0, "examples": ["unknown_exception"]}
+  ],
+  "historical_incident_families": {
+    "provider_payload_or_quota": ["57", "58", "59"],
+    "section_length_and_output_shape": ["71", "73", "74", "77", "78", "79", "101"],
+    "wrapper_or_install_order": ["72", "93"],
+    "visual_feasibility": ["82", "89", "92"],
+    "task_identity_budget_collision": ["100"],
+    "editorial_repair_exhaustion": ["94", "96"],
+    "stale_ci_or_verifier": ["historical_verifier_drift"]
+  }
+}
