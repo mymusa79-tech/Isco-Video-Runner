@@ -9,7 +9,7 @@ concurrency:
 
 jobs:
   produce:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
       contents: write
@@ -23,6 +23,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Runner checkout
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
       - name: Checkout private engine
         id: checkout_engine
@@ -71,26 +75,66 @@ jobs:
           print(f"Approved production brief validated before secret materialization: format={fmt}")
           PY
 
-      - name: Install locked engine and local voice fallback
+      - name: Install locked engine and verified local voice fallback
         id: install_engine
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core openssl tesseract-ocr tesseract-ocr-ara
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg fonts-noto-core openssl tesseract-ocr tesseract-ocr-ara
           cd engine
           PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py lock --lock requirements-lock.txt
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-deps -e .
           python -m pip check
-          python -m unittest discover -s tests -q
-          python -m pip install 'piper-tts==1.4.2'
+
+          piper_wheel_dir="$RUNNER_TEMP/piper-wheel"
+          mkdir -p "$piper_wheel_dir"
+          python -m pip download --disable-pip-version-check --no-deps --only-binary=:all: \
+            --dest "$piper_wheel_dir" 'piper-tts==1.4.2'
+          piper_wheel="$(find "$piper_wheel_dir" -maxdepth 1 -type f -name 'piper_tts-1.4.2-*.whl' -print -quit)"
+          test -n "$piper_wheel"
+          echo "b17184a664bd9431ce95c138f4bfb3025e1280cf26075a703dbfdcab989b8ee3  $piper_wheel" | sha256sum -c -
+          python -m pip install "$piper_wheel"
+          python -m pip check # post-piper-certification
+
           mkdir -p "$RUNNER_TEMP/piper-voices"
-          python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium
+          for attempt in 1 2; do
+            if python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium; then
+              break
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "Piper voice download failed after bounded setup retry" >&2
+              exit 1
+            fi
+            sleep 4
+          done
           test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx"
           test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"
           PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py voice \
             --voice-dir "$RUNNER_TEMP/piper-voices" \
             --manifest security/piper_voice_hashes.json
+
+          python -m unittest discover -s tests -q
+
+      - name: Full Runner pre-production regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Isolated dependency vulnerability audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/pip-audit-venv"
+          "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip install --disable-pip-version-check -q pip-audit==2.10.1
+          "$RUNNER_TEMP/pip-audit-venv/bin/pip-audit" --no-deps -r requirements-lock.txt
 
       - name: Restore encrypted cross-run memory
         id: restore_state
@@ -109,6 +153,9 @@ jobs:
           test -f "$state_dir/history.json"
           chmod 600 "$state_dir/history.json"
           echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
+
+      - name: Require healthy restored cross-run memory
+        run: test "${{ steps.restore_state.outputs.save_allowed }}" = "true"
 
       - name: Verify local voice fallback before cloud production
         id: voice_preflight
@@ -129,6 +176,15 @@ jobs:
               raise SystemExit("Piper preflight produced empty audio")
           print("Piper local voice preflight OK")
           PY
+
+      # Release namespace preflight: existing release tag blocks this run before production.
+      - name: Verify production environment and release namespace
+        id: environment_preflight
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python scripts/environment_preflight.py
 
       - name: Materialize approved production secrets
         id: prepare_request
@@ -169,23 +225,27 @@ jobs:
           printf '%s' "$TELEGRAM_ALLOWED_USER_ID" > "$RUNNER_TEMP/isco-secrets/telegram-allowed-user-id"
           echo "Telegram secrets present: bot_token=$([ -n "$TELEGRAM_BOT_TOKEN" ] && echo yes || echo no) chat_id=$([ -n "$TELEGRAM_CHAT_ID" ] && echo yes || echo no) allowed_user_id=$([ -n "$TELEGRAM_ALLOWED_USER_ID" ] && echo yes || echo no)"
 
-      - name: Verify free provider authentication
+      - name: Verify complete provider readiness
         id: verify_providers
         env:
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
           GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
+          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
+          PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
           PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
+          GEMINI_CONTENT_MODEL: gemini-2.5-flash
+          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
         run: |
-          python - <<'PY'
-          import os, requests
-          from pathlib import Path
-          groq = Path(os.environ["GROQ_API_KEY_FILE"]).read_text().strip()
-          pixabay = Path(os.environ["PIXABAY_API_KEY_FILE"]).read_text().strip()
-          a = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": "Bearer " + groq}, timeout=30)
-          if not a.ok: raise SystemExit(f"Groq auth failed: HTTP {a.status_code}")
-          b = requests.get("https://pixabay.com/api/videos/", params={"key": pixabay, "q": "nature", "per_page": 3, "safesearch": "true"}, timeout=30)
-          if not b.ok: raise SystemExit(f"Pixabay auth failed: HTTP {b.status_code}")
-          print("Groq auth OK; Pixabay auth OK")
-          PY
+          set -euo pipefail
+          python scripts/provider_preflight.py \
+            --output "$RUNNER_TEMP/provider-preflight.json" \
+            --content-model "$GEMINI_CONTENT_MODEL" \
+            --tts-model "$GEMINI_TTS_MODEL" \
+            --gemini-key-file "$GEMINI_API_KEY_FILE" \
+            --groq-key-file "$GROQ_API_KEY_FILE" \
+            --openrouter-key-file "$OPENROUTER_API_KEY_FILE" \
+            --pexels-key-file "$PEXELS_API_KEY_FILE" \
+            --pixabay-key-file "$PIXABAY_API_KEY_FILE"
 
       - name: Produce with task-level brain and voice meshes
         id: produce_video
@@ -245,6 +305,8 @@ jobs:
             engine/output/*/sibling-short-plan.json
             engine/output/*/sibling-short-results.json
             engine/output/*/delivery-manifest.json
+            ${{ runner.temp }}/provider-preflight.json
+            ${{ runner.temp }}/preproduction-environment.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -429,6 +491,7 @@ jobs:
           FINAL_OUTPUT_ROOT: ${{ steps.final_review.outputs.output_root }}
           FINAL_VIDEO_PATH: ${{ steps.final_review.outputs.final_path }}
           FINAL_QUALITY_PATH: ${{ steps.final_review.outputs.quality_path }}
+          FINAL_PLAN_PATH: ${{ steps.final_review.outputs.plan_path }}
           FINAL_TELEMETRY_PATH: ${{ steps.final_review.outputs.telemetry_path }}
           FINAL_CRITIC_PATH: ${{ steps.final_review.outputs.critic_path }}
           FINAL_BUDGET_PATH: ${{ steps.final_review.outputs.budget_path }}
@@ -441,6 +504,7 @@ jobs:
           test -n "$FINAL_OUTPUT_ROOT"
           test -n "$FINAL_VIDEO_PATH"
           test -n "$FINAL_QUALITY_PATH"
+          test -n "$FINAL_PLAN_PATH"
           test -n "$FINAL_CRITIC_PATH"
           test -n "$FINAL_BUDGET_PATH"
           test -n "$FINAL_MANIFEST_PATH"
@@ -456,6 +520,7 @@ jobs:
           root = Path(os.environ['FINAL_OUTPUT_ROOT'])
           video = Path(os.environ['FINAL_VIDEO_PATH'])
           quality = Path(os.environ['FINAL_QUALITY_PATH'])
+          plan = Path(os.environ['FINAL_PLAN_PATH'])
           telemetry_value = os.environ.get('FINAL_TELEMETRY_PATH', '').strip()
           telemetry = Path(telemetry_value) if telemetry_value else None
           critic = Path(os.environ['FINAL_CRITIC_PATH'])
@@ -471,6 +536,8 @@ jobs:
               raise SystemExit(f'Release video escaped reviewed output root: {video}')
           if quality != root / 'quality-final.json':
               raise SystemExit(f'Release quality file escaped reviewed output root: {quality}')
+          if plan != root / 'plan.json':
+              raise SystemExit(f'Release plan escaped reviewed output root: {plan}')
           if critic != root / 'final-critic.json':
               raise SystemExit(f'Release critic escaped reviewed output root: {critic}')
           if budget != root / 'ai-budget.json':
@@ -485,7 +552,7 @@ jobs:
               raise SystemExit(f'Release telemetry escaped reviewed output root: {telemetry}')
           if opening is not None and opening != root / 'opening-visual-audit.json':
               raise SystemExit(f'Release opening audit escaped reviewed output root: {opening}')
-          for required in (video, quality, critic, budget, manifest, final_master_qc):
+          for required in (video, quality, plan, critic, budget, manifest, final_master_qc):
               if not required.is_file():
                   raise SystemExit(f'Missing reviewed release asset: {required}')
           qc = json.loads(final_master_qc.read_text(encoding='utf-8'))
@@ -534,7 +601,7 @@ jobs:
           )
           PY
           fi
-          release_assets=("$FINAL_VIDEO_PATH" "$FINAL_CRITIC_PATH" "$FINAL_BUDGET_PATH" "$FINAL_MANIFEST_PATH" "$FINAL_MASTER_QC_PATH" "$FINAL_OUTPUT_ROOT/thumbnail-plan.json" "$FINAL_OUTPUT_ROOT/thumbnail-1.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-2.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-3.jpg" "$FINAL_OUTPUT_ROOT/rights-manifest.json" "$FINAL_OUTPUT_ROOT/gold-enforce-report.json")
+          release_assets=("$FINAL_VIDEO_PATH" "$FINAL_QUALITY_PATH" "$FINAL_PLAN_PATH" "$FINAL_CRITIC_PATH" "$FINAL_BUDGET_PATH" "$FINAL_MANIFEST_PATH" "$FINAL_MASTER_QC_PATH" "$FINAL_OUTPUT_ROOT/thumbnail-plan.json" "$FINAL_OUTPUT_ROOT/thumbnail-1.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-2.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-3.jpg" "$FINAL_OUTPUT_ROOT/rights-manifest.json" "$FINAL_OUTPUT_ROOT/gold-enforce-report.json")
           if [ -n "$FINAL_TELEMETRY_PATH" ]; then
             release_assets+=("$FINAL_TELEMETRY_PATH")
           fi
@@ -560,10 +627,28 @@ jobs:
           do
             if [ -f "$candidate" ]; then release_assets+=("$candidate"); fi
           done
-          gh release create "$tag" "${release_assets[@]}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "Isco Video Bundle #${RUN_NUMBER}" \
+          release_cmd=(
+            python scripts/release_transaction.py
+            --repository "$GITHUB_REPOSITORY"
+            --tag "$tag"
+            --title "Isco Video Bundle #${RUN_NUMBER}"
             --notes "Production bundle ${RUN_NUMBER}: long-form video, 2-3 sibling Shorts, A/B/C packaging and review evidence. YouTube publication remains manual."
+            --journal "$RUNNER_TEMP/release-transaction.json"
+          )
+          for asset in "${release_assets[@]}"; do
+            release_cmd+=(--asset "$asset")
+          done
+          "${release_cmd[@]}"
+
+      - name: Upload release transaction evidence
+        if: always() && steps.create_release.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: isco-release-transaction-${{ github.run_number }}
+          path: ${{ runner.temp }}/release-transaction.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Checkout agent-state writer
         id: checkout_state_writer
@@ -577,7 +662,6 @@ jobs:
       - name: Persist approved encrypted cross-run memory
         id: persist_state
         if: success() && steps.publish_approval.outputs.effective_decision == 'approved' && steps.restore_state.outputs.save_allowed == 'true'
-        continue-on-error: true
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
@@ -589,11 +673,22 @@ jobs:
           python scripts/persistent_memory.py encrypt \
             --plain "$ISCO_HISTORY_PATH" \
             --encrypted "$encrypted"
-          python scripts/persistent_memory.py persist \
+          python scripts/state_persistence_strict.py \
             --repo state-writer \
             --encrypted "$encrypted" \
             --branch agent-state \
-            --run-number "$GITHUB_RUN_NUMBER"
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --report "$RUNNER_TEMP/state-persistence.json"
+
+      - name: Upload state closure diagnostics
+        if: always() && steps.persist_state.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: isco-state-closure-${{ github.run_number }}
+          path: ${{ runner.temp }}/state-persistence.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Notify Telegram
         if: always() && steps.validate_brief.outcome == 'success'
@@ -606,13 +701,17 @@ jobs:
           CHECKOUT_ENGINE_OUTCOME: ${{ steps.checkout_engine.outcome }}
           SETUP_PYTHON_OUTCOME: ${{ steps.setup_python.outcome }}
           INSTALL_ENGINE_OUTCOME: ${{ steps.install_engine.outcome }}
+          RESTORE_STATE_OUTCOME: ${{ steps.restore_state.outcome }}
           VOICE_PREFLIGHT_OUTCOME: ${{ steps.voice_preflight.outcome }}
+          ENVIRONMENT_PREFLIGHT_OUTCOME: ${{ steps.environment_preflight.outcome }}
           PREPARE_REQUEST_OUTCOME: ${{ steps.prepare_request.outcome }}
           VERIFY_PROVIDERS_OUTCOME: ${{ steps.verify_providers.outcome }}
           PRODUCE_VIDEO_OUTCOME: ${{ steps.produce_video.outcome }}
           FINAL_REVIEW_OUTCOME: ${{ steps.final_review.outcome }}
           UPLOAD_FINAL_OUTCOME: ${{ steps.upload_final.outcome }}
+          PUBLISH_APPROVAL_OUTCOME: ${{ steps.publish_approval.outcome }}
           CREATE_RELEASE_OUTCOME: ${{ steps.create_release.outcome }}
+          PERSIST_STATE_OUTCOME: ${{ steps.persist_state.outcome }}
           FINAL_PLAN_PATH: ${{ steps.final_review.outputs.plan_path }}
         run: |
           set -euo pipefail
@@ -671,13 +770,17 @@ jobs:
               "Checkout private engine:${CHECKOUT_ENGINE_OUTCOME}" \
               "Setup Python:${SETUP_PYTHON_OUTCOME}" \
               "Install engine:${INSTALL_ENGINE_OUTCOME}" \
+              "Restore memory:${RESTORE_STATE_OUTCOME}" \
               "Voice preflight:${VOICE_PREFLIGHT_OUTCOME}" \
+              "Environment preflight:${ENVIRONMENT_PREFLIGHT_OUTCOME}" \
               "Prepare request:${PREPARE_REQUEST_OUTCOME}" \
               "Provider authentication:${VERIFY_PROVIDERS_OUTCOME}" \
               "Production:${PRODUCE_VIDEO_OUTCOME}" \
               "Final review:${FINAL_REVIEW_OUTCOME}" \
               "Upload final bundle:${UPLOAD_FINAL_OUTCOME}" \
-              "Create release:${CREATE_RELEASE_OUTCOME}"
+              "Publish approval:${PUBLISH_APPROVAL_OUTCOME}" \
+              "Create release:${CREATE_RELEASE_OUTCOME}" \
+              "Persist accepted state:${PERSIST_STATE_OUTCOME}"
             do
               name="${item%%:*}"
               outcome="${item#*:}"
@@ -732,5 +835,7 @@ jobs:
         run: |
           rm -rf "$RUNNER_TEMP/isco-secrets" || true
           rm -rf "$RUNNER_TEMP/isco-state" || true
+          rm -rf "$RUNNER_TEMP/pip-audit-venv" || true
+          rm -rf "$RUNNER_TEMP/piper-wheel" || true
           rm -f "$RUNNER_TEMP/isco-request.json" || true
           rm -f "$RUNNER_TEMP/piper-preflight.wav" || true
