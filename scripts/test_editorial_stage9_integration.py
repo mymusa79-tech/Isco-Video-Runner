@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 # Stage 9 final integration contract: exact current Engine pin + one production provenance id.
-ENGINE_SHA = "5f66ab7281160e588236687e0a3c6862fa817b7a"
+ENGINE_SHA = "8b59a7149e423b6b850b6b9521bd26ad71316904"
 OLD_ENGINE_SHA = "64ab711bc904e9581c3cc6c8280d1321ae738eb1"
 
 

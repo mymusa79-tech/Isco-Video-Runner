@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 
-ENGINE_SHA = "5f66ab7281160e588236687e0a3c6862fa817b7a"
+ENGINE_SHA = "8b59a7149e423b6b850b6b9521bd26ad71316904"
 
 
 class TelegramProductionWorkflowTests(unittest.TestCase):
