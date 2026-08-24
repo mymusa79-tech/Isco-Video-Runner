@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import importlib
 import json
 import os
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -73,6 +75,29 @@ def _read_json_object(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def production_entrypoint_modules() -> list[object]:
+    """Return every live module object for run_v3_voice, including real script mode.
+
+    Production is launched with `python ../scripts/run_v3_voice.py`, so the executing
+    file is normally `__main__`. Import-based tests use `scripts.run_v3_voice`. Python
+    can keep those as two distinct module objects; patching only the package import can
+    therefore produce a green test while leaving the real script entrypoint unpatched.
+    """
+    package_module = importlib.import_module("scripts.run_v3_voice")
+    modules: list[object] = [package_module]
+    main_module = sys.modules.get("__main__")
+    package_file = getattr(package_module, "__file__", None)
+    main_file = getattr(main_module, "__file__", None) if main_module is not None else None
+    if package_file and main_file:
+        try:
+            same_file = Path(package_file).resolve() == Path(main_file).resolve()
+        except OSError:
+            same_file = False
+        if same_file and main_module is not package_module:
+            modules.append(main_module)
+    return modules
+
+
 def _artifact_presence(out_dir: Path) -> list[str]:
     known = (
         "research.json",
@@ -94,7 +119,8 @@ def _artifact_presence(out_dir: Path) -> list[str]:
 
 
 def _latest_output_dir() -> Path | None:
-    roots = sorted(Path("output").glob("*"), key=lambda path: path.stat().st_mtime, reverse=True)
+    roots = [path for path in Path("output").glob("*") if path.is_dir()]
+    roots.sort(key=lambda path: path.stat().st_mtime, reverse=True)
     return roots[0] if roots else None
 
 
@@ -137,10 +163,7 @@ def write_release_transaction(
     path = out_dir / "release-transaction.json"
     previous = _read_json_object(path)
     history = previous.get("history") if isinstance(previous.get("history"), list) else []
-    event = {
-        "state": state,
-        "at": datetime.now(timezone.utc).isoformat(),
-    }
+    event = {"state": state, "at": datetime.now(timezone.utc).isoformat()}
     if exc is not None:
         event["safe_error"] = safe_error(exc)
     history = [item for item in history[-15:] if isinstance(item, dict)] + [event]
@@ -162,6 +185,24 @@ def _require_marker(name: str, value: object, marker: str) -> None:
         raise RuntimeError(f"Runtime contract failed: {name} missing marker {marker}")
 
 
+def _assert_entrypoint_module_contract(module: object) -> None:
+    name = getattr(module, "__name__", "unknown")
+    manifest = getattr(module, "_write_production_manifest", None)
+    _require_marker(f"{name}._write_production_manifest", manifest, "_isco_release_transaction_delivery")
+    canonical = getattr(manifest, "_isco_release_transaction_original", None)
+    _require_marker(f"{name}.canonical_bundle", canonical, "_isco_canonical_v4_bundle")
+    _require_marker(
+        f"{name}.run_gold_enforce_phase4",
+        getattr(module, "run_gold_enforce_phase4", None),
+        "_isco_release_transaction_gold",
+    )
+    _require_marker(
+        f"{name}.write_planning_telemetry",
+        getattr(module, "write_planning_telemetry", None),
+        "_isco_reliability_telemetry_binding",
+    )
+
+
 def assert_runtime_contracts() -> None:
     """Fail before provider/media work if a known-critical runtime patch chain drifted."""
     _require_marker("orchestrator.build_plan", orchestrator.build_plan, "_is_resilient_router")
@@ -174,6 +215,8 @@ def assert_runtime_contracts() -> None:
     _require_marker("opening selector wrapper", opening_director.select_opening_sequence, "_isco_run92_adaptive_opening_guard")
     _require_marker("section selector stable-intent wrapper", orchestrator.select_section_sequence, "_isco_run92_stable_visual_intent")
     _require_marker("single selector stable-intent wrapper", orchestrator.select_with_recovery, "_isco_run92_stable_visual_intent")
+    for module in production_entrypoint_modules():
+        _assert_entrypoint_module_contract(module)
 
 
 def install_core_reliability_guard() -> None:
@@ -203,72 +246,79 @@ def install_core_reliability_guard() -> None:
 
 
 def install_release_transaction_guard() -> None:
-    """Journal Gold acceptance and unified delivery without changing their order/policy."""
-    import scripts.run_v3_voice as production
+    """Journal Gold acceptance and unified delivery on every live entrypoint module."""
+    for production in production_entrypoint_modules():
+        current_gold = getattr(production, "run_gold_enforce_phase4")
+        if not getattr(current_gold, "_isco_release_transaction_gold", False):
+            def make_gold_wrapper(current):
+                def guarded_gold(*args, **kwargs):
+                    out_dir = Path(kwargs.get("output_dir") or args[0])
+                    write_release_transaction(out_dir, state="gold_started")
+                    try:
+                        result = current(*args, **kwargs)
+                    except Exception as exc:
+                        write_release_transaction(out_dir, state="gold_failed", exc=exc)
+                        try:
+                            write_failure_envelope(out_dir, stage="gold_enforcement", exc=exc)
+                        except Exception:
+                            pass
+                        raise
+                    write_release_transaction(out_dir, state="gold_accepted")
+                    return result
+                return guarded_gold
 
-    current_gold = production.run_gold_enforce_phase4
-    if not getattr(current_gold, "_isco_release_transaction_gold", False):
-        def guarded_gold(*args, **kwargs):
-            out_dir = Path(kwargs.get("output_dir") or args[0])
-            write_release_transaction(out_dir, state="gold_started")
-            try:
-                result = current_gold(*args, **kwargs)
-            except Exception as exc:
-                write_release_transaction(out_dir, state="gold_failed", exc=exc)
-                try:
-                    write_failure_envelope(out_dir, stage="gold_enforcement", exc=exc)
-                except Exception:
-                    pass
-                raise
-            write_release_transaction(out_dir, state="gold_accepted")
-            return result
+            wrapped_gold = make_gold_wrapper(current_gold)
+            wrapped_gold._isco_release_transaction_gold = True
+            wrapped_gold._isco_release_transaction_original = current_gold
+            setattr(production, "run_gold_enforce_phase4", wrapped_gold)
 
-        guarded_gold._isco_release_transaction_gold = True
-        guarded_gold._isco_release_transaction_original = current_gold
-        production.run_gold_enforce_phase4 = guarded_gold
+        current_manifest = getattr(production, "_write_production_manifest")
+        if not getattr(current_manifest, "_isco_release_transaction_delivery", False):
+            def make_manifest_wrapper(current):
+                def guarded_manifest(out: Path, *, production_id: str, fmt: str):
+                    out = Path(out)
+                    write_release_transaction(out, state="delivery_started")
+                    try:
+                        result = current(out, production_id=production_id, fmt=fmt)
+                    except Exception as exc:
+                        write_release_transaction(out, state="post_acceptance_incomplete_delivery", exc=exc)
+                        try:
+                            write_failure_envelope(out, stage="post_gold_delivery", exc=exc)
+                        except Exception:
+                            pass
+                        raise
+                    write_release_transaction(out, state="delivery_complete")
+                    return result
+                return guarded_manifest
 
-    current_manifest = production._write_production_manifest
-    if not getattr(current_manifest, "_isco_release_transaction_delivery", False):
-        def guarded_manifest(out: Path, *, production_id: str, fmt: str):
-            out = Path(out)
-            write_release_transaction(out, state="delivery_started")
-            try:
-                result = current_manifest(out, production_id=production_id, fmt=fmt)
-            except Exception as exc:
-                write_release_transaction(out, state="post_acceptance_incomplete_delivery", exc=exc)
-                try:
-                    write_failure_envelope(out, stage="post_gold_delivery", exc=exc)
-                except Exception:
-                    pass
-                raise
-            write_release_transaction(out, state="delivery_complete")
-            return result
-
-        guarded_manifest._isco_release_transaction_delivery = True
-        guarded_manifest._isco_release_transaction_original = current_manifest
-        production._write_production_manifest = guarded_manifest
+            wrapped_manifest = make_manifest_wrapper(current_manifest)
+            wrapped_manifest._isco_release_transaction_delivery = True
+            wrapped_manifest._isco_release_transaction_original = current_manifest
+            setattr(production, "_write_production_manifest", wrapped_manifest)
 
 
 def install_telemetry_reliability_binding() -> None:
-    """Embed reliability evidence in an artifact the canonical workflow already uploads."""
-    import scripts.run_v3_voice as production
+    """Embed reliability evidence in telemetry for every live entrypoint module."""
+    for production in production_entrypoint_modules():
+        current = getattr(production, "write_planning_telemetry")
+        if getattr(current, "_isco_reliability_telemetry_binding", False):
+            continue
 
-    current = production.write_planning_telemetry
-    if getattr(current, "_isco_reliability_telemetry_binding", False):
-        return
+        def make_telemetry_wrapper(original):
+            def guarded_write(out_dir: Path) -> Path:
+                path = original(out_dir)
+                data = _read_json_object(path)
+                failure = _read_json_object(Path(out_dir) / "failure-envelope.json")
+                transaction = _read_json_object(Path(out_dir) / "release-transaction.json")
+                if failure:
+                    data["failure_envelope"] = failure
+                if transaction:
+                    data["release_transaction"] = transaction
+                atomic_write_json(path, data)
+                return path
+            return guarded_write
 
-    def guarded_write(out_dir: Path) -> Path:
-        path = current(out_dir)
-        data = _read_json_object(path)
-        failure = _read_json_object(Path(out_dir) / "failure-envelope.json")
-        transaction = _read_json_object(Path(out_dir) / "release-transaction.json")
-        if failure:
-            data["failure_envelope"] = failure
-        if transaction:
-            data["release_transaction"] = transaction
-        atomic_write_json(path, data)
-        return path
-
-    guarded_write._isco_reliability_telemetry_binding = True
-    guarded_write._isco_reliability_telemetry_original = current
-    production.write_planning_telemetry = guarded_write
+        wrapped = make_telemetry_wrapper(current)
+        wrapped._isco_reliability_telemetry_binding = True
+        wrapped._isco_reliability_telemetry_original = current
+        setattr(production, "write_planning_telemetry", wrapped)
