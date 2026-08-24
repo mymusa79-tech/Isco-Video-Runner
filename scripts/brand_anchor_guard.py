@@ -122,6 +122,7 @@ def _install_append_retry_identity_isolation() -> None:
 
     original = current
 
+    @wraps(original)
     def guarded_repair(
         api_key: str,
         *,
