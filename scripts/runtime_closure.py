@@ -5,12 +5,15 @@ from pathlib import Path
 
 from scripts.attempt10_append_bound_recovery import install_attempt10_append_bound_recovery
 from scripts.audio_mastering_live_binding import install_audio_mastering_live_binding
+from scripts.bounded_output_recovery import install_bounded_output_recovery
 from scripts.cta_live_binding import install_cta_live_binding
+from scripts.gemini_planning_output_guard import install_gemini_planning_output_guard
 from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
+from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.sfx_live_binding import install_sfx_live_binding
 
 
@@ -67,7 +70,9 @@ def install_canonical_v4_bundle_post_manifest() -> None:
 
             delivery = build_canonical_v4_bundle(Path(out))
             if delivery is None or not Path(delivery).is_file():
-                raise RuntimeError("Canonical V4 long-form production finished without unified delivery manifest")
+                raise RuntimeError(
+                    "Canonical V4 long-form production finished without unified delivery manifest"
+                )
         return manifest
 
     wrapped._isco_canonical_v4_bundle = True
@@ -77,7 +82,14 @@ def install_canonical_v4_bundle_post_manifest() -> None:
 
 def install_runtime_closure() -> None:
     """Install bounded production recovery plus cinematic and delivery stages."""
+    # Order is deliberate: Attempt10 performs every zero-call deterministic repair
+    # first. The generic bounded recovery may then spend at most one targeted semantic
+    # reask for a still-invalid model output. Schema repair stays separate from provider
+    # retry/fallback ownership, and Gemini planning uses native JSON object mode.
     install_attempt10_append_bound_recovery()
+    install_bounded_output_recovery()
+    install_schema_repair_policy()
+    install_gemini_planning_output_guard()
     install_audio_mastering_live_binding()
     install_sfx_live_binding()
     install_m8_live_binding()
@@ -101,7 +113,9 @@ def run_post_gold_observers(output_dir: Path) -> dict:
             api_key=_groq_key(),
         )
     except Exception as exc:
-        print(f"Runtime post-Gold observer skipped ({type(exc).__name__}); production unchanged")
+        print(
+            f"Runtime post-Gold observer skipped ({type(exc).__name__}); production unchanged"
+        )
         return {
             "schema_version": 1,
             "mode": "observe_only",
