@@ -5,17 +5,18 @@ on:
     branches: ["main"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   pin:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout candidate branch
+      - name: Checkout candidate branch with workflow-capable repository token
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           persist-credentials: true
           fetch-depth: 1
 
