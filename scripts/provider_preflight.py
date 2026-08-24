@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -15,6 +15,7 @@ GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/v1/videos/search"
 PIXABAY_VIDEO_SEARCH_URL = "https://pixabay.com/api/videos/"
+USER_AGENT = "isco-video-preflight/2"
 
 
 @dataclass(frozen=True)
@@ -46,9 +47,6 @@ def _require_ok(provider: str, response: requests.Response) -> None:
 
 
 def _safe_failure_detail(exc: BaseException) -> str:
-    # Only RuntimeError strings created by this module are persisted. Requests transport
-    # exceptions can include a fully rendered URL; Pixabay credentials live in a query
-    # parameter, so persisting raw RequestException text could leak a secret.
     if isinstance(exc, RuntimeError):
         return str(exc)[:300]
     if isinstance(exc, requests.Timeout):
@@ -58,15 +56,52 @@ def _safe_failure_detail(exc: BaseException) -> str:
     return f"provider readiness malformed response ({type(exc).__name__})"
 
 
+def _json_object(provider: str, response: requests.Response) -> dict:
+    try:
+        payload = response.json()
+    except Exception as exc:
+        raise RuntimeError(f"{provider} readiness returned malformed JSON") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{provider} readiness returned non-object JSON")
+    return payload
+
+
+def _gemini_model_names(api_key: str, *, timeout: int) -> set[str]:
+    names: set[str] = set()
+    page_token = ""
+    seen_tokens: set[str] = set()
+    for _ in range(10):
+        params: dict[str, object] = {"pageSize": 1000}
+        if page_token:
+            params["pageToken"] = page_token
+        response = requests.get(
+            GEMINI_MODELS_URL,
+            headers={"x-goog-api-key": api_key, "User-Agent": USER_AGENT},
+            params=params,
+            timeout=timeout,
+        )
+        _require_ok("gemini", response)
+        payload = _json_object("gemini", response)
+        models = payload.get("models", [])
+        if not isinstance(models, list):
+            raise RuntimeError("gemini models response has invalid models field")
+        names.update(
+            str(item.get("name") or "").removeprefix("models/")
+            for item in models
+            if isinstance(item, dict) and item.get("name")
+        )
+        next_token = str(payload.get("nextPageToken") or "").strip()
+        if not next_token:
+            return names
+        if next_token in seen_tokens:
+            raise RuntimeError("gemini models pagination repeated a page token")
+        seen_tokens.add(next_token)
+        page_token = next_token
+    raise RuntimeError("gemini models pagination exceeded safety bound")
+
+
 def check_gemini(api_key: str, *, content_model: str, tts_model: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
-    response = requests.get(
-        GEMINI_MODELS_URL,
-        headers={"x-goog-api-key": api_key},
-        timeout=timeout,
-    )
-    _require_ok("gemini", response)
-    payload = response.json()
-    names = {str(item.get("name") or "").removeprefix("models/") for item in payload.get("models", []) if isinstance(item, dict)}
+    names = _gemini_model_names(api_key, timeout=timeout)
     aliases = {
         content_model: {content_model, "gemini-3.5-flash-lite"} if content_model == "gemini-2.5-flash" else {content_model},
         tts_model: {tts_model},
@@ -74,40 +109,61 @@ def check_gemini(api_key: str, *, content_model: str, tts_model: str, timeout: i
     missing = [requested for requested, accepted in aliases.items() if not (accepted & names)]
     if missing:
         raise RuntimeError("gemini configured model unavailable: " + ", ".join(missing))
-    return ProviderCheck("gemini", "pass", response.status_code, "credential and configured models available")
+    return ProviderCheck("gemini", "pass", 200, "credential and configured models available")
 
 
 def check_groq(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
-    response = requests.get(GROQ_MODELS_URL, headers={"Authorization": "Bearer " + api_key}, timeout=timeout)
+    response = requests.get(
+        GROQ_MODELS_URL,
+        headers={"Authorization": "Bearer " + api_key, "User-Agent": USER_AGENT},
+        timeout=timeout,
+    )
     _require_ok("groq", response)
-    return ProviderCheck("groq", "pass", response.status_code, "credential accepted")
+    payload = _json_object("groq", response)
+    if not isinstance(payload.get("data"), list):
+        raise RuntimeError("groq models response has invalid data field")
+    return ProviderCheck("groq", "pass", response.status_code, "credential accepted and models endpoint healthy")
 
 
 def check_openrouter(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
-    response = requests.get(OPENROUTER_KEY_URL, headers={"Authorization": "Bearer " + api_key}, timeout=timeout)
+    response = requests.get(
+        OPENROUTER_KEY_URL,
+        headers={"Authorization": "Bearer " + api_key, "User-Agent": USER_AGENT},
+        timeout=timeout,
+    )
     _require_ok("openrouter", response)
+    payload = _json_object("openrouter", response)
+    if not isinstance(payload.get("data"), dict):
+        raise RuntimeError("openrouter key response has invalid data field")
     return ProviderCheck("openrouter", "pass", response.status_code, "credential accepted")
 
 
 def check_pexels(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
     response = requests.get(
         PEXELS_VIDEO_SEARCH_URL,
-        headers={"Authorization": api_key},
+        headers={"Authorization": api_key, "User-Agent": USER_AGENT},
         params={"query": "nature", "per_page": 1, "orientation": "landscape", "size": "medium", "locale": "en-US"},
         timeout=timeout,
     )
     _require_ok("pexels", response)
+    payload = _json_object("pexels", response)
+    if not isinstance(payload.get("videos"), list):
+        raise RuntimeError("pexels video-search response has invalid videos field")
     return ProviderCheck("pexels", "pass", response.status_code, "credential and current video-search endpoint available")
 
 
 def check_pixabay(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
     response = requests.get(
         PIXABAY_VIDEO_SEARCH_URL,
+        headers={"User-Agent": USER_AGENT},
         params={"key": api_key, "q": "nature", "per_page": 3, "safesearch": "true"},
         timeout=timeout,
     )
     _require_ok("pixabay", response)
-    return ProviderCheck("pixabay", "pass", response.status_code, "credential accepted")
+    payload = _json_object("pixabay", response)
+    if not isinstance(payload.get("hits"), list):
+        raise RuntimeError("pixabay video-search response has invalid hits field")
+    return ProviderCheck("pixabay", "pass", response.status_code, "credential and video-search endpoint available")
 
 
 def run_preflight(
@@ -138,7 +194,10 @@ def run_preflight(
             failure = failure or exc
     output.parent.mkdir(parents=True, exist_ok=True)
     tmp = output.with_name(output.name + ".tmp")
-    tmp.write_text(json.dumps({"schema_version": 1, "checks": [asdict(item) for item in results]}, indent=2), encoding="utf-8")
+    tmp.write_text(
+        json.dumps({"schema_version": 2, "checks": [asdict(item) for item in results]}, indent=2),
+        encoding="utf-8",
+    )
     tmp.replace(output)
     if failure is not None:
         raise RuntimeError("provider readiness preflight failed; see provider-preflight.json") from None
