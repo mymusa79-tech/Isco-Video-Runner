@@ -1,0 +1,64 @@
+name: Verify Engine Reliability Candidate
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  engine-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact Engine reliability candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 4dbf99e312a84fcb2cea7d92cac1d5c3519426e7
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine-candidate
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine candidate
+        working-directory: engine-candidate
+        run: test "$(git rev-parse HEAD)" = "4dbf99e312a84fcb2cea7d92cac1d5c3519426e7"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine-candidate
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine-candidate
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused task-identity contract
+        working-directory: engine-candidate
+        run: python -m unittest tests.test_task_identity_contract -v
+
+      - name: Full Engine suite
+        working-directory: engine-candidate
+        run: python -m unittest discover -s tests -q
