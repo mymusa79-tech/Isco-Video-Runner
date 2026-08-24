@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
@@ -83,6 +83,11 @@ def _artifact_presence(out_dir: Path) -> list[str]:
     return [name for name in known if (out_dir / name).exists()]
 
 
+def _latest_output_dir() -> Path | None:
+    roots = sorted(Path("output").glob("*"), key=lambda path: path.stat().st_mtime, reverse=True)
+    return roots[0] if roots else None
+
+
 def write_failure_envelope(
     out_dir: Path,
     *,
@@ -119,55 +124,45 @@ def _require_marker(name: str, value: object, marker: str) -> None:
 
 
 def assert_runtime_contracts() -> None:
-    """Fail before provider/media work if a known-critical runtime patch chain drifted.
-
-    These checks encode prior production incidents as permanent invariants: router
-    marker preservation, deterministic-before-semantic output recovery, schema retry
-    ownership, Gemini structured planning, and the opening retrieval wrapper order.
-    """
+    """Fail before provider/media work if a known-critical runtime patch chain drifted."""
     _require_marker("orchestrator.build_plan", orchestrator.build_plan, "_is_resilient_router")
-    _require_marker(
-        "append residual repair",
-        append_guard._repair_all_residual_underlength,
-        "_isco_bounded_output_recovery",
-    )
-    _require_marker(
-        "append bounds validator",
-        append_guard._validate_addition_bounds,
-        "_isco_bounded_output_recovery_validator",
-    )
-    _require_marker(
-        "full-script schema repair",
-        staged._call_with_schema_repair,
-        "_isco_schema_repair_policy",
-    )
-    _require_marker(
-        "Gemini planning JSON adapter",
-        planner_router.gemini_json_text,
-        "_isco_gemini_planning_output_guard",
-    )
-    _require_marker(
-        "Pexels stock search wrapper",
-        orchestrator.pexels_search_videos,
-        "_isco_run92_stock_pool_guard",
-    )
-    _require_marker(
-        "Pixabay stock search wrapper",
-        orchestrator.pixabay_provider.search_videos,
-        "_isco_run92_stock_pool_guard",
-    )
-    _require_marker(
-        "opening selector wrapper",
-        opening_director.select_opening_sequence,
-        "_isco_run92_adaptive_opening_guard",
-    )
-    _require_marker(
-        "section selector stable-intent wrapper",
-        orchestrator.select_section_sequence,
-        "_isco_run92_stable_visual_intent",
-    )
-    _require_marker(
-        "single selector stable-intent wrapper",
-        orchestrator.select_with_recovery,
-        "_isco_run92_stable_visual_intent",
-    )
+    _require_marker("append residual repair", append_guard._repair_all_residual_underlength, "_isco_bounded_output_recovery")
+    _require_marker("append bounds validator", append_guard._validate_addition_bounds, "_isco_bounded_output_recovery_validator")
+    _require_marker("full-script schema repair", staged._call_with_schema_repair, "_isco_schema_repair_policy")
+    _require_marker("Gemini planning JSON adapter", planner_router.gemini_json_text, "_isco_gemini_planning_output_guard")
+    _require_marker("Pexels stock search wrapper", orchestrator.pexels_search_videos, "_isco_run92_stock_pool_guard")
+    _require_marker("Pixabay stock search wrapper", orchestrator.pixabay_provider.search_videos, "_isco_run92_stock_pool_guard")
+    _require_marker("opening selector wrapper", opening_director.select_opening_sequence, "_isco_run92_adaptive_opening_guard")
+    _require_marker("section selector stable-intent wrapper", orchestrator.select_section_sequence, "_isco_run92_stable_visual_intent")
+    _require_marker("single selector stable-intent wrapper", orchestrator.select_with_recovery, "_isco_run92_stable_visual_intent")
+
+
+def install_core_reliability_guard() -> None:
+    """Put one runtime-contract/failure-evidence boundary around Engine production.
+
+    The wrapper is installed early but evaluates contracts at call time, after every
+    later Runner installer has run. It never retries, falls back, or changes a verdict.
+    """
+    current = orchestrator.produce
+    if getattr(current, "_isco_core_reliability_guard", False):
+        return
+
+    def guarded_produce(*args, **kwargs):
+        try:
+            assert_runtime_contracts()
+            return current(*args, **kwargs)
+        except Exception as exc:
+            out_dir = _latest_output_dir()
+            if out_dir is not None:
+                try:
+                    write_failure_envelope(out_dir, stage="core_production", exc=exc)
+                except Exception as diagnostic_exc:
+                    print(
+                        "Failure envelope write skipped "
+                        f"({type(diagnostic_exc).__name__}); preserving original failure"
+                    )
+            raise
+
+    guarded_produce._isco_core_reliability_guard = True
+    guarded_produce._isco_core_reliability_original = current
+    orchestrator.produce = guarded_produce
