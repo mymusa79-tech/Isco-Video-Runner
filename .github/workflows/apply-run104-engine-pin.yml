@@ -17,6 +17,7 @@ jobs:
           ref: fix/run104-engine-candidate-certification
           fetch-depth: 1
           persist-credentials: true
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
       - name: Replace only the certified Engine pin
         env:
           OLD_SHA: a1eea541c8ec36b0c701093793c730ffcc53b03b
@@ -30,8 +31,8 @@ jobs:
           test "$(grep -o "$OLD_SHA" "$file" | wc -l)" -eq 0
           test "$(grep -o "$NEW_SHA" "$file" | wc -l)" -eq 3
           git diff --check
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git config user.name isco-certifier
+          git config user.email isco-certifier@users.noreply.github.com
           git add "$file"
           git commit -m "fix: pin final certified Run104 Engine candidate"
           git push origin HEAD:fix/run104-engine-candidate-certification
