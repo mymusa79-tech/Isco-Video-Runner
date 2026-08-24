@@ -120,11 +120,15 @@ def _adaptive_review_cap(section_seconds: float) -> int:
     specs = adaptive_opening_slot_specs(section_seconds)
     if not specs:
         return opening_director.MAX_OPENING_VISION_REVIEWS
-    # One bounded spare review lets a single blocked candidate recover while every
-    # final-cut asset still receives the unchanged fail-closed Vision audit.
+    # Keep the legacy four-review contract for the normal three-shot opening. When
+    # the first section creates extra tail slots, reserve two semantic-rejection
+    # reviews (bounded oversampling) instead of only one. This mirrors established
+    # retrieve -> prefilter -> rerank pipelines and fixes Run #105's 3-pass/2-block
+    # dead end without weakening Vision QA or increasing the hard cap above seven.
+    rejection_headroom = 1 if len(specs) <= 3 else 2
     return min(
         MAX_ADAPTIVE_OPENING_REVIEWS,
-        max(opening_director.MAX_OPENING_VISION_REVIEWS, len(specs) + 1),
+        max(opening_director.MAX_OPENING_VISION_REVIEWS, len(specs) + rejection_headroom),
     )
 
 
