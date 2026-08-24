@@ -17,6 +17,7 @@ from scripts.runtime_reliability import (
     install_core_reliability_guard,
     install_release_transaction_guard,
     install_telemetry_reliability_binding,
+    production_entrypoint_modules,
 )
 from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.sfx_live_binding import install_sfx_live_binding
@@ -49,36 +50,39 @@ def _canonical_v4_bundle_enabled() -> bool:
 
 
 def install_canonical_v4_bundle_post_manifest() -> None:
-    """Make canonical V4 long-form delivery atomic with 2–3 sibling Shorts."""
-    import scripts.run_v3_voice as production
+    """Bind unified long+Short delivery in package imports and the real script entrypoint."""
+    for production in production_entrypoint_modules():
+        current = getattr(production, "_write_production_manifest")
+        if getattr(current, "_isco_canonical_v4_bundle", False):
+            continue
 
-    current = production._write_production_manifest
-    if getattr(current, "_isco_canonical_v4_bundle", False):
-        return
+        def make_wrapper(original):
+            def wrapped(out: Path, *, production_id: str, fmt: str):
+                manifest = original(out, production_id=production_id, fmt=fmt)
+                control_request = str(os.environ.get("ISCO_CONTROL_REQUEST_ID") or "").strip()
+                if fmt != "moment" and _canonical_v4_bundle_enabled() and not control_request:
+                    from scripts.canonical_v4_bundle import build_canonical_v4_bundle
 
-    def wrapped(out: Path, *, production_id: str, fmt: str):
-        manifest = current(out, production_id=production_id, fmt=fmt)
-        control_request = str(os.environ.get("ISCO_CONTROL_REQUEST_ID") or "").strip()
-        if fmt != "moment" and _canonical_v4_bundle_enabled() and not control_request:
-            from scripts.canonical_v4_bundle import build_canonical_v4_bundle
+                    delivery = build_canonical_v4_bundle(Path(out))
+                    if delivery is None or not Path(delivery).is_file():
+                        raise RuntimeError(
+                            "Canonical V4 long-form production finished without unified delivery manifest"
+                        )
+                return manifest
+            return wrapped
 
-            delivery = build_canonical_v4_bundle(Path(out))
-            if delivery is None or not Path(delivery).is_file():
-                raise RuntimeError(
-                    "Canonical V4 long-form production finished without unified delivery manifest"
-                )
-        return manifest
-
-    wrapped._isco_canonical_v4_bundle = True
-    wrapped._isco_canonical_v4_original = current
-    production._write_production_manifest = wrapped
+        wrapped = make_wrapper(current)
+        wrapped._isco_canonical_v4_bundle = True
+        wrapped._isco_canonical_v4_original = current
+        setattr(production, "_write_production_manifest", wrapped)
 
 
 def install_runtime_closure() -> None:
     """Install bounded production recovery plus cinematic and delivery stages."""
     # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
-    # Release journaling is installed AFTER the canonical bundle wrapper so
-    # `delivery_complete` means manifest + sibling-Short bundle have both returned.
+    # Canonical bundle is bound on every live run_v3_voice module before the release
+    # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
+    # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
     install_attempt10_append_bound_recovery()
     install_bounded_output_recovery()
     install_schema_repair_policy()
