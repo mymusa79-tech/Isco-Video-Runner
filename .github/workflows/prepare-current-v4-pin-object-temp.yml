@@ -1,0 +1,69 @@
+name: Prepare Current V4 Pin Object Temp
+
+on:
+  push:
+    branches: ["pin/engine-38cda419-production"]
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact Runner main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Create remote commit object with exact updated production pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OLD_SHA: 940ed205535ec06eb2a2cee3dc00819e961479ae
+          NEW_SHA: 38cda419dbe126e5b2690ab3cfd3e46ffc6a1474
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, subprocess, urllib.request
+          from pathlib import Path
+          repo = os.environ['REPO']
+          token = os.environ['GH_TOKEN']
+          old = os.environ['OLD_SHA']
+          new = os.environ['NEW_SHA']
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+          count = text.count(old)
+          if count != 3:
+              raise SystemExit(f'Expected exactly 3 old V4 engine pins, found {count}')
+          updated = text.replace(old, new)
+          if updated.count(new) != 3 or old in updated:
+              raise SystemExit('Updated V4 engine pin contract failed')
+          base_commit = subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()
+          base_tree = subprocess.check_output(['git','rev-parse','HEAD^{tree}'], text=True).strip()
+          def api(path, method='GET', payload=None):
+              url = f'https://api.github.com/repos/{repo}{path}'
+              data = None if payload is None else json.dumps(payload).encode('utf-8')
+              req = urllib.request.Request(url, data=data, method=method, headers={
+                  'Authorization': f'Bearer {token}',
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'Content-Type': 'application/json',
+              })
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  body = resp.read().decode('utf-8')
+                  return json.loads(body) if body else {}
+          blob = api('/git/blobs','POST',{'content':updated,'encoding':'utf-8'})
+          tree = api('/git/trees','POST',{'base_tree':base_tree,'tree':[{
+              'path':'.github/workflows/produce-resilient-v4.yml','mode':'100644','type':'blob','sha':blob['sha']
+          }]})
+          commit = api('/git/commits','POST',{
+              'message':'chore: pin production to Engine 38cda419',
+              'tree':tree['sha'],
+              'parents':[base_commit],
+          })
+          print(f'BASE_COMMIT_SHA={base_commit}')
+          print(f'PREPARED_COMMIT_SHA={commit["sha"]}')
+          print('PIN_REPLACEMENTS=3')
+          PY
