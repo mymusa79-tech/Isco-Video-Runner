@@ -22,6 +22,13 @@ class Run111MigrationLaunchBridgeTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", self.workflow)
         self.assertIn("ops/migrate-memory-and-launch", self.workflow)
 
+    def test_pull_requests_only_run_read_only_contract_certification(self) -> None:
+        self.assertIn("pull_request:", self.workflow)
+        self.assertIn("permissions:\n  contents: read", self.workflow)
+        self.assertIn("contract-test:\n    if: github.event_name == 'pull_request'", self.workflow)
+        self.assertIn("migrate-and-launch:\n    if: github.event_name != 'pull_request'", self.workflow)
+        self.assertIn("    permissions:\n      contents: write\n      actions: write", self.workflow)
+
     def test_exact_legacy_identity_and_sequence_are_pinned(self) -> None:
         self.assertIn(
             "LEGACY_STATE_COMMIT: 36b0db59d8c01a625c5e4e4d929e5dc298a92746",
@@ -50,10 +57,10 @@ class Run111MigrationLaunchBridgeTests(unittest.TestCase):
         self.assertIn("test \"$RESTORE_SAVE_ALLOWED\" = \"true\"", self.workflow)
         self.assertIn("agent-state still points to the legacy CBC commit", self.workflow)
 
-    def test_bridge_has_only_required_write_permissions(self) -> None:
-        self.assertIn("permissions:\n  contents: write\n  actions: write", self.workflow)
+    def test_bridge_has_no_unrelated_write_permissions(self) -> None:
         self.assertNotIn("pull-requests: write", self.workflow)
         self.assertNotIn("issues: write", self.workflow)
+        self.assertNotIn("packages: write", self.workflow)
 
 
 if __name__ == "__main__":
