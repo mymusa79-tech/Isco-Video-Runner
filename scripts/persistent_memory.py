@@ -12,34 +12,18 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 try:
-    from scripts.persistent_memory_crypto import (
-        EnvelopeMetadata,
-        is_authenticated_v2,
-        metadata_from_values,
-        open_envelope,
-        parse_envelope,
-        seal,
-    )
+    from scripts.persistent_memory_crypto import is_authenticated_v2, metadata_from_values, open_envelope, seal
 except ModuleNotFoundError:  # direct `python scripts/persistent_memory.py`
-    from persistent_memory_crypto import (
-        EnvelopeMetadata,
-        is_authenticated_v2,
-        metadata_from_values,
-        open_envelope,
-        parse_envelope,
-        seal,
-    )
-
+    from persistent_memory_crypto import is_authenticated_v2, metadata_from_values, open_envelope, seal
 
 STATE_BRANCH = "agent-state"
 STATE_PATH = Path("state/history.json.enc")
 LEGACY_STATE_PATH = Path("state/history.json.enc")
 EMPTY_HISTORY = {"videos": []}
 OPENSSL_CIPHER = "-aes-256-cbc"
+IDENTITY_FILENAME = ".persistent-memory-identity.json"
 
-# One-time migration pins. CBC is accepted only when Git proves the encrypted blob is
-# exactly one of the pre-hardening blobs known at this change. No arbitrary legacy
-# payload is ever decrypted after this hardening lands.
+# One-time migration pins. Arbitrary CBC never enters the new trust boundary.
 LEGACY_AGENT_STATE_BLOB_SHA = "eb5c9eb8dd9036b5846dfb38b32ca4500867865b"
 LEGACY_MAIN_BLOB_SHA = "f9606e5127d4e7d90d37910f5ab3a27216d6a6e0"
 APPROVED_LEGACY_BLOB_SHAS = frozenset({LEGACY_AGENT_STATE_BLOB_SHA, LEGACY_MAIN_BLOB_SHA})
@@ -65,21 +49,10 @@ class PersistStatus:
 RunCommand = Callable[..., subprocess.CompletedProcess]
 
 
-def _run(
-    args: Sequence[str],
-    *,
-    cwd: Path | None = None,
-    env: dict[str, str] | None = None,
-    input_bytes: bytes | None = None,
-) -> subprocess.CompletedProcess:
+def _run(args: Sequence[str], *, cwd: Path | None = None, env: dict[str, str] | None = None, input_bytes: bytes | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(
-        list(args),
-        cwd=str(cwd) if cwd else None,
-        env=env,
-        input=input_bytes,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
+        list(args), cwd=str(cwd) if cwd else None, env=env, input=input_bytes,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
     )
 
 
@@ -187,87 +160,50 @@ def _write_locked_empty_history(plain_path: Path) -> None:
     _atomic_json_write(plain_path, EMPTY_HISTORY)
 
 
-def _legacy_decrypt(
-    encrypted_path: Path,
-    key: str,
-    *,
-    run_cmd: RunCommand,
-) -> bytes:
-    with tempfile.TemporaryDirectory(prefix="isco-legacy-state-") as td:
-        tmp = Path(td) / "history.json"
-        env = dict(os.environ)
-        env["STATE_ENCRYPTION_KEY"] = key
-        result = run_cmd(
-            [
-                "openssl",
-                "enc",
-                "-d",
-                OPENSSL_CIPHER,
-                "-pbkdf2",
-                "-in",
-                str(encrypted_path),
-                "-out",
-                str(tmp),
-                "-pass",
-                "env:STATE_ENCRYPTION_KEY",
-            ],
-            env=env,
-        )
-        if result.returncode != 0:
-            detail = result.stderr.decode("utf-8", errors="replace").strip().splitlines()
-            suffix = detail[-1] if detail else "openssl decrypt failed"
-            raise ValueError(suffix)
-        return tmp.read_bytes()
-
-
 def _normalize_plain_bytes(plaintext: bytes) -> dict:
     try:
-        data = json.loads(plaintext.decode("utf-8"))
-        return normalize_history(data)
+        return normalize_history(json.loads(plaintext.decode("utf-8")))
     except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError(f"invalid decrypted history: {exc}") from exc
 
 
-def decrypt_history(
-    encrypted_path: Path,
-    plain_path: Path,
-    key: str,
-    *,
-    run_cmd: RunCommand = _run,
-    legacy_blob_sha: str | None = None,
-) -> RestoreStatus:
+def _legacy_decrypt(encrypted_path: Path, key: str, *, run_cmd: RunCommand) -> bytes:
+    with tempfile.TemporaryDirectory(prefix="isco-legacy-state-") as td:
+        out = Path(td) / "history.json"
+        env = dict(os.environ)
+        env["STATE_ENCRYPTION_KEY"] = key
+        result = run_cmd([
+            "openssl", "enc", "-d", OPENSSL_CIPHER, "-pbkdf2",
+            "-in", str(encrypted_path), "-out", str(out), "-pass", "env:STATE_ENCRYPTION_KEY",
+        ], env=env)
+        if result.returncode != 0:
+            detail = result.stderr.decode("utf-8", errors="replace").strip().splitlines()
+            raise ValueError(detail[-1] if detail else "openssl decrypt failed")
+        return out.read_bytes()
+
+
+def decrypt_history(encrypted_path: Path, plain_path: Path, key: str, *, run_cmd: RunCommand = _run, legacy_blob_sha: str | None = None) -> RestoreStatus:
     if not key:
         _write_locked_empty_history(plain_path)
         return RestoreStatus(False, "encrypted", "STATE_ENCRYPTION_KEY is missing")
     if not encrypted_path.is_file() or encrypted_path.stat().st_size == 0:
         _write_locked_empty_history(plain_path)
         return RestoreStatus(False, "encrypted", "encrypted history is missing or empty")
-
     payload = encrypted_path.read_bytes()
     try:
         if is_authenticated_v2(payload):
             plaintext, metadata = open_envelope(payload, key)
-            normalized = _normalize_plain_bytes(plaintext)
-            _atomic_json_write(plain_path, normalized)
+            _atomic_json_write(plain_path, _normalize_plain_bytes(plaintext))
             return RestoreStatus(
-                True,
-                "encrypted-v2",
-                "authenticated AES-256-GCM state",
+                True, "encrypted-v2", "authenticated AES-256-GCM state",
                 state_sequence=metadata.sequence,
                 previous_state_commit=metadata.previous_state_commit,
             )
-
         blob_sha = str(legacy_blob_sha or "").strip().lower()
         if not payload.startswith(b"Salted__") or blob_sha not in APPROVED_LEGACY_BLOB_SHAS:
             raise ValueError("legacy unauthenticated state is not an approved one-time migration blob")
-        plaintext = _legacy_decrypt(encrypted_path, key, run_cmd=run_cmd)
-        normalized = _normalize_plain_bytes(plaintext)
-        _atomic_json_write(plain_path, normalized)
-        return RestoreStatus(
-            True,
-            "encrypted-legacy-migration",
-            "pinned legacy CBC state accepted for one-time authenticated migration",
-        )
+        _atomic_json_write(plain_path, _normalize_plain_bytes(_legacy_decrypt(encrypted_path, key, run_cmd=run_cmd)))
+        return RestoreStatus(True, "encrypted-legacy-migration", "pinned legacy CBC state accepted for one-time authenticated migration")
     except (OSError, ValueError) as exc:
         _write_locked_empty_history(plain_path)
         return RestoreStatus(False, "encrypted", str(exc)[:500])
@@ -281,17 +217,14 @@ def _git_value(run_cmd: RunCommand, args: list[str], *, cwd: Path) -> str | None
     result = run_cmd(args, cwd=cwd)
     if result.returncode != 0:
         return None
-    value = _completed_text(result)
-    return value or None
+    return _completed_text(result) or None
 
 
 def _commit_subject_sequence(subject: str | None) -> int | None:
-    if not subject:
-        return None
     prefix = "Update authenticated agent state (run "
-    if not subject.startswith(prefix) or not subject.endswith(")"):
+    if not subject or not subject.startswith(prefix) or not subject.endswith(")"):
         return None
-    return _coerce_positive_int(subject[len(prefix) : -1])
+    return _coerce_positive_int(subject[len(prefix):-1])
 
 
 def restore_from_git(
@@ -308,10 +241,8 @@ def restore_from_git(
     repo_dir = repo_dir.resolve()
     ref = f"refs/heads/{branch}"
     probe = run_cmd(["git", "ls-remote", "--exit-code", "--heads", "origin", ref], cwd=repo_dir)
-
     if probe.returncode == 0:
-        fetched = run_cmd(["git", "fetch", "--depth=1", "origin", ref], cwd=repo_dir)
-        if fetched.returncode != 0:
+        if run_cmd(["git", "fetch", "--depth=1", "origin", ref], cwd=repo_dir).returncode != 0:
             _write_locked_empty_history(plain_path)
             return RestoreStatus(False, "agent-state", "could not fetch agent-state")
         shown = run_cmd(["git", "show", f"FETCH_HEAD:{state_path.as_posix()}"], cwd=repo_dir)
@@ -330,11 +261,8 @@ def restore_from_git(
         status = decrypt_history(encrypted, plain_path, key, run_cmd=run_cmd, legacy_blob_sha=blob_sha)
         if not status.save_allowed:
             return RestoreStatus(False, "agent-state", status.reason, state_commit=commit_sha)
-
         if status.state_sequence is not None:
-            authenticated_sequence = status.state_sequence
-            subject_sequence = _commit_subject_sequence(subject)
-            if subject_sequence != authenticated_sequence:
+            if _commit_subject_sequence(subject) != status.state_sequence:
                 _write_locked_empty_history(plain_path)
                 return RestoreStatus(False, "agent-state", "authenticated state sequence does not match commit subject", state_commit=commit_sha)
             expected_parent = (parent_line or "none").split()[0] if parent_line else "none"
@@ -342,38 +270,46 @@ def restore_from_git(
                 _write_locked_empty_history(plain_path)
                 return RestoreStatus(False, "agent-state", "authenticated state ancestry does not match Git parent", state_commit=commit_sha)
             current = _coerce_positive_int(current_run_number) if current_run_number else None
-            if current is not None and authenticated_sequence >= current:
+            if current is not None and status.state_sequence >= current:
                 _write_locked_empty_history(plain_path)
                 return RestoreStatus(False, "agent-state", "authenticated state sequence is not older than current workflow run", state_commit=commit_sha)
-
-        return RestoreStatus(
-            True,
-            "agent-state",
-            status.reason,
-            state_commit=commit_sha,
-            state_sequence=status.state_sequence,
-            previous_state_commit=status.previous_state_commit,
-        )
+        return RestoreStatus(True, "agent-state", status.reason, commit_sha, status.state_sequence, status.previous_state_commit)
 
     if probe.returncode != 2:
         _write_locked_empty_history(plain_path)
         return RestoreStatus(False, "agent-state", f"agent-state probe failed (git rc={probe.returncode})")
-
     legacy = repo_dir / legacy_state_path
     if legacy.is_file() and legacy.stat().st_size > 0:
         blob_sha = _git_value(run_cmd, ["git", "hash-object", legacy_state_path.as_posix()], cwd=repo_dir)
         status = decrypt_history(legacy, plain_path, key, run_cmd=run_cmd, legacy_blob_sha=blob_sha)
-        return RestoreStatus(
-            status.save_allowed,
-            "legacy-main",
-            status.reason,
-            state_commit="none",
-            state_sequence=status.state_sequence,
-            previous_state_commit="none",
-        )
-
+        return RestoreStatus(status.save_allowed, "legacy-main", status.reason, "none", status.state_sequence, "none")
     _atomic_json_write(plain_path, EMPTY_HISTORY)
-    return RestoreStatus(True, "empty", "", state_commit="none")
+    return RestoreStatus(True, "empty", state_commit="none")
+
+
+def _identity_path(plain_path: Path) -> Path:
+    return plain_path.parent / IDENTITY_FILENAME
+
+
+def write_restore_identity(plain_path: Path, status: RestoreStatus) -> None:
+    _atomic_json_write(_identity_path(plain_path), {
+        "schema_version": 1,
+        "save_allowed": status.save_allowed,
+        "source": status.source,
+        "state_commit": status.state_commit,
+        "state_sequence": status.state_sequence,
+    })
+
+
+def read_restore_identity(plain_path: Path) -> dict:
+    path = _identity_path(plain_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("save_allowed") is not True:
+        raise ValueError("persistent memory restore identity is missing or not save-safe")
+    commit = str(data.get("state_commit") or "").strip().lower()
+    if commit != "none" and (len(commit) != 40 or any(ch not in "0123456789abcdef" for ch in commit)):
+        raise ValueError("persistent memory restore identity has invalid state_commit")
+    return data
 
 
 def encrypt_history(
@@ -381,19 +317,22 @@ def encrypt_history(
     encrypted_path: Path,
     key: str,
     *,
-    run_number: str,
-    previous_state_commit: str,
+    run_number: str | None = None,
+    previous_state_commit: str | None = None,
     run_cmd: RunCommand = _run,
 ) -> None:
-    del run_cmd  # retained for API compatibility; v2 uses cryptography, not openssl enc.
+    del run_cmd
     if not key:
         raise ValueError("STATE_ENCRYPTION_KEY is missing")
+    if run_number is None:
+        run_number = os.environ.get("GITHUB_RUN_NUMBER", "")
+    if previous_state_commit is None:
+        previous_state_commit = str(read_restore_identity(plain_path).get("state_commit") or "").strip()
     data = json.loads(plain_path.read_text(encoding="utf-8"))
     normalized = normalize_history(data)
     plaintext = (json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
     metadata = metadata_from_values(run_number=run_number, previous_state_commit=previous_state_commit)
     payload = seal(plaintext, key, metadata=metadata)
-    # Self-verify before making the envelope canonical on disk.
     verified_plaintext, verified_metadata = open_envelope(payload, key)
     if verified_plaintext != plaintext or verified_metadata != metadata:
         raise RuntimeError("authenticated persistent-memory self-verification failed")
@@ -414,9 +353,8 @@ def persist_encrypted_state(
     run_cmd: RunCommand = _run,
 ) -> PersistStatus:
     repo_dir = repo_dir.resolve()
-    payload = encrypted_state.read_bytes()
     try:
-        _, metadata = open_envelope(payload, key or "")
+        _, metadata = open_envelope(encrypted_state.read_bytes(), key or "")
     except (OSError, ValueError) as exc:
         raise ValueError(f"refusing to persist unauthenticated state: {exc}") from exc
     expected_run = _coerce_positive_int(run_number)
@@ -426,25 +364,21 @@ def persist_encrypted_state(
     ref = f"refs/heads/{branch}"
     probe = run_cmd(["git", "ls-remote", "--exit-code", "--heads", "origin", ref], cwd=repo_dir)
     if probe.returncode == 0:
-        fetched = run_cmd(["git", "fetch", "--depth=1", "origin", ref], cwd=repo_dir)
-        if fetched.returncode != 0:
+        if run_cmd(["git", "fetch", "--depth=1", "origin", ref], cwd=repo_dir).returncode != 0:
             return PersistStatus(False, False, "warning: could not fetch current agent-state; remote left untouched")
         current_commit = _git_value(run_cmd, ["git", "rev-parse", "FETCH_HEAD"], cwd=repo_dir)
         if not current_commit:
             return PersistStatus(False, False, "warning: could not resolve current agent-state commit; remote left untouched")
         if metadata.previous_state_commit != current_commit:
             return PersistStatus(False, False, "warning: authenticated state ancestry is stale; remote left untouched")
-        checkout = run_cmd(["git", "checkout", "-B", branch, "FETCH_HEAD"], cwd=repo_dir)
-        if checkout.returncode != 0:
+        if run_cmd(["git", "checkout", "-B", branch, "FETCH_HEAD"], cwd=repo_dir).returncode != 0:
             return PersistStatus(False, False, "warning: could not checkout current agent-state; remote left untouched")
     elif probe.returncode == 2:
         if metadata.previous_state_commit != "none":
             return PersistStatus(False, False, "warning: authenticated state expects a previous commit but agent-state is absent")
-        orphan = run_cmd(["git", "checkout", "--orphan", branch], cwd=repo_dir)
-        if orphan.returncode != 0:
+        if run_cmd(["git", "checkout", "--orphan", branch], cwd=repo_dir).returncode != 0:
             return PersistStatus(False, False, "warning: could not create orphan agent-state; remote left untouched")
-        removed = run_cmd(["git", "rm", "-rf", "--ignore-unmatch", "."], cwd=repo_dir)
-        if removed.returncode != 0:
+        if run_cmd(["git", "rm", "-rf", "--ignore-unmatch", "."], cwd=repo_dir).returncode != 0:
             return PersistStatus(False, False, "warning: could not clean orphan agent-state; remote left untouched")
     else:
         return PersistStatus(False, False, f"warning: agent-state probe failed (git rc={probe.returncode}); remote left untouched")
@@ -454,23 +388,19 @@ def persist_encrypted_state(
     shutil.copy2(encrypted_state, target)
     run_cmd(["git", "config", "user.name", "github-actions[bot]"], cwd=repo_dir)
     run_cmd(["git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"], cwd=repo_dir)
-    added = run_cmd(["git", "add", STATE_PATH.as_posix()], cwd=repo_dir)
-    if added.returncode != 0:
+    if run_cmd(["git", "add", STATE_PATH.as_posix()], cwd=repo_dir).returncode != 0:
         return PersistStatus(False, False, "warning: could not stage authenticated state; remote left untouched")
     diff = run_cmd(["git", "diff", "--cached", "--quiet"], cwd=repo_dir)
     if diff.returncode == 0:
         return PersistStatus(True, False, "authenticated state unchanged")
     if diff.returncode != 1:
         return PersistStatus(False, False, "warning: could not inspect state diff; remote left untouched")
-
-    commit = run_cmd(["git", "commit", "-m", f"Update authenticated agent state (run {expected_run})"], cwd=repo_dir)
-    if commit.returncode != 0:
+    if run_cmd(["git", "commit", "-m", f"Update authenticated agent state (run {expected_run})"], cwd=repo_dir).returncode != 0:
         return PersistStatus(False, False, "warning: could not commit authenticated state; remote left untouched")
     pushed = run_cmd(["git", "push", "origin", f"HEAD:{ref}"], cwd=repo_dir)
     if pushed.returncode != 0:
         detail = pushed.stderr.decode("utf-8", errors="replace").strip().splitlines()
-        suffix = detail[-1] if detail else "push rejected"
-        return PersistStatus(False, True, f"warning: agent-state push failed; remote left untouched: {suffix}")
+        return PersistStatus(False, True, f"warning: agent-state push failed; remote left untouched: {detail[-1] if detail else 'push rejected'}")
     return PersistStatus(True, True, "authenticated agent-state updated")
 
 
@@ -479,31 +409,25 @@ def _append_output(path: str | None, values: dict[str, str]) -> None:
         return
     with Path(path).open("a", encoding="utf-8") as fh:
         for key, value in values.items():
-            safe = value.replace("\n", " ").replace("\r", " ")
-            fh.write(f"{key}={safe}\n")
+            fh.write(f"{key}={value.replace(chr(10), ' ').replace(chr(13), ' ')}\n")
 
 
 def _cmd_restore(args: argparse.Namespace) -> int:
     plain = Path(args.plain)
     status = restore_from_git(
-        Path(args.repo),
-        plain,
-        os.environ.get("STATE_ENCRYPTION_KEY", ""),
-        branch=args.branch,
-        legacy_state_path=Path(args.legacy_state),
+        Path(args.repo), plain, os.environ.get("STATE_ENCRYPTION_KEY", ""),
+        branch=args.branch, legacy_state_path=Path(args.legacy_state),
         current_run_number=os.environ.get("GITHUB_RUN_NUMBER"),
     )
-    _append_output(
-        args.github_output,
-        {
-            "save_allowed": "true" if status.save_allowed else "false",
-            "source": status.source,
-            "reason": status.reason,
-            "plain_path": str(plain),
-            "state_commit": status.state_commit,
-            "state_sequence": str(status.state_sequence or ""),
-        },
-    )
+    write_restore_identity(plain, status)
+    _append_output(args.github_output, {
+        "save_allowed": "true" if status.save_allowed else "false",
+        "source": status.source,
+        "reason": status.reason,
+        "plain_path": str(plain),
+        "state_commit": status.state_commit,
+        "state_sequence": str(status.state_sequence or ""),
+    })
     if status.save_allowed:
         print(f"Persistent memory restore OK: source={status.source}; commit={status.state_commit}")
     else:
@@ -513,11 +437,8 @@ def _cmd_restore(args: argparse.Namespace) -> int:
 
 def _cmd_encrypt(args: argparse.Namespace) -> int:
     encrypt_history(
-        Path(args.plain),
-        Path(args.encrypted),
-        os.environ.get("STATE_ENCRYPTION_KEY", ""),
-        run_number=args.run_number,
-        previous_state_commit=args.previous_state_commit,
+        Path(args.plain), Path(args.encrypted), os.environ.get("STATE_ENCRYPTION_KEY", ""),
+        run_number=args.run_number, previous_state_commit=args.previous_state_commit,
     )
     print(f"Authenticated persistent memory: {args.encrypted}")
     return 0
@@ -525,23 +446,16 @@ def _cmd_encrypt(args: argparse.Namespace) -> int:
 
 def _cmd_persist(args: argparse.Namespace) -> int:
     status = persist_encrypted_state(
-        Path(args.repo),
-        Path(args.encrypted),
-        branch=args.branch,
-        run_number=args.run_number,
+        Path(args.repo), Path(args.encrypted), branch=args.branch, run_number=args.run_number,
         key=os.environ.get("STATE_ENCRYPTION_KEY", ""),
     )
-    if status.pushed:
-        print(status.reason)
-    else:
-        print(f"::warning::{status.reason}")
+    print(status.reason if status.pushed else f"::warning::{status.reason}")
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Authenticated encrypted persistent cross-run memory helpers")
     sub = parser.add_subparsers(dest="command", required=True)
-
     restore = sub.add_parser("restore")
     restore.add_argument("--repo", default=".")
     restore.add_argument("--plain", required=True)
@@ -549,14 +463,12 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--legacy-state", default=LEGACY_STATE_PATH.as_posix())
     restore.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
     restore.set_defaults(func=_cmd_restore)
-
     encrypt = sub.add_parser("encrypt")
     encrypt.add_argument("--plain", required=True)
     encrypt.add_argument("--encrypted", required=True)
-    encrypt.add_argument("--run-number", required=True)
-    encrypt.add_argument("--previous-state-commit", required=True)
+    encrypt.add_argument("--run-number", default=None)
+    encrypt.add_argument("--previous-state-commit", default=None)
     encrypt.set_defaults(func=_cmd_encrypt)
-
     persist = sub.add_parser("persist")
     persist.add_argument("--repo", required=True)
     persist.add_argument("--encrypted", required=True)
@@ -567,8 +479,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    args = build_parser().parse_args(argv)
     return int(args.func(args))
 
 
