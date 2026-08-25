@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 5997fae6c25ecaebfb1f7d118640bb253f65f070
+          ref: 23d17c27a2fe4abc0fbd88527722f789e99594d7
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -30,7 +30,7 @@ jobs:
 
       - name: Verify exact Engine candidate
         working-directory: engine
-        run: test "$(git rev-parse HEAD)" = "5997fae6c25ecaebfb1f7d118640bb253f65f070"
+        run: test "$(git rev-parse HEAD)" = "23d17c27a2fe4abc0fbd88527722f789e99594d7"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
