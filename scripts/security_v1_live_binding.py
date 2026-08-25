@@ -29,10 +29,32 @@ _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _VIDEO_SUFFIXES = frozenset({".mp4", ".mov", ".mkv", ".webm", ".m4v"})
 _PLAIN_STOCK_QUERY_RE = re.compile(r"^[A-Za-z0-9]+(?:[ '-][A-Za-z0-9]+)*$")
 _REPEATED_STOCK_SEPARATOR_RE = re.compile(r"(?: {2,}|--|''| -|- | '|' )")
-_RECOVERABLE_STOCK_MEDIA_ERRORS = frozenset(
+_FIREWALL_BLOCK_PREFIX = "multimodal_injection_firewall_block:"
+_STOCK_CANDIDATE_LOCAL_CODES = frozenset(
     {
-        "multimodal_injection_firewall_block:frame_unreadable",
-        "multimodal_injection_firewall_block:frame_extract_failed",
+        # Candidate media availability / decode failures.
+        "media_missing",
+        "frame_extract_failed",
+        "frame_extract_timeout",
+        "frame_unreadable",
+        # Fail-closed visual security findings. These are never allowed through;
+        # the candidate is quarantined and the bounded selector tries another asset.
+        "qr_code_detected",
+        "barcode_detected",
+        "high_text_density",
+        "url_detected",
+        "role_marker_detected",
+        "prompt_like_text_detected",
+        "command_like_text_detected",
+        # OCR could not safely inspect this candidate. The runtime itself is
+        # preflighted separately, so this remains a candidate-local hard rejection.
+        "local_ocr_unavailable",
+    }
+)
+_STOCK_INFRASTRUCTURE_HARD_FAIL_CODES = frozenset(
+    {
+        "ffmpeg_unavailable",
+        "ocr_runtime_unavailable",
     }
 )
 _INSTALLED = False
@@ -125,7 +147,7 @@ def _normalized_stock_query(value: object, *, alternate: bool = False) -> str:
 def _production_ocr(path: Path) -> str:
     tesseract = shutil.which("tesseract")
     if not tesseract:
-        raise RuntimeError("local_ocr_unavailable")
+        raise RuntimeError("ocr_runtime_unavailable")
     completed = subprocess.run(
         [tesseract, str(path), "stdout", "--psm", "6", "-l", "eng+ara"],
         check=False,
@@ -144,13 +166,19 @@ def _scan_media_before_vision(media: str | Path) -> None:
 
     Images yield one frame. Videos yield up to the first three one-second samples.
     No media content, OCR text, or detection detail is promoted into a model prompt.
+
+    Runtime dependencies are classified separately from candidate-local failures so
+    missing security infrastructure still stops Production, while one bad/untrusted
+    stock asset can be quarantined by the bounded selector without weakening checks.
     """
     source = Path(media)
     if not source.is_file():
-        raise RuntimeError("multimodal_injection_firewall_block:media_missing")
+        raise RuntimeError(f"{_FIREWALL_BLOCK_PREFIX}media_missing")
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        raise RuntimeError("multimodal_injection_firewall_block:ffmpeg_unavailable")
+        raise RuntimeError(f"{_FIREWALL_BLOCK_PREFIX}ffmpeg_unavailable")
+    if not shutil.which("tesseract"):
+        raise RuntimeError(f"{_FIREWALL_BLOCK_PREFIX}ocr_runtime_unavailable")
 
     with tempfile.TemporaryDirectory(prefix="isco-security-frame-") as tmp:
         root = Path(tmp)
@@ -173,17 +201,20 @@ def _scan_media_before_vision(media: str | Path) -> None:
             filters,
             str(pattern),
         ]
-        completed = subprocess.run(
-            command,
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=30,
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"{_FIREWALL_BLOCK_PREFIX}frame_extract_timeout") from exc
         frames = sorted(root.glob("frame-*.pgm"))
         if completed.returncode != 0 or not frames:
-            raise RuntimeError("multimodal_injection_firewall_block:frame_extract_failed")
+            raise RuntimeError(f"{_FIREWALL_BLOCK_PREFIX}frame_extract_failed")
         firewall = MultimodalInjectionFirewall(ocr_backend=_production_ocr)
         for frame in frames:
             require_normal_vision_safe(firewall.scan_frame(frame))
@@ -209,18 +240,32 @@ def _wrap_search(original: Callable[..., Any]) -> Callable[..., Any]:
     return wrapped
 
 
-def _recoverable_stock_media_block(exc: Exception) -> dict[str, Any] | None:
-    """Convert only candidate-local decode/read failures into a normal QA block.
+def _firewall_block_codes(exc: Exception) -> tuple[str, ...]:
+    """Return normalized firewall codes only for the exact Security V1 error envelope."""
+    message = str(exc).strip()
+    if not message.startswith(_FIREWALL_BLOCK_PREFIX):
+        return ()
+    payload = message[len(_FIREWALL_BLOCK_PREFIX):]
+    return tuple(code.strip() for code in payload.split(",") if code.strip())
 
-    The stock selector already owns a bounded candidate retry policy. A single corrupt
-    or locally undecodable preview is therefore equivalent to a candidate that failed
-    visual QA: reject that candidate without spending a cloud Vision call and let the
-    selector try the next already-bounded candidate. Security findings are deliberately
-    excluded from this recovery path and continue to raise fail-closed.
+
+def _stock_candidate_security_block(exc: Exception) -> dict[str, Any] | None:
+    """Quarantine only fully-known candidate-local failures; fail closed otherwise.
+
+    This is failure-scope isolation, not a security bypass. QR/barcode/prompt-like text,
+    dense text, unreadable media and candidate-local OCR failures remain rejected before
+    cloud Vision. The existing selector may then try another candidate within its normal
+    bounded budget. Missing security runtimes, unknown/future codes, and any mixture that
+    contains an unknown/hard-fail code are deliberately not converted and still abort.
     """
-    message = str(exc)
-    if message not in _RECOVERABLE_STOCK_MEDIA_ERRORS:
+    codes = _firewall_block_codes(exc)
+    if not codes:
         return None
+    if any(code in _STOCK_INFRASTRUCTURE_HARD_FAIL_CODES for code in codes):
+        return None
+    if not set(codes).issubset(_STOCK_CANDIDATE_LOCAL_CODES):
+        return None
+    rejection = ",".join(codes)
     return {
         "status": "block",
         "relevance": 0.0,
@@ -232,13 +277,16 @@ def _recoverable_stock_media_block(exc: Exception) -> dict[str, Any] | None:
         "cultural_islamic_suitability_risk": False,
         "advertiser_conflict": False,
         "obvious_synthetic_or_visual_artifact": True,
-        "reason": "local stock media decode/read failed before cloud Vision; candidate rejected",
-        "local_media_rejection": message.rsplit(":", 1)[-1],
+        "reason": (
+            "local stock candidate failed fail-closed media/security inspection before "
+            "cloud Vision; candidate quarantined"
+        ),
+        "local_media_rejection": rejection,
     }
 
 
 def _wrap_vision_audit(
-    original: Callable[..., Any], *, recover_unreadable_stock_media: bool = False
+    original: Callable[..., Any], *, isolate_stock_candidate_failures: bool = False
 ) -> Callable[..., Any]:
     if getattr(original, "_isco_security_v1_vision", False):
         return original
@@ -250,10 +298,13 @@ def _wrap_vision_audit(
         try:
             _scan_media_before_vision(preview)
         except RuntimeError as exc:
-            if recover_unreadable_stock_media:
-                blocked = _recoverable_stock_media_block(exc)
+            if isolate_stock_candidate_failures:
+                blocked = _stock_candidate_security_block(exc)
                 if blocked is not None:
-                    print(f"Security V1 rejected unreadable stock candidate locally: {blocked['local_media_rejection']}")
+                    print(
+                        "Security V1 quarantined stock candidate locally: "
+                        f"{blocked['local_media_rejection']}"
+                    )
                     return blocked
             raise
         return original(*args, **kwargs)
@@ -301,11 +352,12 @@ def install_security_v1_live_binding() -> None:
         secured_alt_query._isco_security_v1_original = current_alt
         orchestrator.suggest_alternate_visual_query = secured_alt_query
 
-    # Video stock selection already has bounded candidate recovery, so a candidate-local
-    # decode/read failure becomes a normal block and the selector tries the next candidate.
-    # Thumbnail review remains strictly fail-closed because its board semantics differ.
+    # Video stock selection already owns a bounded retry budget. Every fully-known
+    # candidate-local media/security finding is quarantined before cloud Vision and
+    # returned as a normal audit block so the selector can try the next candidate.
+    # Infrastructure/unknown failures still abort, and thumbnail review remains strict.
     orchestrator.audit_video_preview = _wrap_vision_audit(
-        orchestrator.audit_video_preview, recover_unreadable_stock_media=True
+        orchestrator.audit_video_preview, isolate_stock_candidate_failures=True
     )
     thumbnail.audit_image_preview = _wrap_vision_audit(thumbnail.audit_image_preview)
 
