@@ -105,6 +105,10 @@ def _coerce_positive_int(value: object) -> int | None:
     return number if number > 0 else None
 
 
+def _is_commit_sha(value: str) -> bool:
+    return len(value) == 40 and all(ch in "0123456789abcdef" for ch in value)
+
+
 def _visual_asset_pexels_id(asset: object) -> int | None:
     if isinstance(asset, (int, str)):
         return _coerce_positive_int(asset)
@@ -220,6 +224,28 @@ def _git_value(run_cmd: RunCommand, args: list[str], *, cwd: Path) -> str | None
     return _completed_text(result) or None
 
 
+def _raw_commit_parent(run_cmd: RunCommand, *, cwd: Path) -> str | None:
+    """Read the parent from the raw commit object, not revision traversal.
+
+    `git fetch --depth=1` intentionally marks FETCH_HEAD shallow. Commands such as
+    `git show --format=%P` then hide the real parent. `git cat-file -p` exposes the
+    commit object's parent line without requiring the parent object to be fetched.
+    """
+    result = run_cmd(["git", "cat-file", "-p", "FETCH_HEAD"], cwd=cwd)
+    if result.returncode != 0:
+        return None
+    parents: list[str] = []
+    for line in result.stdout.decode("utf-8", errors="replace").splitlines():
+        if line.startswith("parent "):
+            parent = line.removeprefix("parent ").strip().lower()
+            if not _is_commit_sha(parent):
+                return None
+            parents.append(parent)
+    if len(parents) > 1:
+        return None
+    return parents[0] if parents else "none"
+
+
 def _commit_subject_sequence(subject: str | None) -> int | None:
     prefix = "Update authenticated agent state (run "
     if not subject or not subject.startswith(prefix) or not subject.endswith(")"):
@@ -251,9 +277,9 @@ def restore_from_git(
             return RestoreStatus(False, "agent-state", "agent-state exists but encrypted history is missing")
         commit_sha = _git_value(run_cmd, ["git", "rev-parse", "FETCH_HEAD"], cwd=repo_dir)
         blob_sha = _git_value(run_cmd, ["git", "rev-parse", f"FETCH_HEAD:{state_path.as_posix()}"], cwd=repo_dir)
-        parent_line = _git_value(run_cmd, ["git", "show", "-s", "--format=%P", "FETCH_HEAD"], cwd=repo_dir)
+        raw_parent = _raw_commit_parent(run_cmd, cwd=repo_dir)
         subject = _git_value(run_cmd, ["git", "show", "-s", "--format=%s", "FETCH_HEAD"], cwd=repo_dir)
-        if not commit_sha or not blob_sha:
+        if not commit_sha or not _is_commit_sha(commit_sha.lower()) or not blob_sha or raw_parent is None:
             _write_locked_empty_history(plain_path)
             return RestoreStatus(False, "agent-state", "could not resolve agent-state identity")
         encrypted = plain_path.parent / "history.from-agent-state.enc"
@@ -265,8 +291,7 @@ def restore_from_git(
             if _commit_subject_sequence(subject) != status.state_sequence:
                 _write_locked_empty_history(plain_path)
                 return RestoreStatus(False, "agent-state", "authenticated state sequence does not match commit subject", state_commit=commit_sha)
-            expected_parent = (parent_line or "none").split()[0] if parent_line else "none"
-            if status.previous_state_commit != expected_parent:
+            if status.previous_state_commit != raw_parent:
                 _write_locked_empty_history(plain_path)
                 return RestoreStatus(False, "agent-state", "authenticated state ancestry does not match Git parent", state_commit=commit_sha)
             current = _coerce_positive_int(current_run_number) if current_run_number else None
@@ -307,7 +332,7 @@ def read_restore_identity(plain_path: Path) -> dict:
     if not isinstance(data, dict) or data.get("save_allowed") is not True:
         raise ValueError("persistent memory restore identity is missing or not save-safe")
     commit = str(data.get("state_commit") or "").strip().lower()
-    if commit != "none" and (len(commit) != 40 or any(ch not in "0123456789abcdef" for ch in commit)):
+    if commit != "none" and not _is_commit_sha(commit):
         raise ValueError("persistent memory restore identity has invalid state_commit")
     return data
 
