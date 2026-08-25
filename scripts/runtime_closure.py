@@ -18,6 +18,7 @@ from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
 from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
+from scripts.provider_capacity_v2 import install_provider_capacity_v2
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
     install_release_transaction_guard,
@@ -88,6 +89,8 @@ def install_runtime_closure() -> None:
     # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
     # Media Trust V2 changes no AI/retry budget. It only binds exact stock bytes and
     # local inspection before the reliability contract is frozen for produce().
+    # Provider Capacity V2 only installs Pixabay's required 24h API search cache.
+    # It does not replace the stronger provider_preflight.py capacity certification.
     # Audio Semantic Integrity is deliberately installed before Audio Mastering/SFX
     # wrappers: at runtime its inner scope sees and wraps those already-active live
     # transforms, binding the exact approved transcript/audio chain without replacing
@@ -101,6 +104,7 @@ def install_runtime_closure() -> None:
     install_schema_repair_policy()
     install_gemini_planning_output_guard()
     install_media_trust_boundary_v2()
+    install_provider_capacity_v2()
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
