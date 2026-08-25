@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -184,59 +185,111 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
                 wrapped("key", Path("preview.mp4"))
         self.assertEqual(calls, [])
 
-    def test_video_vision_wrapper_rejects_unreadable_candidate_without_cloud_call(self) -> None:
+    def test_stock_candidate_local_family_is_quarantined_without_cloud_call(self) -> None:
         calls: list[str] = []
 
         def model(*_args, **_kwargs):
             calls.append("model")
             return {"status": "pass"}
 
-        wrapped = security_binding._wrap_vision_audit(model, recover_unreadable_stock_media=True)
-        with patch.object(
-            security_binding,
-            "_scan_media_before_vision",
-            side_effect=RuntimeError("multimodal_injection_firewall_block:frame_unreadable"),
-        ):
-            audit = wrapped("key", Path("preview.mp4"))
-        self.assertEqual(calls, [])
-        self.assertEqual(audit["status"], "block")
-        self.assertEqual(audit["local_media_rejection"], "frame_unreadable")
-        self.assertTrue(audit["obvious_synthetic_or_visual_artifact"])
-
-    def test_video_vision_wrapper_rejects_frame_extract_failure_without_cloud_call(self) -> None:
-        calls: list[str] = []
-
-        def model(*_args, **_kwargs):
-            calls.append("model")
-            return {"status": "pass"}
-
-        wrapped = security_binding._wrap_vision_audit(model, recover_unreadable_stock_media=True)
-        with patch.object(
-            security_binding,
-            "_scan_media_before_vision",
-            side_effect=RuntimeError("multimodal_injection_firewall_block:frame_extract_failed"),
-        ):
-            audit = wrapped("key", Path("preview.mp4"))
-        self.assertEqual(calls, [])
-        self.assertEqual(audit["status"], "block")
-        self.assertEqual(audit["local_media_rejection"], "frame_extract_failed")
-
-    def test_video_vision_wrapper_keeps_real_security_findings_fail_closed(self) -> None:
-        calls: list[str] = []
-
-        def model(*_args, **_kwargs):
-            calls.append("model")
-            return {"status": "pass"}
-
-        wrapped = security_binding._wrap_vision_audit(model, recover_unreadable_stock_media=True)
-        for code in ("qr_code_detected", "prompt_like_text_detected", "local_ocr_unavailable"):
+        wrapped = security_binding._wrap_vision_audit(model, isolate_stock_candidate_failures=True)
+        expected_codes = {
+            "media_missing",
+            "frame_extract_failed",
+            "frame_extract_timeout",
+            "frame_unreadable",
+            "qr_code_detected",
+            "barcode_detected",
+            "high_text_density",
+            "url_detected",
+            "role_marker_detected",
+            "prompt_like_text_detected",
+            "command_like_text_detected",
+            "local_ocr_unavailable",
+        }
+        self.assertEqual(expected_codes, set(security_binding._STOCK_CANDIDATE_LOCAL_CODES))
+        for code in sorted(expected_codes):
             with self.subTest(code=code), patch.object(
                 security_binding,
                 "_scan_media_before_vision",
                 side_effect=RuntimeError(f"multimodal_injection_firewall_block:{code}"),
             ):
-                with self.assertRaisesRegex(RuntimeError, code):
+                audit = wrapped("key", Path("preview.mp4"))
+                self.assertEqual(audit["status"], "block")
+                self.assertEqual(audit["local_media_rejection"], code)
+                self.assertTrue(audit["obvious_synthetic_or_visual_artifact"])
+        self.assertEqual(calls, [])
+
+    def test_multiple_known_stock_security_findings_are_quarantined_together(self) -> None:
+        calls: list[str] = []
+
+        def model(*_args, **_kwargs):
+            calls.append("model")
+            return {"status": "pass"}
+
+        wrapped = security_binding._wrap_vision_audit(model, isolate_stock_candidate_failures=True)
+        findings = "qr_code_detected,high_text_density,prompt_like_text_detected"
+        with patch.object(
+            security_binding,
+            "_scan_media_before_vision",
+            side_effect=RuntimeError(f"multimodal_injection_firewall_block:{findings}"),
+        ):
+            audit = wrapped("key", Path("preview.mp4"))
+        self.assertEqual(audit["status"], "block")
+        self.assertEqual(audit["local_media_rejection"], findings)
+        self.assertEqual(calls, [])
+
+    def test_infrastructure_unknown_and_mixed_unknown_codes_remain_hard_fail(self) -> None:
+        calls: list[str] = []
+
+        def model(*_args, **_kwargs):
+            calls.append("model")
+            return {"status": "pass"}
+
+        wrapped = security_binding._wrap_vision_audit(model, isolate_stock_candidate_failures=True)
+        failures = (
+            "ffmpeg_unavailable",
+            "ocr_runtime_unavailable",
+            "future_security_code",
+            "qr_code_detected,future_security_code",
+        )
+        for findings in failures:
+            with self.subTest(findings=findings), patch.object(
+                security_binding,
+                "_scan_media_before_vision",
+                side_effect=RuntimeError(f"multimodal_injection_firewall_block:{findings}"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, findings.split(",", 1)[0]):
                     wrapped("key", Path("preview.mp4"))
+        self.assertEqual(calls, [])
+
+    def test_non_firewall_runtime_error_is_never_downgraded(self) -> None:
+        wrapped = security_binding._wrap_vision_audit(
+            lambda *_a, **_k: {"status": "pass"}, isolate_stock_candidate_failures=True
+        )
+        with patch.object(
+            security_binding,
+            "_scan_media_before_vision",
+            side_effect=RuntimeError("unexpected local failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "unexpected local failure"):
+                wrapped("key", Path("preview.mp4"))
+
+    def test_thumbnail_security_findings_remain_global_hard_fail(self) -> None:
+        calls: list[str] = []
+
+        def model(*_args, **_kwargs):
+            calls.append("model")
+            return {"status": "pass"}
+
+        wrapped = security_binding._wrap_vision_audit(model)
+        with patch.object(
+            security_binding,
+            "_scan_media_before_vision",
+            side_effect=RuntimeError("multimodal_injection_firewall_block:qr_code_detected"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "qr_code_detected"):
+                wrapped("key", Path("thumbnail.jpg"))
         self.assertEqual(calls, [])
 
     def test_media_scan_fails_closed_when_frame_extraction_fails(self) -> None:
@@ -244,11 +297,70 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
             source = Path(d) / "bad.mp4"
             source.write_bytes(b"not-a-video")
             fake = SimpleNamespace(returncode=1, stderr="bad input")
-            with patch.object(security_binding.shutil, "which", return_value="/usr/bin/ffmpeg"), patch.object(
+            with patch.object(security_binding.shutil, "which", return_value="/usr/bin/tool"), patch.object(
                 security_binding.subprocess, "run", return_value=fake
             ):
                 with self.assertRaisesRegex(RuntimeError, "frame_extract_failed"):
                     security_binding._scan_media_before_vision(source)
+
+    def test_media_scan_maps_ffmpeg_timeout_to_candidate_local_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / "slow.mp4"
+            source.write_bytes(b"video")
+            with patch.object(security_binding.shutil, "which", return_value="/usr/bin/tool"), patch.object(
+                security_binding.subprocess,
+                "run",
+                side_effect=subprocess.TimeoutExpired(cmd=["ffmpeg"], timeout=30),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "frame_extract_timeout"):
+                    security_binding._scan_media_before_vision(source)
+
+    def test_missing_ffmpeg_runtime_remains_global_hard_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / "clip.mp4"
+            source.write_bytes(b"video")
+            with patch.object(security_binding.shutil, "which", return_value=None), patch.object(
+                security_binding.subprocess, "run"
+            ) as run:
+                with self.assertRaisesRegex(RuntimeError, "ffmpeg_unavailable"):
+                    security_binding._scan_media_before_vision(source)
+            run.assert_not_called()
+
+    def test_missing_ocr_runtime_remains_global_hard_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / "clip.mp4"
+            source.write_bytes(b"video")
+
+            def which(name: str):
+                if name == "ffmpeg":
+                    return "/usr/bin/ffmpeg"
+                if name == "tesseract":
+                    return None
+                return "/usr/bin/tool"
+
+            with patch.object(security_binding.shutil, "which", side_effect=which), patch.object(
+                security_binding.subprocess, "run"
+            ) as run:
+                with self.assertRaisesRegex(RuntimeError, "ocr_runtime_unavailable"):
+                    security_binding._scan_media_before_vision(source)
+            run.assert_not_called()
+
+    def test_firewall_code_parser_requires_exact_envelope_and_handles_multi_code(self) -> None:
+        self.assertEqual(
+            security_binding._firewall_block_codes(
+                RuntimeError(
+                    "multimodal_injection_firewall_block:qr_code_detected, high_text_density"
+                )
+            ),
+            ("qr_code_detected", "high_text_density"),
+        )
+        self.assertEqual(security_binding._firewall_block_codes(RuntimeError("qr_code_detected")), ())
+        self.assertEqual(
+            security_binding._firewall_block_codes(
+                RuntimeError("multimodal_injection_firewall_block:")
+            ),
+            (),
+        )
 
 
 if __name__ == "__main__":
