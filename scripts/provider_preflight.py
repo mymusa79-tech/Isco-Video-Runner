@@ -23,7 +23,7 @@ USER_AGENT = "isco-video-preflight/4"
 # content/Vision request. Preflight must certify the same network model, never a
 # convenient alias that production will not actually call.
 GEMINI_RUNTIME_CONTENT_ALIASES = {
-    "gemini-2.5-flash": "gemini-3.5-flash-lite",
+    "gemini-2.5-flash": "gemini-3.7-flash",
 }
 
 # Current V4 runtime topology. Gemini is still used directly for Vision/editorial
