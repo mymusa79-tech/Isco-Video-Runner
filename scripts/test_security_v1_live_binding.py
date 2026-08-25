@@ -48,11 +48,14 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
                 security_binding.orchestrator, "audit_video_preview", lambda *_a, **_k: {}
             ), patch.object(
                 security_binding.thumbnail, "audit_image_preview", lambda *_a, **_k: {}
-            ):
+            ), patch.object(
+                security_binding, "install_stock_media_preflight"
+            ) as install_preflight:
                 security_binding.install_security_v1_live_binding()
                 with self.assertRaisesRegex(RuntimeError, "brief mismatch"):
                     security_binding.orchestrator.produce()
             self.assertEqual(calls, [])
+            install_preflight.assert_called_once_with(security_binding._stock_media_preflight)
         finally:
             security_binding.orchestrator.produce = original_produce
             security_binding._INSTALLED = original_installed
@@ -220,6 +223,32 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
                 self.assertTrue(audit["obvious_synthetic_or_visual_artifact"])
         self.assertEqual(calls, [])
 
+    def test_central_stock_preflight_quarantines_known_candidate_before_ai_budget(self) -> None:
+        with patch.object(
+            security_binding,
+            "_scan_media_before_vision",
+            side_effect=RuntimeError(
+                "multimodal_injection_firewall_block:qr_code_detected"
+            ),
+        ):
+            audit = security_binding._stock_media_preflight(Path("candidate.mp4"))
+
+        self.assertIsNotNone(audit)
+        self.assertEqual(audit["status"], "block")
+        self.assertEqual(audit["local_media_rejection"], "qr_code_detected")
+
+    def test_central_stock_preflight_keeps_unknown_and_infrastructure_failures_global(self) -> None:
+        for code in ("ffmpeg_unavailable", "future_security_code"):
+            with self.subTest(code=code), patch.object(
+                security_binding,
+                "_scan_media_before_vision",
+                side_effect=RuntimeError(
+                    f"multimodal_injection_firewall_block:{code}"
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, code):
+                    security_binding._stock_media_preflight(Path("candidate.mp4"))
+
     def test_multiple_known_stock_security_findings_are_quarantined_together(self) -> None:
         calls: list[str] = []
 
@@ -275,7 +304,7 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "unexpected local failure"):
                 wrapped("key", Path("preview.mp4"))
 
-    def test_thumbnail_security_findings_remain_global_hard_fail(self) -> None:
+    def test_legacy_generic_vision_wrapper_remains_strict_without_stock_isolation(self) -> None:
         calls: list[str] = []
 
         def model(*_args, **_kwargs):

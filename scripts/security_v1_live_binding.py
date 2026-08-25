@@ -23,6 +23,7 @@ from isco_video_agent.multimodal_firewall import (
     require_normal_vision_safe,
 )
 from isco_video_agent.research_quarantine import ResearchQuarantineExtractor
+from isco_video_agent.stock_media_preflight import install_stock_media_preflight
 
 
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -285,9 +286,36 @@ def _stock_candidate_security_block(exc: Exception) -> dict[str, Any] | None:
     }
 
 
+def _stock_media_preflight(path: Path) -> dict[str, Any] | None:
+    """Inspect every stock candidate before Engine schedules a cloud Vision task.
+
+    Fully-known candidate-local findings remain hard blocks for that asset and are
+    returned to the bounded selector/thumbnail board for quarantine. Missing security
+    infrastructure and unknown/future findings still abort Production immediately.
+    """
+    try:
+        _scan_media_before_vision(path)
+    except RuntimeError as exc:
+        blocked = _stock_candidate_security_block(exc)
+        if blocked is None:
+            raise
+        print(
+            "Security V1 quarantined stock candidate locally before Vision budget: "
+            f"{blocked['local_media_rejection']}"
+        )
+        return blocked
+    return None
+
+
 def _wrap_vision_audit(
     original: Callable[..., Any], *, isolate_stock_candidate_failures: bool = False
 ) -> Callable[..., Any]:
+    """Legacy generic Vision wrapper retained for strict non-stock call sites/tests.
+
+    Production stock media no longer installs this wrapper: Engine's central preflight
+    hook must run before ledger authorization and must inspect every thumbnail-board
+    member, neither of which a model-call wrapper can guarantee.
+    """
     if getattr(original, "_isco_security_v1_vision", False):
         return original
 
@@ -352,13 +380,10 @@ def install_security_v1_live_binding() -> None:
         secured_alt_query._isco_security_v1_original = current_alt
         orchestrator.suggest_alternate_visual_query = secured_alt_query
 
-    # Video stock selection already owns a bounded retry budget. Every fully-known
-    # candidate-local media/security finding is quarantined before cloud Vision and
-    # returned as a normal audit block so the selector can try the next candidate.
-    # Infrastructure/unknown failures still abort, and thumbnail review remains strict.
-    orchestrator.audit_video_preview = _wrap_vision_audit(
-        orchestrator.audit_video_preview, isolate_stock_candidate_failures=True
-    )
-    thumbnail.audit_image_preview = _wrap_vision_audit(thumbnail.audit_image_preview)
+    # One central pre-provider boundary now covers long-section video, Opening
+    # Director, single-shot/Shorts, and every image in each thumbnail candidate board.
+    # Candidate-local blocks are removed before the AI ledger; unknown/infrastructure
+    # failures still abort. Engine owns the separate finite inspection/Vision budgets.
+    install_stock_media_preflight(_stock_media_preflight)
 
     _INSTALLED = True
