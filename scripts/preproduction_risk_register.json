@@ -31,7 +31,7 @@
     {"id":"stale-checkpoint","scope":"planning checkpoint","control":"Runner+Engine+schema namespace","status":"existing"},
     {"id":"runtime-patch-identity","scope":"run_v3_voice import/script mode","control":"dual-module runtime binding plus markers","status":"existing"},
     {"id":"non-idempotent-retry","scope":"provider/release/state side effects","control":"single retry owners; release namespace fail-closed","status":"existing_plus_v2"},
-    {"id":"agent-state-branch-policy","scope":"GitHub repository settings","control":"external branch/ruleset hardening remains desirable; current integration cannot inspect or mutate protection settings (403), so code does not claim this control is closed","status":"external_followup_non_blocking_for_crypto_contract"},
+    {"id":"agent-state-branch-policy","scope":"GitHub repository settings","control":"GitHub branch metadata confirms agent-state is currently unprotected; the available integration exposes read-only protection/ruleset access and cannot apply the repository-setting hardening in chat. Cryptographic authenticity and stale-write rejection remain enforced in code.","status":"external_followup_non_blocking_for_crypto_contract"},
     {"id":"gemini-auth-key-september-2026","scope":"account credential type","control":"live credential check; migration deadline tracked externally because API does not expose key type","status":"deadline_risk"}
   ]
 }
