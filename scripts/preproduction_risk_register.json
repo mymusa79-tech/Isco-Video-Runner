@@ -13,6 +13,7 @@
     {"id":"provider-model-drift","scope":"Gemini content/TTS","control":"models endpoint verifies configured capabilities","status":"implemented"},
     {"id":"provider-capacity-drift","scope":"gemini/groq/openrouter/pexels/pixabay","control":"provider preflight records only source-backed capacity evidence: positive documented headroom where exposed; OpenRouter key limit/expiry/type validation; Gemini zero-inference request-path probe with dynamic capacity explicitly not inferred","status":"implemented"},
     {"id":"audio-semantic-integrity","scope":"approved narration -> TTS sections -> authorized narration transforms -> mux -> final artifact","control":"fail-closed SHA256 provenance chain over exact approved section text, generated section WAVs, ordered live concat/mastering result, exact narration handed to the authorized live mux/SFX chain, final.mp4 immutability, and existing audio/AV-sync gates; independent Groq/Whisper final-audio comparison remains observe-only during calibration","status":"implemented"},
+    {"id":"persistent-memory-authenticity","scope":"cross-run agent-state","control":"versioned AES-256-GCM envelope via locked cryptography dependency; PBKDF2-HMAC-SHA256 key derivation; authenticated run sequence and previous-state commit; Git parent/commit-subject binding on restore; stale ancestry rejected before persistence; arbitrary CBC rejected with one-time migration limited to exact pre-hardening Git blobs","status":"implemented"},
     {"id":"runner-image-drift","scope":"GitHub hosted runner","control":"explicit ubuntu-24.04 in canonical production and critical private-engine verifier","status":"implemented"},
     {"id":"post-piper-dependency-drift","scope":"Python environment","control":"verified Piper wheel plus pip check after Piper before full regression","status":"implemented"},
     {"id":"piper-wheel-integrity","scope":"local TTS fallback supply chain","control":"binary-only Piper 1.4.2 wheel with exact trusted PyPI SHA256","status":"implemented"},
@@ -24,12 +25,13 @@
     {"id":"release-source-provenance","scope":"GitHub Release tag","control":"create against exact reviewed GITHUB_SHA and verify target before and after publication","status":"implemented"},
     {"id":"release-asset-integrity","scope":"GitHub Release assets","control":"stream local SHA256 then require exact GitHub immutable digests before and after publication","status":"implemented"},
     {"id":"release-command-hang","scope":"GitHub CLI release transaction","control":"bounded metadata and upload command deadlines inside the global job deadline","status":"implemented"},
-    {"id":"restored-memory-integrity","scope":"cross-run production memory","control":"production hard-blocks unless restored state is explicitly save-safe","status":"implemented"},
+    {"id":"restored-memory-integrity","scope":"cross-run production memory","control":"production hard-blocks unless restored state is explicitly save-safe and authenticated","status":"implemented"},
     {"id":"accepted-state-loss","scope":"cross-run production memory","control":"accepted state persistence is strict and emits closure evidence","status":"implemented"},
     {"id":"plaintext-secret-residue","scope":"ephemeral runner","control":"always cleanup plus static contract","status":"existing"},
     {"id":"stale-checkpoint","scope":"planning checkpoint","control":"Runner+Engine+schema namespace","status":"existing"},
     {"id":"runtime-patch-identity","scope":"run_v3_voice import/script mode","control":"dual-module runtime binding plus markers","status":"existing"},
     {"id":"non-idempotent-retry","scope":"provider/release/state side effects","control":"single retry owners; release namespace fail-closed","status":"existing_plus_v2"},
+    {"id":"agent-state-branch-policy","scope":"GitHub repository settings","control":"external branch/ruleset hardening remains desirable; current integration cannot inspect or mutate protection settings (403), so code does not claim this control is closed","status":"external_followup_non_blocking_for_crypto_contract"},
     {"id":"gemini-auth-key-september-2026","scope":"account credential type","control":"live credential check; migration deadline tracked externally because API does not expose key type","status":"deadline_risk"}
   ]
 }
