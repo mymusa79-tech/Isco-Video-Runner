@@ -5,7 +5,10 @@ import json
 import os
 from pathlib import Path
 
-from scripts.persistent_memory import persist_encrypted_state
+try:
+    from scripts.persistent_memory import persist_encrypted_state
+except ModuleNotFoundError:  # direct `python scripts/state_persistence_strict.py`
+    from persistent_memory import persist_encrypted_state
 
 
 def persist_strict(*, repo: Path, encrypted: Path, branch: str, run_number: str, report: Path) -> None:
