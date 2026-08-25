@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ENGINE_SHA: 38cda419dbe126e5b2690ab3cfd3e46ffc6a1474
+  ENGINE_SHA: 0370105f0b7212b02e3c53d8e64eefd83e7fd8fe
   CONTROL_PLANE_PRODUCTION_ENABLED: "true"
 
 jobs:
