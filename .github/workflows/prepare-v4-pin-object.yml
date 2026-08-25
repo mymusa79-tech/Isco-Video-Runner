@@ -13,10 +13,10 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout runner main
+      - name: Checkout exact Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: main
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
           fetch-depth: 1
 
@@ -24,8 +24,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          OLD_SHA: a1eb2fdeffe14fa369844e35caa61708f79285d0
-          NEW_SHA: 7629bc87a0adcd1a1c0864ecf833478076f01ad3
+          OLD_SHA: 0370105f0b7212b02e3c53d8e64eefd83e7fd8fe
+          NEW_SHA: d5f2bec5a129ed0e1d922fab802314e1861b9b98
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -77,7 +77,7 @@ jobs:
               }],
           })
           commit = api('/git/commits', 'POST', {
-              'message': 'ci: pin V4 to merged content-tone engine',
+              'message': 'ci: pin V4 to merged Gemini 3.7 engine',
               'tree': tree['sha'],
               'parents': [base_commit],
           })
