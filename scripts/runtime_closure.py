@@ -12,6 +12,7 @@ from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
+from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
@@ -81,6 +82,8 @@ def install_canonical_v4_bundle_post_manifest() -> None:
 def install_runtime_closure() -> None:
     """Install bounded production recovery plus cinematic and delivery stages."""
     # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
+    # Media Trust V2 changes no AI/retry budget. It only binds exact stock bytes and
+    # local inspection before the reliability contract is frozen for produce().
     # Canonical bundle is bound on every live run_v3_voice module before the release
     # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
@@ -88,6 +91,7 @@ def install_runtime_closure() -> None:
     install_bounded_output_recovery()
     install_schema_repair_policy()
     install_gemini_planning_output_guard()
+    install_media_trust_boundary_v2()
     install_core_reliability_guard()
     install_audio_mastering_live_binding()
     install_sfx_live_binding()
