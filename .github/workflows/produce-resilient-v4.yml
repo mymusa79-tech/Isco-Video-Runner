@@ -631,6 +631,7 @@ jobs:
             python scripts/release_transaction.py
             --repository "$GITHUB_REPOSITORY"
             --tag "$tag"
+            --target-sha "$GITHUB_SHA"
             --title "Isco Video Bundle #${RUN_NUMBER}"
             --notes "Production bundle ${RUN_NUMBER}: long-form video, 2-3 sibling Shorts, A/B/C packaging and review evidence. YouTube publication remains manual."
             --journal "$RUNNER_TEMP/release-transaction.json"

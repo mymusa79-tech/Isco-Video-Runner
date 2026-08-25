@@ -2,7 +2,7 @@
 
 This certification is intentionally non-production. It may run tests, dependency resolution, read-only provider authentication/model checks when the real Production workflow is later dispatched, and static/dynamic environment contracts. It must never dispatch `produce-resilient-v4.yml` itself.
 
-The permanent controls cover provider credential/model drift, dependency/environment drift after Piper installation, GitHub Release rerun collisions, system media-tool availability, workflow trigger/checkout invariants, existing Reliability Kernel retry ownership, checkpoint isolation, runtime script/import identity, secret cleanup, and manual YouTube publication.
+The permanent controls cover provider credential/model drift, dependency/environment drift after Piper installation, GitHub Release and orphan-tag collisions, exact reviewed-commit provenance, local-to-remote SHA256 asset identity, bounded release commands, system media-tool availability, workflow trigger/checkout invariants, existing Reliability Kernel retry ownership, checkpoint isolation, runtime script/import identity, secret cleanup, and manual YouTube publication.
 
 External comparison uses public documentation and public issue trackers only. It does not rely on or claim access to other customers' private incidents.
 

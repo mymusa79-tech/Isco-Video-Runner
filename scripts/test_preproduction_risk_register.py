@@ -19,6 +19,9 @@ class PreProductionRiskRegisterTests(unittest.TestCase):
             "runner-image-drift",
             "post-piper-dependency-drift",
             "release-rerun-collision",
+            "release-source-provenance",
+            "release-asset-integrity",
+            "release-command-hang",
             "system-tool-missing",
             "plaintext-secret-residue",
             "stale-checkpoint",
@@ -27,6 +30,14 @@ class PreProductionRiskRegisterTests(unittest.TestCase):
             "gemini-auth-key-september-2026",
         }
         self.assertTrue(required.issubset(ids))
+
+        status = {item["id"]: item["status"] for item in data["risks"]}
+        for risk_id in (
+            "release-source-provenance",
+            "release-asset-integrity",
+            "release-command-hang",
+        ):
+            self.assertEqual(status[risk_id], "implemented")
 
 
 if __name__ == "__main__":

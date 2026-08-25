@@ -7,6 +7,7 @@ from pathlib import Path
 
 PRODUCTION_WORKFLOW = Path(".github/workflows/produce-resilient-v4.yml")
 RELEASE_TRANSACTION = Path("scripts/release_transaction.py")
+ENVIRONMENT_PREFLIGHT = Path("scripts/environment_preflight.py")
 EXPECTED_ENGINE_SHA = "0370105f0b7212b02e3c53d8e64eefd83e7fd8fe"
 EXPECTED_RUNNER_IMAGE = "ubuntu-24.04"
 PROVIDERS = ("gemini", "groq", "openrouter", "pexels", "pixabay")
@@ -21,6 +22,7 @@ class ContractIssue:
 def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
     text = (repo / PRODUCTION_WORKFLOW).read_text(encoding="utf-8")
     release_text = (repo / RELEASE_TRANSACTION).read_text(encoding="utf-8") if (repo / RELEASE_TRANSACTION).is_file() else ""
+    environment_text = (repo / ENVIRONMENT_PREFLIGHT).read_text(encoding="utf-8") if (repo / ENVIRONMENT_PREFLIGHT).is_file() else ""
     issues: list[ContractIssue] = []
 
     def require(code: str, marker: str, detail: str, *, source: str = text) -> None:
@@ -39,9 +41,11 @@ def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
         require(f"provider_{provider}", f"--{provider}-key-file", f"provider preflight is missing {provider}")
     require("release_namespace_guard", "Release namespace preflight", "non-idempotent GitHub Release tag must be checked before provider work")
     require("release_collision_fail_closed", "existing release tag blocks this run before production", "existing release tag must fail closed rather than overwrite/retry")
+    require("release_orphan_tag_guard", "/git/ref/tags/", "orphan Git tags must block before production because they bypass --target", source=environment_text)
     require("production_entrypoint", "python ../scripts/run_v3_voice.py", "canonical production entrypoint changed unexpectedly")
     require("state_persist_strict", "python scripts/state_persistence_strict.py", "accepted production state must not fail silently")
     require("release_transaction_call", "python scripts/release_transaction.py", "GitHub Release must use transactional draft/upload/verify/publish flow")
+    require("release_target_binding", '--target-sha "$GITHUB_SHA"', "GitHub Release must bind to the exact reviewed Runner SHA")
     require("manual_publish", "manual_in_youtube_studio", "manual YouTube publication contract missing")
     require("partial_delivery_closed", "partial_delivery_allowed", "partial-delivery contract missing")
     require("final_master_qc", "final-master-qc.json", "Final Master QC evidence must remain in canonical closure")
@@ -89,8 +93,13 @@ def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
     else:
         for code, marker, detail in (
             ("release_draft_first", '"--draft"', "release must start as a draft"),
+            ("release_exact_target", '"--target", target_sha', "release tag must be created from the exact reviewed Runner SHA"),
             ("release_upload", '"upload"', "release transaction must upload assets before publish"),
-            ("release_remote_verify", "remote != expected", "release transaction must verify exact remote asset names and sizes"),
+            ("release_remote_verify", "remote != expected", "release transaction must verify exact remote asset names, sizes and digests"),
+            ("release_sha256", "hashlib.sha256()", "release assets must be verified with SHA256 rather than metadata alone"),
+            ("release_digest_fail_closed", "SHA256_DIGEST_RE.fullmatch", "missing or malformed GitHub asset digests must fail closed"),
+            ("release_target_verify", 'payload.get("targetCommitish")', "release target identity must be verified remotely"),
+            ("release_command_timeout", "UPLOAD_TIMEOUT_SECONDS", "release commands must have bounded deadlines"),
             ("release_publish_last", '"--draft=false"', "release transaction must publish only after verification"),
             ("release_cleanup", "_delete_draft_best_effort", "failed pre-publication transaction must clean up/retain only a draft"),
         ):
