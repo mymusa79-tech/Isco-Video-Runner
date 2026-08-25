@@ -41,6 +41,7 @@ jobs:
         run: |
           echo "MODEL_DIR=$RUNNER_TEMP/isco-local-brain" >> "$GITHUB_ENV"
           echo "MODEL_FILE=$RUNNER_TEMP/isco-local-brain/Qwen3-4B-Q4_K_M.gguf" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/isco-local-brain/runtime:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Restore pinned local runtime and model cache
         id: local-cache
@@ -49,11 +50,13 @@ jobs:
           path: ${{ runner.temp }}/isco-local-brain
           key: isco-local-brain-qwen3-4b-q4km-7485fe6f-llama-b9637
 
-      - name: Install pinned llama.cpp runtime
+      - name: Install pinned llama.cpp runtime bundle
         run: |
           set -euo pipefail
           mkdir -p "$MODEL_DIR/runtime"
-          if [ ! -x "$MODEL_DIR/runtime/llama-server" ]; then
+          if [ ! -x "$MODEL_DIR/runtime/llama-server" ] || [ ! -f "$MODEL_DIR/runtime/libllama-server-impl.so" ]; then
+            rm -rf "$MODEL_DIR/runtime" "$RUNNER_TEMP/llama-unpack" "$RUNNER_TEMP/llama.tar.gz"
+            mkdir -p "$MODEL_DIR/runtime"
             python - <<'PY'
           import json, os, urllib.request
           tag = os.environ["LLAMA_TAG"]
@@ -77,9 +80,11 @@ jobs:
             tar -xzf "$RUNNER_TEMP/llama.tar.gz" -C "$RUNNER_TEMP/llama-unpack"
             SERVER="$(find "$RUNNER_TEMP/llama-unpack" -type f -name llama-server -print -quit)"
             test -n "$SERVER"
-            cp "$SERVER" "$MODEL_DIR/runtime/llama-server"
+            SERVER_DIR="$(dirname "$SERVER")"
+            cp -a "$SERVER_DIR"/. "$MODEL_DIR/runtime"/
             chmod 0755 "$MODEL_DIR/runtime/llama-server"
           fi
+          test -f "$MODEL_DIR/runtime/libllama-server-impl.so"
           "$MODEL_DIR/runtime/llama-server" --version
 
       - name: Download and verify official Qwen model
@@ -163,6 +168,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
+          mkdir -p benchmark-output
           PID="$(cat "$RUNNER_TEMP/llama.pid" 2>/dev/null || true)"
           PEAK_KB="$(cat "$RUNNER_TEMP/llama-peak-rss-kb" 2>/dev/null || echo 0)"
           if [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; fi
