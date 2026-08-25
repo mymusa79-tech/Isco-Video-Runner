@@ -59,9 +59,10 @@ class RuntimeClosureTests(unittest.TestCase):
             audit.assert_called_once_with(Path("output/example"),api_key="secret-token")
             self.assertEqual(result["decision"],"pass"); self.assertTrue(key_path.exists())
 
-    def test_runtime_closure_installs_cinematic_chain_then_cta_music_then_bundle(self) -> None:
+    def test_runtime_closure_installs_media_trust_before_cinematic_chain(self) -> None:
         calls=[]
         with patch.object(runtime_closure,"install_attempt10_append_bound_recovery",side_effect=lambda:calls.append("recovery")) as recovery, \
+             patch.object(runtime_closure,"install_media_trust_boundary_v2",side_effect=lambda:calls.append("media-trust")) as media_trust, \
              patch.object(runtime_closure,"install_audio_mastering_live_binding",side_effect=lambda:calls.append("audio")) as audio, \
              patch.object(runtime_closure,"install_sfx_live_binding",side_effect=lambda:calls.append("sfx")) as sfx, \
              patch.object(runtime_closure,"install_m8_live_binding",side_effect=lambda:calls.append("m8")) as m8, \
@@ -71,10 +72,19 @@ class RuntimeClosureTests(unittest.TestCase):
              patch.object(runtime_closure,"install_narrative_music_dynamics",side_effect=lambda:calls.append("music")) as music, \
              patch.object(runtime_closure,"install_canonical_v4_bundle_post_manifest",side_effect=lambda:calls.append("bundle")) as bundle:
             runtime_closure.install_runtime_closure()
-        recovery.assert_called_once_with(); audio.assert_called_once_with(); sfx.assert_called_once_with()
+        recovery.assert_called_once_with(); media_trust.assert_called_once_with(); audio.assert_called_once_with(); sfx.assert_called_once_with()
         m8.assert_called_once_with(); m9.assert_called_once_with(); m10.assert_called_once_with(); cta.assert_called_once_with()
         music.assert_called_once_with(); bundle.assert_called_once_with()
-        self.assertEqual(calls,["recovery","audio","sfx","m8","m9","m10","cta","music","bundle"])
+        self.assertEqual(calls,["recovery","media-trust","audio","sfx","m8","m9","m10","cta","music","bundle"])
+
+    def test_media_trust_is_ordered_before_core_reliability_contract(self) -> None:
+        source = Path(runtime_closure.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        install = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "install_runtime_closure")
+        calls=[(node.lineno,_call_name(node)) for node in ast.walk(install) if isinstance(node,ast.Call)]
+        trust_line=next(line for line,name in calls if name=="install_media_trust_boundary_v2")
+        core_line=next(line for line,name in calls if name=="install_core_reliability_guard")
+        self.assertLess(trust_line,core_line)
 
     def test_bundle_activation_is_exact_workflow_or_explicit_opt_in(self) -> None:
         with patch.dict(os.environ,{},clear=True):
