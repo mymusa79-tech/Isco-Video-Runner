@@ -7,17 +7,43 @@ on:
       - ops/migrate-memory-and-launch
     paths:
       - .ops/migrate-memory-and-launch.trigger
+  pull_request:
+    paths:
+      - .github/workflows/migrate-memory-and-launch-production.yml
+      - scripts/test_run111_migration_launch_bridge.py
 
 concurrency:
-  group: isco-memory-migration-launch
+  group: isco-memory-migration-launch-${{ github.event_name }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
 
 jobs:
+  contract-test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Run migration launch bridge contract tests
+        run: python -m unittest scripts.test_run111_migration_launch_bridge -v
+
   migrate-and-launch:
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+      actions: write
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
