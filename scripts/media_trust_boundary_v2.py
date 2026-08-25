@@ -15,6 +15,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 import isco_video_agent.orchestrator as orchestrator
+import isco_video_agent.stock_media_preflight as stock_preflight
 import isco_video_agent.thumbnail as thumbnail
 from isco_video_agent.providers import pexels as pexels_provider
 from isco_video_agent.providers import pixabay as pixabay_provider
@@ -37,6 +38,8 @@ _ALLOWED_CONTENT_TYPES = (
 _INSTALLED = False
 _http_get: Callable[..., Any] = requests.get
 _quarantine_root: Path | None = None
+_original_make_review_preview = orchestrator.make_review_preview
+_original_make_image_review_preview = thumbnail.make_image_review_preview
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,11 @@ class TrustedMediaRecord:
 
 _records_by_url: dict[tuple[str, str], TrustedMediaRecord] = {}
 _records_by_path: dict[str, TrustedMediaRecord] = {}
+_review_source_by_preview: dict[str, Path] = {}
+
+
+def _path_key(path: str | Path) -> str:
+    return str(Path(path).resolve())
 
 
 def _sha256_file(path: Path) -> str:
@@ -76,6 +84,16 @@ def _cleanup_quarantine() -> None:
 
 
 atexit.register(_cleanup_quarantine)
+
+
+def reset_media_trust_state_for_tests() -> None:
+    """Clear process-local trust state; tests only, never called by Production."""
+    global _INSTALLED
+    _records_by_url.clear()
+    _records_by_path.clear()
+    _review_source_by_preview.clear()
+    _cleanup_quarantine()
+    _INSTALLED = False
 
 
 def _provider_host_allowed(provider: str, host: str) -> bool:
@@ -122,7 +140,8 @@ def _stream_to_quarantine(provider: str, source_url: str, cache_path: Path) -> T
                 allow_redirects=False,
             )
             try:
-                if int(getattr(response, "status_code", 0)) in _REDIRECT_STATUSES:
+                status_code = int(getattr(response, "status_code", 0))
+                if status_code in _REDIRECT_STATUSES:
                     if redirect_count >= MAX_REDIRECTS:
                         raise RuntimeError("media_trust_redirect_limit_exceeded")
                     location = str(response.headers.get("location") or "").strip()
@@ -192,7 +211,8 @@ def _materialize_verified(record: TrustedMediaRecord, dest: Path) -> Path:
     tmp.unlink(missing_ok=True)
     try:
         shutil.copyfile(record.quarantine_path, tmp)
-        with tmp.open("rb") as handle:
+        with tmp.open("r+b") as handle:
+            handle.flush()
             os.fsync(handle.fileno())
         if _sha256_file(tmp) != record.sha256:
             raise RuntimeError("media_trust_materialization_hash_mismatch")
@@ -200,7 +220,7 @@ def _materialize_verified(record: TrustedMediaRecord, dest: Path) -> Path:
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
-    _records_by_path[str(dest.resolve())] = record
+    _records_by_path[_path_key(dest)] = record
     return dest
 
 
@@ -222,7 +242,7 @@ def trusted_download(provider: str, url: str, dest: Path) -> Path:
 
 def trusted_record(path: str | Path) -> TrustedMediaRecord | None:
     try:
-        return _records_by_path.get(str(Path(path).resolve()))
+        return _records_by_path.get(_path_key(path))
     except OSError:
         return None
 
@@ -282,7 +302,7 @@ def _probe_duration(source: Path, ffprobe: str) -> float:
 
 
 def _distributed_scan_media_before_vision(media: str | Path) -> None:
-    """Fail closed using bounded samples distributed across the complete media asset."""
+    """Fail closed using bounded samples distributed across the complete trusted asset."""
     source = Path(media)
     if not source.is_file():
         raise RuntimeError(f"{security_v1._FIREWALL_BLOCK_PREFIX}media_missing")
@@ -339,6 +359,28 @@ def _distributed_scan_media_before_vision(media: str | Path) -> None:
             security_v1.require_normal_vision_safe(firewall.scan_frame(frame))
 
 
+def _register_preview(preview: Path, source: Path) -> Path:
+    _review_source_by_preview[_path_key(preview)] = Path(source)
+    return preview
+
+
+def _make_trusted_review_preview(src: Path, dest: Path, *, portrait: bool, seconds: float = 6.0) -> Path:
+    preview = _original_make_review_preview(src, dest, portrait=portrait, seconds=seconds)
+    return _register_preview(preview, src)
+
+
+def _make_trusted_image_review_preview(src: Path, dest: Path) -> Path:
+    preview = _original_make_image_review_preview(src, dest)
+    return _register_preview(preview, src)
+
+
+def _inspect_exact_review_source(path: str | Path) -> dict | None:
+    """Inspect the quarantined source, never the shortened/resized review derivative."""
+    key = _path_key(path)
+    source = _review_source_by_preview.get(key, Path(path))
+    return stock_preflight.inspect_stock_media(source)
+
+
 def _pexels_download(url: str, dest: Path) -> Path:
     return trusted_download("pexels", url, dest)
 
@@ -368,10 +410,19 @@ def install_media_trust_boundary_v2() -> None:
         thumbnail.download = _pexels_download
     thumbnail.pixabay_provider.download = _pixabay_download
 
-    # Replace only the local media sampling implementation. Security decisions,
-    # candidate-local isolation, Vision review counts, and fail-closed semantics remain
-    # owned by Security V1 and the Engine selector.
+    # Previews remain compact for cloud Vision, but Security V1 is redirected back to
+    # the exact trusted source bytes from which each preview was derived.
+    orchestrator.make_review_preview = _make_trusted_review_preview
+    orchestrator.inspect_stock_media = _inspect_exact_review_source
+    thumbnail.make_image_review_preview = _make_trusted_image_review_preview
+    thumbnail.inspect_stock_media = _inspect_exact_review_source
+
+    # Replace only local media sampling. Security decisions, candidate isolation,
+    # Vision counts and fail-closed semantics remain owned by Security V1/Engine.
     security_v1._scan_media_before_vision = _distributed_scan_media_before_vision
 
     _INSTALLED = True
-    print("Media Trust Boundary V2 installed: exact bytes, SHA256 quarantine, manual redirects, distributed scan")
+    print(
+        "Media Trust Boundary V2 installed: exact review/render bytes, SHA256 quarantine, "
+        "manual redirects, atomic materialization, distributed source scan"
+    )
