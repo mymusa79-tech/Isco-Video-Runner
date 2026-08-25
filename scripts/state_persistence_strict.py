@@ -2,19 +2,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from scripts.persistent_memory import persist_encrypted_state
 
 
 def persist_strict(*, repo: Path, encrypted: Path, branch: str, run_number: str, report: Path) -> None:
-    status = persist_encrypted_state(repo, encrypted, branch=branch, run_number=run_number)
+    status = persist_encrypted_state(
+        repo,
+        encrypted,
+        branch=branch,
+        run_number=run_number,
+        key=os.environ.get("STATE_ENCRYPTION_KEY", ""),
+    )
     report.parent.mkdir(parents=True, exist_ok=True)
     tmp = report.with_name(report.name + ".tmp")
     tmp.write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
+                "authenticated_envelope_required": True,
                 "pushed": status.pushed,
                 "changed": status.changed,
                 "reason": status.reason,
@@ -44,7 +52,7 @@ def main() -> None:
         run_number=args.run_number,
         report=args.report,
     )
-    print("Persistent state closure PASS")
+    print("Persistent authenticated state closure PASS")
 
 
 if __name__ == "__main__":
