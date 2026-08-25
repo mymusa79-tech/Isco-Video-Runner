@@ -22,6 +22,7 @@ from isco_video_agent.providers.gemini import json_text as gemini_json_text
 from isco_video_agent.providers.gemini import with_channel_persona
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
 from provider_failure import classify_provider_failure
+from structural_editorial_repair import repair_structural_flags
 
 
 CACHE_PATH = Path("state/planning-checkpoint.json")
@@ -460,6 +461,14 @@ def install_router() -> None:
 
     def routed_build_plan(*args, **kwargs):
         plan = staged.build_plan(*args, **kwargs)
+        content_model = str(
+            kwargs.get("content_model")
+            or (args[3] if len(args) > 3 else "gemini-2.5-flash")
+        )
+        plan = repair_structural_flags(
+            plan,
+            repair_json_fn=lambda prompt: task_router(None, prompt, model=content_model),
+        )
         if getattr(plan, "narrative_format", "") == "dialogue_qa":
             os.environ["ISCO_DIALOGUE_QA"] = "1"
             print("Dialogue voice mode selected: questioner=Iapetus responder=Gacrux")
