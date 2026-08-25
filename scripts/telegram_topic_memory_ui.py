@@ -1,9 +1,36 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
+
+# GitHub Actions invokes this entrypoint as ``python scripts/...``. In that mode
+# Python puts ``scripts/`` rather than the repository root on sys.path, so
+# absolute ``from scripts ...`` imports would fail before Telegram is polled.
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import telegram_control_active_ui as ui
 from scripts import telegram_control_panel as panel
+
+
+_REQUIRED_POLL_SECRET_FILES = (
+    "TELEGRAM_BOT_TOKEN_FILE",
+    "TELEGRAM_CHAT_ID_FILE",
+    "TELEGRAM_ALLOWED_USER_ID_FILE",
+)
+
+
+def _require_poll_identity(mode: str) -> None:
+    if mode != "poll":
+        return
+    missing = [name for name in _REQUIRED_POLL_SECRET_FILES if not panel._read_secret_file(name)]
+    if missing:
+        joined = ", ".join(missing)
+        raise RuntimeError(
+            "Telegram editorial control authorization boundary is incomplete; "
+            f"missing or empty: {joined}"
+        )
 
 
 def _light_topic_key(token: str) -> str:
@@ -108,6 +135,8 @@ def _install_policy() -> None:
 
 def main() -> None:
     _install_policy()
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
+    _require_poll_identity(mode)
     ui.main()
 
 
