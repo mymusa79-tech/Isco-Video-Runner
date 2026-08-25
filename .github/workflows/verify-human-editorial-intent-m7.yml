@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     env:
-      ENGINE_SHA: 940ed205535ec06eb2a2cee3dc00819e961479ae
+      ENGINE_SHA: 4c177e9e564d03709d2eda3cd05c7bc4f8b222b2
     steps:
       - name: Checkout Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -56,6 +56,12 @@ jobs:
           set -euo pipefail
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused Run 109 structural repair regression
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_run109_structural_local_repair -v
 
       - name: Focused Human Editorial Intent and current-main compatibility tests
         working-directory: engine
