@@ -1,0 +1,73 @@
+name: Certify Run 111 Provider Readiness Live
+
+on:
+  push:
+    branches:
+      - fix/run111-provider-readiness-topology
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Materialize provider secrets
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p .secrets .diagnostics
+          for name in GEMINI_API_KEY GROQ_API_KEY OPENROUTER_API_KEY PEXELS_API_KEY PIXABAY_API_KEY; do
+            value="${!name:-}"
+            test -n "$value" || { echo "Required certification secret missing: $name" >&2; exit 1; }
+            printf '%s' "$value" > ".secrets/$name"
+          done
+
+      - name: Run provider readiness v4 against live services
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/provider_preflight.py \
+            --output .diagnostics/provider-preflight.json \
+            --content-model gemini-2.5-flash \
+            --tts-model gemini-3.1-flash-tts-preview \
+            --gemini-key-file .secrets/GEMINI_API_KEY \
+            --groq-key-file .secrets/GROQ_API_KEY \
+            --openrouter-key-file .secrets/OPENROUTER_API_KEY \
+            --pexels-key-file .secrets/PEXELS_API_KEY \
+            --pixabay-key-file .secrets/PIXABAY_API_KEY
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('.diagnostics/provider-preflight.json').read_text())
+          print('overall_status=' + str(data.get('overall_status')))
+          print('hard_failures=' + ','.join(data.get('hard_failures') or []))
+          print('fallback_degraded=' + ','.join(data.get('fallback_degraded') or []))
+          for item in data.get('checks') or []:
+              print(f"provider={item.get('provider')} status={item.get('status')} capacity={item.get('capacity_status')}")
+          PY
+
+      - name: Upload sanitized readiness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run111-provider-readiness-live
+          path: .diagnostics/provider-preflight.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Remove materialized secrets
+        if: always()
+        shell: bash
+        run: rm -rf .secrets
