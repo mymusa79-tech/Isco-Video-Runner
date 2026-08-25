@@ -1,0 +1,108 @@
+name: Certify Gemini 3.7 Engine Candidate
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout exact Gemini 3.7 Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 5997fae6c25ecaebfb1f7d118640bb253f65f070
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine candidate
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "5997fae6c25ecaebfb1f7d118640bb253f65f070"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py lock --lock requirements-lock.txt
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Focused Gemini 3.7 regression
+        working-directory: engine
+        run: python -m unittest tests.test_gemini_provider -v
+
+      - name: Full Engine suite
+        working-directory: engine
+        run: python -m unittest discover -s tests -q
+
+      - name: Full Runner regression suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -q
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Live zero-cost provider readiness for exact 3.7 runtime
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          secret_dir="$RUNNER_TEMP/provider-secrets"
+          mkdir -p "$secret_dir"
+          printf '%s' "$GEMINI_API_KEY" > "$secret_dir/gemini"
+          printf '%s' "$GROQ_API_KEY" > "$secret_dir/groq"
+          printf '%s' "$OPENROUTER_API_KEY" > "$secret_dir/openrouter"
+          printf '%s' "$PEXELS_API_KEY" > "$secret_dir/pexels"
+          printf '%s' "$PIXABAY_API_KEY" > "$secret_dir/pixabay"
+          python scripts/provider_preflight.py \
+            --output "$RUNNER_TEMP/provider-preflight-37.json" \
+            --content-model gemini-2.5-flash \
+            --tts-model gemini-3.1-flash-tts-preview \
+            --gemini-key-file "$secret_dir/gemini" \
+            --groq-key-file "$secret_dir/groq" \
+            --openrouter-key-file "$secret_dir/openrouter" \
+            --pexels-key-file "$secret_dir/pexels" \
+            --pixabay-key-file "$secret_dir/pixabay"
+
+      - name: Remove plaintext provider secrets
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/provider-secrets" || true
