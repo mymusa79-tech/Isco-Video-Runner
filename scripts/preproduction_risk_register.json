@@ -11,6 +11,7 @@
   "risks": [
     {"id":"provider-auth-drift","scope":"gemini/groq/openrouter/pexels/pixabay","control":"read-only provider_preflight before production","status":"implemented"},
     {"id":"provider-model-drift","scope":"Gemini content/TTS","control":"models endpoint verifies configured capabilities","status":"implemented"},
+    {"id":"provider-capacity-drift","scope":"gemini/groq/openrouter/pexels/pixabay","control":"provider preflight records only source-backed capacity evidence: positive documented headroom where exposed; OpenRouter key limit/expiry/type validation; Gemini zero-inference request-path probe with dynamic capacity explicitly not inferred","status":"implemented"},
     {"id":"runner-image-drift","scope":"GitHub hosted runner","control":"explicit ubuntu-24.04 in canonical production and critical private-engine verifier","status":"implemented"},
     {"id":"post-piper-dependency-drift","scope":"Python environment","control":"verified Piper wheel plus pip check after Piper before full regression","status":"implemented"},
     {"id":"piper-wheel-integrity","scope":"local TTS fallback supply chain","control":"binary-only Piper 1.4.2 wheel with exact trusted PyPI SHA256","status":"implemented"},
