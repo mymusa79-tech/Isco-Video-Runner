@@ -10,12 +10,13 @@ import requests
 
 
 DEFAULT_TIMEOUT_SECONDS = 20
+STOCK_REQUIRED_HEADROOM = 24
 GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/v1/videos/search"
 PIXABAY_VIDEO_SEARCH_URL = "https://pixabay.com/api/videos/"
-USER_AGENT = "isco-video-preflight/2"
+USER_AGENT = "isco-video-preflight/3"
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,11 @@ class ProviderCheck:
     status: str
     http_status: int | None = None
     detail: str | None = None
+    rate_limit_limit: int | None = None
+    rate_limit_remaining: int | None = None
+    rate_limit_reset: str | None = None
+    required_headroom: int | None = None
+    headroom_ok: bool | None = None
 
 
 def _read_secret(path: str | Path) -> str:
@@ -64,6 +70,41 @@ def _json_object(provider: str, response: requests.Response) -> dict:
     if not isinstance(payload, dict):
         raise RuntimeError(f"{provider} readiness returned non-object JSON")
     return payload
+
+
+def _header(response: requests.Response, name: str) -> str | None:
+    wanted = name.casefold()
+    for key, value in response.headers.items():
+        if str(key).casefold() == wanted:
+            text = str(value).strip()
+            return text or None
+    return None
+
+
+def _header_int(response: requests.Response, name: str) -> int | None:
+    raw = _header(response, name)
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"provider readiness returned invalid {name} header") from exc
+    if value < 0:
+        raise RuntimeError(f"provider readiness returned negative {name} header")
+    return value
+
+
+def _stock_capacity(provider: str, response: requests.Response) -> tuple[int | None, int, str | None]:
+    limit = _header_int(response, "X-RateLimit-Limit")
+    remaining = _header_int(response, "X-RateLimit-Remaining")
+    reset = _header(response, "X-RateLimit-Reset")
+    if remaining is None:
+        raise RuntimeError(f"{provider} readiness could not prove rate-limit remaining headroom")
+    if remaining < STOCK_REQUIRED_HEADROOM:
+        raise RuntimeError(
+            f"{provider} readiness headroom too low: remaining={remaining}, required={STOCK_REQUIRED_HEADROOM}"
+        )
+    return limit, remaining, reset
 
 
 def _gemini_model_names(api_key: str, *, timeout: int) -> set[str]:
@@ -149,7 +190,12 @@ def check_pexels(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> Pro
     payload = _json_object("pexels", response)
     if not isinstance(payload.get("videos"), list):
         raise RuntimeError("pexels video-search response has invalid videos field")
-    return ProviderCheck("pexels", "pass", response.status_code, "credential and current video-search endpoint available")
+    limit, remaining, reset = _stock_capacity("pexels", response)
+    return ProviderCheck(
+        "pexels", "pass", response.status_code,
+        "credential, endpoint and production headroom available",
+        limit, remaining, reset, STOCK_REQUIRED_HEADROOM, True,
+    )
 
 
 def check_pixabay(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
@@ -163,7 +209,12 @@ def check_pixabay(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> Pr
     payload = _json_object("pixabay", response)
     if not isinstance(payload.get("hits"), list):
         raise RuntimeError("pixabay video-search response has invalid hits field")
-    return ProviderCheck("pixabay", "pass", response.status_code, "credential and video-search endpoint available")
+    limit, remaining, reset = _stock_capacity("pixabay", response)
+    return ProviderCheck(
+        "pixabay", "pass", response.status_code,
+        "credential, endpoint and production headroom available",
+        limit, remaining, reset, STOCK_REQUIRED_HEADROOM, True,
+    )
 
 
 def run_preflight(
@@ -195,7 +246,7 @@ def run_preflight(
     output.parent.mkdir(parents=True, exist_ok=True)
     tmp = output.with_name(output.name + ".tmp")
     tmp.write_text(
-        json.dumps({"schema_version": 2, "checks": [asdict(item) for item in results]}, indent=2),
+        json.dumps({"schema_version": 3, "checks": [asdict(item) for item in results]}, indent=2),
         encoding="utf-8",
     )
     tmp.replace(output)
@@ -225,7 +276,7 @@ def main() -> None:
         tts_model=args.tts_model,
         output=args.output,
     )
-    print("Provider readiness preflight PASS: gemini, groq, openrouter, pexels, pixabay")
+    print("Provider readiness preflight PASS: gemini, groq, openrouter, pexels, pixabay; stock headroom proven")
 
 
 if __name__ == "__main__":
