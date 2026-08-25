@@ -15,8 +15,6 @@ jobs:
     permissions:
       contents: read
     env:
-      MODEL_DIR: ${{ runner.temp }}/isco-local-brain
-      MODEL_FILE: ${{ runner.temp }}/isco-local-brain/Qwen3-4B-Q4_K_M.gguf
       MODEL_URL: https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true
       MODEL_SHA256: 7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
       LLAMA_TAG: b9637
@@ -24,6 +22,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Configure runner-local paths
+        run: |
+          echo "MODEL_DIR=$RUNNER_TEMP/isco-local-brain" >> "$GITHUB_ENV"
+          echo "MODEL_FILE=$RUNNER_TEMP/isco-local-brain/Qwen3-4B-Q4_K_M.gguf" >> "$GITHUB_ENV"
       - name: Restore local brain cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
