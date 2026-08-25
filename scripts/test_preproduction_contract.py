@@ -43,6 +43,14 @@ class PreProductionContractTests(unittest.TestCase):
             tmp.cleanup()
         self.assertIn("release_namespace_guard", codes)
 
+    def test_release_target_sha_binding_is_required(self) -> None:
+        tmp, root = self._repo("on:\n  workflow_dispatch:\nconcurrency:\njobs:\n  x:\n    runs-on: ubuntu-24.04\n")
+        try:
+            codes = {item.code for item in audit_preproduction_contract(root)}
+        finally:
+            tmp.cleanup()
+        self.assertIn("release_target_binding", codes)
+
 
 if __name__ == "__main__":
     unittest.main()

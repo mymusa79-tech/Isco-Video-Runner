@@ -9,6 +9,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
 
@@ -106,20 +107,35 @@ def _certify_arabic_font() -> str:
 
 
 def _release_namespace_status(repository: str, release_tag: str, *, token: str = "", timeout: int = 15) -> str:
-    url = f"https://api.github.com/repos/{repository}/releases/tags/{release_tag}"
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if token:
         headers["Authorization"] = "Bearer " + token
-    response = requests.get(url, headers=headers, timeout=timeout)
-    if response.status_code == 404:
-        return "available"
-    if response.ok:
+
+    encoded_tag = quote(release_tag, safe="")
+    release_url = f"https://api.github.com/repos/{repository}/releases/tags/{encoded_tag}"
+    release = requests.get(release_url, headers=headers, timeout=timeout)
+    if release.ok:
         raise RuntimeError(f"existing release tag blocks this run before production: {release_tag}")
-    if response.status_code == 403:
-        raise RuntimeError("release namespace preflight could not prove tag availability: HTTP 403")
-    if response.status_code == 429 or 500 <= response.status_code <= 599:
-        raise RuntimeError(f"release namespace preflight unavailable: HTTP {response.status_code}")
-    raise RuntimeError(f"release namespace preflight failed: HTTP {response.status_code}")
+    if release.status_code != 404:
+        if release.status_code == 403:
+            raise RuntimeError("release namespace preflight could not prove release availability: HTTP 403")
+        if release.status_code == 429 or 500 <= release.status_code <= 599:
+            raise RuntimeError(f"release namespace preflight unavailable: HTTP {release.status_code}")
+        raise RuntimeError(f"release namespace preflight failed: HTTP {release.status_code}")
+
+    # A lightweight/annotated Git tag can exist without a Release. GitHub ignores
+    # --target when that happens, so it must also block before production begins.
+    ref_url = f"https://api.github.com/repos/{repository}/git/ref/tags/{encoded_tag}"
+    ref = requests.get(ref_url, headers=headers, timeout=timeout)
+    if ref.status_code == 404:
+        return "available"
+    if ref.ok:
+        raise RuntimeError(f"existing orphan Git tag blocks this run before production: {release_tag}")
+    if ref.status_code == 403:
+        raise RuntimeError("release namespace preflight could not prove Git tag availability: HTTP 403")
+    if ref.status_code == 429 or 500 <= ref.status_code <= 599:
+        raise RuntimeError(f"release namespace preflight unavailable: HTTP {ref.status_code}")
+    raise RuntimeError(f"release Git tag namespace preflight failed: HTTP {ref.status_code}")
 
 
 def run_environment_preflight(*, output: Path, repository: str, run_number: str, github_token: str = "") -> EnvironmentEvidence:

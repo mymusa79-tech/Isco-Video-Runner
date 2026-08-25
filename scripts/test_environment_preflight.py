@@ -17,7 +17,7 @@ class EnvironmentPreflightTests(unittest.TestCase):
         return response
 
     def test_absent_release_tag_is_available(self) -> None:
-        with patch.object(envp.requests, "get", return_value=self._response(404)):
+        with patch.object(envp.requests, "get", side_effect=[self._response(404), self._response(404)]):
             self.assertEqual(envp._release_namespace_status("owner/repo", "video-1"), "available")
 
     def test_existing_release_tag_fails_closed(self) -> None:
@@ -29,6 +29,26 @@ class EnvironmentPreflightTests(unittest.TestCase):
         for status in (403, 429, 500, 503):
             with self.subTest(status=status):
                 with patch.object(envp.requests, "get", return_value=self._response(status)):
+                    with self.assertRaises(RuntimeError):
+                        envp._release_namespace_status("owner/repo", "video-1")
+
+    def test_orphan_git_tag_fails_closed(self) -> None:
+        with patch.object(
+            envp.requests,
+            "get",
+            side_effect=[self._response(404), self._response(200)],
+        ):
+            with self.assertRaisesRegex(RuntimeError, "orphan Git tag blocks"):
+                envp._release_namespace_status("owner/repo", "video-1")
+
+    def test_uncertain_git_tag_probe_is_never_treated_as_absent(self) -> None:
+        for status in (403, 429, 500, 503):
+            with self.subTest(status=status):
+                with patch.object(
+                    envp.requests,
+                    "get",
+                    side_effect=[self._response(404), self._response(status)],
+                ):
                     with self.assertRaises(RuntimeError):
                         envp._release_namespace_status("owner/repo", "video-1")
 
@@ -63,9 +83,15 @@ class EnvironmentPreflightTests(unittest.TestCase):
                 envp._certify_tesseract_arabic()
 
     def test_release_namespace_auth_header_is_used_without_leaking_elsewhere(self) -> None:
-        with patch.object(envp.requests, "get", return_value=self._response(404)) as get:
+        with patch.object(
+            envp.requests,
+            "get",
+            side_effect=[self._response(404), self._response(404)],
+        ) as get:
             self.assertEqual(envp._release_namespace_status("owner/repo", "video-2", token="gh-secret"), "available")
-        self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], "Bearer gh-secret")
+        self.assertEqual(get.call_count, 2)
+        for call in get.call_args_list:
+            self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer gh-secret")
 
 
 if __name__ == "__main__":
