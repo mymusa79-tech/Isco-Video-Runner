@@ -37,7 +37,8 @@ class Plan:
 
 def _pad(text: str, words: int = 120) -> str:
     current = text.split()
-    filler = [f"تفصيل{i}" for i in range(max(0, words - len(current)))]
+    seed = sum(ord(ch) for ch in text) % 100003
+    filler = [f"تفصيل{seed}_{i}" for i in range(max(0, words - len(current)))]
     return " ".join(current + filler)
 
 
@@ -66,7 +67,7 @@ class StructuralEditorialRepairTests(unittest.TestCase):
             Section("s7", _pad("خلاصة قبل النهاية.")),
             Section("s8", _pad("ليس المطلوب مراقبة الساعة بل حماية الأولويات. ليس الوقت عدواً بل مساحة قرار.")),
         ])
-        self.assertIn("repeated_not_x_but_y", _current_flags(plan))
+        self.assertEqual(_current_flags(plan), ("repeated_not_x_but_y",))
         target_ids = _minimal_triggering_section_ids(plan, "repeated_not_x_but_y")
         self.assertTrue(target_ids)
         self.assertTrue(set(target_ids).issubset({"s2", "s4", "s6", "s8"}))
@@ -96,7 +97,7 @@ class StructuralEditorialRepairTests(unittest.TestCase):
             }
 
         repaired = repair_structural_flags(plan, repair_json_fn=fake_repair)
-        self.assertNotIn("repeated_not_x_but_y", _current_flags(repaired))
+        self.assertEqual(_current_flags(repaired), ())
         self.assertLessEqual(len(calls), 2)
         changed = {s.id for s in repaired.sections if s.narration != before[s.id]}
         self.assertTrue(changed)
@@ -117,7 +118,7 @@ class StructuralEditorialRepairTests(unittest.TestCase):
             targets = _targets_from_prompt(prompt)
             if calls == 1:
                 return {"sections": [{"id": t["id"], "narration": t["narration"]} for t in targets]}
-            return {"sections": [{"id": t["id"], "narration": _pad("صياغة مباشرة بلا قالب متكرر.")} for t in targets]}
+            return {"sections": [{"id": t["id"], "narration": _pad(f"صياغة مباشرة بلا قالب متكرر {t['id']}.")} for t in targets]}
 
         repaired = repair_structural_flags(plan, repair_json_fn=fake_repair, max_attempts=2)
         self.assertEqual(calls, 2)
@@ -144,7 +145,7 @@ class StructuralEditorialRepairTests(unittest.TestCase):
             Section("s2", _pad("فكرة أخرى مختلفة تمامًا.")),
             Section("s3", repeated + ". " + _pad("تكملة ثالثة", 115)),
         ])
-        self.assertIn("duplicate_sentence", _current_flags(plan))
+        self.assertEqual(_current_flags(plan), ("duplicate_sentence",))
         target_ids = _minimal_triggering_section_ids(plan, "duplicate_sentence")
         self.assertEqual(set(target_ids), {"s1", "s3"})
 
@@ -155,7 +156,7 @@ class StructuralEditorialRepairTests(unittest.TestCase):
             [
                 Section("s1", _pad("ليس أ بل ب. ليس ج بل د. " + opener)),
                 Section("s2", _pad("ليس هـ بل و.")),
-                Section("s3", _pad("قسم طبيعي. " + closer)),
+                Section("s3", _pad("قسم طبيعي.") + " " + closer),
             ],
             identity_opener=opener,
             identity_closer=closer,
@@ -163,7 +164,7 @@ class StructuralEditorialRepairTests(unittest.TestCase):
 
         def bad_repair(prompt: str) -> dict:
             targets = _targets_from_prompt(prompt)
-            return {"sections": [{"id": t["id"], "narration": _pad("صياغة مباشرة بلا الهوية.")} for t in targets]}
+            return {"sections": [{"id": t["id"], "narration": _pad(f"صياغة مباشرة بلا الهوية {t['id']}.")} for t in targets]}
 
         with self.assertRaisesRegex(RuntimeError, "identity invariant"):
             repair_structural_flags(plan, repair_json_fn=bad_repair)
