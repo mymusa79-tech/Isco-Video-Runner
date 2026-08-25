@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import inspect
 import json
@@ -7,14 +8,15 @@ import os
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import isco_video_agent.orchestrator as orchestrator
 
 
 AUDIT_FILENAME = "audio-semantic-integrity.json"
 SCHEMA_VERSION = 1
-_INSTALLED = False
+_INSTALLED_BINDING = False
+_INSTALLED_FINAL_GATE = False
 _production_id = ""
 
 
@@ -36,6 +38,7 @@ class NarrationBinding:
     ordered_task_ids: tuple[str, ...]
     ordered_transcript_sha256: tuple[str, ...]
     ordered_audio_sha256: tuple[str, ...]
+    authorized_transform_sha256: str
 
 
 @dataclass(frozen=True)
@@ -45,7 +48,7 @@ class FinalMuxBinding:
     final_bytes: int
     narration_path: str
     narration_sha256: str
-    mux_implementation_sha256: str
+    authorized_mux_chain_sha256: str
 
 
 _tts_by_task: dict[str, TtsSectionBinding] = {}
@@ -78,6 +81,17 @@ def _file_size(path: str | Path) -> int:
     return Path(path).stat().st_size
 
 
+def _implementation_sha256(fn: Callable[..., Any]) -> str:
+    try:
+        source = inspect.getsource(fn).encode("utf-8")
+    except (OSError, TypeError):
+        code = getattr(fn, "__code__", None)
+        if code is None:
+            raise RuntimeError("audio_semantic_integrity_transform_identity_unavailable")
+        source = code.co_code
+    return _sha256_bytes(source)
+
+
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
@@ -105,11 +119,10 @@ def reset_audio_semantic_integrity_state_for_tests() -> None:
     _final_by_path.clear()
 
 
-def begin_audio_semantic_integrity_run(production_id: str) -> None:
-    """Start one production provenance namespace without changing TTS/retry behavior."""
+def _begin_run() -> None:
     reset_audio_semantic_integrity_state_for_tests()
     global _production_id
-    _production_id = str(production_id or "").strip()
+    _production_id = str(os.environ.get("ISCO_PRODUCTION_ID") or "").strip()
     if not _production_id:
         raise RuntimeError("audio_semantic_integrity_missing_production_id")
 
@@ -121,24 +134,16 @@ def _arg_or_kw(args: tuple[Any, ...], kwargs: dict[str, Any], position: int, nam
 
 
 def _wrap_tts(original: Callable[..., Any]) -> Callable[..., Any]:
-    if getattr(original, "_isco_audio_semantic_tts", False):
-        return original
-
     def wrapped(*args, **kwargs):
-        # _synthesize_tts_section positional layout begins ledger,circuit,budget and
-        # production currently passes task_id/transcript/output by keyword. Support
-        # both forms so the binding fails closed if the Engine call shape evolves.
-        task_id = _arg_or_kw(args, kwargs, 3, "task_id")
+        task_id = str(_arg_or_kw(args, kwargs, 3, "task_id") or "").strip()
         transcript = _arg_or_kw(args, kwargs, 5, "transcript")
         output = _arg_or_kw(args, kwargs, 6, "output")
-        task_id = str(task_id or "").strip()
         if not task_id.startswith("TTS_SECTION_"):
             raise RuntimeError("audio_semantic_integrity_unbound_tts_task")
         if not isinstance(transcript, str) or not transcript.strip():
             raise RuntimeError("audio_semantic_integrity_empty_tts_transcript")
         if output is None:
             raise RuntimeError("audio_semantic_integrity_missing_tts_output")
-
         result = original(*args, **kwargs)
         path = Path(result if result is not None else output)
         if not path.is_file() or path.stat().st_size <= 0:
@@ -157,14 +162,11 @@ def _wrap_tts(original: Callable[..., Any]) -> Callable[..., Any]:
         _tts_by_path[record.audio_path] = record
         return result
 
-    wrapped._isco_audio_semantic_tts = True
-    wrapped._isco_audio_semantic_original = original
     return wrapped
 
 
 def _wrap_concat_audio(original: Callable[..., Any]) -> Callable[..., Any]:
-    if getattr(original, "_isco_audio_semantic_concat", False):
-        return original
+    transform_sha = _implementation_sha256(original)
 
     def wrapped(inputs, output, *args, **kwargs):
         output_path = Path(output)
@@ -184,13 +186,11 @@ def _wrap_concat_audio(original: Callable[..., Any]) -> Callable[..., Any]:
 
         result = original(inputs, output, *args, **kwargs)
         narration_path = Path(result if result is not None else output_path)
-        # The concat operation is allowed to read but never mutate its certified inputs.
         for path, record in zip(paths, records):
             if _sha256_file(path) != record.audio_sha256:
                 raise RuntimeError(f"audio_semantic_integrity_tts_audio_mutated:{record.task_id}")
         if not narration_path.is_file() or narration_path.stat().st_size <= 0:
             raise RuntimeError("audio_semantic_integrity_narration_missing")
-
         binding = NarrationBinding(
             path=_path_key(narration_path),
             sha256=_sha256_file(narration_path),
@@ -198,30 +198,16 @@ def _wrap_concat_audio(original: Callable[..., Any]) -> Callable[..., Any]:
             ordered_task_ids=tuple(item.task_id for item in records),
             ordered_transcript_sha256=tuple(item.transcript_sha256 for item in records),
             ordered_audio_sha256=tuple(item.audio_sha256 for item in records),
+            authorized_transform_sha256=transform_sha,
         )
         _narration_by_path[binding.path] = binding
         return result
 
-    wrapped._isco_audio_semantic_concat = True
-    wrapped._isco_audio_semantic_original = original
     return wrapped
 
 
-def _implementation_sha256(fn: Callable[..., Any]) -> str:
-    try:
-        source = inspect.getsource(fn).encode("utf-8")
-    except (OSError, TypeError):
-        code = getattr(fn, "__code__", None)
-        if code is None:
-            raise RuntimeError("audio_semantic_integrity_mux_identity_unavailable")
-        source = code.co_code
-    return _sha256_bytes(source)
-
-
 def _wrap_mux(original: Callable[..., Any]) -> Callable[..., Any]:
-    if getattr(original, "_isco_audio_semantic_mux", False):
-        return original
-    implementation_sha = _implementation_sha256(original)
+    mux_chain_sha = _implementation_sha256(original)
 
     def wrapped(video, narration, output, *args, **kwargs):
         if narration is None:
@@ -232,11 +218,10 @@ def _wrap_mux(original: Callable[..., Any]) -> Callable[..., Any]:
             raise RuntimeError("audio_semantic_integrity_uncertified_narration_at_mux")
         if _sha256_file(narration_path) != narration_record.sha256:
             raise RuntimeError("audio_semantic_integrity_narration_changed_before_mux")
-
         result = original(video, narration, output, *args, **kwargs)
         final_path = Path(result if result is not None else output)
         if _sha256_file(narration_path) != narration_record.sha256:
-            raise RuntimeError("audio_semantic_integrity_narration_mutated_by_mux")
+            raise RuntimeError("audio_semantic_integrity_narration_mutated_by_mux_chain")
         if not final_path.is_file() or final_path.stat().st_size <= 0:
             raise RuntimeError("audio_semantic_integrity_final_missing_after_mux")
         binding = FinalMuxBinding(
@@ -245,29 +230,49 @@ def _wrap_mux(original: Callable[..., Any]) -> Callable[..., Any]:
             final_bytes=_file_size(final_path),
             narration_path=narration_record.path,
             narration_sha256=narration_record.sha256,
-            mux_implementation_sha256=implementation_sha,
+            authorized_mux_chain_sha256=mux_chain_sha,
         )
         _final_by_path[binding.final_path] = binding
         return result
 
-    wrapped._isco_audio_semantic_mux = True
-    wrapped._isco_audio_semantic_original = original
     return wrapped
 
 
-def install_audio_semantic_integrity_binding() -> None:
-    """Install provenance-only wrappers around the existing Engine audio path.
+@contextlib.contextmanager
+def _audio_binding_scope() -> Iterator[None]:
+    original_tts = orchestrator._synthesize_tts_section
+    original_concat = orchestrator.concat_audio
+    original_mux = orchestrator.mux
+    orchestrator._synthesize_tts_section = _wrap_tts(original_tts)
+    orchestrator.concat_audio = _wrap_concat_audio(original_concat)
+    orchestrator.mux = _wrap_mux(original_mux)
+    try:
+        yield
+    finally:
+        orchestrator._synthesize_tts_section = original_tts
+        orchestrator.concat_audio = original_concat
+        orchestrator.mux = original_mux
 
-    This does not make another provider call, change BudgetLedger, change TTS retry
-    behavior, change audio thresholds, or replace the existing Groq observe-only audit.
-    """
-    global _INSTALLED
-    if _INSTALLED:
+
+def install_audio_semantic_integrity_binding() -> None:
+    """Install before Audio Mastering/SFX so runtime scope wraps their live functions."""
+    global _INSTALLED_BINDING
+    if _INSTALLED_BINDING:
         return
-    orchestrator._synthesize_tts_section = _wrap_tts(orchestrator._synthesize_tts_section)
-    orchestrator.concat_audio = _wrap_concat_audio(orchestrator.concat_audio)
-    orchestrator.mux = _wrap_mux(orchestrator.mux)
-    _INSTALLED = True
+    current = orchestrator.produce
+    if getattr(current, "_isco_audio_semantic_binding", False):
+        _INSTALLED_BINDING = True
+        return
+
+    def wrapped(*args, **kwargs):
+        _begin_run()
+        with _audio_binding_scope():
+            return current(*args, **kwargs)
+
+    wrapped._isco_audio_semantic_binding = True
+    wrapped._isco_audio_semantic_original = current
+    orchestrator.produce = wrapped
+    _INSTALLED_BINDING = True
 
 
 def _plan_narrations(plan: dict[str, Any]) -> list[str]:
@@ -292,11 +297,7 @@ def _expected_task_ids(count: int) -> list[str]:
 
 
 def require_audio_semantic_integrity(output_dir: Path) -> dict[str, Any]:
-    """Fail closed when the approved narration→TTS→concat→mux provenance chain breaks.
-
-    The independent Groq/Whisper semantic transcription remains observe-only by design
-    during this calibration stage; its verdict is deliberately not consumed here.
-    """
+    """Fail closed on provenance mismatch; Groq/Whisper remains observe-only."""
     output_dir = Path(output_dir)
     audit_path = output_dir / AUDIT_FILENAME
     document: dict[str, Any] = {
@@ -314,12 +315,7 @@ def require_audio_semantic_integrity(output_dir: Path) -> dict[str, Any]:
         if not isinstance(plan, dict):
             raise RuntimeError("audio_semantic_integrity_plan_invalid")
         if str(plan.get("format") or "").strip().lower() == "moment":
-            document.update(
-                {
-                    "decision": "not_applicable",
-                    "reason": "moment format has no narration TTS path",
-                }
-            )
+            document.update({"decision": "not_applicable", "reason": "moment format has no narration TTS path"})
             _atomic_json(audit_path, document)
             return document
 
@@ -327,11 +323,7 @@ def require_audio_semantic_integrity(output_dir: Path) -> dict[str, Any]:
         expected_tasks = _expected_task_ids(len(narrations))
         actual_tasks = list(_tts_by_task)
         if actual_tasks != expected_tasks:
-            raise RuntimeError(
-                "audio_semantic_integrity_tts_order_mismatch:"
-                f"expected={expected_tasks},actual={actual_tasks}"
-            )
-
+            raise RuntimeError(f"audio_semantic_integrity_tts_order_mismatch:expected={expected_tasks},actual={actual_tasks}")
         expected_transcript_hashes = [_sha256_text(text) for text in narrations]
         section_evidence: list[dict[str, Any]] = []
         for task_id, expected_hash in zip(expected_tasks, expected_transcript_hashes):
@@ -343,10 +335,10 @@ def require_audio_semantic_integrity(output_dir: Path) -> dict[str, Any]:
                 raise RuntimeError(f"audio_semantic_integrity_section_audio_mismatch:{task_id}")
             section_evidence.append(asdict(record))
 
-        narration_path = output_dir / "narration.wav"
-        narration_record = _narration_by_path.get(_path_key(narration_path))
-        if narration_record is None:
-            raise RuntimeError("audio_semantic_integrity_narration_binding_missing")
+        if len(_narration_by_path) != 1:
+            raise RuntimeError("audio_semantic_integrity_narration_binding_count_invalid")
+        narration_record = next(iter(_narration_by_path.values()))
+        narration_path = Path(narration_record.path)
         if list(narration_record.ordered_task_ids) != expected_tasks:
             raise RuntimeError("audio_semantic_integrity_concat_order_mismatch")
         if list(narration_record.ordered_transcript_sha256) != expected_transcript_hashes:
@@ -363,8 +355,7 @@ def require_audio_semantic_integrity(output_dir: Path) -> dict[str, Any]:
         if not final_path.is_file() or _sha256_file(final_path) != final_record.final_sha256:
             raise RuntimeError("audio_semantic_integrity_final_hash_mismatch")
 
-        quality_path = output_dir / "quality-final.json"
-        quality = json.loads(quality_path.read_text(encoding="utf-8"))
+        quality = json.loads((output_dir / "quality-final.json").read_text(encoding="utf-8"))
         if not isinstance(quality, dict):
             raise RuntimeError("audio_semantic_integrity_quality_final_invalid")
         if quality.get("audio_ok") is not True or quality.get("av_sync_ok") is not True:
@@ -376,9 +367,9 @@ def require_audio_semantic_integrity(output_dir: Path) -> dict[str, Any]:
                 "checks": {
                     "approved_plan_to_tts": True,
                     "tts_audio_immutability": True,
-                    "ordered_concat_binding": True,
+                    "ordered_authorized_narration_transform": True,
                     "narration_immutability": True,
-                    "certified_narration_handed_to_mux": True,
+                    "certified_narration_handed_to_authorized_mux_chain": True,
                     "final_artifact_immutability": True,
                     "engine_audio_and_av_sync_gates": True,
                 },
@@ -396,3 +387,30 @@ def require_audio_semantic_integrity(output_dir: Path) -> dict[str, Any]:
             _atomic_json(audit_path, document)
         finally:
             raise RuntimeError("Audio Semantic Integrity gate blocked production: " + str(exc)) from exc
+
+
+def install_audio_semantic_final_gate(production_modules: list[Any]) -> None:
+    """Run after produce returns and immediately before Final Master QC."""
+    global _INSTALLED_FINAL_GATE
+    if _INSTALLED_FINAL_GATE:
+        return
+    installed = 0
+    for production in production_modules:
+        original = getattr(production, "run_final_master_qc", None)
+        if not callable(original) or getattr(original, "_isco_audio_semantic_final_gate", False):
+            continue
+
+        def make_wrapper(current):
+            def wrapped(output_dir: Path, *args, **kwargs):
+                require_audio_semantic_integrity(Path(output_dir))
+                return current(output_dir, *args, **kwargs)
+
+            wrapped._isco_audio_semantic_final_gate = True
+            wrapped._isco_audio_semantic_original = current
+            return wrapped
+
+        production.run_final_master_qc = make_wrapper(original)
+        installed += 1
+    if installed <= 0:
+        raise RuntimeError("audio_semantic_integrity_final_master_qc_binding_missing")
+    _INSTALLED_FINAL_GATE = True
