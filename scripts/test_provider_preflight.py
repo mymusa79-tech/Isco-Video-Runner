@@ -12,12 +12,20 @@ from scripts import provider_preflight as preflight
 
 
 class ProviderPreflightTests(unittest.TestCase):
-    def _response(self, status: int, payload: dict | None = None) -> Mock:
+    def _response(self, status: int, payload: dict | None = None, headers: dict | None = None) -> Mock:
         response = Mock(spec=requests.Response)
         response.status_code = status
         response.ok = 200 <= status < 300
         response.json.return_value = payload if payload is not None else {}
+        response.headers = dict(headers or {})
         return response
+
+    def _capacity_headers(self, *, remaining: int = 100, limit: int = 200, reset: str = "1787684000") -> dict:
+        return {
+            "X-RateLimit-Limit": str(limit),
+            "X-RateLimit-Remaining": str(remaining),
+            "X-RateLimit-Reset": reset,
+        }
 
     def test_gemini_requires_both_configured_model_capabilities(self) -> None:
         payload = {"models": [{"name": "models/gemini-3.5-flash-lite"}, {"name": "models/gemini-3.1-flash-tts-preview"}]}
@@ -55,12 +63,42 @@ class ProviderPreflightTests(unittest.TestCase):
         self.assertEqual(get.call_args.args[0], preflight.OPENROUTER_KEY_URL)
         self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], "Bearer secret")
 
-    def test_pexels_uses_current_v1_video_search_endpoint(self) -> None:
-        with patch.object(preflight.requests, "get", return_value=self._response(200, {"videos": []})) as get:
+    def test_pexels_requires_current_endpoint_and_capacity_headroom(self) -> None:
+        response = self._response(200, {"videos": []}, self._capacity_headers(remaining=87))
+        with patch.object(preflight.requests, "get", return_value=response) as get:
             result = preflight.check_pexels("secret")
         self.assertEqual(result.status, "pass")
+        self.assertEqual(result.rate_limit_remaining, 87)
+        self.assertEqual(result.required_headroom, preflight.STOCK_REQUIRED_HEADROOM)
+        self.assertTrue(result.headroom_ok)
         self.assertEqual(get.call_args.args[0], "https://api.pexels.com/v1/videos/search")
         self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], "secret")
+
+    def test_pixabay_requires_capacity_headroom_case_insensitively(self) -> None:
+        headers = {
+            "x-ratelimit-limit": "100",
+            "x-ratelimit-remaining": "75",
+            "x-ratelimit-reset": "60",
+        }
+        response = self._response(200, {"hits": []}, headers)
+        with patch.object(preflight.requests, "get", return_value=response):
+            result = preflight.check_pixabay("secret")
+        self.assertEqual(result.status, "pass")
+        self.assertEqual(result.rate_limit_limit, 100)
+        self.assertEqual(result.rate_limit_remaining, 75)
+        self.assertEqual(result.rate_limit_reset, "60")
+
+    def test_stock_provider_low_or_missing_headroom_blocks_before_production(self) -> None:
+        cases = [
+            (self._capacity_headers(remaining=preflight.STOCK_REQUIRED_HEADROOM - 1), "headroom too low"),
+            ({}, "could not prove"),
+        ]
+        for headers, message in cases:
+            with self.subTest(message=message):
+                response = self._response(200, {"videos": []}, headers)
+                with patch.object(preflight.requests, "get", return_value=response):
+                    with self.assertRaisesRegex(RuntimeError, message):
+                        preflight.check_pexels("secret")
 
     def test_success_http_with_malformed_schema_still_blocks(self) -> None:
         cases = [
@@ -71,7 +109,7 @@ class ProviderPreflightTests(unittest.TestCase):
         ]
         for fn, payload in cases:
             with self.subTest(fn=fn.__name__):
-                with patch.object(preflight.requests, "get", return_value=self._response(200, payload)):
+                with patch.object(preflight.requests, "get", return_value=self._response(200, payload, self._capacity_headers())):
                     with self.assertRaises(RuntimeError):
                         fn("secret")
 
@@ -87,8 +125,8 @@ class ProviderPreflightTests(unittest.TestCase):
             preflight.ProviderCheck("gemini", "pass", 200),
             preflight.ProviderCheck("groq", "pass", 200),
             preflight.ProviderCheck("openrouter", "pass", 200),
-            preflight.ProviderCheck("pexels", "pass", 200),
-            preflight.ProviderCheck("pixabay", "pass", 200),
+            preflight.ProviderCheck("pexels", "pass", 200, rate_limit_remaining=100, required_headroom=24, headroom_ok=True),
+            preflight.ProviderCheck("pixabay", "pass", 200, rate_limit_remaining=100, required_headroom=24, headroom_ok=True),
         ]
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "provider-preflight.json"
@@ -99,7 +137,7 @@ class ProviderPreflightTests(unittest.TestCase):
                 )
             self.assertEqual([item.provider for item in result], ["gemini", "groq", "openrouter", "pexels", "pixabay"])
             payload = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual(payload["schema_version"], 2)
+            self.assertEqual(payload["schema_version"], 3)
             self.assertEqual(len(payload["checks"]), 5)
             self.assertFalse(output.with_name(output.name + ".tmp").exists())
 
