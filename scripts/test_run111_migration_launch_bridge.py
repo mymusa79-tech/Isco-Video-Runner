@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -7,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "migrate-memory-and-launch-production.yml"
 CRYPTO = ROOT / "scripts" / "persistent_memory_crypto.py"
+STRICT_PERSIST = ROOT / "scripts" / "state_persistence_strict.py"
 
 
 class Run111MigrationLaunchBridgeTests(unittest.TestCase):
@@ -14,6 +17,7 @@ class Run111MigrationLaunchBridgeTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = WORKFLOW.read_text(encoding="utf-8")
         cls.crypto = CRYPTO.read_text(encoding="utf-8")
+        cls.strict_persist = STRICT_PERSIST.read_text(encoding="utf-8")
 
     def test_bridge_is_explicit_and_does_not_replace_canonical_production(self) -> None:
         self.assertIn("CANONICAL_PRODUCTION_WORKFLOW: produce-resilient-v4.yml", self.workflow)
@@ -56,6 +60,19 @@ class Run111MigrationLaunchBridgeTests(unittest.TestCase):
         self.assertGreaterEqual(self.workflow.count("test \"$latest\" -eq 110"), 1)
         self.assertIn("test \"$RESTORE_SAVE_ALLOWED\" = \"true\"", self.workflow)
         self.assertIn("agent-state still points to the legacy CBC commit", self.workflow)
+
+    def test_direct_strict_persistence_cli_bootstraps_imports(self) -> None:
+        self.assertIn("except ModuleNotFoundError", self.strict_persist)
+        result = subprocess.run(
+            [sys.executable, str(STRICT_PERSIST), "--help"],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--run-number", result.stdout)
 
     def test_bridge_has_no_unrelated_write_permissions(self) -> None:
         self.assertNotIn("pull-requests: write", self.workflow)
