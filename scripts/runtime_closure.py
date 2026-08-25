@@ -5,6 +5,10 @@ from pathlib import Path
 
 from scripts.attempt10_append_bound_recovery import install_attempt10_append_bound_recovery
 from scripts.audio_mastering_live_binding import install_audio_mastering_live_binding
+from scripts.audio_semantic_integrity import (
+    install_audio_semantic_final_gate,
+    install_audio_semantic_integrity_binding,
+)
 from scripts.bounded_output_recovery import install_bounded_output_recovery
 from scripts.cta_live_binding import install_cta_live_binding
 from scripts.gemini_planning_output_guard import install_gemini_planning_output_guard
@@ -84,6 +88,11 @@ def install_runtime_closure() -> None:
     # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
     # Media Trust V2 changes no AI/retry budget. It only binds exact stock bytes and
     # local inspection before the reliability contract is frozen for produce().
+    # Audio Semantic Integrity is deliberately installed before Audio Mastering/SFX
+    # wrappers: at runtime its inner scope sees and wraps those already-active live
+    # transforms, binding the exact approved transcript/audio chain without replacing
+    # them. The final enforcing check is attached to Final Master QC only after every
+    # runtime wrapper has been installed.
     # Canonical bundle is bound on every live run_v3_voice module before the release
     # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
@@ -93,6 +102,7 @@ def install_runtime_closure() -> None:
     install_gemini_planning_output_guard()
     install_media_trust_boundary_v2()
     install_core_reliability_guard()
+    install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
     install_sfx_live_binding()
     install_m8_live_binding()
@@ -103,6 +113,7 @@ def install_runtime_closure() -> None:
     install_canonical_v4_bundle_post_manifest()
     install_release_transaction_guard()
     install_telemetry_reliability_binding()
+    install_audio_semantic_final_gate(production_entrypoint_modules())
 
 
 def run_post_gold_observers(output_dir: Path) -> dict:
