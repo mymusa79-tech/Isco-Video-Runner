@@ -10,7 +10,7 @@ permissions:
 jobs:
   candidate-regression:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 40
     env:
       ENGINE_SHA: 4c177e9e564d03709d2eda3cd05c7bc4f8b222b2
     steps:
@@ -67,6 +67,38 @@ jobs:
           set -euo pipefail
           python -m unittest discover -s tests -p 'test_repair_dossier.py' -v
           python -m unittest discover -s tests -p 'test_editorial_room.py' -v
+
+      # Diagnostic shards stay continue-on-error so one run identifies every failing
+      # filename range. The authoritative full suite below still fails the job.
+      - name: Engine tests A-D diagnostic shard
+        continue-on-error: true
+        working-directory: engine
+        run: python -m unittest discover -s tests -p 'test_[a-d]*.py' -v
+
+      - name: Engine tests E-H diagnostic shard
+        continue-on-error: true
+        working-directory: engine
+        run: python -m unittest discover -s tests -p 'test_[e-h]*.py' -v
+
+      - name: Engine tests I-L diagnostic shard
+        continue-on-error: true
+        working-directory: engine
+        run: python -m unittest discover -s tests -p 'test_[i-l]*.py' -v
+
+      - name: Engine tests M-P diagnostic shard
+        continue-on-error: true
+        working-directory: engine
+        run: python -m unittest discover -s tests -p 'test_[m-p]*.py' -v
+
+      - name: Engine tests Q-T diagnostic shard
+        continue-on-error: true
+        working-directory: engine
+        run: python -m unittest discover -s tests -p 'test_[q-t]*.py' -v
+
+      - name: Engine tests U-Z diagnostic shard
+        continue-on-error: true
+        working-directory: engine
+        run: python -m unittest discover -s tests -p 'test_[u-z]*.py' -v
 
       - name: Full Engine suite
         working-directory: engine
