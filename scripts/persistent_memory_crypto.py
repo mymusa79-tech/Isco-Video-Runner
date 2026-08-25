@@ -21,6 +21,14 @@ SALT_BYTES = 16
 NONCE_BYTES = 12
 KEY_BYTES = 32
 
+# The canonical production workflow currently needs one controlled migration from the
+# pre-hardening OpenSSL-CBC state. Bind that compatibility window to the already-known
+# next production sequence so an unprotected agent-state branch cannot replay the
+# legacy ciphertext indefinitely after AES-GCM state has become canonical.
+LEGACY_OPENSSL_MAGIC = b"Salted__"
+LEGACY_MIGRATION_RUN_NUMBER = "111"
+CANONICAL_PRODUCTION_WORKFLOW_MARKER = "/.github/workflows/produce-resilient-v4.yml@"
+
 
 @dataclass(frozen=True)
 class EnvelopeMetadata:
@@ -180,7 +188,24 @@ def open_envelope(payload: bytes, secret: str) -> tuple[bytes, EnvelopeMetadata]
     return plaintext, metadata
 
 
+def _enforce_legacy_migration_epoch(payload: bytes) -> None:
+    if not payload.startswith(LEGACY_OPENSSL_MAGIC):
+        return
+    workflow_ref = str(os.environ.get("GITHUB_WORKFLOW_REF") or "")
+    if CANONICAL_PRODUCTION_WORKFLOW_MARKER not in workflow_ref:
+        return
+    run_number = str(os.environ.get("GITHUB_RUN_NUMBER") or "").strip()
+    if run_number != LEGACY_MIGRATION_RUN_NUMBER:
+        raise ValueError(
+            "legacy persistent-memory migration is authorized only for canonical production run 111"
+        )
+
+
 def is_authenticated_v2(payload: bytes) -> bool:
+    # This guard deliberately runs before the v2 parser. In canonical production it
+    # closes the legacy-compatibility epoch after Run 111, so rolling agent-state back
+    # to a pre-GCM CBC blob cannot silently reopen migration on future run numbers.
+    _enforce_legacy_migration_epoch(payload)
     try:
         parse_envelope(payload)
         return True
