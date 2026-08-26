@@ -60,6 +60,16 @@ class TelegramEdgeWorkerContractTests(unittest.TestCase):
             self.assertIn(callback, self.text)
         self.assertIn("sendStats(env", self.text)
 
+    def test_stateful_edge_ack_explains_the_next_visible_result(self):
+        self.assertIn("function statefulCallbackAck(data)", self.text)
+        self.assertIn('data === "cmd:topic"', self.text)
+        self.assertIn("بدأ بحث الحلقة", self.text)
+        self.assertIn("3 أفكار مرقمة للاختيار", self.text)
+        self.assertIn('data === "cmd:short"', self.text)
+        self.assertIn("بدأ بحث الشورت", self.text)
+        self.assertIn("statefulCallbackAck(target.data)", self.text)
+        self.assertNotIn('answerCallback(env, target.callbackId, "⚡ تم الاستلام")', self.text)
+
     def test_retry_is_not_added_to_v1_surface(self):
         self.assertNotIn("cmd:retry", self.text)
         self.assertNotIn("retry:", self.text)

@@ -365,6 +365,16 @@ function isStatsLeaf(data) {
   return ["cmd:stats_last_long", "cmd:stats_last_short", "cmd:stats_today", "cmd:stats_week", "cmd:stats_overview"].includes(data);
 }
 
+function statefulCallbackAck(data) {
+  if (data === "cmd:topic") return "🎬 بدأ بحث الحلقة — ستظهر 3 أفكار مرقمة للاختيار";
+  if (data === "cmd:short") return "⚡ بدأ بحث الشورت — ستظهر 3 أفكار مرقمة للاختيار";
+  if (data === "cmd:saved") return "📚 أفتح المواضيع المحفوظة الآن…";
+  if (data === "cmd:used") return "✅ أفتح المواضيع المستعملة الآن…";
+  if (data === "cmd:last_delivery") return "🎁 أفتح آخر إنتاج الآن…";
+  if (data === "cmd:status") return "📊 أتحقق من الحالة الآن…";
+  return "⚡ تم استلام الأمر";
+}
+
 function textRoute(text) {
   const value = String(text || "").trim();
   if ([START_TEXT, "🎛 ابدأ", "/start", "/menu", "ابدأ", "القائمة"].includes(value)) return "menu";
@@ -425,7 +435,7 @@ export default {
         return new Response("OK");
       }
       ctx.waitUntil((async () => {
-        await answerCallback(env, target.callbackId, "⚡ تم الاستلام");
+        await answerCallback(env, target.callbackId, statefulCallbackAck(target.data));
         await dispatchToGitHub(env, update);
       })().catch(async () => {
         await send(env, target.chatId, "⚠️ تعذر تمرير الأمر إلى Control Plane الآن. لم يحدث أي إنتاج أو تغيير خارجي.", ROOT_ROWS);

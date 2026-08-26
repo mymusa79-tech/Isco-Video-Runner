@@ -10,6 +10,7 @@ from typing import Any
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts import telegram_bot_api_10_3_ui as bot_api_10_3_ui
 from scripts import telegram_control_active_ui as ui
 from scripts import telegram_control_panel as panel
 
@@ -190,6 +191,9 @@ def _install_choice_clarity() -> None:
     if not hasattr(ui, "_ISCO_RESEARCH_CLARITY_BASE_HANDLE"):
         ui._ISCO_RESEARCH_CLARITY_BASE_HANDLE = ui._handle_command
     ui._handle_command = _handle_command_with_research_clarity
+    # Bot API 10.3 is progressive enhancement only: rich candidate cards,
+    # in-message buttons/details and DisabledButton fall back to the tested V2 surface.
+    bot_api_10_3_ui.install()
 
 
 def main() -> None:
