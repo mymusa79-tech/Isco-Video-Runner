@@ -68,6 +68,15 @@ class TelegramBotApi103UiTests(unittest.TestCase):
         self.assertNotIn("callback_data", keyboard[0][0])
         self.assertEqual(keyboard[1][0]["callback_data"], "cmd:menu")
 
+    def test_callback_context_is_single_use(self):
+        class Client:
+            pass
+
+        client = Client()
+        setattr(client, rich_ui._CALLBACK_CONTEXT_ATTR, "cb-123")
+        self.assertEqual(rich_ui.consume_callback_query_id(client), "cb-123")
+        self.assertIsNone(rich_ui.consume_callback_query_id(client))
+
     def test_rich_surface_never_adds_a_production_callback(self):
         message = rich_ui._candidate_rich_message("long", self._candidates(), self._keyboard())
         callbacks = [
