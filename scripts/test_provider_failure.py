@@ -35,13 +35,13 @@ class ProviderFailureTaxonomyTests(unittest.TestCase):
         self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
         self.assertTrue(failure.open_circuit)
 
-    def test_groq_413_is_explicit_and_session_permanent(self) -> None:
+    def test_groq_413_is_request_specific_not_session_permanent(self) -> None:
         failure = classify_provider_failure("groq", RuntimeError("Groq HTTP 413"))
         self.assertEqual(failure.telemetry_result, "payload_too_large")
         self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
-        self.assertTrue(failure.open_circuit)
+        self.assertFalse(failure.open_circuit)
 
-    def test_non_groq_413_does_not_expand_circuit_policy(self) -> None:
+    def test_non_groq_413_is_also_request_specific(self) -> None:
         failure = classify_provider_failure(
             "openrouter", RuntimeError("HTTP 413 payload too large")
         )
