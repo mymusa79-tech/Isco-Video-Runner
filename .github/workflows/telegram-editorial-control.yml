@@ -262,6 +262,38 @@ jobs:
             git push origin HEAD:control-plane-state
           fi
 
+      - name: Build sanitized Telegram read projection
+        if: always()
+        run: |
+          set -euo pipefail
+          test -n "${CONTROL_STATE_PATH:-}"
+          test -f "$CONTROL_STATE_PATH"
+          python scripts/telegram_status_projection.py \
+            --state "$CONTROL_STATE_PATH" \
+            --output "$RUNNER_TEMP/isco-control/telegram-status.json"
+
+      - name: Persist sanitized Telegram read projection
+        if: always()
+        run: |
+          set -euo pipefail
+          projection="$RUNNER_TEMP/isco-control/telegram-status.json"
+          test -f "$projection"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/isco-control-projection-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$projection" "$worktree/state/telegram-status.json"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/telegram-status.json
+          if git diff --cached --quiet; then
+            echo "Sanitized Telegram read projection unchanged"
+          else
+            git commit -m "state: update sanitized Telegram status projection"
+            git push origin HEAD:control-plane-state
+          fi
+
       - name: Remove plaintext control secrets and state
         if: always()
         run: |
