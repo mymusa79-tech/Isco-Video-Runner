@@ -1,5 +1,5 @@
 name = "isco-telegram-control"
-main = "index.js"
+main = "index-v2.js"
 compatibility_date = "2026-08-26"
 workers_dev = true
 
