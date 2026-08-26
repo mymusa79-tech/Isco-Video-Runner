@@ -12,6 +12,12 @@ _JSON_OBJECT_SCHEMA = {
     "additionalProperties": True,
 }
 _JSON_ONLY_SUFFIX = "\nReturn ONLY one complete valid JSON object. No markdown fences or commentary."
+_DEFAULT_MAX_OUTPUT_TOKENS = {
+    "editorial_outline": 4096,
+    "full_script": 6144,
+    "append_only_repair": 4096,
+    "section_repair": 2048,
+}
 
 
 def _status_value(value: object) -> str:
@@ -29,18 +35,24 @@ def _guarded_gemini_json_text(
     max_output_tokens: int | None = None,
     raw_observer: Callable[[str], None] | None = None,
 ) -> dict:
-    """Planning-only Gemini adapter with native JSON mode and interaction status checks."""
+    """Planning-only Gemini adapter with task-specific structured output and status checks."""
     client = gemini_provider._client(api_key)
     enriched = gemini_provider.with_channel_persona(prompt)
+    contract = planner_router._structured_schema_for_prompt(enriched)
+    schema_name = contract[0] if contract is not None else "generic_json_object"
+    response_schema = contract[1] if contract is not None else _JSON_OBJECT_SCHEMA
     kwargs: dict = {
         "response_format": {
             "type": "text",
             "mime_type": "application/json",
-            "schema": _JSON_OBJECT_SCHEMA,
+            "schema": response_schema,
         }
     }
-    if max_output_tokens is not None:
-        kwargs["generation_config"] = {"max_output_tokens": max_output_tokens}
+    effective_max = max_output_tokens
+    if effective_max is None and contract is not None:
+        effective_max = _DEFAULT_MAX_OUTPUT_TOKENS.get(schema_name)
+    if effective_max is not None:
+        kwargs["generation_config"] = {"max_output_tokens": effective_max}
 
     interaction = client.interactions.create(
         model=gemini_provider._content_model(model),
@@ -71,6 +83,6 @@ def install_gemini_planning_output_guard() -> None:
         return
     planner_router.gemini_json_text = _guarded_gemini_json_text
     print(
-        "Gemini planning output guard installed: Interactions status must be completed; "
-        "incomplete/empty outputs fail explicitly; native JSON object response_format enabled"
+        "Gemini planning output guard installed: completed interaction required; "
+        "known planner tasks use their exact JSON schema; incomplete/empty output fails explicitly"
     )
