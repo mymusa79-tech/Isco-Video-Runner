@@ -158,10 +158,38 @@ def _clear_candidate_panel_text(kind: str, candidates: list[dict[str, Any]]) -> 
     )
 
 
+def _research_started_text(kind: str) -> str:
+    if kind == "topic":
+        return (
+            "🎬 بدأ بحث الحلقة.\n\n"
+            "أبحث الآن عن أفضل الخيارات. عند اكتمال البحث سأعرض لك 3 أفكار مرقمة "
+            "1️⃣ 2️⃣ 3️⃣، وتحت كل فكرة زر «اختر هذه الفكرة» وزر «تفاصيل الفكرة».\n\n"
+            "ℹ️ هذا بحث فقط؛ لا يبدأ Production."
+        )
+    return (
+        "⚡ بدأ بحث الشورت.\n\n"
+        "أبحث الآن عن أفضل الخيارات. عند اكتمال البحث سأعرض لك 3 أفكار مرقمة "
+        "1️⃣ 2️⃣ 3️⃣، وتحت كل فكرة زر «اختر هذه الفكرة» وزر «تفاصيل الفكرة».\n\n"
+        "ℹ️ هذا بحث فقط؛ لا يبدأ Production."
+    )
+
+
+def _handle_command_with_research_clarity(kind, client, state, releases, chat_id) -> None:
+    if kind in {"topic", "short"}:
+        client.send(chat_id, _research_started_text(kind))
+    handler = getattr(ui, "_ISCO_RESEARCH_CLARITY_BASE_HANDLE", None)
+    if handler is None:
+        raise RuntimeError("Telegram research clarity base handler is not installed")
+    handler(kind, client, state, releases, chat_id)
+
+
 def _install_choice_clarity() -> None:
-    """Keep numbered research results actionable and unambiguous."""
+    """Keep research start and numbered results actionable and unambiguous."""
     panel._candidate_keyboard = _clear_candidate_keyboard
     panel._candidate_panel_text = _clear_candidate_panel_text
+    if not hasattr(ui, "_ISCO_RESEARCH_CLARITY_BASE_HANDLE"):
+        ui._ISCO_RESEARCH_CLARITY_BASE_HANDLE = ui._handle_command
+    ui._handle_command = _handle_command_with_research_clarity
 
 
 def main() -> None:
