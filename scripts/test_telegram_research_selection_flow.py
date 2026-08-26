@@ -44,6 +44,20 @@ class TelegramResearchSelectionFlowTests(unittest.TestCase):
         self.assertIn("اختر هذه الفكرة", text)
         self.assertIn("لا يبدأ Production بمجرد الاختيار", text)
 
+    def test_long_research_start_message_explains_next_action(self):
+        text = memory_ui._research_started_text("topic")
+        self.assertIn("بدأ بحث الحلقة", text)
+        self.assertIn("3 أفكار مرقمة", text)
+        self.assertIn("اختر هذه الفكرة", text)
+        self.assertIn("تفاصيل الفكرة", text)
+        self.assertIn("لا يبدأ Production", text)
+
+    def test_short_research_start_message_explains_next_action(self):
+        text = memory_ui._research_started_text("short")
+        self.assertIn("بدأ بحث الشورت", text)
+        self.assertIn("3 أفكار مرقمة", text)
+        self.assertIn("لا يبدأ Production", text)
+
 
 if __name__ == "__main__":
     unittest.main()
