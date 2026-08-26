@@ -157,6 +157,15 @@ jobs:
       - name: Require healthy restored cross-run memory
         run: test "${{ steps.restore_state.outputs.save_allowed }}" = "true"
 
+      - name: Restore 24h Pixabay API search cache
+        id: restore_pixabay_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/isco-pixabay-api-cache
+          key: pixabay-api-v2-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            pixabay-api-v2-${{ runner.os }}-
+
       - name: Verify local voice fallback before cloud production
         id: voice_preflight
         env:
@@ -270,6 +279,7 @@ jobs:
           PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
           GEMINI_CONTENT_MODEL: gemini-2.5-flash
           GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+          ISCO_PIXABAY_CACHE_PATH: ${{ runner.temp }}/isco-pixabay-api-cache/search-cache-v2.json
           TRENDS_GEO: SA
           YOUTUBE_REGION: SA
           YOUTUBE_LANGUAGE: ar
@@ -277,6 +287,13 @@ jobs:
         run: |
           set -o pipefail
           python ../scripts/run_v3_voice.py 2>&1 | tee "$RUNNER_TEMP/production-step.log"
+
+      - name: Persist 24h Pixabay API search cache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ runner.temp }}/isco-pixabay-api-cache
+          key: pixabay-api-v2-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload diagnostics on failure
         id: upload_diagnostics
