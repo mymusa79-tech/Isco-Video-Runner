@@ -3,10 +3,19 @@ main = "index.js"
 compatibility_date = "2026-08-26"
 workers_dev = true
 
+# Zero-cost guardrail: keep runtime at or below Workers Free ceilings even if
+# the Cloudflare account is ever changed manually. The Worker uses no KV, D1,
+# R2, Durable Objects, Queues, Workflows, Analytics Engine, paid routes, or
+# other billable Cloudflare bindings.
+[limits]
+cpu_ms = 10
+subrequests = 10
+
 [vars]
 GITHUB_REPO = "mymusa79-tech/Isco-Video-Runner"
 GITHUB_REF = "main"
 YOUTUBE_CHANNEL_ID = "UC_fmWGRen6QUQNd4Dj80MgA"
+ZERO_COST_MODE = "true"
 
 # Secrets are intentionally NOT stored in this file.
 # Configure at deployment time:
@@ -14,5 +23,5 @@ YOUTUBE_CHANNEL_ID = "UC_fmWGRen6QUQNd4Dj80MgA"
 #   TELEGRAM_WEBHOOK_SECRET
 #   TELEGRAM_ALLOWED_USER_ID
 #   TELEGRAM_CHAT_ID
-#   GITHUB_CONTROL_TOKEN   (minimum permission needed to dispatch the editorial workflow)
+#   GITHUB_CONTROL_TOKEN   (repo-scoped fine-grained token; Actions: write only)
 #   YOUTUBE_API_KEY
