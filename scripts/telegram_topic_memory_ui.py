@@ -200,11 +200,15 @@ def main() -> None:
     _install_policy()
     # Install the persistent reply-keyboard entry point and text-only production
     # confirmation after global topic-memory policy so both policies compose.
+    from scripts import telegram_canonical_status_bridge as canonical_status_bridge
     from scripts import telegram_persistent_control_ui as persistent_ui
     from scripts import telegram_rich_integration as rich_integration
 
     persistent_ui.install()
     _install_choice_clarity()
+    # Route both legacy rich status surfaces through the canonical contract before
+    # the final integration layer is installed. This removes runtime interpretation drift.
+    canonical_status_bridge.install()
     # Install last so status/delivery rich surfaces wrap the final persistent and
     # research handlers without changing the text-only Production authority gate.
     rich_integration.install()
