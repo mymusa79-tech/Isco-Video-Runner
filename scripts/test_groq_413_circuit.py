@@ -77,7 +77,7 @@ class GroqPayloadTooLargeCircuitTests(unittest.TestCase):
         self.assertEqual([x["provider"] for x in telemetry[:3]], [
             "gemini",
             "groq",
-            "openrouter-free-router",
+            "openrouter",
         ])
         self.assertEqual(telemetry[1]["result"], "payload_too_large")
         self.assertEqual(telemetry[1]["error_detail"], "Groq HTTP 413")
