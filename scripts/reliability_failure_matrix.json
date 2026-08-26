@@ -1,31 +1,70 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "principles": {
     "retry_owner_count": 1,
+    "max_transient_provider_attempts": 2,
     "partial_apply_allowed": false,
     "quality_gates_may_be_lowered_by_recovery": false,
-    "unknown_failure_policy": "fail_closed"
+    "paid_provider_escalation_allowed": false,
+    "unknown_failure_policy": "fail_closed",
+    "run_wide_circuit_scope": "auth_config_model_or_session_quota_only",
+    "request_specific_failures_poison_provider_session": false
+  },
+  "planning_provider_reliability": {
+    "native_structured_output": {
+      "gemini": "task_specific_json_schema",
+      "groq_gpt_oss_20b": "json_schema_strict_true",
+      "openrouter": "json_schema_strict_true_require_parameters"
+    },
+    "openrouter_response_healing": true,
+    "openrouter_full_prompt_schema_replay": false,
+    "groq_large_request_admission_control": true,
+    "retry_after_respected_when_present": true,
+    "retry_after_max_seconds": 30,
+    "telemetry_prompt_content_allowed": false
   },
   "classes": [
-    {"id": "provider_overload", "owner": "provider_router", "retryable": true, "max_semantic_reasks": 0, "examples": ["429", "quota", "rate_limit"]},
-    {"id": "transient_provider", "owner": "provider_router", "retryable": true, "max_semantic_reasks": 0, "examples": ["timeout", "network", "5xx"]},
-    {"id": "permanent_config", "owner": "preflight_or_provider_router", "retryable": false, "max_semantic_reasks": 0, "examples": ["401", "403", "bad_request", "invalid_argument"]},
-    {"id": "schema_invalid", "owner": "schema_repair", "retryable": true, "max_semantic_reasks": 1, "examples": ["invalid_json", "missing_fields", "duplicate_ids", "wrong_order", "truncated_json"]},
-    {"id": "semantic_invalid", "owner": "bounded_output_recovery", "retryable": true, "max_semantic_reasks": 1, "examples": ["under_section_floor", "over_section_ceiling", "aggregate_overflow"]},
-    {"id": "budget_exhausted", "owner": "budget_ledger", "retryable": false, "max_semantic_reasks": 0, "examples": ["task_attempt_cap", "run_attempt_cap"]},
-    {"id": "resource_unavailable", "owner": "visual_recovery", "retryable": true, "max_semantic_reasks": 1, "examples": ["no_safe_stock", "insufficient_distinct_assets", "download_unavailable"]},
-    {"id": "runtime_contract", "owner": "runtime_preflight", "retryable": false, "max_semantic_reasks": 0, "examples": ["wrapper_marker_lost", "installer_order_drift", "wrong_runtime_binding"]},
-    {"id": "media_failure", "owner": "media_pipeline", "retryable": false, "max_semantic_reasks": 0, "examples": ["ffmpeg_error", "decode_error", "av_sync", "corrupt_media"]},
-    {"id": "quality_block", "owner": "quality_gate", "retryable": false, "max_semantic_reasks": 0, "examples": ["factuality", "tone", "content_quality", "anti_repetition", "sensitive_topic"]},
-    {"id": "unexpected", "owner": "fail_closed", "retryable": false, "max_semantic_reasks": 0, "examples": ["unknown_exception"]}
+    {"id":"transient_provider","owner":"provider_router","max_semantic_reasks":0},
+    {"id":"provider_overload","owner":"provider_router","max_semantic_reasks":0},
+    {"id":"permanent_config","owner":"preflight_or_provider_router","max_semantic_reasks":0},
+    {"id":"schema_invalid","owner":"schema_repair","max_semantic_reasks":1},
+    {"id":"semantic_invalid","owner":"bounded_output_recovery","max_semantic_reasks":1},
+    {"id":"budget_exhausted","owner":"budget_ledger","max_semantic_reasks":0},
+    {"id":"resource_unavailable","owner":"visual_recovery","max_semantic_reasks":1},
+    {"id":"runtime_contract","owner":"runtime_preflight","max_semantic_reasks":0},
+    {"id":"media_failure","owner":"media_pipeline","max_semantic_reasks":0},
+    {"id":"quality_block","owner":"quality_gate","max_semantic_reasks":0},
+    {"id":"unexpected","owner":"fail_closed","max_semantic_reasks":0}
+  ],
+  "planning_provider_classes": [
+    {"id":"session_quota_exhausted","owner":"provider_router","scope":"provider_session","retryable":false,"open_circuit":true,"examples":["quota_exceeded","daily_quota","spend_cap"]},
+    {"id":"short_window_rate_limit","owner":"provider_router","scope":"transient","retryable":"only_when_retry_after_or_explicit_transient_evidence","open_circuit_after_exhaustion":true,"examples":["429","rate_limit_exceeded"]},
+    {"id":"network_disconnect","owner":"provider_router","scope":"transient","retryable":true,"max_attempts":2,"examples":["server_disconnected","connection_reset","remoteprotocolerror","broken_pipe","eof"]},
+    {"id":"transient_provider_5xx","owner":"provider_router","scope":"transient","retryable":true,"max_attempts":2,"examples":["500","502","503","504","capacity_exceeded"]},
+    {"id":"request_payload_too_large","owner":"request_admission_and_provider_router","scope":"request","retryable":false,"open_circuit":false,"examples":["413","groq_payload_too_large_preflight"]},
+    {"id":"provider_auth","owner":"preflight_or_provider_router","scope":"provider_session","retryable":false,"open_circuit":true,"examples":["401","403","invalid_api_key"]},
+    {"id":"provider_or_model_config","owner":"preflight_or_provider_router","scope":"provider_session","retryable":false,"open_circuit":true,"examples":["400_bad_request","model_not_found","unsupported_parameter"]},
+    {"id":"generation_error","owner":"provider_router","scope":"transient_or_request","retryable":true,"max_attempts":2,"examples":["422","model_generation_error"]},
+    {"id":"premature_output","owner":"provider_router","scope":"request","retryable":false,"max_semantic_reasks":0,"examples":["finish_reason_length","incomplete_max_tokens","empty_output","no_choices"]},
+    {"id":"syntax_invalid","owner":"structured_output_boundary","scope":"request","retryable":"one_bounded_compact_repair_only","max_semantic_reasks":1,"examples":["invalid_json","code_fence","trailing_comma","missing_bracket"]},
+    {"id":"schema_semantic_invalid","owner":"schema_repair","scope":"request","retryable":true,"max_semantic_reasks":1,"examples":["missing_fields","duplicate_ids","wrong_order","wrong_section_count"]}
   ],
   "historical_incident_families": {
-    "provider_payload_or_quota": ["57", "58", "59"],
-    "section_length_and_output_shape": ["71", "73", "74", "77", "78", "79", "101"],
-    "wrapper_or_install_order": ["72", "93"],
-    "visual_feasibility": ["82", "89", "92"],
+    "provider_payload_or_quota": ["57","58","59","113","115"],
+    "provider_structured_output_or_retry_amplification": ["113","114","115"],
+    "section_length_and_output_shape": ["71","73","74","77","78","79","101","114"],
+    "wrapper_or_install_order": ["72","93"],
+    "visual_feasibility": ["82","89","92"],
     "task_identity_budget_collision": ["100"],
-    "editorial_repair_exhaustion": ["94", "96"],
+    "editorial_repair_exhaustion": ["94","96"],
     "stale_ci_or_verifier": ["historical_verifier_drift"]
+  },
+  "run_115_closure": {
+    "gemini_server_disconnect": "network_error_bounded_retry",
+    "groq_http_413": "request_admission_no_session_circuit",
+    "openrouter_invalid_json": "strict_schema_plus_response_healing_plus_compact_syntax_repair",
+    "quality_threshold_changes": 0,
+    "paid_provider_changes": 0,
+    "unbounded_retry_changes": 0
   }
 }

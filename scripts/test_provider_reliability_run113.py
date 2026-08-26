@@ -55,35 +55,28 @@ Return ONLY JSON with editorial_intent and section_briefs.
             ["id", "narration", "key_point"],
         )
 
-    def test_openrouter_known_contract_delegates_free_model_fallback_and_schema(self) -> None:
-        captured: dict = {}
+    def test_openrouter_known_contract_delegates_to_structured_request(self) -> None:
         schema = {
             "type": "object",
             "properties": {"ok": {"type": "boolean"}},
             "required": ["ok"],
             "additionalProperties": False,
         }
+        contract = ("test_contract", schema)
 
-        def fake_openrouter(prompt, **kwargs):
-            captured["prompt"] = prompt
-            captured.update(kwargs)
-            return {"ok": True}
-
-        with mock.patch.object(router, "openrouter_json_text", side_effect=fake_openrouter):
+        with mock.patch.object(
+            router,
+            "_openrouter_structured_request",
+            return_value={"ok": True},
+        ) as structured_request:
             result = router._openrouter_call_with_repair(
                 "structured prompt",
                 "openrouter/free",
-                response_contract=("test_contract", schema),
+                response_contract=contract,
             )
 
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(captured["model"], "openrouter/free")
-        self.assertEqual(
-            captured["fallback_models"],
-            ("openai/gpt-oss-20b:free",),
-        )
-        self.assertEqual(captured["response_schema"], schema)
-        self.assertEqual(captured["schema_name"], "test_contract")
+        structured_request.assert_called_once_with("structured prompt", contract)
 
     def test_unknown_json_contract_keeps_legacy_two_argument_adapter_compatible(self) -> None:
         calls: list[tuple[str, str]] = []
