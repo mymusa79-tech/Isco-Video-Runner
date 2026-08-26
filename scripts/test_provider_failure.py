@@ -66,7 +66,7 @@ class ProviderFailureTaxonomyTests(unittest.TestCase):
     def test_schema_truncation_timeout_and_network_have_one_mapping(self) -> None:
         cases = [
             ("Provider returned invalid JSON", "invalid_json", AttemptOutcome.SCHEMA_INVALID),
-            ("GEMINI_EMPTY_OUTPUT", "invalid_json", AttemptOutcome.SCHEMA_INVALID),
+            ("GEMINI_EMPTY_OUTPUT", "premature_response", AttemptOutcome.TRUNCATED),
             ("MALFORMED_FUNCTION_CALL", "invalid_json", AttemptOutcome.SCHEMA_INVALID),
             ("premature response", "premature_response", AttemptOutcome.TRUNCATED),
             (
