@@ -30,19 +30,28 @@ CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 # Floor on the gap between two calls to the SAME provider, not a global throttle.
 MIN_PROVIDER_CALL_INTERVAL_SECONDS = 1.5
 
-# One routed planning subtask can physically issue at most six provider calls:
-# Gemini (1) + Groq (1) + each of the two OpenRouter routes (up to 2 when its
-# local invalid-JSON repair is needed). This is task-local only; the Engine's
-# unchanged Film run-wide provider-attempt hard cap remains 42.
-PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS = 6
+# The Runner is the only owner of client-side transient retries. Provider SDK retries
+# are disabled/avoided, while OpenRouter remains responsible for provider/model failover
+# *inside* one OpenRouter request. One provider gets at most original + one transient
+# retry before this router moves on.
+TRANSIENT_PROVIDER_MAX_ATTEMPTS = 2
+TRANSIENT_RETRY_BASE_SECONDS = 1.0
+TRANSIENT_RETRY_JITTER_SECONDS = 0.5
+TRANSIENT_PROVIDER_COOLDOWN_SECONDS = 30.0
+_TRANSIENT_RESULTS = frozenset({"server_error", "timeout", "network_error"})
+
+# Worst physical call count for one routed planning subtask:
+# Gemini (2 transient attempts) + Groq (2) + OpenRouter (2 outer transient attempts,
+# each of which can make one bounded invalid-JSON repair request) = 8. OpenRouter's
+# internal provider/model fallbacks remain one HTTP request from BudgetLedger's view.
+PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS = 8
 
 # Which providers actually produced planning output for this run, in first-use order.
 _USED_PROVIDERS: list[str] = []
 
 # Router telemetry is deliberately separate from BudgetLedger. It includes local
-# circuit-open skips for diagnosis; BudgetLedger provider attempts count only provider
-# callables that are actually invoked. OpenRouter's JSON repair therefore contributes
-# two BudgetLedger attempts but remains one outer router interaction in this telemetry.
+# circuit/cooldown skips for diagnosis. BudgetLedger counts only provider callables
+# that were actually invoked.
 _TELEMETRY: list[dict] = []
 
 # Groq response rate-limit headers captured for router telemetry.
@@ -116,16 +125,7 @@ def _record_budget_attempt(
 
 
 def _budgeted_provider_call(provider_name: str, resolved_model: str, call, *args, **kwargs):
-    """Account for exactly one provider callable invocation.
-
-    Authorization is enforced at this individual provider-call boundary. When the
-    active BudgetLedger refuses the next attempt, the provider callable is never
-    invoked and no attempt record is manufactured for a request that did not happen.
-    For OpenRouter repair, each json_text invocation still has its own authorization.
-
-    With no active BudgetLedger scope this is a transparent direct call: no authorize,
-    timing, or bookkeeping side effects are introduced into the legacy Runner path.
-    """
+    """Account for exactly one provider callable invocation."""
     active = get_active_budget_task()
     if active is None:
         return call(*args, **kwargs)
@@ -237,6 +237,149 @@ def _expected_sections(prompt: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _strict_object(properties: dict, required: list[str]) -> dict:
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
+
+
+def _string_array(*, min_items: int | None = None, max_items: int | None = None) -> dict:
+    schema: dict = {"type": "array", "items": {"type": "string"}}
+    if min_items is not None:
+        schema["minItems"] = min_items
+    if max_items is not None:
+        schema["maxItems"] = max_items
+    return schema
+
+
+def _outline_response_schema(expected: int) -> dict:
+    editorial_intent = _strict_object(
+        {
+            "editorial_thesis": {"type": "string"},
+            "viewer_starting_belief": {"type": "string"},
+            "hidden_assumption": {"type": "string"},
+            "editorial_turn": {"type": "string"},
+            "stakes": {"type": "string"},
+            "viewer_promise": {"type": "string"},
+            "evidence_boundaries": _string_array(min_items=1, max_items=5),
+            "earned_payoff": {"type": "string"},
+        },
+        [
+            "editorial_thesis",
+            "viewer_starting_belief",
+            "hidden_assumption",
+            "editorial_turn",
+            "stakes",
+            "viewer_promise",
+            "evidence_boundaries",
+            "earned_payoff",
+        ],
+    )
+    brief = _strict_object(
+        {
+            "id": {"type": "string"},
+            "purpose": {"type": "string"},
+            "visual_query": {"type": "string"},
+            "on_screen_text": {"type": "string"},
+            "emotion": {"type": "string"},
+            "expected_seconds": {"type": "number"},
+        },
+        ["id", "purpose", "visual_query", "on_screen_text", "emotion", "expected_seconds"],
+    )
+    return _strict_object(
+        {
+            "pillar": {"type": "string"},
+            "hook": {"type": "string"},
+            "title_options": _string_array(min_items=3, max_items=3),
+            "thumbnail_concepts": _string_array(min_items=3, max_items=3),
+            "cta": {"type": "string"},
+            "closing_payoff": {"type": "string"},
+            "narrative_format": {"type": "string"},
+            "opener_variant": {"type": "string"},
+            "closer_variant": {"type": "string"},
+            "transition_variants": _string_array(min_items=3, max_items=3),
+            "editorial_intent": editorial_intent,
+            "section_briefs": {
+                "type": "array",
+                "items": brief,
+                "minItems": expected,
+                "maxItems": expected,
+            },
+        },
+        [
+            "pillar",
+            "hook",
+            "title_options",
+            "thumbnail_concepts",
+            "cta",
+            "closing_payoff",
+            "narrative_format",
+            "opener_variant",
+            "closer_variant",
+            "transition_variants",
+            "editorial_intent",
+            "section_briefs",
+        ],
+    )
+
+
+def _structured_schema_for_prompt(prompt: str) -> tuple[str, dict] | None:
+    """Return the strict schema for known planner contracts; unknown tasks stay JSON mode."""
+    expected = _expected_sections(prompt)
+    if expected is not None and "section_briefs" in prompt:
+        return "editorial_outline", _outline_response_schema(expected)
+
+    exact_match = re.search(r"with EXACTLY\s*(\d+)\s+entries", prompt, flags=re.I)
+    exact_count = int(exact_match.group(1)) if exact_match else None
+    if exact_count is not None and '"sections"' in prompt:
+        item = _strict_object(
+            {
+                "id": {"type": "string"},
+                "narration": {"type": "string"},
+                "key_point": {"type": "string"},
+            },
+            ["id", "narration", "key_point"],
+        )
+        return "full_script", _strict_object(
+            {
+                "sections": {
+                    "type": "array",
+                    "items": item,
+                    "minItems": exact_count,
+                    "maxItems": exact_count,
+                }
+            },
+            ["sections"],
+        )
+
+    if exact_count is not None and '"additions"' in prompt:
+        item = _strict_object(
+            {"id": {"type": "string"}, "append_text": {"type": "string"}},
+            ["id", "append_text"],
+        )
+        return "append_only_repair", _strict_object(
+            {
+                "additions": {
+                    "type": "array",
+                    "items": item,
+                    "minItems": exact_count,
+                    "maxItems": exact_count,
+                }
+            },
+            ["additions"],
+        )
+
+    if 'Return ONLY JSON: {"narration"' in prompt:
+        return "section_repair", _strict_object(
+            {"narration": {"type": "string"}},
+            ["narration"],
+        )
+    return None
+
+
 def _normalize_outline(data: dict, prompt: str) -> dict:
     expected = _expected_sections(prompt)
     if expected is None or "section_briefs" not in data:
@@ -303,35 +446,39 @@ def _groq_call(prompt: str) -> dict:
             raise RuntimeError("Groq returned no choices")
         return _parse_json(choices[0]["message"]["content"])
 
-    # Secret-file reading is local setup; only the provider request/response work is
-    # inside the provider-attempt accounting boundary.
     return _budgeted_provider_call("groq", "openai/gpt-oss-20b", do_request)
 
 
 _OPENROUTER_REPAIR_SUFFIX = "\n\nأعد الرد بصيغة JSON صالحة فقط، بدون أي نص إضافي قبله أو بعده."
+_OPENROUTER_FALLBACK_MODELS = ("openai/gpt-oss-20b:free",)
 
 
-def _openrouter_call_with_repair(prompt: str, model: str, provider_name: str | None = None) -> dict:
-    """Exactly one JSON repair request after an invalid-JSON first response.
+def _openrouter_call_with_repair(
+    prompt: str,
+    model: str,
+    provider_name: str = "openrouter",
+    *,
+    response_contract: tuple[str, dict] | None = None,
+) -> dict:
+    """One OpenRouter request chain plus one bounded syntax repair when necessary."""
+    schema_name = "isco_planning_response"
+    response_schema = None
+    if response_contract is not None:
+        schema_name, response_schema = response_contract
 
-    Each openrouter_json_text() invocation is separately budgeted. Therefore an
-    invalid first response followed by a successful repair is two real provider
-    attempts in BudgetLedger, not one outer router interaction. provider_name remains
-    optional for backwards compatibility with the pre-accounting two-argument helper.
-    """
-    if provider_name is None:
-        provider_name = (
-            "openrouter-free-router"
-            if model == "openrouter/free"
-            else "openrouter-gpt-oss-free"
-        )
+    kwargs = {
+        "model": model,
+        "fallback_models": _OPENROUTER_FALLBACK_MODELS,
+        "response_schema": response_schema,
+        "schema_name": schema_name,
+    }
     try:
         return _budgeted_provider_call(
             provider_name,
             model,
             openrouter_json_text,
             prompt,
-            model=model,
+            **kwargs,
         )
     except RuntimeError as exc:
         if "invalid JSON" not in str(exc):
@@ -341,14 +488,23 @@ def _openrouter_call_with_repair(prompt: str, model: str, provider_name: str | N
             model,
             openrouter_json_text,
             prompt + _OPENROUTER_REPAIR_SUFFIX,
-            model=model,
+            **kwargs,
         )
+
+
+def _retry_delay_seconds(provider_name: str, retry_index: int) -> float:
+    """Deterministic bounded jitter keeps tests reproducible and concurrent runs de-synced."""
+    digest = hashlib.sha256(f"{provider_name}:{retry_index}".encode("utf-8")).digest()
+    fraction = int.from_bytes(digest[:2], "big") / 65535.0
+    exponential = TRANSIENT_RETRY_BASE_SECONDS * (2 ** retry_index)
+    return exponential + (fraction * TRANSIENT_RETRY_JITTER_SECONDS)
 
 
 def install_router() -> None:
     checkpoint = _load_checkpoint()
     responses = checkpoint.setdefault("responses", {})
     cooldown: set[str] = set()
+    transient_cooldown_until: dict[str, float] = {}
     last_call_at: dict[str, float] = {}
     planning_subtask_sequence = 0
     _USED_PROVIDERS.clear()
@@ -364,15 +520,12 @@ def install_router() -> None:
         ),
         ("groq", lambda prompt, model: _groq_call(prompt)),
         (
-            "openrouter-free-router",
+            "openrouter",
             lambda prompt, model: _openrouter_call_with_repair(
-                prompt, "openrouter/free", "openrouter-free-router"
-            ),
-        ),
-        (
-            "openrouter-gpt-oss-free",
-            lambda prompt, model: _openrouter_call_with_repair(
-                prompt, "openai/gpt-oss-20b:free", "openrouter-gpt-oss-free"
+                prompt,
+                "openrouter/free",
+                "openrouter",
+                response_contract=_structured_schema_for_prompt(prompt),
             ),
         ),
     ]
@@ -384,8 +537,6 @@ def install_router() -> None:
         cache_key = hashlib.sha256((model + "\n" + prompt).encode("utf-8")).hexdigest()
         cached = responses.get(cache_key)
         if isinstance(cached, dict):
-            # A checkpoint hit is local work only. It must not create a child logical
-            # provider subtask, authorize a provider attempt, or record an attempt.
             print("Planning checkpoint hit")
             return cached
 
@@ -393,39 +544,71 @@ def install_router() -> None:
             failures: list[str] = []
             for name, provider in providers:
                 if name in cooldown:
-                    # Diagnostic telemetry only. No BudgetLedger attempt: no provider
-                    # callable/network request is made.
                     _record_attempt(name, "circuit-open")
                     continue
-                since_last_call = time.monotonic() - last_call_at.get(name, 0.0)
-                if since_last_call < MIN_PROVIDER_CALL_INTERVAL_SECONDS:
-                    time.sleep(MIN_PROVIDER_CALL_INTERVAL_SECONDS - since_last_call)
-                last_call_at[name] = time.monotonic()
-                try:
-                    raw = provider(prompt, model)
-                    data = _normalize_outline(_parse_json(raw), prompt)
-                    responses[cache_key] = data
-                    checkpoint["last_provider"] = name
-                    _save_checkpoint(checkpoint)
-                    _record_provider_used(name)
-                    _record_attempt(name, "success", duration_seconds=time.monotonic() - last_call_at[name])
-                    print(f"Planning subtask provider selected: {name}")
-                    return data
-                except Exception as exc:
-                    detail = str(exc).replace("\n", " ")[:220]
-                    failures.append(f"{name}:{detail}")
-                    failure = classify_provider_failure(name, exc)
-                    _record_attempt(
-                        name,
-                        failure.telemetry_result,
-                        error_detail=detail,
-                        duration_seconds=time.monotonic() - last_call_at[name],
-                    )
-                    if failure.open_circuit:
-                        cooldown.add(name)
-                        print(f"Planning provider circuit-open for this run: {name}")
-                    else:
-                        print(f"Planning subtask failed safely: {name}:{detail}")
+
+                cooldown_until = transient_cooldown_until.get(name, 0.0)
+                if cooldown_until > time.monotonic():
+                    _record_attempt(name, "transient-cooldown")
+                    continue
+
+                for provider_attempt in range(TRANSIENT_PROVIDER_MAX_ATTEMPTS):
+                    since_last_call = time.monotonic() - last_call_at.get(name, 0.0)
+                    if since_last_call < MIN_PROVIDER_CALL_INTERVAL_SECONDS:
+                        time.sleep(MIN_PROVIDER_CALL_INTERVAL_SECONDS - since_last_call)
+                    last_call_at[name] = time.monotonic()
+                    try:
+                        raw = provider(prompt, model)
+                        data = _normalize_outline(_parse_json(raw), prompt)
+                        responses[cache_key] = data
+                        checkpoint["last_provider"] = name
+                        _save_checkpoint(checkpoint)
+                        _record_provider_used(name)
+                        _record_attempt(
+                            name,
+                            "success",
+                            duration_seconds=time.monotonic() - last_call_at[name],
+                        )
+                        print(f"Planning subtask provider selected: {name}")
+                        return data
+                    except Exception as exc:
+                        detail = str(exc).replace("\n", " ")[:220]
+                        failure = classify_provider_failure(name, exc)
+                        _record_attempt(
+                            name,
+                            failure.telemetry_result,
+                            error_detail=detail,
+                            duration_seconds=time.monotonic() - last_call_at[name],
+                        )
+
+                        retryable = failure.telemetry_result in _TRANSIENT_RESULTS
+                        has_retry = provider_attempt + 1 < TRANSIENT_PROVIDER_MAX_ATTEMPTS
+                        if retryable and has_retry:
+                            delay = _retry_delay_seconds(name, provider_attempt)
+                            print(
+                                "Planning provider transient retry: "
+                                f"{name} result={failure.telemetry_result} "
+                                f"attempt={provider_attempt + 1}/{TRANSIENT_PROVIDER_MAX_ATTEMPTS} "
+                                f"delay={delay:.2f}s"
+                            )
+                            time.sleep(delay)
+                            continue
+
+                        failures.append(f"{name}:{detail}")
+                        if failure.open_circuit:
+                            cooldown.add(name)
+                            print(f"Planning provider circuit-open for this run: {name}")
+                        elif retryable:
+                            transient_cooldown_until[name] = (
+                                time.monotonic() + TRANSIENT_PROVIDER_COOLDOWN_SECONDS
+                            )
+                            print(
+                                "Planning provider transient cooldown: "
+                                f"{name} seconds={TRANSIENT_PROVIDER_COOLDOWN_SECONDS:g}"
+                            )
+                        else:
+                            print(f"Planning subtask failed safely: {name}:{detail}")
+                        break
 
             raise RuntimeError("All free providers failed for planning subtask: " + " | ".join(failures))
 
@@ -433,10 +616,6 @@ def install_router() -> None:
         if active is None or active.spec.kind != "OUTLINE_PLAN":
             return run_provider_loop()
 
-        # Only an actual provider-bound cache miss gets a child budget task. This
-        # preserves the pre-existing cache contract (one outer logical task, zero
-        # provider attempts on a hit) while isolating fallback budgets for real
-        # planning subtasks.
         planning_subtask_sequence += 1
         child = TaskSpec(
             task_id=(
