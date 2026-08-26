@@ -201,9 +201,13 @@ def main() -> None:
     # Install the persistent reply-keyboard entry point and text-only production
     # confirmation after global topic-memory policy so both policies compose.
     from scripts import telegram_persistent_control_ui as persistent_ui
+    from scripts import telegram_rich_integration as rich_integration
 
     persistent_ui.install()
     _install_choice_clarity()
+    # Install last so status/delivery rich surfaces wrap the final persistent and
+    # research handlers without changing the text-only Production authority gate.
+    rich_integration.install()
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     _require_poll_identity(mode)
     ui.main()
