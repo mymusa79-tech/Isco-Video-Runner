@@ -74,7 +74,7 @@ jobs:
           root = Path(os.environ["M11_SMOKE"])
           dest = _render_archive_clip(root / "input.png", root / "archive.mp4", 4.2, fps=30)
           data = json.loads(subprocess.check_output([
-              "ffprobe", "-v", "error", "-show_streams", "-show_format", "json", str(dest)
+              "ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(dest)
           ], text=True))
           video = [x for x in data["streams"] if x.get("codec_type") == "video"]
           audio = [x for x in data["streams"] if x.get("codec_type") == "audio"]
