@@ -61,6 +61,11 @@ def _read_json_optional(path: Path | None) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _path_optional(value: str) -> Path | None:
+    text = str(value or "").strip()
+    return Path(text) if text else None
+
+
 def format_duration(seconds: int | float) -> str:
     total = max(0, int(seconds))
     minutes, secs = divmod(total, 60)
@@ -179,13 +184,123 @@ def build_success_message(
     )
 
 
-def deliver_terminal_message(*, token: str, chat_id: str, text: str, progress_message_id: str = "") -> bool:
+def terminal_url_keyboard(*, job_status: str, run_url: str, results_url: str = "") -> dict[str, list[list[dict[str, str]]]]:
+    rows: list[list[dict[str, str]]] = []
+    run_value = str(run_url or "").strip()
+    results_value = str(results_url or "").strip()
+    if job_status == "success" and results_value:
+        rows.append([ops_ui.url_button("📦 عرض النتائج", results_value)])
+    if run_value:
+        label = "🔗 GitHub" if job_status == "success" else "📋 GitHub Logs"
+        rows.append([ops_ui.url_button(label, run_value)])
+    return ops_ui.inline_keyboard(rows)
+
+
+def deliver_terminal_message(
+    *,
+    token: str,
+    chat_id: str,
+    text: str,
+    progress_message_id: str = "",
+    reply_markup: dict[str, Any] | None = None,
+) -> bool:
+    payload: dict[str, str] = {"chat_id": chat_id, "text": text}
+    if reply_markup is not None:
+        payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False, separators=(",", ":"))
     if progress_message_id:
         print(f"Telegram notify: editMessageText (message_id={progress_message_id})")
-        return _telegram_request(
-            token,
-            "editMessageText",
-            {"chat_id": chat_id, "message_id": progress_message_id, "text": text},
-        )
+        payload["message_id"] = progress_message_id
+        return _telegram_request(token, "editMessageText", payload)
     print("Telegram notify: sendMessage (no saved progress message_id)")
-    return _telegram_request(token, "sendMessage", {"chat_id": chat_id, "text": text})
+    return _telegram_request(token, "sendMessage", payload)
+
+
+def _elapsed_seconds(env: dict[str, str]) -> int:
+    try:
+        start = int(str(env.get("JOB_START_EPOCH") or "0"))
+    except ValueError:
+        start = 0
+    if start <= 0:
+        return 0
+    import time
+
+    return max(0, int(time.time()) - start)
+
+
+def _run_url(env: dict[str, str]) -> str:
+    explicit = str(env.get("RUN_URL") or "").strip()
+    if explicit:
+        return explicit
+    server = str(env.get("GITHUB_SERVER_URL") or "https://github.com").rstrip("/")
+    repository = str(env.get("GITHUB_REPOSITORY") or "").strip()
+    run_id = str(env.get("GITHUB_RUN_ID") or "").strip()
+    if repository and run_id:
+        return f"{server}/{repository}/actions/runs/{run_id}"
+    return ""
+
+
+def _results_url(env: dict[str, str]) -> str:
+    if str(env.get("CREATE_RELEASE_OUTCOME") or "") != "success":
+        return ""
+    server = str(env.get("GITHUB_SERVER_URL") or "https://github.com").rstrip("/")
+    repository = str(env.get("GITHUB_REPOSITORY") or "").strip()
+    run_number = str(env.get("GITHUB_RUN_NUMBER") or "").strip()
+    if repository and run_number:
+        return f"{server}/{repository}/releases/tag/video-{run_number}"
+    return ""
+
+
+def main() -> int:
+    env = dict(os.environ)
+    token = str(env.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = str(env.get("TELEGRAM_CHAT_ID") or "").strip()
+    if not token or not chat_id:
+        print("Telegram terminal notify disabled: bot token or chat id is missing")
+        return 0
+
+    run_number = str(env.get("GITHUB_RUN_NUMBER") or "").strip()
+    runner_temp = Path(str(env.get("RUNNER_TEMP") or "."))
+    elapsed = _elapsed_seconds(env)
+    job_status = str(env.get("JOB_STATUS") or "failure").strip().lower()
+    if job_status == "success":
+        text = build_success_message(
+            run_number=run_number,
+            elapsed_seconds=elapsed,
+            plan_path=_path_optional(str(env.get("FINAL_PLAN_PATH") or "")),
+            delivery_path=_path_optional(str(env.get("FINAL_DELIVERY_PATH") or "")),
+            output_root=_path_optional(str(env.get("FINAL_OUTPUT_ROOT") or "")),
+            request_path=runner_temp / "isco-request.json",
+        )
+    else:
+        text = build_failure_message(
+            run_number=run_number,
+            elapsed_seconds=elapsed,
+            env=env,
+            runner_temp=runner_temp,
+        )
+
+    progress_message_id = ""
+    progress_id_path = runner_temp / "telegram-progress-message-id.txt"
+    if progress_id_path.is_file():
+        try:
+            progress_message_id = progress_id_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            progress_message_id = ""
+
+    keyboard = terminal_url_keyboard(
+        job_status=job_status,
+        run_url=_run_url(env),
+        results_url=_results_url(env),
+    )
+    deliver_terminal_message(
+        token=token,
+        chat_id=chat_id,
+        text=text,
+        progress_message_id=progress_message_id,
+        reply_markup=keyboard,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
