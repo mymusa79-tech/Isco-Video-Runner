@@ -51,40 +51,82 @@ def _target(request: dict, session_id: str = "session-current") -> dict:
     }
 
 
+def _callbacks(rows):
+    return [button.get("callback_data") for row in rows for button in row if button.get("callback_data")]
+
+
 class TelegramPersistentControlUiTests(unittest.TestCase):
-    def test_reply_keyboard_is_one_persistent_start_button(self):
+    def test_reply_keyboard_is_one_persistent_home_start_button(self):
         markup = ui._persistent_reply_markup()
         self.assertTrue(markup["is_persistent"])
         self.assertFalse(markup["one_time_keyboard"])
         self.assertTrue(markup["resize_keyboard"])
-        self.assertEqual(markup["keyboard"], [[{"text": "🎛 ابدأ"}]])
+        self.assertEqual(markup["keyboard"], [[{"text": "🏠 ابدأ"}]])
 
-    def test_start_button_only_opens_menu(self):
-        self.assertEqual(ui._command_kind("🎛 ابدأ"), "menu")
+    def test_start_button_only_opens_root_menu(self):
+        self.assertEqual(ui._command_kind("🏠 ابدأ"), "menu")
+        self.assertEqual(ui._command_kind("🎛 ابدأ"), "menu")  # old installed button remains safe during upgrade
         buttons = [button for row in ui._main_keyboard() for button in row]
-        self.assertEqual(len(buttons), 6)
-        self.assertFalse(any(button.get("callback_data") == "cmd:produce_latest" for button in buttons))
-        self.assertEqual(buttons[0]["callback_data"], "cmd:topic")
-        self.assertEqual(buttons[2]["callback_data"], "cmd:saved")
+        self.assertEqual(len(buttons), 4)
+        self.assertEqual(
+            [button["callback_data"] for button in buttons],
+            ["cmd:search_menu", "cmd:library_menu", "cmd:last_delivery", "cmd:status"],
+        )
+        self.assertFalse(any(button.get("callback_data") in {"cmd:topic", "cmd:short", "cmd:produce_latest"} for button in buttons))
 
-    def test_number_shortcuts_map_to_explicit_menu_actions(self):
+    def test_root_number_shortcuts_follow_hierarchy(self):
         expected = {
-            "1": "topic",
-            "١": "topic",
-            "2": "short",
-            "٢": "short",
-            "3": "saved",
-            "٣": "saved",
-            "4": "used",
-            "٤": "used",
-            "5": "last_delivery",
-            "٥": "last_delivery",
-            "6": "status",
-            "٦": "status",
+            "1": "search_menu",
+            "١": "search_menu",
+            "2": "library_menu",
+            "٢": "library_menu",
+            "3": "last_delivery",
+            "٣": "last_delivery",
+            "4": "status",
+            "٤": "status",
         }
         for text, kind in expected.items():
             with self.subTest(text=text):
                 self.assertEqual(ui._command_kind(text), kind)
+
+    def test_search_section_reveals_only_search_children(self):
+        client = _Client()
+        ui._handle_command("search_menu", client, {}, None, 77)
+        self.assertIn("اختر نوع البحث", client.messages[-1][1])
+        self.assertEqual(_callbacks(client.messages[-1][2]), ["cmd:topic", "cmd:short", "cmd:menu"])
+
+    def test_library_section_reveals_only_library_children(self):
+        client = _Client()
+        ui._handle_command("library_menu", client, {}, None, 77)
+        self.assertIn("اختر القائمة", client.messages[-1][1])
+        self.assertEqual(_callbacks(client.messages[-1][2]), ["cmd:saved", "cmd:used", "cmd:menu"])
+
+    def test_leaf_commands_delegate_instead_of_opening_extra_menu(self):
+        client = _Client()
+        state = {"pending_actions": []}
+        with mock.patch.object(ui, "_BASE_HANDLE_COMMAND") as delegated:
+            for kind in ("topic", "short", "saved", "used", "last_delivery"):
+                with self.subTest(kind=kind):
+                    ui._handle_command(kind, client, state, None, 77)
+                    delegated.assert_called_with(kind, client, state, None, 77)
+
+    def test_all_hierarchical_callback_buttons_have_known_destinations(self):
+        known = {
+            "cmd:search_menu",
+            "cmd:library_menu",
+            "cmd:last_delivery",
+            "cmd:status",
+            "cmd:topic",
+            "cmd:short",
+            "cmd:saved",
+            "cmd:used",
+            "cmd:menu",
+        }
+        actual = set(_callbacks(ui._main_keyboard()) + _callbacks(ui._search_keyboard()) + _callbacks(ui._library_keyboard()))
+        self.assertEqual(actual, known)
+        for callback in actual:
+            self.assertTrue(callback.startswith("cmd:"))
+            self.assertTrue(callback.split(":", 1)[1])
 
     def test_only_exact_confirmation_phrase_gets_production_command(self):
         self.assertEqual(ui._command_kind("تأكيد الإنتاج"), "confirm_production")
@@ -152,13 +194,16 @@ class TelegramPersistentControlUiTests(unittest.TestCase):
         self.assertEqual(state[active.SAVED_SUGGESTIONS_KEY][0]["candidate"]["title"], "فكرة محفوظة")
         delegated.assert_called_once_with("topic", client, state, None, 77)
 
-    def test_candidate_buttons_are_numbered_and_have_detail_action(self):
+    def test_candidate_buttons_are_numbered_and_every_action_is_wired(self):
         rows = ui._candidate_keyboard("session-1", "long")
         self.assertEqual(rows[0][0]["text"], "1️⃣ اختيار")
         self.assertEqual(rows[1][0]["text"], "2️⃣ اختيار")
         self.assertEqual(rows[2][0]["text"], "3️⃣ اختيار")
-        self.assertEqual(rows[0][1]["text"], "🔎 تفاصيل")
+        self.assertEqual(rows[0][1]["text"], "🔎 تفاصيل 1")
         self.assertEqual(rows[0][0]["callback_data"], "pick:session-1:0")
+        self.assertEqual(rows[0][1]["callback_data"], "detail:session-1:0")
+        self.assertEqual(rows[3][0]["callback_data"], "refresh:long")
+        self.assertEqual(rows[4][0]["callback_data"], "cmd:menu")
 
     def test_approval_copy_requires_text_confirmation_and_has_no_start_button(self):
         request = _request()
@@ -169,12 +214,12 @@ class TelegramPersistentControlUiTests(unittest.TestCase):
         self.assertIn("أي زر تشغيل قديم", text)
         self.assertFalse(any(button.get("callback_data") == "cmd:produce_latest" for row in ui._main_keyboard() for button in row))
 
-    def test_persistent_surface_installs_once_and_requires_all_identity_secrets(self):
+    def test_persistent_surface_upgrades_once_and_requires_all_identity_secrets(self):
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "state.json"
             panel.save_state(
                 state_path,
-                {"schema_version": 1, "telegram_offset": 0, "sessions": {}, "requests": {}, "pending_actions": [], "production_queue": [], "last_event_at": None},
+                {"schema_version": 1, "telegram_offset": 0, "sessions": {}, "requests": {}, "pending_actions": [], "production_queue": [], "last_event_at": None, ui.PERSISTENT_SURFACE_STATE_KEY: 1},
             )
             client = _Client()
             secret_map = {
@@ -189,7 +234,7 @@ class TelegramPersistentControlUiTests(unittest.TestCase):
             self.assertEqual(len(client.calls), 1)
             method, payload = client.calls[0]
             self.assertEqual(method, "sendMessage")
-            self.assertEqual(payload["reply_markup"]["keyboard"], [[{"text": "🎛 ابدأ"}]])
+            self.assertEqual(payload["reply_markup"]["keyboard"], [[{"text": "🏠 ابدأ"}]])
             saved = panel.load_state(state_path)
             self.assertEqual(saved[ui.PERSISTENT_SURFACE_STATE_KEY], ui.PERSISTENT_SURFACE_VERSION)
 
