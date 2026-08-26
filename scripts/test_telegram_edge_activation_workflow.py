@@ -26,6 +26,11 @@ class TelegramEdgeActivationWorkflowTests(unittest.TestCase):
         ):
             self.assertIn(name, self.text)
 
+    def test_repository_secret_uses_non_reserved_name(self):
+        self.assertIn('GITHUB_CONTROL_TOKEN: ${{ secrets.ISCO_GITHUB_CONTROL_TOKEN }}', self.text)
+        self.assertNotIn('GITHUB_CONTROL_TOKEN: ${{ secrets.GITHUB_CONTROL_TOKEN }}', self.text)
+        self.assertIn('put_secret GITHUB_CONTROL_TOKEN "$GITHUB_CONTROL_TOKEN"', self.text)
+
     def test_webhook_secret_is_generated_not_stored_in_repo(self):
         self.assertIn('Generate webhook secret', self.text)
         self.assertIn('secrets.token_urlsafe(32)', self.text)
