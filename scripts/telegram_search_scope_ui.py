@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -71,17 +72,28 @@ def preferred_scope_for_session(state: dict[str, Any], session: dict[str, Any]) 
     return scope
 
 
+def _current_long_scope_hint(state: dict[str, Any]) -> str | None:
+    hint = state.get(SEARCH_SCOPE_HINT_KEY)
+    if not isinstance(hint, dict):
+        return None
+    scope = str(hint.get("scope") or "")
+    return scope if scope in _VALID_LONG_SCOPES else None
+
+
 def clear_scope_hint(state: dict[str, Any]) -> None:
     state.pop(SEARCH_SCOPE_HINT_KEY, None)
 
 
 def poll(state_path: Path) -> None:
-    """Base Telegram poll with one scoped-search refinement.
+    """Webhook-aware Telegram poll with preselected long-form scope support.
 
-    Everything remains delegated to the already-installed panel policies. The
-    only behavioral difference is that a current long-form research session can
-    consume the user's preselected `bundle`/`long` scope on candidate pick.
+    The webhook replay path historically called the base panel poll without first
+    installing the full Active/Persistent policy onto ``panel``. This poll routes
+    commands and approvals through the live Active module explicitly, preserving
+    current-target, saved-topic, exact-confirmation and production boundaries.
     """
+    from scripts import telegram_control_active_ui as active
+
     state = panel.load_state(state_path)
     token = panel._read_secret_file("TELEGRAM_BOT_TOKEN_FILE")
     allowed_text = panel._read_secret_file("TELEGRAM_ALLOWED_USER_ID_FILE")
@@ -97,8 +109,6 @@ def poll(state_path: Path) -> None:
         raise RuntimeError("TELEGRAM_ALLOWED_USER_ID_FILE is invalid") from exc
 
     client = panel.TelegramClient(token)
-    import os
-
     repository = (os.environ.get("GITHUB_REPOSITORY") or "mymusa79-tech/Isco-Video-Runner").strip()
     releases = panel.GitHubReleaseClient(repository, (os.environ.get("GITHUB_TOKEN") or "").strip())
     offset = int(state.get("telegram_offset", 0) or 0)
@@ -129,21 +139,26 @@ def poll(state_path: Path) -> None:
                 client.answer_callback(callback_id)
             parts = data.split(":")
             if len(parts) >= 2 and parts[0] == "cmd":
-                panel._handle_command(parts[1], client, state, releases, chat_id)
+                active._handle_command(parts[1], client, state, releases, chat_id)
             elif len(parts) == 2 and parts[0] == "refresh" and parts[1] in {"long", "short"}:
-                panel._handle_command("topic" if parts[1] == "long" else "short", client, state, releases, chat_id)
+                if parts[1] == "short":
+                    refresh_kind = "short"
+                else:
+                    scope = _current_long_scope_hint(state)
+                    refresh_kind = "topic_bundle" if scope == "bundle" else "topic_long" if scope == "long" else "topic"
+                active._handle_command(refresh_kind, client, state, releases, chat_id)
             elif len(parts) == 2 and parts[0] == "pack":
                 panel._show_packaging(client, releases, chat_id, parts[1])
             elif len(parts) == 3 and parts[0] == "detail":
                 session = panel._session(state, parts[1])
                 if not session:
-                    client.send(chat_id, "انتهت صلاحية هذه الخيارات. اطلب 3 مواضيع جديدة.", keyboard=panel._main_keyboard())
+                    client.send(chat_id, "انتهت صلاحية هذه الخيارات. اطلب 3 مواضيع جديدة.", keyboard=active._main_keyboard())
                     continue
                 try:
                     index = int(parts[2])
                     item = session["candidates"][index]
                 except Exception:
-                    client.send(chat_id, "الخيار غير صالح.", keyboard=panel._main_keyboard())
+                    client.send(chat_id, "الخيار غير صالح.", keyboard=active._main_keyboard())
                     continue
                 pick = "pickshort" if session.get("kind") == "short" else "pick"
                 client.send(
@@ -157,22 +172,22 @@ def poll(state_path: Path) -> None:
             elif len(parts) == 3 and parts[0] == "pickshort":
                 session = panel._session(state, parts[1])
                 if not session or session.get("kind") != "short":
-                    client.send(chat_id, "انتهت صلاحية هذا الاختيار.", keyboard=panel._main_keyboard())
+                    client.send(chat_id, "انتهت صلاحية هذا الاختيار.", keyboard=active._main_keyboard())
                     continue
-                request = panel._approve(state, session, int(parts[2]), "short")
-                client.send(chat_id, panel._approval_text(request), keyboard=panel._main_keyboard())
+                request = active._approve_current(state, session, int(parts[2]), "short")
+                client.send(chat_id, active._approval_text(request), keyboard=active._main_keyboard())
             elif len(parts) == 3 and parts[0] == "pick":
                 session = panel._session(state, parts[1])
                 if not session or session.get("kind") != "long":
-                    client.send(chat_id, "انتهت صلاحية هذا الاختيار.", keyboard=panel._main_keyboard())
+                    client.send(chat_id, "انتهت صلاحية هذا الاختيار.", keyboard=active._main_keyboard())
                     continue
                 index = int(parts[2])
                 candidate = session["candidates"][index]
                 preferred_scope = preferred_scope_for_session(state, session)
                 if preferred_scope:
-                    request = panel._approve(state, session, index, preferred_scope)
+                    request = active._approve_current(state, session, index, preferred_scope)
                     clear_scope_hint(state)
-                    client.send(chat_id, panel._approval_text(request), keyboard=panel._main_keyboard())
+                    client.send(chat_id, active._approval_text(request), keyboard=active._main_keyboard())
                 else:
                     client.send(
                         chat_id,
@@ -186,17 +201,17 @@ def poll(state_path: Path) -> None:
             elif len(parts) == 4 and parts[0] == "scope" and parts[3] in _VALID_LONG_SCOPES:
                 session = panel._session(state, parts[1])
                 if not session or session.get("kind") != "long":
-                    client.send(chat_id, "انتهت صلاحية هذا الاختيار.", keyboard=panel._main_keyboard())
+                    client.send(chat_id, "انتهت صلاحية هذا الاختيار.", keyboard=active._main_keyboard())
                     continue
-                request = panel._approve(state, session, int(parts[2]), parts[3])
+                request = active._approve_current(state, session, int(parts[2]), parts[3])
                 clear_scope_hint(state)
-                client.send(chat_id, panel._approval_text(request), keyboard=panel._main_keyboard())
+                client.send(chat_id, active._approval_text(request), keyboard=active._main_keyboard())
             else:
-                client.send(chat_id, panel._menu_text(), keyboard=panel._main_keyboard())
+                client.send(chat_id, active._menu_text(), keyboard=active._main_keyboard())
         else:
             message = update.get("message") or {}
-            command = panel._command_kind(str(message.get("text") or ""))
-            panel._handle_command(command or "menu", client, state, releases, chat_id)
+            command = active._command_kind(str(message.get("text") or ""))
+            active._handle_command(command or "menu", client, state, releases, chat_id)
         state["last_event_at"] = panel._now()
 
     panel.save_state(state_path, state)
