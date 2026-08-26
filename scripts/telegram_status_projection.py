@@ -32,8 +32,24 @@ def _available_saved_count(state: dict[str, Any]) -> int:
     return count
 
 
+def _event_time(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def build_projection(state: dict[str, Any], *, generated_at: datetime | None = None) -> dict[str, Any]:
-    now = generated_at or datetime.now(timezone.utc)
+    # Use the control state's last meaningful event time by default. This keeps the
+    # public sanitized projection byte-stable across empty scheduled health runs,
+    # avoiding a Git commit every five minutes while still recording state changes.
+    now = generated_at or _event_time(state.get("last_event_at")) or datetime.now(timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     now = now.astimezone(timezone.utc)
