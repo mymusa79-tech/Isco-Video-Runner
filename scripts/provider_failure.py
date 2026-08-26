@@ -78,9 +78,21 @@ def classify_provider_failure(provider_name: str, error: Exception | str) -> Pro
     ):
         return ProviderFailure("auth_error", AttemptOutcome.OTHER, True)
 
+    # Run #118: Groq can return HTTP 400 json_validate_failed/structured_generation_failed
+    # after accepting an otherwise valid GPT-OSS structured-output request. This is a
+    # request-scoped generation failure, not an auth/model/config defect. Keep it eligible
+    # for the single bounded provider retry/fallback and never poison Groq for later calls.
+    if (
+        "json_validate_failed" in lower
+        or "structured_generation_failed" in lower
+        or "failed to validate json" in lower
+        or "groq_json_validate_failed" in lower
+    ):
+        return ProviderFailure("generation_error", AttemptOutcome.SCHEMA_INVALID, False)
+
     # Invalid request/config is deterministic for this production adapter. Keep it
-    # circuit-opening; request-size is separated above and therefore remains eligible
-    # for a later smaller request.
+    # circuit-opening; request-size and provider-side structured-generation failures are
+    # separated above and therefore remain eligible for later bounded requests.
     if "http 400" in lower or "bad request" in lower or "invalid argument" in lower or "parameter_unknown" in lower:
         return ProviderFailure("bad_request", AttemptOutcome.OTHER, True)
 
