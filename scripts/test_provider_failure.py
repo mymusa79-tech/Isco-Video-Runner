@@ -17,6 +17,24 @@ class ProviderFailureTaxonomyTests(unittest.TestCase):
         self.assertEqual(failure.budget_outcome, AttemptOutcome.RATE_LIMITED)
         self.assertTrue(failure.open_circuit)
 
+    def test_openrouter_capacity_404_is_distinct_and_session_permanent(self) -> None:
+        failure = classify_provider_failure(
+            "openrouter",
+            RuntimeError("OPENROUTER_NO_PROVIDER_AVAILABLE status=404 message=No endpoints found"),
+        )
+        self.assertEqual(failure.telemetry_result, "capacity_unavailable")
+        self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
+        self.assertTrue(failure.open_circuit)
+
+    def test_openrouter_model_not_found_is_configuration_failure(self) -> None:
+        failure = classify_provider_failure(
+            "openrouter",
+            RuntimeError("OPENROUTER_MODEL_NOT_FOUND status=404 message=Model missing not found"),
+        )
+        self.assertEqual(failure.telemetry_result, "model_not_found")
+        self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
+        self.assertTrue(failure.open_circuit)
+
     def test_groq_413_is_explicit_and_session_permanent(self) -> None:
         failure = classify_provider_failure("groq", RuntimeError("Groq HTTP 413"))
         self.assertEqual(failure.telemetry_result, "payload_too_large")
@@ -25,7 +43,7 @@ class ProviderFailureTaxonomyTests(unittest.TestCase):
 
     def test_non_groq_413_does_not_expand_circuit_policy(self) -> None:
         failure = classify_provider_failure(
-            "openrouter-free-router", RuntimeError("HTTP 413 payload too large")
+            "openrouter", RuntimeError("HTTP 413 payload too large")
         )
         self.assertEqual(failure.telemetry_result, "payload_too_large")
         self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
