@@ -7,5 +7,7 @@ import os
 # where the workflow supplies both the immutable Engine pin and REQUEST_FILE.
 if os.environ.get("REQUEST_FILE") and os.environ.get("ISCO_ENGINE_SHA"):
     from .run120_dossier_repair_hardening import install_run120_dossier_repair_hardening
+    from .run120_schema_policy_bridge import install_run120_schema_policy_bridge
 
     install_run120_dossier_repair_hardening()
+    install_run120_schema_policy_bridge()
