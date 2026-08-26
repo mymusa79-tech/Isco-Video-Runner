@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +10,9 @@ from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
 from scripts import telegram_topic_memory_ui as memory_ui
 
-MAX_UPDATE_BYTES = 64 * 1024
+# workflow_dispatch inputs have a finite payload budget; base64 expands bytes by ~4/3.
+# Keeping raw Telegram updates below 48 KiB leaves safe room for the JSON envelope.
+MAX_UPDATE_BYTES = 48 * 1024
 SEEN_UPDATES_KEY = "telegram_webhook_seen_update_ids"
 MAX_SEEN_UPDATES = 256
 
