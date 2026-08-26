@@ -97,7 +97,7 @@ class Run118OpenRouterFallbackTests(unittest.TestCase):
         router._last_call_rate_limit_headers.clear()
         router._last_call_response_meta.clear()
 
-    def test_output_heavy_openrouter_pins_known_free_model(self) -> None:
+    def test_output_heavy_openrouter_keeps_run118_contract_with_free_only_failover(self) -> None:
         captured = {}
         contract = router._structured_schema_for_prompt(FULL_SCRIPT_PROMPT)
         self.assertIsNotNone(contract)
@@ -123,10 +123,13 @@ class Run118OpenRouterFallbackTests(unittest.TestCase):
             result = capacity._hardened_openrouter_structured_request(FULL_SCRIPT_PROMPT, contract)
 
         self.assertEqual(len(result["sections"]), 3)
-        self.assertEqual(captured["models"], [capacity.OPENROUTER_OUTPUT_HEAVY_MODEL])
+        self.assertEqual(captured["models"], list(capacity.OPENROUTER_OUTPUT_HEAVY_MODELS))
+        self.assertEqual(captured["models"][-1], "openrouter/free")
+        self.assertTrue(all(model.endswith(":free") for model in captured["models"][:-1]))
         self.assertEqual(captured["response_format"], {"type": "json_object"})
         self.assertEqual(captured["reasoning"], {"effort": "low", "exclude": True})
         self.assertEqual(captured["max_tokens"], 2400)
+        self.assertTrue(captured["provider"]["allow_fallbacks"])
         self.assertTrue(captured["provider"]["require_parameters"])
 
 
