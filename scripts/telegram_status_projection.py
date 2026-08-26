@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA_VERSION = 1
+_BOOTSTRAP_TIME = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def _list(value: Any) -> list[Any]:
@@ -46,10 +47,9 @@ def _event_time(value: Any) -> datetime | None:
 
 
 def build_projection(state: dict[str, Any], *, generated_at: datetime | None = None) -> dict[str, Any]:
-    # Use the control state's last meaningful event time by default. This keeps the
-    # public sanitized projection byte-stable across empty scheduled health runs,
-    # avoiding a Git commit every five minutes while still recording state changes.
-    now = generated_at or _event_time(state.get("last_event_at")) or datetime.now(timezone.utc)
+    # Use the control state's last meaningful event time by default. Empty scheduled
+    # health runs therefore do not create a public Git commit every five minutes.
+    now = generated_at or _event_time(state.get("last_event_at")) or _BOOTSTRAP_TIME
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     now = now.astimezone(timezone.utc)
