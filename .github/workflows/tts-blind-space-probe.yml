@@ -21,18 +21,18 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install clients
-        run: python -m pip install --disable-pip-version-check --quiet "google-genai>=1,<2" "gradio_client>=1.12,<2"
+        run: python -m pip install --disable-pip-version-check --quiet "google-genai>=2,<3" "gradio_client>=1.12,<2" "soundfile>=0.13,<1"
       - name: Generate one Arabic sample with all three engines
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json
-          import shutil
-          import subprocess
           import sys
           from pathlib import Path
 
+          import numpy as np
+          import soundfile as sf
           from gradio_client import Client
 
           sys.path.insert(0, str(Path("scripts").resolve()))
@@ -43,27 +43,35 @@ jobs:
           item = blind._read_corpus(Path("scripts/tts_blind_corpus_ar.json"))[0]
           report = {"sample_id": item.sample_id, "engines": {}}
 
+          def normalize_to_wav(source, path: Path):
+              audio, rate = sf.read(str(source), always_2d=False)
+              if getattr(audio, "ndim", 1) > 1:
+                  audio = np.mean(audio, axis=1)
+              sf.write(str(path), audio, int(rate), subtype="PCM_16", format="WAV")
+
           def validate(name: str, path: Path):
               if not path.is_file() or path.stat().st_size < 512:
                   raise RuntimeError(f"{name}: output missing or too small")
-              proc = subprocess.run(
-                  ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(path)],
-                  check=True, capture_output=True, text=True,
-              )
-              duration = float(proc.stdout.strip())
+              info = sf.info(str(path))
+              duration = float(info.duration)
               if duration <= 0.2:
                   raise RuntimeError(f"{name}: invalid duration {duration}")
-              report["engines"][name] = {"status": "ok", "file": path.name, "bytes": path.stat().st_size, "duration_s": round(duration, 3)}
+              report["engines"][name] = {
+                  "status": "ok",
+                  "file": path.name,
+                  "bytes": path.stat().st_size,
+                  "duration_s": round(duration, 3),
+                  "sample_rate_hz": int(info.samplerate),
+                  "channels": int(info.channels),
+              }
 
-          # Gemini: use the permanent harness adapter exactly as merged.
           try:
               p = out / "gemini.wav"
               blind._generate_gemini(item, p)
               validate("gemini", p)
           except Exception as exc:
-              report["engines"]["gemini"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:500]}
+              report["engines"]["gemini"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:700]}
 
-          # VoxCPM2: official public Space, mapped to the harness's engine role.
           try:
               client = Client("openbmb/VoxCPM-Demo", verbose=False)
               source = client.predict(
@@ -78,22 +86,16 @@ jobs:
                   api_name="/generate",
               )
               p = out / "voxcpm2.wav"
-              subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(source), "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", str(p)], check=True)
+              normalize_to_wav(source, p)
               validate("voxcpm2", p)
           except Exception as exc:
-              report["engines"]["voxcpm2"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:500]}
+              report["engines"]["voxcpm2"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:700]}
 
-          # Chatterbox V3: fetch the Space's Arabic reference first, then synthesize Arabic.
           try:
               client = Client("ResembleAI/Chatterbox-Multilingual-TTS-V3", verbose=False)
-              ref_result = client.predict("ar", api_name="/on_language_change")
-              if isinstance(ref_result, (list, tuple)):
-                  arabic_ref = ref_result[0]
-              else:
-                  arabic_ref = ref_result
               source = client.predict(
                   item.text,
-                  arabic_ref,
+                  None,
                   "ar",
                   0.5,
                   0.8,
@@ -102,10 +104,10 @@ jobs:
                   api_name="/generate_tts_audio",
               )
               p = out / "chatterbox_multilingual_v3.wav"
-              subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(source), "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", str(p)], check=True)
+              normalize_to_wav(source, p)
               validate("chatterbox_multilingual_v3", p)
           except Exception as exc:
-              report["engines"]["chatterbox_multilingual_v3"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:500]}
+              report["engines"]["chatterbox_multilingual_v3"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:700]}
 
           (out / "smoke-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
           print(json.dumps(report, ensure_ascii=False, indent=2))
