@@ -122,6 +122,47 @@ jobs:
             exit 1
           fi
 
+      - name: Ensure free workers.dev account subdomain
+        run: |
+          set -euo pipefail
+          response_file="$RUNNER_TEMP/cloudflare-workers-subdomain.json"
+          http_code="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'content-type: application/json' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain")"
+          current="$(python - "$response_file" <<'PY'
+          import json, pathlib, sys
+          try:
+              payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          except Exception:
+              payload = {}
+          result = payload.get('result') or {}
+          print(str(result.get('subdomain') or '').strip())
+          PY
+          )"
+          if [ "$http_code" = "200" ] && [ -n "$current" ]; then
+            echo "workers.dev account subdomain already configured"
+            exit 0
+          fi
+          candidate="$(python - <<'PY'
+          import hashlib, os
+          digest = hashlib.sha256(os.environ['CLOUDFLARE_ACCOUNT_ID'].encode('utf-8')).hexdigest()[:12]
+          print(f"isco-video-{digest}")
+          PY
+          )"
+          create_body="$(python - "$candidate" <<'PY'
+          import json, sys
+          print(json.dumps({'subdomain': sys.argv[1]}))
+          PY
+          )"
+          created="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 25 \
+            -X PUT "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'content-type: application/json' \
+            --data "$create_body")"
+          printf '%s' "$created" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("success") is True; assert (p.get("result") or {}).get("subdomain")'
+          echo "workers.dev account subdomain created in ZERO_COST_MODE"
+
       - name: Validate Worker syntax
         run: |
           set -euo pipefail
@@ -136,6 +177,7 @@ jobs:
           PY
           )"
           test -n "$WEBHOOK_SECRET"
+          echo "::add-mask::$WEBHOOK_SECRET"
           echo "TELEGRAM_WEBHOOK_SECRET=$WEBHOOK_SECRET" >> "$GITHUB_ENV"
 
       - name: Deploy Worker

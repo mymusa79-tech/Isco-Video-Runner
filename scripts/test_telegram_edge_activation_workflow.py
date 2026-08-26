@@ -31,9 +31,17 @@ class TelegramEdgeActivationWorkflowTests(unittest.TestCase):
         self.assertNotIn('GITHUB_CONTROL_TOKEN: ${{ secrets.GITHUB_CONTROL_TOKEN }}', self.text)
         self.assertIn('put_secret GITHUB_CONTROL_TOKEN "$GITHUB_CONTROL_TOKEN"', self.text)
 
-    def test_webhook_secret_is_generated_not_stored_in_repo(self):
+    def test_workers_dev_account_subdomain_is_bootstrapped_via_free_api(self):
+        self.assertIn('Ensure free workers.dev account subdomain', self.text)
+        self.assertIn('/workers/subdomain', self.text)
+        self.assertIn('-X PUT', self.text)
+        self.assertIn("hashlib.sha256(os.environ['CLOUDFLARE_ACCOUNT_ID']", self.text)
+        self.assertIn('workers.dev account subdomain created in ZERO_COST_MODE', self.text)
+
+    def test_webhook_secret_is_generated_masked_and_not_stored_in_repo(self):
         self.assertIn('Generate webhook secret', self.text)
         self.assertIn('secrets.token_urlsafe(32)', self.text)
+        self.assertIn('echo "::add-mask::$WEBHOOK_SECRET"', self.text)
         self.assertIn('put_secret TELEGRAM_WEBHOOK_SECRET', self.text)
         self.assertIn('"secret_token": os.environ["TELEGRAM_WEBHOOK_SECRET"]', self.text)
         self.assertNotIn('secrets.TELEGRAM_WEBHOOK_SECRET', self.text)
