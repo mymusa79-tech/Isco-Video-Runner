@@ -134,14 +134,24 @@ class EdgeObservabilityContractTests(unittest.TestCase):
             'state: "unavailable"',
             "getWebhookInfo",
             "pending_update_count",
-            "telegram-status.json?ref=control-plane-state",
+            "raw.githubusercontent.com",
+            "control-plane-state/state/telegram-status.json",
             "telegram-editorial-control.yml/runs?per_page=1",
             "آخر تحقق شامل",
         ):
             self.assertIn(marker, self.worker)
 
+    def test_global_and_leaf_refresh_edit_in_place_without_duplicate_on_no_change(self) -> None:
+        self.assertIn('telegram(env, "editMessageText"', self.worker)
+        self.assertIn("message is not modified", self.worker)
+        self.assertIn("updatePanel(env, target", self.worker)
+
+    def test_public_github_read_fallback_is_bounded(self) -> None:
+        self.assertIn("[401, 403, 404].includes(response.status)", self.worker)
+        self.assertIn("githubHeaders(env, false)", self.worker)
+
     def test_stats_leaf_has_local_and_global_refresh(self) -> None:
-        self.assertIn('{ text: "🔄 تحديث", callback_data: currentRefresh }', self.worker)
+        self.assertIn('{ text: "🔄 تحديث", callback_data: `cmd:${kind}` }', self.worker)
         self.assertIn('{ text: "🔄 تحديث الكل", callback_data: "cmd:refresh_all" }', self.worker)
 
 
