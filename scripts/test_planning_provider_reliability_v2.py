@@ -9,8 +9,12 @@ from unittest.mock import patch
 
 import scripts.task_level_planner_router as router
 from scripts.provider_failure import classify_provider_failure
+from isco_video_agent.anti_repetition import novelty_context
+from isco_video_agent.config import load_approved_brief, load_editorial_policy
+from isco_video_agent.learning import learning_context
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as staged
+from isco_video_agent.providers.gemini import with_channel_persona as engine_persona
 
 
 class _Response:
@@ -24,8 +28,21 @@ class _Response:
         return self._payload
 
 
-def _chat_ok(data: dict, *, finish_reason: str = "stop") -> _Response:
-    return _Response(200, {"choices": [{"finish_reason": finish_reason, "message": {"content": json.dumps(data)}}]})
+def _chat_ok(
+    data: dict,
+    *,
+    finish_reason: str = "stop",
+    model: str | None = None,
+    usage: dict | None = None,
+) -> _Response:
+    payload = {
+        "choices": [{"finish_reason": finish_reason, "message": {"content": json.dumps(data)}}]
+    }
+    if model is not None:
+        payload["model"] = model
+    if usage is not None:
+        payload["usage"] = usage
+    return _Response(200, payload)
 
 
 def _outline_prompt(n: int = 2) -> str:
@@ -56,6 +73,7 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
         self.orig_build = staged.build_plan
         self.orig_orchestrator_build = orchestrator.build_plan
         router._TELEMETRY.clear(); router._USED_PROVIDERS.clear(); router._last_call_rate_limit_headers.clear()
+        router._last_call_response_meta.clear()
 
     def tearDown(self) -> None:
         staged.json_text = self.orig_json_text
@@ -116,6 +134,45 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(post.call_count, 1)
 
+    def test_run116_exact_envelope_survives_gemini_500_and_reaches_groq(self) -> None:
+        brief = load_approved_brief(required=True)
+        prompt = staged.build_outline_prompt(
+            topic=brief["approved_topic"],
+            fmt="film",
+            policy_json=json.dumps(load_editorial_policy(), ensure_ascii=False),
+            research_json=json.dumps(
+                orchestrator.planning_research_context(brief, {}), ensure_ascii=False
+            ),
+            avoid_json=json.dumps(novelty_context(), ensure_ascii=False),
+            learning_json=json.dumps(learning_context("film"), ensure_ascii=False),
+            revision_note="",
+        )
+        groq_prompts: list[str] = []
+
+        def healthy_groq(value: str) -> dict:
+            groq_prompts.append(value)
+            return {"ok": True}
+
+        with patch.object(router, "with_channel_persona", side_effect=engine_persona), \
+                patch.object(router, "gemini_json_text", side_effect=RuntimeError("HTTP 500 high demand")) as gemini, \
+                patch.object(router, "_groq_call", side_effect=healthy_groq), \
+                patch.object(router, "_openrouter_call_with_repair") as openrouter:
+            router.install_router()
+            result = staged.json_text("unused", prompt, model="gemini-2.5-flash")
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(gemini.call_count, 2)
+        self.assertEqual(len(groq_prompts), 1)
+        self.assertLessEqual(
+            len(groq_prompts[0].encode("utf-8")),
+            router.GROQ_MAX_PROMPT_UTF8_BYTES,
+        )
+        openrouter.assert_not_called()
+        self.assertEqual(
+            [entry["result"] for entry in router.get_telemetry()],
+            ["server_error", "server_error", "success"],
+        )
+
     def test_groq_known_contract_uses_strict_json_schema(self) -> None:
         seen: dict = {}
         def post(url, **kwargs):
@@ -128,6 +185,7 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
         self.assertTrue(fmt["json_schema"]["strict"])
         self.assertEqual(fmt["json_schema"]["name"], "editorial_outline")
         self.assertFalse(fmt["json_schema"]["schema"]["additionalProperties"])
+        self.assertEqual(seen["json"]["reasoning_effort"], "low")
 
     def test_groq_length_finish_reason_is_explicit_truncation(self) -> None:
         with patch.object(router.requests, "post", return_value=_chat_ok({"ok": True}, finish_reason="length")):
@@ -149,6 +207,20 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
         self.assertTrue(payload["provider"]["allow_fallbacks"])
         self.assertTrue(payload["provider"]["require_parameters"])
         self.assertTrue(payload["response_format"]["json_schema"]["strict"])
+        self.assertNotIn("reasoning", payload)
+
+    def test_openrouter_outline_reserves_completion_budget_with_low_reasoning(self) -> None:
+        seen: dict = {}
+        def post(url, **kwargs):
+            del url
+            seen["json"] = kwargs["json"]
+            return _chat_ok({"section_briefs": []})
+        contract = router._structured_schema_for_prompt(_outline_prompt(2))
+        with patch.object(router.requests, "post", side_effect=post):
+            router._openrouter_structured_request(_outline_prompt(2), contract)
+        self.assertEqual(
+            seen["json"]["reasoning"], {"effort": "low", "exclude": True}
+        )
 
     def test_openrouter_malformed_json_uses_compact_repair_not_full_prompt_replay(self) -> None:
         original = "ORIGINAL_SECRET_MARKER " + ("z" * 20000)
@@ -184,6 +256,30 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
         self.assertEqual(entry["response_contract"], "json_object")
         self.assertGreater(entry["prompt_utf8_bytes"], 0)
         self.assertNotIn(marker, json.dumps(entry, ensure_ascii=False))
+
+    def test_provider_usage_metadata_is_recorded_without_response_content(self) -> None:
+        response = _chat_ok(
+            {"result": "RESPONSE_BODY_MARKER_MUST_NOT_BE_STORED"},
+            model="openai/gpt-oss-20b",
+            usage={
+                "prompt_tokens": 1200,
+                "completion_tokens": 700,
+                "completion_tokens_details": {"reasoning_tokens": 180},
+            },
+        )
+        with patch.object(router, "gemini_json_text", side_effect=RuntimeError("HTTP 403")), \
+                patch.object(router.requests, "post", return_value=response):
+            router.install_router()
+            staged.json_text("unused", "small prompt", model="gemini-2.5-flash")
+        entry = router.get_telemetry()[-1]
+        self.assertEqual(entry["resolved_model"], "openai/gpt-oss-20b")
+        self.assertEqual(entry["prompt_tokens"], 1200)
+        self.assertEqual(entry["completion_tokens"], 700)
+        self.assertEqual(entry["reasoning_tokens"], 180)
+        self.assertNotIn(
+            "RESPONSE_BODY_MARKER_MUST_NOT_BE_STORED",
+            json.dumps(entry, ensure_ascii=False),
+        )
 
 
 if __name__ == "__main__":

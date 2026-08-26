@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 9cab677a74f80489ff36665f98fc343a3b61eee2
+          ref: 6a0d91cc80511a174a47b95c6c203f8d93ba86ca
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -41,7 +41,7 @@ jobs:
 
       - name: Verify exact Engine pin
         working-directory: engine
-        run: test "$(git rev-parse HEAD)" = "9cab677a74f80489ff36665f98fc343a3b61eee2"
+        run: test "$(git rev-parse HEAD)" = "6a0d91cc80511a174a47b95c6c203f8d93ba86ca"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         id: setup_python
@@ -247,6 +247,15 @@ jobs:
             --pexels-key-file "$PEXELS_API_KEY_FILE" \
             --pixabay-key-file "$PIXABAY_API_KEY_FILE"
 
+      - name: Certify provider-portable planning envelope
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
+        run: |
+          set -euo pipefail
+          python scripts/planning_envelope_preflight.py \
+            --output "$RUNNER_TEMP/planning-envelope-preflight.json"
+
       - name: Produce with task-level brain and voice meshes
         id: produce_video
         working-directory: engine
@@ -260,7 +269,7 @@ jobs:
           YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
           YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
           YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
-          ISCO_ENGINE_SHA: 9cab677a74f80489ff36665f98fc343a3b61eee2
+          ISCO_ENGINE_SHA: 6a0d91cc80511a174a47b95c6c203f8d93ba86ca
           ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
           ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
           TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token

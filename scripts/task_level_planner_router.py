@@ -50,6 +50,7 @@ PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS = 6
 _USED_PROVIDERS: list[str] = []
 _TELEMETRY: list[dict] = []
 _last_call_rate_limit_headers: dict = {}
+_last_call_response_meta: dict = {}
 _CURRENT_REQUEST_META: dict = {}
 
 _OPENROUTER_FALLBACK_MODELS = ("openai/gpt-oss-20b:free",)
@@ -90,6 +91,21 @@ def _extract_rate_limit_headers(headers) -> dict:
     }
 
 
+def _extract_response_meta(body: dict, choice: dict) -> dict:
+    usage = body.get("usage") if isinstance(body, dict) else None
+    usage = usage if isinstance(usage, dict) else {}
+    completion_details = usage.get("completion_tokens_details")
+    completion_details = completion_details if isinstance(completion_details, dict) else {}
+    return {
+        "resolved_model": str(body.get("model") or "")[:120] or None,
+        "finish_reason": str(choice.get("finish_reason") or "")[:80] or None,
+        "native_finish_reason": str(choice.get("native_finish_reason") or "")[:80] or None,
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "completion_tokens": usage.get("completion_tokens"),
+        "reasoning_tokens": completion_details.get("reasoning_tokens"),
+    }
+
+
 def _request_metadata(prompt: str) -> dict:
     contract = _structured_schema_for_prompt(prompt)
     return {
@@ -108,6 +124,8 @@ def _record_attempt(
 ) -> None:
     headers = dict(_last_call_rate_limit_headers)
     _last_call_rate_limit_headers.clear()
+    response_meta = dict(_last_call_response_meta)
+    _last_call_response_meta.clear()
     entry = {
         "provider": provider_name,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -121,6 +139,7 @@ def _record_attempt(
     }
     # Safe metadata only: never store prompt text, secrets, or response bodies.
     entry.update(_CURRENT_REQUEST_META)
+    entry.update(response_meta)
     _TELEMETRY.append(entry)
 
 
@@ -440,16 +459,22 @@ def _groq_call(prompt: str) -> dict:
                 "type": "json_schema",
                 "json_schema": {"name": schema_name, "strict": True, "schema": schema},
             }
+        request_payload = {
+            "model": "openai/gpt-oss-20b",
+            "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
+            "response_format": response_format,
+            "temperature": 0.15,
+            "max_completion_tokens": _completion_tokens_for_contract(contract),
+        }
+        # GPT-OSS reasoning tokens share the completion budget.  For the bounded
+        # outline schema, low effort preserves reasoning while reserving room for the
+        # complete JSON instead of reproducing Run #116's finish_reason=length.
+        if contract is not None and contract[0] == "editorial_outline":
+            request_payload["reasoning_effort"] = "low"
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
-            json={
-                "model": "openai/gpt-oss-20b",
-                "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
-                "response_format": response_format,
-                "temperature": 0.15,
-                "max_completion_tokens": _completion_tokens_for_contract(contract),
-            },
+            json=request_payload,
             timeout=90,
         )
         _last_call_rate_limit_headers.update(_extract_rate_limit_headers(response.headers))
@@ -460,6 +485,7 @@ def _groq_call(prompt: str) -> dict:
         if not choices:
             raise RuntimeError("Groq returned no choices")
         choice = choices[0]
+        _last_call_response_meta.update(_extract_response_meta(body, choice))
         finish = str(choice.get("finish_reason") or "").strip().lower()
         if finish in {"length", "max_tokens"}:
             raise RuntimeError("GROQ_PREMATURE_RESPONSE finish_reason=length")
@@ -480,6 +506,20 @@ def _openrouter_structured_request(prompt: str, contract: tuple[str, dict]) -> d
     token = _openrouter_key()
 
     def do_request() -> dict:
+        request_payload = {
+            "models": list(_OPENROUTER_MODELS),
+            "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": schema_name, "strict": True, "schema": schema},
+            },
+            "provider": {"allow_fallbacks": True, "require_parameters": True},
+            "plugins": [{"id": "response-healing"}],
+            "temperature": 0.3,
+            "max_tokens": _completion_tokens_for_contract(contract),
+        }
+        if schema_name == "editorial_outline":
+            request_payload["reasoning"] = {"effort": "low", "exclude": True}
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={
@@ -488,18 +528,7 @@ def _openrouter_structured_request(prompt: str, contract: tuple[str, dict]) -> d
                 "HTTP-Referer": "https://github.com/mymusa79-tech/Isco-Video-Runner",
                 "X-Title": "Isco Video Runner",
             },
-            json={
-                "models": list(_OPENROUTER_MODELS),
-                "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
-                "response_format": {
-                    "type": "json_schema",
-                    "json_schema": {"name": schema_name, "strict": True, "schema": schema},
-                },
-                "provider": {"allow_fallbacks": True, "require_parameters": True},
-                "plugins": [{"id": "response-healing"}],
-                "temperature": 0.3,
-                "max_tokens": _completion_tokens_for_contract(contract),
-            },
+            json=request_payload,
             timeout=120,
         )
         _last_call_rate_limit_headers.update(_extract_rate_limit_headers(response.headers))
@@ -510,6 +539,7 @@ def _openrouter_structured_request(prompt: str, contract: tuple[str, dict]) -> d
         if not choices:
             raise RuntimeError("OpenRouter returned no choices")
         choice = choices[0]
+        _last_call_response_meta.update(_extract_response_meta(body, choice))
         finish = str(choice.get("finish_reason") or "").strip().lower()
         if finish in {"length", "max_tokens"}:
             raise RuntimeError("OPENROUTER_PREMATURE_RESPONSE finish_reason=length")
@@ -603,6 +633,7 @@ def install_router() -> None:
     _USED_PROVIDERS.clear()
     _TELEMETRY.clear()
     _CURRENT_REQUEST_META.clear()
+    _last_call_response_meta.clear()
     gemini_key = _read_secret_file("GEMINI_API_KEY_FILE")
 
     providers = [
