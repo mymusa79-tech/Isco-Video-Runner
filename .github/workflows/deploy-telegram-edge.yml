@@ -8,10 +8,24 @@ on:
     paths:
       - ".github/workflows/deploy-telegram-edge.yml"
       - "cloudflare/telegram-control-worker/**"
+      - "scripts/telegram_status_contract.json"
+      - "scripts/telegram_status_model.py"
+      - "scripts/telegram_status_projection.py"
+      - "scripts/generate_telegram_status_contract_js.py"
+      - "scripts/telegram_final_notify.py"
+      - "scripts/telegram_operations_ui.py"
+      - "scripts/test_telegram_observability_v1.py"
   pull_request:
     paths:
       - ".github/workflows/deploy-telegram-edge.yml"
       - "cloudflare/telegram-control-worker/**"
+      - "scripts/telegram_status_contract.json"
+      - "scripts/telegram_status_model.py"
+      - "scripts/telegram_status_projection.py"
+      - "scripts/generate_telegram_status_contract_js.py"
+      - "scripts/telegram_final_notify.py"
+      - "scripts/telegram_operations_ui.py"
+      - "scripts/test_telegram_observability_v1.py"
       - "scripts/test_telegram_edge_activation_workflow.py"
 
 permissions:
@@ -34,16 +48,23 @@ jobs:
       - name: Checkout Runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Validate Worker and zero-cost activation contract
+      - name: Validate Worker and observability contracts
         run: |
           set -euo pipefail
           node --check cloudflare/telegram-control-worker/index.js
-          python -m unittest -v scripts.test_telegram_edge_worker_contract scripts.test_telegram_edge_activation_workflow
+          node --check cloudflare/telegram-control-worker/observability-worker.js
+          node --check cloudflare/telegram-control-worker/status-contract.generated.js
+          python -m unittest -v \
+            scripts.test_telegram_edge_worker_contract \
+            scripts.test_telegram_edge_activation_workflow \
+            scripts.test_telegram_observability_v1 \
+            scripts.test_telegram_final_notify
           python - <<'PY'
           import pathlib, tomllib
           p = pathlib.Path('cloudflare/telegram-control-worker/wrangler.toml.example')
           data = tomllib.loads(p.read_text(encoding='utf-8'))
           assert data.get('workers_dev') is True
+          assert data.get('main') == 'observability-worker.js'
           assert 'limits' not in data, 'Cloudflare Free must use provider-native limits; configurable CPU limits require Paid'
           assert data.get('vars', {}).get('ZERO_COST_MODE') == 'true'
           forbidden = {
@@ -85,6 +106,7 @@ jobs:
           import pathlib, tomllib
           data = tomllib.loads(pathlib.Path('cloudflare/telegram-control-worker/wrangler.toml.example').read_text(encoding='utf-8'))
           assert data.get('workers_dev') is True, 'workers.dev only is required in ZERO_COST_MODE'
+          assert data.get('main') == 'observability-worker.js'
           assert 'limits' not in data, 'Cloudflare Free must use provider-native limits; configurable CPU limits require Paid'
           assert data.get('vars', {}).get('ZERO_COST_MODE') == 'true'
           forbidden = {
@@ -161,10 +183,17 @@ jobs:
           printf '%s' "$created" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("success") is True; assert (p.get("result") or {}).get("subdomain")'
           echo "workers.dev account subdomain created in ZERO_COST_MODE"
 
-      - name: Validate Worker syntax
+      - name: Validate Worker and observability contracts
         run: |
           set -euo pipefail
           node --check cloudflare/telegram-control-worker/index.js
+          node --check cloudflare/telegram-control-worker/observability-worker.js
+          node --check cloudflare/telegram-control-worker/status-contract.generated.js
+          python -m unittest -v \
+            scripts.test_telegram_edge_worker_contract \
+            scripts.test_telegram_edge_activation_workflow \
+            scripts.test_telegram_observability_v1 \
+            scripts.test_telegram_final_notify
 
       - name: Generate webhook secret
         run: |
@@ -211,7 +240,7 @@ jobs:
         run: |
           set -euo pipefail
           body="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 20 "$WORKER_URL/health")"
-          printf '%s' "$body" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("mode") == "telegram-edge-control"'
+          printf '%s' "$body" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("mode") == "telegram-edge-control" and p.get("observability") == "v1" and int(p.get("status_schema") or 0) == 1'
 
       - name: Register Telegram webhook
         run: |
@@ -249,7 +278,7 @@ jobs:
           import json, os
           print(json.dumps({
               "chat_id": os.environ["TELEGRAM_CHAT_ID"],
-              "text": "⚡ تم تفعيل Telegram Edge Control — ZERO COST MODE.\n\nالقوائم والإحصائيات وزر التفاصيل تستجيب عبر Webhook مباشر بدل انتظار polling.\nCloudflare: Free فقط؛ عند بلوغ حد الخطة المجانية تتوقف الخدمة بدل وجود مسار ترقية في هذا النظام.\n\nاضغط «🏠 ابدأ» للتجربة.",
+              "text": "⚡ تم تحديث لوحة تشغيل نداء اليقظة.\n\nزر «🔄 تحديث الكل» يقرأ الآن حالة الإنتاج والتحرير وآخر الحزم وYouTube وصحة Telegram في صورة واحدة، من دون بدء أو إعادة أي Production Run.\n\nاضغط «🏠 ابدأ» لفتح اللوحة.",
               "disable_web_page_preview": True,
               "reply_markup": {
                   "keyboard": [[{"text": "🏠 ابدأ"}]],
@@ -265,5 +294,6 @@ jobs:
         run: |
           echo "Telegram Edge Control is live at $WORKER_URL/telegram"
           echo "Health: $WORKER_URL/health"
+          echo "Observability: v1; canonical status schema: 1"
           echo "ZERO_COST_MODE=true; native Workers Free ceilings are authoritative; no paid Cloudflare binding or plan-upgrade operation is present"
           echo "Production authority remains in telegram-editorial-control.yml"
