@@ -13,7 +13,7 @@ import task_level_planner_router as router  # noqa: E402
 import isco_video_agent.resilient_planner as staged  # noqa: E402
 
 
-class GroqPayloadTooLargeCircuitTests(unittest.TestCase):
+class GroqPayloadTooLargeRecoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
         gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
@@ -82,21 +82,22 @@ class GroqPayloadTooLargeCircuitTests(unittest.TestCase):
         self.assertEqual(telemetry[1]["result"], "payload_too_large")
         self.assertEqual(telemetry[1]["error_detail"], "Groq HTTP 413")
 
-    def test_groq_413_opens_circuit_for_rest_of_planning_session(self) -> None:
+    def test_groq_remains_eligible_for_later_smaller_repair_request(self) -> None:
         groq_calls = 0
         openrouter_calls = 0
 
         def fake_groq(prompt):
             nonlocal groq_calls
-            del prompt
             groq_calls += 1
-            raise RuntimeError("Groq HTTP 413")
+            if "oversized-parent-request" in prompt:
+                raise RuntimeError("Groq HTTP 413")
+            return {"ok": True, "provider": "groq"}
 
         def fake_openrouter(prompt, model):
             nonlocal openrouter_calls
             del prompt, model
             openrouter_calls += 1
-            return {"ok": True}
+            return {"ok": True, "provider": "openrouter"}
 
         with patch.object(router, "gemini_json_text", side_effect=self._gemini_rate_limited), \
                 patch.object(router, "_groq_call", side_effect=fake_groq), \
@@ -104,25 +105,24 @@ class GroqPayloadTooLargeCircuitTests(unittest.TestCase):
             router.install_router()
             first = staged.json_text(
                 "unused-api-key",
-                "نداء اليقظة: القسم الأول 413",
+                "نداء اليقظة oversized-parent-request",
                 model="gemini-2.5-flash",
             )
             second = staged.json_text(
                 "unused-api-key",
-                "نداء اليقظة: القسم الثاني 413",
+                "نداء اليقظة compact-repair-request",
                 model="gemini-2.5-flash",
             )
 
-        self.assertEqual(first, {"ok": True})
-        self.assertEqual(second, {"ok": True})
-        self.assertEqual(groq_calls, 1, "Groq must not receive the same oversized class of request again")
-        self.assertEqual(openrouter_calls, 2)
+        self.assertEqual(first["provider"], "openrouter")
+        self.assertEqual(second["provider"], "groq")
+        self.assertEqual(groq_calls, 2)
+        self.assertEqual(openrouter_calls, 1)
 
         groq_events = [x for x in router.get_telemetry() if x["provider"] == "groq"]
         self.assertEqual(len(groq_events), 2)
         self.assertEqual(groq_events[0]["result"], "payload_too_large")
-        self.assertEqual(groq_events[0]["error_detail"], "Groq HTTP 413")
-        self.assertEqual(groq_events[1]["result"], "circuit-open")
+        self.assertEqual(groq_events[1]["result"], "success")
 
 
 if __name__ == "__main__":
