@@ -133,6 +133,37 @@ def _install_policy() -> None:
     ui._used_page = _used_page_global_history
 
 
+def _clear_candidate_keyboard(session_id: str, kind: str) -> list[list[dict[str, str]]]:
+    from scripts import telegram_persistent_control_ui as persistent_ui
+
+    rows = persistent_ui._candidate_keyboard(session_id, kind)
+    badges = ("1️⃣", "2️⃣", "3️⃣")
+    for index, badge in enumerate(badges):
+        if index >= len(rows) or len(rows[index]) < 2:
+            break
+        rows[index][0]["text"] = f"✅ {badge} اختر هذه الفكرة"
+        rows[index][1]["text"] = f"📋 تفاصيل الفكرة {index + 1}"
+    return rows
+
+
+def _clear_candidate_panel_text(kind: str, candidates: list[dict[str, Any]]) -> str:
+    from scripts import telegram_persistent_control_ui as persistent_ui
+
+    base = persistent_ui._candidate_panel_text(kind, candidates)
+    return (
+        base
+        + "\n\nطريقة الاختيار واضحة:\n"
+        + "✅ اضغط زر «اختر هذه الفكرة» تحت الرقم الذي تريده.\n"
+        + "📋 أو افتح التفاصيل أولًا. لا يبدأ Production بمجرد الاختيار."
+    )
+
+
+def _install_choice_clarity() -> None:
+    """Keep numbered research results actionable and unambiguous."""
+    panel._candidate_keyboard = _clear_candidate_keyboard
+    panel._candidate_panel_text = _clear_candidate_panel_text
+
+
 def main() -> None:
     _install_policy()
     # Install the persistent reply-keyboard entry point and text-only production
@@ -140,6 +171,7 @@ def main() -> None:
     from scripts import telegram_persistent_control_ui as persistent_ui
 
     persistent_ui.install()
+    _install_choice_clarity()
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     _require_poll_identity(mode)
     ui.main()
