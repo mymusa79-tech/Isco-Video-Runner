@@ -135,6 +135,11 @@ def _install_policy() -> None:
 
 def main() -> None:
     _install_policy()
+    # Layer the persistent entry surface and exact text-confirmation policy only
+    # after the global topic-memory policy is installed, so both policies compose.
+    from scripts import telegram_persistent_control_ui as persistent_ui
+
+    persistent_ui.install()
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     _require_poll_identity(mode)
     ui.main()
