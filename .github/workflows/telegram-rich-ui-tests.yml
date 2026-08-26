@@ -5,26 +5,46 @@ on:
     branches: [main]
     paths:
       - "cloudflare/telegram-control-worker/index.js"
+      - "cloudflare/telegram-control-worker/observability-worker.js"
+      - "cloudflare/telegram-control-worker/status-contract.generated.js"
       - "scripts/telegram_bot_api_10_3_ui.py"
       - "scripts/telegram_production_rich_ui.py"
       - "scripts/telegram_rich_integration.py"
       - "scripts/telegram_topic_memory_ui.py"
+      - "scripts/telegram_final_notify.py"
+      - "scripts/telegram_operations_ui.py"
+      - "scripts/telegram_status_contract.json"
+      - "scripts/telegram_status_model.py"
+      - "scripts/telegram_status_projection.py"
+      - "scripts/generate_telegram_status_contract_js.py"
       - "scripts/test_telegram_edge_worker_contract.py"
       - "scripts/test_telegram_bot_api_10_3_ui.py"
       - "scripts/test_telegram_production_rich_ui.py"
       - "scripts/test_telegram_rich_integration.py"
+      - "scripts/test_telegram_final_notify.py"
+      - "scripts/test_telegram_observability_v1.py"
       - ".github/workflows/telegram-rich-ui-tests.yml"
   pull_request:
     paths:
       - "cloudflare/telegram-control-worker/index.js"
+      - "cloudflare/telegram-control-worker/observability-worker.js"
+      - "cloudflare/telegram-control-worker/status-contract.generated.js"
       - "scripts/telegram_bot_api_10_3_ui.py"
       - "scripts/telegram_production_rich_ui.py"
       - "scripts/telegram_rich_integration.py"
       - "scripts/telegram_topic_memory_ui.py"
+      - "scripts/telegram_final_notify.py"
+      - "scripts/telegram_operations_ui.py"
+      - "scripts/telegram_status_contract.json"
+      - "scripts/telegram_status_model.py"
+      - "scripts/telegram_status_projection.py"
+      - "scripts/generate_telegram_status_contract_js.py"
       - "scripts/test_telegram_edge_worker_contract.py"
       - "scripts/test_telegram_bot_api_10_3_ui.py"
       - "scripts/test_telegram_production_rich_ui.py"
       - "scripts/test_telegram_rich_integration.py"
+      - "scripts/test_telegram_final_notify.py"
+      - "scripts/test_telegram_observability_v1.py"
       - ".github/workflows/telegram-rich-ui-tests.yml"
   workflow_dispatch:
 
@@ -44,19 +64,28 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Compile Telegram rich UI modules
+      - name: Compile Telegram status and UI modules
         run: |
           python -m py_compile \
             scripts/telegram_bot_api_10_3_ui.py \
             scripts/telegram_production_rich_ui.py \
             scripts/telegram_rich_integration.py \
-            scripts/telegram_topic_memory_ui.py
+            scripts/telegram_topic_memory_ui.py \
+            scripts/telegram_final_notify.py \
+            scripts/telegram_operations_ui.py \
+            scripts/telegram_status_model.py \
+            scripts/telegram_status_projection.py \
+            scripts/generate_telegram_status_contract_js.py
           node --check cloudflare/telegram-control-worker/index.js
+          node --check cloudflare/telegram-control-worker/observability-worker.js
+          node --check cloudflare/telegram-control-worker/status-contract.generated.js
 
-      - name: Run Telegram rich UI tests
+      - name: Run Telegram UI and observability tests
         run: |
           python -m unittest -v \
             scripts.test_telegram_edge_worker_contract \
             scripts.test_telegram_bot_api_10_3_ui \
             scripts.test_telegram_production_rich_ui \
-            scripts.test_telegram_rich_integration
+            scripts.test_telegram_rich_integration \
+            scripts.test_telegram_final_notify \
+            scripts.test_telegram_observability_v1
