@@ -4,20 +4,24 @@ on:
   push:
     branches: [main]
     paths:
+      - "cloudflare/telegram-control-worker/index.js"
       - "scripts/telegram_bot_api_10_3_ui.py"
       - "scripts/telegram_production_rich_ui.py"
       - "scripts/telegram_rich_integration.py"
       - "scripts/telegram_topic_memory_ui.py"
+      - "scripts/test_telegram_edge_worker_contract.py"
       - "scripts/test_telegram_bot_api_10_3_ui.py"
       - "scripts/test_telegram_production_rich_ui.py"
       - "scripts/test_telegram_rich_integration.py"
       - ".github/workflows/telegram-rich-ui-tests.yml"
   pull_request:
     paths:
+      - "cloudflare/telegram-control-worker/index.js"
       - "scripts/telegram_bot_api_10_3_ui.py"
       - "scripts/telegram_production_rich_ui.py"
       - "scripts/telegram_rich_integration.py"
       - "scripts/telegram_topic_memory_ui.py"
+      - "scripts/test_telegram_edge_worker_contract.py"
       - "scripts/test_telegram_bot_api_10_3_ui.py"
       - "scripts/test_telegram_production_rich_ui.py"
       - "scripts/test_telegram_rich_integration.py"
@@ -47,10 +51,12 @@ jobs:
             scripts/telegram_production_rich_ui.py \
             scripts/telegram_rich_integration.py \
             scripts/telegram_topic_memory_ui.py
+          node --check cloudflare/telegram-control-worker/index.js
 
       - name: Run Telegram rich UI tests
         run: |
           python -m unittest -v \
+            scripts.test_telegram_edge_worker_contract \
             scripts.test_telegram_bot_api_10_3_ui \
             scripts.test_telegram_production_rich_ui \
             scripts.test_telegram_rich_integration
