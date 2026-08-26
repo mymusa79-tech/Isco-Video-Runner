@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts import persistent_memory as pm
+
+
+NON_CANONICAL_TEST_ENV = {
+    "GITHUB_WORKFLOW_REF": (
+        "mymusa79-tech/Isco-Video-Runner/.github/workflows/verify-private-engine.yml@refs/heads/main"
+    ),
+    "GITHUB_RUN_NUMBER": "999",
+}
 
 
 class PersistentMemoryRegressionPreservationTests(unittest.TestCase):
@@ -56,7 +66,8 @@ class PersistentMemoryRegressionPreservationTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             out = Path(td) / "runtime.json"
-            status = pm.restore_from_git(Path(td), out, "key", run_cmd=fake_run)
+            with patch.dict(os.environ, NON_CANONICAL_TEST_ENV, clear=False):
+                status = pm.restore_from_git(Path(td), out, "key", run_cmd=fake_run)
             self.assertFalse(status.save_allowed)
             self.assertEqual(status.source, "agent-state")
             self.assertIn("not an approved one-time migration blob", status.reason)

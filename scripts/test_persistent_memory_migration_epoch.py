@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -100,6 +102,32 @@ class PersistentMemoryMigrationEpochTests(unittest.TestCase):
             plaintext, restored = crypto.open_envelope(payload, "key")
         self.assertEqual(plaintext, b'{"videos":[]}\n')
         self.assertEqual(restored.sequence, 111)
+
+    def test_general_legacy_contracts_are_hermetic_inside_canonical_run_112(self) -> None:
+        env = dict(os.environ)
+        env.update({
+            "GITHUB_WORKFLOW_REF": PRODUCTION_WORKFLOW_REF,
+            "GITHUB_RUN_NUMBER": "112",
+        })
+        selected = [
+            "scripts.test_persistent_memory.PersistentMemoryTests.test_arbitrary_legacy_cbc_is_rejected",
+            "scripts.test_persistent_memory.PersistentMemoryTests.test_pinned_legacy_cbc_can_migrate_once",
+            (
+                "scripts.test_persistent_memory_regression_preservation."
+                "PersistentMemoryRegressionPreservationTests."
+                "test_unapproved_remote_legacy_blob_locks_save_before_decrypt"
+            ),
+        ]
+        result = subprocess.run(
+            [sys.executable, "-m", "unittest", *selected, "-q"],
+            cwd=Path(__file__).resolve().parents[1],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":
