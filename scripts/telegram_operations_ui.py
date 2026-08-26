@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Iterable, Mapping
+from zoneinfo import ZoneInfo
 
 SEVERITY_INFO = "INFO"
 SEVERITY_SUCCESS = "SUCCESS"
@@ -52,6 +54,8 @@ _OPS_CALLBACK_PREFIXES = {
     ACTION_DETAILS: "opsdetails",
     ACTION_COMPACT: "opscompact",
 }
+
+_OMAN_TIMEZONE = ZoneInfo("Asia/Muscat")
 
 
 @dataclass(frozen=True)
@@ -158,7 +162,24 @@ def _run_suffix(run_number: str) -> str:
     return f" · Run #{value}" if value else ""
 
 
-def render_progress_text(*, run_number: str = "", topic: str = "", current_stage: str | None = None, completed: Iterable[str] = ()) -> str:
+def freshness_line(observed_at: datetime | None = None) -> str:
+    """Timestamp every rendered lifecycle state so a cached Telegram view cannot look current forever."""
+    current = observed_at or datetime.now(tz=_OMAN_TIMEZONE)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=_OMAN_TIMEZONE)
+    else:
+        current = current.astimezone(_OMAN_TIMEZONE)
+    return f"🕒 آخر تحقق: {current:%H:%M} · عُمان"
+
+
+def render_progress_text(
+    *,
+    run_number: str = "",
+    topic: str = "",
+    current_stage: str | None = None,
+    completed: Iterable[str] = (),
+    observed_at: datetime | None = None,
+) -> str:
     """Render one edit-in-place lifecycle card for an active production run."""
     completed_set = set(completed)
     headline = "بدأ الإنتاج" if current_stage is None and not completed_set else "الإنتاج جارٍ"
@@ -178,10 +199,19 @@ def render_progress_text(*, run_number: str = "", topic: str = "", current_stage
     lines.extend(["", " · ".join(parts)])
     if current_stage is None and not completed_set:
         lines.extend(["", "لا يحتاج أي إجراء منك الآن."])
+    lines.extend(["", freshness_line(observed_at)])
     return "\n".join(lines)
 
 
-def render_failure_text(*, run_number: str = "", stage: str = "", duration: str = "", reason: str = "", impact: str = "") -> str:
+def render_failure_text(
+    *,
+    run_number: str = "",
+    stage: str = "",
+    duration: str = "",
+    reason: str = "",
+    impact: str = "",
+    observed_at: datetime | None = None,
+) -> str:
     """Compact actionable terminal failure card; no retry action is rendered in V1."""
     stage_value = str(stage or "").strip()
     headline = "❌ فشل الإنتاج"
@@ -196,6 +226,7 @@ def render_failure_text(*, run_number: str = "", stage: str = "", duration: str 
     duration_value = str(duration or "").strip()
     if duration_value:
         lines.extend(["", f"⏱️ توقف بعد {duration_value}"])
+    lines.extend(["", freshness_line(observed_at)])
     return "\n".join(lines)
 
 
@@ -207,6 +238,7 @@ def render_success_text(
     duration: str = "",
     warning: str = "",
     quality_passed: bool = True,
+    observed_at: datetime | None = None,
 ) -> str:
     """Render a terminal success card, promoting degraded success to WARNING."""
     warning_value = str(warning or "").strip()
@@ -226,4 +258,5 @@ def render_success_text(
     duration_value = str(duration or "").strip()
     if duration_value:
         lines.append(f"⏱️ {duration_value}")
+    lines.extend(["", freshness_line(observed_at)])
     return "\n".join(lines)
