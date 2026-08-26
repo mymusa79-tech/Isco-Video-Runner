@@ -29,11 +29,12 @@ jobs:
           python - <<'PY'
           import json
           import sys
+          import time
           from pathlib import Path
 
           import numpy as np
           import soundfile as sf
-          from gradio_client import Client
+          from gradio_client import Client, handle_file
 
           sys.path.insert(0, str(Path("scripts").resolve()))
           import tts_blind_test as blind
@@ -67,10 +68,22 @@ jobs:
 
           try:
               p = out / "gemini.wav"
-              blind._generate_gemini(item, p)
+              last = None
+              for attempt in range(3):
+                  try:
+                      blind._generate_gemini(item, p)
+                      last = None
+                      break
+                  except Exception as exc:
+                      last = exc
+                      if "429" not in str(exc) or attempt == 2:
+                          break
+                      time.sleep(25 + 15 * attempt)
+              if last is not None:
+                  raise last
               validate("gemini", p)
           except Exception as exc:
-              report["engines"]["gemini"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:700]}
+              report["engines"]["gemini"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:900]}
 
           try:
               client = Client("openbmb/VoxCPM-Demo", verbose=False)
@@ -89,13 +102,14 @@ jobs:
               normalize_to_wav(source, p)
               validate("voxcpm2", p)
           except Exception as exc:
-              report["engines"]["voxcpm2"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:700]}
+              report["engines"]["voxcpm2"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:900]}
 
           try:
               client = Client("ResembleAI/Chatterbox-Multilingual-TTS-V3", verbose=False)
+              arabic_ref_url = "https://storage.googleapis.com/chatterbox-demo-samples/mtl_prompts/ar_f/ar_prompts2.flac"
               source = client.predict(
                   item.text,
-                  None,
+                  handle_file(arabic_ref_url),
                   "ar",
                   0.5,
                   0.8,
@@ -107,7 +121,7 @@ jobs:
               normalize_to_wav(source, p)
               validate("chatterbox_multilingual_v3", p)
           except Exception as exc:
-              report["engines"]["chatterbox_multilingual_v3"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:700]}
+              report["engines"]["chatterbox_multilingual_v3"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:900]}
 
           (out / "smoke-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
           print(json.dumps(report, ensure_ascii=False, indent=2))
