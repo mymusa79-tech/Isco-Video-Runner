@@ -64,9 +64,12 @@ def classify_provider_failure(provider_name: str, error: Exception | str) -> Pro
         return ProviderFailure("429", AttemptOutcome.RATE_LIMITED, True)
 
     # Short-window throttling is transient. Keep the historical telemetry key `429`
-    # for compatibility; the router may honor an explicit Retry-After before circuiting.
+    # for compatibility, but never poison the provider for the rest of the run. The
+    # single outer router remains the retry owner and may honor Retry-After plus its
+    # bounded transient cooldown. Run #119 proved that treating this as session-wide
+    # permanently removed Groq immediately before the final Script Doctor batch.
     if "429" in detail or "rate_limit_exceeded" in lower or "rate limit" in lower or "rate limited" in lower:
-        return ProviderFailure("429", AttemptOutcome.RATE_LIMITED, True)
+        return ProviderFailure("429", AttemptOutcome.RATE_LIMITED, False)
 
     if (
         "401" in detail
