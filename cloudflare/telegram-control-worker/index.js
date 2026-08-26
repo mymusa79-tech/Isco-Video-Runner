@@ -3,6 +3,8 @@ const DEFAULT_CHANNEL_ID = "UC_fmWGRen6QUQNd4Dj80MgA";
 const WORKFLOW = "telegram-editorial-control.yml";
 const START_TEXT = "🏠 ابدأ";
 const CONFIRM_TEXT = "تأكيد الإنتاج";
+const MAX_RICH_DELIVERY_FILES = 12;
+const MAX_TELEGRAM_DOCUMENT_BYTES = 45 * 1024 * 1024;
 
 const ROOT_ROWS = [
   [{ text: "1️⃣ 🔎 البحث", callback_data: "cmd:search_menu" }],
@@ -96,6 +98,29 @@ async function send(env, chatId, text, rows = null) {
   return telegram(env, "sendMessage", payload);
 }
 
+async function sendRich(env, target, richMessage, fallbackText) {
+  const payload = { chat_id: target.chatId, rich_message: richMessage };
+  if (target.callbackId && Number.isSafeInteger(Number(target.userId))) {
+    payload.ephemeral_message_parameters = {
+      receiver_user_id: Number(target.userId),
+      callback_query_id: target.callbackId,
+      replace_callback_query_message: true,
+    };
+  }
+  try {
+    return await telegram(env, "sendRichMessage", payload);
+  } catch (_) {
+    if (payload.ephemeral_message_parameters) {
+      try {
+        return await telegram(env, "sendRichMessage", { chat_id: target.chatId, rich_message: richMessage });
+      } catch (_) {
+        // Bot API 10.3 rich surfaces are progressive enhancement; preserve the proven text fallback.
+      }
+    }
+    return send(env, target.chatId, fallbackText, ROOT_ROWS);
+  }
+}
+
 async function edit(env, chatId, messageId, text, rows) {
   return telegram(env, "editMessageText", {
     chat_id: chatId,
@@ -184,6 +209,125 @@ async function githubJson(env, url) {
   return response.json();
 }
 
+function isProductionWorkflowRun(run) {
+  const name = String((run && run.name) || "");
+  return name === "Telegram Explicit Production Request" || name.startsWith("Produce Resilient");
+}
+
+async function productionRuns(env) {
+  const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
+  const payload = await githubJson(env, `https://api.github.com/repos/${repo}/actions/runs?per_page=50`);
+  const runs = Array.isArray(payload.workflow_runs) ? payload.workflow_runs.filter(isProductionWorkflowRun) : [];
+  return runs.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+}
+
+async function currentProductionRun(env) {
+  const runs = await productionRuns(env);
+  return runs.find((run) => String(run.status || "") !== "completed") || runs[0] || null;
+}
+
+async function runJobs(env, run) {
+  if (!run || !run.id) return [];
+  const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
+  const payload = await githubJson(env, `https://api.github.com/repos/${repo}/actions/runs/${run.id}/jobs?per_page=100`);
+  return Array.isArray(payload.jobs) ? payload.jobs : [];
+}
+
+function currentRunStep(jobs) {
+  for (const job of jobs || []) {
+    for (const step of job.steps || []) {
+      if (String(step.status || "") === "in_progress") return step;
+    }
+  }
+  return null;
+}
+
+function stageForStep(stepName) {
+  const value = String(stepName || "").toLowerCase();
+  if (!value) return "الإنتاج الجاري";
+  if (value.includes("approval") || value.includes("authorization") || value.includes("idempotency")) return "التحقق من التفويض";
+  if (value.includes("checkout") || value.includes("install") || value.includes("provider authentication") || value.includes("voice fallback") || value.includes("secrets")) return "تهيئة الإنتاج";
+  if (value.includes("run exact approved telegram production")) return "الإنتاج: التخطيط → الكتابة → الصوت → المونتاج";
+  if (value.includes("quality") || value.includes("master qc") || value.includes("verify deterministic") || value.includes("validate")) return "فحص الجودة";
+  if (value.includes("release") || value.includes("delivery")) return "الحزمة النهائية";
+  return String(stepName || "الإنتاج الجاري");
+}
+
+function runStage(run, jobs) {
+  const conclusion = String((run && run.conclusion) || "");
+  if (conclusion === "success") return { label: "مكتمل", progress: 100, detail: "اكتمل Workflow بنجاح." };
+  if (["failure", "timed_out"].includes(conclusion)) {
+    const [job, step] = failedLocation(jobs);
+    return { label: "فشل", progress: null, detail: step ? `توقف عند: ${step}` : job ? `توقف عند: ${job}` : "فشل Workflow." };
+  }
+  if (conclusion === "cancelled") return { label: "متوقف", progress: null, detail: "تم إلغاء Workflow قبل اكتماله." };
+  const steps = (jobs || []).flatMap((job) => Array.isArray(job.steps) ? job.steps : []);
+  const current = currentRunStep(jobs);
+  const completed = steps.filter((step) => String(step.status || "") === "completed").length;
+  const progress = steps.length ? Math.round((completed * 100) / steps.length) : null;
+  if (current) {
+    const name = String(current.name || "");
+    return { label: stageForStep(name), progress, detail: `الخطوة الحالية في GitHub Actions: ${name}` };
+  }
+  return { label: String((run && run.status) || "غير نشط"), progress, detail: "Workflow قيد التنفيذ." };
+}
+
+async function latestDeliveryRelease(env) {
+  const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
+  const releases = await githubJson(env, `https://api.github.com/repos/${repo}/releases?per_page=30`);
+  if (!Array.isArray(releases)) return null;
+  const production = releases.filter((release) => {
+    if (!release || release.draft) return false;
+    const tag = String(release.tag_name || "");
+    return tag.startsWith("video-") || tag.startsWith("short-");
+  });
+  production.sort((a, b) => String(b.published_at || b.created_at || "").localeCompare(String(a.published_at || a.created_at || "")));
+  return production[0] || null;
+}
+
+async function releaseAssetJson(env, release, name) {
+  const asset = (release && Array.isArray(release.assets) ? release.assets : []).find((item) => String(item && item.name || "") === name);
+  const url = String((asset && asset.browser_download_url) || "");
+  if (!url.startsWith("https://")) return null;
+  try {
+    return await githubJson(env, url);
+  } catch (_) {
+    return null;
+  }
+}
+
+function flattenQuality(value, prefix = "", depth = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 3) return [];
+  const rows = [];
+  for (const [key, item] of Object.entries(value)) {
+    const name = prefix ? `${prefix}.${key}` : key;
+    if (typeof item === "boolean") rows.push({ name, status: item ? "pass" : "fail" });
+    else if (typeof item === "string" && ["pass", "passed", "success", "fail", "failed", "failure", "warn", "warning"].includes(item.toLowerCase())) {
+      rows.push({ name, status: item.toLowerCase() });
+    } else if (item && typeof item === "object" && !Array.isArray(item)) rows.push(...flattenQuality(item, name, depth + 1));
+  }
+  return rows;
+}
+
+function gateIcon(status) {
+  const value = String(status || "").toLowerCase();
+  if (["pass", "passed", "success"].includes(value)) return "✅";
+  if (["fail", "failed", "failure"].includes(value)) return "❌";
+  if (["warn", "warning"].includes(value)) return "⚠️";
+  return "•";
+}
+
+async function latestQualityGates(env, release) {
+  if (!release) return [];
+  const rows = [];
+  for (const name of ["quality-final.json", "final-master-qc.json"]) {
+    const data = await releaseAssetJson(env, release, name);
+    if (!data) continue;
+    for (const gate of flattenQuality(data).slice(0, 12)) rows.push({ ...gate, name: `${name}: ${gate.name}` });
+  }
+  return rows.slice(0, 18);
+}
+
 function failedLocation(jobs) {
   for (const job of jobs || []) {
     if (!["failure", "cancelled", "timed_out"].includes(String(job.conclusion || ""))) continue;
@@ -196,6 +340,63 @@ function failedLocation(jobs) {
     return [jobName, ""];
   }
   return ["", ""];
+}
+
+function productionStatusRich(run, jobs, gates) {
+  const stage = run ? runStage(run, jobs) : { label: "غير نشط", progress: null, detail: "لا يوجد Production Run معروف حاليًا." };
+  const suffix = run && run.run_number ? ` · Run #${run.run_number}` : "";
+  const progress = Number.isFinite(stage.progress) ? ` · ${stage.progress}%` : "";
+  const blocks = [
+    { type: "heading", size: 2, text: "🎛 حالة الإنتاج" },
+    { type: "paragraph", text: `المرحلة الحالية: ${stage.label}${progress}${suffix}` },
+    { type: "details", summary: "📋 تفاصيل الحالة", blocks: [{ type: "paragraph", text: stage.detail }] },
+  ];
+  if (run && ["failure", "timed_out", "cancelled"].includes(String(run.conclusion || ""))) {
+    const [job, step] = failedLocation(jobs);
+    const failure = [job ? `Job: ${job}` : "", step ? `Step: ${step}` : ""].filter(Boolean).join("\n") || `الحالة: ${run.conclusion}`;
+    blocks.push({ type: "details", summary: "❌ تفاصيل الفشل", blocks: [{ type: "paragraph", text: failure }] });
+  }
+  if (gates.length) {
+    const pass = gates.filter((gate) => gateIcon(gate.status) === "✅").length;
+    const fail = gates.filter((gate) => gateIcon(gate.status) === "❌").length;
+    const warn = gates.filter((gate) => gateIcon(gate.status) === "⚠️").length;
+    blocks.push({ type: "divider" });
+    blocks.push({ type: "heading", size: 3, text: "🧪 Quality Gates" });
+    blocks.push({ type: "paragraph", text: `✅ ناجحة: ${pass} · ❌ فاشلة: ${fail}${warn ? ` · ⚠️ تحذير: ${warn}` : ""}` });
+    for (const gate of gates) blocks.push({ type: "paragraph", text: `${gateIcon(gate.status)} ${gate.name}` });
+  }
+  blocks.push({
+    type: "buttons",
+    align: "right",
+    buttons: [
+      { text: `${stage.label === "مكتمل" ? "✅" : stage.label === "فشل" ? "❌" : "⏳"} ${stage.label}`, style: "primary", disabled: {} },
+      { text: "🔄 تحديث", callback_data: "cmd:status" },
+      { text: "🏠 الرئيسية", style: "link", callback_data: "cmd:menu" },
+    ],
+  });
+  blocks.push({ type: "footer", text: "هذه شاشة قراءة فقط. لا تتجاوز Quality Gates ولا تبدأ أو تعيد Production." });
+  return { blocks, is_rtl: true, skip_entity_detection: true };
+}
+
+function productionStatusFallback(run, jobs) {
+  if (!run) return "📊 حالة الإنتاج\n\nلا يوجد Production Run معروف حاليًا.";
+  const stage = runStage(run, jobs);
+  const progress = Number.isFinite(stage.progress) ? ` · ${stage.progress}%` : "";
+  return `📊 حالة الإنتاج${run.run_number ? ` · Run #${run.run_number}` : ""}\n\n${stage.label}${progress}\n${stage.detail}`;
+}
+
+async function sendProductionStatus(env, target) {
+  const run = await currentProductionRun(env);
+  const jobs = run ? await runJobs(env, run) : [];
+  let gates = [];
+  if (run && String(run.conclusion || "") === "success") {
+    try {
+      gates = await latestQualityGates(env, await latestDeliveryRelease(env));
+    } catch (_) {
+      gates = [];
+    }
+  }
+  await sendRich(env, target, productionStatusRich(run, jobs, gates), productionStatusFallback(run, jobs));
 }
 
 function compactRunText(run) {
@@ -252,6 +453,45 @@ async function handleOperationsToggle(env, target) {
   if (String(run.html_url || "").startsWith("https://")) rows.push([{ text: "🔗 GitHub", url: run.html_url }]);
   await edit(env, target.chatId, boundMessageId, text, rows);
   return true;
+}
+
+function releaseDisplayTitle(release) {
+  return String((release && (release.name || release.tag_name)) || "الحزمة الأخيرة").trim();
+}
+
+function deliveryRich(release) {
+  const blocks = [
+    { type: "heading", size: 2, text: "🎁 آخر إنتاج" },
+    { type: "paragraph", text: `📦 ${releaseDisplayTitle(release)}` },
+  ];
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const attachable = assets.filter((asset) => {
+    const url = String((asset && asset.browser_download_url) || "");
+    const size = Number((asset && asset.size) || 0);
+    return url.startsWith("https://") && size >= 0 && size <= MAX_TELEGRAM_DOCUMENT_BYTES;
+  }).slice(0, MAX_RICH_DELIVERY_FILES);
+  for (const asset of attachable) {
+    blocks.push({ type: "paragraph", text: `📎 ${String(asset.name || "ملف")}` });
+    blocks.push({ type: "document", document: { type: "document", media: asset.browser_download_url } });
+  }
+  if (!attachable.length) blocks.push({ type: "paragraph", text: "لا توجد ملفات ضمن حد الإرفاق المباشر؛ افتح Release للوصول إلى الحزمة." });
+  const buttons = [];
+  if (String(release.html_url || "").startsWith("https://")) buttons.push({ text: "🔗 فتح Release", url: release.html_url });
+  buttons.push({ text: "🔄 تحديث", callback_data: "cmd:last_delivery" });
+  buttons.push({ text: "🏠 الرئيسية", style: "link", callback_data: "cmd:menu" });
+  blocks.push({ type: "buttons", align: "right", buttons });
+  blocks.push({ type: "footer", text: "YouTube: الرفع والنشر والجدولة يدويًا فقط." });
+  return { blocks, is_rtl: true, skip_entity_detection: true };
+}
+
+async function sendLastDelivery(env, target) {
+  const release = await latestDeliveryRelease(env);
+  if (!release) {
+    await send(env, target.chatId, "🎁 آخر إنتاج\n\nلا توجد حزمة إنتاج منشورة حتى الآن.", ROOT_ROWS);
+    return;
+  }
+  const fallback = `🎁 آخر إنتاج\n\n📦 ${releaseDisplayTitle(release)}\n${String(release.html_url || "")}`;
+  await sendRich(env, target, deliveryRich(release), fallback);
 }
 
 function parseDurationSeconds(value) {
@@ -365,13 +605,15 @@ function isStatsLeaf(data) {
   return ["cmd:stats_last_long", "cmd:stats_last_short", "cmd:stats_today", "cmd:stats_week", "cmd:stats_overview"].includes(data);
 }
 
+function isReadOnlyLeaf(data) {
+  return data === "cmd:status" || data === "cmd:last_delivery";
+}
+
 function statefulCallbackAck(data) {
   if (data === "cmd:topic") return "🎬 بدأ بحث الحلقة — ستظهر 3 أفكار مرقمة للاختيار";
   if (data === "cmd:short") return "⚡ بدأ بحث الشورت — ستظهر 3 أفكار مرقمة للاختيار";
   if (data === "cmd:saved") return "📚 أفتح المواضيع المحفوظة الآن…";
   if (data === "cmd:used") return "✅ أفتح المواضيع المستعملة الآن…";
-  if (data === "cmd:last_delivery") return "🎁 أفتح آخر إنتاج الآن…";
-  if (data === "cmd:status") return "📊 أتحقق من الحالة الآن…";
   return "⚡ تم استلام الأمر";
 }
 
@@ -380,6 +622,8 @@ function textRoute(text) {
   if ([START_TEXT, "🎛 ابدأ", "/start", "/menu", "ابدأ", "القائمة"].includes(value)) return "menu";
   if (["بحث", "1", "١"].includes(value)) return "search";
   if (["المواضيع", "2", "٢"].includes(value)) return "library";
+  if (["آخر إنتاج", "اخر انتاج", "3", "٣"].includes(value)) return "delivery";
+  if (["الحالة", "حالة", "status", "4", "٤"].includes(value)) return "status";
   if (["الإحصائيات", "الاحصائيات", "5", "٥"].includes(value)) return "stats";
   if (value === CONFIRM_TEXT) return "stateful";
   return "unknown";
@@ -391,6 +635,24 @@ async function handleDirectCallback(update, env, target) {
   if (menu) {
     await answerCallback(env, target.callbackId);
     await send(env, target.chatId, menu[0], menu[1]);
+    return true;
+  }
+  if (target.data === "cmd:status") {
+    await answerCallback(env, target.callbackId, "أحدّث حالة الإنتاج الآن…");
+    try {
+      await sendProductionStatus(env, target);
+    } catch (_) {
+      await send(env, target.chatId, "⚠️ تعذر قراءة حالة الإنتاج الآن. لم يتأثر أي Production Run.", ROOT_ROWS);
+    }
+    return true;
+  }
+  if (target.data === "cmd:last_delivery") {
+    await answerCallback(env, target.callbackId, "أفتح آخر حزمة الآن…");
+    try {
+      await sendLastDelivery(env, target);
+    } catch (_) {
+      await send(env, target.chatId, "⚠️ تعذر قراءة آخر حزمة الآن. لم يتأثر أي Production Run.", ROOT_ROWS);
+    }
     return true;
   }
   if (isStatsLeaf(target.data)) {
@@ -429,7 +691,7 @@ export default {
     }
 
     if (update.callback_query) {
-      const direct = directMenuKind(target.data) || isStatsLeaf(target.data) || /^cmd:ops(details|compact)-\d+-\d+$/.test(target.data);
+      const direct = directMenuKind(target.data) || isStatsLeaf(target.data) || isReadOnlyLeaf(target.data) || /^cmd:ops(details|compact)-\d+-\d+$/.test(target.data);
       if (direct) {
         ctx.waitUntil(handleDirectCallback(update, env, target));
         return new Response("OK");
@@ -448,6 +710,8 @@ export default {
     if (route === "menu") ctx.waitUntil(send(env, target.chatId, rootText(), ROOT_ROWS));
     else if (route === "search") ctx.waitUntil(send(env, target.chatId, searchText(), SEARCH_ROWS));
     else if (route === "library") ctx.waitUntil(send(env, target.chatId, libraryText(), LIBRARY_ROWS));
+    else if (route === "delivery") ctx.waitUntil(sendLastDelivery(env, target).catch(() => send(env, target.chatId, "⚠️ تعذر قراءة آخر حزمة الآن.", ROOT_ROWS)));
+    else if (route === "status") ctx.waitUntil(sendProductionStatus(env, target).catch(() => send(env, target.chatId, "⚠️ تعذر قراءة حالة الإنتاج الآن.", ROOT_ROWS)));
     else if (route === "stats") ctx.waitUntil(send(env, target.chatId, statsText(), STATS_ROWS));
     else if (route === "stateful") {
       ctx.waitUntil((async () => {
