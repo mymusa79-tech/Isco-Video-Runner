@@ -6,6 +6,7 @@ import re
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 from scripts import telegram_operations_ui as ops_ui
 
@@ -48,6 +49,16 @@ def _telegram_request(token: str, method: str, payload: dict[str, str]) -> bool:
         return False
     print(f"Telegram {method} succeeded")
     return True
+
+
+def _read_json_optional(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.is_file():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def format_duration(seconds: int | float) -> str:
@@ -93,7 +104,17 @@ def read_failure_reason(runner_temp: Path, stage: str) -> str:
 
 
 def failure_impact(stage: str) -> str:
-    if stage in {"Checkout Runner", "Checkout Engine", "Setup Python", "Install Engine", "Restore Memory", "Voice Preflight", "Environment Preflight", "Prepare Request", "Provider Readiness"}:
+    if stage in {
+        "Checkout Runner",
+        "Checkout Engine",
+        "Setup Python",
+        "Install Engine",
+        "Restore Memory",
+        "Voice Preflight",
+        "Environment Preflight",
+        "Prepare Request",
+        "Provider Readiness",
+    }:
         return "توقفت المحاولة قبل اكتمال إنتاج الفيديو."
     if stage in {"الإنتاج", "Final Review", "Upload Final Bundle"}:
         return "لم تُعتمد حزمة نهائية لهذا التشغيل."
@@ -111,6 +132,50 @@ def build_failure_message(*, run_number: str, elapsed_seconds: int, env: dict[st
         duration=format_duration(elapsed_seconds),
         reason=reason,
         impact=failure_impact(stage),
+    )
+
+
+def _bundle_summary(delivery: dict[str, Any], output_root: Path | None) -> str:
+    if str(delivery.get("delivery_kind") or "") == "long_plus_shorts":
+        try:
+            short_count = int(delivery.get("short_count", 0) or 0)
+        except (TypeError, ValueError):
+            short_count = 0
+        parts = ["الحلقة الطويلة"]
+        if short_count > 0:
+            parts.append(f"{short_count} Shorts")
+        thumbnail_plan = _read_json_optional(output_root / "thumbnail-plan.json") if output_root else {}
+        candidates = thumbnail_plan.get("candidates") if isinstance(thumbnail_plan, dict) else None
+        if isinstance(candidates, list) and len(candidates) >= 3:
+            parts.append("عناوين/صور A/B/C")
+        return " + ".join(parts) + " جاهزة"
+    return "الحزمة النهائية جاهزة"
+
+
+def build_success_message(
+    *,
+    run_number: str,
+    elapsed_seconds: int,
+    plan_path: Path | None = None,
+    delivery_path: Path | None = None,
+    output_root: Path | None = None,
+    request_path: Path | None = None,
+) -> str:
+    plan = _read_json_optional(plan_path)
+    delivery = _read_json_optional(delivery_path)
+    request = _read_json_optional(request_path)
+    topic = str(request.get("topic") or plan.get("topic") or "").strip()
+    plan_source = str(plan.get("plan_source") or "").strip()
+    warning = ""
+    if plan_source == "product_proof_fallback":
+        warning = "استُخدم المحتوى الاحتياطي المعتمد (fallback) بدل تخطيط سحابي جديد لهذا الموضوع."
+    return ops_ui.render_success_text(
+        run_number=run_number,
+        topic=topic,
+        bundle_summary=_bundle_summary(delivery, output_root),
+        duration=format_duration(elapsed_seconds),
+        warning=warning,
+        quality_passed=True,
     )
 
 

@@ -7,14 +7,7 @@ SEVERITY_INFO = "INFO"
 SEVERITY_SUCCESS = "SUCCESS"
 SEVERITY_WARNING = "WARNING"
 SEVERITY_ACTION = "ACTION"
-SEVERITIES = frozenset(
-    {
-        SEVERITY_INFO,
-        SEVERITY_SUCCESS,
-        SEVERITY_WARNING,
-        SEVERITY_ACTION,
-    }
-)
+SEVERITIES = frozenset({SEVERITY_INFO, SEVERITY_SUCCESS, SEVERITY_WARNING, SEVERITY_ACTION})
 
 STATUS_EMOJI = {
     "running": "🔵",
@@ -58,11 +51,7 @@ V1_ACTIONS = frozenset(
 
 @dataclass(frozen=True)
 class TelegramMessageContract:
-    """Presentation-only contract shared by Telegram operations surfaces.
-
-    This object carries no production decision logic. It only describes what a
-    Telegram card may render: status/severity/headline/summary/stage/reason/run_id/actions.
-    """
+    """Presentation-only contract shared by Telegram operations surfaces."""
 
     status: str
     severity: str
@@ -86,7 +75,6 @@ class TelegramMessageContract:
 
 
 def contract_dict(contract: TelegramMessageContract) -> dict[str, object]:
-    """Stable dictionary form used by tests and future renderers."""
     return {
         "status": contract.status,
         "severity": contract.severity,
@@ -129,13 +117,7 @@ def _run_suffix(run_number: str) -> str:
     return f" · Run #{value}" if value else ""
 
 
-def render_progress_text(
-    *,
-    run_number: str = "",
-    topic: str = "",
-    current_stage: str | None = None,
-    completed: Iterable[str] = (),
-) -> str:
+def render_progress_text(*, run_number: str = "", topic: str = "", current_stage: str | None = None, completed: Iterable[str] = ()) -> str:
     """Render one edit-in-place lifecycle card for an active production run."""
     completed_set = set(completed)
     headline = "بدأ الإنتاج" if current_stage is None and not completed_set else "الإنتاج جارٍ"
@@ -158,14 +140,7 @@ def render_progress_text(
     return "\n".join(lines)
 
 
-def render_failure_text(
-    *,
-    run_number: str = "",
-    stage: str = "",
-    duration: str = "",
-    reason: str = "",
-    impact: str = "",
-) -> str:
+def render_failure_text(*, run_number: str = "", stage: str = "", duration: str = "", reason: str = "", impact: str = "") -> str:
     """Compact actionable terminal failure card; no retry action is rendered in V1."""
     stage_value = str(stage or "").strip()
     headline = "❌ فشل الإنتاج"
@@ -180,4 +155,34 @@ def render_failure_text(
     duration_value = str(duration or "").strip()
     if duration_value:
         lines.extend(["", f"⏱️ توقف بعد {duration_value}"])
+    return "\n".join(lines)
+
+
+def render_success_text(
+    *,
+    run_number: str = "",
+    topic: str = "",
+    bundle_summary: str = "الحزمة النهائية جاهزة",
+    duration: str = "",
+    warning: str = "",
+    quality_passed: bool = True,
+) -> str:
+    """Render a terminal success card, promoting degraded success to WARNING."""
+    warning_value = str(warning or "").strip()
+    if warning_value:
+        lines = [f"⚠️ الإنتاج مكتمل مع ملاحظة{_run_suffix(run_number)}"]
+    else:
+        lines = [f"✅ الإنتاج مكتمل{_run_suffix(run_number)}"]
+    topic_value = str(topic or "").strip()
+    if topic_value:
+        lines.extend(["", f"🎬 {topic_value}"])
+    summary_value = str(bundle_summary or "").strip() or "الحزمة النهائية جاهزة"
+    lines.extend(["", summary_value])
+    if warning_value:
+        lines.extend(["", "ملاحظة:", warning_value])
+    if quality_passed:
+        lines.extend(["", "Quality Gates: Passed"])
+    duration_value = str(duration or "").strip()
+    if duration_value:
+        lines.append(f"⏱️ {duration_value}")
     return "\n".join(lines)

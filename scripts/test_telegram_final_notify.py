@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -53,6 +54,80 @@ class FailureFormattingTests(unittest.TestCase):
         self.assertIn("الأثر:", text)
         self.assertIn("8د 41ث", text)
         self.assertNotIn("🔁", text)
+
+
+class SuccessFormattingTests(unittest.TestCase):
+    def test_clean_success_is_green_and_reports_actual_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            plan = root / "plan.json"
+            request = root / "request.json"
+            delivery = root / "delivery-manifest.json"
+            plan.write_text(json.dumps({"topic": "x", "plan_source": "gemini"}), encoding="utf-8")
+            request.write_text(json.dumps({"topic": "موضوع الحلقة"}), encoding="utf-8")
+            delivery.write_text(
+                json.dumps({"delivery_kind": "long_plus_shorts", "short_count": 2}),
+                encoding="utf-8",
+            )
+            text = notify.build_success_message(
+                run_number="114",
+                elapsed_seconds=1457,
+                plan_path=plan,
+                delivery_path=delivery,
+                output_root=root,
+                request_path=request,
+            )
+        self.assertIn("✅ الإنتاج مكتمل · Run #114", text)
+        self.assertIn("🎬 موضوع الحلقة", text)
+        self.assertIn("الحلقة الطويلة + 2 Shorts جاهزة", text)
+        self.assertIn("Quality Gates: Passed", text)
+        self.assertNotIn("⚠️ الإنتاج مكتمل", text)
+        self.assertNotIn("A/B/C", text)
+
+    def test_fallback_success_is_warning_not_pure_green(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            plan = root / "plan.json"
+            plan.write_text(
+                json.dumps({"topic": "موضوع", "plan_source": "product_proof_fallback"}),
+                encoding="utf-8",
+            )
+            text = notify.build_success_message(
+                run_number="115",
+                elapsed_seconds=60,
+                plan_path=plan,
+                output_root=root,
+            )
+        self.assertIn("⚠️ الإنتاج مكتمل مع ملاحظة · Run #115", text)
+        self.assertIn("fallback", text)
+        self.assertNotIn("✅ الإنتاج مكتمل", text)
+        self.assertIn("Quality Gates: Passed", text)
+
+    def test_abc_is_only_claimed_when_three_thumbnail_candidates_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            delivery = root / "delivery-manifest.json"
+            delivery.write_text(
+                json.dumps({"delivery_kind": "long_plus_shorts", "short_count": 3}),
+                encoding="utf-8",
+            )
+            (root / "thumbnail-plan.json").write_text(
+                json.dumps({"candidates": [{}, {}, {}]}),
+                encoding="utf-8",
+            )
+            text = notify.build_success_message(
+                run_number="116",
+                elapsed_seconds=10,
+                delivery_path=delivery,
+                output_root=root,
+            )
+        self.assertIn("الحلقة الطويلة + 3 Shorts + عناوين/صور A/B/C جاهزة", text)
+
+    def test_unknown_delivery_does_not_invent_shorts_or_abc(self) -> None:
+        text = notify.build_success_message(run_number="117", elapsed_seconds=1)
+        self.assertIn("الحزمة النهائية جاهزة", text)
+        self.assertNotIn("Shorts", text)
+        self.assertNotIn("A/B/C", text)
 
 
 class DeliveryTests(unittest.TestCase):
