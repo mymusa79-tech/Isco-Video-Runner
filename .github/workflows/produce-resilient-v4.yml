@@ -714,122 +714,13 @@ jobs:
           CREATE_RELEASE_OUTCOME: ${{ steps.create_release.outcome }}
           PERSIST_STATE_OUTCOME: ${{ steps.persist_state.outcome }}
           FINAL_PLAN_PATH: ${{ steps.final_review.outputs.plan_path }}
+          FINAL_DELIVERY_PATH: ${{ steps.final_review.outputs.delivery_path }}
+          FINAL_OUTPUT_ROOT: ${{ steps.final_review.outputs.output_root }}
         run: |
           set -euo pipefail
           test -n "$TELEGRAM_BOT_TOKEN"
           test -n "$TELEGRAM_CHAT_ID"
-          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          elapsed=$(( $(date +%s) - JOB_START_EPOCH ))
-          minutes=$(( elapsed / 60 ))
-          seconds=$(( elapsed % 60 ))
-          if [ "$minutes" -gt 0 ]; then
-            duration_str="${minutes}د ${seconds}ث"
-          else
-            duration_str="${seconds}ث"
-          fi
-          if [ "$JOB_STATUS" = "success" ]; then
-            release_tag="video-${GITHUB_RUN_NUMBER}"
-            video_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${release_tag}"
-            video_name="Isco Video Bundle #${GITHUB_RUN_NUMBER}"
-            if [ -f "$RUNNER_TEMP/isco-request.json" ]; then
-              extracted="$(python - <<'PY'
-          import json, os
-          from pathlib import Path
-          path = Path(os.environ["RUNNER_TEMP"], "isco-request.json")
-          try:
-              data = json.loads(path.read_text(encoding="utf-8"))
-              print(data.get("topic", "").strip())
-          except Exception:
-              print("")
-          PY
-          )"
-              if [ -n "$extracted" ]; then video_name="$extracted"; fi
-            fi
-            plan_source=""
-            if [ -n "$FINAL_PLAN_PATH" ] && [ -f "$FINAL_PLAN_PATH" ]; then
-              plan_source="$(PLAN_JSON_PATH="$FINAL_PLAN_PATH" python - <<'PY'
-          import json, os
-          from pathlib import Path
-          path = Path(os.environ["PLAN_JSON_PATH"])
-          try:
-              data = json.loads(path.read_text(encoding="utf-8"))
-              print(str(data.get("plan_source", "")).strip())
-          except Exception:
-              print("")
-          PY
-          )"
-            fi
-            if [ "$plan_source" = "product_proof_fallback" ]; then
-              message="⚠️ الحزمة جاهزة — تم استخدام المحتوى الاحتياطي المعتمد (fallback)"$'\n'"🎬 الحلقة + 2–3 Shorts + A/B/C"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"
-            else
-              message="✅ الحزمة جاهزة: ${video_name}"$'\n'"🎬 الحلقة + 2–3 Shorts + A/B/C"$'\n'"⏱️ المدة: ${duration_str}"$'\n'"🔗 ${video_url}"
-            fi
-          else
-            stage="unknown"
-            for item in \
-              "Checkout runner:${CHECKOUT_RUNNER_OUTCOME}" \
-              "Checkout private engine:${CHECKOUT_ENGINE_OUTCOME}" \
-              "Setup Python:${SETUP_PYTHON_OUTCOME}" \
-              "Install engine:${INSTALL_ENGINE_OUTCOME}" \
-              "Restore memory:${RESTORE_STATE_OUTCOME}" \
-              "Voice preflight:${VOICE_PREFLIGHT_OUTCOME}" \
-              "Environment preflight:${ENVIRONMENT_PREFLIGHT_OUTCOME}" \
-              "Prepare request:${PREPARE_REQUEST_OUTCOME}" \
-              "Provider authentication:${VERIFY_PROVIDERS_OUTCOME}" \
-              "Production:${PRODUCE_VIDEO_OUTCOME}" \
-              "Final review:${FINAL_REVIEW_OUTCOME}" \
-              "Upload final bundle:${UPLOAD_FINAL_OUTCOME}" \
-              "Publish approval:${PUBLISH_APPROVAL_OUTCOME}" \
-              "Create release:${CREATE_RELEASE_OUTCOME}" \
-              "Persist accepted state:${PERSIST_STATE_OUTCOME}"
-            do
-              name="${item%%:*}"
-              outcome="${item#*:}"
-              if [ "$outcome" = "failure" ] || [ "$outcome" = "cancelled" ]; then
-                stage="$name"
-                break
-              fi
-            done
-            reason="راجع سجل GitHub Actions"
-            if [ "$stage" = "Final review" ] && [ -f "$RUNNER_TEMP/final-review-step.log" ]; then
-              candidate="$(grep -E 'Missing|failed|small|Error|Exception|Traceback' "$RUNNER_TEMP/final-review-step.log" | tail -n 1 | tr -d '\r' || true)"
-              if [ -n "$candidate" ]; then reason="${candidate:0:300}"; fi
-            elif [ -f "$RUNNER_TEMP/production-step.log" ]; then
-              candidate="$(grep -E 'Traceback|Error|Exception|failed|blocked|RuntimeError|ValueError' "$RUNNER_TEMP/production-step.log" | tail -n 1 | tr -d '\r' || true)"
-              if [ -n "$candidate" ]; then reason="${candidate:0:300}"; fi
-            fi
-            message="❌ فشل الإنتاج"$'\n'"📍 المرحلة: ${stage}"$'\n'"⏱️ توقف بعد: ${duration_str}"$'\n'"السبب: ${reason}"$'\n'"🔗 ${run_url}"
-          fi
-          progress_message_id=""
-          if [ -f "$RUNNER_TEMP/telegram-progress-message-id.txt" ]; then
-            progress_message_id="$(tr -d '[:space:]' < "$RUNNER_TEMP/telegram-progress-message-id.txt")"
-          fi
-          if [ -n "$progress_message_id" ]; then
-            echo "Telegram notify: editMessageText (message_id=${progress_message_id})"
-            if curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 35 \
-                --request POST \
-                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText" \
-                --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-                --data-urlencode "message_id=${progress_message_id}" \
-                --data-urlencode "text=${message}" \
-                >/dev/null; then
-              echo "Telegram editMessageText succeeded"
-            else
-              echo "Telegram editMessageText failed"
-            fi
-          else
-            echo "Telegram notify: sendMessage (no saved progress message_id)"
-            if curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 35 \
-                --request POST \
-                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-                --data-urlencode "text=${message}" \
-                >/dev/null; then
-              echo "Telegram sendMessage succeeded"
-            else
-              echo "Telegram sendMessage failed"
-            fi
-          fi
+          python -m scripts.telegram_final_notify
 
       - name: Remove plaintext production secrets and state
         if: always()
