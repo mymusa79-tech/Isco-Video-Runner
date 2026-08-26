@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timezone
 
 from scripts import telegram_operations_ui as ui
 
@@ -55,6 +56,36 @@ class TelegramOperationsVocabularyTests(unittest.TestCase):
                 headline="x",
                 actions=("retry",),
             )
+
+
+class TelegramFreshnessTests(unittest.TestCase):
+    def test_freshness_line_is_rendered_in_oman_time(self) -> None:
+        observed = datetime(2026, 8, 26, 20, 37, tzinfo=timezone.utc)
+        self.assertEqual(ui.freshness_line(observed), "🕒 آخر تحقق: 00:37 · عُمان")
+
+    def test_all_lifecycle_surfaces_expose_last_verified_time(self) -> None:
+        observed = datetime(2026, 8, 26, 20, 37, tzinfo=timezone.utc)
+        messages = (
+            ui.render_progress_text(run_number="118", current_stage="planning", observed_at=observed),
+            ui.render_failure_text(run_number="118", stage="الإنتاج", observed_at=observed),
+            ui.render_success_text(run_number="118", observed_at=observed),
+        )
+        for message in messages:
+            self.assertIn("🕒 آخر تحقق: 00:37 · عُمان", message)
+
+    def test_existing_progress_contract_is_preserved_with_freshness_footer(self) -> None:
+        observed = datetime(2026, 8, 26, 20, 37, tzinfo=timezone.utc)
+        text = ui.render_progress_text(
+            run_number="118",
+            topic="موضوع الحلقة",
+            current_stage="voice",
+            completed={"planning"},
+            observed_at=observed,
+        )
+        self.assertIn("🔵 الإنتاج جارٍ · Run #118", text)
+        self.assertIn("التخطيط ✅", text)
+        self.assertIn("الصوت 🔵", text)
+        self.assertTrue(text.endswith("🕒 آخر تحقق: 00:37 · عُمان"))
 
 
 class TelegramButtonContractTests(unittest.TestCase):
