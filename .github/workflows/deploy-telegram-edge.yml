@@ -21,6 +21,10 @@ concurrency:
   group: telegram-edge-deploy
   cancel-in-progress: false
 
+env:
+  ZERO_COST_MODE: "true"
+  WRANGLER_VERSION: "4.125.0"
+
 jobs:
   validate:
     if: github.event_name == 'pull_request'
@@ -30,11 +34,28 @@ jobs:
       - name: Checkout Runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Validate Worker and activation contract
+      - name: Validate Worker and zero-cost activation contract
         run: |
           set -euo pipefail
           node --check cloudflare/telegram-control-worker/index.js
           python -m unittest -v scripts.test_telegram_edge_worker_contract scripts.test_telegram_edge_activation_workflow
+          python - <<'PY'
+          import pathlib, tomllib
+          p = pathlib.Path('cloudflare/telegram-control-worker/wrangler.toml.example')
+          data = tomllib.loads(p.read_text(encoding='utf-8'))
+          assert data.get('workers_dev') is True
+          assert data.get('limits', {}).get('cpu_ms') == 10
+          assert data.get('limits', {}).get('subrequests') == 10
+          assert data.get('vars', {}).get('ZERO_COST_MODE') == 'true'
+          forbidden = {
+              'routes', 'route', 'kv_namespaces', 'd1_databases', 'r2_buckets',
+              'durable_objects', 'queues', 'workflows', 'analytics_engine_datasets',
+              'vectorize', 'hyperdrive', 'mtls_certificates', 'browser', 'ai',
+              'images', 'version_metadata', 'logfwdr', 'dispatch_namespaces',
+          }
+          found = sorted(forbidden.intersection(data))
+          assert not found, f'Paid/extra Cloudflare bindings are forbidden in ZERO_COST_MODE: {found}'
+          PY
 
   deploy:
     if: github.event_name != 'pull_request'
@@ -48,9 +69,36 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       GITHUB_CONTROL_TOKEN: ${{ secrets.GITHUB_CONTROL_TOKEN }}
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
     steps:
       - name: Checkout Runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Enforce zero-cost mode
+        run: |
+          set -euo pipefail
+          test "$ZERO_COST_MODE" = "true"
+          if [ "${REPOSITORY_PRIVATE:-true}" != "false" ]; then
+            echo "ZERO_COST_MODE refuses deployment when the Runner repository is private; public standard GitHub-hosted runners are required." >&2
+            exit 1
+          fi
+          python - <<'PY'
+          import pathlib, tomllib
+          data = tomllib.loads(pathlib.Path('cloudflare/telegram-control-worker/wrangler.toml.example').read_text(encoding='utf-8'))
+          assert data.get('workers_dev') is True, 'workers.dev only is required in ZERO_COST_MODE'
+          assert data.get('limits', {}).get('cpu_ms') == 10
+          assert data.get('limits', {}).get('subrequests') == 10
+          assert data.get('vars', {}).get('ZERO_COST_MODE') == 'true'
+          forbidden = {
+              'routes', 'route', 'kv_namespaces', 'd1_databases', 'r2_buckets',
+              'durable_objects', 'queues', 'workflows', 'analytics_engine_datasets',
+              'vectorize', 'hyperdrive', 'mtls_certificates', 'browser', 'ai',
+              'images', 'version_metadata', 'logfwdr', 'dispatch_namespaces',
+          }
+          found = sorted(forbidden.intersection(data))
+          assert not found, f'ZERO_COST_MODE blocks Cloudflare extras: {found}'
+          PY
+          echo "ZERO_COST_MODE active: Workers Free limits must fail closed at the provider; this workflow contains no billing/plan-upgrade operation."
 
       - name: Validate activation secrets
         run: |
@@ -95,7 +143,7 @@ jobs:
         run: |
           set -euo pipefail
           cp wrangler.toml.example wrangler.toml
-          npx --yes wrangler@4 deploy --config wrangler.toml 2>&1 | tee "$RUNNER_TEMP/wrangler-deploy.log"
+          npx --yes "wrangler@${WRANGLER_VERSION}" deploy --config wrangler.toml 2>&1 | tee "$RUNNER_TEMP/wrangler-deploy.log"
           WORKER_URL="$(grep -Eo 'https://[A-Za-z0-9._-]+\.workers\.dev' "$RUNNER_TEMP/wrangler-deploy.log" | tail -1 || true)"
           if [ -z "$WORKER_URL" ]; then
             echo "Could not resolve the workers.dev deployment URL from Wrangler output" >&2
@@ -110,7 +158,7 @@ jobs:
           put_secret() {
             local name="$1"
             local value="$2"
-            printf '%s' "$value" | npx --yes wrangler@4 secret put "$name" --config wrangler.toml >/dev/null
+            printf '%s' "$value" | npx --yes "wrangler@${WRANGLER_VERSION}" secret put "$name" --config wrangler.toml >/dev/null
           }
           put_secret TELEGRAM_BOT_TOKEN "$TELEGRAM_BOT_TOKEN"
           put_secret TELEGRAM_WEBHOOK_SECRET "$TELEGRAM_WEBHOOK_SECRET"
@@ -161,7 +209,7 @@ jobs:
           import json, os
           print(json.dumps({
               "chat_id": os.environ["TELEGRAM_CHAT_ID"],
-              "text": "⚡ تم تفعيل Telegram Edge Control.\n\nالآن القوائم والإحصائيات وزر التفاصيل تستجيب عبر Webhook مباشر بدل انتظار polling.\n\nاضغط «🏠 ابدأ» للتجربة.",
+              "text": "⚡ تم تفعيل Telegram Edge Control — ZERO COST MODE.\n\nالقوائم والإحصائيات وزر التفاصيل تستجيب عبر Webhook مباشر بدل انتظار polling.\nCloudflare: Free فقط؛ عند بلوغ حد الخطة المجانية تتوقف الخدمة بدل وجود مسار ترقية في هذا النظام.\n\nاضغط «🏠 ابدأ» للتجربة.",
               "disable_web_page_preview": True,
               "reply_markup": {
                   "keyboard": [[{"text": "🏠 ابدأ"}]],
@@ -177,4 +225,5 @@ jobs:
         run: |
           echo "Telegram Edge Control is live at $WORKER_URL/telegram"
           echo "Health: $WORKER_URL/health"
+          echo "ZERO_COST_MODE=true; no paid Cloudflare binding or plan-upgrade operation is present"
           echo "Production authority remains in telegram-editorial-control.yml"
