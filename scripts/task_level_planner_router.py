@@ -86,19 +86,27 @@ def _extract_rate_limit_headers(headers) -> dict:
     }
 
 
-def _record_attempt(provider_name: str, result: str, *, error_detail: str | None = None, duration_seconds: float | None = None) -> None:
+def _record_attempt(
+    provider_name: str,
+    result: str,
+    *,
+    error_detail: str | None = None,
+    duration_seconds: float | None = None,
+) -> None:
     headers = dict(_last_call_rate_limit_headers)
     _last_call_rate_limit_headers.clear()
-    _TELEMETRY.append({
-        "provider": provider_name,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "result": result,
-        "error_detail": error_detail,
-        "duration_seconds": duration_seconds,
-        "retry_after": headers.get("retry_after"),
-        "remaining_requests": headers.get("remaining_requests"),
-        "remaining_tokens": headers.get("remaining_tokens"),
-    })
+    _TELEMETRY.append(
+        {
+            "provider": provider_name,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "result": result,
+            "error_detail": error_detail,
+            "duration_seconds": duration_seconds,
+            "retry_after": headers.get("retry_after"),
+            "remaining_requests": headers.get("remaining_requests"),
+            "remaining_tokens": headers.get("remaining_tokens"),
+        }
+    )
 
 
 def _record_budget_attempt(
@@ -428,7 +436,12 @@ def _groq_call(prompt: str) -> dict:
             headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
             json={
                 "model": "openai/gpt-oss-20b",
-                "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown.",
+                    }
+                ],
                 "response_format": {"type": "json_object"},
                 "temperature": 0.15,
                 "max_completion_tokens": 2600,
@@ -460,18 +473,23 @@ def _openrouter_call_with_repair(
     *,
     response_contract: tuple[str, dict] | None = None,
 ) -> dict:
-    """One OpenRouter request chain plus one bounded syntax repair when necessary."""
-    schema_name = "isco_planning_response"
-    response_schema = None
-    if response_contract is not None:
-        schema_name, response_schema = response_contract
+    """One OpenRouter request chain plus one bounded syntax repair when necessary.
 
-    kwargs = {
-        "model": model,
-        "fallback_models": _OPENROUTER_FALLBACK_MODELS,
-        "response_schema": response_schema,
-        "schema_name": schema_name,
-    }
+    The no-contract branch deliberately preserves the old two-argument adapter call.
+    That keeps legacy/unknown JSON-only planner tasks compatible during the rollout;
+    all known production planning contracts use the strict schema branch below.
+    """
+    if response_contract is None:
+        kwargs = {"model": model}
+    else:
+        schema_name, response_schema = response_contract
+        kwargs = {
+            "model": model,
+            "fallback_models": _OPENROUTER_FALLBACK_MODELS,
+            "response_schema": response_schema,
+            "schema_name": schema_name,
+        }
+
     try:
         return _budgeted_provider_call(
             provider_name,
@@ -547,8 +565,8 @@ def install_router() -> None:
                     _record_attempt(name, "circuit-open")
                     continue
 
-                cooldown_until = transient_cooldown_until.get(name, 0.0)
-                if cooldown_until > time.monotonic():
+                cooldown_until = transient_cooldown_until.get(name)
+                if cooldown_until is not None and cooldown_until > time.monotonic():
                     _record_attempt(name, "transient-cooldown")
                     continue
 
@@ -610,7 +628,9 @@ def install_router() -> None:
                             print(f"Planning subtask failed safely: {name}:{detail}")
                         break
 
-            raise RuntimeError("All free providers failed for planning subtask: " + " | ".join(failures))
+            raise RuntimeError(
+                "All free providers failed for planning subtask: " + " | ".join(failures)
+            )
 
         active = get_active_budget_task()
         if active is None or active.spec.kind != "OUTLINE_PLAN":
