@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from scripts import telegram_control_panel as panel
-
 
 _STATUS_LABELS = {
     "research": "البحث",
@@ -16,9 +14,17 @@ _STATUS_LABELS = {
     "quality": "فحص الجودة",
     "quality_gates": "فحص الجودة",
     "delivery": "الحزمة النهائية",
+    "pending_dispatch": "انتظار الإرسال",
+    "dispatch_reserved": "حجز التشغيل",
+    "dispatch_consumed": "الإنتاج الجاري",
+    "queued": "انتظار الإرسال",
+    "in_progress": "الإنتاج الجاري",
     "complete": "مكتمل",
     "completed": "مكتمل",
+    "success": "مكتمل",
     "failed": "فشل",
+    "failure": "فشل",
+    "cancelled": "متوقف",
 }
 
 
@@ -51,6 +57,8 @@ def _as_gate_rows(gates: Any) -> list[tuple[str, str, str]]:
             detail = _clean(item.get("detail") or item.get("message") or item.get("reason"))
             if not status and "passed" in item:
                 status = "pass" if bool(item.get("passed")) else "fail"
+        elif isinstance(item, bool):
+            status = "pass" if item else "fail"
         else:
             status = _clean(item)
         if name:
@@ -62,7 +70,7 @@ def _gate_icon(status: str) -> str:
     value = status.casefold()
     if value in {"pass", "passed", "ok", "success", "true", "green"}:
         return "✅"
-    if value in {"fail", "failed", "error", "false", "red"}:
+    if value in {"fail", "failed", "failure", "error", "false", "red"}:
         return "❌"
     if value in {"warn", "warning", "yellow"}:
         return "⚠️"
@@ -110,17 +118,21 @@ def quality_gates_rich_message(report: dict[str, Any]) -> dict[str, Any]:
     gates = _as_gate_rows(report.get("gates") or report.get("quality_gates") or report.get("checks"))
     passed = sum(1 for _, status, _ in gates if _gate_icon(status) == "✅")
     failed = sum(1 for _, status, _ in gates if _gate_icon(status) == "❌")
+    warned = sum(1 for _, status, _ in gates if _gate_icon(status) == "⚠️")
     title = _clean(report.get("title") or report.get("topic"))
     error = _clean(report.get("error") or report.get("failure") or report.get("reason"))
     run_id = _clean(report.get("run_id") or report.get("request_id"))
 
+    summary = f"✅ ناجحة: {passed} · ❌ فاشلة: {failed}"
+    if warned:
+        summary += f" · ⚠️ تحذير: {warned}"
     blocks: list[dict[str, Any]] = [
         {"type": "heading", "size": 2, "text": "🧪 Quality Gates"},
-        {"type": "paragraph", "text": f"✅ ناجحة: {passed} · ❌ فاشلة: {failed}"},
+        {"type": "paragraph", "text": summary},
     ]
     if title:
         blocks.append({"type": "paragraph", "text": f"🎯 {title}"})
-    for name, status, detail in gates:
+    for name, status, detail in gates[:30]:
         icon = _gate_icon(status)
         if detail:
             blocks.append({"type": "details", "summary": f"{icon} {name}", "blocks": [{"type": "paragraph", "text": detail}]})
@@ -133,20 +145,37 @@ def quality_gates_rich_message(report: dict[str, Any]) -> dict[str, Any]:
     if run_id:
         buttons.insert(0, {"text": "🔄 تحديث الحالة", "callback_data": "cmd:status"})
     blocks.append({"type": "buttons", "align": "right", "buttons": buttons})
-    blocks.append({"type": "footer", "text": "لا يوجد زر يصلح الإنتاج تلقائيًا أو يتجاوز الحواجز. أي إعادة تشغيل تبقى عبر مسار التحكم المعتاد."})
+    blocks.append(
+        {
+            "type": "footer",
+            "text": "هذه شاشة تشخيص فقط. لا يوجد زر يتجاوز Quality Gates أو يعيد الإنتاج تلقائيًا.",
+        }
+    )
     return {"blocks": blocks, "is_rtl": True, "skip_entity_detection": True}
+
+
+def _file_media(item: Any) -> tuple[str, str]:
+    if isinstance(item, dict):
+        name = _clean(item.get("name") or item.get("filename") or item.get("label"))
+        media = _clean(
+            item.get("telegram_file_id")
+            or item.get("file_id")
+            or item.get("browser_download_url")
+            or item.get("url")
+            or item.get("download_url")
+        )
+        return name, media
+    return "", _clean(item)
 
 
 def last_delivery_rich_message(delivery: dict[str, Any]) -> dict[str, Any]:
     title = _clean(delivery.get("title") or delivery.get("topic") or delivery.get("approved_topic"))
-    release = _clean(delivery.get("release") or delivery.get("release_id") or delivery.get("run_id"))
-    files = delivery.get("files") or delivery.get("artifacts") or delivery.get("documents") or []
+    release = _clean(delivery.get("tag_name") or delivery.get("release") or delivery.get("release_id") or delivery.get("run_id"))
+    files = delivery.get("files") or delivery.get("artifacts") or delivery.get("documents") or delivery.get("assets") or []
     if isinstance(files, dict):
         files = list(files.values())
 
-    blocks: list[dict[str, Any]] = [
-        {"type": "heading", "size": 2, "text": "🎁 آخر إنتاج"},
-    ]
+    blocks: list[dict[str, Any]] = [{"type": "heading", "size": 2, "text": "🎁 آخر إنتاج"}]
     if title:
         blocks.append({"type": "paragraph", "text": f"🎯 {title}"})
     if release:
@@ -154,29 +183,27 @@ def last_delivery_rich_message(delivery: dict[str, Any]) -> dict[str, Any]:
 
     added = 0
     for item in files if isinstance(files, list) else []:
-        file_id = ""
-        name = ""
-        if isinstance(item, dict):
-            file_id = _clean(item.get("telegram_file_id") or item.get("file_id"))
-            name = _clean(item.get("name") or item.get("filename") or item.get("label"))
-        else:
-            file_id = _clean(item)
-        if not file_id:
+        name, media = _file_media(item)
+        if not media:
             continue
-        block: dict[str, Any] = {"type": "document", "document": file_id}
         if name:
-            block["caption"] = name
-        blocks.append(block)
+            blocks.append({"type": "paragraph", "text": f"📎 {name}"})
+        blocks.append(
+            {
+                "type": "document",
+                "document": {"type": "document", "media": media},
+            }
+        )
         added += 1
         if added >= 20:
             break
 
     if not added:
-        url = _clean(delivery.get("url") or delivery.get("release_url") or delivery.get("artifact_url"))
+        url = _clean(delivery.get("html_url") or delivery.get("url") or delivery.get("release_url") or delivery.get("artifact_url"))
         if url:
             blocks.append({"type": "paragraph", "text": f"🔗 {url}"})
         else:
-            blocks.append({"type": "paragraph", "text": "لا توجد ملفات Telegram محفوظة مع آخر حزمة؛ ستظهر المرفقات هنا تلقائيًا عندما تتوفر file_id صالحة."})
+            blocks.append({"type": "paragraph", "text": "لا توجد ملفات قابلة للإرفاق في آخر حزمة."})
 
     blocks.append(
         {
@@ -191,19 +218,46 @@ def last_delivery_rich_message(delivery: dict[str, Any]) -> dict[str, Any]:
     return {"blocks": blocks, "is_rtl": True, "skip_entity_detection": True}
 
 
-def ephemeral_callback_parameters(callback_query_id: str | None) -> dict[str, Any] | None:
-    value = _clean(callback_query_id)
-    if not value:
+def ephemeral_callback_parameters(
+    callback_query_id: str | None,
+    receiver_user_id: int | str | None,
+) -> dict[str, Any] | None:
+    callback = _clean(callback_query_id)
+    receiver = _clean(receiver_user_id)
+    if not callback or not receiver:
         return None
-    return {"callback_query_id": value, "replace_callback_query_message": True}
+    try:
+        user_id = int(receiver)
+    except (TypeError, ValueError):
+        return None
+    return {
+        "receiver_user_id": user_id,
+        "callback_query_id": callback,
+        "replace_callback_query_message": True,
+    }
 
 
-def send_rich_with_fallback(client, chat_id: int | str, rich_message: dict[str, Any], fallback_text: str, *, ephemeral_callback_query_id: str | None = None):
+def send_rich_with_fallback(
+    client,
+    chat_id: int | str,
+    rich_message: dict[str, Any],
+    fallback_text: str,
+    *,
+    ephemeral_callback_query_id: str | None = None,
+    ephemeral_receiver_user_id: int | str | None = None,
+):
     payload: dict[str, Any] = {"chat_id": chat_id, "rich_message": rich_message}
-    ephemeral = ephemeral_callback_parameters(ephemeral_callback_query_id)
+    ephemeral = ephemeral_callback_parameters(ephemeral_callback_query_id, ephemeral_receiver_user_id)
     if ephemeral:
         payload["ephemeral_message_parameters"] = ephemeral
     try:
         return client.call("sendRichMessage", payload)
     except Exception:
+        if ephemeral:
+            # Ephemeral messages aren't supported in every chat/client context.
+            # Keep the rich UI before degrading to the tested text surface.
+            try:
+                return client.call("sendRichMessage", {"chat_id": chat_id, "rich_message": rich_message})
+            except Exception:
+                pass
         return client.send(chat_id, fallback_text)
