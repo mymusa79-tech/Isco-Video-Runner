@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
 import signal
 import time
 from pathlib import Path
@@ -13,6 +15,11 @@ from gradio_client import Client, handle_file
 
 CHATTERBOX_ARABIC_REFERENCE = (
     "https://storage.googleapis.com/chatterbox-demo-samples/mtl_prompts/ar_f/ar_prompts2.flac"
+)
+REFERENCE_PROMPT_TEXT = (
+    "في بعض الأيام، لا تحتاج إلى أن تغيّر حياتك كلها. يكفي أن تتوقف لحظة، "
+    "وتسمع صوتك أنت، بعيدًا عن ضجيج الآخرين. الخطوة الصغيرة التي تختارها بوعي اليوم "
+    "قد تكون بداية طريق مختلف تمامًا."
 )
 CALL_TIMEOUT_SECONDS = 180
 MAX_ATTEMPTS = 3
@@ -33,6 +40,26 @@ def _write_pcm_wav(source: str, output: Path) -> None:
         audio = np.mean(audio, axis=1)
     output.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(output), audio, int(rate), subtype="PCM_16", format="WAV")
+
+
+def _primary_reference() -> Path | None:
+    raw = (os.environ.get("ISCO_TTS_PRIMARY_REFERENCE_WAV") or "").strip()
+    if not raw:
+        if os.environ.get("ISCO_TTS_REQUIRE_REFERENCE") == "1":
+            raise RuntimeError("primary voice reference required but ISCO_TTS_PRIMARY_REFERENCE_WAV is missing")
+        return None
+    path = Path(raw)
+    if not path.is_file() or path.stat().st_size < 512:
+        raise RuntimeError(f"invalid primary voice reference: {path}")
+    info = sf.info(str(path))
+    if info.duration < 2.0 or info.channels < 1:
+        raise RuntimeError(f"primary voice reference is too short/invalid: {info.duration:.3f}s")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    print(
+        f"reference primary=Charon file={path.name} sha256={digest} duration={info.duration:.3f}s",
+        flush=True,
+    )
+    return path
 
 
 def _alarm_handler(signum, frame) -> None:  # pragma: no cover - OS signal glue
@@ -61,14 +88,20 @@ def _bounded_call(label: str, operation: Callable[[], T]) -> T:
     raise last
 
 
-def _voxcpm2(text: str, direction: str, output: Path) -> None:
+def _voxcpm2(text: str, direction: str, output: Path, reference: Path | None) -> None:
     def generate() -> str:
         client = Client("openbmb/VoxCPM-Demo", verbose=False)
+        if reference is not None:
+            prompt_text = REFERENCE_PROMPT_TEXT
+            prompt_audio = handle_file(str(reference))
+        else:
+            prompt_text = direction
+            prompt_audio = None
         return str(
             client.predict(
                 text,
-                direction,
-                None,
+                prompt_text,
+                prompt_audio,
                 False,
                 "",
                 2.0,
@@ -82,13 +115,14 @@ def _voxcpm2(text: str, direction: str, output: Path) -> None:
     _write_pcm_wav(source, output)
 
 
-def _chatterbox(text: str, output: Path) -> None:
+def _chatterbox(text: str, output: Path, reference: Path | None) -> None:
     def generate() -> str:
         client = Client("ResembleAI/Chatterbox-Multilingual-TTS-V3", verbose=False)
+        prompt_audio = handle_file(str(reference)) if reference is not None else handle_file(CHATTERBOX_ARABIC_REFERENCE)
         return str(
             client.predict(
                 text,
-                handle_file(CHATTERBOX_ARABIC_REFERENCE),
+                prompt_audio,
                 "ar",
                 0.5,
                 0.8,
@@ -113,11 +147,12 @@ def main() -> None:
 
     text = _read(args.text_file)
     direction = _read(args.direction_file)
-    print(f"starting {args.sample_id}/{args.engine}", flush=True)
+    reference = _primary_reference()
+    print(f"starting {args.sample_id}/{args.engine} reference={'Charon' if reference else 'engine-default'}", flush=True)
     if args.engine == "voxcpm2":
-        _voxcpm2(text, direction, args.output_wav)
+        _voxcpm2(text, direction, args.output_wav, reference)
     else:
-        _chatterbox(text, args.output_wav)
+        _chatterbox(text, args.output_wav, reference)
 
     info = sf.info(str(args.output_wav))
     if info.duration <= 0.2 or args.output_wav.stat().st_size < 512:
