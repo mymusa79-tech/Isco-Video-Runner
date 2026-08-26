@@ -18,6 +18,11 @@ def _schema_policy_compatible_prompt(prompt: str) -> str:
         1,
     )
     prompt = prompt.replace(
+        "CANONICAL EDITORIAL_INTENT (immutable):",
+        "CANONICAL EDITORIAL_INTENT (immutable during repair):",
+        1,
+    )
+    prompt = prompt.replace(
         "BLOCKING DOSSIER ISSUES — fix only what is relevant to these returned sections:",
         "Specific issues an automated pre-check found that you MUST address:",
         1,
