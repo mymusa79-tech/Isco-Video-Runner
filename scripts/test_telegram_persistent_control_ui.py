@@ -55,6 +55,22 @@ def _callbacks(rows):
     return [button.get("callback_data") for row in rows for button in row if button.get("callback_data")]
 
 
+def _live_stats() -> dict:
+    return {
+        "fetched_at": "2026-08-26T08:45:00+00:00",
+        "channel_id": "UC-test",
+        "channel_title": "نداء اليقظة",
+        "hidden_subscriber_count": False,
+        "subscribers": 12,
+        "views": 3456,
+        "videos_count": 9,
+        "videos": [
+            {"id": "long1", "title": "حلقة", "published_at": "2026-08-25T10:00:00Z", "duration_seconds": 900, "is_short_approx": False, "views": 400, "likes": 20, "comments": 5},
+            {"id": "short1", "title": "شورت", "published_at": "2026-08-26T07:00:00Z", "duration_seconds": 45, "is_short_approx": True, "views": 1700, "likes": 60, "comments": 7},
+        ],
+    }
+
+
 class TelegramPersistentControlUiTests(unittest.TestCase):
     def test_reply_keyboard_is_one_persistent_home_start_button(self):
         markup = ui._persistent_reply_markup()
@@ -65,12 +81,12 @@ class TelegramPersistentControlUiTests(unittest.TestCase):
 
     def test_start_button_only_opens_root_menu(self):
         self.assertEqual(ui._command_kind("🏠 ابدأ"), "menu")
-        self.assertEqual(ui._command_kind("🎛 ابدأ"), "menu")  # old installed button remains safe during upgrade
+        self.assertEqual(ui._command_kind("🎛 ابدأ"), "menu")
         buttons = [button for row in ui._main_keyboard() for button in row]
-        self.assertEqual(len(buttons), 4)
+        self.assertEqual(len(buttons), 5)
         self.assertEqual(
             [button["callback_data"] for button in buttons],
-            ["cmd:search_menu", "cmd:library_menu", "cmd:last_delivery", "cmd:status"],
+            ["cmd:search_menu", "cmd:library_menu", "cmd:last_delivery", "cmd:status", "cmd:stats_menu"],
         )
         self.assertFalse(any(button.get("callback_data") in {"cmd:topic", "cmd:short", "cmd:produce_latest"} for button in buttons))
 
@@ -84,6 +100,8 @@ class TelegramPersistentControlUiTests(unittest.TestCase):
             "٣": "last_delivery",
             "4": "status",
             "٤": "status",
+            "5": "stats_menu",
+            "٥": "stats_menu",
         }
         for text, kind in expected.items():
             with self.subTest(text=text):
@@ -101,6 +119,15 @@ class TelegramPersistentControlUiTests(unittest.TestCase):
         self.assertIn("اختر القائمة", client.messages[-1][1])
         self.assertEqual(_callbacks(client.messages[-1][2]), ["cmd:saved", "cmd:used", "cmd:menu"])
 
+    def test_stats_section_reveals_only_stats_children(self):
+        client = _Client()
+        ui._handle_command("stats_menu", client, {}, None, 77)
+        self.assertIn("إحصائيات نداء اليقظة", client.messages[-1][1])
+        self.assertEqual(
+            _callbacks(client.messages[-1][2]),
+            ["cmd:stats_last_long", "cmd:stats_last_short", "cmd:stats_today", "cmd:stats_week", "cmd:stats_overview", "cmd:menu"],
+        )
+
     def test_leaf_commands_delegate_instead_of_opening_extra_menu(self):
         client = _Client()
         state = {"pending_actions": []}
@@ -112,21 +139,43 @@ class TelegramPersistentControlUiTests(unittest.TestCase):
 
     def test_all_hierarchical_callback_buttons_have_known_destinations(self):
         known = {
-            "cmd:search_menu",
-            "cmd:library_menu",
-            "cmd:last_delivery",
-            "cmd:status",
-            "cmd:topic",
-            "cmd:short",
-            "cmd:saved",
-            "cmd:used",
-            "cmd:menu",
+            "cmd:search_menu", "cmd:library_menu", "cmd:last_delivery", "cmd:status", "cmd:stats_menu",
+            "cmd:topic", "cmd:short", "cmd:saved", "cmd:used", "cmd:menu",
+            "cmd:stats_last_long", "cmd:stats_last_short", "cmd:stats_today", "cmd:stats_week", "cmd:stats_overview",
         }
-        actual = set(_callbacks(ui._main_keyboard()) + _callbacks(ui._search_keyboard()) + _callbacks(ui._library_keyboard()))
+        actual = set(
+            _callbacks(ui._main_keyboard())
+            + _callbacks(ui._search_keyboard())
+            + _callbacks(ui._library_keyboard())
+            + _callbacks(ui._stats_keyboard())
+        )
         self.assertEqual(actual, known)
         for callback in actual:
             self.assertTrue(callback.startswith("cmd:"))
             self.assertTrue(callback.split(":", 1)[1])
+
+    def test_live_stats_leaf_fetches_and_returns_to_stats_menu(self):
+        client = _Client()
+        state = {}
+        with mock.patch.object(ui.youtube_stats, "fetch_live", return_value=_live_stats()) as fetch_live, \
+             mock.patch.object(ui.youtube_stats, "record_snapshot") as record:
+            ui._handle_command("stats_last_short", client, state, None, 77)
+        fetch_live.assert_called_once()
+        record.assert_called_once()
+        self.assertIn("آخر Short", client.messages[-1][1])
+        self.assertIn("1.7K", client.messages[-1][1])
+        callbacks = _callbacks(client.messages[-1][2])
+        self.assertIn("cmd:stats_menu", callbacks)
+        urls = [button.get("url") for row in client.messages[-1][2] for button in row if button.get("url")]
+        self.assertEqual(urls, ["https://youtu.be/short1"])
+
+    def test_stats_failure_is_isolated_from_production(self):
+        client = _Client()
+        state = {"production_queue": []}
+        with mock.patch.object(ui.youtube_stats, "fetch_live", side_effect=RuntimeError("quota")):
+            ui._handle_command("stats_overview", client, state, None, 77)
+        self.assertEqual(state["production_queue"], [])
+        self.assertIn("تعذر تحديث إحصائيات YouTube", client.messages[-1][1])
 
     def test_only_exact_confirmation_phrase_gets_production_command(self):
         self.assertEqual(ui._command_kind("تأكيد الإنتاج"), "confirm_production")
@@ -219,7 +268,7 @@ class TelegramPersistentControlUiTests(unittest.TestCase):
             state_path = Path(tmp) / "state.json"
             panel.save_state(
                 state_path,
-                {"schema_version": 1, "telegram_offset": 0, "sessions": {}, "requests": {}, "pending_actions": [], "production_queue": [], "last_event_at": None, ui.PERSISTENT_SURFACE_STATE_KEY: 1},
+                {"schema_version": 1, "telegram_offset": 0, "sessions": {}, "requests": {}, "pending_actions": [], "production_queue": [], "last_event_at": None, ui.PERSISTENT_SURFACE_STATE_KEY: 2},
             )
             client = _Client()
             secret_map = {
