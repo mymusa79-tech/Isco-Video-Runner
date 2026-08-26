@@ -1,0 +1,180 @@
+name: Deploy Telegram Edge Control
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-telegram-edge.yml"
+      - "cloudflare/telegram-control-worker/**"
+  pull_request:
+    paths:
+      - ".github/workflows/deploy-telegram-edge.yml"
+      - "cloudflare/telegram-control-worker/**"
+      - "scripts/test_telegram_edge_activation_workflow.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-edge-deploy
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Validate Worker and activation contract
+        run: |
+          set -euo pipefail
+          node --check cloudflare/telegram-control-worker/index.js
+          python -m unittest -v scripts.test_telegram_edge_worker_contract scripts.test_telegram_edge_activation_workflow
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_ALLOWED_USER_ID: ${{ secrets.TELEGRAM_ALLOWED_USER_ID }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GITHUB_CONTROL_TOKEN: ${{ secrets.GITHUB_CONTROL_TOKEN }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Validate activation secrets
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in \
+            CLOUDFLARE_API_TOKEN \
+            CLOUDFLARE_ACCOUNT_ID \
+            TELEGRAM_BOT_TOKEN \
+            TELEGRAM_ALLOWED_USER_ID \
+            TELEGRAM_CHAT_ID \
+            GITHUB_CONTROL_TOKEN \
+            YOUTUBE_API_KEY
+          do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -ne 0 ]; then
+            printf 'Missing required repository secrets: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+      - name: Validate Worker syntax
+        run: |
+          set -euo pipefail
+          node --check cloudflare/telegram-control-worker/index.js
+
+      - name: Generate webhook secret
+        run: |
+          set -euo pipefail
+          WEBHOOK_SECRET="$(python - <<'PY'
+          import secrets
+          print(secrets.token_urlsafe(32))
+          PY
+          )"
+          test -n "$WEBHOOK_SECRET"
+          echo "TELEGRAM_WEBHOOK_SECRET=$WEBHOOK_SECRET" >> "$GITHUB_ENV"
+
+      - name: Deploy Worker
+        working-directory: cloudflare/telegram-control-worker
+        run: |
+          set -euo pipefail
+          cp wrangler.toml.example wrangler.toml
+          npx --yes wrangler@4 deploy --config wrangler.toml 2>&1 | tee "$RUNNER_TEMP/wrangler-deploy.log"
+          WORKER_URL="$(grep -Eo 'https://[A-Za-z0-9._-]+\.workers\.dev' "$RUNNER_TEMP/wrangler-deploy.log" | tail -1 || true)"
+          if [ -z "$WORKER_URL" ]; then
+            echo "Could not resolve the workers.dev deployment URL from Wrangler output" >&2
+            exit 1
+          fi
+          echo "WORKER_URL=$WORKER_URL" >> "$GITHUB_ENV"
+
+      - name: Install Worker secrets
+        working-directory: cloudflare/telegram-control-worker
+        run: |
+          set -euo pipefail
+          put_secret() {
+            local name="$1"
+            local value="$2"
+            printf '%s' "$value" | npx --yes wrangler@4 secret put "$name" --config wrangler.toml >/dev/null
+          }
+          put_secret TELEGRAM_BOT_TOKEN "$TELEGRAM_BOT_TOKEN"
+          put_secret TELEGRAM_WEBHOOK_SECRET "$TELEGRAM_WEBHOOK_SECRET"
+          put_secret TELEGRAM_ALLOWED_USER_ID "$TELEGRAM_ALLOWED_USER_ID"
+          put_secret TELEGRAM_CHAT_ID "$TELEGRAM_CHAT_ID"
+          put_secret GITHUB_CONTROL_TOKEN "$GITHUB_CONTROL_TOKEN"
+          put_secret YOUTUBE_API_KEY "$YOUTUBE_API_KEY"
+
+      - name: Verify Worker health
+        run: |
+          set -euo pipefail
+          body="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 20 "$WORKER_URL/health")"
+          printf '%s' "$body" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("mode") == "telegram-edge-control"'
+
+      - name: Register Telegram webhook
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 25 \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+            -H 'content-type: application/json' \
+            --data "$(python - <<'PY'
+          import json, os
+          print(json.dumps({
+              "url": os.environ["WORKER_URL"].rstrip("/") + "/telegram",
+              "secret_token": os.environ["TELEGRAM_WEBHOOK_SECRET"],
+              "allowed_updates": ["message", "callback_query"],
+              "drop_pending_updates": False,
+              "max_connections": 20,
+          }))
+          PY
+          )")"
+          printf '%s' "$response" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("result") is True'
+
+      - name: Verify Telegram webhook binding
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 25 \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo")"
+          printf '%s' "$response" | python -c 'import json,os,sys; p=json.load(sys.stdin); assert p.get("ok") is True; r=p.get("result") or {}; expected=os.environ["WORKER_URL"].rstrip("/")+"/telegram"; assert r.get("url")==expected, (r.get("url"), expected); assert int(r.get("pending_update_count") or 0) >= 0'
+
+      - name: Announce live edge control
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 25 \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -H 'content-type: application/json' \
+            --data "$(python - <<'PY'
+          import json, os
+          print(json.dumps({
+              "chat_id": os.environ["TELEGRAM_CHAT_ID"],
+              "text": "⚡ تم تفعيل Telegram Edge Control.\n\nالآن القوائم والإحصائيات وزر التفاصيل تستجيب عبر Webhook مباشر بدل انتظار polling.\n\nاضغط «🏠 ابدأ» للتجربة.",
+              "disable_web_page_preview": True,
+              "reply_markup": {
+                  "keyboard": [[{"text": "🏠 ابدأ"}]],
+                  "resize_keyboard": True,
+                  "is_persistent": True,
+                  "one_time_keyboard": False,
+              },
+          }, ensure_ascii=False))
+          PY
+          )" >/dev/null
+
+      - name: Activation summary
+        run: |
+          echo "Telegram Edge Control is live at $WORKER_URL/telegram"
+          echo "Health: $WORKER_URL/health"
+          echo "Production authority remains in telegram-editorial-control.yml"
