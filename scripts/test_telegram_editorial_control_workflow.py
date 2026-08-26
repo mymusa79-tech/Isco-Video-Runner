@@ -52,7 +52,7 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn("telegram-production-request.yml/runs?per_page=20", self.text)
         self.assertIn('active=$((active_v4 + active_telegram))', self.text)
         self.assertIn('select(.status != "completed")', self.text)
-        self.assertIn("control state is read-only", self.text)
+        self.assertIn("stateful Telegram control remains read-only", self.text)
         self.assertIn('echo "production_active=true"', self.text)
         self.assertIn('echo "production_active=false"', self.text)
         self.assertIn('echo "needs_production=false"', self.text)

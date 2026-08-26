@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      webhook_update_b64:
+        description: "Base64-encoded Telegram update from the authenticated edge webhook"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -69,6 +75,10 @@ jobs:
         if: env.CONTROL_STATE_FRESH == 'true'
         run: |
           set -euo pipefail
+          if python scripts/telegram_webhook_replay.py webhook-active; then
+            echo "Telegram webhook is active; getUpdates offset priming is not applicable"
+            exit 0
+          fi
           python - <<'PY'
           from pathlib import Path
           from scripts.telegram_control_panel import TelegramClient, _read_secret_file, load_state, save_state
@@ -85,11 +95,13 @@ jobs:
           print(f"Telegram control offset primed at {state['telegram_offset']}; historical updates ignored")
           PY
 
-      - name: Poll authorized Telegram commands
+      - name: Poll or replay authorized Telegram commands
         id: poll
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          WEBHOOK_UPDATE_B64: ${{ inputs.webhook_update_b64 }}
         run: |
           set -euo pipefail
           active_v4="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/runs?per_page=20" \
@@ -98,13 +110,28 @@ jobs:
             --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
           active=$((active_v4 + active_telegram))
           if [ "$active" -gt 0 ]; then
-            echo "A production workflow is active; Telegram polling paused and control state is read-only"
+            echo "A production workflow is active; stateful Telegram control remains read-only"
             echo "production_active=true" >> "$GITHUB_OUTPUT"
             echo "needs_engine=false" >> "$GITHUB_OUTPUT"
             echo "needs_production=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "production_active=false" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$WEBHOOK_UPDATE_B64" ]; then
+            python scripts/telegram_webhook_replay.py replay \
+              --state "$CONTROL_STATE_PATH" \
+              --update-b64 "$WEBHOOK_UPDATE_B64"
+            exit 0
+          fi
+
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ] && python scripts/telegram_webhook_replay.py webhook-active; then
+            echo "Telegram webhook is active; scheduled getUpdates polling is automatically suppressed"
+            echo "needs_engine=false" >> "$GITHUB_OUTPUT"
+            echo "needs_production=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           python scripts/telegram_topic_memory_ui.py poll --state "$CONTROL_STATE_PATH"
 
       - name: Checkout exact private Engine for research only
