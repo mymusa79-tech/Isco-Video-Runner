@@ -1,0 +1,123 @@
+name: TTS Reference-Aware Primary Smoke
+
+on:
+  push:
+    branches: ["agent/tts-blind-execution-2026-08-26"]
+    paths:
+      - ".github/workflows/tts-reference-aware-primary-smoke.yml"
+      - "scripts/tts_blind_space_adapter.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  primary-reference-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install reference-aware runtime
+        run: python -m pip install --disable-pip-version-check --quiet "gradio_client>=1.12,<2" "soundfile>=0.13,<1"
+
+      - name: Download current Charon listening reference from GitHub artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p approved-ref
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            '/repos/mymusa79-tech/Isco-Video-Runner/actions/artifacts/9594263509/zip' \
+            > approved-ref.zip
+          unzip -q approved-ref.zip -d approved-ref
+          test -f approved-ref/01-Charon.wav
+          test -f approved-ref/metadata.json
+          python - <<'PY'
+          import json
+          import wave
+          from pathlib import Path
+          meta = json.loads(Path('approved-ref/metadata.json').read_text(encoding='utf-8'))
+          row = next((r for r in meta.get('voices', []) if r.get('voice') == 'Charon'), None)
+          if not row or row.get('status') != 'ok' or row.get('file') != '01-Charon.wav':
+              raise SystemExit(f'Charon reference not certified in artifact metadata: {row!r}')
+          p = Path('approved-ref/01-Charon.wav')
+          with wave.open(str(p), 'rb') as w:
+              duration = w.getnframes() / w.getframerate()
+              if w.getnchannels() != 1 or w.getsampwidth() != 2 or duration < 2:
+                  raise SystemExit('Charon artifact audio is not a valid mono PCM reference')
+          print(f'approved primary reference ready: Charon, {duration:.3f}s')
+          PY
+
+      - name: Prepare one fixed Arabic blind-test sentence
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import scripts.tts_blind_test as blind
+          item = blind._read_corpus(Path('scripts/tts_blind_corpus_ar.json'))[0]
+          Path('smoke').mkdir(exist_ok=True)
+          Path('smoke/text.txt').write_text(item.text, encoding='utf-8')
+          Path('smoke/direction.txt').write_text(item.direction, encoding='utf-8')
+          Path('smoke/sample-id.txt').write_text(item.sample_id, encoding='utf-8')
+          PY
+
+      - name: Generate VoxCPM2 using Charon as real prompt audio
+        env:
+          ISCO_TTS_PRIMARY_REFERENCE_WAV: ${{ github.workspace }}/approved-ref/01-Charon.wav
+          ISCO_TTS_REQUIRE_REFERENCE: "1"
+        run: |
+          set -euo pipefail
+          sample_id="$(cat smoke/sample-id.txt)"
+          python scripts/tts_blind_space_adapter.py \
+            voxcpm2 \
+            smoke/text.txt \
+            smoke/direction.txt \
+            smoke/voxcpm2-charon-reference.wav \
+            "$sample_id"
+
+      - name: Validate reference-aware output
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import hashlib
+          import soundfile as sf
+          from pathlib import Path
+          ref = Path('approved-ref/01-Charon.wav')
+          out = Path('smoke/voxcpm2-charon-reference.wav')
+          info = sf.info(str(out))
+          result = {
+              'reference_role': 'primary',
+              'reference_voice': 'Charon',
+              'source_artifact_id': 9594263509,
+              'source_run_id': 32933800450,
+              'reference_sha256': hashlib.sha256(ref.read_bytes()).hexdigest(),
+              'output_sha256': hashlib.sha256(out.read_bytes()).hexdigest(),
+              'output_duration_s': round(float(info.duration), 3),
+              'output_sample_rate_hz': int(info.samplerate),
+              'output_channels': int(info.channels),
+              'reference_was_required': True,
+          }
+          if info.duration <= 0.2 or info.channels != 1 or out.stat().st_size < 512:
+              raise SystemExit('invalid reference-aware VoxCPM2 output')
+          Path('smoke/reference-aware-result.json').write_text(
+              json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload reference-aware smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tts-reference-aware-primary-smoke
+          path: |
+            smoke/
+          if-no-files-found: error
+          retention-days: 7
