@@ -4,14 +4,14 @@ import json
 
 import isco_video_agent.resilient_planner as staged
 
-# Run #117 proved that an 8-section film can fit the planning prompt envelope while
-# the *response* contract still exceeds free-provider throughput/output headroom.
-# Keep the canonical outline global, but write/repair narration in bounded batches.
-# Four sections keeps continuity materially better than the historical per-section
-# fan-out while cutting both prompt and response size roughly in half for an 8-part
-# film. This adds no new quality bypass: the Engine's aggregate duration, identity,
-# factuality, repetition and downstream quality gates still run on the merged script.
-MAX_SCRIPT_BATCH_SECTIONS = 4
+# Run #118 showed that four-section batches still left only a few hundred estimated
+# Groq TPM tokens of headroom and remained vulnerable to provider-side structured
+# generation failure/output truncation. Preserve the canonical global outline and all
+# aggregate quality gates, but transport long-form writing/repair in batches of at most
+# three sections. A film is therefore 3+3+2 rather than the historical per-section fan
+# out, retaining cross-section continuity while giving every provider materially more
+# input/output/reasoning headroom.
+MAX_SCRIPT_BATCH_SECTIONS = 3
 
 
 def _chunks(items: list, size: int = MAX_SCRIPT_BATCH_SECTIONS):
