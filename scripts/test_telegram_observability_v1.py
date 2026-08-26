@@ -23,7 +23,7 @@ CONTROL_WORKFLOW = ROOT / ".github" / "workflows" / "telegram-editorial-control.
 
 class CanonicalStatusContractTests(unittest.TestCase):
     def test_worker_contract_is_generated_from_canonical_json(self) -> None:
-        namespace: dict[str, object] = {"__file__": str(GENERATOR)}
+        namespace: dict[str, object] = {"__file__": str(GENERATOR), "__name__": "telegram_status_contract_test"}
         exec(GENERATOR.read_text(encoding="utf-8"), namespace)
         rendered = namespace["render"]()
         self.assertEqual(rendered, GENERATED_CONTRACT.read_text(encoding="utf-8"))
