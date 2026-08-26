@@ -157,7 +157,8 @@ class PlannerWireAccountingTests(unittest.TestCase):
         self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 1, "groq": 1})
         self.assertEqual(summary["provider_attempts"]["by_outcome"], {"RATE_LIMITED": 1, "SUCCESS": 1})
 
-    # Acceptance matrix #4: Gemini -> Groq -> OpenRouter success = three attempts.
+    # Acceptance matrix #4: transient timeout/503 each consume one bounded retry,
+    # then OpenRouter succeeds: Gemini 2 + Groq 2 + OpenRouter 1 = five real calls.
     def test_planner_three_provider_fallback_records_three_attempts(self) -> None:
         ledger = BudgetLedger("film", enforce=False)
         with patch.object(router, "gemini_json_text", side_effect=TimeoutError("request timed out")), \
@@ -169,8 +170,8 @@ class PlannerWireAccountingTests(unittest.TestCase):
 
         self.assertEqual(result, {"ok": True})
         summary = ledger.to_summary()
-        self.assertEqual(summary["provider_attempts"]["total"], 3)
-        self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 1, "groq": 1, "openrouter": 1})
+        self.assertEqual(summary["provider_attempts"]["total"], 5)
+        self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 2, "groq": 2, "openrouter": 1})
 
     # Acceptance matrix #5: once Gemini is circuit-open, the next subtask skips it;
     # only Groq's actual request is counted.
@@ -210,8 +211,8 @@ class PlannerWireAccountingTests(unittest.TestCase):
         self.assertEqual(summary["provider_attempts"]["by_provider"], {"openrouter": 2})
         self.assertEqual(summary["provider_attempts"]["by_outcome"], {"SCHEMA_INVALID": 1, "SUCCESS": 1})
 
-    # Acceptance matrix #7: all four configured provider paths fail technically;
-    # Ledger must record all four attempts before the router raises exhaustion.
+    # Acceptance matrix #7: all three provider routes exhaust their one bounded
+    # transient retry: Gemini 2 + Groq 2 + OpenRouter 2 = six real calls.
     def test_all_planner_providers_fail_records_all_attempts(self) -> None:
         ledger = BudgetLedger("film", enforce=False)
         with patch.object(router, "gemini_json_text", side_effect=TimeoutError("request timed out")), \
@@ -223,8 +224,8 @@ class PlannerWireAccountingTests(unittest.TestCase):
                     staged.json_text("unused", "prompt", model="gemini-2.5-flash")
 
         summary = ledger.to_summary()
-        self.assertEqual(summary["provider_attempts"]["total"], 4)
-        self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 1, "groq": 1, "openrouter": 2})
+        self.assertEqual(summary["provider_attempts"]["total"], 6)
+        self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 2, "groq": 2, "openrouter": 2})
 
     # Acceptance matrix #8: a clean build_plan that performs two distinct planning
     # subtasks must be two provider attempts even though orchestrator sees one logical
