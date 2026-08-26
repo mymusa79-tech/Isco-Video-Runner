@@ -5,7 +5,7 @@ on:
     branches: ["main"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   candidate-regression:
@@ -15,22 +15,23 @@ jobs:
       - name: Checkout Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
+          ref: ${{ github.head_ref }}
+          persist-credentials: true
           fetch-depth: 1
 
-      - name: Checkout exact Agent candidate
+      - name: Checkout exact merged Agent
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: c7c77ebc991047e225933bf1753613f9ccb6bf98
+          ref: 9cab677a74f80489ff36665f98fc343a3b61eee2
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify exact Agent candidate
+      - name: Verify exact merged Agent
         working-directory: engine
-        run: test "$(git rev-parse HEAD)" = "c7c77ebc991047e225933bf1753613f9ccb6bf98"
+        run: test "$(git rev-parse HEAD)" = "9cab677a74f80489ff36665f98fc343a3b61eee2"
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -75,3 +76,39 @@ jobs:
 
       - name: Diff sanity
         run: git diff --check origin/main...HEAD || git diff --check
+
+      - name: Finalize canonical production pin and remove temporary verifier
+        if: github.event_name == 'pull_request' && github.head_ref == 'provider-reliability-run113'
+        env:
+          OLD_ENGINE_SHA: d5f2bec5a129ed0e1d922fab802314e1861b9b98
+          NEW_ENGINE_SHA: 9cab677a74f80489ff36665f98fc343a3b61eee2
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          text = path.read_text(encoding='utf-8')
+          old = os.environ['OLD_ENGINE_SHA']
+          new = os.environ['NEW_ENGINE_SHA']
+          count = text.count(old)
+          if count != 3:
+              raise SystemExit(f'Expected exactly 3 canonical Engine pin occurrences, found {count}')
+          text = text.replace(old, new)
+          if old in text or text.count(new) != 3:
+              raise SystemExit('Canonical Engine pin replacement failed closed')
+          path.write_text(text, encoding='utf-8')
+
+          verifier = Path('.github/workflows/verify-provider-reliability-run113.yml')
+          if not verifier.is_file():
+              raise SystemExit('Temporary verifier missing before cleanup')
+          verifier.unlink()
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/produce-resilient-v4.yml .github/workflows/verify-provider-reliability-run113.yml
+          git diff --cached --check
+          git diff --cached --quiet && { echo "No finalization delta" >&2; exit 1; }
+          git commit -m "fix: pin production to certified provider reliability Agent"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
