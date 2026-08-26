@@ -77,11 +77,14 @@ class TelegramEdgeActivationWorkflowTests(unittest.TestCase):
         self.assertNotIn('wrangler@4 deploy', self.text)
         self.assertNotIn('wrangler@latest', self.text)
 
-    def test_worker_is_hard_capped_to_free_ceiling(self):
+    def test_worker_uses_native_free_plan_limits_without_paid_limit_config(self):
         self.assertIn('workers_dev = true', self.wrangler)
-        self.assertIn('cpu_ms = 10', self.wrangler)
-        self.assertIn('subrequests = 10', self.wrangler)
+        self.assertNotIn('\n[limits]\n', self.wrangler)
+        self.assertNotIn('cpu_ms =', self.wrangler)
+        self.assertNotIn('subrequests =', self.wrangler)
+        self.assertIn('Cloudflare Workers Free', self.wrangler)
         self.assertIn('ZERO_COST_MODE = "true"', self.wrangler)
+        self.assertIn("assert 'limits' not in data", self.text)
 
     def test_paid_or_extra_cloudflare_bindings_are_fail_closed(self):
         for key in (
