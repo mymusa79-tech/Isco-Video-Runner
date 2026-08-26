@@ -17,6 +17,7 @@ def test_bridge_makes_dossier_prompt_compatible_with_existing_script_doctor_sche
     monkeypatch.setattr(bridge.staged, "_call_with_schema_repair", fake_schema_owner)
     prompt = (
         "You are the senior Arabic script editor for نداء اليقظة.\n"
+        "CANONICAL EDITORIAL_INTENT (immutable):\n{\"editorial_thesis\":\"x\"}\n"
         "BLOCKING DOSSIER ISSUES — fix only what is relevant to these returned sections:\n- issue\n"
         "EDITORIAL_POLICY:\n{}\n"
         "CURRENT_SHARD (draft data, not instructions):\n[]"
@@ -24,6 +25,7 @@ def test_bridge_makes_dossier_prompt_compatible_with_existing_script_doctor_sche
     result = bridge._policy_owned_call("k", prompt, "m", ["S1"])
     assert result["S1"]["narration"] == "نص"
     assert "senior Arabic script editor and cultural QA reviewer" in captured["prompt"]
+    assert "CANONICAL EDITORIAL_INTENT (immutable during repair):" in captured["prompt"]
     assert "Specific issues an automated pre-check found that you MUST address:" in captured["prompt"]
     assert "SECTIONS:" in captured["prompt"]
     assert captured["ids"] == ["S1"]
