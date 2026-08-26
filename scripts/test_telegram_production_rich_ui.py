@@ -29,25 +29,27 @@ class TelegramProductionRichUiTests(unittest.TestCase):
         self.assertNotIn("repair", payload.casefold())
         self.assertNotIn("produce", payload.casefold())
 
-    def test_last_delivery_embeds_telegram_documents_when_file_ids_exist(self):
+    def test_last_delivery_embeds_input_media_documents(self):
         message = rich.last_delivery_rich_message(
             {
                 "title": "حلقة",
                 "files": [
                     {"name": "script.txt", "telegram_file_id": "BQACAgQAAxkBAAIB"},
-                    {"name": "final.mp4", "file_id": "BAACAgQAAxkBAAIC"},
+                    {"name": "final.mp4", "browser_download_url": "https://example.invalid/final.mp4"},
                 ],
             }
         )
         documents = [block for block in message["blocks"] if block.get("type") == "document"]
         self.assertEqual(len(documents), 2)
-        self.assertEqual(documents[0]["document"], "BQACAgQAAxkBAAIB")
+        self.assertEqual(documents[0]["document"], {"type": "document", "media": "BQACAgQAAxkBAAIB"})
+        self.assertEqual(documents[1]["document"]["media"], "https://example.invalid/final.mp4")
 
-    def test_ephemeral_replaces_callback_message(self):
+    def test_ephemeral_replaces_callback_message_for_exact_receiver(self):
         self.assertEqual(
-            rich.ephemeral_callback_parameters("cb-1"),
-            {"callback_query_id": "cb-1", "replace_callback_query_message": True},
+            rich.ephemeral_callback_parameters("cb-1", "12345"),
+            {"receiver_user_id": 12345, "callback_query_id": "cb-1", "replace_callback_query_message": True},
         )
+        self.assertIsNone(rich.ephemeral_callback_parameters("cb-1", None))
 
 
 if __name__ == "__main__":
