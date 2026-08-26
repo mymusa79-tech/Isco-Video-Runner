@@ -1,0 +1,16 @@
+{
+  "editorial": {
+    "approved_request_hash": "",
+    "approved_target": false,
+    "pending_actions_count": 1,
+    "production_queue_count": 0,
+    "request_count": 0,
+    "research_active": false,
+    "research_session_hash": "",
+    "saved_count": 0,
+    "used_count": 0
+  },
+  "generated_at": "2026-08-26T23:19:00.379812Z",
+  "schema_version": 1,
+  "source_last_event_at": "2026-08-26T23:19:00.379812+00:00"
+}
