@@ -13,8 +13,9 @@ const ROOT_ROWS = [
 ];
 
 const SEARCH_ROWS = [
-  [{ text: "🎬 بحث حلقة", callback_data: "cmd:topic" }],
-  [{ text: "⚡ بحث شورت", callback_data: "cmd:short" }],
+  [{ text: "🎬➕⚡ حلقة + Shorts", callback_data: "cmd:topic_bundle" }],
+  [{ text: "🎬 حلقة فقط", callback_data: "cmd:topic_long" }],
+  [{ text: "⚡ Short فقط", callback_data: "cmd:short" }],
   [{ text: "↩️ الرئيسية", callback_data: "cmd:menu" }],
 ];
 
@@ -51,7 +52,17 @@ function rootText() {
 }
 
 function searchText() {
-  return "🔎 البحث\n\nاختر نوع البحث. هذا يبدأ البحث فقط ولا يبدأ Production:\n\n🎬 حلقة — 3 أفكار طويلة مرتبة ومقيّمة.\n⚡ شورت — 3 أفكار قصيرة مرتبة ومقيّمة.";
+  return [
+    "🔎 البحث",
+    "",
+    "اختر النتيجة التي تريدها من البداية. هذا يحدد نطاق البحث والاعتماد فقط ولا يبدأ Production:",
+    "",
+    "🎬➕⚡ حلقة + Shorts — 3 أفكار حلقات؛ الفكرة المختارة تُعتمد مع 2–3 Shorts مختلفة حسب المادة.",
+    "🎬 حلقة فقط — 3 أفكار حلقات؛ الفكرة المختارة تُعتمد كحلقة فقط.",
+    "⚡ Short فقط — 3 أفكار Shorts؛ اختر واحدة منها.",
+    "",
+    "بعد البحث ستظهر الخيارات مرقمة 1️⃣ 2️⃣ 3️⃣ مع الاختيار والتفاصيل.",
+  ].join("\n");
 }
 
 function libraryText() {
@@ -365,14 +376,35 @@ function isStatsLeaf(data) {
   return ["cmd:stats_last_long", "cmd:stats_last_short", "cmd:stats_today", "cmd:stats_week", "cmd:stats_overview"].includes(data);
 }
 
+function isResearchStart(data) {
+  return ["cmd:topic_bundle", "cmd:topic_long", "cmd:topic", "cmd:short"].includes(data);
+}
+
 function statefulCallbackAck(data) {
-  if (data === "cmd:topic") return "🎬 بدأ بحث الحلقة — ستظهر 3 أفكار مرقمة للاختيار";
-  if (data === "cmd:short") return "⚡ بدأ بحث الشورت — ستظهر 3 أفكار مرقمة للاختيار";
+  if (data === "cmd:topic_bundle") return "🎬➕⚡ تم تسجيل بحث حلقة + Shorts";
+  if (data === "cmd:topic_long") return "🎬 تم تسجيل بحث حلقة فقط";
+  if (data === "cmd:topic") return "🎬 تم تسجيل بحث الحلقة";
+  if (data === "cmd:short") return "⚡ تم تسجيل بحث Short فقط";
   if (data === "cmd:saved") return "📚 أفتح المواضيع المحفوظة الآن…";
   if (data === "cmd:used") return "✅ أفتح المواضيع المستعملة الآن…";
   if (data === "cmd:last_delivery") return "🎁 أفتح آخر إنتاج الآن…";
   if (data === "cmd:status") return "📊 أتحقق من الحالة الآن…";
   return "⚡ تم استلام الأمر";
+}
+
+function researchQueuedText(data) {
+  let mode = "البحث";
+  if (data === "cmd:topic_bundle") mode = "حلقة + Shorts";
+  else if (data === "cmd:topic_long" || data === "cmd:topic") mode = "حلقة فقط";
+  else if (data === "cmd:short") mode = "Short فقط";
+  return [
+    `⏳ تم إرسال طلب بحث «${mode}» إلى Control Plane.`,
+    "",
+    "سأرسل لك 3 أفكار مرقمة 1️⃣ 2️⃣ 3️⃣ فور اكتمال البحث، مع زر للاختيار وزر للتفاصيل.",
+    "",
+    "إذا تأخر GitHub Actions سيبقى الطلب في الانتظار بدل أن يختفي بصمت.",
+    "🔒 لم يبدأ أي Production Run.",
+  ].join("\n");
 }
 
 function textRoute(text) {
@@ -436,6 +468,9 @@ export default {
       }
       ctx.waitUntil((async () => {
         await answerCallback(env, target.callbackId, statefulCallbackAck(target.data));
+        if (isResearchStart(target.data)) {
+          await send(env, target.chatId, researchQueuedText(target.data));
+        }
         await dispatchToGitHub(env, update);
       })().catch(async () => {
         await send(env, target.chatId, "⚠️ تعذر تمرير الأمر إلى Control Plane الآن. لم يحدث أي إنتاج أو تغيير خارجي.", ROOT_ROWS);
