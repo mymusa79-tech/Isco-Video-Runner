@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
 from scripts import telegram_search_scope_ui as scope_ui
 from scripts import telegram_topic_memory_ui as memory_ui
@@ -64,6 +65,24 @@ class TelegramSearchScopeUiTests(unittest.TestCase):
         # A duplicate click must not silently change the already queued request's mode.
         self.assertEqual(state[scope_ui.SEARCH_SCOPE_HINT_KEY]["scope"], "bundle")
 
+    def test_scoped_command_translates_to_existing_long_research_and_binds_hint(self):
+        state = {"pending_actions": []}
+        client = _Client()
+        observed = []
+
+        def base_handler(kind, _client, target_state, _releases, _chat_id):
+            observed.append(kind)
+            target_state["pending_actions"].append(
+                {"action_id": "queued-long", "kind": "long", "status": "pending"}
+            )
+
+        with mock.patch.object(active, "_ISCO_RESEARCH_CLARITY_BASE_HANDLE", base_handler, create=True):
+            memory_ui._handle_command_with_research_clarity("topic_bundle", client, state, None, 77)
+
+        self.assertEqual(observed, ["topic"])
+        self.assertEqual(state[scope_ui.SEARCH_SCOPE_HINT_KEY]["scope"], "bundle")
+        self.assertTrue(any("حلقة + Shorts" in text for _, text, _ in client.messages))
+
     def test_saved_session_never_inherits_search_scope_hint(self):
         state = {
             scope_ui.SEARCH_SCOPE_HINT_KEY: {"kind": "long", "scope": "bundle"},
@@ -108,9 +127,9 @@ class TelegramSearchScopeUiTests(unittest.TestCase):
             with mock.patch.object(panel, "_read_secret_file", side_effect=lambda name, required=False: secret_map.get(name, "")), \
                  mock.patch.object(panel, "TelegramClient", return_value=client), \
                  mock.patch.object(panel, "GitHubReleaseClient"), \
-                 mock.patch.object(panel, "_approve", return_value=approved) as approve, \
-                 mock.patch.object(panel, "_approval_text", return_value="APPROVED"), \
-                 mock.patch.object(panel, "_main_keyboard", return_value=[]):
+                 mock.patch.object(active, "_approve_current", return_value=approved) as approve, \
+                 mock.patch.object(active, "_approval_text", return_value="APPROVED"), \
+                 mock.patch.object(active, "_main_keyboard", return_value=[]):
                 scope_ui.poll(state_path)
 
             approve.assert_called_once()
