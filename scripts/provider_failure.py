@@ -27,6 +27,12 @@ def classify_provider_failure(provider_name: str, error: Exception | str) -> Pro
     lower = detail.lower()
     normalized_provider = "openrouter" if provider_name.startswith("openrouter") else provider_name
 
+    if "openrouter_no_provider_available" in lower:
+        return ProviderFailure("capacity_unavailable", AttemptOutcome.OTHER, True)
+
+    if "openrouter_model_not_found" in lower:
+        return ProviderFailure("model_not_found", AttemptOutcome.OTHER, True)
+
     if "429" in detail or "quota" in lower or "rate limit" in lower:
         return ProviderFailure("429", AttemptOutcome.RATE_LIMITED, True)
 
@@ -89,5 +95,8 @@ def classify_provider_failure(provider_name: str, error: Exception | str) -> Pro
 
     if any(code in detail for code in ("500", "502", "503", "504")) or "server error" in lower:
         return ProviderFailure("server_error", AttemptOutcome.OTHER, False)
+
+    if normalized_provider == "openrouter" and "openrouter_not_found" in lower:
+        return ProviderFailure("not_found", AttemptOutcome.OTHER, True)
 
     return ProviderFailure("other", AttemptOutcome.OTHER, False)
