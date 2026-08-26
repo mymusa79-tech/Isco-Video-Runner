@@ -34,6 +34,7 @@ class TelegramEdgeWorkerContractTests(unittest.TestCase):
         self.assertNotIn("telegram-production-request.yml", self.text)
         self.assertNotIn("produce-resilient-v4.yml", self.text)
         self.assertIn("GITHUB_CONTROL_TOKEN", self.text)
+        self.assertIn("dispatchToGitHub(env, update)", self.text)
 
     def test_exact_text_confirmation_is_forwarded_not_executed_at_edge(self):
         self.assertIn('const CONFIRM_TEXT = "تأكيد الإنتاج"', self.text)
@@ -45,7 +46,7 @@ class TelegramEdgeWorkerContractTests(unittest.TestCase):
         self.assertIn('telegram(env, "editMessageText"', self.text)
         self.assertIn("cmd:ops", self.text)
 
-    def test_fast_navigation_and_stats_are_edge_local(self):
+    def test_fast_navigation_stats_status_and_delivery_are_edge_local(self):
         for callback in (
             "cmd:menu",
             "cmd:search_menu",
@@ -56,9 +57,47 @@ class TelegramEdgeWorkerContractTests(unittest.TestCase):
             "cmd:stats_today",
             "cmd:stats_week",
             "cmd:stats_overview",
+            "cmd:status",
+            "cmd:last_delivery",
         ):
             self.assertIn(callback, self.text)
         self.assertIn("sendStats(env", self.text)
+        self.assertIn("function isReadOnlyLeaf(data)", self.text)
+        self.assertIn("sendProductionStatus(env, target)", self.text)
+        self.assertIn("sendLastDelivery(env, target)", self.text)
+        self.assertIn("isReadOnlyLeaf(target.data)", self.text)
+
+    def test_live_status_uses_real_github_run_steps_without_fake_substage(self):
+        self.assertIn("actions/runs?per_page=50", self.text)
+        self.assertIn("runJobs(env, run)", self.text)
+        self.assertIn("currentRunStep(jobs)", self.text)
+        self.assertIn("الخطوة الحالية في GitHub Actions", self.text)
+        self.assertIn("الإنتاج: التخطيط → الكتابة → الصوت → المونتاج", self.text)
+        self.assertIn('disabled: {}', self.text)
+        self.assertIn('callback_data: "cmd:status"', self.text)
+
+    def test_bot_api_10_3_ephemeral_rich_reply_has_exact_receiver_boundary(self):
+        self.assertIn('telegram(env, "sendRichMessage"', self.text)
+        self.assertIn("ephemeral_message_parameters", self.text)
+        self.assertIn("receiver_user_id: Number(target.userId)", self.text)
+        self.assertIn("callback_query_id: target.callbackId", self.text)
+        self.assertIn("replace_callback_query_message: true", self.text)
+        self.assertIn("Bot API 10.3 rich surfaces are progressive enhancement", self.text)
+
+    def test_quality_gates_are_read_from_deterministic_release_assets(self):
+        self.assertIn('"quality-final.json"', self.text)
+        self.assertIn('"final-master-qc.json"', self.text)
+        self.assertIn("latestQualityGates(env", self.text)
+        self.assertIn("🧪 Quality Gates", self.text)
+        self.assertIn("هذه شاشة قراءة فقط", self.text)
+
+    def test_last_delivery_embeds_safe_release_assets_and_keeps_release_link(self):
+        self.assertIn("MAX_RICH_DELIVERY_FILES", self.text)
+        self.assertIn("MAX_TELEGRAM_DOCUMENT_BYTES", self.text)
+        self.assertIn("browser_download_url", self.text)
+        self.assertIn('type: "document", document: { type: "document", media: asset.browser_download_url }', self.text)
+        self.assertIn("فتح Release", self.text)
+        self.assertIn('callback_data: "cmd:last_delivery"', self.text)
 
     def test_stateful_edge_ack_explains_the_next_visible_result(self):
         self.assertIn("function statefulCallbackAck(data)", self.text)
