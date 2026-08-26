@@ -1,4 +1,4 @@
-name: TTS Blind Three Engine Smoke
+name: TTS Blind Full Three Engine Execution
 
 on:
   push:
@@ -8,132 +8,132 @@ on:
   workflow_dispatch:
 
 jobs:
-  smoke:
+  generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
       contents: read
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      ISCO_TTS_BLIND_GEMINI_MODEL: gemini-3.1-flash-tts-preview
+      ISCO_TTS_BLIND_GEMINI_VOICE: Charon
+      ISCO_VOXCPM2_TTS_ARGV_JSON: '["python","scripts/tts_blind_space_adapter.py","voxcpm2","{text_file}","{direction_file}","{output_wav}","{sample_id}"]'
+      ISCO_CHATTERBOX_V3_TTS_ARGV_JSON: '["python","scripts/tts_blind_space_adapter.py","chatterbox_multilingual_v3","{text_file}","{direction_file}","{output_wav}","{sample_id}"]'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install clients
+      - name: Install runtime clients
         run: python -m pip install --disable-pip-version-check --quiet "google-genai>=2,<3" "gradio_client>=1.12,<2" "soundfile>=0.13,<1"
-      - name: Generate one Arabic sample with all three engines
+
+      - name: Run permanent 10x3 Arabic blind harness
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json
-          import sys
+          import shutil
           import time
           from pathlib import Path
 
-          import numpy as np
           import soundfile as sf
-          from gradio_client import Client, handle_file
+          import scripts.tts_blind_test as blind
 
-          sys.path.insert(0, str(Path("scripts").resolve()))
-          import tts_blind_test as blind
+          original_gemini = blind._generate_gemini
 
-          out = Path("tts-smoke")
-          out.mkdir(parents=True, exist_ok=True)
-          item = blind._read_corpus(Path("scripts/tts_blind_corpus_ar.json"))[0]
-          report = {"sample_id": item.sample_id, "engines": {}}
-
-          def normalize_to_wav(source, path: Path):
-              audio, rate = sf.read(str(source), always_2d=False)
-              if getattr(audio, "ndim", 1) > 1:
-                  audio = np.mean(audio, axis=1)
-              sf.write(str(path), audio, int(rate), subtype="PCM_16", format="WAV")
-
-          def validate(name: str, path: Path):
-              if not path.is_file() or path.stat().st_size < 512:
-                  raise RuntimeError(f"{name}: output missing or too small")
-              info = sf.info(str(path))
-              duration = float(info.duration)
-              if duration <= 0.2:
-                  raise RuntimeError(f"{name}: invalid duration {duration}")
-              report["engines"][name] = {
-                  "status": "ok",
-                  "file": path.name,
-                  "bytes": path.stat().st_size,
-                  "duration_s": round(duration, 3),
-                  "sample_rate_hz": int(info.samplerate),
-                  "channels": int(info.channels),
-              }
-
-          try:
-              p = out / "gemini.wav"
+          def bounded_gemini_retry(item, output):
               last = None
-              for attempt in range(3):
+              for attempt in range(4):
                   try:
-                      blind._generate_gemini(item, p)
-                      last = None
-                      break
+                      original_gemini(item, output)
+                      return
                   except Exception as exc:
                       last = exc
-                      if "429" not in str(exc) or attempt == 2:
-                          break
+                      message = str(exc)
+                      if "429" not in message or attempt == 3:
+                          raise
                       time.sleep(25 + 15 * attempt)
-              if last is not None:
-                  raise last
-              validate("gemini", p)
-          except Exception as exc:
-              report["engines"]["gemini"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:900]}
+              raise last
 
-          try:
-              client = Client("openbmb/VoxCPM-Demo", verbose=False)
-              source = client.predict(
-                  item.text,
-                  item.direction,
-                  None,
-                  False,
-                  "",
-                  2.0,
-                  False,
-                  False,
-                  api_name="/generate",
-              )
-              p = out / "voxcpm2.wav"
-              normalize_to_wav(source, p)
-              validate("voxcpm2", p)
-          except Exception as exc:
-              report["engines"]["voxcpm2"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:900]}
+          blind._generate_gemini = bounded_gemini_retry
+          output = Path("tts-blind-output")
+          result = blind.generate(Path("scripts/tts_blind_corpus_ar.json"), output)
 
-          try:
-              client = Client("ResembleAI/Chatterbox-Multilingual-TTS-V3", verbose=False)
-              arabic_ref_url = "https://storage.googleapis.com/chatterbox-demo-samples/mtl_prompts/ar_f/ar_prompts2.flac"
-              source = client.predict(
-                  item.text,
-                  handle_file(arabic_ref_url),
-                  "ar",
-                  0.5,
-                  0.8,
-                  42,
-                  0.5,
-                  api_name="/generate_tts_audio",
-              )
-              p = out / "chatterbox_multilingual_v3.wav"
-              normalize_to_wav(source, p)
-              validate("chatterbox_multilingual_v3", p)
-          except Exception as exc:
-              report["engines"]["chatterbox_multilingual_v3"] = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"[:900]}
+          failures = []
+          generated = 0
+          for sample_id, engines in result["status"].items():
+              for engine, row in engines.items():
+                  if row.get("status") == "generated":
+                      generated += 1
+                  else:
+                      failures.append({"sample_id": sample_id, "engine": engine, **row})
 
-          (out / "smoke-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-          print(json.dumps(report, ensure_ascii=False, indent=2))
-          failed = [name for name, row in report["engines"].items() if row.get("status") != "ok"]
-          if failed:
-              raise SystemExit("Smoke failed: " + ", ".join(failed))
+          blind_files = sorted((output / "blind").glob("*.wav"))
+          raw_files = sorted((output / "raw").glob("*/*.wav"))
+          audio_validation = []
+          for path in blind_files:
+              info = sf.info(str(path))
+              audio_validation.append({
+                  "file": path.name,
+                  "duration_s": round(float(info.duration), 3),
+                  "sample_rate_hz": int(info.samplerate),
+                  "channels": int(info.channels),
+                  "bytes": path.stat().st_size,
+              })
+              if info.duration <= 0.2 or info.channels != 1 or path.stat().st_size < 512:
+                  failures.append({"file": path.name, "status": "invalid_audio"})
+
+          summary = {
+              "expected_generated": 30,
+              "generated_status_count": generated,
+              "blind_file_count": len(blind_files),
+              "raw_file_count": len(raw_files),
+              "failures": failures,
+              "audio": audio_validation,
+          }
+          (output / "execution-summary.json").write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+          if generated != 30 or len(blind_files) != 30 or len(raw_files) != 30 or failures:
+              raise SystemExit("Full TTS blind generation incomplete; expected exactly 30/30 valid samples")
+
+          listening = Path("tts-blind-listening-pack")
+          (listening / "blind").mkdir(parents=True, exist_ok=True)
+          for path in blind_files:
+              shutil.copy2(path, listening / "blind" / path.name)
+          shutil.copy2(output / "scores-template.json", listening / "scores-template.json")
+          (listening / "LISTENING-INSTRUCTIONS.txt").write_text(
+              "TTS Blind Test — Cinematic Enhancement V2\n\n"
+              "Listen by sample_id. For every sample, compare A, B, and C without opening the private mapping.\n"
+              "Score each A/B/C from 1 to 10 on: naturalness 20%, Arabic pronunciation 15%, "
+              "prosody and pauses 15%, emotional fit 12%, clarity/intelligibility 12%, warmth/presence 10%, "
+              "consistency 8%, long-form fatigue 8%.\n\n"
+              "Do not infer engines from file properties. Judge only what you hear.\n",
+              encoding="utf-8",
+          )
           PY
-      - name: Upload smoke outputs
+
+      - name: Upload blind listening pack
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tts-blind-listening-pack
+          path: tts-blind-listening-pack/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload private mapping and generation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tts-blind-three-engine-smoke
-          path: tts-smoke/
+          name: tts-blind-private-evidence
+          path: |
+            tts-blind-output/blind-mapping.json
+            tts-blind-output/generation-status.json
+            tts-blind-output/execution-summary.json
+            tts-blind-output/raw/
           if-no-files-found: warn
           retention-days: 7
