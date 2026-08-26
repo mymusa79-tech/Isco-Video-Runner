@@ -256,6 +256,18 @@ jobs:
           python scripts/planning_envelope_preflight.py \
             --output "$RUNNER_TEMP/planning-envelope-preflight.json"
 
+      # Restore only normalized Pixabay search metadata. No provider key, HTTP body,
+      # downloaded media, retry state, or quality/security decision is cached.
+      # TTL is enforced by scripts/provider_capacity_v2.py after every restore.
+      - name: Restore Pixabay 24h search cache
+        id: restore_pixabay_cache
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/isco-pixabay-api-cache
+          key: pixabay-search-v2-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            pixabay-search-v2-${{ runner.os }}-
+
       - name: Produce with task-level brain and voice meshes
         id: produce_video
         working-directory: engine
@@ -272,6 +284,7 @@ jobs:
           ISCO_ENGINE_SHA: 6a0d91cc80511a174a47b95c6c203f8d93ba86ca
           ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
           ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
+          ISCO_PIXABAY_CACHE_PATH: ${{ runner.temp }}/isco-pixabay-api-cache/search-cache-v2.json
           TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token
           TELEGRAM_CHAT_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-chat-id
           TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
@@ -286,6 +299,32 @@ jobs:
         run: |
           set -o pipefail
           python ../scripts/run_v3_voice.py 2>&1 | tee "$RUNNER_TEMP/production-step.log"
+
+      - name: Prepare Pixabay cache for cross-run save
+        id: prepare_pixabay_cache
+        if: always() && steps.produce_video.outcome != 'skipped'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_PIXABAY_CACHE_PATH: ${{ runner.temp }}/isco-pixabay-api-cache/search-cache-v2.json
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.provider_capacity_v2 import prepare_cache_for_persistence
+          path = Path(os.environ["ISCO_PIXABAY_CACHE_PATH"])
+          allowed = prepare_cache_for_persistence(path)
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
+              fh.write(f"save_allowed={'true' if allowed else 'false'}\n")
+          print(f"Pixabay cache persistence sanitized: save_allowed={allowed}")
+          PY
+
+      - name: Save Pixabay 24h search cache
+        if: always() && steps.prepare_pixabay_cache.outputs.save_allowed == 'true'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/isco-pixabay-api-cache
+          key: pixabay-search-v2-${{ runner.os }}-${{ github.run_id }}
 
       - name: Upload diagnostics on failure
         id: upload_diagnostics
