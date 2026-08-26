@@ -5,6 +5,9 @@ from typing import Any
 from scripts import telegram_control_panel as panel
 
 
+_CALLBACK_CONTEXT_ATTR = "_ISCO_BOT_API_10_3_CALLBACK_QUERY_ID"
+
+
 class CandidatePanelText(str):
     """Plain-text fallback carrying structured candidates for Bot API 10.3."""
 
@@ -55,9 +58,7 @@ def _candidate_rich_message(
             raise RuntimeError("Rich Telegram candidate title is missing")
         score = float(item.get("control_score", item.get("opportunity_score", 0.0)) or 0.0) * 10
         why = [str(value).strip() for value in (item.get("why") or []) if str(value).strip()]
-        pick = _callback_from_keyboard(keyboard, prefix=f"{pick_prefix}")
-        # Each fallback row is ordered by candidate. Resolve the exact index-bound callback,
-        # not merely the first callback with the same prefix.
+        pick = _callback_from_keyboard(keyboard, prefix=pick_prefix)
         expected_suffix = f":{index}"
         for row in keyboard or []:
             for button in row:
@@ -135,6 +136,24 @@ def _candidate_panel_text(kind: str, candidates: list[dict[str, Any]]) -> Candid
     return CandidatePanelText(str(base(kind, candidates)), kind=kind, candidates=candidates)
 
 
+def _remember_callback_query(self, callback_id: str, text: str = "") -> None:
+    setattr(self, _CALLBACK_CONTEXT_ATTR, str(callback_id or "").strip())
+    base = getattr(type(self), "_ISCO_BOT_API_10_3_BASE_ANSWER_CALLBACK", None)
+    if base is None:
+        raise RuntimeError("Telegram Bot API 10.3 base callback answer is not installed")
+    return base(self, callback_id, text)
+
+
+def consume_callback_query_id(client) -> str | None:
+    value = str(getattr(client, _CALLBACK_CONTEXT_ATTR, "") or "").strip()
+    setattr(client, _CALLBACK_CONTEXT_ATTR, "")
+    return value or None
+
+
+def _clear_callback_query_id(client) -> None:
+    setattr(client, _CALLBACK_CONTEXT_ATTR, "")
+
+
 def _send_with_bot_api_10_3(
     self,
     chat_id: int | str,
@@ -146,29 +165,30 @@ def _send_with_bot_api_10_3(
     if base_send is None:
         raise RuntimeError("Telegram Bot API 10.3 base sender is not installed")
 
-    if isinstance(text, CandidatePanelText):
-        try:
-            return self.call(
-                "sendRichMessage",
-                {
-                    "chat_id": chat_id,
-                    "rich_message": _candidate_rich_message(text.kind, text.candidates, keyboard),
-                },
-            )
-        except Exception:
-            # Rich Messages are progressive enhancement only. The already-tested
-            # inline-keyboard surface remains the fail-closed fallback.
-            return base_send(self, chat_id, str(text), keyboard=keyboard)
+    try:
+        if isinstance(text, CandidatePanelText):
+            try:
+                return self.call(
+                    "sendRichMessage",
+                    {
+                        "chat_id": chat_id,
+                        "rich_message": _candidate_rich_message(text.kind, text.candidates, keyboard),
+                    },
+                )
+            except Exception:
+                return base_send(self, chat_id, str(text), keyboard=keyboard)
 
-    if _is_research_start_text(str(text)) and keyboard is None:
-        try:
-            return base_send(self, chat_id, str(text), keyboard=_research_busy_keyboard())
-        except Exception:
-            # If a Telegram client/API edge cannot accept DisabledButton yet,
-            # preserve the message itself instead of failing the control command.
-            return base_send(self, chat_id, str(text), keyboard=None)
+        if _is_research_start_text(str(text)) and keyboard is None:
+            try:
+                return base_send(self, chat_id, str(text), keyboard=_research_busy_keyboard())
+            except Exception:
+                return base_send(self, chat_id, str(text), keyboard=None)
 
-    return base_send(self, chat_id, str(text), keyboard=keyboard)
+        return base_send(self, chat_id, str(text), keyboard=keyboard)
+    finally:
+        # Any ordinary callback response consumed the one-update context. This
+        # prevents a later text command from accidentally reusing a stale query id.
+        _clear_callback_query_id(self)
 
 
 def install() -> None:
@@ -179,3 +199,6 @@ def install() -> None:
     if not hasattr(panel.TelegramClient, "_ISCO_BOT_API_10_3_BASE_SEND"):
         panel.TelegramClient._ISCO_BOT_API_10_3_BASE_SEND = panel.TelegramClient.send
         panel.TelegramClient.send = _send_with_bot_api_10_3
+    if not hasattr(panel.TelegramClient, "_ISCO_BOT_API_10_3_BASE_ANSWER_CALLBACK"):
+        panel.TelegramClient._ISCO_BOT_API_10_3_BASE_ANSWER_CALLBACK = panel.TelegramClient.answer_callback
+        panel.TelegramClient.answer_callback = _remember_callback_query
