@@ -17,9 +17,11 @@ from scripts.final_master_qc import run_final_master_qc
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.m7_live_binding import install_m7_live_binding
 from scripts.opening_feasibility_guard import install_opening_feasibility_guard
+from scripts.planning_batch_hardening import install_planning_batch_hardening
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
+from scripts.provider_capacity_hardening import install_provider_capacity_hardening
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
 from scripts.task_level_planner_router import get_used_providers, install_router, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
@@ -194,7 +196,14 @@ def _attach_observer_evidence_to_telemetry(
 
 def main() -> None:
     install_schema_guard()
+    # Capacity policy is installed before provider routing so every planning subtask
+    # inherits token-aware admission, bounded completion reserves and Retry-After.
+    install_provider_capacity_hardening()
     install_router()
+    # Keep one global canonical outline, but split only output-heavy writer/doctor
+    # calls. The existing quality guard wraps this batch writer afterwards, preserving
+    # the single-use transition and all downstream hard quality gates.
+    install_planning_batch_hardening()
     install_planner_quality_guard()
     install_attempt9_schema_normalizer()
     install_append_retry_guard()
