@@ -39,6 +39,10 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
             + payload
         )
 
+    def setUp(self) -> None:
+        capacity._GROQ_RATE_STATE["remaining_tokens"] = None
+        capacity._GROQ_RATE_STATE["reset_at_monotonic"] = None
+
     def test_bounded_full_script_reserve_is_smaller_than_run117_whole_script_reserve(self) -> None:
         contract = capacity.router._structured_schema_for_prompt(self._full_script_prompt("x"))
         self.assertIsNotNone(contract)
@@ -55,7 +59,37 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
         self.assertGreaterEqual(capacity.MAX_RETRY_AFTER_SECONDS, 69.0)
         self.assertLessEqual(capacity.MAX_RETRY_AFTER_SECONDS, 120.0)
 
-    def test_openrouter_full_script_uses_low_reasoning_and_pinned_free_model(self) -> None:
+    def test_groq_reset_header_parser_supports_documented_compound_duration(self) -> None:
+        self.assertAlmostEqual(capacity._duration_header_seconds("2m59.56s"), 179.56)
+        self.assertAlmostEqual(capacity._duration_header_seconds("7.66s"), 7.66)
+        self.assertIsNone(capacity._duration_header_seconds("not-a-duration"))
+
+    def test_run119_low_remaining_tokens_waits_for_reset_before_provider_attempt(self) -> None:
+        # Run #119 repeatedly needed ~7.7K tokens while Groq reported only tens/hundreds
+        # remaining. The reset-aware admission wait must happen before another request.
+        headers = {
+            "x-ratelimit-remaining-tokens": "112",
+            "x-ratelimit-reset-tokens": "1.0s",
+        }
+        with patch.object(capacity.time, "monotonic", side_effect=[100.0, 100.25]), \
+                patch.object(capacity.time, "sleep") as sleep_mock:
+            capacity._update_groq_rate_state(headers)
+            waited = capacity._proactive_groq_pacing({"estimated_request_tokens": 7749})
+
+        self.assertAlmostEqual(waited, 2.25)
+        sleep_mock.assert_called_once_with(waited)
+        self.assertIsNone(capacity._GROQ_RATE_STATE["remaining_tokens"])
+        self.assertIsNone(capacity._GROQ_RATE_STATE["reset_at_monotonic"])
+
+    def test_groq_pacing_does_not_wait_when_remaining_tokens_cover_request(self) -> None:
+        capacity._GROQ_RATE_STATE["remaining_tokens"] = 7800
+        capacity._GROQ_RATE_STATE["reset_at_monotonic"] = 999.0
+        with patch.object(capacity.time, "sleep") as sleep_mock:
+            waited = capacity._proactive_groq_pacing({"estimated_request_tokens": 7749})
+        self.assertEqual(waited, 0.0)
+        sleep_mock.assert_not_called()
+
+    def test_openrouter_full_script_uses_low_reasoning_and_free_model_failover(self) -> None:
         prompt = self._full_script_prompt("write")
         contract = capacity.router._structured_schema_for_prompt(prompt)
         captured: dict = {}
@@ -67,7 +101,7 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
 
             def json(self):
                 return {
-                    "model": capacity.OPENROUTER_OUTPUT_HEAVY_MODEL,
+                    "model": "nvidia/nemotron-3-super-120b-a12b:free",
                     "choices": [
                         {
                             "finish_reason": "stop",
@@ -97,7 +131,12 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
             result = capacity._hardened_openrouter_structured_request(prompt, contract)
 
         self.assertIn("sections", result)
-        self.assertEqual(captured["models"], [capacity.OPENROUTER_OUTPUT_HEAVY_MODEL])
+        self.assertEqual(captured["models"], list(capacity.OPENROUTER_OUTPUT_HEAVY_MODELS))
+        self.assertGreaterEqual(len(captured["models"]), 3)
+        self.assertEqual(captured["models"][-1], "openrouter/free")
+        self.assertTrue(
+            all(model == "openrouter/free" or model.endswith(":free") for model in captured["models"])
+        )
         self.assertEqual(captured["reasoning"], {"effort": "low", "exclude": True})
         self.assertEqual(captured["response_format"], {"type": "json_object"})
         self.assertEqual(captured["max_tokens"], 2400)

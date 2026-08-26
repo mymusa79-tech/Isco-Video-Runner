@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import re
+import time
 
 from scripts import task_level_planner_router as router
 
@@ -12,7 +14,18 @@ GROQ_FREE_TPM_LIMIT = 8_000
 GROQ_TOKEN_SAFETY_RESERVE = 250
 GROQ_ESTIMATED_UTF8_BYTES_PER_TOKEN = 4.25
 MAX_RETRY_AFTER_SECONDS = 120.0
+GROQ_RATE_RESET_SAFETY_SECONDS = 1.5
+
+# Run #119 proved that one exact `:free` model slug can become temporarily unavailable
+# even while OpenRouter itself remains healthy. Use OpenRouter's documented cross-model
+# fallback array, but keep every entry explicitly zero-cost. The dynamic free router is
+# the last safety net only; it is never allowed to fall through to a paid model.
 OPENROUTER_OUTPUT_HEAVY_MODEL = "openai/gpt-oss-20b:free"
+OPENROUTER_OUTPUT_HEAVY_MODELS = (
+    OPENROUTER_OUTPUT_HEAVY_MODEL,
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "openrouter/free",
+)
 _OUTPUT_HEAVY_CONTRACTS = frozenset({"full_script", "append_only_repair", "section_repair"})
 
 _COMPLETION_TOKEN_BUDGETS = {
@@ -24,6 +37,15 @@ _COMPLETION_TOKEN_BUDGETS = {
     "section_repair": 1_400,
     "json_object": 2_200,
 }
+
+# This is process-local provider capacity state, not production state. It exists only
+# to avoid predictably sending the *next* Groq request while the previous request's TPM
+# window is still depleted. It never persists across runs and never changes retry caps.
+_GROQ_RATE_STATE: dict[str, float | int | None] = {
+    "remaining_tokens": None,
+    "reset_at_monotonic": None,
+}
+_DURATION_PART_RE = re.compile(r"(\d+(?:\.\d+)?)(ms|s|m|h)", flags=re.I)
 
 
 def _contract_name(prompt: str) -> str:
@@ -77,6 +99,84 @@ def _response_format_for_contract(contract: tuple[str, dict] | None) -> dict:
     }
 
 
+def _header_value(headers, name: str):
+    """Case-insensitive header lookup that also works with tiny test doubles."""
+    value = headers.get(name)
+    if value is not None:
+        return value
+    lower_name = name.lower()
+    for key, candidate in getattr(headers, "items", lambda: [])():
+        if str(key).lower() == lower_name:
+            return candidate
+    return None
+
+
+def _duration_header_seconds(value: object) -> float | None:
+    """Parse Groq reset durations such as `7.66s` or `2m59.56s`."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    try:
+        direct = float(text)
+    except ValueError:
+        direct = None
+    if direct is not None:
+        return direct if direct >= 0 else None
+
+    matches = list(_DURATION_PART_RE.finditer(text))
+    if not matches or "".join(match.group(0) for match in matches) != text:
+        return None
+    factors = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
+    total = sum(float(match.group(1)) * factors[match.group(2).lower()] for match in matches)
+    return total if total >= 0 else None
+
+
+def _update_groq_rate_state(headers) -> None:
+    """Remember Groq's documented TPM remaining/reset headers for the next call."""
+    remaining_raw = _header_value(headers, "x-ratelimit-remaining-tokens")
+    reset_raw = _header_value(headers, "x-ratelimit-reset-tokens")
+    try:
+        remaining = max(0, int(float(str(remaining_raw).strip())))
+    except (TypeError, ValueError):
+        remaining = None
+    reset_seconds = _duration_header_seconds(reset_raw)
+
+    _GROQ_RATE_STATE["remaining_tokens"] = remaining
+    _GROQ_RATE_STATE["reset_at_monotonic"] = (
+        time.monotonic() + reset_seconds if reset_seconds is not None else None
+    )
+
+
+def _proactive_groq_pacing(capacity: dict) -> float:
+    """Wait for token-window recovery before a predictably impossible Groq request.
+
+    This is admission pacing, not a retry. It happens before BudgetLedger authorization
+    and before any network request, so the single retry owner and all attempt caps remain
+    unchanged. Run #119 repeatedly sent ~7.6-8.0K-token requests while response headers
+    showed far less TPM remaining; the final Retry-After landed about one second early.
+    """
+    remaining = _GROQ_RATE_STATE.get("remaining_tokens")
+    reset_at = _GROQ_RATE_STATE.get("reset_at_monotonic")
+    required = int(capacity["estimated_request_tokens"])
+    if not isinstance(remaining, int) or required <= remaining or not isinstance(reset_at, (int, float)):
+        return 0.0
+
+    until_reset = max(0.0, float(reset_at) - time.monotonic())
+    delay = min(MAX_RETRY_AFTER_SECONDS, until_reset + GROQ_RATE_RESET_SAFETY_SECONDS)
+    if delay <= 0:
+        return 0.0
+    print(
+        "Groq proactive TPM pacing: "
+        f"required_estimate={required} remaining={remaining} delay={delay:.2f}s"
+    )
+    time.sleep(delay)
+    # The prior snapshot is no longer authoritative after waiting through its reset.
+    # The next HTTP response will repopulate exact live state.
+    _GROQ_RATE_STATE["remaining_tokens"] = None
+    _GROQ_RATE_STATE["reset_at_monotonic"] = None
+    return delay
+
+
 def _safe_groq_error(response) -> str:
     """Keep failed_generation bodies out of telemetry while preserving classification."""
     try:
@@ -94,7 +194,7 @@ def _safe_groq_error(response) -> str:
 
 
 def _hardened_groq_call(prompt: str) -> dict:
-    """Run one Groq request with token admission and Run #118 generation safeguards."""
+    """Run one Groq request with token admission and production-proven safeguards."""
     capacity = groq_capacity_estimate(prompt)
     if capacity["estimated_request_tokens"] > GROQ_FREE_TPM_LIMIT:
         raise RuntimeError(
@@ -106,6 +206,11 @@ def _hardened_groq_call(prompt: str) -> dict:
             f"estimated_total={capacity['estimated_request_tokens']} "
             f"limit={GROQ_FREE_TPM_LIMIT}"
         )
+
+    # Use the previous response's exact TPM snapshot to avoid a predictable 429 before
+    # spending a provider attempt. If a 429 still occurs, its own reset header is saved
+    # and this same admission check protects the one existing bounded retry as well.
+    _proactive_groq_pacing(capacity)
 
     token = router._read_secret_file("GROQ_API_KEY_FILE")
     contract = router._structured_schema_for_prompt(prompt)
@@ -119,9 +224,9 @@ def _hardened_groq_call(prompt: str) -> dict:
             "temperature": 0.15,
             "max_completion_tokens": completion_token_budget(contract),
         }
-        # GPT-OSS defaults to medium reasoning. Run #118 needs the response envelope for
-        # Arabic narration, not hidden deliberation. Low effort remains real reasoning
-        # while leaving materially more room for complete JSON.
+        # GPT-OSS defaults to medium reasoning. Output-heavy planning needs the response
+        # envelope for Arabic narration, not hidden deliberation. Low effort preserves
+        # useful reasoning while leaving materially more room for complete JSON.
         if contract_name == "editorial_outline" or contract_name in _OUTPUT_HEAVY_CONTRACTS:
             request_payload["reasoning_effort"] = "low"
             request_payload["include_reasoning"] = False
@@ -132,6 +237,7 @@ def _hardened_groq_call(prompt: str) -> dict:
             json=request_payload,
             timeout=90,
         )
+        _update_groq_rate_state(response.headers)
         router._last_call_rate_limit_headers.update(router._extract_rate_limit_headers(response.headers))
         if not response.ok:
             raise RuntimeError(_safe_groq_error(response))
@@ -153,18 +259,22 @@ def _hardened_groq_call(prompt: str) -> dict:
 
 
 def _hardened_openrouter_structured_request(prompt: str, contract: tuple[str, dict]) -> dict:
-    """Deterministic free OpenRouter fallback for output-heavy JSON tasks."""
+    """Zero-cost OpenRouter model failover for structured planning tasks."""
     schema_name, _schema = contract
     token = router._openrouter_key()
     output_heavy = schema_name in _OUTPUT_HEAVY_CONTRACTS
-    requested_model = OPENROUTER_OUTPUT_HEAVY_MODEL if output_heavy else "openrouter/free"
+    requested_model = "openrouter/free-model-fallbacks" if output_heavy else "openrouter/free"
 
     def do_request() -> dict:
         request_payload = {
-            # `openrouter/free` may select a different model with different reasoning
-            # behavior on every request. Pin the known free GPT-OSS endpoint only for
-            # output-heavy writing/repair; retain the flexible router for the outline.
-            "models": [OPENROUTER_OUTPUT_HEAVY_MODEL] if output_heavy else list(router._OPENROUTER_MODELS),
+            # OpenRouter documents `models` as cross-model failover. Run #119 proved
+            # that a single exact free slug can disappear; keep multiple *free-only*
+            # choices and retain the capability-filtering free router as the last tier.
+            "models": (
+                list(OPENROUTER_OUTPUT_HEAVY_MODELS)
+                if output_heavy
+                else list(router._OPENROUTER_MODELS)
+            ),
             "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
             "response_format": _response_format_for_contract(contract),
             "provider": {"allow_fallbacks": True, "require_parameters": True},
@@ -172,10 +282,10 @@ def _hardened_openrouter_structured_request(prompt: str, contract: tuple[str, di
             "temperature": 0.3,
             "max_tokens": completion_token_budget(contract),
         }
-        if schema_name == "editorial_outline":
-            request_payload["reasoning"] = {"effort": "low", "exclude": True}
-        else:
-            request_payload["reasoning"] = {"effort": "low", "exclude": True}
+        # All explicit output-heavy fallback candidates support low reasoning; the
+        # final dynamic free router filters for required request parameters. No paid
+        # model slug is present anywhere in this fallback array.
+        request_payload["reasoning"] = {"effort": "low", "exclude": True}
 
         response = router.requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -225,6 +335,8 @@ def install_provider_capacity_hardening() -> None:
         metadata.update(groq_capacity_estimate(prompt))
         return metadata
 
+    _GROQ_RATE_STATE["remaining_tokens"] = None
+    _GROQ_RATE_STATE["reset_at_monotonic"] = None
     router._completion_tokens_for_contract = completion_token_budget
     router._groq_call = _hardened_groq_call
     router._request_metadata = hardened_request_metadata
@@ -234,5 +346,5 @@ def install_provider_capacity_hardening() -> None:
     print(
         "Provider capacity hardening installed: "
         f"groq_tpm={GROQ_FREE_TPM_LIMIT} retry_after_cap={MAX_RETRY_AFTER_SECONDS:g}s "
-        f"openrouter_output_model={OPENROUTER_OUTPUT_HEAVY_MODEL}"
+        f"groq_proactive_pacing=true openrouter_output_models={len(OPENROUTER_OUTPUT_HEAVY_MODELS)}"
     )
