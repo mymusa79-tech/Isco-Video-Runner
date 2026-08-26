@@ -14,17 +14,20 @@
   "planning_provider_reliability": {
     "native_structured_output": {
       "gemini": "task_specific_json_schema",
-      "groq_gpt_oss_20b": "json_schema_strict_true",
-      "openrouter": "json_schema_strict_true_require_parameters"
+      "groq_gpt_oss_20b_outline": "json_schema_strict_true",
+      "groq_gpt_oss_20b_output_heavy": "json_object_plus_local_exact_contract",
+      "openrouter_outline": "json_schema_strict_true_require_parameters",
+      "openrouter_output_heavy": "pinned_gpt_oss_20b_free_json_object_plus_local_exact_contract"
     },
     "openrouter_response_healing": true,
     "openrouter_full_prompt_schema_replay": false,
-    "openrouter_output_heavy_reasoning_effort": "minimal",
+    "openrouter_output_heavy_reasoning_effort": "low",
+    "groq_output_heavy_reasoning_effort": "low",
     "groq_large_request_admission_control": true,
     "groq_token_capacity_admission_control": true,
     "groq_free_tpm_limit": 8000,
-    "long_form_writer_max_batch_sections": 4,
-    "long_form_script_doctor_max_batch_sections": 4,
+    "long_form_writer_max_batch_sections": 3,
+    "long_form_script_doctor_max_batch_sections": 3,
     "retry_after_respected_when_present": true,
     "retry_after_max_seconds": 120,
     "telemetry_prompt_content_allowed": false
@@ -50,15 +53,15 @@
     {"id":"request_payload_too_large","owner":"request_admission_and_provider_router","scope":"request","retryable":false,"open_circuit":false,"examples":["413","groq_payload_too_large_preflight","groq_tpm_capacity_preflight","request_too_large_for_model"]},
     {"id":"provider_auth","owner":"preflight_or_provider_router","scope":"provider_session","retryable":false,"open_circuit":true,"examples":["401","403","invalid_api_key"]},
     {"id":"provider_or_model_config","owner":"preflight_or_provider_router","scope":"provider_session","retryable":false,"open_circuit":true,"examples":["400_bad_request","model_not_found","unsupported_parameter"]},
-    {"id":"generation_error","owner":"provider_router","scope":"transient_or_request","retryable":true,"max_attempts":2,"examples":["422","model_generation_error"]},
+    {"id":"generation_error","owner":"provider_router","scope":"transient_or_request","retryable":true,"max_attempts":2,"examples":["422","model_generation_error","json_validate_failed","structured_generation_failed"]},
     {"id":"premature_output","owner":"provider_router","scope":"request","retryable":false,"max_semantic_reasks":0,"examples":["finish_reason_length","incomplete_max_tokens","empty_output","no_choices"]},
     {"id":"syntax_invalid","owner":"structured_output_boundary","scope":"request","retryable":"one_bounded_compact_repair_only","max_semantic_reasks":1,"examples":["invalid_json","code_fence","trailing_comma","missing_bracket"]},
     {"id":"schema_semantic_invalid","owner":"schema_repair","scope":"request","retryable":true,"max_semantic_reasks":1,"examples":["missing_fields","duplicate_ids","wrong_order","wrong_section_count"]}
   ],
   "historical_incident_families": {
-    "provider_payload_quota_or_throughput": ["57","58","59","113","115","116","117"],
-    "provider_structured_output_or_retry_amplification": ["113","114","115","116","117"],
-    "long_response_truncation": ["116","117"],
+    "provider_payload_quota_or_throughput": ["57","58","59","113","115","116","117","118"],
+    "provider_structured_output_or_retry_amplification": ["113","114","115","116","117","118"],
+    "long_response_truncation": ["116","117","118"],
     "section_length_and_output_shape": ["71","73","74","77","78","79","101","114"],
     "wrapper_or_install_order": ["72","93"],
     "visual_feasibility": ["82","89","92"],
@@ -81,6 +84,17 @@
     "groq_retry_after_69_seconds": "honored_with_bounded_120_second_cap_when_failure_is_actually_transient",
     "openrouter_reasoning_consumed_output_envelope": "bounded_completion_plus_minimal_reasoning_for_output_heavy_structured_contracts",
     "openrouter_finish_reason_length": "writer_and_script_doctor_response_envelopes_bounded_to_four_sections",
+    "quality_threshold_changes": 0,
+    "paid_provider_changes": 0,
+    "unbounded_retry_changes": 0
+  },
+  "run_118_closure": {
+    "run_117_batch_transport": "validated_by_real_execution_into_first_full_script_batch",
+    "groq_four_section_low_headroom": "writer_and_script_doctor_bounded_to_three_sections_film_3_3_2_story_3_2",
+    "groq_json_validate_failed": "output_heavy_json_object_mode_plus_local_exact_contract_and_request_scoped_generation_classification",
+    "groq_default_reasoning": "explicit_low_reasoning_for_output_heavy_gpt_oss",
+    "openrouter_random_free_model_reasoning_variance": "output_heavy_fallback_pinned_to_openai_gpt_oss_20b_free_with_low_reasoning",
+    "openrouter_finish_reason_length": "three_section_transport_plus_bounded_completion_and_pinned_output_heavy_model",
     "quality_threshold_changes": 0,
     "paid_provider_changes": 0,
     "unbounded_retry_changes": 0

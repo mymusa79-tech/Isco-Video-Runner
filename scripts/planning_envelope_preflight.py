@@ -100,8 +100,8 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
             "outline envelope exceeds Groq free TPM capacity estimate: "
             f"estimated={capacity['estimated_request_tokens']} limit={GROQ_FREE_TPM_LIMIT}"
         )
-    if MAX_SCRIPT_BATCH_SECTIONS > 4:
-        raise RuntimeError("long-form writer batch certification exceeds four sections")
+    if MAX_SCRIPT_BATCH_SECTIONS > 3:
+        raise RuntimeError("long-form writer batch certification exceeds three sections")
 
     return PlanningEnvelopeCertification(
         status="pass",
