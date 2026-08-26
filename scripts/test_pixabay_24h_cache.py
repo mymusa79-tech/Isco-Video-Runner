@@ -111,6 +111,58 @@ class Pixabay24hCacheTests(unittest.TestCase):
             self.assertEqual(document["schema_version"], capacity.CACHE_SCHEMA_VERSION)
             self.assertEqual(len(document["entries"]), 1)
 
+    def test_persistence_sanitizer_deletes_corrupt_or_fully_expired_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            corrupt = Path(tmp) / "corrupt.json"
+            corrupt.write_text("not-json", encoding="utf-8")
+            with patch.object(capacity.time, "time", return_value=5000.0):
+                self.assertFalse(capacity.prepare_cache_for_persistence(corrupt))
+            self.assertFalse(corrupt.exists())
+
+            expired = Path(tmp) / "expired.json"
+            expired.write_text(
+                json.dumps(
+                    {
+                        "schema_version": capacity.CACHE_SCHEMA_VERSION,
+                        "entries": {
+                            "x": {
+                                "fetched_at": 5000.0 - capacity.PIXABAY_CACHE_TTL_SECONDS,
+                                "response": [{"id": "old"}],
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(capacity.time, "time", return_value=5000.0):
+                self.assertFalse(capacity.prepare_cache_for_persistence(expired))
+            self.assertFalse(expired.exists())
+
+    def test_persistence_sanitizer_keeps_only_fresh_valid_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mixed.json"
+            now = 8000.0
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": capacity.CACHE_SCHEMA_VERSION,
+                        "entries": {
+                            "fresh": {"fetched_at": now - 60, "response": [{"id": "fresh"}]},
+                            "expired": {
+                                "fetched_at": now - capacity.PIXABAY_CACHE_TTL_SECONDS,
+                                "response": [{"id": "expired"}],
+                            },
+                            "bad": {"fetched_at": now - 60, "response": "not-a-list"},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(capacity.time, "time", return_value=now):
+                self.assertTrue(capacity.prepare_cache_for_persistence(path))
+            document = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(set(document["entries"]), {"fresh"})
+
     def test_runtime_closure_installs_cache_before_media_trust(self):
         source = Path(runtime_closure.__file__).read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -128,16 +180,20 @@ class Pixabay24hCacheTests(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         restore_name = "Restore Pixabay 24h search cache"
         produce_name = "Produce with task-level brain and voice meshes"
+        prepare_name = "Prepare Pixabay cache for cross-run save"
         save_name = "Save Pixabay 24h search cache"
         self.assertIn(restore_name, text)
+        self.assertIn(prepare_name, text)
         self.assertIn(save_name, text)
         self.assertLess(text.index(restore_name), text.index(produce_name))
-        self.assertLess(text.index(produce_name), text.index(save_name))
+        self.assertLess(text.index(produce_name), text.index(prepare_name))
+        self.assertLess(text.index(prepare_name), text.index(save_name))
         self.assertIn(f"actions/cache/restore@{CACHE_ACTION_SHA}", text)
         self.assertIn(f"actions/cache/save@{CACHE_ACTION_SHA}", text)
         self.assertIn("${{ runner.temp }}/isco-pixabay-api-cache", text)
         self.assertIn("pixabay-search-v2-${{ runner.os }}-${{ github.run_id }}", text)
         self.assertIn("TTL is enforced by scripts/provider_capacity_v2.py", text)
+        self.assertIn("prepare_cache_for_persistence", text)
         restore_section = text[text.index(restore_name):text.index(produce_name)]
         save_section = text[text.index(save_name):]
         self.assertNotIn("secrets.", restore_section)
