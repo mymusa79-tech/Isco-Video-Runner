@@ -94,14 +94,35 @@ async function send(env, chatId, text, rows = null) {
   return telegram(env, "sendMessage", payload);
 }
 
-function githubHeaders(env) {
+async function updatePanel(env, target, text, rows) {
+  if (target && target.callbackId && target.messageId) {
+    try {
+      return await telegram(env, "editMessageText", {
+        chat_id: target.chatId,
+        message_id: target.messageId,
+        text,
+        disable_web_page_preview: true,
+        reply_markup: inline(rows),
+      });
+    } catch (error) {
+      const message = String((error && error.message) || error || "");
+      if (message.toLowerCase().includes("message is not modified")) return null;
+      // Preserve the action result if an old message can no longer be edited.
+    }
+  }
+  return send(env, target.chatId, text, rows);
+}
+
+function githubHeaders(env, authenticated = true) {
   const headers = {
     accept: "application/vnd.github+json",
     "user-agent": "isco-telegram-observability-v1",
     "x-github-api-version": "2022-11-28",
   };
-  const token = String(env.GITHUB_CONTROL_TOKEN || "").trim();
-  if (token) headers.authorization = `Bearer ${token}`;
+  if (authenticated) {
+    const token = String(env.GITHUB_CONTROL_TOKEN || "").trim();
+    if (token) headers.authorization = `Bearer ${token}`;
+  }
   return headers;
 }
 
@@ -110,9 +131,25 @@ async function githubJson(env, pathOrUrl) {
   const url = String(pathOrUrl || "").startsWith("https://")
     ? String(pathOrUrl)
     : `https://api.github.com/repos/${repo}/${String(pathOrUrl || "").replace(/^\/+/, "")}`;
-  const response = await fetch(url, { headers: githubHeaders(env) });
+  let response = await fetch(url, { headers: githubHeaders(env, true) });
+  if (!response.ok && [401, 403, 404].includes(response.status)) {
+    // Public Runner reads can safely degrade to unauthenticated GitHub access if a
+    // fine-grained control token lacks a read permission on a particular endpoint.
+    response = await fetch(url, { headers: githubHeaders(env, false) });
+  }
   if (!response.ok) throw new Error(`GitHub read failed: ${response.status}`);
   return response.json();
+}
+
+async function publicEditorialProjection(env) {
+  const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) throw new Error("Invalid GitHub repository name");
+  const url = `https://raw.githubusercontent.com/${repo}/control-plane-state/state/telegram-status.json`;
+  const response = await fetch(url, { headers: { "user-agent": "isco-telegram-observability-v1" } });
+  if (!response.ok) throw new Error(`Editorial projection read failed: ${response.status}`);
+  const value = await response.json();
+  if (!value || Number(value.schema_version) !== 1) throw new Error("Unsupported editorial projection");
+  return value;
 }
 
 async function youtubeJson(env, resource, params) {
@@ -289,19 +326,11 @@ async function loadDelivery(env) {
     .sort((a, b) => String(b.published_at || b.created_at || "").localeCompare(String(a.published_at || a.created_at || "")))[0] || null;
 }
 
-function decodeBase64Utf8(value) {
-  const binary = atob(String(value || "").replace(/\s+/g, ""));
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
 async function loadEditorialProjection(env) {
-  const [content, runs] = await Promise.all([
-    githubJson(env, "contents/state/telegram-status.json?ref=control-plane-state"),
+  const [projection, runs] = await Promise.all([
+    publicEditorialProjection(env),
     githubJson(env, "actions/workflows/telegram-editorial-control.yml/runs?per_page=1"),
   ]);
-  const projection = JSON.parse(decodeBase64Utf8(content.content));
-  if (!projection || Number(projection.schema_version) !== 1) throw new Error("Unsupported editorial projection");
   const controlRun = Array.isArray(runs.workflow_runs) ? runs.workflow_runs[0] || null : null;
   return { projection, controlRun };
 }
@@ -372,8 +401,7 @@ function dashboardText(snapshot) {
     const stage = canonicalRunStage(run, value.jobs || []);
     const runSuffix = run && run.run_number ? ` · Run #${run.run_number}` : "";
     const progress = Number.isFinite(stage.progress) ? ` · ${stage.progress}%` : "";
-    const stale = prod.state === "stale" ? " ⚠️" : "";
-    lines.push(`🎬 الإنتاج: ${stage.label}${progress}${runSuffix}${stale}`);
+    lines.push(`🎬 الإنتاج: ${stage.label}${progress}${runSuffix}${prod.state === "stale" ? " ⚠️" : ""}`);
     if (prod.state === "stale") lines.push(`   ↳ ${sourceSuffix(prod, now)}`);
   }
 
@@ -422,7 +450,7 @@ function dashboardText(snapshot) {
   }
   lines.extend([
     "",
-    `🛰️ المصادر: GitHub ${sourceIcon(snapshot.production)} · Telegram ${sourceIcon(tg)} · YouTube ${sourceIcon(yt)} · Editorial ${sourceIcon(editorial)}`,
+    `🛰️ المصادر: GitHub ${sourceIcon(prod)} · Telegram ${sourceIcon(tg)} · YouTube ${sourceIcon(yt)} · Editorial ${sourceIcon(editorial)}`,
     `   Telegram: ${telegramDetail}`,
     "",
     `🕒 آخر تحقق شامل: ${omanTime(now)} · عُمان`,
@@ -431,12 +459,12 @@ function dashboardText(snapshot) {
   return lines.join("\n");
 }
 
-async function sendDashboard(env, target) {
+async function showDashboard(env, target) {
   const snapshot = await controlSnapshot(env);
-  await send(env, target.chatId, dashboardText(snapshot), ROOT_ROWS);
+  await updatePanel(env, target, dashboardText(snapshot), ROOT_ROWS);
 }
 
-async function sendCanonicalStatus(env, target) {
+async function showCanonicalStatus(env, target) {
   const source = await withSourceCache("production", () => loadProduction(env));
   const rows = [
     [
@@ -446,7 +474,12 @@ async function sendCanonicalStatus(env, target) {
     [{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }],
   ];
   if (source.state === "unavailable") {
-    await send(env, target.chatId, "📊 حالة الإنتاج\n\n❌ تعذر قراءة GitHub الآن. لا يتم عرض حالة قديمة على أنها حية.\n\n🕒 آخر محاولة تحقق: " + omanTime(source.checkedAt) + " · عُمان", rows);
+    await updatePanel(
+      env,
+      target,
+      `📊 حالة الإنتاج\n\n❌ تعذر قراءة GitHub الآن. لا يتم عرض حالة قديمة على أنها حية.\n\n🕒 آخر محاولة تحقق: ${omanTime(source.checkedAt)} · عُمان`,
+      rows,
+    );
     return;
   }
   const value = source.value || {};
@@ -459,13 +492,10 @@ async function sendCanonicalStatus(env, target) {
   if (run && String(run.html_url || "").startsWith("https://")) {
     rows.splice(rows.length - 1, 0, [{ text: "🔗 GitHub", url: run.html_url }]);
   }
-  if (source.state === "stale") {
-    lines.extend(["", `⚠️ ${sourceSuffix(source)}`]);
-  } else {
-    lines.extend(["", `✅ GitHub حي · آخر تحقق: ${omanTime(source.verifiedAt)} · عُمان`]);
-  }
+  if (source.state === "stale") lines.extend(["", `⚠️ ${sourceSuffix(source)}`]);
+  else lines.extend(["", `✅ GitHub حي · آخر تحقق: ${omanTime(source.verifiedAt)} · عُمان`]);
   lines.push("ℹ️ شاشة قراءة فقط؛ لا تعيد الإنتاج ولا تتجاوز Quality Gates.");
-  await send(env, target.chatId, lines.join("\n"), rows);
+  await updatePanel(env, target, lines.join("\n"), rows);
 }
 
 function parseDurationSeconds(value) {
@@ -515,20 +545,19 @@ function periodStartUtc(days, now = new Date()) {
   return new Date(Date.UTC(y, m, d, 0, 0, 0) - 4 * 3600 * 1000);
 }
 
-async function sendStats(env, chatId, data) {
+async function showStats(env, target, data) {
   const kind = String(data || "").replace(/^cmd:/, "");
   const source = await withSourceCache(`youtube:${kind}`, () => liveYoutube(env));
-  const currentRefresh = `cmd:${kind}`;
   const rows = [
     [
-      { text: "🔄 تحديث", callback_data: currentRefresh },
+      { text: "🔄 تحديث", callback_data: `cmd:${kind}` },
       { text: "🔄 تحديث الكل", callback_data: "cmd:refresh_all" },
     ],
     [{ text: "↩️ الإحصائيات", callback_data: "cmd:stats_menu" }],
     [{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }],
   ];
   if (source.state === "unavailable") {
-    await send(env, chatId, `📈 الإحصائيات\n\n❌ تعذر تحديث YouTube الآن. لا أعرض أرقامًا قديمة على أنها حية.\n\n🕒 آخر محاولة: ${omanTime(source.checkedAt)} · عُمان`, rows);
+    await updatePanel(env, target, `📈 الإحصائيات\n\n❌ تعذر تحديث YouTube الآن. لا أعرض أرقامًا قديمة على أنها حية.\n\n🕒 آخر محاولة: ${omanTime(source.checkedAt)} · عُمان`, rows);
     return;
   }
   const live = source.value;
@@ -537,18 +566,18 @@ async function sendStats(env, chatId, data) {
     : `\n\n✅ تحديث حي: ${omanTime(source.verifiedAt)} · عُمان`;
   if (kind === "stats_overview") {
     const subs = live.hiddenSubscribers ? "مخفية" : formatNum(live.subscribers);
-    await send(env, chatId, `📊 إحصائيات عامة\n\n👥 المشتركون: ${subs}\n👁️ مشاهدات القناة: ${formatNum(live.views)}\n🎞️ إجمالي الفيديوهات: ${formatNum(live.videoCount)}${suffix}`, rows);
+    await updatePanel(env, target, `📊 إحصائيات عامة\n\n👥 المشتركون: ${subs}\n👁️ مشاهدات القناة: ${formatNum(live.views)}\n🎞️ إجمالي الفيديوهات: ${formatNum(live.videoCount)}${suffix}`, rows);
     return;
   }
   if (kind === "stats_last_long" || kind === "stats_last_short") {
     const wantShort = kind === "stats_last_short";
     const item = live.videos.find((video) => (video.duration > 0 && video.duration <= 180) === wantShort);
     if (!item) {
-      await send(env, chatId, `📈 آخر ${wantShort ? "Short" : "فيديو طويل"}\n\nلم أجد عنصرًا حديثًا مناسبًا ضمن آخر الرفعات.${suffix}`, rows);
+      await updatePanel(env, target, `📈 آخر ${wantShort ? "Short" : "فيديو طويل"}\n\nلم أجد عنصرًا حديثًا مناسبًا ضمن آخر الرفعات.${suffix}`, rows);
       return;
     }
     rows.splice(1, 0, [{ text: "▶️ فتح على YouTube", url: `https://youtu.be/${item.id}` }]);
-    await send(env, chatId, `📈 آخر ${wantShort ? "Short" : "فيديو طويل"}\n\n🎬 ${item.title}\n\n👁️ ${formatNum(item.views)} مشاهدة\n👍 ${formatNum(item.likes)} إعجاب\n💬 ${formatNum(item.comments)} تعليق${suffix}`, rows);
+    await updatePanel(env, target, `📈 آخر ${wantShort ? "Short" : "فيديو طويل"}\n\n🎬 ${item.title}\n\n👁️ ${formatNum(item.views)} مشاهدة\n👍 ${formatNum(item.likes)} إعجاب\n💬 ${formatNum(item.comments)} تعليق${suffix}`, rows);
     return;
   }
   const days = kind === "stats_today" ? 1 : 7;
@@ -557,7 +586,7 @@ async function sendStats(env, chatId, data) {
   const currentViews = periodVideos.reduce((sum, video) => sum + video.views, 0);
   const shorts = periodVideos.filter((video) => video.duration > 0 && video.duration <= 180).length;
   const label = days === 1 ? "اليوم" : "آخر 7 أيام";
-  await send(env, chatId, `📈 ${label}\n\n🆕 رفعات منشورة ضمن الفترة: ${periodVideos.length}\n⚡ منها Shorts تقريبًا: ${shorts}\n👁️ المشاهدات الحالية لهذه الرفعات: ${formatNum(currentViews)}${suffix}\nℹ️ بوصلة تقريبية وليست YouTube Analytics.`, rows);
+  await updatePanel(env, target, `📈 ${label}\n\n🆕 رفعات منشورة ضمن الفترة: ${periodVideos.length}\n⚡ منها Shorts تقريبًا: ${shorts}\n👁️ المشاهدات الحالية لهذه الرفعات: ${formatNum(currentViews)}${suffix}\nℹ️ بوصلة تقريبية وليست YouTube Analytics.`, rows);
 }
 
 function isMenuText(text) {
@@ -582,17 +611,17 @@ async function handleReadOnly(route, update, env) {
   const target = actorAndChat(update);
   if (route === "dashboard") {
     await answerCallback(env, target.callbackId, "أحدّث الصورة الكاملة الآن…");
-    await sendDashboard(env, target);
+    await showDashboard(env, target);
     return;
   }
   if (route === "status") {
     await answerCallback(env, target.callbackId, "أتحقق من GitHub الآن…");
-    await sendCanonicalStatus(env, target);
+    await showCanonicalStatus(env, target);
     return;
   }
   if (STATS_LEAVES.has(route)) {
     await answerCallback(env, target.callbackId, "أحدّث YouTube الآن…");
-    await sendStats(env, target.chatId, route);
+    await showStats(env, target, route);
   }
 }
 
@@ -601,12 +630,11 @@ async function safeReadOnly(route, update, env) {
   try {
     await handleReadOnly(route, update, env);
   } catch (error) {
-    const detail = String((error && error.message) || error || "unknown");
-    console.error("Observability read failed", detail);
+    console.error("Observability read failed", String((error && error.message) || error || "unknown"));
     try {
-      await send(
+      await updatePanel(
         env,
-        target.chatId,
+        target,
         `⚠️ تعذر إكمال التحديث الآن. لم يبدأ ولم يتغير أي Production Run.\n\n🕒 آخر محاولة: ${omanTime()} · عُمان`,
         ROOT_ROWS,
       );
