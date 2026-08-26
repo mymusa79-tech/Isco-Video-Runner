@@ -14,6 +14,7 @@
     "editing": "المونتاج",
     "mux": "التجميع",
     "render": "التصدير",
+    "production": "الإنتاج الداخلي",
     "quality": "فحص الجودة",
     "quality_gates": "فحص الجودة",
     "delivery": "الحزمة النهائية",
@@ -48,6 +49,11 @@
       "contains": ["checkout", "install", "provider authentication", "voice fallback", "secrets", "set up python", "restore memory", "environment preflight"]
     },
     {
+      "key": "production",
+      "label": "الإنتاج: التخطيط → الكتابة → الصوت → المونتاج",
+      "contains": ["run exact approved telegram production"]
+    },
+    {
       "key": "planning",
       "label": "التخطيط",
       "contains": ["planning", "planner", "brief", "research"]
@@ -55,7 +61,7 @@
     {
       "key": "writing",
       "label": "الكتابة",
-      "contains": ["writing", "writer", "script doctor", "script", "run exact approved telegram production"]
+      "contains": ["writing", "writer", "script doctor", "script"]
     },
     {
       "key": "voice",
