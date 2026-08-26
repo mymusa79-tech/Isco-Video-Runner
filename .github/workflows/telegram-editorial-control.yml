@@ -191,6 +191,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Persist dispatch reservation before workflow dispatch
+        id: persist_reservation
         if: steps.poll.outputs.needs_production == 'true'
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
@@ -237,6 +238,7 @@ jobs:
             -f engine_sha="$ENGINE_SHA"
 
       - name: Persist encrypted control-panel state
+        id: persist_control_state
         if: always() && steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true'
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
@@ -259,6 +261,45 @@ jobs:
             echo "Control-panel state unchanged"
           else
             git commit -m "state: update encrypted Telegram control panel"
+            git push origin HEAD:control-plane-state
+          fi
+
+      - name: Build sanitized Telegram read projection
+        id: build_projection
+        if: >-
+          always() &&
+          (
+            steps.poll.outputs.production_active == 'true' ||
+            (steps.poll.outputs.needs_production == 'true' && steps.persist_reservation.outcome == 'success') ||
+            (steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true' && steps.persist_control_state.outcome == 'success')
+          )
+        run: |
+          set -euo pipefail
+          test -n "${CONTROL_STATE_PATH:-}"
+          test -f "$CONTROL_STATE_PATH"
+          python scripts/telegram_status_projection.py \
+            --state "$CONTROL_STATE_PATH" \
+            --output "$RUNNER_TEMP/isco-control/telegram-status.json"
+
+      - name: Persist sanitized Telegram read projection
+        if: always() && steps.build_projection.outcome == 'success'
+        run: |
+          set -euo pipefail
+          projection="$RUNNER_TEMP/isco-control/telegram-status.json"
+          test -f "$projection"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/isco-control-projection-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$projection" "$worktree/state/telegram-status.json"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/telegram-status.json
+          if git diff --cached --quiet; then
+            echo "Sanitized Telegram read projection unchanged"
+          else
+            git commit -m "state: update sanitized Telegram status projection"
             git push origin HEAD:control-plane-state
           fi
 

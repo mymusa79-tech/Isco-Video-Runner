@@ -5,6 +5,8 @@ from datetime import datetime
 from typing import Iterable, Mapping
 from zoneinfo import ZoneInfo
 
+from scripts.telegram_status_model import status_label
+
 SEVERITY_INFO = "INFO"
 SEVERITY_SUCCESS = "SUCCESS"
 SEVERITY_WARNING = "WARNING"
@@ -20,11 +22,13 @@ STATUS_EMOJI = {
     "held": "⏸️",
 }
 
+# Lifecycle rendering keeps the proven four compact milestones, but their labels
+# now come from the one canonical status contract shared with the live dashboard.
 STAGE_LABELS = {
-    "planning": "التخطيط",
-    "voice": "الصوت",
-    "visuals": "المشاهد",
-    "mux": "التجميع",
+    "planning": status_label("planning"),
+    "voice": status_label("voice"),
+    "visuals": status_label("visuals"),
+    "mux": status_label("mux"),
 }
 
 ACTION_VIEW_GITHUB = "view_github"
