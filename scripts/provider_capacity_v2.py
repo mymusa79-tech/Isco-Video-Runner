@@ -107,6 +107,25 @@ def _prune(entries: dict, *, now: float) -> dict:
     return {key: entry for _, key, entry in survivors[:PIXABAY_CACHE_MAX_ENTRIES]}
 
 
+def prepare_cache_for_persistence(path: Path | None = None) -> bool:
+    """Keep only fresh, valid search metadata before a cross-run cache save.
+
+    Corrupt, empty, future-dated, or fully expired cache files are deleted so a bad
+    restore cannot be re-published under a newer Actions cache key. Returns True only
+    when there is a non-empty sanitized file worth saving.
+    """
+    target = Path(path) if path is not None else _cache_path()
+    if not target.is_file():
+        return False
+    document = _load(target)
+    fresh = _prune(document.get("entries", {}), now=time.time())
+    if not fresh:
+        target.unlink(missing_ok=True)
+        return False
+    _atomic_write(target, {"schema_version": CACHE_SCHEMA_VERSION, "entries": fresh})
+    return True
+
+
 @dataclass
 class PersistentPixabaySearchCache:
     """24-hour normalized-result cache for Pixabay API searches only.
