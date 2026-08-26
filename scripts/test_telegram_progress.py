@@ -20,21 +20,33 @@ class ProgressRenderTests(unittest.TestCase):
     def setUp(self) -> None:
         tp._state["completed"] = set()
         tp._state["current_stage"] = None
+        tp._state["run_number"] = ""
+        tp._state["topic"] = ""
 
     def test_all_stages_pending_render_shortly_after_start(self) -> None:
         text = tp._render()
-        self.assertIn("التخطيط... ⏳", text)
-        self.assertIn("الصوت... ⏳", text)
-        self.assertIn("المشاهد... ⏳", text)
-        self.assertIn("التجميع... ⏳", text)
+        self.assertIn("🔵 بدأ الإنتاج", text)
+        self.assertIn("التخطيط ⏳", text)
+        self.assertIn("الصوت ⏳", text)
+        self.assertIn("المشاهد ⏳", text)
+        self.assertIn("التجميع ⏳", text)
+        self.assertIn("لا يحتاج أي إجراء منك الآن.", text)
 
     def test_current_stage_shows_in_progress_marker(self) -> None:
         tp._state["current_stage"] = "voice"
         tp._state["completed"] = {"planning"}
         text = tp._render()
-        self.assertIn("التخطيط... ✅", text)
-        self.assertIn("الصوت... 🔵", text)
-        self.assertIn("المشاهد... ⏳", text)
+        self.assertIn("🔵 الإنتاج جارٍ", text)
+        self.assertIn("التخطيط ✅", text)
+        self.assertIn("الصوت 🔵", text)
+        self.assertIn("المشاهد ⏳", text)
+
+    def test_run_number_and_topic_are_visible_when_available(self) -> None:
+        tp._state["run_number"] = "112"
+        tp._state["topic"] = "موضوع الحلقة"
+        text = tp._render()
+        self.assertIn("Run #112", text)
+        self.assertIn("🎬 موضوع الحلقة", text)
 
 
 class OptionalSecretFileTests(unittest.TestCase):
@@ -54,11 +66,18 @@ class OptionalSecretFileTests(unittest.TestCase):
             with patch.dict(os.environ, {"X_FILE": str(path)}, clear=False):
                 self.assertEqual(tp._read_secret_file_optional("X_FILE"), "abc123")
 
+    def test_reads_request_topic_without_failing_when_optional(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            request = Path(d) / "request.json"
+            request.write_text(json.dumps({"topic": "موضوع"}), encoding="utf-8")
+            with patch.dict(os.environ, {"REQUEST_FILE": str(request)}, clear=False):
+                self.assertEqual(tp._read_request_topic_optional(), "موضوع")
+            with patch.dict(os.environ, {"REQUEST_FILE": str(Path(d) / "missing.json")}, clear=False):
+                self.assertEqual(tp._read_request_topic_optional(), "")
+
 
 class TelegramRequestDiagnosticLoggingTests(unittest.TestCase):
-    """Covers the explicit per-call diagnostic logging: every Telegram call must print
-    its own outcome (method name, success/failure, and why) so a run's log gives
-    automated confirmation instead of requiring someone to check their phone."""
+    """Every Telegram call must log its method and outcome without leaking token URLs."""
 
     def setUp(self) -> None:
         tp._state["token"] = "fake-token"
@@ -107,7 +126,7 @@ class TelegramRequestDiagnosticLoggingTests(unittest.TestCase):
                 with patch("urllib.request.urlopen", return_value=self._mock_http_response({"ok": True, "result": {"message_id": 7}})):
                     with redirect_stdout(buf):
                         tp.start_progress()
-        self.assertIn("Telegram notify: sendMessage (initial progress message)", buf.getvalue())
+        self.assertIn("Telegram notify: sendMessage (initial lifecycle message)", buf.getvalue())
         self.assertIn("Telegram progress message created: message_id=7", buf.getvalue())
 
     def test_update_stage_prints_which_stage_before_calling(self) -> None:
@@ -121,8 +140,7 @@ class TelegramRequestDiagnosticLoggingTests(unittest.TestCase):
 
 
 class StartProgressNoOpTests(unittest.TestCase):
-    """A Telegram outage or absent secrets must never touch the network or fail
-    production - this is best-effort progress reporting, not a required dependency."""
+    """A Telegram outage or absent secrets must never fail production."""
 
     def test_no_network_call_when_bot_token_missing(self) -> None:
         with tempfile.TemporaryDirectory() as d:
@@ -147,8 +165,7 @@ class StartProgressNoOpTests(unittest.TestCase):
 
 
 class IsAuthorizedUserTests(unittest.TestCase):
-    """Documents the fixed security rule for future command-receiving development;
-    nothing calls this yet - install_progress_hooks() never wires it up."""
+    """Documents the fixed TELEGRAM_ALLOWED_USER_ID security rule."""
 
     def test_returns_false_when_allowed_id_secret_absent(self) -> None:
         with patch.dict(os.environ, {"TELEGRAM_ALLOWED_USER_ID_FILE": "/no/such/file"}, clear=False):
@@ -171,10 +188,7 @@ class IsAuthorizedUserTests(unittest.TestCase):
 
 
 class InstallProgressHooksTests(unittest.TestCase):
-    """Covers the fix already established for product_proof_plan.py/task_level_planner_
-    router.py: any new wrapper placed over orchestrator.build_plan must forward the
-    _is_resilient_router marker, or orchestrator._verify_resilient_router_installed()
-    raises even though the real router is correctly installed underneath."""
+    """Progress wrappers must preserve router marker and real stage ordering."""
 
     def setUp(self) -> None:
         self._orig_build_plan = orchestrator.build_plan
@@ -217,9 +231,9 @@ class InstallProgressHooksTests(unittest.TestCase):
                 tp.install_progress_hooks()
                 orchestrator.build_plan()
                 orchestrator.synthesize_wav()
-                orchestrator.synthesize_wav()  # a second section's TTS call must not re-signal "voice" started
+                orchestrator.synthesize_wav()
                 orchestrator.prepare_clip()
-                orchestrator.prepare_clip()  # a second section's clip prep must not re-signal "visuals" started
+                orchestrator.prepare_clip()
                 orchestrator.mux()
 
         self.assertEqual(

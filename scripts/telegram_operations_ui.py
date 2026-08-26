@@ -122,3 +122,37 @@ def inline_keyboard(rows: Iterable[Iterable[Mapping[str, str]]]) -> dict[str, li
         if buttons:
             normalized.append(buttons)
     return {"inline_keyboard": normalized}
+
+
+def _run_suffix(run_number: str) -> str:
+    value = str(run_number or "").strip()
+    return f" · Run #{value}" if value else ""
+
+
+def render_progress_text(
+    *,
+    run_number: str = "",
+    topic: str = "",
+    current_stage: str | None = None,
+    completed: Iterable[str] = (),
+) -> str:
+    """Render one edit-in-place lifecycle card for an active production run."""
+    completed_set = set(completed)
+    headline = "بدأ الإنتاج" if current_stage is None and not completed_set else "الإنتاج جارٍ"
+    lines = [f"🔵 {headline}{_run_suffix(run_number)}"]
+    topic_value = str(topic or "").strip()
+    if topic_value:
+        lines.extend(["", f"🎬 {topic_value}"])
+    parts: list[str] = []
+    for key, label in STAGE_LABELS.items():
+        if key in completed_set:
+            marker = "✅"
+        elif key == current_stage:
+            marker = "🔵"
+        else:
+            marker = "⏳"
+        parts.append(f"{label} {marker}")
+    lines.extend(["", " · ".join(parts)])
+    if current_stage is None and not completed_set:
+        lines.extend(["", "لا يحتاج أي إجراء منك الآن."])
+    return "\n".join(lines)
