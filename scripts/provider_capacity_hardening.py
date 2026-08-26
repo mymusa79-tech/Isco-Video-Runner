@@ -12,7 +12,11 @@ GROQ_FREE_TPM_LIMIT = 8_000
 GROQ_TOKEN_SAFETY_RESERVE = 250
 GROQ_ESTIMATED_UTF8_BYTES_PER_TOKEN = 4.25
 MAX_RETRY_AFTER_SECONDS = 120.0
-OPENROUTER_OUTPUT_HEAVY_MODEL = "openai/gpt-oss-20b:free"
+# Compatibility name retained for existing tests/diagnostics. Run #119 proved a
+# hard-pinned `:free` model can disappear between runs even while the free routing
+# service remains available. `openrouter/free` is itself a zero-cost router and keeps
+# the no-paid-provider policy while selecting a currently available compatible model.
+OPENROUTER_OUTPUT_HEAVY_MODEL = "openrouter/free"
 _OUTPUT_HEAVY_CONTRACTS = frozenset({"full_script", "append_only_repair", "section_repair"})
 
 _COMPLETION_TOKEN_BUDGETS = {
@@ -153,7 +157,7 @@ def _hardened_groq_call(prompt: str) -> dict:
 
 
 def _hardened_openrouter_structured_request(prompt: str, contract: tuple[str, dict]) -> dict:
-    """Deterministic free OpenRouter fallback for output-heavy JSON tasks."""
+    """Free OpenRouter fallback with dynamic model availability and fail-closed output."""
     schema_name, _schema = contract
     token = router._openrouter_key()
     output_heavy = schema_name in _OUTPUT_HEAVY_CONTRACTS
@@ -161,10 +165,13 @@ def _hardened_openrouter_structured_request(prompt: str, contract: tuple[str, di
 
     def do_request() -> dict:
         request_payload = {
-            # `openrouter/free` may select a different model with different reasoning
-            # behavior on every request. Pin the known free GPT-OSS endpoint only for
-            # output-heavy writing/repair; retain the flexible router for the outline.
-            "models": [OPENROUTER_OUTPUT_HEAVY_MODEL] if output_heavy else list(router._OPENROUTER_MODELS),
+            # Run #119: a static `openai/gpt-oss-20b:free` pin returned HTTP 404 after
+            # the free variant became unavailable at request time. Use OpenRouter's
+            # zero-cost free router instead. It selects from currently available free
+            # models and, with require_parameters, filters for the request capabilities.
+            # Quality is still enforced locally by exact ids/order/count/schema gates;
+            # this changes availability routing only and can never escalate to paid.
+            "models": [OPENROUTER_OUTPUT_HEAVY_MODEL] if output_heavy else ["openrouter/free"],
             "messages": [{"role": "user", "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown."}],
             "response_format": _response_format_for_contract(contract),
             "provider": {"allow_fallbacks": True, "require_parameters": True},

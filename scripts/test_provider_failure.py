@@ -11,8 +11,16 @@ from isco_video_agent.ai_budget import AttemptOutcome  # noqa: E402
 
 
 class ProviderFailureTaxonomyTests(unittest.TestCase):
-    def test_rate_limit_maps_consistently_and_opens_circuit(self) -> None:
+    def test_short_window_rate_limit_is_request_scoped(self) -> None:
         failure = classify_provider_failure("gemini", RuntimeError("HTTP 429 rate limited"))
+        self.assertEqual(failure.telemetry_result, "429")
+        self.assertEqual(failure.budget_outcome, AttemptOutcome.RATE_LIMITED)
+        self.assertFalse(failure.open_circuit)
+
+    def test_explicit_quota_rate_limit_remains_session_permanent(self) -> None:
+        failure = classify_provider_failure(
+            "gemini", RuntimeError("HTTP 429 quota_exceeded: daily quota exceeded")
+        )
         self.assertEqual(failure.telemetry_result, "429")
         self.assertEqual(failure.budget_outcome, AttemptOutcome.RATE_LIMITED)
         self.assertTrue(failure.open_circuit)

@@ -92,12 +92,12 @@ class Run118GroqGenerationTests(unittest.TestCase):
         self.assertFalse(failure.open_circuit)
 
 
-class Run118OpenRouterFallbackTests(unittest.TestCase):
+class Run119OpenRouterFallbackTests(unittest.TestCase):
     def setUp(self) -> None:
         router._last_call_rate_limit_headers.clear()
         router._last_call_response_meta.clear()
 
-    def test_output_heavy_openrouter_pins_known_free_model(self) -> None:
+    def test_output_heavy_openrouter_uses_dynamic_free_router(self) -> None:
         captured = {}
         contract = router._structured_schema_for_prompt(FULL_SCRIPT_PROMPT)
         self.assertIsNotNone(contract)
@@ -112,7 +112,7 @@ class Run118OpenRouterFallbackTests(unittest.TestCase):
         def fake_post(url, *, headers, json, timeout):
             captured.update(json)
             return _Response({
-                "model": capacity.OPENROUTER_OUTPUT_HEAVY_MODEL,
+                "model": "some/current-free-model",
                 "choices": [{"finish_reason": "stop", "message": {"content": content}}],
                 "usage": {"prompt_tokens": 100, "completion_tokens": 200},
             })
@@ -123,10 +123,13 @@ class Run118OpenRouterFallbackTests(unittest.TestCase):
             result = capacity._hardened_openrouter_structured_request(FULL_SCRIPT_PROMPT, contract)
 
         self.assertEqual(len(result["sections"]), 3)
-        self.assertEqual(captured["models"], [capacity.OPENROUTER_OUTPUT_HEAVY_MODEL])
+        self.assertEqual(capacity.OPENROUTER_OUTPUT_HEAVY_MODEL, "openrouter/free")
+        self.assertEqual(captured["models"], ["openrouter/free"])
+        self.assertNotIn("openai/gpt-oss-20b:free", captured["models"])
         self.assertEqual(captured["response_format"], {"type": "json_object"})
         self.assertEqual(captured["reasoning"], {"effort": "low", "exclude": True})
         self.assertEqual(captured["max_tokens"], 2400)
+        self.assertTrue(captured["provider"]["allow_fallbacks"])
         self.assertTrue(captured["provider"]["require_parameters"])
 
 
