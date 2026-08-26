@@ -31,7 +31,7 @@ class ProviderPreflightTests(unittest.TestCase):
         if include_runtime:
             models.append(
                 {
-                    "name": "models/gemini-3.5-flash-lite",
+                    "name": "models/gemini-3.7-flash",
                     "supportedGenerationMethods": ["generateContent", "countTokens"],
                 }
             )
@@ -81,7 +81,7 @@ class ProviderPreflightTests(unittest.TestCase):
             )
         self.assertEqual(result.status, "pass")
         self.assertEqual(result.capacity_status, "dynamic_unobservable")
-        self.assertIn("gemini-3.5-flash-lite", result.detail)
+        self.assertIn("gemini-3.7-flash", result.detail)
         self.assertEqual(get.call_count, 1)
         post.assert_not_called()
 
@@ -91,7 +91,7 @@ class ProviderPreflightTests(unittest.TestCase):
             "get",
             return_value=self._gemini_models(include_runtime=False, include_requested=True),
         ):
-            with self.assertRaisesRegex(RuntimeError, "resolved=gemini-3.5-flash-lite"):
+            with self.assertRaisesRegex(RuntimeError, "resolved=gemini-3.7-flash"):
                 preflight.check_gemini(
                     "secret",
                     content_model="gemini-2.5-flash",
@@ -104,7 +104,7 @@ class ProviderPreflightTests(unittest.TestCase):
             {
                 "models": [
                     {
-                        "name": "models/gemini-3.5-flash-lite",
+                        "name": "models/gemini-3.7-flash",
                         "supportedGenerationMethods": ["countTokens"],
                     }
                 ]
@@ -134,7 +134,7 @@ class ProviderPreflightTests(unittest.TestCase):
             {
                 "models": [
                     {
-                        "name": "models/gemini-3.5-flash-lite",
+                        "name": "models/gemini-3.7-flash",
                         "supportedGenerationMethods": ["generateContent"],
                     }
                 ],
