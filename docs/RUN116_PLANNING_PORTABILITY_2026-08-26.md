@@ -1,6 +1,6 @@
 # Run 116 Planning Portability Closure
 
-Date: 2026-08-26  
+Date: 2026-08-26
 Scope: Isco Video Production Resilient V4, approved-film planning path.
 
 ## Incident
