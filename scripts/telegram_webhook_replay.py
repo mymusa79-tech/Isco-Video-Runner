@@ -78,6 +78,22 @@ def _is_seen(state_path: Path, update_id: int) -> bool:
     return update_id in _seen_ids(panel.load_state(state_path))
 
 
+def _install_replay_surface() -> None:
+    """Compose the same live UI stack used by the CLI before replaying one update.
+
+    Order matters: persistent_ui customizes active_ui first; active._install() then
+    installs those active handlers into the base panel; choice clarity wraps the
+    final handler last. This prevents webhook replay from silently falling back to
+    the older base handler for Saved/Used/Status/detail navigation.
+    """
+    memory_ui._install_policy()
+    from scripts import telegram_persistent_control_ui as persistent_ui
+
+    persistent_ui.install()
+    active._install()
+    memory_ui._install_choice_clarity()
+
+
 def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
     """Run one authenticated Telegram update through the existing control plane exactly once.
 
@@ -92,11 +108,7 @@ def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
         panel._github_output("needs_production", "false")
         return False
 
-    memory_ui._install_policy()
-    from scripts import telegram_persistent_control_ui as persistent_ui
-
-    persistent_ui.install()
-    memory_ui._install_choice_clarity()
+    _install_replay_surface()
 
     original_call = panel.TelegramClient.call
     original_answer = panel.TelegramClient.answer_callback
@@ -114,7 +126,8 @@ def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
     panel.TelegramClient.call = replay_call
     panel.TelegramClient.answer_callback = replay_answer
     try:
-        active._poll(state_path)
+        # panel.poll is the fully composed handler after _install_replay_surface().
+        panel.poll(state_path)
     finally:
         panel.TelegramClient.call = original_call
         panel.TelegramClient.answer_callback = original_answer
