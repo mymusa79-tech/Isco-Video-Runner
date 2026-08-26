@@ -152,3 +152,5 @@ jobs:
           path: samples/
           if-no-files-found: error
           retention-days: 7
+
+# manual blind-test trigger: 2026-08-26
