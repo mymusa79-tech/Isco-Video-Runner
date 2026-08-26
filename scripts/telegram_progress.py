@@ -131,7 +131,10 @@ def mark_stage_done(stage: str) -> None:
 
 
 def is_authorized_user(user_id: int) -> bool:
-    """Fixed security rule: only TELEGRAM_ALLOWED_USER_ID may be authorized."""
+    """Fixed security rule for future command-receiving development (bot commands are
+    not implemented yet - nothing calls this today). Only the operator identified by
+    TELEGRAM_ALLOWED_USER_ID may ever be treated as authorized; any future feature that
+    reacts to incoming Telegram messages/commands must gate on this before acting."""
     allowed = _read_secret_file_optional("TELEGRAM_ALLOWED_USER_ID_FILE")
     if not allowed:
         return False
