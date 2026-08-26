@@ -3,8 +3,16 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+# GitHub Actions invokes this file as ``python scripts/telegram_webhook_replay.py``.
+# In that mode Python places ``scripts/`` rather than the repository root on
+# sys.path, so absolute ``from scripts ...`` imports fail unless the root is
+# restored explicitly. Keep this entrypoint robust for both direct and module use.
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
@@ -88,6 +96,7 @@ def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
     from scripts import telegram_persistent_control_ui as persistent_ui
 
     persistent_ui.install()
+    memory_ui._install_choice_clarity()
 
     original_call = panel.TelegramClient.call
     original_answer = panel.TelegramClient.answer_callback
