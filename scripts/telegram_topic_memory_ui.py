@@ -13,6 +13,7 @@ if __package__ in {None, ""}:
 from scripts import telegram_bot_api_10_3_ui as bot_api_10_3_ui
 from scripts import telegram_control_active_ui as ui
 from scripts import telegram_control_panel as panel
+from scripts import telegram_search_scope_ui as search_scope_ui
 
 
 _REQUIRED_POLL_SECRET_FILES = (
@@ -134,6 +135,26 @@ def _install_policy() -> None:
     ui._used_page = _used_page_global_history
 
 
+def _scoped_search_keyboard() -> list[list[dict[str, str]]]:
+    return [
+        [{"text": "🎬➕⚡ حلقة + Shorts", "callback_data": "cmd:topic_bundle"}],
+        [{"text": "🎬 حلقة فقط", "callback_data": "cmd:topic_long"}],
+        [{"text": "⚡ Short فقط", "callback_data": "cmd:short"}],
+        [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}],
+    ]
+
+
+def _scoped_search_menu_text() -> str:
+    return (
+        "🔎 البحث\n\n"
+        "اختر النتيجة التي تريدها من البداية. هذا يحدد نطاق الموضوع فقط ولا يبدأ Production:\n\n"
+        "🎬➕⚡ حلقة + Shorts — أبحث عن 3 أفكار حلقات، والفكرة المختارة تُعتمد مع 2–3 Shorts مختلفة حسب المادة.\n"
+        "🎬 حلقة فقط — أبحث عن 3 أفكار حلقات، والفكرة المختارة تُعتمد كحلقة فقط.\n"
+        "⚡ Short فقط — أبحث عن 3 أفكار قصيرة وتختار واحدة منها.\n\n"
+        "بعد البحث ستظهر 3 أفكار مرقمة 1️⃣ 2️⃣ 3️⃣. اختيار الفكرة لا يبدأ الإنتاج."
+    )
+
+
 def _clear_candidate_keyboard(session_id: str, kind: str) -> list[list[dict[str, str]]]:
     from scripts import telegram_persistent_control_ui as persistent_ui
 
@@ -160,15 +181,22 @@ def _clear_candidate_panel_text(kind: str, candidates: list[dict[str, Any]]) -> 
 
 
 def _research_started_text(kind: str) -> str:
-    if kind == "topic":
+    if kind == "topic_bundle":
         return (
-            "🎬 بدأ بحث الحلقة.\n\n"
+            "🎬➕⚡ بدأ بحث حلقة + Shorts.\n\n"
+            "أبحث الآن عن أفضل 3 أفكار للحلقة. عند اختيار واحدة سيبقى نطاقها «حلقة + 2–3 Shorts» كما اخترته هنا.\n\n"
+            "ℹ️ هذا بحث واعتماد نطاق فقط؛ لا يبدأ Production."
+        )
+    if kind in {"topic_long", "topic"}:
+        suffix = " فقط" if kind == "topic_long" else ""
+        return (
+            f"🎬 بدأ بحث الحلقة{suffix}.\n\n"
             "أبحث الآن عن أفضل الخيارات. عند اكتمال البحث سأعرض لك 3 أفكار مرقمة "
             "1️⃣ 2️⃣ 3️⃣، وتحت كل فكرة زر «اختر هذه الفكرة» وزر «تفاصيل الفكرة».\n\n"
             "ℹ️ هذا بحث فقط؛ لا يبدأ Production."
         )
     return (
-        "⚡ بدأ بحث الشورت.\n\n"
+        "⚡ بدأ بحث Short فقط.\n\n"
         "أبحث الآن عن أفضل الخيارات. عند اكتمال البحث سأعرض لك 3 أفكار مرقمة "
         "1️⃣ 2️⃣ 3️⃣، وتحت كل فكرة زر «اختر هذه الفكرة» وزر «تفاصيل الفكرة».\n\n"
         "ℹ️ هذا بحث فقط؛ لا يبدأ Production."
@@ -176,16 +204,34 @@ def _research_started_text(kind: str) -> str:
 
 
 def _handle_command_with_research_clarity(kind, client, state, releases, chat_id) -> None:
-    if kind in {"topic", "short"}:
-        client.send(chat_id, _research_started_text(kind))
     handler = getattr(ui, "_ISCO_RESEARCH_CLARITY_BASE_HANDLE", None)
     if handler is None:
         raise RuntimeError("Telegram research clarity base handler is not installed")
+
+    if kind in {"topic_bundle", "topic_long", "topic", "short"}:
+        client.send(chat_id, _research_started_text(kind))
+
+    if kind in {"topic_bundle", "topic_long", "topic"}:
+        before_ids = search_scope_ui.pending_long_ids(state)
+        handler("topic", client, state, releases, chat_id)
+        scope = {"topic_bundle": "bundle", "topic_long": "long"}.get(kind)
+        search_scope_ui.bind_scope_to_new_long_request(state, scope=scope, before_ids=before_ids)
+        return
+
     handler(kind, client, state, releases, chat_id)
 
 
 def _install_choice_clarity() -> None:
-    """Keep research start and numbered results actionable and unambiguous."""
+    """Keep search mode, research start and numbered results unambiguous."""
+    from scripts import telegram_persistent_control_ui as persistent_ui
+
+    # The Edge and the GitHub fallback must expose the same three search modes.
+    persistent_ui._search_keyboard = _scoped_search_keyboard
+    persistent_ui._search_menu_text = _scoped_search_menu_text
+    # Preserve the active-ui post-poll production outputs while refining only the
+    # base callback poll used underneath it.
+    ui._BASE_POLL = search_scope_ui.poll
+
     panel._candidate_keyboard = _clear_candidate_keyboard
     panel._candidate_panel_text = _clear_candidate_panel_text
     if not hasattr(ui, "_ISCO_RESEARCH_CLARITY_BASE_HANDLE"):
