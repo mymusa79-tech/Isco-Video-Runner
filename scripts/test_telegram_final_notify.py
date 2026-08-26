@@ -152,6 +152,24 @@ class UrlActionTests(unittest.TestCase):
         self.assertEqual(buttons[1]["text"], "🔗 GitHub")
         self.assertTrue(all("url" in button for button in buttons))
 
+    def test_terminal_keyboard_adds_details_only_when_message_context_is_bound(self) -> None:
+        keyboard = notify.terminal_keyboard(
+            job_status="failure",
+            run_url="https://github.com/o/r/actions/runs/10",
+            run_id="10",
+            progress_message_id="42",
+        )
+        buttons = [button for row in keyboard["inline_keyboard"] for button in row]
+        self.assertEqual(buttons[0]["callback_data"], "cmd:opsdetails-10-42")
+        self.assertEqual(buttons[1]["text"], "📋 GitHub Logs")
+        unbound = notify.terminal_keyboard(
+            job_status="failure",
+            run_url="https://github.com/o/r/actions/runs/10",
+            run_id="10",
+            progress_message_id="",
+        )
+        self.assertFalse(any("callback_data" in button for row in unbound["inline_keyboard"] for button in row))
+
     def test_release_url_exists_only_after_successful_release_step(self) -> None:
         base = {
             "GITHUB_SERVER_URL": "https://github.com",
