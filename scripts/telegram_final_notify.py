@@ -225,15 +225,28 @@ def deliver_terminal_message(
     progress_message_id: str = "",
     reply_markup: dict[str, Any] | None = None,
 ) -> bool:
-    payload: dict[str, str] = {"chat_id": chat_id, "text": text}
+    base_payload: dict[str, str] = {"chat_id": chat_id, "text": text}
     if reply_markup is not None:
-        payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False, separators=(",", ":"))
+        base_payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False, separators=(",", ":"))
     if progress_message_id:
+        edit_payload = dict(base_payload)
+        edit_payload["message_id"] = progress_message_id
         print(f"Telegram notify: editMessageText (message_id={progress_message_id})")
-        payload["message_id"] = progress_message_id
-        return _telegram_request(token, "editMessageText", payload)
+        if _telegram_request(token, "editMessageText", edit_payload):
+            print("TELEGRAM_TERMINAL_DELIVERY=edited")
+            return True
+        # A terminal state is more important than preserving one-message aesthetics.
+        # Fall back exactly once so a stale lifecycle card cannot be the final visible state.
+        print("Telegram notify: terminal edit failed; bounded sendMessage fallback")
+        if _telegram_request(token, "sendMessage", base_payload):
+            print("TELEGRAM_TERMINAL_DELIVERY=fallback_sent")
+            return True
+        print("TELEGRAM_TERMINAL_DELIVERY=failed")
+        return False
     print("Telegram notify: sendMessage (no saved progress message_id)")
-    return _telegram_request(token, "sendMessage", payload)
+    delivered = _telegram_request(token, "sendMessage", base_payload)
+    print(f"TELEGRAM_TERMINAL_DELIVERY={'sent' if delivered else 'failed'}")
+    return delivered
 
 
 def _elapsed_seconds(env: dict[str, str]) -> int:
@@ -315,14 +328,17 @@ def main() -> int:
         run_id=str(env.get("GITHUB_RUN_ID") or "").strip(),
         progress_message_id=progress_message_id,
     )
-    deliver_terminal_message(
+    delivered = deliver_terminal_message(
         token=token,
         chat_id=chat_id,
         text=text,
         progress_message_id=progress_message_id,
         reply_markup=keyboard,
     )
-    return 0
+    # The workflow step is continue-on-error. Returning non-zero therefore records
+    # notification delivery failure as an observable step outcome without changing
+    # the already-determined production result.
+    return 0 if delivered else 1
 
 
 if __name__ == "__main__":
