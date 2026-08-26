@@ -33,6 +33,21 @@ def classify_provider_failure(provider_name: str, error: Exception | str) -> Pro
     if "openrouter_model_not_found" in lower or "model_not_found" in lower:
         return ProviderFailure("model_not_found", AttemptOutcome.OTHER, True)
 
+    # IMPORTANT ORDERING: some providers encode a request-specific TPM overflow as
+    # HTTP 413 *and* include the text/code `rate_limit_exceeded`. Run #117 did exactly
+    # that. Classify request capacity before generic rate-limit words so a request that
+    # can never fit the configured envelope is not retried or allowed to poison the
+    # provider circuit for later smaller batches.
+    request_capacity_markers = (
+        "groq_tpm_capacity_preflight",
+        "payload_too_large_preflight",
+        "payload too large",
+        "request too large",
+        "request too large for model",
+    )
+    if "413" in detail or any(marker in lower for marker in request_capacity_markers):
+        return ProviderFailure("payload_too_large", AttemptOutcome.OTHER, False)
+
     # A daily/project/key spend quota cannot heal inside this production run. Match it
     # before generic 429 so the router does not waste the bounded transient retry.
     quota_markers = (
@@ -52,15 +67,6 @@ def classify_provider_failure(provider_name: str, error: Exception | str) -> Pro
     # for compatibility; the router may honor an explicit Retry-After before circuiting.
     if "429" in detail or "rate_limit_exceeded" in lower or "rate limit" in lower or "rate limited" in lower:
         return ProviderFailure("429", AttemptOutcome.RATE_LIMITED, True)
-
-    # HTTP 413 describes this request payload, not provider session health.
-    if (
-        "413" in detail
-        or "payload too large" in lower
-        or "request too large" in lower
-        or "payload_too_large_preflight" in lower
-    ):
-        return ProviderFailure("payload_too_large", AttemptOutcome.OTHER, False)
 
     if (
         "401" in detail
