@@ -135,6 +135,11 @@ def _install_policy() -> None:
 
 def main() -> None:
     _install_policy()
+    # Install the persistent reply-keyboard entry point and text-only production
+    # confirmation after global topic-memory policy so both policies compose.
+    from scripts import telegram_persistent_control_ui as persistent_ui
+
+    persistent_ui.install()
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     _require_poll_identity(mode)
     ui.main()
