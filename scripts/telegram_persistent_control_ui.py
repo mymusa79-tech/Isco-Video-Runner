@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
+from scripts import telegram_youtube_stats as youtube_stats
 
 START_BUTTON_TEXT = "🏠 ابدأ"
 LEGACY_START_BUTTON_TEXT = "🎛 ابدأ"
 PRODUCTION_CONFIRMATION_TEXT = "تأكيد الإنتاج"
-PERSISTENT_SURFACE_VERSION = 2
+PERSISTENT_SURFACE_VERSION = 3
 PERSISTENT_SURFACE_STATE_KEY = "telegram_persistent_start_surface_version"
 
 _BASE_COMMAND_KIND = active._command_kind
@@ -35,6 +37,7 @@ def _main_keyboard() -> list[list[dict[str, str]]]:
         [{"text": "2️⃣ 📚 المواضيع", "callback_data": "cmd:library_menu"}],
         [{"text": "3️⃣ 🎁 آخر إنتاج", "callback_data": "cmd:last_delivery"}],
         [{"text": "4️⃣ 📊 الحالة", "callback_data": "cmd:status"}],
+        [{"text": "5️⃣ 📈 الإحصائيات", "callback_data": "cmd:stats_menu"}],
     ]
 
 
@@ -54,6 +57,17 @@ def _library_keyboard() -> list[list[dict[str, str]]]:
     ]
 
 
+def _stats_keyboard() -> list[list[dict[str, str]]]:
+    return [
+        [{"text": "🎬 آخر فيديو", "callback_data": "cmd:stats_last_long"}],
+        [{"text": "⚡ آخر Short", "callback_data": "cmd:stats_last_short"}],
+        [{"text": "🗓️ اليوم", "callback_data": "cmd:stats_today"}],
+        [{"text": "📅 آخر 7 أيام", "callback_data": "cmd:stats_week"}],
+        [{"text": "🌐 عامة", "callback_data": "cmd:stats_overview"}],
+        [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}],
+    ]
+
+
 def _menu_text() -> str:
     production = (
         "🔐 بدء الإنتاج لا يظهر كزر هنا؛ بعد اعتماد موضوع محدد اكتب حرفيًا «تأكيد الإنتاج»."
@@ -66,7 +80,8 @@ def _menu_text() -> str:
         "1️⃣ 🔎 البحث — بحث جديد للحلقة أو الشورت.\n"
         "2️⃣ 📚 المواضيع — المحفوظة والمستعملة.\n"
         "3️⃣ 🎁 آخر إنتاج — آخر حزمة وروابطها.\n"
-        "4️⃣ 📊 الحالة — وضع البحث والإنتاج الآن.\n\n"
+        "4️⃣ 📊 الحالة — وضع البحث والإنتاج الآن.\n"
+        "5️⃣ 📈 الإحصائيات — صورة سريعة ومحدثة عن القناة.\n\n"
         f"{production}\n"
         "🔒 YouTube: الرفع والنشر والجدولة يدويًا فقط."
     )
@@ -87,6 +102,13 @@ def _library_menu_text() -> str:
         "اختر القائمة التي تريد فتحها:\n\n"
         "📚 المحفوظة — أفكار جيدة لم تُنتج بعد.\n"
         "✅ المستعملة — مواضيع اكتمل إنتاجها ولا تعاد في البحث."
+    )
+
+
+def _stats_menu_text() -> str:
+    return (
+        "📈 إحصائيات نداء اليقظة\n\n"
+        "اختر الصورة التي تريدها. الأرقام تُجلب من YouTube عند الطلب وتُعرض كبوصلة سريعة، لا كتقرير محاسبي دقيق."
     )
 
 
@@ -114,8 +136,14 @@ def _command_kind(text: str) -> str | None:
         "٤": "status",
         "4️⃣": "status",
         "4️⃣ 📊 الحالة": "status",
+        "5": "stats_menu",
+        "٥": "stats_menu",
+        "5️⃣": "stats_menu",
+        "5️⃣ 📈 الإحصائيات": "stats_menu",
         "بحث": "search_menu",
         "المواضيع": "library_menu",
+        "الإحصائيات": "stats_menu",
+        "الاحصائيات": "stats_menu",
     }
     if value in mapping:
         return mapping[value]
@@ -201,6 +229,45 @@ def _status_text(state: dict[str, Any], releases) -> str:
     return text
 
 
+def _stats_result_keyboard(url: str | None = None) -> list[list[dict[str, str]]]:
+    rows: list[list[dict[str, str]]] = []
+    if url:
+        rows.append([{"text": "▶️ فتح على YouTube", "url": url}])
+    rows.append([{"text": "↩️ الإحصائيات", "callback_data": "cmd:stats_menu"}])
+    rows.append([{"text": "🏠 الرئيسية", "callback_data": "cmd:menu"}])
+    return rows
+
+
+def _live_stats(state: dict[str, Any]) -> dict[str, Any]:
+    live = youtube_stats.fetch_live(os.environ.get("YOUTUBE_API_KEY", ""))
+    youtube_stats.record_snapshot(state, live)
+    return live
+
+
+def _send_stats(kind: str, client, state: dict[str, Any], chat_id) -> None:
+    try:
+        live = _live_stats(state)
+        url: str | None = None
+        if kind == "stats_last_long":
+            text, url = youtube_stats.render_latest(live, short=False)
+        elif kind == "stats_last_short":
+            text, url = youtube_stats.render_latest(live, short=True)
+        elif kind == "stats_today":
+            text = youtube_stats.render_period(live, state, days=1)
+        elif kind == "stats_week":
+            text = youtube_stats.render_period(live, state, days=7)
+        else:
+            text = youtube_stats.render_overview(live)
+        client.send(chat_id, text, keyboard=_stats_result_keyboard(url))
+    except Exception as exc:
+        print(f"Telegram YouTube stats failed: {type(exc).__name__}: {exc}")
+        client.send(
+            chat_id,
+            "⚠️ تعذر تحديث إحصائيات YouTube في هذه اللحظة. لم يتأثر البحث أو الإنتاج. جرّب الإحصائيات مرة أخرى.",
+            keyboard=[[{"text": "↩️ الإحصائيات", "callback_data": "cmd:stats_menu"}], [{"text": "🏠 الرئيسية", "callback_data": "cmd:menu"}]],
+        )
+
+
 def _handle_command(kind, client, state, releases, chat_id) -> None:
     if kind == "menu":
         client.send(chat_id, _menu_text(), keyboard=_main_keyboard())
@@ -210,6 +277,12 @@ def _handle_command(kind, client, state, releases, chat_id) -> None:
         return
     if kind == "library_menu":
         client.send(chat_id, _library_menu_text(), keyboard=_library_keyboard())
+        return
+    if kind == "stats_menu":
+        client.send(chat_id, _stats_menu_text(), keyboard=_stats_keyboard())
+        return
+    if kind in {"stats_last_long", "stats_last_short", "stats_today", "stats_week", "stats_overview"}:
+        _send_stats(kind, client, state, chat_id)
         return
     if kind == "produce_latest":
         # Fail closed for stale inline buttons from pre-migration Telegram messages.
@@ -249,7 +322,8 @@ def _ensure_persistent_start_surface(state_path: Path) -> None:
                 "text": (
                     "🏠 لوحة نداء اليقظة جاهزة.\n\n"
                     "سيبقى أسفل المحادثة زر واحد فقط: «🏠 ابدأ».\n"
-                    "اضغطه لفتح الأقسام، ثم سيظهر كل مستوى فرعي عند الحاجة فقط.\n\n"
+                    "اضغطه لفتح الأقسام، ثم سيظهر كل مستوى فرعي عند الحاجة فقط.\n"
+                    "أضفت 📈 الإحصائيات كقسم مستقل للقراءة السريعة من YouTube.\n\n"
                     f"🔐 Production لا يبدأ من أزرار القائمة؛ بعد اعتماد الموضوع يتطلب كتابة «{PRODUCTION_CONFIRMATION_TEXT}» حرفيًا."
                 ),
                 "disable_web_page_preview": True,
@@ -265,13 +339,28 @@ def _ensure_persistent_start_surface(state_path: Path) -> None:
     print("Telegram persistent start surface installed")
 
 
+def _refresh_youtube_snapshot(state_path: Path) -> None:
+    api_key = (os.environ.get("YOUTUBE_API_KEY") or "").strip()
+    if not api_key:
+        return
+    try:
+        state = panel.load_state(state_path)
+        live = youtube_stats.fetch_live(api_key)
+        youtube_stats.record_snapshot(state, live)
+        panel.save_state(state_path, state)
+    except Exception as exc:
+        # Statistics are operational convenience only; they must never block Telegram control.
+        print(f"Telegram YouTube snapshot refresh skipped: {type(exc).__name__}: {exc}")
+
+
 def _poll(state_path: Path) -> None:
     _ensure_persistent_start_surface(state_path)
+    _refresh_youtube_snapshot(state_path)
     _BASE_POLL(state_path)
 
 
 def install() -> None:
-    """Install hierarchical presentation and text-confirmation policy on the active control plane."""
+    """Install hierarchical presentation, live stats, and text-confirmation policy."""
     global _INSTALLED
     if _INSTALLED:
         return
