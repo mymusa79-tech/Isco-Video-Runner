@@ -76,6 +76,29 @@ class TelegramButtonContractTests(unittest.TestCase):
         )
         self.assertEqual(len(keyboard["inline_keyboard"]), 1)
 
+    def test_details_callback_binds_run_and_message(self) -> None:
+        data = ui.operations_callback_data(ui.ACTION_DETAILS, "32933244427", "42")
+        self.assertEqual(data, "cmd:opsdetails-32933244427-42")
+        self.assertEqual(
+            ui.parse_operations_command("opsdetails-32933244427-42"),
+            (ui.ACTION_DETAILS, "32933244427", "42"),
+        )
+
+    def test_compact_callback_binds_run_and_message(self) -> None:
+        data = ui.operations_callback_data(ui.ACTION_COMPACT, "32933244427", "42")
+        self.assertEqual(data, "cmd:opscompact-32933244427-42")
+        self.assertEqual(
+            ui.parse_operations_command("opscompact-32933244427-42"),
+            (ui.ACTION_COMPACT, "32933244427", "42"),
+        )
+
+    def test_malformed_toggle_fails_closed(self) -> None:
+        self.assertIsNone(ui.parse_operations_command("opsdetails-not-a-run-42"))
+        self.assertIsNone(ui.parse_operations_command("opsdetails-123"))
+        self.assertIsNone(ui.parse_operations_command("opsdetails-0-42"))
+        with self.assertRaises(ValueError):
+            ui.operations_callback_data(ui.ACTION_DETAILS, "bad", "42")
+
 
 if __name__ == "__main__":
     unittest.main()
