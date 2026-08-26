@@ -18,9 +18,9 @@ def classify_provider_failure(provider_name: str, error: Exception | str) -> Pro
     """Classify a provider failure once, preserving one retry/fallback owner.
 
     Categories are stable Runner telemetry values. Session-permanent provider/config
-    failures open that provider's circuit for the rest of the run. Output-shape and
-    truncation failures remain eligible for another provider, while semantic content
-    blocks are recorded distinctly from technical failures.
+    failures open that provider's circuit for the rest of the run. Output-shape,
+    request-size and truncation failures remain eligible for later requests/providers,
+    while semantic content blocks are recorded distinctly from technical failures.
     """
 
     detail = str(error)
@@ -37,14 +37,10 @@ def classify_provider_failure(provider_name: str, error: Exception | str) -> Pro
         return ProviderFailure("429", AttemptOutcome.RATE_LIMITED, True)
 
     if "413" in detail or "payload too large" in lower or "request too large" in lower:
-        # Preserve the proven production policy: Groq 413 is session-permanent for
-        # planning and must immediately fail over. Other providers gain explicit
-        # telemetry but do not change circuit behavior in this remediation.
-        return ProviderFailure(
-            "payload_too_large",
-            AttemptOutcome.OTHER,
-            normalized_provider == "groq",
-        )
+        # HTTP 413 describes this request payload, not the provider's session health.
+        # Fail over immediately for the oversized request, but keep the provider
+        # eligible for a later smaller bounded-repair request (Run #114).
+        return ProviderFailure("payload_too_large", AttemptOutcome.OTHER, False)
 
     if (
         "401" in detail
