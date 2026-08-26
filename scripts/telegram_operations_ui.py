@@ -156,3 +156,28 @@ def render_progress_text(
     if current_stage is None and not completed_set:
         lines.extend(["", "لا يحتاج أي إجراء منك الآن."])
     return "\n".join(lines)
+
+
+def render_failure_text(
+    *,
+    run_number: str = "",
+    stage: str = "",
+    duration: str = "",
+    reason: str = "",
+    impact: str = "",
+) -> str:
+    """Compact actionable terminal failure card; no retry action is rendered in V1."""
+    stage_value = str(stage or "").strip()
+    headline = "❌ فشل الإنتاج"
+    if stage_value:
+        headline += f" · {stage_value}"
+    lines = [f"{headline}{_run_suffix(run_number)}"]
+    reason_value = str(reason or "").strip() or "راجع تفاصيل GitHub لمعرفة السبب التقني."
+    lines.extend(["", "السبب:", reason_value])
+    impact_value = str(impact or "").strip()
+    if impact_value:
+        lines.extend(["", "الأثر:", impact_value])
+    duration_value = str(duration or "").strip()
+    if duration_value:
+        lines.extend(["", f"⏱️ توقف بعد {duration_value}"])
+    return "\n".join(lines)
