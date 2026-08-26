@@ -1,0 +1,40 @@
+name: TTS Blind Space API Probe
+
+on:
+  push:
+    branches: ["agent/tts-blind-execution-2026-08-26"]
+    paths:
+      - ".github/workflows/tts-blind-space-probe.yml"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install probe client
+        run: python -m pip install --disable-pip-version-check --quiet "gradio_client>=1.12,<2"
+      - name: Probe official public TTS Spaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from gradio_client import Client
+
+          spaces = [
+              "openbmb/VoxCPM-Demo",
+              "ResembleAI/Chatterbox-Multilingual-TTS-V3",
+          ]
+          for space in spaces:
+              print(f"=== {space} ===")
+              client = Client(space, verbose=False)
+              api = client.view_api(return_format="dict")
+              print(json.dumps(api, ensure_ascii=False, indent=2, default=str))
+          PY
