@@ -12,6 +12,14 @@ from scripts import persistent_memory as pm
 from scripts import persistent_memory_crypto as crypto
 
 
+NON_CANONICAL_TEST_ENV = {
+    "GITHUB_WORKFLOW_REF": (
+        "mymusa79-tech/Isco-Video-Runner/.github/workflows/verify-private-engine.yml@refs/heads/main"
+    ),
+    "GITHUB_RUN_NUMBER": "999",
+}
+
+
 class PersistentMemoryTests(unittest.TestCase):
     def test_legacy_pexels_ids_are_preserved_and_projected_to_visual_assets(self):
         data = {"videos": [{"topic": "x", "pexels_ids": [12, "13", None, "bad"]}]}
@@ -118,7 +126,8 @@ class PersistentMemoryTests(unittest.TestCase):
                 "openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-salt",
                 "-in", str(plain), "-out", str(enc), "-pass", "env:STATE_ENCRYPTION_KEY",
             ], env=env, check=True)
-            status = pm.decrypt_history(enc, out, "key", legacy_blob_sha="0" * 40)
+            with patch.dict(os.environ, NON_CANONICAL_TEST_ENV, clear=False):
+                status = pm.decrypt_history(enc, out, "key", legacy_blob_sha="0" * 40)
             self.assertFalse(status.save_allowed)
             self.assertIn("not an approved one-time migration blob", status.reason)
 
@@ -136,7 +145,10 @@ class PersistentMemoryTests(unittest.TestCase):
                 "-in", str(plain), "-out", str(enc), "-pass", "env:STATE_ENCRYPTION_KEY",
             ], env=env, check=True)
             synthetic_pin = "a" * 40
-            with patch.object(pm, "APPROVED_LEGACY_BLOB_SHAS", frozenset({synthetic_pin})):
+            with (
+                patch.dict(os.environ, NON_CANONICAL_TEST_ENV, clear=False),
+                patch.object(pm, "APPROVED_LEGACY_BLOB_SHAS", frozenset({synthetic_pin})),
+            ):
                 status = pm.decrypt_history(enc, out, "key", legacy_blob_sha=synthetic_pin)
             self.assertTrue(status.save_allowed)
             self.assertEqual(status.source, "encrypted-legacy-migration")
