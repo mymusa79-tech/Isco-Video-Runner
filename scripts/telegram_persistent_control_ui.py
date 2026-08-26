@@ -6,9 +6,10 @@ from typing import Any
 from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
 
-START_BUTTON_TEXT = "🎛 ابدأ"
+START_BUTTON_TEXT = "🏠 ابدأ"
+LEGACY_START_BUTTON_TEXT = "🎛 ابدأ"
 PRODUCTION_CONFIRMATION_TEXT = "تأكيد الإنتاج"
-PERSISTENT_SURFACE_VERSION = 1
+PERSISTENT_SURFACE_VERSION = 2
 PERSISTENT_SURFACE_STATE_KEY = "telegram_persistent_start_surface_version"
 
 _BASE_COMMAND_KIND = active._command_kind
@@ -23,40 +24,69 @@ def _persistent_reply_markup() -> dict[str, Any]:
         "resize_keyboard": True,
         "is_persistent": True,
         "one_time_keyboard": False,
-        "input_field_placeholder": "اضغط «🎛 ابدأ» لفتح الخيارات",
+        "input_field_placeholder": "اضغط «🏠 ابدأ» لفتح لوحة نداء اليقظة",
     }
 
 
 def _main_keyboard() -> list[list[dict[str, str]]]:
-    """Small numbered inline menu; production dispatch is intentionally absent."""
+    """Root navigation only. Children are revealed after choosing a section."""
     return [
-        [{"text": "1️⃣ 🔎 بحث حلقة", "callback_data": "cmd:topic"}],
-        [{"text": "2️⃣ ⚡ بحث شورت", "callback_data": "cmd:short"}],
-        [{"text": "3️⃣ 📚 المحفوظة", "callback_data": "cmd:saved"}],
-        [{"text": "4️⃣ ✅ المستعملة", "callback_data": "cmd:used"}],
-        [{"text": "5️⃣ 🎁 آخر إنتاج", "callback_data": "cmd:last_delivery"}],
-        [{"text": "6️⃣ 🧭 الحالة", "callback_data": "cmd:status"}],
+        [{"text": "1️⃣ 🔎 البحث", "callback_data": "cmd:search_menu"}],
+        [{"text": "2️⃣ 📚 المواضيع", "callback_data": "cmd:library_menu"}],
+        [{"text": "3️⃣ 🎁 آخر إنتاج", "callback_data": "cmd:last_delivery"}],
+        [{"text": "4️⃣ 📊 الحالة", "callback_data": "cmd:status"}],
+    ]
+
+
+def _search_keyboard() -> list[list[dict[str, str]]]:
+    return [
+        [{"text": "🎬 بحث حلقة", "callback_data": "cmd:topic"}],
+        [{"text": "⚡ بحث شورت", "callback_data": "cmd:short"}],
+        [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}],
+    ]
+
+
+def _library_keyboard() -> list[list[dict[str, str]]]:
+    return [
+        [{"text": "📚 المحفوظة", "callback_data": "cmd:saved"}],
+        [{"text": "✅ المستعملة", "callback_data": "cmd:used"}],
+        [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}],
     ]
 
 
 def _menu_text() -> str:
     production = (
-        "🟢 الإنتاج متاح، لكن لا يوجد زر يطلقه مباشرة.\n"
-        f"بعد اعتماد الموضوع اكتب حرفيًا: {PRODUCTION_CONFIRMATION_TEXT}"
+        "🔐 بدء الإنتاج لا يظهر كزر هنا؛ بعد اعتماد موضوع محدد اكتب حرفيًا «تأكيد الإنتاج»."
         if active._production_enabled()
         else "🔒 إنتاج Telegram مقفول حاليًا."
     )
     return (
-        "🎛 نداء اليقظة\n\n"
-        "اختر رقمًا واحدًا فقط:\n\n"
-        "1️⃣ 🔎 بحث حلقة — يبحث ويقيّم 3 أفكار للحلقة الطويلة.\n"
-        "2️⃣ ⚡ بحث شورت — يبحث ويقيّم 3 أفكار قصيرة.\n"
-        "3️⃣ 📚 المحفوظة — أفكار جيدة لم تُختر بعد.\n"
-        "4️⃣ ✅ المستعملة — ما اكتمل إنتاجه ولا يُعاد اقتراحه.\n"
-        "5️⃣ 🎁 آخر إنتاج — آخر حزمة جاهزة وروابطها.\n"
-        "6️⃣ 🧭 الحالة — حالة البحث والإنتاج الحالية.\n\n"
-        f"{production}\n\n"
+        "🏠 نداء اليقظة\n\n"
+        "اختر القسم الذي تحتاجه:\n\n"
+        "1️⃣ 🔎 البحث — بحث جديد للحلقة أو الشورت.\n"
+        "2️⃣ 📚 المواضيع — المحفوظة والمستعملة.\n"
+        "3️⃣ 🎁 آخر إنتاج — آخر حزمة وروابطها.\n"
+        "4️⃣ 📊 الحالة — وضع البحث والإنتاج الآن.\n\n"
+        f"{production}\n"
         "🔒 YouTube: الرفع والنشر والجدولة يدويًا فقط."
+    )
+
+
+def _search_menu_text() -> str:
+    return (
+        "🔎 البحث\n\n"
+        "اختر نوع البحث. الاختيار هنا يبدأ البحث فقط ولا يبدأ Production:\n\n"
+        "🎬 حلقة — 3 أفكار طويلة مرتبة ومقيّمة.\n"
+        "⚡ شورت — 3 أفكار قصيرة مرتبة ومقيّمة."
+    )
+
+
+def _library_menu_text() -> str:
+    return (
+        "📚 المواضيع\n\n"
+        "اختر القائمة التي تريد فتحها:\n\n"
+        "📚 المحفوظة — أفكار جيدة لم تُنتج بعد.\n"
+        "✅ المستعملة — مواضيع اكتمل إنتاجها ولا تعاد في البحث."
     )
 
 
@@ -67,30 +97,25 @@ def _command_kind(text: str) -> str | None:
     value = panel._normalize_command(raw)
     mapping = {
         START_BUTTON_TEXT.casefold(): "menu",
-        "1": "topic",
-        "١": "topic",
-        "1️⃣": "topic",
-        "1️⃣ 🔎 بحث حلقة": "topic",
-        "2": "short",
-        "٢": "short",
-        "2️⃣": "short",
-        "2️⃣ ⚡ بحث شورت": "short",
-        "3": "saved",
-        "٣": "saved",
-        "3️⃣": "saved",
-        "3️⃣ 📚 المحفوظة": "saved",
-        "4": "used",
-        "٤": "used",
-        "4️⃣": "used",
-        "4️⃣ ✅ المستعملة": "used",
-        "5": "last_delivery",
-        "٥": "last_delivery",
-        "5️⃣": "last_delivery",
-        "5️⃣ 🎁 آخر إنتاج": "last_delivery",
-        "6": "status",
-        "٦": "status",
-        "6️⃣": "status",
-        "6️⃣ 🧭 الحالة": "status",
+        LEGACY_START_BUTTON_TEXT.casefold(): "menu",
+        "1": "search_menu",
+        "١": "search_menu",
+        "1️⃣": "search_menu",
+        "1️⃣ 🔎 البحث": "search_menu",
+        "2": "library_menu",
+        "٢": "library_menu",
+        "2️⃣": "library_menu",
+        "2️⃣ 📚 المواضيع": "library_menu",
+        "3": "last_delivery",
+        "٣": "last_delivery",
+        "3️⃣": "last_delivery",
+        "3️⃣ 🎁 آخر إنتاج": "last_delivery",
+        "4": "status",
+        "٤": "status",
+        "4️⃣": "status",
+        "4️⃣ 📊 الحالة": "status",
+        "بحث": "search_menu",
+        "المواضيع": "library_menu",
     }
     if value in mapping:
         return mapping[value]
@@ -130,11 +155,11 @@ def _candidate_keyboard(session_id: str, kind: str) -> list[list[dict[str, str]]
         rows.append(
             [
                 {"text": f"{badge} اختيار", "callback_data": f"{pick}:{session_id}:{index}"},
-                {"text": "🔎 تفاصيل", "callback_data": f"detail:{session_id}:{index}"},
+                {"text": f"🔎 تفاصيل {index + 1}", "callback_data": f"detail:{session_id}:{index}"},
             ]
         )
     rows.append([{"text": "🔄 3 خيارات أخرى", "callback_data": f"refresh:{kind}"}])
-    rows.append([{"text": "↩️ اللوحة", "callback_data": "cmd:menu"}])
+    rows.append([{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}])
     return rows
 
 
@@ -152,7 +177,7 @@ def _candidate_panel_text(kind: str, candidates: list[dict[str, Any]]) -> str:
         if why:
             lines.append("   💡 " + " — ".join(why[:2]))
         lines.append("")
-    lines.append("👇 اضغط رقم «اختيار» أو افتح 🔎 التفاصيل أولًا.")
+    lines.append("👇 اختر رقمًا، أو افتح تفاصيل الرقم الذي تريد مراجعته.")
     return "\n".join(lines).strip()
 
 
@@ -177,6 +202,15 @@ def _status_text(state: dict[str, Any], releases) -> str:
 
 
 def _handle_command(kind, client, state, releases, chat_id) -> None:
+    if kind == "menu":
+        client.send(chat_id, _menu_text(), keyboard=_main_keyboard())
+        return
+    if kind == "search_menu":
+        client.send(chat_id, _search_menu_text(), keyboard=_search_keyboard())
+        return
+    if kind == "library_menu":
+        client.send(chat_id, _library_menu_text(), keyboard=_library_keyboard())
+        return
     if kind == "produce_latest":
         # Fail closed for stale inline buttons from pre-migration Telegram messages.
         client.send(chat_id, _stale_start_button_text(), keyboard=_main_keyboard())
@@ -197,7 +231,7 @@ def _handle_command(kind, client, state, releases, chat_id) -> None:
 
 
 def _ensure_persistent_start_surface(state_path: Path) -> None:
-    """Install the reply keyboard once; presentation failure never weakens auth or dispatch."""
+    """Install/upgrade the one-button reply surface; never weaken auth or dispatch."""
     state = panel.load_state(state_path)
     if int(state.get(PERSISTENT_SURFACE_STATE_KEY, 0) or 0) >= PERSISTENT_SURFACE_VERSION:
         return
@@ -213,9 +247,10 @@ def _ensure_persistent_start_surface(state_path: Path) -> None:
             {
                 "chat_id": chat_id,
                 "text": (
-                    "🎛 لوحة التحكم الجديدة جاهزة.\n\n"
-                    "استخدم زر «🎛 ابدأ» الثابت أسفل المحادثة متى احتجت البحث أو مراجعة الحالة.\n"
-                    f"بدء الإنتاج نفسه لا يتم بزر؛ بعد الاعتماد يتطلب كتابة «{PRODUCTION_CONFIRMATION_TEXT}» حرفيًا."
+                    "🏠 لوحة نداء اليقظة جاهزة.\n\n"
+                    "سيبقى أسفل المحادثة زر واحد فقط: «🏠 ابدأ».\n"
+                    "اضغطه لفتح الأقسام، ثم سيظهر كل مستوى فرعي عند الحاجة فقط.\n\n"
+                    f"🔐 Production لا يبدأ من أزرار القائمة؛ بعد اعتماد الموضوع يتطلب كتابة «{PRODUCTION_CONFIRMATION_TEXT}» حرفيًا."
                 ),
                 "disable_web_page_preview": True,
                 "reply_markup": _persistent_reply_markup(),
@@ -236,7 +271,7 @@ def _poll(state_path: Path) -> None:
 
 
 def install() -> None:
-    """Install presentation/confirmation policy on top of the existing active control plane."""
+    """Install hierarchical presentation and text-confirmation policy on the active control plane."""
     global _INSTALLED
     if _INSTALLED:
         return
