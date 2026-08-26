@@ -125,7 +125,15 @@ def _research_busy_keyboard() -> list[list[dict[str, Any]]]:
 
 
 def _is_research_start_text(text: str) -> bool:
-    return text.startswith("🎬 بدأ بحث الحلقة") or text.startswith("⚡ بدأ بحث الشورت")
+    value = str(text or "")
+    return value.startswith(
+        (
+            "🎬 بدأ بحث الحلقة",
+            "🎬➕⚡ بدأ بحث حلقة",
+            "⚡ بدأ بحث الشورت",
+            "⚡ بدأ بحث Short",
+        )
+    )
 
 
 def _candidate_panel_text(kind: str, candidates: list[dict[str, Any]]) -> CandidatePanelText:
