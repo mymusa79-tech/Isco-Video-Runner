@@ -3,13 +3,12 @@ main = "index.js"
 compatibility_date = "2026-08-26"
 workers_dev = true
 
-# Zero-cost guardrail: keep runtime at or below Workers Free ceilings even if
-# the Cloudflare account is ever changed manually. The Worker uses no KV, D1,
-# R2, Durable Objects, Queues, Workflows, Analytics Engine, paid routes, or
-# other billable Cloudflare bindings.
-[limits]
-cpu_ms = 10
-subrequests = 10
+# ZERO_COST_MODE intentionally omits a [limits] block. Cloudflare Workers Free
+# enforces its own plan ceilings (including 10 ms CPU, 50 external subrequests,
+# and 100,000 requests/day). Cloudflare rejects configurable CPU limits on the
+# Free plan, so adding cpu_ms here would incorrectly require a paid plan.
+# The Worker also uses no KV, D1, R2, Durable Objects, Queues, Workflows,
+# Analytics Engine, paid routes, or other billable Cloudflare bindings.
 
 [vars]
 GITHUB_REPO = "mymusa79-tech/Isco-Video-Runner"
