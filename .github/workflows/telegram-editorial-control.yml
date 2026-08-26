@@ -191,6 +191,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Persist dispatch reservation before workflow dispatch
+        id: persist_reservation
         if: steps.poll.outputs.needs_production == 'true'
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
@@ -237,6 +238,7 @@ jobs:
             -f engine_sha="$ENGINE_SHA"
 
       - name: Persist encrypted control-panel state
+        id: persist_control_state
         if: always() && steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true'
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
@@ -263,7 +265,14 @@ jobs:
           fi
 
       - name: Build sanitized Telegram read projection
-        if: always()
+        id: build_projection
+        if: >-
+          always() &&
+          (
+            steps.poll.outputs.production_active == 'true' ||
+            (steps.poll.outputs.needs_production == 'true' && steps.persist_reservation.outcome == 'success') ||
+            (steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true' && steps.persist_control_state.outcome == 'success')
+          )
         run: |
           set -euo pipefail
           test -n "${CONTROL_STATE_PATH:-}"
@@ -273,7 +282,7 @@ jobs:
             --output "$RUNNER_TEMP/isco-control/telegram-status.json"
 
       - name: Persist sanitized Telegram read projection
-        if: always()
+        if: always() && steps.build_projection.outcome == 'success'
         run: |
           set -euo pipefail
           projection="$RUNNER_TEMP/isco-control/telegram-status.json"
