@@ -129,6 +129,7 @@ class Run119OpenRouterFallbackTests(unittest.TestCase):
         self.assertEqual(captured["response_format"], {"type": "json_object"})
         self.assertEqual(captured["reasoning"], {"effort": "low", "exclude": True})
         self.assertEqual(captured["max_tokens"], 2400)
+        self.assertTrue(captured["provider"]["allow_fallbacks"])
         self.assertTrue(captured["provider"]["require_parameters"])
 
 
