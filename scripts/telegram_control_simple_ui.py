@@ -9,6 +9,7 @@ import urllib.request
 from typing import Any
 
 from scripts import telegram_control_panel as panel
+from scripts import telegram_operations_ui as ops_ui
 
 
 _BASE_HANDLE_COMMAND = panel._handle_command
@@ -73,7 +74,135 @@ def _command_kind(text: str) -> str | None:
     return _BASE_COMMAND_KIND(text)
 
 
+def _operations_run(releases, run_id: str) -> dict[str, Any] | None:
+    repository = str(getattr(releases, "repository", "") or "").strip()
+    if not repository or not str(run_id or "").isdigit():
+        return None
+    try:
+        run = releases._get(f"https://api.github.com/repos/{repository}/actions/runs/{run_id}")
+    except Exception:
+        return None
+    if not isinstance(run, dict) or str(run.get("id") or "") != str(run_id):
+        return None
+    repo = run.get("repository")
+    if isinstance(repo, dict):
+        full_name = str(repo.get("full_name") or "").strip()
+        if full_name and full_name != repository:
+            return None
+    return run
+
+
+def _operations_jobs(releases, run: dict[str, Any]) -> list[dict[str, Any]]:
+    jobs_url = str(run.get("jobs_url") or "").strip()
+    if not jobs_url.startswith("https://api.github.com/"):
+        return []
+    try:
+        payload = releases._get(jobs_url)
+    except Exception:
+        return []
+    jobs = payload.get("jobs") if isinstance(payload, dict) else None
+    return [item for item in jobs if isinstance(item, dict)] if isinstance(jobs, list) else []
+
+
+def _operations_failed_location(jobs: list[dict[str, Any]]) -> tuple[str, str]:
+    for job in jobs:
+        if str(job.get("conclusion") or "") not in {"failure", "cancelled", "timed_out"}:
+            continue
+        job_name = str(job.get("name") or "").strip()
+        steps = job.get("steps")
+        if isinstance(steps, list):
+            for step in steps:
+                if not isinstance(step, dict):
+                    continue
+                if str(step.get("conclusion") or "") in {"failure", "cancelled", "timed_out"}:
+                    return job_name, str(step.get("name") or "").strip()
+        return job_name, ""
+    return "", ""
+
+
+def _operations_compact_text(run: dict[str, Any]) -> str:
+    conclusion = str(run.get("conclusion") or "").strip()
+    run_number = str(run.get("run_number") or "").strip()
+    suffix = f" · Run #{run_number}" if run_number else ""
+    if conclusion == "success":
+        return f"✅ الإنتاج مكتمل{suffix}\n\nالحزمة النهائية جاهزة.\n\nQuality Gates: راجع نتيجة التشغيل عند الحاجة."
+    if conclusion in {"failure", "timed_out"}:
+        return f"❌ فشل الإنتاج{suffix}\n\nراجع التفاصيل لمعرفة المرحلة التي توقفت عندها المحاولة."
+    if conclusion == "cancelled":
+        return f"⏸️ توقف التشغيل{suffix}\n\nتم إلغاء التشغيل قبل اكتماله."
+    return f"🔵 حالة الإنتاج{suffix}\n\nالحالة الحالية: {str(run.get('status') or 'غير معروفة')}"
+
+
+def _operations_detail_text(run: dict[str, Any], jobs: list[dict[str, Any]]) -> str:
+    conclusion = str(run.get("conclusion") or "").strip() or "غير محسومة"
+    run_number = str(run.get("run_number") or "").strip()
+    workflow = str(run.get("name") or "").strip() or "Workflow"
+    branch = str(run.get("head_branch") or "").strip() or "غير معروف"
+    event = str(run.get("event") or "").strip() or "غير معروف"
+    job_name, step_name = _operations_failed_location(jobs)
+    lines = ["📋 تفاصيل التشغيل" + (f" · Run #{run_number}" if run_number else ""), ""]
+    lines.extend([
+        f"Workflow: {workflow}",
+        f"الحالة: {conclusion}",
+        f"الفرع: {branch}",
+        f"المشغّل: {event}",
+    ])
+    if job_name:
+        lines.extend(["", f"آخر موضع توقف: {job_name}"])
+        if step_name:
+            lines.append(f"الخطوة: {step_name}")
+    lines.extend(["", "هذه شاشة معلومات فقط؛ لا تغيّر الإنتاج أو النشر أو أي Quality/Security Gate."])
+    return "\n".join(lines)
+
+
+def _operations_keyboard(*, action: str, run_id: str, message_id: str, run_url: str) -> dict[str, list[list[dict[str, str]]]]:
+    target = ops_ui.ACTION_COMPACT if action == ops_ui.ACTION_DETAILS else ops_ui.ACTION_DETAILS
+    label = "⬅️ ملخص" if target == ops_ui.ACTION_COMPACT else "📋 التفاصيل"
+    rows: list[list[dict[str, str]]] = [
+        [ops_ui.callback_button(label, ops_ui.operations_callback_data(target, run_id, message_id))]
+    ]
+    if str(run_url or "").startswith(("https://", "http://")):
+        rows.append([ops_ui.url_button("🔗 GitHub", run_url)])
+    return ops_ui.inline_keyboard(rows)
+
+
+def _handle_operations_toggle(kind, client, releases, chat_id) -> bool:
+    value = str(kind or "")
+    if not value.startswith(("opsdetails-", "opscompact-")):
+        return False
+    parsed = ops_ui.parse_operations_command(value)
+    if parsed is None:
+        return True
+    action, run_id, message_id = parsed
+    run = _operations_run(releases, run_id)
+    if run is None:
+        return True
+    if action == ops_ui.ACTION_DETAILS:
+        text = _operations_detail_text(run, _operations_jobs(releases, run))
+    else:
+        text = _operations_compact_text(run)
+    run_url = str(run.get("html_url") or "").strip()
+    client.call(
+        "editMessageText",
+        {
+            "chat_id": chat_id,
+            "message_id": int(message_id),
+            "text": text,
+            "disable_web_page_preview": True,
+            "reply_markup": _operations_keyboard(
+                action=action,
+                run_id=run_id,
+                message_id=message_id,
+                run_url=run_url,
+            ),
+        },
+    )
+    return True
+
+
 def _handle_command(kind, client, state, releases, chat_id) -> None:
+    if _handle_operations_toggle(kind, client, releases, chat_id):
+        return
     if kind == "menu":
         client.send(chat_id, _menu_text(), keyboard=_main_keyboard())
         return

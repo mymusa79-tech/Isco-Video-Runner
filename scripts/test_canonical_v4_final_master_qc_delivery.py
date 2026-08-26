@@ -5,12 +5,14 @@ from pathlib import Path
 
 
 WORKFLOW = Path(".github/workflows/produce-resilient-v4.yml")
+TELEGRAM_NOTIFY = Path("scripts/telegram_final_notify.py")
 
 
 class CanonicalV4FinalMasterQCDeliveryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.text = WORKFLOW.read_text(encoding="utf-8")
+        cls.telegram_notify = TELEGRAM_NOTIFY.read_text(encoding="utf-8")
 
     def test_failure_diagnostics_preserve_final_master_qc(self) -> None:
         start = self.text.index("- name: Upload diagnostics on failure")
@@ -56,9 +58,12 @@ class CanonicalV4FinalMasterQCDeliveryTests(unittest.TestCase):
         start = self.text.index("- name: Notify Telegram")
         end = self.text.index("\n\n      - name: Remove plaintext production secrets and state", start)
         block = self.text[start:end]
-        self.assertEqual(block.count("curl --fail-with-body"), 2)
-        self.assertEqual(block.count("--connect-timeout 10"), 2)
-        self.assertEqual(block.count("--max-time 35"), 2)
+        self.assertIn("continue-on-error: true", block)
+        self.assertEqual(block.count("python -m scripts.telegram_final_notify"), 1)
+        self.assertNotIn("curl --fail-with-body", block)
+        self.assertIn("timeout=35", self.telegram_notify)
+        self.assertIn('return _telegram_request(token, "editMessageText", payload)', self.telegram_notify)
+        self.assertIn('return _telegram_request(token, "sendMessage", payload)', self.telegram_notify)
 
 
 if __name__ == "__main__":
