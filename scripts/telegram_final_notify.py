@@ -184,16 +184,37 @@ def build_success_message(
     )
 
 
-def terminal_url_keyboard(*, job_status: str, run_url: str, results_url: str = "") -> dict[str, list[list[dict[str, str]]]]:
+def terminal_keyboard(
+    *,
+    job_status: str,
+    run_url: str,
+    results_url: str = "",
+    run_id: str = "",
+    progress_message_id: str = "",
+) -> dict[str, list[list[dict[str, str]]]]:
     rows: list[list[dict[str, str]]] = []
     run_value = str(run_url or "").strip()
     results_value = str(results_url or "").strip()
+    run_id_value = str(run_id or "").strip()
+    message_id_value = str(progress_message_id or "").strip()
+    if run_id_value and message_id_value:
+        try:
+            details_data = ops_ui.operations_callback_data(ops_ui.ACTION_DETAILS, run_id_value, message_id_value)
+        except ValueError:
+            details_data = ""
+        if details_data:
+            rows.append([ops_ui.callback_button("📋 التفاصيل", details_data)])
     if job_status == "success" and results_value:
         rows.append([ops_ui.url_button("📦 عرض النتائج", results_value)])
     if run_value:
         label = "🔗 GitHub" if job_status == "success" else "📋 GitHub Logs"
         rows.append([ops_ui.url_button(label, run_value)])
     return ops_ui.inline_keyboard(rows)
+
+
+def terminal_url_keyboard(*, job_status: str, run_url: str, results_url: str = "") -> dict[str, list[list[dict[str, str]]]]:
+    """Compatibility helper retained for URL-only callers and tests."""
+    return terminal_keyboard(job_status=job_status, run_url=run_url, results_url=results_url)
 
 
 def deliver_terminal_message(
@@ -287,10 +308,12 @@ def main() -> int:
         except OSError:
             progress_message_id = ""
 
-    keyboard = terminal_url_keyboard(
+    keyboard = terminal_keyboard(
         job_status=job_status,
         run_url=_run_url(env),
         results_url=_results_url(env),
+        run_id=str(env.get("GITHUB_RUN_ID") or "").strip(),
+        progress_message_id=progress_message_id,
     )
     deliver_terminal_message(
         token=token,
