@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      ENGINE_SHA: d5f2bec5a129ed0e1d922fab802314e1861b9b98
+      ENGINE_SHA: 9cab677a74f80489ff36665f98fc343a3b61eee2
     steps:
       - name: Checkout Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -74,7 +74,7 @@ jobs:
           root = Path(os.environ["M11_SMOKE"])
           dest = _render_archive_clip(root / "input.png", root / "archive.mp4", 4.2, fps=30)
           data = json.loads(subprocess.check_output([
-              "ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(dest)
+              "ffprobe", "-v", "error", "-show_streams", "-show_format", "json", str(dest)
           ], text=True))
           video = [x for x in data["streams"] if x.get("codec_type") == "video"]
           audio = [x for x in data["streams"] if x.get("codec_type") == "audio"]
