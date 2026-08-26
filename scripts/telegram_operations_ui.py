@@ -48,6 +48,11 @@ V1_ACTIONS = frozenset(
     }
 )
 
+_OPS_CALLBACK_PREFIXES = {
+    ACTION_DETAILS: "opsdetails",
+    ACTION_COMPACT: "opscompact",
+}
+
 
 @dataclass(frozen=True)
 class TelegramMessageContract:
@@ -110,6 +115,42 @@ def inline_keyboard(rows: Iterable[Iterable[Mapping[str, str]]]) -> dict[str, li
         if buttons:
             normalized.append(buttons)
     return {"inline_keyboard": normalized}
+
+
+def operations_callback_data(action: str, run_id: str, message_id: str) -> str:
+    """Bind a presentation-only toggle to one GitHub run and Telegram message."""
+    prefix = _OPS_CALLBACK_PREFIXES.get(str(action or ""))
+    run_value = str(run_id or "").strip()
+    message_value = str(message_id or "").strip()
+    if prefix is None:
+        raise ValueError("Unsupported Telegram operations callback action")
+    if not run_value.isdigit() or not message_value.isdigit():
+        raise ValueError("Telegram operations callback requires numeric run/message ids")
+    if int(run_value) <= 0 or int(message_value) <= 0:
+        raise ValueError("Telegram operations callback ids must be positive")
+    data = f"cmd:{prefix}-{run_value}-{message_value}"
+    callback_button("x", data)
+    return data
+
+
+def parse_operations_command(kind: str) -> tuple[str, str, str] | None:
+    """Parse the command portion after panel.poll has already authorized the callback."""
+    value = str(kind or "").strip()
+    for action, prefix in _OPS_CALLBACK_PREFIXES.items():
+        marker = prefix + "-"
+        if not value.startswith(marker):
+            continue
+        remainder = value[len(marker) :]
+        parts = remainder.split("-")
+        if len(parts) != 2:
+            return None
+        run_id, message_id = parts
+        if not run_id.isdigit() or not message_id.isdigit():
+            return None
+        if int(run_id) <= 0 or int(message_id) <= 0:
+            return None
+        return action, run_id, message_id
+    return None
 
 
 def _run_suffix(run_number: str) -> str:
