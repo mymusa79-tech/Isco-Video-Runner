@@ -130,8 +130,43 @@ class SuccessFormattingTests(unittest.TestCase):
         self.assertNotIn("A/B/C", text)
 
 
+class UrlActionTests(unittest.TestCase):
+    def test_failure_keyboard_uses_logs_url_only(self) -> None:
+        keyboard = notify.terminal_url_keyboard(
+            job_status="failure",
+            run_url="https://github.com/o/r/actions/runs/10",
+            results_url="https://github.com/o/r/releases/tag/video-10",
+        )
+        buttons = [button for row in keyboard["inline_keyboard"] for button in row]
+        self.assertEqual(buttons, [{"text": "📋 GitHub Logs", "url": "https://github.com/o/r/actions/runs/10"}])
+        self.assertFalse(any("callback_data" in button for button in buttons))
+
+    def test_success_keyboard_prefers_results_then_github(self) -> None:
+        keyboard = notify.terminal_url_keyboard(
+            job_status="success",
+            run_url="https://github.com/o/r/actions/runs/10",
+            results_url="https://github.com/o/r/releases/tag/video-10",
+        )
+        buttons = [button for row in keyboard["inline_keyboard"] for button in row]
+        self.assertEqual(buttons[0]["text"], "📦 عرض النتائج")
+        self.assertEqual(buttons[1]["text"], "🔗 GitHub")
+        self.assertTrue(all("url" in button for button in buttons))
+
+    def test_release_url_exists_only_after_successful_release_step(self) -> None:
+        base = {
+            "GITHUB_SERVER_URL": "https://github.com",
+            "GITHUB_REPOSITORY": "o/r",
+            "GITHUB_RUN_NUMBER": "22",
+        }
+        self.assertEqual(notify._results_url({**base, "CREATE_RELEASE_OUTCOME": "skipped"}), "")
+        self.assertEqual(
+            notify._results_url({**base, "CREATE_RELEASE_OUTCOME": "success"}),
+            "https://github.com/o/r/releases/tag/video-22",
+        )
+
+
 class DeliveryTests(unittest.TestCase):
-    def test_delivery_edits_saved_lifecycle_message(self) -> None:
+    def test_delivery_edits_saved_lifecycle_message_with_keyboard(self) -> None:
         calls = []
 
         def fake_request(token, method, payload):
@@ -146,12 +181,15 @@ class DeliveryTests(unittest.TestCase):
                 chat_id="chat",
                 text="failure",
                 progress_message_id="42",
+                reply_markup={"inline_keyboard": [[{"text": "logs", "url": "https://example.com"}]]},
             )
         finally:
             notify._telegram_request = original
         self.assertTrue(ok)
         self.assertEqual(calls[0][0], "editMessageText")
         self.assertEqual(calls[0][1]["message_id"], "42")
+        self.assertIn("reply_markup", calls[0][1])
+        self.assertIn("inline_keyboard", json.loads(calls[0][1]["reply_markup"]))
 
     def test_delivery_sends_only_when_no_lifecycle_message_exists(self) -> None:
         calls = []
