@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import copy
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +10,7 @@ from scripts import telegram_control_panel as panel
 SEARCH_SCOPE_HINT_KEY = "telegram_search_scope_hint_v1"
 ACTIVE_RESEARCH_SESSION_KEY = "active_research_session_id"
 _VALID_LONG_SCOPES = {"bundle", "long"}
+_BASE_POLL = panel.poll
 
 
 def pending_long_ids(state: dict[str, Any]) -> set[str]:
@@ -72,151 +73,92 @@ def preferred_scope_for_session(state: dict[str, Any], session: dict[str, Any]) 
     return scope
 
 
-def _current_long_scope_hint(state: dict[str, Any]) -> str | None:
-    hint = state.get(SEARCH_SCOPE_HINT_KEY)
-    if not isinstance(hint, dict):
-        return None
-    scope = str(hint.get("scope") or "")
-    return scope if scope in _VALID_LONG_SCOPES else None
-
-
 def clear_scope_hint(state: dict[str, Any]) -> None:
     state.pop(SEARCH_SCOPE_HINT_KEY, None)
 
 
-def poll(state_path: Path) -> None:
-    """Webhook-aware Telegram poll with preselected long-form scope support.
+def _rewrite_update(state: dict[str, Any], update: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Translate only scoped-search callbacks into the already-certified V2 contract."""
+    rewritten = copy.deepcopy(update)
+    callback = rewritten.get("callback_query")
+    meta: dict[str, Any] = {"long_start": False, "requested_scope": None, "consume_scope": False}
+    if not isinstance(callback, dict):
+        return rewritten, meta
 
-    The webhook replay path historically called the base panel poll without first
-    installing the full Active/Persistent policy onto ``panel``. This poll routes
-    commands and approvals through the live Active module explicitly, preserving
-    current-target, saved-topic, exact-confirmation and production boundaries.
+    data = str(callback.get("data") or "")
+    if data in {"cmd:topic_bundle", "cmd:topic_long", "cmd:topic"}:
+        meta["long_start"] = True
+        if data == "cmd:topic_bundle":
+            meta["requested_scope"] = "bundle"
+        elif data == "cmd:topic_long":
+            meta["requested_scope"] = "long"
+        # Reuse the canonical long research command. Scope is bound only after
+        # the canonical poll proves that this click actually queued a new action.
+        callback["data"] = "cmd:topic"
+        return rewritten, meta
+
+    parts = data.split(":")
+    if len(parts) == 3 and parts[0] == "pick":
+        session = panel._session(state, parts[1])
+        if isinstance(session, dict) and session.get("kind") == "long":
+            scope = preferred_scope_for_session(state, session)
+            if scope:
+                callback["data"] = f"scope:{parts[1]}:{parts[2]}:{scope}"
+                meta["consume_scope"] = True
+        return rewritten, meta
+
+    if len(parts) == 4 and parts[0] == "scope" and parts[3] in _VALID_LONG_SCOPES:
+        meta["consume_scope"] = True
+    return rewritten, meta
+
+
+def poll(state_path: Path) -> None:
+    """Run the canonical Telegram poll with a narrow callback rewrite layer.
+
+    This deliberately does *not* copy the panel poll implementation. It rewrites
+    only the three new search-mode callbacks and scoped candidate selection, then
+    delegates authorization, idempotency, menus, approvals and failure behavior
+    to the existing certified poll.
     """
-    from scripts import telegram_control_active_ui as active
+    before_state = panel.load_state(state_path)
+    before_long_ids = pending_long_ids(before_state)
+    rewrite_state = before_state
+    original_call = panel.TelegramClient.call
+    metas: list[dict[str, Any]] = []
+
+    def scoped_call(self, method: str, payload: dict[str, Any] | None = None):
+        result = original_call(self, method, payload)
+        if method != "getUpdates" or not isinstance(result, list):
+            return result
+        rewritten_updates = []
+        for item in result:
+            if not isinstance(item, dict):
+                rewritten_updates.append(item)
+                continue
+            rewritten, meta = _rewrite_update(rewrite_state, item)
+            metas.append(meta)
+            rewritten_updates.append(rewritten)
+        return rewritten_updates
+
+    panel.TelegramClient.call = scoped_call
+    try:
+        _BASE_POLL(state_path)
+    finally:
+        panel.TelegramClient.call = original_call
 
     state = panel.load_state(state_path)
-    token = panel._read_secret_file("TELEGRAM_BOT_TOKEN_FILE")
-    allowed_text = panel._read_secret_file("TELEGRAM_ALLOWED_USER_ID_FILE")
-    allowed_chat = panel._read_secret_file("TELEGRAM_CHAT_ID_FILE")
-    if not token or not allowed_text:
-        print("Telegram editorial control disabled: bot token or allowed user is missing")
-        panel._github_output("needs_engine", "false")
-        panel.save_state(state_path, state)
-        return
-    try:
-        allowed_user = int(allowed_text)
-    except ValueError as exc:
-        raise RuntimeError("TELEGRAM_ALLOWED_USER_ID_FILE is invalid") from exc
-
-    client = panel.TelegramClient(token)
-    repository = (os.environ.get("GITHUB_REPOSITORY") or "mymusa79-tech/Isco-Video-Runner").strip()
-    releases = panel.GitHubReleaseClient(repository, (os.environ.get("GITHUB_TOKEN") or "").strip())
-    offset = int(state.get("telegram_offset", 0) or 0)
-    updates = client.call("getUpdates", {"offset": offset, "timeout": 0, "allowed_updates": ["message", "callback_query"]}) or []
-    if not isinstance(updates, list):
-        updates = []
-
-    for update in updates:
-        if not isinstance(update, dict) or "update_id" not in update:
-            continue
-        state["telegram_offset"] = max(int(state.get("telegram_offset", 0) or 0), int(update["update_id"]) + 1)
-        authorized, chat_id, _ = panel._authorized_user(update, allowed_user, allowed_chat)
-        callback = update.get("callback_query")
-        if not authorized:
-            if isinstance(callback, dict) and callback.get("id"):
-                try:
-                    client.answer_callback(str(callback["id"]), "غير مصرح")
-                except Exception:
-                    pass
-            continue
-        if chat_id is None:
-            continue
-
-        if isinstance(callback, dict):
-            callback_id = str(callback.get("id") or "")
-            data = str(callback.get("data") or "")
-            if callback_id:
-                client.answer_callback(callback_id)
-            parts = data.split(":")
-            if len(parts) >= 2 and parts[0] == "cmd":
-                active._handle_command(parts[1], client, state, releases, chat_id)
-            elif len(parts) == 2 and parts[0] == "refresh" and parts[1] in {"long", "short"}:
-                if parts[1] == "short":
-                    refresh_kind = "short"
-                else:
-                    scope = _current_long_scope_hint(state)
-                    refresh_kind = "topic_bundle" if scope == "bundle" else "topic_long" if scope == "long" else "topic"
-                active._handle_command(refresh_kind, client, state, releases, chat_id)
-            elif len(parts) == 2 and parts[0] == "pack":
-                panel._show_packaging(client, releases, chat_id, parts[1])
-            elif len(parts) == 3 and parts[0] == "detail":
-                session = panel._session(state, parts[1])
-                if not session:
-                    client.send(chat_id, "انتهت صلاحية هذه الخيارات. اطلب 3 مواضيع جديدة.", keyboard=active._main_keyboard())
-                    continue
-                try:
-                    index = int(parts[2])
-                    item = session["candidates"][index]
-                except Exception:
-                    client.send(chat_id, "الخيار غير صالح.", keyboard=active._main_keyboard())
-                    continue
-                pick = "pickshort" if session.get("kind") == "short" else "pick"
-                client.send(
-                    chat_id,
-                    panel._candidate_detail(item, index),
-                    keyboard=[
-                        [{"text": f"✅ اختيار {index + 1}", "callback_data": f"{pick}:{parts[1]}:{index}"}],
-                        [{"text": "↩️ الخيارات", "callback_data": "cmd:menu"}],
-                    ],
-                )
-            elif len(parts) == 3 and parts[0] == "pickshort":
-                session = panel._session(state, parts[1])
-                if not session or session.get("kind") != "short":
-                    client.send(chat_id, "انتهت صلاحية هذا الاختيار.", keyboard=active._main_keyboard())
-                    continue
-                request = active._approve_current(state, session, int(parts[2]), "short")
-                client.send(chat_id, active._approval_text(request), keyboard=active._main_keyboard())
-            elif len(parts) == 3 and parts[0] == "pick":
-                session = panel._session(state, parts[1])
-                if not session or session.get("kind") != "long":
-                    client.send(chat_id, "انتهت صلاحية هذا الاختيار.", keyboard=active._main_keyboard())
-                    continue
-                index = int(parts[2])
-                candidate = session["candidates"][index]
-                preferred_scope = preferred_scope_for_session(state, session)
-                if preferred_scope:
-                    request = active._approve_current(state, session, index, preferred_scope)
-                    clear_scope_hint(state)
-                    client.send(chat_id, active._approval_text(request), keyboard=active._main_keyboard())
-                else:
-                    client.send(
-                        chat_id,
-                        f"اختر نطاق الإنتاج لهذا الموضوع:\n\n{candidate.get('title', '')}",
-                        keyboard=[
-                            [{"text": "🎬 حلقة + Shorts", "callback_data": f"scope:{parts[1]}:{index}:bundle"}],
-                            [{"text": "🎬 حلقة فقط", "callback_data": f"scope:{parts[1]}:{index}:long"}],
-                            [{"text": "↩️ اللوحة", "callback_data": "cmd:menu"}],
-                        ],
-                    )
-            elif len(parts) == 4 and parts[0] == "scope" and parts[3] in _VALID_LONG_SCOPES:
-                session = panel._session(state, parts[1])
-                if not session or session.get("kind") != "long":
-                    client.send(chat_id, "انتهت صلاحية هذا الاختيار.", keyboard=active._main_keyboard())
-                    continue
-                request = active._approve_current(state, session, int(parts[2]), parts[3])
-                clear_scope_hint(state)
-                client.send(chat_id, active._approval_text(request), keyboard=active._main_keyboard())
-            else:
-                client.send(chat_id, active._menu_text(), keyboard=active._main_keyboard())
-        else:
-            message = update.get("message") or {}
-            command = active._command_kind(str(message.get("text") or ""))
-            active._handle_command(command or "menu", client, state, releases, chat_id)
+    first_long_start = next((meta for meta in metas if meta.get("long_start")), None)
+    changed = False
+    if first_long_start is not None:
+        changed = bind_scope_to_new_long_request(
+            state,
+            scope=first_long_start.get("requested_scope"),
+            before_ids=before_long_ids,
+        ) or changed
+    if any(meta.get("consume_scope") for meta in metas):
+        if SEARCH_SCOPE_HINT_KEY in state:
+            clear_scope_hint(state)
+            changed = True
+    if changed:
         state["last_event_at"] = panel._now()
-
-    panel.save_state(state_path, state)
-    needs_engine = any(
-        isinstance(item, dict) and item.get("status") == "pending"
-        for item in state.get("pending_actions", [])
-    )
-    panel._github_output("needs_engine", "true" if needs_engine else "false")
+        panel.save_state(state_path, state)
