@@ -44,8 +44,7 @@ jobs:
           p = pathlib.Path('cloudflare/telegram-control-worker/wrangler.toml.example')
           data = tomllib.loads(p.read_text(encoding='utf-8'))
           assert data.get('workers_dev') is True
-          assert data.get('limits', {}).get('cpu_ms') == 10
-          assert data.get('limits', {}).get('subrequests') == 10
+          assert 'limits' not in data, 'Cloudflare Free must use provider-native limits; configurable CPU limits require Paid'
           assert data.get('vars', {}).get('ZERO_COST_MODE') == 'true'
           forbidden = {
               'routes', 'route', 'kv_namespaces', 'd1_databases', 'r2_buckets',
@@ -86,8 +85,7 @@ jobs:
           import pathlib, tomllib
           data = tomllib.loads(pathlib.Path('cloudflare/telegram-control-worker/wrangler.toml.example').read_text(encoding='utf-8'))
           assert data.get('workers_dev') is True, 'workers.dev only is required in ZERO_COST_MODE'
-          assert data.get('limits', {}).get('cpu_ms') == 10
-          assert data.get('limits', {}).get('subrequests') == 10
+          assert 'limits' not in data, 'Cloudflare Free must use provider-native limits; configurable CPU limits require Paid'
           assert data.get('vars', {}).get('ZERO_COST_MODE') == 'true'
           forbidden = {
               'routes', 'route', 'kv_namespaces', 'd1_databases', 'r2_buckets',
@@ -98,7 +96,7 @@ jobs:
           found = sorted(forbidden.intersection(data))
           assert not found, f'ZERO_COST_MODE blocks Cloudflare extras: {found}'
           PY
-          echo "ZERO_COST_MODE active: Workers Free limits must fail closed at the provider; this workflow contains no billing/plan-upgrade operation."
+          echo "ZERO_COST_MODE active: native Workers Free ceilings are authoritative; this workflow contains no billing/plan-upgrade operation."
 
       - name: Validate activation secrets
         run: |
@@ -267,5 +265,5 @@ jobs:
         run: |
           echo "Telegram Edge Control is live at $WORKER_URL/telegram"
           echo "Health: $WORKER_URL/health"
-          echo "ZERO_COST_MODE=true; no paid Cloudflare binding or plan-upgrade operation is present"
+          echo "ZERO_COST_MODE=true; native Workers Free ceilings are authoritative; no paid Cloudflare binding or plan-upgrade operation is present"
           echo "Production authority remains in telegram-editorial-control.yml"
