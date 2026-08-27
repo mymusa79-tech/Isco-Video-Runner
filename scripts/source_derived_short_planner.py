@@ -63,6 +63,28 @@ def _distinct_source_texts(excerpt: dict[str, Any]) -> list[str]:
     return accepted
 
 
+def _select_template(control_request: dict[str, Any]) -> str:
+    """Select a deterministic Engine-native template for a sibling Short."""
+    raw_index = control_request.get("sibling_index")
+    if isinstance(raw_index, bool):
+        sibling_index = 1
+    else:
+        try:
+            sibling_index = int(raw_index) if raw_index is not None else 1
+        except (TypeError, ValueError):
+            sibling_index = 1
+
+    # The blueprint is persisted and recomputed before production, so selection
+    # must remain deterministic. Preserve the original first-sibling mapping and
+    # use the two remaining Engine-native templates for later sibling slots.
+    if sibling_index == 2:
+        return "inner_dialogue"
+    if sibling_index == 3:
+        return "quote_reflection"
+    pillar = _clean((control_request.get("candidate") or {}).get("pillar"))
+    return "micro_story" if pillar == "see" else "why_reframe"
+
+
 def build_source_short_blueprint(control_request: dict[str, Any]) -> dict[str, Any]:
     if control_request.get("kind") != "short":
         raise SourceDerivedShortError("source_short_request_kind_invalid")
@@ -85,7 +107,7 @@ def build_source_short_blueprint(control_request: dict[str, Any]) -> dict[str, A
 
     texts = _distinct_source_texts(excerpt)
     action = _clean((control_request.get("short_admission") or {}).get("single_action_contract"))
-    template = "micro_story" if _clean((control_request.get("candidate") or {}).get("pillar")) == "see" else "why_reframe"
+    template = _select_template(control_request)
     source_id = ":".join(
         [
             _clean(control_request.get("parent_control_request_id")),

@@ -135,6 +135,10 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
         requests = sibling.build_sibling_requests(self._parent(), self._plan(), self._source_plan())
         self.assertEqual(len(requests), 3)
         self.assertEqual([item["sibling_index"] for item in requests], [1, 2, 3])
+        self.assertEqual(
+            [item["source_short_plan"]["template"] for item in requests],
+            ["why_reframe", "inner_dialogue", "quote_reflection"],
+        )
         self.assertEqual(len({item["approved_topic"] for item in requests}), 3)
         for request in requests:
             self.assertTrue(request["approval_inherited_from_parent_bundle"])
