@@ -21,6 +21,8 @@ on:
       - "scripts/test_telegram_bot_api_10_3_ui.py"
       - "scripts/test_telegram_production_rich_ui.py"
       - "scripts/test_telegram_rich_integration.py"
+      - "scripts/test_telegram_topic_memory_ui.py"
+      - "scripts/test_telegram_library_split.py"
       - "scripts/test_telegram_final_notify.py"
       - "scripts/test_telegram_observability_v1.py"
       - ".github/workflows/telegram-rich-ui-tests.yml"
@@ -43,6 +45,8 @@ on:
       - "scripts/test_telegram_bot_api_10_3_ui.py"
       - "scripts/test_telegram_production_rich_ui.py"
       - "scripts/test_telegram_rich_integration.py"
+      - "scripts/test_telegram_topic_memory_ui.py"
+      - "scripts/test_telegram_library_split.py"
       - "scripts/test_telegram_final_notify.py"
       - "scripts/test_telegram_observability_v1.py"
       - ".github/workflows/telegram-rich-ui-tests.yml"
@@ -87,5 +91,7 @@ jobs:
             scripts.test_telegram_bot_api_10_3_ui \
             scripts.test_telegram_production_rich_ui \
             scripts.test_telegram_rich_integration \
+            scripts.test_telegram_topic_memory_ui \
+            scripts.test_telegram_library_split \
             scripts.test_telegram_final_notify \
             scripts.test_telegram_observability_v1
