@@ -406,5 +406,145 @@ class TelegramActiveUiTests(unittest.TestCase):
         self.assertEqual(ui._command_kind("المنتجة"), "used")
 
 
+class ResearchCurrentProviderFailureMessagingTests(unittest.TestCase):
+    """Covers the P0 research-reliability fix end to end through the exact live
+    entrypoint (_research_current). This function had zero prior test coverage even
+    though it is the one the production incident's traceback ran through."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.state_path = Path(self._tmpdir.name) / "control-panel.json"
+        state = ui.panel._new_state()
+        state["pending_actions"] = [{"kind": "long", "status": "pending", "chat_id": 555, "attempts": 0}]
+        ui.panel.save_state(self.state_path, state)
+
+        self.client = _Client()
+        self._secret_patch = mock.patch.object(ui.panel, "_read_secret_file", return_value="fake-token")
+        self._client_patch = mock.patch.object(ui.panel, "TelegramClient", return_value=self.client)
+        self._secret_patch.start()
+        self._client_patch.start()
+        self._env_patch = mock.patch.dict(
+            os.environ, {"GEMINI_API_KEY": "fake-gemini-key", "YOUTUBE_API_KEY": "fake-youtube-key"}, clear=False
+        )
+        self._env_patch.start()
+
+    def tearDown(self):
+        self._env_patch.stop()
+        self._client_patch.stop()
+        self._secret_patch.stop()
+        self._tmpdir.cleanup()
+
+    def _candidates(self):
+        from isco_video_agent.models import CandidateTopic
+
+        return [
+            CandidateTopic(title="كيف تبني عادة القراءة اليومية", pillar="rise", format_hint="film"),
+            CandidateTopic(title="لماذا نخاف من التغيير", pillar="understand", format_hint="film"),
+            CandidateTopic(title="سر الهدوء في مواجهة الفوضى", pillar="see", format_hint="film"),
+        ]
+
+    def test_both_providers_exhausted_names_the_real_reason_and_keeps_retrying(self):
+        from scripts import research_provider_reliability as rpr
+
+        candidates = self._candidates()
+        quota_error = RuntimeError("Quota exceeded for metric: generate_content_free_tier_requests")
+        openrouter_error = RuntimeError("OpenRouter key unavailable")
+        with mock.patch("isco_video_agent.research.gather_signals", return_value={}), \
+                mock.patch("isco_video_agent.research.select_topic", return_value=(candidates[0], candidates)), \
+                mock.patch.object(rpr, "gemini_json_text", side_effect=quota_error), \
+                mock.patch.object(rpr, "openrouter_json_text", side_effect=openrouter_error), \
+                mock.patch.object(rpr.time, "sleep"):
+            with self.assertRaises(rpr.ResearchProviderExhausted):
+                ui._research_current(self.state_path)
+
+        self.assertEqual(len(self.client.messages), 1)
+        chat_id, text, keyboard = self.client.messages[0]
+        self.assertEqual(chat_id, 555)
+        self.assertIn("سأبقي الطلب قيد المحاولة تلقائيًا خلال دقائق", text)
+        self.assertIn("Gemini", text)
+        self.assertIn("OpenRouter", text)
+
+        state = ui.panel.load_state(self.state_path)
+        pending = state["pending_actions"][0]
+        self.assertEqual(pending["status"], "pending")
+        self.assertEqual(pending["attempts"], 1)
+
+    def test_third_exhausted_attempt_marks_failed_and_still_names_the_reason(self):
+        from scripts import research_provider_reliability as rpr
+
+        candidates = self._candidates()
+        state = ui.panel.load_state(self.state_path)
+        state["pending_actions"][0]["attempts"] = 2
+        ui.panel.save_state(self.state_path, state)
+
+        quota_error = RuntimeError("Quota exceeded for metric: generate_content_free_tier_requests")
+        openrouter_error = RuntimeError("OpenRouter key unavailable")
+        with mock.patch("isco_video_agent.research.gather_signals", return_value={}), \
+                mock.patch("isco_video_agent.research.select_topic", return_value=(candidates[0], candidates)), \
+                mock.patch.object(rpr, "gemini_json_text", side_effect=quota_error), \
+                mock.patch.object(rpr, "openrouter_json_text", side_effect=openrouter_error), \
+                mock.patch.object(rpr.time, "sleep"):
+            with self.assertRaises(rpr.ResearchProviderExhausted):
+                ui._research_current(self.state_path)
+
+        chat_id, text, keyboard = self.client.messages[0]
+        self.assertIn("تعذر إكمال البحث بعد عدة محاولات", text)
+        self.assertIn("Gemini", text)
+        self.assertIn("OpenRouter", text)
+
+        state = ui.panel.load_state(self.state_path)
+        self.assertEqual(state["pending_actions"][0]["status"], "failed")
+
+    def test_gemini_quota_failure_now_recovers_via_openrouter_and_completes_research(self):
+        from scripts import research_provider_reliability as rpr
+
+        candidates = self._candidates()
+        quota_error = RuntimeError("Quota exceeded for metric: generate_content_free_tier_requests")
+        fallback_payload = {
+            "items": [
+                {"index": 0, "query_en": "daily reading habit formation psychology"},
+                {"index": 1, "query_en": "fear of change behavioral psychology"},
+                {"index": 2, "query_en": "calm amid chaos psychological resilience"},
+            ]
+        }
+        fake_sources = [
+            {
+                "source_title": "A study",
+                "source_url": "https://doi.org/10.1/abc",
+                "claim_scope": "خلفية بحثية",
+                "source_type": "scholarly_metadata_crossref",
+                "venue": None,
+                "metadata_registry": "Crossref REST API",
+            },
+            {
+                "source_title": "Another study",
+                "source_url": "https://doi.org/10.1/def",
+                "claim_scope": "خلفية بحثية",
+                "source_type": "scholarly_metadata_crossref",
+                "venue": None,
+                "metadata_registry": "Crossref REST API",
+            },
+        ]
+        with mock.patch("isco_video_agent.research.gather_signals", return_value={}), \
+                mock.patch("isco_video_agent.research.select_topic", return_value=(candidates[0], candidates)), \
+                mock.patch.object(rpr, "gemini_json_text", side_effect=quota_error), \
+                mock.patch.object(rpr, "openrouter_json_text", return_value=fallback_payload), \
+                mock.patch.object(rpr.time, "sleep"), \
+                mock.patch.object(ui.simple, "_crossref_sources", return_value=fake_sources):
+            ui._research_current(self.state_path)
+
+        self.assertEqual(len(self.client.messages), 1)
+        chat_id, text, keyboard = self.client.messages[0]
+        self.assertEqual(chat_id, 555)
+        self.assertIn("مواضيع مقترحة للحلقة", text)
+
+        state = ui.panel.load_state(self.state_path)
+        self.assertEqual(state["pending_actions"], [])
+        self.assertIn(ui.ACTIVE_RESEARCH_SESSION_KEY, state)
+
+
 if __name__ == "__main__":
     unittest.main()
