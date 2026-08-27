@@ -79,7 +79,7 @@ class SimpleTelegramUiTests(unittest.TestCase):
             def read(self):
                 return json.dumps(payload).encode("utf-8")
 
-        with patch("scripts.telegram_control_simple_ui.urllib.request.urlopen", return_value=FakeResponse()):
+        with patch("scripts.crossref_reliability.urllib.request.urlopen", return_value=FakeResponse()):
             sources = ui._crossref_sources("self regulation motivation", "موضوع", limit=2)
         self.assertEqual(len(sources), 2)
         for source in sources:

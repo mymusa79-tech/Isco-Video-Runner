@@ -286,6 +286,8 @@ Return ONLY JSON: {{"items":[{{"index":0,"query_en":"..."}}]}} with exactly one 
 
 
 def _crossref_sources(query: str, topic_ar: str, *, limit: int = 3) -> list[dict[str, Any]]:
+    from scripts.crossref_reliability import fetch_crossref_response
+
     params = urllib.parse.urlencode(
         {
             "query.bibliographic": query,
@@ -301,8 +303,12 @@ def _crossref_sources(query: str, topic_ar: str, *, limit: int = 3) -> list[dict
             "User-Agent": "IscoVideoAgent/1.0 (Telegram editorial research; scholarly metadata only)",
         },
     )
-    with urllib.request.urlopen(request, timeout=25) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    # Run #158/#159: this used to call urllib.request.urlopen directly with zero
+    # retry/backoff, so a transient Crossref 429/5xx aborted the whole research
+    # attempt even after Gemini/OpenRouter had already succeeded. See
+    # scripts/crossref_reliability.py for the bounded retry policy.
+    raw = fetch_crossref_response(request)
+    data = json.loads(raw.decode("utf-8"))
     items = ((data.get("message") or {}).get("items") or []) if isinstance(data, dict) else []
     sources: list[dict[str, Any]] = []
     seen: set[str] = set()
