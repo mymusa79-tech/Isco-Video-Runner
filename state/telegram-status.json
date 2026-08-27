@@ -4,13 +4,13 @@
     "approved_target": false,
     "pending_actions_count": 0,
     "production_queue_count": 0,
-    "request_count": 1,
+    "request_count": 2,
     "research_active": true,
     "research_session_hash": "db103e4d48e4",
     "saved_count": 3,
     "used_count": 0
   },
-  "generated_at": "2026-08-27T20:41:16.286442Z",
+  "generated_at": "2026-08-27T20:41:34.276132Z",
   "schema_version": 1,
-  "source_last_event_at": "2026-08-27T20:41:16.286442+00:00"
+  "source_last_event_at": "2026-08-27T20:41:34.276132+00:00"
 }
