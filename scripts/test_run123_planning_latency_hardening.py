@@ -8,26 +8,37 @@ from scripts import run123_planning_latency_hardening as hardening
 
 
 class Run123PlanningLatencyHardeningTests(unittest.TestCase):
-    def test_contract_names_distinguish_writer_doctor_and_dossier(self) -> None:
+    def test_contract_names_distinguish_writer_doctor_dossier_and_append(self) -> None:
         cases = [
             (
                 'You are writing ONE BOUNDED BATCH. Return ONLY JSON: {"sections": []} with EXACTLY 3 entries',
+                "full_script",
                 "script_writer_3",
             ),
             (
                 'Repair ONE BOUNDED BATCH. Return ONLY JSON: {"sections": []} with EXACTLY 2 entries',
+                "full_script",
                 "script_doctor_2",
             ),
             (
                 'Repair ONLY this bounded shard. Return ONLY JSON: {"sections": []} with EXACTLY 1 entries',
+                "full_script",
                 "dossier_repair_1",
             ),
+            (
+                'bounded residual section-length repair Return ONLY JSON: {"additions": []} with EXACTLY 7 entries',
+                "append_only_repair",
+                "append_repair_7",
+            ),
+            (
+                'bounded target-completion request Return ONLY JSON: {"additions": []} with EXACTLY 1 entries',
+                "append_only_repair",
+                "append_repair_1",
+            ),
         ]
-        for prompt, expected in cases:
+        for prompt, base, expected in cases:
             with self.subTest(expected=expected):
-                self.assertEqual(
-                    hardening._contract_name_for_prompt(prompt, "full_script"), expected
-                )
+                self.assertEqual(hardening._contract_name_for_prompt(prompt, base), expected)
 
     def test_dossier_completion_budget_is_smaller_than_legacy_full_script(self) -> None:
         self.assertLess(hardening._SHARD_COMPLETION_BUDGETS["dossier_repair_1"], 2400)
@@ -36,6 +47,16 @@ class Run123PlanningLatencyHardeningTests(unittest.TestCase):
             hardening._SHARD_COMPLETION_BUDGETS["dossier_repair_1"],
             hardening._SHARD_COMPLETION_BUDGETS["dossier_repair_2"],
         )
+
+    def test_append_completion_budget_tracks_target_count(self) -> None:
+        self.assertEqual(hardening._SHARD_COMPLETION_BUDGETS["append_repair_1"], 600)
+        self.assertLess(hardening._SHARD_COMPLETION_BUDGETS["append_repair_1"], 1800)
+        self.assertLessEqual(hardening._SHARD_COMPLETION_BUDGETS["append_repair_7"], 1800)
+        self.assertLess(
+            hardening._SHARD_COMPLETION_BUDGETS["append_repair_1"],
+            hardening._SHARD_COMPLETION_BUDGETS["append_repair_7"],
+        )
+        self.assertTrue(hardening._APPEND_CONTRACTS.issubset(hardening._SHARD_LOW_REASONING_CONTRACTS))
 
     def test_dossier_contracts_are_low_reasoning_but_keep_strict_schema(self) -> None:
         self.assertTrue(hardening._DOSSIER_CONTRACTS)
@@ -127,6 +148,23 @@ class Run123PlanningLatencyHardeningTests(unittest.TestCase):
         self.assertIn("required", enriched)
         self.assertIn("dialogue", enriched)
 
+    def test_append_prompts_use_compact_repair_persona_path(self) -> None:
+        self.assertTrue(
+            hardening._is_compact_repair_prompt(
+                "This is the bounded residual section-length repair for نداء اليقظة."
+            )
+        )
+        self.assertTrue(
+            hardening._is_compact_repair_prompt(
+                "This is the ONE bounded target-completion request for an append-only Film section repair."
+            )
+        )
+        self.assertTrue(
+            hardening._is_compact_repair_prompt(
+                "This is ONE additional, narrowly-scoped append-only Film section request."
+            )
+        )
+
     def test_busy_groq_window_fails_over_without_sleep_or_state_loss(self) -> None:
         state = hardening.capacity._GROQ_RATE_STATE
         original = dict(state)
@@ -167,6 +205,7 @@ class Run123PlanningLatencyHardeningTests(unittest.TestCase):
             self.assertTrue(name.startswith(("script_writer_", "script_doctor_")))
         self.assertNotIn("dossier_repair_1", hardening._WRITER_DOCTOR_CONTRACTS)
         self.assertNotIn("dossier_repair_2", hardening._WRITER_DOCTOR_CONTRACTS)
+        self.assertNotIn("append_repair_1", hardening._WRITER_DOCTOR_CONTRACTS)
 
 
 if __name__ == "__main__":
