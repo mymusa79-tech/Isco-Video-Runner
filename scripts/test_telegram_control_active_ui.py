@@ -406,5 +406,103 @@ class TelegramActiveUiTests(unittest.TestCase):
         self.assertEqual(ui._command_kind("المنتجة"), "used")
 
 
+class _NotifyFailsOnceClient:
+    """A fake Telegram client whose send() raises exactly once (simulating a
+    transient Telegram API failure) after research has already fully succeeded."""
+
+    def __init__(self):
+        self.messages = []
+        self.raise_next = True
+
+    def send(self, chat_id, text, *, keyboard=None):
+        if self.raise_next:
+            self.raise_next = False
+            raise RuntimeError("Telegram API timeout")
+        self.messages.append((chat_id, text, keyboard))
+
+
+class ResearchSuccessSurvivesNotifyFailureTests(unittest.TestCase):
+    """Run #121: reproduces "research succeeds, then the success notification
+    itself fails" exactly - not a Gemini/provider failure. Uses kind="short" so
+    the scenario is isolated from the unrelated Gemini/OpenRouter research-provider
+    path (covered separately), since this bug lives purely in _research_current's
+    own try/except structure and applies identically to both kinds."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.state_path = Path(self._tmpdir.name) / "control-panel.json"
+        state = ui.panel._new_state()
+        state["pending_actions"] = [{"kind": "short", "status": "pending", "chat_id": 777, "attempts": 0}]
+        ui.panel.save_state(self.state_path, state)
+
+        self.client = _Client()
+        self._secret_patch = mock.patch.object(ui.panel, "_read_secret_file", return_value="fake-token")
+        self._client_patch = mock.patch.object(ui.panel, "TelegramClient", return_value=self.client)
+        self._secret_patch.start()
+        self._client_patch.start()
+        self._env_patch = mock.patch.dict(
+            os.environ, {"GEMINI_API_KEY": "fake-gemini-key", "YOUTUBE_API_KEY": "fake-youtube-key"}, clear=False
+        )
+        self._env_patch.start()
+
+    def tearDown(self):
+        self._env_patch.stop()
+        self._client_patch.stop()
+        self._secret_patch.stop()
+        self._tmpdir.cleanup()
+
+    def _candidates(self):
+        from isco_video_agent.models import CandidateTopic
+
+        return [
+            CandidateTopic(title="فكرة شورت أولى", pillar="rise", format_hint="moment"),
+            CandidateTopic(title="فكرة شورت ثانية", pillar="understand", format_hint="moment"),
+            CandidateTopic(title="فكرة شورت ثالثة", pillar="see", format_hint="moment"),
+        ]
+
+    def test_successful_research_survives_a_failed_notification(self):
+        flaky_client = _NotifyFailsOnceClient()
+        candidates = self._candidates()
+        with mock.patch.object(ui.panel, "TelegramClient", return_value=flaky_client), \
+                mock.patch("isco_video_agent.research.gather_signals", return_value={}), \
+                mock.patch("isco_video_agent.research.select_topic", return_value=(candidates[0], candidates)):
+            # Must not raise: the notify failure is best-effort and must not be
+            # conflated with a research failure once the result is safely persisted.
+            ui._research_current(self.state_path)
+
+        # The Telegram send() was attempted once and failed (no message recorded).
+        self.assertEqual(flaky_client.messages, [])
+
+        state = ui.panel.load_state(self.state_path)
+        # The completed session must survive, with its active pointer intact -
+        # not cleared by the "failure" except branch, because this was never a
+        # research failure.
+        self.assertIn(ui.ACTIVE_RESEARCH_SESSION_KEY, state)
+        session_id = state[ui.ACTIVE_RESEARCH_SESSION_KEY]
+        self.assertIn(session_id, state["sessions"])
+        self.assertEqual(len(state["sessions"][session_id]["candidates"]), 3)
+        # The pending action must be cleared (filtered out as completed), not left
+        # stuck at "completed" forever with no route back to it and no re-trigger.
+        self.assertEqual(state["pending_actions"], [])
+
+    def test_second_notify_attempt_after_a_real_research_failure_is_unaffected(self):
+        # Regression guard: a genuine research failure (not a notify failure) must
+        # still behave exactly as before - failure path, retry messaging, no session.
+        with mock.patch("isco_video_agent.research.gather_signals", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                ui._research_current(self.state_path)
+
+        self.assertEqual(len(self.client.messages), 1)
+        chat_id, text, keyboard = self.client.messages[0]
+        self.assertIn("سأبقي الطلب قيد المحاولة", text)
+
+        state = ui.panel.load_state(self.state_path)
+        self.assertNotIn(ui.ACTIVE_RESEARCH_SESSION_KEY, state)
+        self.assertEqual(state["pending_actions"][0]["status"], "pending")
+
+
 if __name__ == "__main__":
     unittest.main()
