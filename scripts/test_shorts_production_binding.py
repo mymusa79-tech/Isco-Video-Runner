@@ -10,7 +10,7 @@ from scripts import shorts_production_binding as binding
 
 
 class ShortsProductionBindingTests(unittest.TestCase):
-    def _root(self) -> Path:
+    def _root(self, *, template: str = "inner_dialogue") -> Path:
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
@@ -25,6 +25,10 @@ class ShortsProductionBindingTests(unittest.TestCase):
                     "title_options": ["اللحظة المناسبة لن تأتي"],
                     "closing_payoff": "ابدأ بخطوة واحدة الآن.",
                     "cta": "",
+                    "editorial_intent": {
+                        "short_template": template,
+                        "short_compensation_v2": {"enabled": True, "scope": "short_only"},
+                    },
                     "sections": [
                         {
                             "on_screen_text": "أنت لا تحتاج وقتًا مثاليًا.",
@@ -42,11 +46,12 @@ class ShortsProductionBindingTests(unittest.TestCase):
         )
         return root
 
-    def _request(self, *, authorized: bool = True) -> dict:
-        return {
+    def _request(self, *, authorized: bool = True, scope: str = "short_only") -> dict:
+        request = {
             "request_id": "req-short",
             "request_sha256": "abc",
             "kind": "short",
+            "approval_scope": scope,
             "approved_by_user": True,
             "production_dispatch_authorized": authorized,
             "short_admission": {
@@ -57,14 +62,23 @@ class ShortsProductionBindingTests(unittest.TestCase):
                 "single_action_contract": "اختر خطوة واحدة صغيرة وابدأ بها اليوم",
             },
         }
+        if scope == "short_sibling":
+            request["source_short_plan"] = {"template": "micro_story"}
+        return request
 
     def _pre(self) -> dict:
         return {
+            "short_template": "inner_dialogue",
+            "compensation": {
+                "profile": "short_only_compensation_v2",
+                "template": "inner_dialogue",
+                "beat_driven_visual_reframe_applied": True,
+            },
             "topic_admission": {"decision": "pass", "single_action_contract": "ابدأ بخطوة واحدة"},
             "hook_contract": {"hook_commit_ms": 0},
             "timed_text_events": [
-                {"start": 0.0, "end": 7.5, "text": "هل تنتظر؟", "role": "hook"},
-                {"start": 7.5, "end": 15.0, "text": "ابدأ الآن", "role": "payoff"},
+                {"start": 0.0, "end": 6.0, "text": "هل تنتظر؟", "role": "hook"},
+                {"start": 6.0, "end": 15.0, "text": "ابدأ الآن", "role": "payoff"},
             ],
             "first_frame": {"decision": "pass"},
             "length_recommendation": {
@@ -116,10 +130,25 @@ class ShortsProductionBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not authorized"):
             binding.prepare_short_render(self._root(), self._request(authorized=False))
 
-    def test_prepare_validates_hook_topic_length_and_progressive_text(self):
+    def test_prepare_requires_topic_selected_template_for_standalone_short(self):
         root = self._root()
+        plan = json.loads((root / "plan.json").read_text(encoding="utf-8"))
+        plan["editorial_intent"] = {}
+        (root / "plan.json").write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "topic-selected template"):
+            binding.prepare_short_render(root, self._request())
+
+    def test_prepare_applies_template_rhythm_visual_compensation_and_progressive_text(self):
+        root = self._root(template="inner_dialogue")
+
+        def fake_reframe(video, events, template, output):
+            self.assertEqual(template, "inner_dialogue")
+            self.assertGreaterEqual(len(events), 2)
+            Path(output).write_bytes(b"r" * 4096)
+            return Path(output)
 
         def fake_render_progressive_text(*, video, events, srt_path, output):
+            self.assertEqual(Path(video).name, "picture-short-comp-v2.mp4")
             Path(srt_path).write_text("stub", encoding="utf-8")
             Path(output).write_bytes(b"v" * 4096)
             return {"output": str(output)}
@@ -128,17 +157,78 @@ class ShortsProductionBindingTests(unittest.TestCase):
             Path(output).write_bytes(b"m" * 4096)
             return Path(output)
 
-        with patch.object(binding, "render_progressive_text", side_effect=fake_render_progressive_text), patch.object(
-            binding, "_remux_progressive_video", side_effect=fake_remux
-        ):
+        with patch.object(binding, "_apply_beat_reframes", side_effect=fake_reframe) as reframe, patch.object(
+            binding, "render_progressive_text", side_effect=fake_render_progressive_text
+        ), patch.object(binding, "_remux_progressive_video", side_effect=fake_remux):
             context = binding.prepare_short_render(root, self._request())
 
+        reframe.assert_called_once()
+        self.assertEqual(context["short_template"], "inner_dialogue")
         self.assertEqual(context["topic_admission"]["decision"], "pass")
         self.assertLessEqual(context["hook_contract"]["hook_commit_ms"], 3000)
         self.assertGreaterEqual(len(context["timed_text_events"]), 2)
         self.assertTrue(context["progressive_text_applied"])
+        self.assertTrue(context["compensation"]["beat_driven_timing_applied"])
+        self.assertTrue(context["compensation"]["beat_driven_visual_reframe_applied"])
+        self.assertFalse(context["compensation"]["voice_generated"])
         self.assertEqual(context["extra_ai_calls"], 0)
+        self.assertTrue((root / "short-compensation-plan.json").is_file())
         self.assertEqual((root / "final.mp4").read_bytes(), b"m" * 4096)
+
+    def test_template_changes_actual_beat_timing(self):
+        texts = ["Hook", "Beat", "Payoff"]
+        _hook_a, inner = binding._hook_and_text_contract(texts, 15.0, "inner_dialogue")
+        _hook_b, quote = binding._hook_and_text_contract(texts, 15.0, "quote_reflection")
+        self.assertNotEqual(inner[0]["end"], quote[0]["end"])
+        self.assertEqual(inner[0]["template"], "inner_dialogue")
+        self.assertEqual(quote[0]["template"], "quote_reflection")
+
+    def test_sibling_short_uses_inherited_template_without_standalone_reframe(self):
+        root = self._root(template="why_reframe")
+
+        def fake_render_progressive_text(*, video, events, srt_path, output):
+            self.assertEqual(Path(video).name, "picture.mp4")
+            Path(srt_path).write_text("stub", encoding="utf-8")
+            Path(output).write_bytes(b"v" * 4096)
+            return {"output": str(output)}
+
+        def fake_remux(video, audio_source, output):
+            Path(output).write_bytes(b"m" * 4096)
+            return Path(output)
+
+        with patch.object(binding, "_apply_beat_reframes") as reframe, patch.object(
+            binding, "render_progressive_text", side_effect=fake_render_progressive_text
+        ), patch.object(binding, "_remux_progressive_video", side_effect=fake_remux):
+            context = binding.prepare_short_render(root, self._request(scope="short_sibling"))
+
+        reframe.assert_not_called()
+        self.assertEqual(context["short_template"], "micro_story")
+        self.assertFalse(context["compensation"]["beat_driven_visual_reframe_applied"])
+
+    def test_beat_reframe_uses_template_specific_zoom_cuts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            video = root / "picture.mp4"
+            output = root / "reframed.mp4"
+            video.write_bytes(b"v" * 2048)
+            events = [
+                {"start": 0.0, "end": 4.0},
+                {"start": 4.0, "end": 8.0},
+                {"start": 8.0, "end": 12.0},
+            ]
+            with patch.object(binding, "_video_dimensions", return_value=(1080, 1920)), patch(
+                "scripts.shorts_production_binding.subprocess.run"
+            ) as run:
+                def create_output(*args, **kwargs):
+                    output.write_bytes(b"x" * 4096)
+                    return None
+                run.side_effect = create_output
+                binding._apply_beat_reframes(video, events, "micro_story", output)
+            command = run.call_args.args[0]
+            filter_complex = command[command.index("-filter_complex") + 1]
+            self.assertIn("concat=n=3", filter_complex)
+            self.assertIn("scale=1124:1996", filter_complex)
+            self.assertNotIn("gemini", " ".join(command).casefold())
 
     def test_finalize_uses_real_final_critic_scores_and_hard_gates(self):
         root = self._root()
@@ -147,6 +237,8 @@ class ShortsProductionBindingTests(unittest.TestCase):
         self.assertEqual(report["quality_gate"]["decision"], "pass")
         self.assertTrue(report["delivery_allowed"])
         self.assertEqual(report["youtube_publish_mode"], "manual_in_youtube_studio")
+        self.assertEqual(report["short_template"], "inner_dialogue")
+        self.assertEqual(report["compensation_profile"], "short_only_compensation_v2")
         provenance = report["evidence_provenance"]
         self.assertFalse(provenance["synthetic_perfect_scores"])
         self.assertEqual(provenance["promise_payoff_score_source"], "min(opening_strength,narrative_progression)")
