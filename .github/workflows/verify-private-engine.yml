@@ -148,17 +148,42 @@ jobs:
             exit 1
           fi
 
-      - name: Full Runner regression suite
+      - name: Standalone Short V2 focused regression
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
+          python -m unittest \
+            scripts.test_native_short_planner_router \
+            scripts.test_shorts_production_binding -v
+
+      - name: Full Runner regression suite
+        id: runner_regression
+        continue-on-error: true
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -uo pipefail
           mapfile -t test_modules < <(
             find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
               | sort | sed -e 's#/#.#g' -e 's#\.py$##'
           )
           test "${#test_modules[@]}" -gt 0
-          python -m unittest "${test_modules[@]}" -q
+          python -m unittest "${test_modules[@]}" -v 2>&1 | tee "$RUNNER_TEMP/runner-regression.log"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Upload Runner regression diagnostics
+        if: steps.runner_regression.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: runner-regression-${{ github.run_number }}
+          path: ${{ runner.temp }}/runner-regression.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce Runner regression result
+        if: steps.runner_regression.outcome == 'failure'
+        run: exit 1
 
       - name: Exact closure delta sanity
         run: |
