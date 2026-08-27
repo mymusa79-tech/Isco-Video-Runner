@@ -792,7 +792,6 @@ def _research_current(state_path: Path) -> None:
         state.pop(PRODUCTION_TARGET_KEY, None)
         pending["status"] = "completed"
         pending["completed_at"] = panel._now()
-        client.send(chat_id, panel._candidate_panel_text(kind, chosen), keyboard=panel._candidate_keyboard(session_id, kind))
     except Exception as exc:
         _clear_current_selection(state)
         reason = _research_failure_reason(exc)
@@ -814,12 +813,33 @@ def _research_current(state_path: Path) -> None:
             )
         panel.save_state(state_path, state)
         raise
+
+    # Run #121 (Research success/notify race): everything above this point is a
+    # genuinely completed, already-recorded research result (session stored,
+    # ACTIVE_RESEARCH_SESSION_KEY set, pending marked completed). Persist it now,
+    # before attempting to notify Telegram, so a transient failure in that one
+    # network call cannot be conflated with a research failure. Previously,
+    # client.send() ran *inside* this try block: if it raised, control fell into
+    # the except above, which called _clear_current_selection() (silently
+    # orphaning the already-successful session by dropping its active pointer)
+    # and, for attempts < 3, left pending["status"] as the "completed" already
+    # assigned above - so the item was never re-queued (the completed/failed
+    # filter below never ran on that path) while the user was told a retry was
+    # queued that could never actually happen.
     state["pending_actions"] = [
         item for item in state["pending_actions"]
         if not (isinstance(item, dict) and item.get("status") in {"completed", "failed"})
     ]
     state["last_event_at"] = panel._now()
     panel.save_state(state_path, state)
+    try:
+        client.send(chat_id, panel._candidate_panel_text(kind, chosen), keyboard=panel._candidate_keyboard(session_id, kind))
+    except Exception as exc:
+        # Best-effort only: the research result is already safely persisted above.
+        # Do not raise - the job did what it was supposed to do; a failed push
+        # notification is not a research failure, and re-queuing here would just
+        # produce a duplicate, unnecessary research run for an already-solved request.
+        print(f"Research completed and saved, but notifying chat {chat_id} failed: {exc}")
 
 
 def _poll(state_path: Path) -> None:
