@@ -22,7 +22,10 @@ from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
 from scripts.provider_capacity_hardening import install_provider_capacity_hardening
+from scripts.run120_dossier_repair_hardening import install_run120_dossier_repair_hardening
+from scripts.run120_schema_policy_bridge import install_run120_schema_policy_bridge
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
+from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.task_level_planner_router import get_used_providers, install_router, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
 from scripts.voice_identity_observer import install_voice_identity_observer
@@ -204,6 +207,16 @@ def main() -> None:
     # calls. The existing quality guard wraps this batch writer afterwards, preserving
     # the single-use transition and all downstream hard quality gates.
     install_planning_batch_hardening()
+    # Reuse the Runner's existing bounded schema-recovery owner in real production.
+    # It retries only local shape/id/order defects; provider/router/auth/network/budget
+    # failures are not replayed. Partial Script Doctor output completes only missing ids.
+    install_schema_repair_policy()
+    # Run #120: preserve the successful base plan during RepairDossier. Install before
+    # planner_quality_guard so the existing tone wrapper remains outside both initial
+    # planning and in-place dossier repair. The bridge dynamically calls the bounded
+    # schema owner above; only pure length/capacity pressure may shrink 2 -> 1.
+    install_run120_dossier_repair_hardening()
+    install_run120_schema_policy_bridge()
     install_planner_quality_guard()
     install_attempt9_schema_normalizer()
     install_append_retry_guard()
