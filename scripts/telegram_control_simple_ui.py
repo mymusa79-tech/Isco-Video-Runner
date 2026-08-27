@@ -242,7 +242,7 @@ def _plain_title(value: object) -> str:
 def _english_research_queries(gemini: str, candidates: list[dict[str, Any]], model: str) -> dict[int, str]:
     if not gemini:
         raise RuntimeError("Long-form Telegram research requires Gemini to create scholarly search queries")
-    from isco_video_agent.providers.gemini import json_text
+    from scripts.research_provider_reliability import gemini_research_call_with_fallback
 
     payload = [
         {"index": index, "title_ar": str(item.get("title") or "")[:220]}
@@ -260,7 +260,12 @@ CANDIDATES:
 
 Return ONLY JSON: {{"items":[{{"index":0,"query_en":"..."}}]}} with exactly one item per candidate.
 """
-    raw = json_text(gemini, prompt, model=model)
+    # Run #120 (Research provider reliability P0): Gemini free-tier quota/rate-limit
+    # failures here used to propagate raw, with zero retry or fallback, straight into
+    # _research_current's generic "keep retrying" message. This is now classified,
+    # bounded-retried, and failed over to OpenRouter before giving up - see
+    # scripts/research_provider_reliability.py for the policy.
+    raw = gemini_research_call_with_fallback(gemini, prompt, model)
     items = raw.get("items")
     if not isinstance(items, list):
         raise RuntimeError("Scholarly-query enrichment returned no items")

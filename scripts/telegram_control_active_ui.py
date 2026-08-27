@@ -727,6 +727,18 @@ def _handle_command(kind, client, state, releases, chat_id) -> None:
     simple._handle_command(kind, client, state, releases, chat_id)
 
 
+def _research_failure_reason(exc: Exception) -> str:
+    """Return a short, honest, user-facing reason for a Research failure when it is
+    a classified provider-exhaustion outcome. Anything else (a genuine bug) gets no
+    extra line here - the generic failure text above already covers it, and this
+    function must never guess at or fabricate a cause it cannot confirm."""
+    from scripts.research_provider_reliability import ResearchProviderExhausted
+
+    if isinstance(exc, ResearchProviderExhausted):
+        return "السبب: تعذّر الوصول لكل مزودي الذكاء الاصطناعي المجانيين المتاحين (Gemini وOpenRouter) في هذه المحاولة."
+    return ""
+
+
 def _research_current(state_path: Path) -> None:
     state = panel.load_state(state_path)
     pending = next(
@@ -781,20 +793,23 @@ def _research_current(state_path: Path) -> None:
         pending["status"] = "completed"
         pending["completed_at"] = panel._now()
         client.send(chat_id, panel._candidate_panel_text(kind, chosen), keyboard=panel._candidate_keyboard(session_id, kind))
-    except Exception:
+    except Exception as exc:
         _clear_current_selection(state)
+        reason = _research_failure_reason(exc)
         if pending["attempts"] >= 3:
             pending["status"] = "failed"
             pending["failed_at"] = panel._now()
-            client.send(
-                chat_id,
-                "تعذر إكمال البحث بعد عدة محاولات. لم يبدأ أي إنتاج. يمكنك طلب البحث مرة أخرى من اللوحة.",
-                keyboard=_main_keyboard(),
-            )
+            text = "تعذر إكمال البحث بعد عدة محاولات. لم يبدأ أي إنتاج. يمكنك طلب البحث مرة أخرى من اللوحة."
+            if reason:
+                text += "\n" + reason
+            client.send(chat_id, text, keyboard=_main_keyboard())
         else:
+            text = "تعذر البحث في هذه الدورة وسأبقي الطلب قيد المحاولة تلقائيًا خلال دقائق. لم يبدأ أي إنتاج."
+            if reason:
+                text += "\n" + reason
             client.send(
                 chat_id,
-                "تعذر البحث في هذه الدورة وسأبقي الطلب قيد المحاولة. لم يبدأ أي إنتاج.",
+                text,
                 keyboard=[[{"text": "🧭 الحالة", "callback_data": "cmd:status"}]],
             )
         panel.save_state(state_path, state)

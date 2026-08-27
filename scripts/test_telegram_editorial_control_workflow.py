@@ -73,6 +73,13 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn(ENGINE_SHA, self.text)
         self.assertNotIn(OLD_ENGINE_SHA, self.text)
 
+    def test_research_step_carries_an_openrouter_fallback_key(self):
+        research_step = self.text.index("Execute one pending editorial research request")
+        next_step = self.text.index("Reserve explicit production dispatch")
+        segment = self.text[research_step:next_step]
+        self.assertIn("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}", segment)
+        self.assertIn("GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}", segment)
+
     def test_schedule_runs_topic_memory_policy_entrypoint(self):
         self.assertIn('cron: "*/5 * * * *"', self.text)
         self.assertIn("python scripts/telegram_topic_memory_ui.py poll", self.text)
