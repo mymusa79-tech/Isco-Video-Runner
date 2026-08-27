@@ -38,6 +38,10 @@ _SHARD_COMPLETION_BUDGETS = {
 _WRITER_DOCTOR_CONTRACTS = frozenset(
     name for name in _SHARD_COMPLETION_BUDGETS if name.startswith(("script_writer_", "script_doctor_"))
 )
+_DOSSIER_CONTRACTS = frozenset(
+    name for name in _SHARD_COMPLETION_BUDGETS if name.startswith("dossier_repair_")
+)
+_SHARD_LOW_REASONING_CONTRACTS = frozenset(_SHARD_COMPLETION_BUDGETS)
 
 _TEXT_POLICY_KEYS = (
     "version",
@@ -174,6 +178,7 @@ def install_run123_planning_latency_hardening() -> None:
     original_write = staged._write_full_script
     original_doctor = staged._script_doctor
     original_dossier_prompt = dossier._repair_prompt
+    original_response_format = capacity._response_format_for_contract
 
     def shard_schema(prompt: str):
         contract = original_schema(prompt)
@@ -185,6 +190,15 @@ def install_run123_planning_latency_hardening() -> None:
     def shard_completion_budget(contract) -> int:
         name = contract[0] if contract else "json_object"
         return _SHARD_COMPLETION_BUDGETS.get(name, original_budget(contract))
+
+    def shard_response_format(contract):
+        if contract is not None and contract[0] in _DOSSIER_CONTRACTS:
+            schema_name, schema = contract
+            return {
+                "type": "json_schema",
+                "json_schema": {"name": schema_name, "strict": True, "schema": schema},
+            }
+        return original_response_format(contract)
 
     def task_persona(prompt: str) -> str:
         if "Repair ONE BOUNDED BATCH" in prompt or "Repair ONLY this bounded shard" in prompt:
@@ -216,9 +230,15 @@ def install_run123_planning_latency_hardening() -> None:
     router.with_channel_persona = task_persona
     capacity.completion_token_budget = shard_completion_budget
     router._completion_tokens_for_contract = shard_completion_budget
+
+    # Reuse the capacity layer's existing low-reasoning branch and robust OpenRouter
+    # fallback family for every bounded script shard. Dossier repairs still keep strict
+    # JSON Schema through shard_response_format(), so low reasoning does not trade away
+    # structural guarantees.
     capacity._OUTPUT_HEAVY_CONTRACTS = frozenset(
-        set(capacity._OUTPUT_HEAVY_CONTRACTS).union(_WRITER_DOCTOR_CONTRACTS)
+        set(capacity._OUTPUT_HEAVY_CONTRACTS).union(_SHARD_LOW_REASONING_CONTRACTS)
     )
+    capacity._response_format_for_contract = shard_response_format
 
     # The proactive Groq token-reset pacing remains authoritative. This cap affects
     # only an HTTP 429 that still escapes that preflight: with a healthy fallback mesh,
@@ -241,6 +261,6 @@ def install_run123_planning_latency_hardening() -> None:
     router._ISCO_RUN123_PLANNING_LATENCY_HARDENED = True
     print(
         "Run123 planning latency hardening installed: "
-        "writer_doctor=dynamically_bounded dossier=strict_shard_schema "
+        "writer_doctor=dynamically_bounded dossier=strict_schema_low_reasoning "
         "repair_persona=compact factual_claim_scopes=preserved retry_after_cap=20s"
     )
