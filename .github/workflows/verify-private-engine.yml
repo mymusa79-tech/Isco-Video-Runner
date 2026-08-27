@@ -7,6 +7,14 @@ on:
         description: "Optional exact Engine SHA; when set it must match canonical Runner V4"
         required: false
         type: string
+  push:
+    branches: ["main"]
+    paths:
+      - "scripts/native_short_planner_router.py"
+      - "scripts/shorts_production_binding.py"
+      - "scripts/test_native_short_planner_router.py"
+      - "scripts/test_shorts_production_binding.py"
+      - ".github/workflows/verify-private-engine.yml"
   pull_request:
     branches: ["main"]
 
