@@ -58,12 +58,25 @@ def _policy_owned_call(
         raise
 
 
+def _install_run122_final_payload_admission() -> None:
+    # Import lazily after this bridge has selected the live schema owner. The Run #122
+    # guard must wrap _policy_owned_call, not be overwritten by it, and no package-level
+    # side effect is reintroduced.
+    from .run122_final_payload_admission import install_run122_final_payload_admission
+
+    install_run122_final_payload_admission()
+
+
 def install_run120_schema_policy_bridge() -> None:
-    if getattr(hardening, "_ISCO_RUN120_SCHEMA_POLICY_BRIDGED", False):
-        return
-    hardening._one_schema_bounded_call = _policy_owned_call
-    hardening._ISCO_RUN120_SCHEMA_POLICY_BRIDGED = True
-    print(
-        "Run120 schema-policy bridge installed: existing bounded schema owner reused; "
-        "partial completion preserved; transport pressure routes to 2->1 only"
-    )
+    if not getattr(hardening, "_ISCO_RUN120_SCHEMA_POLICY_BRIDGED", False):
+        hardening._one_schema_bounded_call = _policy_owned_call
+        hardening._ISCO_RUN120_SCHEMA_POLICY_BRIDGED = True
+        print(
+            "Run120 schema-policy bridge installed: existing bounded schema owner reused; "
+            "partial completion preserved; transport pressure routes to 2->1 only"
+        )
+
+    # Run #122: admission must be installed AFTER the bridge so its dossier guard wraps
+    # the actual production schema owner. It also replaces Writer/Doctor's raw-prompt
+    # estimator with the exact post-middleware payload estimator. Budget/gates unchanged.
+    _install_run122_final_payload_admission()
