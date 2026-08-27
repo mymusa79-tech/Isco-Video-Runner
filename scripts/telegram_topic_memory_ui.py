@@ -120,6 +120,184 @@ def _used_page_global_history(state: dict[str, Any], page: int):
     ), keyboard
 
 
+def _format_label(kind: str) -> tuple[str, str]:
+    if kind == "long":
+        return "🎬", "طويل"
+    if kind == "short":
+        return "⚡", "شورت"
+    raise RuntimeError("Unsupported Telegram library format")
+
+
+def _saved_kind_items(state: dict[str, Any], kind: str) -> list[dict[str, Any]]:
+    return [item for item in ui._available_saved(state) if str(item.get("kind") or "") == kind]
+
+
+def _used_kind_items(state: dict[str, Any], kind: str) -> list[dict[str, Any]]:
+    return [item for item in ui._used_topics(state) if str(item.get("kind") or "") == kind]
+
+
+def _saved_kind_menu(state: dict[str, Any]) -> tuple[str, list[list[dict[str, str]]]]:
+    long_count = len(_saved_kind_items(state, "long"))
+    short_count = len(_saved_kind_items(state, "short"))
+    text = (
+        "📚 المحفوظة\n\n"
+        "اختر نوع المواضيع المحفوظة:\n\n"
+        f"🎬 طويل — {long_count}\n"
+        f"⚡ شورت — {short_count}\n\n"
+        "كل نوع له قائمته وصفحاته المستقلة."
+    )
+    keyboard = [
+        [{"text": f"🎬 طويل ({long_count})", "callback_data": "cmd:saved-long"}],
+        [{"text": f"⚡ شورت ({short_count})", "callback_data": "cmd:saved-short"}],
+        [{"text": "↩️ المواضيع", "callback_data": "cmd:library_menu"}],
+    ]
+    return text, keyboard
+
+
+def _used_kind_menu(state: dict[str, Any]) -> tuple[str, list[list[dict[str, str]]]]:
+    long_count = len(_used_kind_items(state, "long"))
+    short_count = len(_used_kind_items(state, "short"))
+    text = (
+        "✅ المستعملة\n\n"
+        "اختر نوع المواضيع التي اكتمل إنتاجها:\n\n"
+        f"🎬 طويل — {long_count}\n"
+        f"⚡ شورت — {short_count}\n\n"
+        "السجل للقراءة فقط، ويمنع إعادة الموضوع في أي بحث جديد."
+    )
+    keyboard = [
+        [{"text": f"🎬 طويل ({long_count})", "callback_data": "cmd:used-long"}],
+        [{"text": f"⚡ شورت ({short_count})", "callback_data": "cmd:used-short"}],
+        [{"text": "↩️ المواضيع", "callback_data": "cmd:library_menu"}],
+    ]
+    return text, keyboard
+
+
+def _saved_page_by_kind(
+    state: dict[str, Any], kind: str, page: int
+) -> tuple[str, list[list[dict[str, str]]]]:
+    icon, label = _format_label(kind)
+    items = _saved_kind_items(state, kind)
+    if not items:
+        search_callback = "cmd:topic" if kind == "long" else "cmd:short"
+        search_label = "🎬 بحث حلقة" if kind == "long" else "⚡ بحث شورت"
+        return (
+            f"📚 المحفوظة — {icon} {label}\n\nلا توجد مواضيع {label} محفوظة حاليًا.",
+            [
+                [{"text": search_label, "callback_data": search_callback}],
+                [{"text": "↩️ المحفوظة", "callback_data": "cmd:saved"}],
+            ],
+        )
+    pages = max(1, (len(items) + ui.SAVED_PAGE_SIZE - 1) // ui.SAVED_PAGE_SIZE)
+    page = min(max(0, page), pages - 1)
+    start = page * ui.SAVED_PAGE_SIZE
+    current = items[start : start + ui.SAVED_PAGE_SIZE]
+    lines = [
+        f"📚 المحفوظة — {icon} {label}",
+        "",
+        f"{len(items)} موضوعًا محفوظًا — صفحة {page + 1}/{pages}.",
+        "اختيار موضوع هنا لا يبدأ Production؛ ستراه أولًا ثم تؤكده بالطريقة المعتادة.",
+    ]
+    rows: list[list[dict[str, str]]] = []
+    for item in current:
+        candidate = item["candidate"]
+        title = str(candidate.get("title") or "").strip()
+        short_title = title if len(title) <= 42 else title[:39].rstrip() + "…"
+        rows.append(
+            [{"text": f"{icon} {short_title}", "callback_data": f"cmd:savedpick-{item['archive_id']}"}]
+        )
+    nav: list[dict[str, str]] = []
+    prefix = f"cmd:saved-{kind}-page-"
+    if page > 0:
+        nav.append({"text": "⬅️ أحدث", "callback_data": f"{prefix}{page - 1}"})
+    if page + 1 < pages:
+        nav.append({"text": "أقدم ➡️", "callback_data": f"{prefix}{page + 1}"})
+    if nav:
+        rows.append(nav)
+    rows.append([{"text": "↩️ المحفوظة", "callback_data": "cmd:saved"}])
+    return "\n".join(lines), rows
+
+
+def _used_page_by_kind(
+    state: dict[str, Any], kind: str, page: int
+) -> tuple[str, list[list[dict[str, str]]]]:
+    icon, label = _format_label(kind)
+    items = _used_kind_items(state, kind)
+    if not items:
+        return (
+            f"✅ المستعملة — {icon} {label}\n\nلا توجد مواضيع {label} مكتملة الإنتاج في السجل حتى الآن.",
+            [[{"text": "↩️ المستعملة", "callback_data": "cmd:used"}]],
+        )
+    pages = max(1, (len(items) + ui.USED_PAGE_SIZE - 1) // ui.USED_PAGE_SIZE)
+    page = min(max(0, page), pages - 1)
+    start = page * ui.USED_PAGE_SIZE
+    current = items[start : start + ui.USED_PAGE_SIZE]
+    lines = [
+        f"✅ المستعملة — {icon} {label}",
+        "",
+        f"{len(items)} موضوعًا مكتمل الإنتاج — صفحة {page + 1}/{pages}.",
+        "هذه القائمة للقراءة فقط وتمنع إعادة الموضوع في أي بحث جديد، حلقة أو شورت.",
+        "",
+    ]
+    for index, item in enumerate(current, start + 1):
+        lines.append(f"{index}) {icon} {item.get('topic', '')}")
+        date = str(item.get("used_at") or "")[:10]
+        if date:
+            lines.append(f"   {date}")
+    rows: list[list[dict[str, str]]] = []
+    nav: list[dict[str, str]] = []
+    prefix = f"cmd:used-{kind}-page-"
+    if page > 0:
+        nav.append({"text": "⬅️ أحدث", "callback_data": f"{prefix}{page - 1}"})
+    if page + 1 < pages:
+        nav.append({"text": "أقدم ➡️", "callback_data": f"{prefix}{page + 1}"})
+    if nav:
+        rows.append(nav)
+    rows.append([{"text": "↩️ المستعملة", "callback_data": "cmd:used"}])
+    return "\n".join(lines), rows
+
+
+def _library_page_request(value: str, bucket: str) -> tuple[str, int] | None:
+    for kind in ("long", "short"):
+        base = f"{bucket}-{kind}"
+        if value == base:
+            return kind, 0
+        prefix = f"{base}-page-"
+        if value.startswith(prefix):
+            try:
+                return kind, int(value.removeprefix(prefix))
+            except ValueError:
+                return kind, 0
+    return None
+
+
+def _handle_command_with_library_split(kind, client, state, releases, chat_id) -> None:
+    if kind == "saved":
+        text, keyboard = _saved_kind_menu(state)
+        client.send(chat_id, text, keyboard=keyboard)
+        return
+    if kind == "used":
+        text, keyboard = _used_kind_menu(state)
+        client.send(chat_id, text, keyboard=keyboard)
+        return
+    if isinstance(kind, str):
+        saved_request = _library_page_request(kind, "saved")
+        if saved_request is not None:
+            saved_kind, page = saved_request
+            text, keyboard = _saved_page_by_kind(state, saved_kind, page)
+            client.send(chat_id, text, keyboard=keyboard)
+            return
+        used_request = _library_page_request(kind, "used")
+        if used_request is not None:
+            used_kind, page = used_request
+            text, keyboard = _used_page_by_kind(state, used_kind, page)
+            client.send(chat_id, text, keyboard=keyboard)
+            return
+    handler = getattr(ui, "_ISCO_LIBRARY_SPLIT_BASE_HANDLE", None)
+    if handler is None:
+        raise RuntimeError("Telegram library split base handler is not installed")
+    handler(kind, client, state, releases, chat_id)
+
+
 def _install_policy() -> None:
     if not hasattr(ui, "_ORIGINAL_MENU_TEXT"):
         ui._ORIGINAL_MENU_TEXT = ui._menu_text
@@ -132,6 +310,13 @@ def _install_policy() -> None:
     ui._approve_current = _approve_without_consuming_saved
     ui._menu_text = _menu_text_global_history
     ui._used_page = _used_page_global_history
+
+
+def _install_library_split() -> None:
+    """Split Saved and Used into independent Long and Short libraries."""
+    if not hasattr(ui, "_ISCO_LIBRARY_SPLIT_BASE_HANDLE"):
+        ui._ISCO_LIBRARY_SPLIT_BASE_HANDLE = ui._handle_command
+    ui._handle_command = _handle_command_with_library_split
 
 
 def _clear_candidate_keyboard(session_id: str, kind: str) -> list[list[dict[str, str]]]:
@@ -205,6 +390,7 @@ def main() -> None:
     from scripts import telegram_rich_integration as rich_integration
 
     persistent_ui.install()
+    _install_library_split()
     _install_choice_clarity()
     # Route both legacy rich status surfaces through the canonical contract before
     # the final integration layer is installed. This removes runtime interpretation drift.
