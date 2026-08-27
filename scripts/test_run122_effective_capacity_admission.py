@@ -124,17 +124,17 @@ class Run122EffectiveCapacityAdmissionTests(unittest.TestCase):
             elif hasattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION"):
                 delattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
 
-    def test_production_wiring_is_explicit_and_after_schema_bridge(self) -> None:
-        source = Path("scripts/run_v3_voice.py").read_text(encoding="utf-8")
+    def test_production_wiring_wraps_final_schema_owner_without_package_side_effect(self) -> None:
+        bridge_source = Path("scripts/run120_schema_policy_bridge.py").read_text(encoding="utf-8")
+        init_source = Path("scripts/__init__.py").read_text(encoding="utf-8")
+        owner = bridge_source.index("    hardening._one_schema_bounded_call = _policy_owned_call")
+        run122 = bridge_source.index("    install_run122_effective_capacity_admission()")
+        self.assertLess(owner, run122)
         self.assertIn(
-            "from scripts.run122_effective_capacity_admission import install_run122_effective_capacity_admission",
-            source,
+            "from .run122_effective_capacity_admission import install_run122_effective_capacity_admission",
+            bridge_source,
         )
-        bridge = source.index("    install_run120_schema_policy_bridge()")
-        run122 = source.index("    install_run122_effective_capacity_admission()")
-        quality = source.index("    install_planner_quality_guard()")
-        self.assertLess(bridge, run122)
-        self.assertLess(run122, quality)
+        self.assertNotIn("run122_effective_capacity_admission", init_source)
 
 
 if __name__ == "__main__":
