@@ -6,11 +6,11 @@
     "production_queue_count": 0,
     "request_count": 3,
     "research_active": true,
-    "research_session_hash": "03dbd18dfeb0",
-    "saved_count": 3,
+    "research_session_hash": "49034f0bf217",
+    "saved_count": 6,
     "used_count": 0
   },
-  "generated_at": "2026-08-27T21:04:32.224189Z",
+  "generated_at": "2026-08-27T21:05:57.700773Z",
   "schema_version": 1,
-  "source_last_event_at": "2026-08-27T21:04:32.224189+00:00"
+  "source_last_event_at": "2026-08-27T21:05:57.700773+00:00"
 }
