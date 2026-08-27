@@ -29,12 +29,12 @@ with EXACTLY 3 entries, in this exact order.
 
 
 class Run118BatchHeadroomTests(unittest.TestCase):
-    def test_film_transport_is_three_three_two(self) -> None:
+    def test_film_transport_maximum_is_three_three_two(self) -> None:
         self.assertEqual(batching.MAX_SCRIPT_BATCH_SECTIONS, 3)
         chunks = [part for _start, part in batching._chunks(list(range(8)))]
         self.assertEqual([len(part) for part in chunks], [3, 3, 2])
 
-    def test_story_transport_is_three_two(self) -> None:
+    def test_story_transport_maximum_is_three_two(self) -> None:
         chunks = [part for _start, part in batching._chunks(list(range(5)))]
         self.assertEqual([len(part) for part in chunks], [3, 2])
 
@@ -97,7 +97,7 @@ class Run118OpenRouterFallbackTests(unittest.TestCase):
         router._last_call_rate_limit_headers.clear()
         router._last_call_response_meta.clear()
 
-    def test_output_heavy_openrouter_keeps_run118_contract_with_free_only_failover(self) -> None:
+    def test_output_heavy_openrouter_keeps_free_only_failover_and_minimal_reasoning(self) -> None:
         captured = {}
         contract = router._structured_schema_for_prompt(FULL_SCRIPT_PROMPT)
         self.assertIsNotNone(contract)
@@ -127,7 +127,7 @@ class Run118OpenRouterFallbackTests(unittest.TestCase):
         self.assertEqual(captured["models"][-1], "openrouter/free")
         self.assertTrue(all(model.endswith(":free") for model in captured["models"][:-1]))
         self.assertEqual(captured["response_format"], {"type": "json_object"})
-        self.assertEqual(captured["reasoning"], {"effort": "low", "exclude": True})
+        self.assertEqual(captured["reasoning"], {"effort": "minimal", "exclude": True})
         self.assertEqual(captured["max_tokens"], 2400)
         self.assertTrue(captured["provider"]["allow_fallbacks"])
         self.assertTrue(captured["provider"]["require_parameters"])

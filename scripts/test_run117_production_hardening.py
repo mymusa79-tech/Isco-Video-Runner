@@ -89,7 +89,7 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
         self.assertEqual(waited, 0.0)
         sleep_mock.assert_not_called()
 
-    def test_openrouter_full_script_uses_low_reasoning_and_free_model_failover(self) -> None:
+    def test_openrouter_full_script_uses_minimal_reasoning_and_free_model_failover(self) -> None:
         prompt = self._full_script_prompt("write")
         contract = capacity.router._structured_schema_for_prompt(prompt)
         captured: dict = {}
@@ -137,7 +137,8 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
         self.assertTrue(
             all(model == "openrouter/free" or model.endswith(":free") for model in captured["models"])
         )
-        self.assertEqual(captured["reasoning"], {"effort": "low", "exclude": True})
+        # Run #121 proved that low reasoning can consume output headroom on free fallbacks.
+        self.assertEqual(captured["reasoning"], {"effort": "minimal", "exclude": True})
         self.assertEqual(captured["response_format"], {"type": "json_object"})
         self.assertEqual(captured["max_tokens"], 2400)
 

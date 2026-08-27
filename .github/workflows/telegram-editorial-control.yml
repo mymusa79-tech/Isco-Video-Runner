@@ -165,6 +165,11 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          # Run #120 (Research provider reliability P0): the scholarly-query
+          # enrichment step inside Research now fails over to OpenRouter's free
+          # model chain when Gemini is quota-exhausted or otherwise unavailable.
+          # See scripts/research_provider_reliability.py.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GEMINI_CONTENT_MODEL: gemini-2.5-flash
           TRENDS_GEO: SA
           YOUTUBE_REGION: SA

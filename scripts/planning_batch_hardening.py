@@ -3,20 +3,135 @@ from __future__ import annotations
 import json
 
 import isco_video_agent.resilient_planner as staged
+from scripts import provider_capacity_hardening as capacity
 
-# Run #118 showed that four-section batches still left only a few hundred estimated
-# Groq TPM tokens of headroom and remained vulnerable to provider-side structured
-# generation failure/output truncation. Preserve the canonical global outline and all
-# aggregate quality gates, but transport long-form writing/repair in batches of at most
-# three sections. A film is therefore 3+3+2 rather than the historical per-section fan
-# out, retaining cross-section continuity while giving every provider materially more
-# input/output/reasoning headroom.
+# Three sections remains the largest continuity-preserving transport shard.  Run #121
+# proved that section count alone is not a capacity unit: Doctor batch 2 was estimated
+# at 8077 TPM against Groq Free's 8000 TPM limit.  Every Writer/Doctor shard is now
+# admitted by the same provider-capacity estimator used by the router; an oversized or
+# output-truncated shard is recursively split 3 -> 2+1 -> 1 without replaying successful
+# siblings.  Schema repair remains owned by staged._call_with_schema_repair.
 MAX_SCRIPT_BATCH_SECTIONS = 3
+
+_TRANSPORT_PRESSURE_MARKERS = (
+    "premature_response",
+    "finish_reason=length",
+    "finish_reason=max_tokens",
+    "tpm_capacity_preflight",
+    "payload_too_large_preflight",
+    "context_length",
+    "max_tokens",
+)
+_FATAL_NO_SPLIT_MARKERS = (
+    "ai budget authorization denied",
+    "authentication",
+    "unauthorized",
+    "forbidden",
+    "invalid api key",
+    "content_blocked",
+    "content blocked",
+    "policy violation",
+)
 
 
 def _chunks(items: list, size: int = MAX_SCRIPT_BATCH_SECTIONS):
     for start in range(0, len(items), size):
         yield start, items[start : start + size]
+
+
+def _is_transport_pressure(exc: BaseException) -> bool:
+    text = str(exc).strip().lower()
+    if any(marker in text for marker in _FATAL_NO_SPLIT_MARKERS):
+        return False
+    return any(marker in text for marker in _TRANSPORT_PRESSURE_MARKERS)
+
+
+def _split_ids(ids: list[str]) -> tuple[list[str], list[str]]:
+    if len(ids) <= 1:
+        raise ValueError("cannot split a single planning section")
+    # Preserve the Run #118 continuity preference: 3 -> 2+1.  A two-section shard
+    # becomes 1+1.  No arbitrary character/token slicing is ever applied to narration.
+    cut = len(ids) - 1 if len(ids) == 3 else max(1, len(ids) // 2)
+    return ids[:cut], ids[cut:]
+
+
+def _capacity_admitted(prompt: str) -> tuple[bool, dict]:
+    estimate = capacity.groq_capacity_estimate(prompt)
+    return estimate["estimated_request_tokens"] <= capacity.GROQ_FREE_TPM_LIMIT, estimate
+
+
+def _call_capacity_aware_shard(
+    api_key: str,
+    model: str,
+    ids: list[str],
+    *,
+    prompt_builder,
+    label: str,
+) -> dict[str, dict]:
+    """Execute one semantic shard with bounded recursive capacity splitting.
+
+    This is admission/sharding, not a retry owner.  The existing schema policy and
+    task-level router still own provider attempts.  A successful child shard is merged
+    immediately and never replayed if a later sibling fails.
+    """
+    prompt = prompt_builder(ids)
+    admitted, estimate = _capacity_admitted(prompt)
+    if not admitted:
+        if len(ids) <= 1:
+            raise RuntimeError(
+                "PLANNING_SINGLE_SHARD_NOT_PROVIDER_PORTABLE "
+                f"label={label} section={ids[0]} "
+                f"estimated_total={estimate['estimated_request_tokens']} "
+                f"limit={capacity.GROQ_FREE_TPM_LIMIT}"
+            )
+        left, right = _split_ids(ids)
+        print(
+            "Planning capacity split before provider call: "
+            f"label={label} sections={','.join(ids)} "
+            f"estimated_total={estimate['estimated_request_tokens']} "
+            f"limit={capacity.GROQ_FREE_TPM_LIMIT} -> {','.join(left)} + {','.join(right)}"
+        )
+        merged: dict[str, dict] = {}
+        merged.update(
+            _call_capacity_aware_shard(
+                api_key, model, left, prompt_builder=prompt_builder, label=label
+            )
+        )
+        merged.update(
+            _call_capacity_aware_shard(
+                api_key, model, right, prompt_builder=prompt_builder, label=label
+            )
+        )
+        return merged
+
+    try:
+        return staged._call_with_schema_repair(api_key, prompt, model, expected_ids=ids)
+    except Exception as exc:
+        if not _is_transport_pressure(exc):
+            raise
+        if len(ids) <= 1:
+            print(
+                "Planning transport pressure exhausted at single section: "
+                f"label={label} section={ids[0]}"
+            )
+            raise
+        left, right = _split_ids(ids)
+        print(
+            "Planning transport split after provider pressure: "
+            f"label={label} sections={','.join(ids)} -> {','.join(left)} + {','.join(right)}"
+        )
+        merged: dict[str, dict] = {}
+        merged.update(
+            _call_capacity_aware_shard(
+                api_key, model, left, prompt_builder=prompt_builder, label=label
+            )
+        )
+        merged.update(
+            _call_capacity_aware_shard(
+                api_key, model, right, prompt_builder=prompt_builder, label=label
+            )
+        )
+        return merged
 
 
 def _transition_hint(transition_variants: list[str], global_index: int) -> str:
@@ -48,11 +163,9 @@ def _write_full_script_batched(
         raise RuntimeError("Full script batching requires at least one section brief")
 
     all_ids = [str(b.get("id", f"s{i + 1}"))[:40] or f"s{i + 1}" for i, b in enumerate(briefs)]
+    index_by_id = {section_id: i for i, section_id in enumerate(all_ids)}
     all_arc = [
-        {
-            "id": all_ids[i],
-            "purpose": str(brief.get("purpose", "")).strip(),
-        }
+        {"id": all_ids[i], "purpose": str(brief.get("purpose", "")).strip()}
         for i, brief in enumerate(briefs)
     ]
     lower = max(staged._FILM_SECTION_MIN_WORDS if fmt == "film" else 70, int(target_per_section * 0.72))
@@ -62,25 +175,23 @@ def _write_full_script_batched(
     prior_key_points: list[dict] = []
     total = len(briefs)
 
-    for batch_number, (start, batch) in enumerate(_chunks(briefs), start=1):
-        batch_ids = all_ids[start : start + len(batch)]
-        end = start + len(batch)
+    def prompt_for(batch_ids: list[str]) -> str:
+        start = index_by_id[batch_ids[0]]
+        end = index_by_id[batch_ids[-1]] + 1
         batch_specs = [
             {
-                "id": batch_ids[offset],
-                "purpose": str(brief.get("purpose", "")).strip(),
-                "global_position": start + offset + 1,
-                "transition_hint": _transition_hint(transition_variants, start + offset),
+                "id": section_id,
+                "purpose": str(briefs[index_by_id[section_id]].get("purpose", "")).strip(),
+                "global_position": index_by_id[section_id] + 1,
+                "transition_hint": _transition_hint(transition_variants, index_by_id[section_id]),
             }
-            for offset, brief in enumerate(batch)
+            for section_id in batch_ids
         ]
         following_arc = all_arc[end:]
         first_global = start == 0
         last_global = end == total
-
-        prompt = f"""
+        return f"""
 You are writing ONE BOUNDED BATCH of the complete Arabic narration for نداء اليقظة.
-This is batch {batch_number} of {(total + MAX_SCRIPT_BATCH_SECTIONS - 1) // MAX_SCRIPT_BATCH_SECTIONS}.
 Write ONLY global sections {start + 1}-{end} of {total}; do not write or repeat any other section.
 Topic: {json.dumps(topic, ensure_ascii=False)}
 Format: {fmt}
@@ -134,8 +245,20 @@ Return ONLY JSON: {{"sections": [{{"id": "...", "narration": "...", "key_point":
 {len(batch_ids)} entries, in this exact order, using these exact ids: {json.dumps(batch_ids, ensure_ascii=False)}.
 Keep the JSON complete. Prefer concise natural phrasing over a response that risks truncation.
 """
-        result = staged._call_with_schema_repair(api_key, prompt, model, expected_ids=batch_ids)
-        for section_id in batch_ids:
+
+    for nominal_number, (_start, nominal_batch) in enumerate(_chunks(briefs), start=1):
+        nominal_ids = [all_ids[index_by_id[str(brief.get("id", ""))[:40] or all_ids[_start + offset]]] for offset, brief in enumerate(nominal_batch)]
+        # The nominal id expression above deliberately resolves through canonical all_ids;
+        # use the contiguous slice as the final authority for exact order.
+        nominal_ids = all_ids[_start : _start + len(nominal_batch)]
+        result = _call_capacity_aware_shard(
+            api_key,
+            model,
+            nominal_ids,
+            prompt_builder=prompt_for,
+            label="writer",
+        )
+        for section_id in result:
             entry = result.get(section_id)
             if not isinstance(entry, dict):
                 raise RuntimeError(f"Full script batch omitted section {section_id}")
@@ -143,7 +266,7 @@ Keep the JSON complete. Prefer concise natural phrasing over a response that ris
             prior_key_points.append({"id": section_id, "key_point": str(entry.get("key_point", "")).strip()[:220]})
         print(
             "Planning script batch completed: "
-            f"batch={batch_number} sections={start + 1}-{end}/{total}"
+            f"batch={nominal_number} sections={','.join(nominal_ids)}/{total}"
         )
 
     if list(merged) != all_ids:
@@ -169,6 +292,7 @@ def _script_doctor_batched(
         raise RuntimeError("Script Doctor batching requires at least one section")
 
     all_ids = [section.id for section in sections]
+    index_by_id = {section_id: i for i, section_id in enumerate(all_ids)}
     all_key_points = [
         {"id": section.id, "key_point": section.key_point, "words": staged._word_count(section.narration)}
         for section in sections
@@ -183,16 +307,16 @@ def _script_doctor_batched(
     format_rule = staged._NARRATIVE_FORMATS[narrative_format]
     merged: dict[str, dict] = {}
 
-    for batch_number, (start, batch) in enumerate(_chunks(sections), start=1):
-        end = start + len(batch)
-        batch_ids = all_ids[start:end]
+    def prompt_for(batch_ids: list[str]) -> str:
+        start = index_by_id[batch_ids[0]]
+        end = index_by_id[batch_ids[-1]] + 1
         compact = []
-        for section in batch:
+        for section_id in batch_ids:
+            section = sections[index_by_id[section_id]]
             narration = staged._strip_exact_host_phrase(section.narration, identity_opener)
             narration = staged._strip_exact_host_phrase(narration, identity_closer)
             compact.append({"id": section.id, "narration": narration, "key_point": section.key_point})
-
-        prompt = f"""
+        return f"""
 You are the senior Arabic script editor and cultural QA reviewer for نداء اليقظة.
 Repair ONE BOUNDED BATCH of an already-written {total}-section script. Return corrected versions of ONLY global sections
 {start + 1}-{end}; do not return or rewrite sections outside this batch.
@@ -240,15 +364,24 @@ Return ONLY JSON: {{"sections": [{{"id": "...", "narration": "...", "key_point":
 {len(batch_ids)} entries, using these exact ids and this exact order: {json.dumps(batch_ids, ensure_ascii=False)}.
 Keep the JSON complete; write efficiently enough to finish the whole batch.
 """
-        result = staged._call_with_schema_repair(api_key, prompt, model, expected_ids=batch_ids)
-        for section_id in batch_ids:
+
+    for nominal_number, (start, nominal_batch) in enumerate(_chunks(sections), start=1):
+        nominal_ids = all_ids[start : start + len(nominal_batch)]
+        result = _call_capacity_aware_shard(
+            api_key,
+            model,
+            nominal_ids,
+            prompt_builder=prompt_for,
+            label="doctor",
+        )
+        for section_id in result:
             entry = result.get(section_id)
             if not isinstance(entry, dict):
                 raise RuntimeError(f"Script Doctor batch omitted section {section_id}")
             merged[section_id] = entry
         print(
             "Planning doctor batch completed: "
-            f"batch={batch_number} sections={start + 1}-{end}/{total}"
+            f"batch={nominal_number} sections={','.join(nominal_ids)}/{total}"
         )
 
     if list(merged) != all_ids:
@@ -257,7 +390,7 @@ Keep the JSON complete; write efficiently enough to finish the whole batch.
 
 
 def install_planning_batch_hardening() -> None:
-    """Install bounded long-form writer/doctor calls once for this production process."""
+    """Install capacity-aware long-form Writer/Doctor transport once."""
     current_write = staged._write_full_script
     if not getattr(current_write, "_isco_bounded_script_batches", False):
         _write_full_script_batched._isco_bounded_script_batches = True

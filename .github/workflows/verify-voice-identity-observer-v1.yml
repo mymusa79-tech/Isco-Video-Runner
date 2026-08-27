@@ -156,27 +156,95 @@ jobs:
           print('Namespace contract OK:', sorted(legacy), sorted(gold), AUDIT_FILENAME)
           PY
 
-      - name: Download exact approved Charon and Orus samples
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Assert immutable approved voice-reference provenance
         run: |
           set -euo pipefail
-          mkdir -p approved
-          gh api \
-            -H 'Accept: application/vnd.github+json' \
-            '/repos/mymusa79-tech/Isco-Video-Runner/actions/artifacts/9355112613/zip' \
-            > approved.zip
-          unzip -q approved.zip -d approved
-          test -f approved/01-Charon.wav
-          test -f approved/02-Orus.wav
-          printf '%s  %s\n' \
-            '129130c0c453dcf13f9ad5f861052d8346a0dafdb4f0126e437d566530363a87' \
-            'approved/01-Charon.wav' \
-            '5bfa06f7f22e22a3b9f0344d0b2ddbb7dff3ac28131616f4477f52a72cec23ea' \
-            'approved/02-Orus.wav' \
-            | sha256sum -c -
+          python - <<'PY'
+          import json
+          import math
+          from pathlib import Path
 
-      - name: ECAPA real-model smoke against approved references
+          path = Path('voice-profiles/voice-reference-profile-v1.json')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          source = data.get('source', {})
+          embedding = data.get('embedding', {})
+          profiles = data.get('profiles', {})
+
+          assert data.get('schema_version') == 1
+          assert data.get('profile_version') == 'channel-voice-roster-v1'
+          assert data.get('mode') == 'human_approved_reference'
+          assert source.get('runner_run_id') == 32224276241
+          # Preserve the historical artifact id as provenance even though GitHub's
+          # seven-day artifact retention has expired. The immutable reference itself
+          # is the enrolled profile below, including the human-approved source hashes.
+          assert source.get('artifact_id') == 9355112613
+          assert source.get('tts_model') == 'gemini-3.1-flash-tts-preview'
+          assert source.get('human_approval') == 'Charon=primary; Orus=questioner'
+          assert embedding.get('backend') == 'speechbrain-ecapa-voxceleb'
+          assert embedding.get('model_source') == 'speechbrain/spkrec-ecapa-voxceleb'
+          assert embedding.get('model_revision') == 'a025b9e8262be969a7b3f8f53c01d346eadf361b'
+          assert embedding.get('sample_rate_hz') == 16000
+          assert float(embedding.get('window_seconds')) == 4.0
+
+          primary = profiles.get('primary', {})
+          questioner = profiles.get('questioner', {})
+          assert primary.get('voice_name') == 'Charon'
+          assert questioner.get('voice_name') == 'Orus'
+          assert primary.get('reference_sha256') == '129130c0c453dcf13f9ad5f861052d8346a0dafdb4f0126e437d566530363a87'
+          assert questioner.get('reference_sha256') == '5bfa06f7f22e22a3b9f0344d0b2ddbb7dff3ac28131616f4477f52a72cec23ea'
+
+          dimensions = {len(primary.get('centroid', [])), len(questioner.get('centroid', []))}
+          assert len(dimensions) == 1 and next(iter(dimensions)) >= 64
+          for role, profile in (('primary', primary), ('questioner', questioner)):
+              centroid = profile['centroid']
+              assert all(math.isfinite(float(value)) for value in centroid)
+              norm = math.sqrt(sum(float(value) ** 2 for value in centroid))
+              assert 0.999 <= norm <= 1.001, (role, norm)
+              assert len(profile.get('reference_windows', [])) >= 3
+          print('Approved Voice profile provenance OK; hashes and ECAPA revision immutable')
+          PY
+
+      - name: Build deterministic local ECAPA smoke WAV
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import math
+          import struct
+          import wave
+          from pathlib import Path
+
+          rate = 16000
+          seconds = 14.0
+          total = int(rate * seconds)
+          out = Path('voice-observer-ecapa-smoke.wav')
+          phase = 0.0
+          frames = bytearray()
+          for index in range(total):
+              t = index / rate
+              # Deterministic speech-like harmonic excitation with slow pitch and
+              # amplitude movement. It is NOT a voice reference and carries no human
+              # approval semantics; it exists only to exercise the real ECAPA runtime.
+              f0 = 118.0 + 18.0 * math.sin(2.0 * math.pi * 0.31 * t)
+              phase += 2.0 * math.pi * f0 / rate
+              envelope = 0.42 + 0.16 * math.sin(2.0 * math.pi * 2.7 * t) + 0.08 * math.sin(2.0 * math.pi * 4.9 * t)
+              sample = envelope * (
+                  0.58 * math.sin(phase)
+                  + 0.25 * math.sin(2.0 * phase + 0.3)
+                  + 0.12 * math.sin(3.0 * phase + 0.8)
+                  + 0.05 * math.sin(5.0 * phase + 1.1)
+              )
+              sample = max(-0.95, min(0.95, sample))
+              frames.extend(struct.pack('<h', int(round(sample * 32767))))
+          with wave.open(str(out), 'wb') as handle:
+              handle.setnchannels(1)
+              handle.setsampwidth(2)
+              handle.setframerate(rate)
+              handle.writeframes(frames)
+          assert out.stat().st_size > rate * 2 * 10
+          print('Deterministic ECAPA smoke WAV built:', out, out.stat().st_size)
+          PY
+
+      - name: ECAPA real-model smoke against enrolled immutable references
         env:
           PYTHONPATH: ${{ github.workspace }}/scripts:${{ github.workspace }}:${{ github.workspace }}/engine/src
         run: |
@@ -186,18 +254,22 @@ jobs:
           from pathlib import Path
           from scripts.voice_identity_observer import _analyze_wav
 
-          charon = _analyze_wav(Path('approved/01-Charon.wav'), dialogue=False)
-          orus = _analyze_wav(Path('approved/02-Orus.wav'), dialogue=True)
-          score = charon['speaker_similarity']
+          sample = Path('voice-observer-ecapa-smoke.wav')
+          single = _analyze_wav(sample, dialogue=False)
+          dialogue = _analyze_wav(sample, dialogue=True)
+          score = single['speaker_similarity']
           if score is None or not math.isfinite(float(score)) or not -1.0 <= float(score) <= 1.0:
-              raise SystemExit(f'invalid Charon ECAPA similarity: {score!r}')
-          if len(charon['window_scores']) < 3:
-              raise SystemExit('Charon smoke did not measure start/middle/end windows')
-          if len(orus['window_scores']) < 3:
-              raise SystemExit('Orus smoke did not measure start/middle/end windows')
-          if any('questioner_similarity' not in item for item in orus['window_scores']):
-              raise SystemExit('Dialogue smoke omitted Orus questioner-reference scores')
-          print('ECAPA smoke OK; Charon primary similarity=', score)
-          print('Orus diagnostic window scores=', orus['window_scores'])
+              raise SystemExit(f'invalid ECAPA primary similarity: {score!r}')
+          if len(single['window_scores']) < 3 or len(dialogue['window_scores']) < 3:
+              raise SystemExit('ECAPA smoke did not measure start/middle/end windows')
+          if any('questioner_similarity' not in item for item in dialogue['window_scores']):
+              raise SystemExit('Dialogue ECAPA smoke omitted questioner-reference scores')
+          for item in dialogue['window_scores']:
+              for key in ('primary_similarity', 'questioner_similarity'):
+                  value = float(item[key])
+                  if not math.isfinite(value) or not -1.0 <= value <= 1.0:
+                      raise SystemExit(f'invalid {key}: {value!r}')
+          print('ECAPA real-model runtime smoke OK; primary similarity=', score)
+          print('Reference identity is owned by immutable enrolled centroids/hashes, not this synthetic smoke WAV')
           print('No threshold/enforcement asserted: Phase 1 remains uncalibrated observe-only')
           PY
