@@ -12,15 +12,15 @@ import isco_video_agent.resilient_planner as staged
 # Run #120 proved that the initial Film plan can be completely healthy at the planning
 # transport layer (outline + Writer 3+3+2 + Doctor 3+3+2 + residual append), then the
 # orchestrator-level RepairDossier can throw that successful work away by calling
-# build_plan() from scratch.  This patch keeps the Engine's dossier, reaudit loop and
+# build_plan() from scratch. This patch keeps the Engine's dossier, reaudit loop and
 # all hard gates authoritative, but changes the transport used *inside* a dossier repair:
 # repair the already-successful plan in bounded shards instead of rebuilding a new
 # outline/script/doctor pipeline.
 #
-# Initial dossier shards are deliberately two sections.  If a provider returns a pure
-# output-envelope/capacity failure, only that shard is split to one-section calls.  A
+# Initial dossier shards are deliberately two sections. If a provider returns a pure
+# output-envelope/capacity failure, only that shard is split to one-section calls. A
 # successful earlier shard is never replayed and a failing one-section shard fails
-# closed.  Malformed schema output keeps exactly one bounded schema repair.
+# closed. Malformed schema output keeps exactly one bounded schema repair.
 DOSSIER_REPAIR_SHARD_SIZE = 2
 
 _REPAIR_CONTEXT: contextvars.ContextVar[tuple[object, str] | None] = contextvars.ContextVar(
@@ -61,7 +61,7 @@ def _compact_issue_notes(issue_notes: str) -> str:
     """Keep every dossier verdict while removing duplicated full-plan payloads.
 
     Engine repair_dossier appends LOCAL/TARGETED context blocks containing plan JSON
-    for its historical full-plan callback.  This transport already has the current plan
+    for its historical full-plan callback. This transport already has the current plan
     object and emits only the relevant section data, so repeating those blocks wastes
     prompt/output headroom without adding a quality signal.
     """
@@ -109,10 +109,12 @@ def _schema_repair_suffix(count: int) -> str:
 
 
 def _one_schema_bounded_call(api_key: str, prompt: str, model: str, expected_ids: list[str]) -> dict[str, dict]:
-    """One normal call; one schema repair only for schema/malformed output.
+    """Fallback owner for direct use before the production schema bridge is installed.
 
-    A length/capacity exception does not replay the same oversized request.  It bubbles
-    as transport pressure so the caller can shrink just that shard.
+    Production explicitly replaces this callable with run120_schema_policy_bridge so
+    the Runner's existing schema_repair_policy remains the one schema-recovery owner.
+    This fallback keeps the same essential rule: output-envelope pressure never
+    replays the same full request and instead bubbles to adaptive shard splitting.
     """
     try:
         data = staged.json_text(api_key, prompt, model=model)
@@ -316,7 +318,10 @@ def _repair_existing_plan(
             narration = str(entry.get("narration", "") or "").strip()
             if not narration:
                 raise RuntimeError(f"Dossier repair returned empty narration for section {section.id}")
-            section.narration = narration[:2400]
+            # Never impose a hidden character truncation here. The Engine's existing
+            # word-count, aggregate-length, tone, factuality and dossier re-audits are
+            # authoritative and fail closed if provider output is excessive or invalid.
+            section.narration = narration
             key_point = str(entry.get("key_point", "") or "").strip()
             if key_point:
                 section.key_point = key_point[:220]
@@ -346,7 +351,7 @@ def install_run120_dossier_repair_hardening() -> None:
     """Patch only the transport used by Engine RepairDossier callbacks.
 
     The Engine still owns dossier construction, max_attempts=2, overlay containment,
-    reaudits and final hard gates.  The original repair callback still owns the P1
+    reaudits and final hard gates. The original repair callback still owns the P1
     BudgetLedger scope; this wrapper merely changes what staged.build_plan does while
     that callback is executing.
     """
