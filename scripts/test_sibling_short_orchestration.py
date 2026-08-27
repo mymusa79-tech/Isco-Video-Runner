@@ -56,7 +56,7 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
                     "on_screen_text": "الكمال يؤخر الحركة",
                     "visual_query": "hands erasing repeated notes desk",
                     "emotion": "reflective",
-                    "narration": "السعي للكمال يبدو جادًا لكنه قد يصبح طريقة مؤدبة للتأجيل. كل تعديل قبل التجربة يبقى افتراضًا. التجربة الصغيرة تعطيك معلومة لا يمنحها التفكير وحده.",
+                    "narration": "قلت لنفسي إن كل شيء يجب أن يكون كاملًا. ثم سألت نفسي: ماذا لو كانت التجربة الصغيرة أوضح من التفكير وحده؟",
                 },
                 {
                     "id": "s3",
@@ -135,6 +135,10 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
         requests = sibling.build_sibling_requests(self._parent(), self._plan(), self._source_plan())
         self.assertEqual(len(requests), 3)
         self.assertEqual([item["sibling_index"] for item in requests], [1, 2, 3])
+        self.assertEqual(
+            [item["source_short_plan"]["template"] for item in requests],
+            ["why_reframe", "inner_dialogue", "micro_story"],
+        )
         self.assertEqual(len({item["approved_topic"] for item in requests}), 3)
         for request in requests:
             self.assertTrue(request["approval_inherited_from_parent_bundle"])
