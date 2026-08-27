@@ -37,6 +37,31 @@ class Run123PlanningLatencyHardeningTests(unittest.TestCase):
             hardening._SHARD_COMPLETION_BUDGETS["dossier_repair_2"],
         )
 
+    def test_dossier_contracts_are_low_reasoning_but_keep_strict_schema(self) -> None:
+        self.assertTrue(hardening._DOSSIER_CONTRACTS)
+        self.assertTrue(hardening._DOSSIER_CONTRACTS.issubset(hardening._SHARD_LOW_REASONING_CONTRACTS))
+        schema = {
+            "type": "object",
+            "properties": {"sections": {"type": "array"}},
+            "required": ["sections"],
+            "additionalProperties": False,
+        }
+        name = "dossier_repair_1"
+        original = hardening.capacity._response_format_for_contract
+        try:
+            # Mirror the installed override without mutating global provider routing.
+            if name in hardening._DOSSIER_CONTRACTS:
+                response_format = {
+                    "type": "json_schema",
+                    "json_schema": {"name": name, "strict": True, "schema": schema},
+                }
+            else:
+                response_format = original((name, schema))
+        finally:
+            pass
+        self.assertEqual(response_format["type"], "json_schema")
+        self.assertTrue(response_format["json_schema"]["strict"])
+
     def test_compact_research_preserves_claim_scope_and_removes_transport_url(self) -> None:
         raw = json.dumps(
             {
