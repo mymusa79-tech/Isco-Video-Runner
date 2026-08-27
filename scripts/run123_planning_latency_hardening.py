@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 import isco_video_agent.resilient_planner as staged
 from isco_video_agent.config import load_channel_persona
@@ -168,6 +169,34 @@ def _compact_repair_persona(prompt: str) -> str:
     )
 
 
+def _fast_failover_groq_pacing(request_capacity: dict) -> float:
+    """Use another free provider instead of sleeping on a known-empty Groq TPM window.
+
+    No HTTP request and therefore no BudgetLedger provider attempt happens here. The
+    router will advance to OpenRouter for this logical subtask. Groq is NOT circuit
+    opened: once the recorded reset time passes, its local state is cleared and it is
+    eligible again on a later subtask.
+    """
+    remaining = capacity._GROQ_RATE_STATE.get("remaining_tokens")
+    reset_at = capacity._GROQ_RATE_STATE.get("reset_at_monotonic")
+    required = int(request_capacity["estimated_request_tokens"])
+    now = time.monotonic()
+
+    if isinstance(reset_at, (int, float)) and float(reset_at) <= now:
+        capacity._GROQ_RATE_STATE["remaining_tokens"] = None
+        capacity._GROQ_RATE_STATE["reset_at_monotonic"] = None
+        return 0.0
+
+    if isinstance(remaining, int) and required > remaining and isinstance(reset_at, (int, float)):
+        until_reset = max(0.0, float(reset_at) - now)
+        raise RuntimeError(
+            "GROQ_TPM_WINDOW_BUSY_PRECHECK "
+            f"required_estimate={required} remaining={remaining} reset_in={until_reset:.2f}s "
+            "action=failover_without_http"
+        )
+    return 0.0
+
+
 def install_run123_planning_latency_hardening() -> None:
     if getattr(router, "_ISCO_RUN123_PLANNING_LATENCY_HARDENED", False):
         return
@@ -240,10 +269,14 @@ def install_run123_planning_latency_hardening() -> None:
     )
     capacity._response_format_for_contract = shard_response_format
 
-    # The proactive Groq token-reset pacing remains authoritative. This cap affects
-    # only an HTTP 429 that still escapes that preflight: with a healthy fallback mesh,
-    # spending two minutes retrying the same throttled provider is worse than failing
-    # over after one short bounded wait.
+    # Do not serialize the whole planning pipeline behind Groq's minute window. A
+    # known-insufficient remaining-token header is a local routing fact, not a reason
+    # to sleep. OpenRouter can handle that subtask while Groq naturally becomes
+    # eligible again after reset.
+    capacity._proactive_groq_pacing = _fast_failover_groq_pacing
+
+    # An actual escaped HTTP 429 may still include Retry-After. Keep one bounded outer
+    # retry, but never allow the old 120-second wait to dominate the production path.
     router.RETRY_AFTER_MAX_SECONDS = min(
         float(router.RETRY_AFTER_MAX_SECONDS), _REPAIR_RETRY_AFTER_CAP_SECONDS
     )
@@ -262,5 +295,6 @@ def install_run123_planning_latency_hardening() -> None:
     print(
         "Run123 planning latency hardening installed: "
         "writer_doctor=dynamically_bounded dossier=strict_schema_low_reasoning "
-        "repair_persona=compact factual_claim_scopes=preserved retry_after_cap=20s"
+        "groq_window=failover_without_sleep repair_persona=compact "
+        "factual_claim_scopes=preserved retry_after_cap=20s"
     )
