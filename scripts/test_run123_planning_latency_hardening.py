@@ -4,9 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from scripts import provider_capacity_hardening as capacity
 from scripts import run123_planning_latency_hardening as hardening
-from scripts import task_level_planner_router as router
 
 
 class Run123PlanningLatencyHardeningTests(unittest.TestCase):
@@ -106,8 +104,10 @@ class Run123PlanningLatencyHardeningTests(unittest.TestCase):
         self.assertIn("<CHANNEL_PERSONA>", enriched)
         self.assertIn("tone", enriched)
         self.assertIn("cadence", enriched)
+        self.assertIn("move", enriched)
         self.assertIn("ban", enriched)
         self.assertIn("principle", enriched)
+        self.assertIn("required", enriched)
         self.assertIn("dialogue", enriched)
 
     def test_retry_after_cap_is_bounded_for_fast_failover(self) -> None:
