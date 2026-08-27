@@ -6,8 +6,8 @@ from unittest import mock
 
 from scripts import planning_batch_hardening as batching
 from scripts import run120_dossier_repair_hardening as dossier
+from scripts import run120_schema_policy_bridge as bridge
 from scripts import run122_final_payload_admission as admission
-from scripts import run_v3_voice
 
 
 class Run122FinalPayloadAdmissionTests(unittest.TestCase):
@@ -115,13 +115,14 @@ class Run122FinalPayloadAdmissionTests(unittest.TestCase):
             dossier._one_schema_bounded_call = old_dossier_call
             admission._INSTALLED = old_installed
 
-    def test_production_installs_after_schema_bridge_before_quality_guard(self) -> None:
-        source = inspect.getsource(run_v3_voice.main)
-        bridge = source.index("install_run120_schema_policy_bridge()")
-        admission_call = source.index("install_run122_final_payload_admission()")
-        quality = source.index("install_planner_quality_guard()")
-        self.assertLess(bridge, admission_call)
-        self.assertLess(admission_call, quality)
+    def test_schema_bridge_installs_final_payload_guard_after_live_schema_owner(self) -> None:
+        source = inspect.getsource(bridge.install_run120_schema_policy_bridge)
+        bridge_assign = source.index("hardening._one_schema_bounded_call = _policy_owned_call")
+        admission_call = source.index("_install_run122_final_payload_admission()")
+        self.assertLess(bridge_assign, admission_call)
+
+        helper_source = inspect.getsource(bridge._install_run122_final_payload_admission)
+        self.assertIn("install_run122_final_payload_admission()", helper_source)
 
 
 if __name__ == "__main__":
