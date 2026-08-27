@@ -2,15 +2,15 @@
   "editorial": {
     "approved_request_hash": "",
     "approved_target": false,
-    "pending_actions_count": 2,
+    "pending_actions_count": 0,
     "production_queue_count": 0,
     "request_count": 1,
-    "research_active": false,
-    "research_session_hash": "",
+    "research_active": true,
+    "research_session_hash": "cfc5c2ac8d65",
     "saved_count": 3,
     "used_count": 0
   },
-  "generated_at": "2026-08-27T20:37:50.938934Z",
+  "generated_at": "2026-08-27T20:39:58.762837Z",
   "schema_version": 1,
-  "source_last_event_at": "2026-08-27T20:37:50.938934+00:00"
+  "source_last_event_at": "2026-08-27T20:39:58.762837+00:00"
 }
