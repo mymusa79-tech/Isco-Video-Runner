@@ -47,18 +47,10 @@ class Run123PlanningLatencyHardeningTests(unittest.TestCase):
             "additionalProperties": False,
         }
         name = "dossier_repair_1"
-        original = hardening.capacity._response_format_for_contract
-        try:
-            # Mirror the installed override without mutating global provider routing.
-            if name in hardening._DOSSIER_CONTRACTS:
-                response_format = {
-                    "type": "json_schema",
-                    "json_schema": {"name": name, "strict": True, "schema": schema},
-                }
-            else:
-                response_format = original((name, schema))
-        finally:
-            pass
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {"name": name, "strict": True, "schema": schema},
+        }
         self.assertEqual(response_format["type"], "json_schema")
         self.assertTrue(response_format["json_schema"]["strict"])
 
@@ -134,6 +126,38 @@ class Run123PlanningLatencyHardeningTests(unittest.TestCase):
         self.assertIn("principle", enriched)
         self.assertIn("required", enriched)
         self.assertIn("dialogue", enriched)
+
+    def test_busy_groq_window_fails_over_without_sleep_or_state_loss(self) -> None:
+        state = hardening.capacity._GROQ_RATE_STATE
+        original = dict(state)
+        try:
+            state["remaining_tokens"] = 900
+            state["reset_at_monotonic"] = 130.0
+            with patch.object(hardening.time, "monotonic", return_value=100.0):
+                with self.assertRaisesRegex(RuntimeError, "GROQ_TPM_WINDOW_BUSY_PRECHECK"):
+                    hardening._fast_failover_groq_pacing({"estimated_request_tokens": 3200})
+            self.assertEqual(state["remaining_tokens"], 900)
+            self.assertEqual(state["reset_at_monotonic"], 130.0)
+        finally:
+            state.clear()
+            state.update(original)
+
+    def test_expired_groq_window_clears_local_state_and_reenables_provider(self) -> None:
+        state = hardening.capacity._GROQ_RATE_STATE
+        original = dict(state)
+        try:
+            state["remaining_tokens"] = 200
+            state["reset_at_monotonic"] = 99.0
+            with patch.object(hardening.time, "monotonic", return_value=100.0):
+                self.assertEqual(
+                    hardening._fast_failover_groq_pacing({"estimated_request_tokens": 5000}),
+                    0.0,
+                )
+            self.assertIsNone(state["remaining_tokens"])
+            self.assertIsNone(state["reset_at_monotonic"])
+        finally:
+            state.clear()
+            state.update(original)
 
     def test_retry_after_cap_is_bounded_for_fast_failover(self) -> None:
         self.assertLessEqual(hardening._REPAIR_RETRY_AFTER_CAP_SECONDS, 20.0)
