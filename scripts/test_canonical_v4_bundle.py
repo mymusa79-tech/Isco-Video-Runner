@@ -155,7 +155,7 @@ class CanonicalV4BundleTests(unittest.TestCase):
             self.assertEqual(len({x["approved_topic"] for x in children}), len(children))
             self.assertEqual(
                 [request["source_short_plan"]["template"] for request in children],
-                ["why_reframe", "inner_dialogue", "quote_reflection"][: len(children)],
+                ["why_reframe"] * len(children),
             )
             for request in children:
                 self.assertEqual(request["source"], bundle.SOURCE)
