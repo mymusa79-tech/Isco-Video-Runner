@@ -20,6 +20,46 @@ from isco_video_agent.short_timed_text import render_progressive_text, validate_
 from isco_video_agent.short_topic_gate import evaluate_short_topic
 
 SCHEMA_VERSION = 1
+_ALLOWED_SHORT_TEMPLATES = {
+    "why_reframe",
+    "inner_dialogue",
+    "micro_story",
+    "quote_reflection",
+}
+_TEMPLATE_TIMING_WEIGHTS: dict[str, dict[int, tuple[float, ...]]] = {
+    "why_reframe": {
+        2: (0.34, 0.66),
+        3: (0.23, 0.34, 0.43),
+        4: (0.20, 0.27, 0.25, 0.28),
+    },
+    "inner_dialogue": {
+        2: (0.40, 0.60),
+        3: (0.28, 0.31, 0.41),
+        4: (0.24, 0.26, 0.22, 0.28),
+    },
+    "micro_story": {
+        2: (0.34, 0.66),
+        3: (0.22, 0.36, 0.42),
+        4: (0.18, 0.29, 0.25, 0.28),
+    },
+    "quote_reflection": {
+        2: (0.45, 0.55),
+        3: (0.34, 0.25, 0.41),
+        4: (0.30, 0.18, 0.22, 0.30),
+    },
+}
+_TEMPLATE_ZOOM_FACTORS: dict[str, tuple[float, ...]] = {
+    "why_reframe": (1.00, 1.05, 1.08, 1.03),
+    "inner_dialogue": (1.02, 1.06, 1.03, 1.08),
+    "micro_story": (1.00, 1.04, 1.07, 1.10),
+    "quote_reflection": (1.00, 1.03, 1.00, 1.05),
+}
+_TEMPLATE_MOTION_LABELS: dict[str, tuple[str, ...]] = {
+    "why_reframe": ("hold", "push_in", "closer_reframe", "release"),
+    "inner_dialogue": ("intimate_hold", "pressure_push", "breath_reset", "resolve_push"),
+    "micro_story": ("establish", "advance", "turn", "meaning_push"),
+    "quote_reflection": ("quote_hold", "gentle_push", "reset", "payoff_push"),
+}
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -71,10 +111,45 @@ def _duration(quality: dict[str, Any]) -> float:
     raise RuntimeError("Shorts binding cannot resolve final duration")
 
 
-def _hook_and_text_contract(texts: list[str], duration_s: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _short_template(plan: dict[str, Any], control_request: dict[str, Any]) -> str:
+    scope = str(control_request.get("approval_scope") or "").strip()
+    if scope == "short_only":
+        editorial = plan.get("editorial_intent") if isinstance(plan.get("editorial_intent"), dict) else {}
+        template = str(editorial.get("short_template") or "").strip()
+        if template not in _ALLOWED_SHORT_TEMPLATES:
+            raise RuntimeError("Standalone Short is missing a valid topic-selected template")
+        return template
+    if scope == "short_sibling":
+        source_plan = control_request.get("source_short_plan")
+        template = str((source_plan or {}).get("template") or "").strip() if isinstance(source_plan, dict) else ""
+        if template not in _ALLOWED_SHORT_TEMPLATES:
+            raise RuntimeError("Source-derived Short is missing a valid inherited template")
+        return template
+    raise RuntimeError("Shorts compensation requires short_only or short_sibling approval scope")
+
+
+def _timing_boundaries(total_ms: int, count: int, template: str) -> list[int]:
+    try:
+        weights = _TEMPLATE_TIMING_WEIGHTS[template][count]
+    except KeyError as exc:
+        raise RuntimeError("Shorts compensation has no timing profile for this template/beat count") from exc
+    boundaries = [0]
+    elapsed = 0.0
+    for weight in weights[:-1]:
+        elapsed += weight
+        boundaries.append(round(total_ms * elapsed))
+    boundaries.append(total_ms)
+    return boundaries
+
+
+def _hook_and_text_contract(
+    texts: list[str],
+    duration_s: float,
+    template: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     count = len(texts)
     total_ms = max(count, int(round(duration_s * 1000)))
-    boundaries = [round(total_ms * index / count) for index in range(count + 1)]
+    boundaries = _timing_boundaries(total_ms, count, template)
     beats: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     for index, text in enumerate(texts):
@@ -88,6 +163,7 @@ def _hook_and_text_contract(texts: list[str], duration_s: float) -> tuple[dict[s
                 "end_ms": end_ms,
                 "semantic_job": role,
                 "hook_commit": index == 0,
+                "template": template,
             }
         )
         events.append(
@@ -96,11 +172,114 @@ def _hook_and_text_contract(texts: list[str], duration_s: float) -> tuple[dict[s
                 "end": round(end_ms / 1000.0, 3),
                 "text": text,
                 "role": role,
+                "template": template,
             }
         )
     hook = validate_hook_schema({"beats": beats, "hook_commit_ms": 0})
     validate_progressive_text(events)
     return hook, events
+
+
+def _video_dimensions(video: Path) -> tuple[int, int]:
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "json",
+        str(video),
+    ]
+    result = subprocess.run(command, check=True, capture_output=True, text=True)
+    data = json.loads(result.stdout or "{}")
+    streams = data.get("streams") if isinstance(data, dict) else None
+    first = streams[0] if isinstance(streams, list) and streams and isinstance(streams[0], dict) else {}
+    width = int(first.get("width") or 0)
+    height = int(first.get("height") or 0)
+    if width <= 0 or height <= 0:
+        raise RuntimeError("Shorts compensation cannot resolve picture dimensions")
+    return width, height
+
+
+def _beat_directives(template: str, events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    factors = _TEMPLATE_ZOOM_FACTORS[template]
+    labels = _TEMPLATE_MOTION_LABELS[template]
+    directives: list[dict[str, Any]] = []
+    for index, event in enumerate(events):
+        directives.append(
+            {
+                "beat_id": f"b{index + 1:02d}",
+                "role": event["role"],
+                "start": event["start"],
+                "end": event["end"],
+                "visual_change": True,
+                "motion_intent": labels[index],
+                "zoom_factor": factors[index],
+                "audio_cue": "none_generated_preserve_existing_mix",
+            }
+        )
+    return directives
+
+
+def _apply_beat_reframes(
+    video: Path,
+    events: list[dict[str, Any]],
+    template: str,
+    output: Path,
+) -> Path:
+    """Create restrained beat-synchronised visual changes without another media/AI call."""
+    width, height = _video_dimensions(video)
+    factors = _TEMPLATE_ZOOM_FACTORS[template]
+    filters: list[str] = []
+    labels: list[str] = []
+    for index, event in enumerate(events):
+        start = float(event["start"])
+        end = float(event["end"])
+        if end <= start:
+            raise RuntimeError("Shorts compensation received a non-positive beat duration")
+        factor = factors[index]
+        scaled_width = max(width, int(round(width * factor / 2.0) * 2))
+        scaled_height = max(height, int(round(height * factor / 2.0) * 2))
+        x = max(0, (scaled_width - width) // 2)
+        y = max(0, (scaled_height - height) // 2)
+        label = f"v{index}"
+        filters.append(
+            f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,"
+            f"scale={scaled_width}:{scaled_height}:flags=lanczos,"
+            f"crop={width}:{height}:{x}:{y},setsar=1[{label}]"
+        )
+        labels.append(f"[{label}]")
+    filters.append(f"{''.join(labels)}concat=n={len(labels)}:v=1:a=0[outv]")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video),
+        "-filter_complex",
+        ";".join(filters),
+        "-map",
+        "[outv]",
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(output),
+    ]
+    subprocess.run(command, check=True, capture_output=True)
+    if not output.is_file() or output.stat().st_size <= 1024:
+        raise RuntimeError("Shorts beat compensation did not produce a usable picture")
+    return output
 
 
 def _remux_progressive_video(video: Path, audio_source: Path, output: Path) -> Path:
@@ -129,7 +308,7 @@ def _remux_progressive_video(video: Path, audio_source: Path, output: Path) -> P
 
 
 def prepare_short_render(output_dir: Path, control_request: dict[str, Any]) -> dict[str, Any]:
-    """Apply Short-native hook/text contracts before Gold reviews the final bytes."""
+    """Apply Short-native template, rhythm, hook/text and standalone visual compensation before Gold."""
     root = Path(output_dir)
     if control_request.get("kind") != "short" or control_request.get("approved_by_user") is not True:
         raise RuntimeError("Shorts production requires an explicit approved short control request")
@@ -145,9 +324,10 @@ def prepare_short_render(output_dir: Path, control_request: dict[str, Any]) -> d
     if topic_result.get("decision") != "pass":
         raise RuntimeError("Shorts topic admission blocked the approved candidate")
 
+    template = _short_template(plan, control_request)
     duration_s = _duration(quality)
     texts = _unique_texts(plan)
-    hook, events = _hook_and_text_contract(texts, duration_s)
+    hook, events = _hook_and_text_contract(texts, duration_s, template)
     length = choose_length_band(estimated_spoken_seconds=duration_s, beat_count=len(texts))
     if length.get("length_fit_pass") is not True:
         raise RuntimeError("Shorts professional length recommendation blocked the render")
@@ -158,9 +338,10 @@ def prepare_short_render(output_dir: Path, control_request: dict[str, Any]) -> d
     reframe = float(topic_result.get("reframe_score") or 0.0)
     knowledge = float(topic_result.get("knowledge_gap_score") or 0.0)
     tension_type = "reframe" if reframe >= knowledge else "knowledge_gap"
+    first_event_ms = max(1, int(round((events[0]["end"] - events[0]["start"]) * 1000)))
     first_frame = validate_first_frame(
         {
-            "first_frame_end_ms": min(1000, max(1, int(duration_s * 1000 / len(texts)))),
+            "first_frame_end_ms": min(1000, first_event_ms),
             "hook_commit_ms": hook["hook_commit_ms"],
             "tension_type": tension_type,
             "text": texts[0],
@@ -173,10 +354,37 @@ def prepare_short_render(output_dir: Path, control_request: dict[str, Any]) -> d
     existing_final = root / "final.mp4"
     if not picture.is_file() or not existing_final.is_file():
         raise RuntimeError("Shorts progressive render requires picture.mp4 and final.mp4")
+
+    scope = str(control_request.get("approval_scope") or "").strip()
+    standalone_compensation = scope == "short_only"
+    directives = _beat_directives(template, events)
+    compensation_picture = root / "picture-short-comp-v2.mp4"
+    progressive_input = picture
+    if standalone_compensation:
+        progressive_input = _apply_beat_reframes(picture, events, template, compensation_picture)
+
+    compensation = {
+        "schema_version": 1,
+        "profile": "short_only_compensation_v2",
+        "scope": scope,
+        "template": template,
+        "topic_selected_template": scope == "short_only",
+        "beat_driven_timing_applied": True,
+        "beat_driven_visual_reframe_applied": standalone_compensation,
+        "multi_asset_broll_generated": False,
+        "voice_generated": False,
+        "existing_audio_preserved": True,
+        "extra_ai_calls": 0,
+        "directives": directives,
+    }
+    (root / "short-compensation-plan.json").write_text(
+        json.dumps(compensation, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
     progressive_picture = root / "picture-short-v1.mp4"
     progressive_final = root / "final-short-v1.mp4"
     render_progressive_text(
-        video=picture,
+        video=progressive_input,
         events=events,
         srt_path=root / "short-progressive.srt",
         output=progressive_picture,
@@ -189,12 +397,14 @@ def prepare_short_render(output_dir: Path, control_request: dict[str, Any]) -> d
         "stage": "pre_gold",
         "request_id": control_request.get("request_id"),
         "request_sha256": control_request.get("request_sha256"),
+        "short_template": template,
         "topic_admission": topic_result,
         "hook_contract": hook,
         "timed_text_events": events,
         "first_frame": first_frame,
         "length_recommendation": length,
-        "rendered_from": "picture.mp4",
+        "compensation": compensation,
+        "rendered_from": progressive_input.name,
         "progressive_text_applied": True,
         "extra_ai_calls": 0,
     }
@@ -377,6 +587,9 @@ def finalize_short_quality(output_dir: Path, control_request: dict[str, Any], pr
         "request_id": control_request.get("request_id"),
         "topic": str(plan.get("topic") or ""),
         "quality_profile": "shorts_v1_1_professional",
+        "compensation_profile": "short_only_compensation_v2",
+        "short_template": pre_gold.get("short_template"),
+        "short_compensation": pre_gold.get("compensation"),
         "topic_admission": pre_gold["topic_admission"],
         "identity_admission": identity,
         "hook_contract": pre_gold["hook_contract"],
