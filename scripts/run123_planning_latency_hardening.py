@@ -7,17 +7,17 @@ import time
 import isco_video_agent.resilient_planner as staged
 from isco_video_agent.config import load_channel_persona
 
+from scripts import append_retry_guard as append_retry
 from scripts import provider_capacity_hardening as capacity
 from scripts import run120_dossier_repair_hardening as dossier
 from scripts import task_level_planner_router as router
 
 
 # Run #123 proved that the remaining long-form bottleneck is no longer section count
-# alone. Writer/Doctor/Dossier shards repeatedly carried almost the full policy,
-# research and persona envelope and were all classified as the same 2,400-token
-# ``full_script`` contract. A one-section dossier repair therefore reserved as much
-# output as a multi-section writer call and could still reach finish_reason=length on
-# OpenRouter. The same near-8K request estimate forced Groq to pace almost every call.
+# alone. Writer/Doctor/Dossier/append-repair shards repeatedly carried almost the full
+# policy, research and persona envelope. Several requests operated at ~8K Groq TPM and
+# serialized planning behind 40-60 second token-window sleeps; a one-section dossier
+# repair also inherited a full-script output budget and truncated on OpenRouter.
 #
 # This patch changes transport shape only. It does NOT loosen any Engine quality gate,
 # factuality rule, tone rule, section-length gate, Vision/TTS gate, rights rule, Gold
@@ -34,6 +34,14 @@ _SHARD_COMPLETION_BUDGETS = {
     "script_doctor_3": 1800,
     "dossier_repair_1": 850,
     "dossier_repair_2": 1400,
+    "append_repair_1": 600,
+    "append_repair_2": 800,
+    "append_repair_3": 1000,
+    "append_repair_4": 1200,
+    "append_repair_5": 1400,
+    "append_repair_6": 1600,
+    "append_repair_7": 1800,
+    "append_repair_8": 2000,
 }
 
 _WRITER_DOCTOR_CONTRACTS = frozenset(
@@ -41,6 +49,9 @@ _WRITER_DOCTOR_CONTRACTS = frozenset(
 )
 _DOSSIER_CONTRACTS = frozenset(
     name for name in _SHARD_COMPLETION_BUDGETS if name.startswith("dossier_repair_")
+)
+_APPEND_CONTRACTS = frozenset(
+    name for name in _SHARD_COMPLETION_BUDGETS if name.startswith("append_repair_")
 )
 _SHARD_LOW_REASONING_CONTRACTS = frozenset(_SHARD_COMPLETION_BUDGETS)
 
@@ -117,12 +128,16 @@ def compact_planning_research_json(raw: str) -> str:
 
 
 def _contract_name_for_prompt(prompt: str, base_name: str) -> str:
-    if base_name != "full_script":
-        return base_name
     exact_match = re.search(r"with EXACTLY\s*(\d+)\s+entries", prompt, flags=re.I)
     if not exact_match:
         return base_name
     count = int(exact_match.group(1))
+
+    if base_name == "append_only_repair" and '"additions"' in prompt:
+        name = f"append_repair_{count}"
+        return name if name in _APPEND_CONTRACTS else base_name
+    if base_name != "full_script":
+        return base_name
     if "Repair ONLY this bounded shard" in prompt:
         return f"dossier_repair_{count}"
     if "Repair ONE BOUNDED BATCH" in prompt:
@@ -130,6 +145,19 @@ def _contract_name_for_prompt(prompt: str, base_name: str) -> str:
     if "writing ONE BOUNDED BATCH" in prompt:
         return f"script_writer_{count}"
     return base_name
+
+
+def _is_compact_repair_prompt(prompt: str) -> bool:
+    return any(
+        marker in prompt
+        for marker in (
+            "Repair ONE BOUNDED BATCH",
+            "Repair ONLY this bounded shard",
+            "bounded residual section-length repair",
+            "bounded target-completion request",
+            "narrowly-scoped append-only Film section request",
+        )
+    )
 
 
 def _compact_repair_persona(prompt: str) -> str:
@@ -207,6 +235,7 @@ def install_run123_planning_latency_hardening() -> None:
     original_write = staged._write_full_script
     original_doctor = staged._script_doctor
     original_dossier_prompt = dossier._repair_prompt
+    original_append_repair = append_retry._repair_all_residual_underlength
     original_response_format = capacity._response_format_for_contract
 
     def shard_schema(prompt: str):
@@ -230,7 +259,7 @@ def install_run123_planning_latency_hardening() -> None:
         return original_response_format(contract)
 
     def task_persona(prompt: str) -> str:
-        if "Repair ONE BOUNDED BATCH" in prompt or "Repair ONLY this bounded shard" in prompt:
+        if _is_compact_repair_prompt(prompt):
             return _compact_repair_persona(prompt)
         return original_persona(prompt)
 
@@ -255,6 +284,13 @@ def install_run123_planning_latency_hardening() -> None:
             kwargs["research_json"] = compact_planning_research_json(kwargs["research_json"])
         return original_dossier_prompt(*args, **kwargs)
 
+    def compact_append_repair(*args, **kwargs):
+        if "policy_json" in kwargs:
+            kwargs["policy_json"] = compact_text_policy_json(kwargs["policy_json"])
+        if "research_json" in kwargs:
+            kwargs["research_json"] = compact_planning_research_json(kwargs["research_json"])
+        return original_append_repair(*args, **kwargs)
+
     router._structured_schema_for_prompt = shard_schema
     router.with_channel_persona = task_persona
     capacity.completion_token_budget = shard_completion_budget
@@ -263,7 +299,8 @@ def install_run123_planning_latency_hardening() -> None:
     # Reuse the capacity layer's existing low-reasoning branch and robust OpenRouter
     # fallback family for every bounded script shard. Dossier repairs still keep strict
     # JSON Schema through shard_response_format(), so low reasoning does not trade away
-    # structural guarantees.
+    # structural guarantees. Append-only repair retains its existing JSON-object policy,
+    # bounded parsers and target-completion semantics.
     capacity._OUTPUT_HEAVY_CONTRACTS = frozenset(
         set(capacity._OUTPUT_HEAVY_CONTRACTS).union(_SHARD_LOW_REASONING_CONTRACTS)
     )
@@ -284,6 +321,9 @@ def install_run123_planning_latency_hardening() -> None:
     staged._write_full_script = compact_writer
     staged._script_doctor = compact_doctor
     dossier._repair_prompt = compact_dossier_prompt
+    # install_append_retry_guard() runs later in production and binds this module-level
+    # callable into both the Engine underlength slot and post-build residual guard.
+    append_retry._repair_all_residual_underlength = compact_append_repair
 
     # Run #123 exposed the 120-minute workflow margin as an end-to-end concern, not
     # only a planner concern. Keep media quality unchanged but make ffmpeg/ffprobe
@@ -295,6 +335,6 @@ def install_run123_planning_latency_hardening() -> None:
     print(
         "Run123 planning latency hardening installed: "
         "writer_doctor=dynamically_bounded dossier=strict_schema_low_reasoning "
-        "groq_window=failover_without_sleep repair_persona=compact "
-        "factual_claim_scopes=preserved retry_after_cap=20s"
+        "append=compact_dynamic_budget groq_window=failover_without_sleep "
+        "repair_persona=compact factual_claim_scopes=preserved retry_after_cap=20s"
     )
