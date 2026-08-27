@@ -10,7 +10,6 @@ from . import run120_dossier_repair_hardening as hardening
 # time, after planner_schema_guard/schema_repair_policy has replaced the Engine helper.
 # Therefore partial Script Doctor replies retain compact missing-id completion and
 # provider/auth/network/budget failures retain the existing no-replay semantics.
-
 def _schema_policy_compatible_prompt(prompt: str) -> str:
     prompt = prompt.replace(
         "You are the senior Arabic script editor for نداء اليقظة.",
@@ -63,6 +62,14 @@ def install_run120_schema_policy_bridge() -> None:
         return
     hardening._one_schema_bounded_call = _policy_owned_call
     hardening._ISCO_RUN120_SCHEMA_POLICY_BRIDGED = True
+
+    # Run #122: effective-capacity admission must wrap the FINAL dossier schema owner,
+    # not the pre-bridge fallback. Install it here, after _policy_owned_call is bound,
+    # so Writer/Doctor and RepairDossier all pre-split on the same post-enrichment
+    # prompt shape before a known-oversized provider attempt can consume fallback budget.
+    from .run122_effective_capacity_admission import install_run122_effective_capacity_admission
+
+    install_run122_effective_capacity_admission()
     print(
         "Run120 schema-policy bridge installed: existing bounded schema owner reused; "
         "partial completion preserved; transport pressure routes to 2->1 only"
