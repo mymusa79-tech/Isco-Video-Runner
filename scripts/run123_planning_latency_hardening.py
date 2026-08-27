@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import isco_video_agent.resilient_planner as staged
 from isco_video_agent.config import load_channel_persona
@@ -13,9 +14,9 @@ from scripts import task_level_planner_router as router
 # Run #123 proved that the remaining long-form bottleneck is no longer section count
 # alone. Writer/Doctor/Dossier shards repeatedly carried almost the full policy,
 # research and persona envelope and were all classified as the same 2,400-token
-# ``full_script`` contract.  A one-section dossier repair therefore reserved as much
+# ``full_script`` contract. A one-section dossier repair therefore reserved as much
 # output as a multi-section writer call and could still reach finish_reason=length on
-# OpenRouter.  The same near-8K request estimate forced Groq to pace almost every call.
+# OpenRouter. The same near-8K request estimate forced Groq to pace almost every call.
 #
 # This patch changes transport shape only. It does NOT loosen any Engine quality gate,
 # factuality rule, tone rule, section-length gate, Vision/TTS gate, rights rule, Gold
@@ -113,7 +114,7 @@ def compact_planning_research_json(raw: str) -> str:
 def _contract_name_for_prompt(prompt: str, base_name: str) -> str:
     if base_name != "full_script":
         return base_name
-    exact_match = router.re.search(r"with EXACTLY\s*(\d+)\s+entries", prompt, flags=router.re.I)
+    exact_match = re.search(r"with EXACTLY\s*(\d+)\s+entries", prompt, flags=re.I)
     if not exact_match:
         return base_name
     count = int(exact_match.group(1))
@@ -139,10 +140,12 @@ def _compact_repair_persona(prompt: str) -> str:
         "writing_voice": {
             "tone": writing["tone"],
             "cadence": writing["cadence"],
+            "signature_moves": writing["signature_moves"],
             "banned_ai_phrases": writing["banned_ai_phrases"],
         },
         "analysis_lens": {
             "principle": lens["principle"],
+            "required_moves": lens["required_moves"],
             "generic_rejection_rule": lens["generic_rejection_rule"],
         },
     }
@@ -157,7 +160,7 @@ def _compact_repair_persona(prompt: str) -> str:
         + "\n\n<CHANNEL_PERSONA>\n"
         + _compact_json(compact)
         + "\n</CHANNEL_PERSONA>\n"
-        + "CHANNEL_PERSONA is mandatory editorial identity. Preserve its tone, cadence, banned-phrase rules and analysis lens."
+        + "CHANNEL_PERSONA is mandatory editorial identity. Preserve its tone, cadence, signature moves, banned-phrase rules and analysis lens."
     )
 
 
@@ -228,6 +231,13 @@ def install_run123_planning_latency_hardening() -> None:
     staged._write_full_script = compact_writer
     staged._script_doctor = compact_doctor
     dossier._repair_prompt = compact_dossier_prompt
+
+    # Run #123 exposed the 120-minute workflow margin as an end-to-end concern, not
+    # only a planner concern. Keep media quality unchanged but make ffmpeg/ffprobe
+    # subprocesses finite so a later hung render cannot consume the entire job.
+    from scripts.run123_runtime_latency_guard import install_run123_runtime_latency_guard
+
+    install_run123_runtime_latency_guard()
     router._ISCO_RUN123_PLANNING_LATENCY_HARDENED = True
     print(
         "Run123 planning latency hardening installed: "
