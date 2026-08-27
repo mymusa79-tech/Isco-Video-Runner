@@ -112,6 +112,29 @@ _TEMPLATE_COMPENSATION = {
     },
 }
 
+_TEMPLATE_WRITING_DIRECTIVES = {
+    "why_reframe": (
+        "Standalone Short type is why_reframe. Write the Moment around one specific mistaken assumption: "
+        "hook the misconception immediately, contrast it with the useful truth, reframe it, then end with one concrete action. "
+        "Keep every text beat short, natural Modern Standard Arabic; do not add generic motivation."
+    ),
+    "inner_dialogue": (
+        "Standalone Short type is inner_dialogue. Write the Moment as a compact internal tension: an immediate inner-voice hook, "
+        "the friction it creates, a clear turn in perspective, then one practical payoff/action. Keep it natural Modern Standard "
+        "Arabic, intimate but not melodramatic, and do not fabricate autobiography."
+    ),
+    "micro_story": (
+        "Standalone Short type is micro_story. Write the Moment as a tiny concrete progression: enter an immediate scene/event, "
+        "show what changes, make one clear turn, then land the meaning/payoff. Do not invent personal facts; use a generic human "
+        "scenario unless the approved topic itself supplies a real event."
+    ),
+    "quote_reflection": (
+        "Standalone Short type is quote_reflection. Use only the actual quotation present in the approved topic as the hook; never "
+        "invent, alter, or attribute a quote. Follow it with a brief reflection and a concrete payoff. If the topic does not contain "
+        "a real quote, this template must not be used."
+    ),
+}
+
 
 def _clean(value: object) -> str:
     return " ".join(str(value or "").strip().split())
@@ -134,7 +157,9 @@ def _paired_quote(text: object) -> bool:
     return any(opening in raw and closing in raw for opening, closing in (("«", "»"), ("“", "”"))) or raw.count('"') >= 2
 
 
-def _plan_support_text(plan: object) -> str:
+def _plan_support_text(plan: object | None) -> str:
+    if plan is None:
+        return ""
     values: list[str] = [
         _clean(getattr(plan, "hook", "")),
         _clean(getattr(plan, "closing_payoff", "")),
@@ -154,58 +179,81 @@ def _plan_support_text(plan: object) -> str:
     return " ".join(value for value in values if value)
 
 
-def select_native_short_template(topic: object, plan: object) -> dict[str, Any]:
-    """Choose the standalone Short type from topic meaning, with plan text only as support.
+def select_native_short_template(topic: object, plan: object | None = None) -> dict[str, Any]:
+    """Choose standalone Short type from the approved topic before any content writing.
 
-    The approved topic is intentionally weighted 3x so the generated wording cannot
-    silently steer the Short into a different series type. No extra provider call is
-    made. quote_reflection remains fail-closed unless quote evidence exists.
+    Generated plan text is retained only as post-write diagnostics; it can never change
+    the selected type. This prevents the model's wording from steering its own template.
+    No extra provider call is made. quote_reflection remains fail-closed unless the
+    approved topic itself contains quote evidence.
     """
     topic_text = _clean(topic)
-    support_text = _plan_support_text(plan)
-    scores: dict[str, int] = {}
-    for template in _TEMPLATE_ORDER:
-        topic_score = _signal_score(topic_text, _TEMPLATE_SIGNALS[template])
-        support_score = _signal_score(support_text, _TEMPLATE_SIGNALS[template])
-        scores[template] = topic_score * 3 + support_score
-
+    topic_scores = {
+        template: _signal_score(topic_text, _TEMPLATE_SIGNALS[template])
+        for template in _TEMPLATE_ORDER
+    }
     topic_key = _semantic_key(topic_text)
     if " كيف " in f" {topic_key} ":
-        scores["inner_dialogue"] += 2
+        topic_scores["inner_dialogue"] += 2
     if " لماذا " in f" {topic_key} ":
-        scores["why_reframe"] += 3
+        topic_scores["why_reframe"] += 3
 
     quote_evidence = (
         _paired_quote(topic_text)
-        or _paired_quote(support_text)
         or _signal_score(topic_text, _TEMPLATE_SIGNALS["quote_reflection"]) > 0
     )
     if not quote_evidence:
-        scores["quote_reflection"] = -100
+        topic_scores["quote_reflection"] = -100
 
-    if max(scores.values()) <= 0:
-        pillar = _clean(getattr(plan, "pillar", ""))
+    fallback_pillar = ""
+    if max(topic_scores.values()) <= 0:
+        try:
+            fallback_pillar = _clean(native_short.choose_pillar(topic_text))
+        except Exception:
+            fallback_pillar = ""
         fallback = {
             "understand": "why_reframe",
             "rise": "inner_dialogue",
             "see": "micro_story",
-        }.get(pillar, "why_reframe")
-        scores[fallback] = 1
+        }.get(fallback_pillar, "why_reframe")
+        topic_scores[fallback] = 1
 
-    best = max(scores.values())
-    template = next(item for item in _TEMPLATE_ORDER if scores[item] == best)
+    best = max(topic_scores.values())
+    template = next(item for item in _TEMPLATE_ORDER if topic_scores[item] == best)
+    support_text = _plan_support_text(plan)
+    support_scores = {
+        item: _signal_score(support_text, _TEMPLATE_SIGNALS[item])
+        for item in _TEMPLATE_ORDER
+    }
     return {
         "template": template,
-        "scores": scores,
-        "selection_basis": "approved_topic_primary_plan_support_secondary",
-        "topic_weight": 3,
+        "scores": topic_scores,
+        "support_scores_non_authoritative": support_scores,
+        "selection_basis": "approved_topic_only_before_writing",
+        "fallback_pillar": fallback_pillar or None,
         "extra_ai_calls": 0,
         "quote_evidence": quote_evidence,
     }
 
 
-def _attach_compensation_metadata(plan: object, topic: object) -> dict[str, Any]:
-    selection = select_native_short_template(topic, plan)
+def _planning_revision_note(template: str, existing: object) -> str:
+    directive = _TEMPLATE_WRITING_DIRECTIVES[template]
+    previous = _clean(existing)
+    if previous:
+        return f"{directive} Additional revision requirement: {previous}"
+    return directive
+
+
+def _attach_compensation_metadata(
+    plan: object,
+    topic: object,
+    preselected: dict[str, Any],
+) -> dict[str, Any]:
+    postwrite = select_native_short_template(topic, plan)
+    if postwrite["template"] != preselected["template"]:
+        raise NativeShortPlannerError("native_short_template_changed_after_topic_preselection")
+    selection = dict(preselected)
+    selection["support_scores_non_authoritative"] = postwrite["support_scores_non_authoritative"]
     template = selection["template"]
     current = getattr(plan, "editorial_intent", None)
     intent = dict(current) if isinstance(current, dict) else {}
@@ -216,6 +264,8 @@ def _attach_compensation_metadata(plan: object, topic: object) -> dict[str, Any]
         "scope": "short_only",
         "template": template,
         **_TEMPLATE_COMPENSATION[template],
+        "type_selected_before_writing": True,
+        "writing_directive_applied": True,
         "beat_driven_text": True,
         "beat_driven_visual_reframe": True,
         "extra_ai_calls": 0,
@@ -231,9 +281,9 @@ def install_native_short_router() -> None:
     task_level_planner_router installs the vetted Gemini/Groq/OpenRouter JSON router and
     channel persona at the provider boundary. The long-form resilient planner cannot
     accept format=moment, so this adapter reuses only that provider router and delegates
-    the moment schema to Engine's native planner. No extra provider family is introduced.
-    Standalone Shorts then receive a deterministic topic-led template and compensation
-    contract without spending another AI call.
+    the moment schema to Engine's native planner. The approved topic selects the Short
+    type before the content-model call, and that type actively directs the writing and
+    later compensation without spending an extra AI call.
     """
     install_task_router()
     routed_json_text = resilient.json_text
@@ -242,6 +292,8 @@ def install_native_short_router() -> None:
     def routed_build_plan(api_key, topic, requested_format, content_model, **kwargs):
         if str(requested_format or "").strip().lower() != "moment":
             raise NativeShortPlannerError("native_short_router_requires_moment")
+        preselected = select_native_short_template(topic)
+        template = str(preselected["template"])
         plan = native_short.build_plan(
             api_key,
             topic,
@@ -249,12 +301,12 @@ def install_native_short_router() -> None:
             content_model,
             research_context=kwargs.get("research_context"),
             avoid_context=kwargs.get("avoid_context"),
-            revision_note=kwargs.get("revision_note", ""),
+            revision_note=_planning_revision_note(template, kwargs.get("revision_note", "")),
             allow_fallback=False,
         )
         if getattr(plan, "format", None) != "moment":
             raise NativeShortPlannerError("native_short_router_returned_non_moment_plan")
-        selection = _attach_compensation_metadata(plan, topic)
+        selection = _attach_compensation_metadata(plan, topic, preselected)
         os.environ["ISCO_NATIVE_SHORT_TEMPLATE"] = str(selection["template"])
         os.environ.pop("ISCO_DIALOGUE_QA", None)
         return plan
