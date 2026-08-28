@@ -6,6 +6,7 @@ from pathlib import Path
 
 from scripts import planning_batch_hardening as batching
 from scripts import provider_capacity_hardening as capacity
+from scripts import research_provider_reliability as research_reliability
 from scripts import run125_capacity_routing_closure as run125
 from scripts import task_level_planner_router as router
 
@@ -22,6 +23,19 @@ _FORBIDDEN_RUNTIME_CAPACITY_SYMBOLS = frozenset(
     }
 )
 _LEGACY_CAPACITY_OWNER = "provider_capacity_hardening.py"
+
+# These three files contain historical `min(...RETRY_AFTER...)` source expressions.
+# They are not allowed to multiply: final production composition makes the value a
+# WAIT BUDGET (fail over when provider evidence exceeds it), and the live contract below
+# proves no partial same-provider retry survives. A new source site anywhere else fails
+# the repository-wide audit before provider work.
+_KNOWN_NEUTRALIZED_RETRY_AFTER_MIN_FILES = frozenset(
+    {
+        "provider_capacity_hardening.py",
+        "run123_planning_latency_hardening.py",
+        "task_level_planner_router.py",
+    }
+)
 
 # High-risk runtime extension points that are replaced by multiple installers. The
 # value describes how the production caller invokes the final callable: positional
@@ -152,16 +166,34 @@ def _patch_assignment_violations(path: Path, tree: ast.AST) -> list[str]:
     return violations
 
 
+def _retry_after_min_sites(path: Path, tree: ast.AST) -> list[str]:
+    """Find source expressions that can turn a provider minimum delay into a cap."""
+    sites: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "min":
+            continue
+        try:
+            text = ast.unparse(node).casefold()
+        except Exception:
+            text = ""
+        if "retry_after" in text:
+            sites.append(f"{path.name}:{getattr(node, 'lineno', 0)}")
+    return sites
+
+
 def repository_runtime_patch_audit() -> dict[str, object]:
-    """Scan every non-test Runner script for this regression family.
+    """Scan every non-test Runner script for capacity, patch and retry-policy drift.
 
     This deliberately searches the full runtime directory rather than an allowlisted
-    list of Run123/124/125 files. A newly added patch file is therefore covered
+    list of Run123/124/125 files. A newly added patch/retry file is therefore covered
     automatically and cannot evade the audit simply because nobody remembered to add it
     to another hand-maintained dependency list.
     """
     legacy: dict[str, list[str]] = {}
     patch_contracts: list[str] = []
+    retry_after_min_sites: list[str] = []
     files = _runtime_python_files()
     for path in files:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -169,6 +201,7 @@ def repository_runtime_patch_audit() -> dict[str, object]:
         if found_legacy:
             legacy[path.name] = found_legacy
         patch_contracts.extend(_patch_assignment_violations(path, tree))
+        retry_after_min_sites.extend(_retry_after_min_sites(path, tree))
 
     if legacy:
         detail = "; ".join(
@@ -184,20 +217,76 @@ def repository_runtime_patch_audit() -> dict[str, object]:
             + " | ".join(sorted(patch_contracts))
         )
 
+    unexpected_retry_sites = sorted(
+        site
+        for site in retry_after_min_sites
+        if site.split(":", 1)[0] not in _KNOWN_NEUTRALIZED_RETRY_AFTER_MIN_FILES
+    )
+    if unexpected_retry_sites:
+        raise RuntimeError(
+            "RUNTIME_PARTIAL_RETRY_AFTER_SOURCE_DRIFT "
+            + " | ".join(unexpected_retry_sites)
+        )
+
     return {
         "runtime_python_files_scanned": len(files),
         "legacy_capacity_violations": 0,
         "static_patch_contract_violations": 0,
+        "retry_after_min_sites": len(retry_after_min_sites),
+        "unexpected_retry_after_min_sites": 0,
     }
 
 
+def _certify_retry_after_contracts() -> int:
+    """Prove final Planning + Research composition cannot partially honor Retry-After.
+
+    Run128 exposed a cross-generation policy conflict: an old local latency cap shortened
+    a real provider Retry-After and re-issued the same request inside the still-busy TPM
+    window. This check runs after all planning installers, makes no network call, and
+    verifies both live retry owners against the exact dangerous shape before production
+    can spend provider time or quota.
+    """
+    saved_headers = dict(router._last_call_rate_limit_headers)
+    try:
+        router._last_call_rate_limit_headers.clear()
+        router._last_call_rate_limit_headers["retry_after"] = "38"
+        planning_failure = router.classify_provider_failure(
+            "groq",
+            RuntimeError(
+                "GROQ_HTTP_429 status=429 code=rate_limit_exceeded "
+                "message=Rate limit reached on tokens per minute (TPM): Limit 8000"
+            ),
+        )
+        if planning_failure.telemetry_result == "429" or planning_failure.open_circuit:
+            raise RuntimeError(
+                "RUNTIME_RETRY_AFTER_CONTRACT_MISMATCH "
+                "target=planning expected=failover_without_partial_retry"
+            )
+
+        research_delay = research_reliability._backoff_seconds(
+            RuntimeError("HTTP 429 rate_limit_exceeded. Please retry in 38s."),
+            attempt=1,
+        )
+        if research_delay is not None:
+            raise RuntimeError(
+                "RUNTIME_RETRY_AFTER_CONTRACT_MISMATCH "
+                "target=research expected=failover_without_partial_retry"
+            )
+    finally:
+        router._last_call_rate_limit_headers.clear()
+        router._last_call_rate_limit_headers.update(saved_headers)
+    return 2
+
+
 def certify_runtime_patch_contracts() -> dict[str, object]:
-    """Certify the final composed runtime surface before production calls providers.
+    """Certify final composed runtime behavior before production calls providers.
 
     Run127 proved unit tests for each patch are insufficient when multiple installers
-    replace the same callable. This gate combines a full-source static audit with final
-    live signature checks after the canonical installer order. It executes no provider
-    request and changes no provider state.
+    replace the same callable. Run128 then proved that semantic policy composition must
+    also be certified: a callable can have a valid signature yet still combine an old
+    retry cap with newer provider evidence incorrectly. This gate therefore combines a
+    full-source static audit, final live signature checks, and provider-free Retry-After
+    policy probes after the canonical installer order.
     """
     static = repository_runtime_patch_audit()
     model_20b = "openai/gpt-oss-20b"
@@ -248,19 +337,25 @@ def certify_runtime_patch_contracts() -> dict[str, object]:
     for callable_obj, args, kwargs, contract_label in checks:
         _bind_contract(callable_obj, *args, contract_label=contract_label, **kwargs)
 
+    retry_after_checks = _certify_retry_after_contracts()
     result = {
         "status": "pass",
         "signature_checks": len(checks),
+        "retry_after_checks": retry_after_checks,
         "runtime_python_files_scanned": static["runtime_python_files_scanned"],
+        "known_neutralized_retry_after_min_sites": static["retry_after_min_sites"],
         "model_scoped_capacity": True,
         "legacy_capacity_authority": False,
+        "partial_retry_after": False,
         "static_patch_contract_violations": 0,
     }
     print(
         "Runtime patch contracts certified: "
         f"signature_checks={result['signature_checks']} "
+        f"retry_after_checks={result['retry_after_checks']} "
         f"runtime_files_scanned={result['runtime_python_files_scanned']} "
+        f"known_retry_after_min_sites={result['known_neutralized_retry_after_min_sites']} "
         "model_scoped_capacity=true legacy_capacity_authority=false "
-        "static_patch_contract_violations=0"
+        "partial_retry_after=false static_patch_contract_violations=0"
     )
     return result

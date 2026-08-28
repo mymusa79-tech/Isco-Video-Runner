@@ -10,7 +10,8 @@ patch, or otherwise touch any Planning module (task_level_planner_router.py,
 provider_capacity_hardening.py, run_v3_voice.py, resilient_planner.py, or anything
 under isco_video_agent's planning/orchestrator path). It reuses only the one
 provider-neutral, side-effect-free classifier already shared across this codebase
-(``scripts.provider_failure.classify_provider_failure``) without modifying it.
+(``scripts.provider_failure.classify_provider_failure``) plus the canonical
+non-truncating Retry-After policy.
 
 Design, matching the same "one retry owner, bounded backoff, then fail over" shape
 already applied to Planning, scoped to a single Research provider call:
@@ -19,9 +20,11 @@ already applied to Planning, scoped to a single Research provider call:
   cannot heal within the next few seconds, so it never retries Gemini itself; it
   fails over to the OpenRouter free-model chain immediately.
 - A transient failure (short-window rate limit, server error, network error,
-  timeout, capacity-unavailable) gets exactly one bounded Gemini retry - backoff
-  honors any provider-supplied "retry in Ns" hint (capped) plus jitter - before
+  timeout, capacity-unavailable) gets at most one bounded Gemini retry before
   failing over.
+- A provider Retry-After is a minimum safe delay, never a value to truncate. If it
+  exceeds Research's local wait budget, Research fails over immediately instead of
+  sleeping only part of the delay and re-hitting the same provider early.
 - A content-safety block never fails over to a different provider: that is a
   safety-gate outcome, not a capacity problem, and silently trying another
   provider would weaken the gate rather than recover from an outage.
@@ -41,13 +44,13 @@ import time
 from typing import Any
 
 from scripts.provider_failure import classify_provider_failure
+from scripts.retry_after_policy import retry_delay_decision
 from isco_video_agent.providers.gemini import json_text as gemini_json_text
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
 
 # Bounded retry budget for one Research provider call. Deliberately small: Research
 # runs inside a 5-minute-cron GitHub Actions job shared with other Telegram control
-# work, so a large sleep here would eat into that budget for no benefit once a
-# fallback provider is available.
+# work. This is a WAIT BUDGET, not permission to truncate provider Retry-After.
 MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE = 2
 MIN_BACKOFF_SECONDS = 1.0
 MAX_RETRY_AFTER_SECONDS = 15.0
@@ -56,11 +59,8 @@ MAX_RETRY_AFTER_SECONDS = 15.0
 _RETRY_AFTER_RE = re.compile(r"retry in (\d+(?:\.\d+)?)s", re.IGNORECASE)
 
 # Same daily/session quota vocabulary already used by scripts/provider_failure.py's
-# quota_markers, kept local (not imported) because classify_provider_failure folds
-# quota and short-window rate-limit into the same "429" telemetry_result on purpose
-# for circuit/telemetry consistency - Research specifically needs the finer split
-# between "retrying now cannot help" and "a bounded retry might help" that the
-# shared classifier does not expose on its own.
+# quota_markers, kept local because Research specifically needs the finer split between
+# "retrying now cannot help" and "a bounded retry might help".
 _QUOTA_MARKERS = (
     "quota_exceeded",
     "quota exceeded",
@@ -95,11 +95,15 @@ def _parsed_retry_after_seconds(error: BaseException) -> float | None:
         return None
 
 
-def _backoff_seconds(error: BaseException, attempt: int) -> float:
+def _backoff_seconds(error: BaseException, attempt: int) -> float | None:
     hinted = _parsed_retry_after_seconds(error)
-    base = hinted if hinted is not None else MIN_BACKOFF_SECONDS * attempt
-    bounded = min(max(base, MIN_BACKOFF_SECONDS), MAX_RETRY_AFTER_SECONDS)
-    return bounded + random.uniform(0.0, 1.0)
+    calculated = MIN_BACKOFF_SECONDS * attempt + random.uniform(0.0, 1.0)
+    decision = retry_delay_decision(
+        provider_hint=hinted,
+        calculated_delay_seconds=calculated,
+        wait_budget_seconds=MAX_RETRY_AFTER_SECONDS,
+    )
+    return decision.delay_seconds if decision.action == "retry" else None
 
 
 def _is_eligible_for_fallback(telemetry_result: str) -> bool:
@@ -137,8 +141,14 @@ def gemini_research_call_with_fallback(
                 and attempt < MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE
             )
             if can_retry_same_provider:
-                time.sleep(_backoff_seconds(exc, attempt))
-                continue
+                delay = _backoff_seconds(exc, attempt)
+                if delay is not None:
+                    time.sleep(delay)
+                    continue
+                print(
+                    "Research provider Retry-After exceeds local wait budget: "
+                    f"provider=gemini budget={MAX_RETRY_AFTER_SECONDS:g}s action=failover_without_partial_retry"
+                )
             if not _is_eligible_for_fallback(classification.telemetry_result):
                 raise
             break
