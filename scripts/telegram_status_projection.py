@@ -25,12 +25,20 @@ def _hash_id(value: Any) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
-def _available_saved_count(state: dict[str, Any]) -> int:
-    count = 0
-    for item in _list(state.get("saved_suggestions")):
-        if isinstance(item, dict) and str(item.get("status") or "") == "available":
-            count += 1
-    return count
+def _available_saved_items(state: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in _list(state.get("saved_suggestions"))
+        if isinstance(item, dict) and str(item.get("status") or "") == "available"
+    ]
+
+
+def _used_items(state: dict[str, Any]) -> list[dict[str, Any]]:
+    return [item for item in _list(state.get("used_topics")) if isinstance(item, dict)]
+
+
+def _kind_count(items: list[dict[str, Any]], kind: str) -> int:
+    return sum(1 for item in items if str(item.get("kind") or "") == kind)
 
 
 def _event_time(value: Any) -> datetime | None:
@@ -59,6 +67,8 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
     requests = _dict(state.get("requests"))
     queue = _list(state.get("production_queue"))
     pending_actions = _list(state.get("pending_actions"))
+    saved = _available_saved_items(state)
+    used = _used_items(state)
 
     projection = {
         "schema_version": SCHEMA_VERSION,
@@ -67,8 +77,12 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
         "editorial": {
             "research_active": bool(active_session),
             "research_session_hash": _hash_id(active_session),
-            "saved_count": _available_saved_count(state),
-            "used_count": len([item for item in _list(state.get("used_topics")) if isinstance(item, dict)]),
+            "saved_count": len(saved),
+            "saved_long_count": _kind_count(saved, "long"),
+            "saved_short_count": _kind_count(saved, "short"),
+            "used_count": len(used),
+            "used_long_count": _kind_count(used, "long"),
+            "used_short_count": _kind_count(used, "short"),
             "request_count": len(requests),
             "pending_actions_count": len(pending_actions),
             "production_queue_count": len(queue),
