@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import unittest
 
-from scripts import run_control_production
+from scripts import run_control_production, short_voice_v2
 from scripts.short_voice_v2 import _voice_script, apply_short_voice_v2, decide_voice_mode
 
 
@@ -40,6 +40,17 @@ class ShortVoiceV2Tests(unittest.TestCase):
             ledger=object(),
         )
         self.assertIs(result, pre)
+
+    def test_voice_mutation_refreshes_quality_and_rights_before_return(self):
+        source = inspect.getsource(short_voice_v2.apply_short_voice_v2)
+        mix_at = source.index("_mix_voice(")
+        move_at = source.index("shutil.move(")
+        quality_at = source.index("_refresh_quality_final(")
+        rights_at = source.index("_record_voice_rights(")
+        self.assertLess(mix_at, move_at)
+        self.assertLess(move_at, quality_at)
+        self.assertLess(quality_at, rights_at)
+        self.assertIn('"quality_final_refreshed_after_voice": True', source)
 
     def test_final_mutation_happens_before_authoritative_qc_and_gold(self):
         source = inspect.getsource(run_control_production.execute_control_request)
