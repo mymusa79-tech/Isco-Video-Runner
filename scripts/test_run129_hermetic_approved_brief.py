@@ -13,6 +13,10 @@ from scripts import planning_checkpoint_state as checkpoint
 
 
 RUNNER_ROOT = Path(__file__).resolve().parents[1]
+_CANONICAL_WORKFLOW_REF = (
+    "mymusa79-tech/Isco-Video-Runner/.github/workflows/"
+    "produce-resilient-v4.yml@refs/heads/main"
+)
 
 
 class Run129HermeticApprovedBriefTests(unittest.TestCase):
@@ -50,6 +54,18 @@ class Run129HermeticApprovedBriefTests(unittest.TestCase):
         self._git(engine, "commit", "-m", "engine")
         return engine, self._git(engine, "rev-parse", "HEAD")
 
+    @staticmethod
+    def _runtime_env(*, runner_temp: Path, expected: str, engine_sha: str) -> dict[str, str]:
+        return {
+            "RUNNER_TEMP": str(runner_temp),
+            "ISCO_APPROVED_BRIEF_SHA256": expected,
+            "ISCO_ENGINE_SHA": engine_sha,
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_WORKFLOW_REF": _CANONICAL_WORKFLOW_REF,
+            "ISCO_CANONICAL_RUNTIME": "1",
+        }
+
     def test_snapshot_comes_from_engine_head_when_worktree_was_polluted(self) -> None:
         committed = (
             b'{"approved_by_user":true,"approved_topic":"approved","format":"film",'
@@ -68,14 +84,12 @@ class Run129HermeticApprovedBriefTests(unittest.TestCase):
             mutable.write_bytes(polluted)
 
             expected = hashlib.sha256(committed).hexdigest()
-            env = {
-                "RUNNER_TEMP": str(runner_temp),
-                "ISCO_APPROVED_BRIEF_SHA256": expected,
-                "ISCO_ENGINE_SHA": engine_sha,
-            }
-            with patch.dict(os.environ, env, clear=False), patch.object(
-                checkpoint, "canonical_runtime_enabled", return_value=True
-            ):
+            env = self._runtime_env(
+                runner_temp=runner_temp,
+                expected=expected,
+                engine_sha=engine_sha,
+            )
+            with patch.dict(os.environ, env, clear=False):
                 path = snapshot.materialize_runtime_snapshot(RUNNER_ROOT, engine)
 
             self.assertEqual(path.read_bytes(), committed)
@@ -99,15 +113,13 @@ class Run129HermeticApprovedBriefTests(unittest.TestCase):
             expected = hashlib.sha256(committed).hexdigest()
             historical = engine / "production" / "approved_brief.json"
 
-            env = {
-                "RUNNER_TEMP": str(runner_temp),
-                "ISCO_APPROVED_BRIEF_SHA256": expected,
-                "ISCO_ENGINE_SHA": engine_sha,
-                "ISCO_APPROVED_BRIEF_PATH": str(historical),
-            }
-            with patch.dict(os.environ, env, clear=False), patch.object(
-                checkpoint, "canonical_runtime_enabled", return_value=True
-            ):
+            env = self._runtime_env(
+                runner_temp=runner_temp,
+                expected=expected,
+                engine_sha=engine_sha,
+            )
+            env["ISCO_APPROVED_BRIEF_PATH"] = str(historical)
+            with patch.dict(os.environ, env, clear=False):
                 path = snapshot.materialize_runtime_snapshot(RUNNER_ROOT, engine)
                 snapshot._INSTALLED = False
                 snapshot.install_runtime_snapshot_binding(force=True)
