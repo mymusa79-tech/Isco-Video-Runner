@@ -6,6 +6,12 @@ from pathlib import Path
 
 
 _RUN_SPECIFIC = re.compile(r"^run\d+[-_.]", re.I)
+_RETIRED_ONE_TIME_PATTERNS = (
+    re.compile(r"^migrate-.*(?:production|memory).*\.ya?ml$", re.I),
+    re.compile(r"^youtube-analytics-backfill-write-once(?:-v\d+)?\.ya?ml$", re.I),
+    re.compile(r"^local-brain-smoke\.ya?ml$", re.I),
+)
+_RETIRED_EXACT_WORKFLOWS = frozenset({"p0c-migration-contracts.yml"})
 _USES = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)", re.M)
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$", re.I)
 _ENGINE_ENV = re.compile(r"^\s*(?:ISCO_ENGINE_SHA|ENGINE_SHA|EXPECTED_ENGINE_SHA):\s*([0-9a-f]{40})\s*$", re.M)
@@ -41,6 +47,10 @@ def _canonical_engine_pin(workflow_dir: Path) -> str | None:
     return env_pins[0]
 
 
+def _retired_one_time_workflow(name: str) -> bool:
+    return name in _RETIRED_EXACT_WORKFLOWS or any(pattern.match(name) for pattern in _RETIRED_ONE_TIME_PATTERNS)
+
+
 def audit_workflows(root: Path) -> list[WorkflowIssue]:
     issues: list[WorkflowIssue] = []
     workflow_dir = root / ".github" / "workflows"
@@ -66,6 +76,14 @@ def audit_workflows(root: Path) -> list[WorkflowIssue]:
                     rel,
                     "run_specific_workflow_forbidden",
                     "historical run-number workflows must be deleted or converted to a permanent generic verifier",
+                )
+            )
+        if _retired_one_time_workflow(path.name):
+            issues.append(
+                WorkflowIssue(
+                    rel,
+                    "retired_one_time_workflow_forbidden",
+                    "completed migration/write-once workflow must stay retired; use a reviewed permanent diagnostic instead",
                 )
             )
         if "permissions:" not in text:
