@@ -26,6 +26,7 @@ from scripts.provider_capacity_v2 import install_provider_capacity_v2
 from scripts.run124_terminal_provider_recovery import install_run124_terminal_provider_recovery
 from scripts.run125_cache_prefix_contract import install_run125_cache_prefix_contract
 from scripts.run125_capacity_routing_closure import install_run125_capacity_routing_closure
+from scripts.runtime_patch_contracts import certify_runtime_patch_contracts
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
     install_release_transaction_guard,
@@ -130,6 +131,13 @@ def install_runtime_closure() -> None:
     # owner while learned per-model TPM evidence replaces the old theoretical 8K truth.
     install_dynamic_planning_capacity()
     install_run125_cache_prefix_contract()
+
+    # Run127 closure: certify the FINAL composed monkey-patch surface, not each installer
+    # in isolation. This is intentionally before provider/media work, so a future wrapper
+    # signature drift or legacy capacity authority fails fast during startup rather than
+    # after Gemini/Groq/OpenRouter calls have already consumed time/quota.
+    certify_runtime_patch_contracts()
+
     install_provider_capacity_v2()
     install_media_trust_boundary_v2()
     install_core_reliability_guard()
