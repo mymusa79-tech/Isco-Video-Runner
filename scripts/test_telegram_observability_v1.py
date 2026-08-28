@@ -168,8 +168,9 @@ class EdgeObservabilityContractTests(unittest.TestCase):
             "cmd:savedpick-",
         ):
             self.assertIn(callback, self.topic_ui)
-            if callback != "cmd:savedpick-":
-                self.assertIn(callback.split("-page-")[0], self.worker)
+        self.assertIn("function pageSpec(data)", self.worker)
+        self.assertIn("^cmd:(saved|used)-(long|short)", self.worker)
+        self.assertIn("cmd:${bucket}-${spec.kind}-page-", self.worker)
         self.assertIn("cmd:savedpick-", self.worker)
 
 
