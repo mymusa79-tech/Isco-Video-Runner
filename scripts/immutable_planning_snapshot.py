@@ -10,6 +10,7 @@ from scripts import planning_checkpoint_state as checkpoint
 
 _SNAPSHOT_ENV = "ISCO_APPROVED_BRIEF_SNAPSHOT_PATH"
 _PIN_ENV = "ISCO_APPROVED_BRIEF_SHA256"
+_SNAPSHOT_FILENAME = "approved-brief.snapshot.json"
 _ADDITIONAL_CONTRACT_FILES = (
     "scripts/dynamic_planning_capacity.py",
     "scripts/immutable_planning_snapshot.py",
@@ -56,6 +57,43 @@ def snapshot_approved_brief(
     return destination
 
 
+def _persist_snapshot_env(path: Path) -> None:
+    os.environ[_SNAPSHOT_ENV] = str(path)
+    github_env = str(os.environ.get("GITHUB_ENV") or "").strip()
+    if not github_env:
+        return
+    with Path(github_env).open("a", encoding="utf-8") as handle:
+        handle.write(f"{_SNAPSHOT_ENV}={path}\n")
+
+
+def materialize_runtime_snapshot(repo_root: Path, engine_root: Path) -> Path:
+    """Create the run snapshot once during cross-run state restore."""
+    if not checkpoint.canonical_runtime_enabled():
+        raise RuntimeError("immutable planning snapshot is canonical-runtime only")
+    source = engine_root.resolve() / "production" / "approved_brief.json"
+    temp = str(os.environ.get("RUNNER_TEMP") or "").strip()
+    if not temp:
+        raise RuntimeError("RUNNER_TEMP is required for immutable approved brief snapshot")
+    destination = Path(temp).resolve() / "isco-state" / _SNAPSHOT_FILENAME
+
+    if destination.is_file():
+        # One-copy rule: never refresh a snapshot after the run has started.
+        if destination.stat().st_mode & 0o222:
+            raise RuntimeError("existing approved brief snapshot is writable")
+        _persist_snapshot_env(destination)
+        return destination
+
+    expected = str(os.environ.get(_PIN_ENV) or "").strip().lower()
+    if not expected:
+        # The brief was already approval-validated earlier in canonical V4. Persist the
+        # exact bytes now; the production step later supplies ISCO_APPROVED_BRIEF_SHA256
+        # and re-verifies this same snapshot against the pinned approval hash.
+        expected = _sha256_file(source)
+    snapshot = snapshot_approved_brief(source, destination, expected_sha256=expected)
+    _persist_snapshot_env(snapshot)
+    return snapshot
+
+
 def _snapshot_path() -> Path:
     raw = str(os.environ.get(_SNAPSHOT_ENV) or "").strip()
     if not raw:
@@ -68,7 +106,7 @@ def _snapshot_path() -> Path:
     return path
 
 
-def _install_snapshot_binding() -> None:
+def install_runtime_snapshot_binding() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
@@ -108,21 +146,19 @@ def bootstrap_immutable_planning_checkpoint(
     engine_root: Path,
     encryption_key: str,
 ) -> checkpoint.RestoreStatus:
-    """Bind restore/persist to the immutable snapshot before install_router() reads cache."""
+    """Create/bind the immutable brief before restoring the durable planner cache."""
     if not checkpoint.canonical_runtime_enabled():
         return checkpoint.RestoreStatus(True, False, "disabled", "non-canonical runtime")
     if not str(encryption_key or "").strip():
         raise RuntimeError("STATE_ENCRYPTION_KEY is required for durable planning checkpoint bootstrap")
 
-    _install_snapshot_binding()
+    materialize_runtime_snapshot(repo_root, engine_root)
+    install_runtime_snapshot_binding()
     status = checkpoint.bootstrap_runtime_restore(
         repo_root=repo_root,
         engine_root=engine_root,
         key=str(encryption_key).strip(),
     )
-    # Secret is already owner-only on disk after bootstrap; do not leave the environment
-    # copy available to the rest of production.
-    os.environ.pop("STATE_ENCRYPTION_KEY", None)
     print(
         "Immutable approved-brief checkpoint binding PASS: "
         f"snapshot={_snapshot_path().name} sha256={_sha256_file(_snapshot_path())[:12]}..."
