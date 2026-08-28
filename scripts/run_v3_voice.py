@@ -24,6 +24,7 @@ from scripts.product_proof_plan import install_product_proof_fallback, was_fallb
 from scripts.provider_capacity_hardening import install_provider_capacity_hardening
 from scripts.run120_dossier_repair_hardening import install_run120_dossier_repair_hardening
 from scripts.run120_schema_policy_bridge import install_run120_schema_policy_bridge
+from scripts.run123_budget_closure import install_run123_budget_closure
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
 from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.task_level_planner_router import get_used_providers, install_router, write_planning_telemetry
@@ -198,6 +199,9 @@ def _attach_observer_evidence_to_telemetry(
 
 
 def main() -> None:
+    # Install the recalculated run-wide envelope before any production BudgetLedger is
+    # constructed. This closes the stale 42/34 policy from the pre-Gold production graph.
+    install_run123_budget_closure()
     install_schema_guard()
     # Capacity policy is installed before provider routing so every planning subtask
     # inherits token-aware admission, bounded completion reserves and Retry-After.
