@@ -27,6 +27,7 @@ from scripts.run124_terminal_provider_recovery import install_run124_terminal_pr
 from scripts.run125_cache_prefix_contract import install_run125_cache_prefix_contract
 from scripts.run125_capacity_routing_closure import install_run125_capacity_routing_closure
 from scripts.runtime_patch_contracts import certify_runtime_patch_contracts
+from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
     install_release_transaction_guard,
@@ -38,7 +39,6 @@ from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.sfx_live_binding import install_sfx_live_binding
 
 
-_CANONICAL_V4_WORKFLOW = "/.github/workflows/produce-resilient-v4.yml@"
 _TRUE_VALUES = {"1", "true", "yes", "on"}
 
 
@@ -59,9 +59,10 @@ def _canonical_v4_bundle_enabled() -> bool:
     explicit = str(os.environ.get("ISCO_CANONICAL_V4_BUNDLE_ENABLED") or "").strip().lower()
     if explicit in _TRUE_VALUES:
         return True
-    event = str(os.environ.get("GITHUB_EVENT_NAME") or "").strip()
-    workflow_ref = str(os.environ.get("GITHUB_WORKFLOW_REF") or "").strip()
-    return event == "workflow_dispatch" and _CANONICAL_V4_WORKFLOW in workflow_ref
+    # Run130 closure: bundle activation shares the same application-owned phase source
+    # as durable runtime state. Merely executing a test inside Production V4 is not
+    # enough to make it a live production process.
+    return canonical_runtime_enabled()
 
 
 def install_canonical_v4_bundle_post_manifest() -> None:
@@ -94,10 +95,14 @@ def install_canonical_v4_bundle_post_manifest() -> None:
 
 def install_runtime_closure() -> None:
     """Install bounded production recovery plus cinematic and delivery stages."""
-    # The durable restore ran in the earlier persistent-memory step. Rebind this process
-    # to the same immutable approved-brief snapshot before the outer persistence wrapper
-    # can hash/save any checkpoint on production success or failure.
-    install_runtime_snapshot_binding()
+    runtime_active = canonical_runtime_enabled()
+
+    # Run130 closure: pre-production tests execute inside the same GitHub workflow and
+    # inherit its GITHUB_* identity, but they are not live runtime. Snapshot binding and
+    # durable persistence are runtime-only responsibilities and are activated explicitly
+    # by persistent_memory restore after pre-production certification has completed.
+    if runtime_active:
+        install_runtime_snapshot_binding()
 
     # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
     # Pixabay Provider Capacity V2 is search-result reuse only: it is installed before
@@ -156,7 +161,8 @@ def install_runtime_closure() -> None:
     # Durable resume is deliberately outermost: every existing production/quality/safety
     # wrapper remains untouched and authoritative. This layer only persists the local
     # planner checkpoint after a failure, or writes a completion marker after success.
-    install_runtime_persistence_wrapper(orchestrator)
+    if runtime_active:
+        install_runtime_persistence_wrapper(orchestrator)
 
 
 def run_post_gold_observers(output_dir: Path) -> dict:
