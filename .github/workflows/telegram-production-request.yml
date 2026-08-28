@@ -151,8 +151,13 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            python scripts/telegram_release_identity.py \
+              --repository "$GITHUB_REPOSITORY" \
+              --tag "$RELEASE_TAG" \
+              --target-sha "$GITHUB_SHA" \
+              --request "$ISCO_CONTROL_REQUEST_PATH"
             echo "already_released=true" >> "$GITHUB_OUTPUT"
-            echo "Request already has a completed delivery release: $RELEASE_TAG"
+            echo "Request already has a verified completed delivery release: $RELEASE_TAG"
           else
             echo "already_released=false" >> "$GITHUB_OUTPUT"
           fi
@@ -435,11 +440,36 @@ jobs:
           PY
           )
           test "${#assets[@]}" -ge 5
-          gh release create "$RELEASE_TAG" "${assets[@]}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Telegram Production — ${{ inputs.request_id }}" \
+          journal="$RUNNER_TEMP/telegram-release-transaction.json"
+          release_cmd=(
+            python scripts/release_transaction.py
+            --repository "$GITHUB_REPOSITORY"
+            --tag "$RELEASE_TAG"
+            --target-sha "$GITHUB_SHA"
+            --title "Telegram Production — ${{ inputs.request_id }}"
             --notes "Explicitly started from an immutable Telegram-approved request with one-time durable second-action authorization. YouTube publication is manual."
+            --journal "$journal"
+          )
+          for asset in "${assets[@]}"; do
+            release_cmd+=(--asset "$asset")
+          done
+          "${release_cmd[@]}"
+          python scripts/telegram_release_identity.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" \
+            --target-sha "$GITHUB_SHA" \
+            --request "$ISCO_CONTROL_REQUEST_PATH"
           echo "release_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Telegram release transaction evidence
+        if: always() && steps.release.outcome != 'skipped'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: telegram-release-transaction-${{ github.run_number }}
+          path: ${{ runner.temp }}/telegram-release-transaction.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Record successful topic in encrypted used-topic history
         id: used_topic
