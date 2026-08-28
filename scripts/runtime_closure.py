@@ -12,8 +12,10 @@ from scripts.audio_semantic_integrity import (
 )
 from scripts.bounded_output_recovery import install_bounded_output_recovery
 from scripts.cta_live_binding import install_cta_live_binding
+from scripts.dynamic_planning_capacity import install_dynamic_planning_capacity
 from scripts.gemini_planning_output_guard import install_gemini_planning_output_guard
 from scripts.groq_audio_audit import run_groq_audio_audit
+from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
@@ -91,6 +93,11 @@ def install_canonical_v4_bundle_post_manifest() -> None:
 
 def install_runtime_closure() -> None:
     """Install bounded production recovery plus cinematic and delivery stages."""
+    # The durable restore ran in the earlier persistent-memory step. Rebind this process
+    # to the same immutable approved-brief snapshot before the outer persistence wrapper
+    # can hash/save any checkpoint on production success or failure.
+    install_runtime_snapshot_binding()
+
     # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
     # Pixabay Provider Capacity V2 is search-result reuse only: it is installed before
     # Media Trust so cached normalized metadata can avoid duplicate API calls while
@@ -119,6 +126,9 @@ def install_runtime_closure() -> None:
     # preflight block/circuit, and fail over a model-scoped Groq daily quota to another
     # schema-capable Groq model instead of replaying the dead quota.
     install_run125_capacity_routing_closure()
+    # Dynamic authority must install after Run125 so its model pool remains the routing
+    # owner while learned per-model TPM evidence replaces the old theoretical 8K truth.
+    install_dynamic_planning_capacity()
     install_run125_cache_prefix_contract()
     install_provider_capacity_v2()
     install_media_trust_boundary_v2()
