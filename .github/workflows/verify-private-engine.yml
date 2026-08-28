@@ -126,6 +126,11 @@ jobs:
           python -m pip install pip-audit==2.10.1
           pip-audit --no-deps -r requirements-lock.txt
 
+      - name: Focused Run126 dynamic capacity and immutable snapshot regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python -m unittest scripts.test_run126_capacity_snapshot_closure -v
+
       - name: Focused Run 104 targeted structural repair regression
         working-directory: engine
         run: python -m unittest discover -s tests -p 'test_run104_targeted_structural_repair.py' -q
