@@ -115,22 +115,28 @@ class Run126RootCauseClosureTests(unittest.TestCase):
                 snapshot.install_runtime_snapshot_binding(force=True)
                 binding_before = checkpoint.build_runtime_binding(ROOT, engine)
 
-                # Exact first root: 20B's free daily quota is exhausted. The state must
-                # remain model-scoped so 120B is still eligible for one real contact.
+                # Exact first root: 20B's free daily quota is exhausted. The body has a
+                # large bare Limit value, but because its context is TPD it must NEVER
+                # be recorded as actual_tpm_limit. The state remains model-scoped so
+                # 120B is still eligible for one real contact.
+                tpd_message = (
+                    "Rate limit reached on tokens per day (TPD): "
+                    "Limit 200000, Used 200000, Requested 3000"
+                )
+                self.assertIsNone(capacity._limit_from_error_text(tpd_message))
                 tpd = _Response(
                     429,
                     {
                         "error": {
                             "type": "rate_limit_exceeded",
-                            "message": (
-                                "Rate limit reached on tokens per day (TPD): "
-                                "Limit 200000, Used 200000, Requested 3000"
-                            ),
+                            "message": tpd_message,
                         }
                     },
                 )
-                capacity.observe_groq_response(tpd, MODEL_20B, required_tokens=3000)
+                state_20b = capacity.observe_groq_response(tpd, MODEL_20B, required_tokens=3000)
                 self.assertTrue(capacity.groq_model_blocked(MODEL_20B))
+                self.assertIsNone(state_20b["actual_tpm_limit"])
+                self.assertIsNone(capacity.groq_effective_tpm_limit(MODEL_20B))
                 self.assertEqual(
                     capacity.groq_admission_decision(MODEL_20B, 3000)["action"],
                     "unavailable",
@@ -143,15 +149,17 @@ class Run126RootCauseClosureTests(unittest.TestCase):
                 # Exact second root: 120B accepts contact but reveals an actual TPM of
                 # only 800. required > actual_limit is mathematically impossible and
                 # therefore must never be treated as a waitable remaining-window case.
+                tpm_message = (
+                    "Rate limit reached on tokens per minute (TPM): "
+                    "Limit 800, Used 740, Requested 2600"
+                )
+                self.assertEqual(capacity._limit_from_error_text(tpm_message), 800)
                 tpm_800 = _Response(
                     429,
                     {
                         "error": {
                             "type": "rate_limit_exceeded",
-                            "message": (
-                                "Rate limit reached on tokens per minute (TPM): "
-                                "Limit 800, Used 740, Requested 2600"
-                            ),
+                            "message": tpm_message,
                         }
                     },
                 )
@@ -173,6 +181,9 @@ class Run126RootCauseClosureTests(unittest.TestCase):
                 self.assertEqual(
                     persisted_capacity["models"][MODEL_20B]["blocked_reason"],
                     "daily_token_quota_exhausted",
+                )
+                self.assertIsNone(
+                    persisted_capacity["models"][MODEL_20B]["actual_tpm_limit"]
                 )
                 self.assertEqual(
                     persisted_capacity["models"][MODEL_120B]["actual_tpm_limit"],
