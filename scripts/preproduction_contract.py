@@ -8,6 +8,7 @@ from pathlib import Path
 PRODUCTION_WORKFLOW = Path(".github/workflows/produce-resilient-v4.yml")
 RELEASE_TRANSACTION = Path("scripts/release_transaction.py")
 ENVIRONMENT_PREFLIGHT = Path("scripts/environment_preflight.py")
+ENVIRONMENT_PREFLIGHT_CORE = Path("scripts/environment_preflight_core.py")
 EXPECTED_ENGINE_SHA = "6a0d91cc80511a174a47b95c6c203f8d93ba86ca"
 EXPECTED_RUNNER_IMAGE = "ubuntu-24.04"
 PROVIDERS = ("gemini", "groq", "openrouter", "pexels", "pixabay")
@@ -19,10 +20,21 @@ class ContractIssue:
     detail: str
 
 
+def _read_if_file(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
 def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
     text = (repo / PRODUCTION_WORKFLOW).read_text(encoding="utf-8")
-    release_text = (repo / RELEASE_TRANSACTION).read_text(encoding="utf-8") if (repo / RELEASE_TRANSACTION).is_file() else ""
-    environment_text = (repo / ENVIRONMENT_PREFLIGHT).read_text(encoding="utf-8") if (repo / ENVIRONMENT_PREFLIGHT).is_file() else ""
+    release_text = _read_if_file(repo / RELEASE_TRANSACTION)
+    environment_wrapper_text = _read_if_file(repo / ENVIRONMENT_PREFLIGHT)
+    environment_core_text = _read_if_file(repo / ENVIRONMENT_PREFLIGHT_CORE)
+    # The durable planning checkpoint bootstrap intentionally wraps the established
+    # environment preflight implementation. Audit the executable composition rather
+    # than only the facade so moving unchanged fail-closed guards into a core module
+    # cannot create a false contract failure. The guard marker itself is still
+    # mandatory: removing it from both files continues to fail closed.
+    environment_text = environment_wrapper_text + "\n" + environment_core_text
     issues: list[ContractIssue] = []
 
     def require(code: str, marker: str, detail: str, *, source: str = text) -> None:
