@@ -14,10 +14,6 @@ except ModuleNotFoundError:  # direct python scripts/persistent_memory.py compat
 _SNAPSHOT_ENV = "ISCO_APPROVED_BRIEF_SNAPSHOT_PATH"
 _PIN_ENV = "ISCO_APPROVED_BRIEF_SHA256"
 _SNAPSHOT_FILENAME = "approved-brief.snapshot.json"
-_ADDITIONAL_CONTRACT_FILES = (
-    "scripts/dynamic_planning_capacity.py",
-    "scripts/immutable_planning_snapshot.py",
-)
 _INSTALLED = False
 
 
@@ -116,16 +112,17 @@ def install_runtime_snapshot_binding(*, force: bool = False) -> None:
     Unit/regression processes are intentionally left untouched unless force=True, so a
     test that imports runtime_closure cannot leak snapshot requirements into unrelated
     checkpoint tests running later in the same Python process.
+
+    The checkpoint contract itself is not extended manually here. Current Runner main
+    derives a deterministic transitive source closure from run_v3_voice.py, so these
+    snapshot/capacity modules enter the binding automatically when reachable from the
+    canonical production entrypoint. That is stricter and avoids a second mutable list.
     """
     global _INSTALLED
     if _INSTALLED:
         return
     if not force and not checkpoint.canonical_runtime_enabled():
         return
-
-    for relative in _ADDITIONAL_CONTRACT_FILES:
-        if relative not in checkpoint.PLANNING_CONTRACT_FILES:
-            checkpoint.PLANNING_CONTRACT_FILES = tuple(checkpoint.PLANNING_CONTRACT_FILES) + (relative,)
 
     def build_snapshot_binding(repo_root: Path, engine_root: Path) -> checkpoint.Binding:
         brief = _snapshot_path()
