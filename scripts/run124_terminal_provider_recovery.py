@@ -7,18 +7,18 @@ from scripts import planning_batch_hardening as batching
 from scripts import provider_capacity_hardening as capacity
 
 
-# Run #124 proved that fast failover must not become fast failure.  Run #123 correctly
-# stopped serializing every planning shard behind Groq's TPM window, but when a shard
-# has already been reduced to one section and every alternate provider has failed, a
-# known-near Groq reset is the cheapest remaining recovery path.  Waiting <=60 seconds
-# once is materially safer than failing an otherwise healthy production run.
-#
-# This is transport recovery only.  It does not change prompts, section word gates,
-# schemas, provider attempt ceilings, quality gates, factuality rules or model order.
+# Run #124 proved that fast failover must not become fast failure. Run #125 then proved
+# the inverse risk: a bounded wait PER shard can still accumulate into minutes across a
+# long Writer/Doctor graph. Keep the edge-case recovery, but give it one run-wide retry
+# budget as recommended for overloaded distributed systems.
 _TERMINAL_RESET_LIMIT_SECONDS = 60.0
 _RESET_SAFETY_SECONDS = 1.5
+_MAX_TERMINAL_RECOVERIES_PER_RUN = 3
+_MAX_TERMINAL_WAIT_SECONDS_PER_RUN = 60.0
 _RESET_RE = re.compile(r"reset_in=(\d+(?:\.\d+)?)s", flags=re.I)
 _RECOVERED_TERMINAL_SHARDS: set[tuple[str, tuple[str, ...], str]] = set()
+_TERMINAL_RECOVERY_COUNT = 0
+_TERMINAL_WAIT_SPENT_SECONDS = 0.0
 
 
 def _remaining_reset_seconds(exc: BaseException) -> float | None:
@@ -39,11 +39,15 @@ def _remaining_reset_seconds(exc: BaseException) -> float | None:
             return None
         remaining = max(0.0, float(match.group(1)))
 
-    # Do not turn this narrow recovery into another long planner sleep.  If the token
-    # window is farther away than one minute, preserve the existing fail-fast result.
     if remaining > _TERMINAL_RESET_LIMIT_SECONDS:
         return None
     return remaining
+
+
+def _run_wait_budget_allows(wait_seconds: float) -> bool:
+    if _TERMINAL_RECOVERY_COUNT >= _MAX_TERMINAL_RECOVERIES_PER_RUN:
+        return False
+    return _TERMINAL_WAIT_SPENT_SECONDS + wait_seconds <= _MAX_TERMINAL_WAIT_SECONDS_PER_RUN
 
 
 def install_run124_terminal_provider_recovery() -> None:
@@ -52,9 +56,6 @@ def install_run124_terminal_provider_recovery() -> None:
 
     original_call = batching._call_capacity_aware_shard
 
-    # Groq window pressure is itself a legitimate transport-pressure signal.  This
-    # lets the existing bounded 3 -> 2+1 -> 1 splitter reduce a shard even when the
-    # alternate provider fails for a different transient reason.
     if "groq_tpm_window_busy_precheck" not in batching._TRANSPORT_PRESSURE_MARKERS:
         batching._TRANSPORT_PRESSURE_MARKERS = tuple(batching._TRANSPORT_PRESSURE_MARKERS) + (
             "groq_tpm_window_busy_precheck",
@@ -68,6 +69,7 @@ def install_run124_terminal_provider_recovery() -> None:
         prompt_builder,
         label: str,
     ) -> dict[str, dict]:
+        global _TERMINAL_RECOVERY_COUNT, _TERMINAL_WAIT_SPENT_SECONDS
         try:
             return original_call(
                 api_key,
@@ -85,17 +87,28 @@ def install_run124_terminal_provider_recovery() -> None:
             if remaining is None or key in _RECOVERED_TERMINAL_SHARDS:
                 raise
 
-            _RECOVERED_TERMINAL_SHARDS.add(key)
             wait_seconds = remaining + _RESET_SAFETY_SECONDS
+            if not _run_wait_budget_allows(wait_seconds):
+                print(
+                    "Run124 terminal provider recovery skipped by run-wide retry budget: "
+                    f"label={label} section={ids[0]} requested_wait={wait_seconds:.2f}s "
+                    f"recoveries={_TERMINAL_RECOVERY_COUNT}/{_MAX_TERMINAL_RECOVERIES_PER_RUN} "
+                    f"wait_spent={_TERMINAL_WAIT_SPENT_SECONDS:.2f}/{_MAX_TERMINAL_WAIT_SECONDS_PER_RUN:.0f}s"
+                )
+                raise
+
+            _RECOVERED_TERMINAL_SHARDS.add(key)
+            _TERMINAL_RECOVERY_COUNT += 1
+            _TERMINAL_WAIT_SPENT_SECONDS += wait_seconds
             print(
                 "Run124 terminal provider recovery: "
                 f"label={label} section={ids[0]} groq_reset_in={remaining:.2f}s "
-                f"wait={wait_seconds:.2f}s action=single_bounded_retry"
+                f"wait={wait_seconds:.2f}s action=single_bounded_retry "
+                f"run_recovery={_TERMINAL_RECOVERY_COUNT}/{_MAX_TERMINAL_RECOVERIES_PER_RUN} "
+                f"run_wait_spent={_TERMINAL_WAIT_SPENT_SECONDS:.2f}s"
             )
             time.sleep(wait_seconds)
 
-            # The observed reset window has elapsed.  Clear only the local advisory
-            # state; the next real Groq response will repopulate authoritative headers.
             capacity._GROQ_RATE_STATE["remaining_tokens"] = None
             capacity._GROQ_RATE_STATE["reset_at_monotonic"] = None
 
@@ -111,5 +124,7 @@ def install_run124_terminal_provider_recovery() -> None:
     batching._ISCO_RUN124_TERMINAL_PROVIDER_RECOVERY = True
     print(
         "Run124 terminal provider recovery installed: "
-        "groq_window_is_transport_pressure terminal_single_shard_wait<=60s retry_once=true"
+        "groq_window_is_transport_pressure terminal_single_shard_wait<=60s retry_once_per_shard=true "
+        f"run_recovery_cap={_MAX_TERMINAL_RECOVERIES_PER_RUN} "
+        f"run_wait_cap={_MAX_TERMINAL_WAIT_SECONDS_PER_RUN:.0f}s"
     )
