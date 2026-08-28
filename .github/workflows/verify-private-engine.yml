@@ -139,6 +139,11 @@ jobs:
         working-directory: engine
         run: python -m unittest discover -s tests -q
 
+      - name: Certify Engine source after Full Engine suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_full_engine_suite")'
+
       - name: Approved-Brief CLI contract matrix
         working-directory: engine
         run: |
@@ -156,6 +161,11 @@ jobs:
             exit 1
           fi
 
+      - name: Certify Engine source after Approved-Brief CLI matrix
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_approved_brief_cli")'
+
       - name: Standalone Short V2 focused regression
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
@@ -165,6 +175,11 @@ jobs:
             scripts.test_native_short_planner_router \
             scripts.test_shorts_production_binding \
             scripts.test_short_voice_v2 -v
+
+      - name: Certify Engine source after Standalone Short V2
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_short_v2")'
 
       - name: Full Runner regression suite
         id: runner_regression
