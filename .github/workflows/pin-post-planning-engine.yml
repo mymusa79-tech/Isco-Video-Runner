@@ -1,0 +1,79 @@
+name: Pin Post-Planning Merged Engine
+
+on:
+  push:
+    branches: ["fix/post-planning-audit-closure"]
+    paths:
+      - ".github/workflows/pin-post-planning-engine.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  pin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Replace exact certified Engine pin
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "fix/post-planning-audit-closure"
+          python - <<'PY'
+          from pathlib import Path
+
+          OLD = "6a0d91cc80511a174a47b95c6c203f8d93ba86ca"
+          NEW = "f3c9357098947882882ca3010b46a565c2d90460"
+          expected = {
+              ".github/workflows/produce-resilient-v4.yml": 3,
+              ".github/workflows/telegram-editorial-control.yml": 1,
+              ".github/workflows/telegram-production-request.yml": 1,
+              ".github/workflows/verify-human-editorial-intent-m7.yml": 1,
+              ".github/workflows/verify-m11-live-integration.yml": 1,
+              "scripts/preproduction_contract.py": 1,
+              "scripts/test_editorial_stage9_integration.py": 1,
+              "scripts/test_telegram_editorial_control_workflow.py": 1,
+              "scripts/test_telegram_production_workflow.py": 1,
+          }
+          total = 0
+          for name, wanted in expected.items():
+              path = Path(name)
+              text = path.read_text(encoding="utf-8")
+              found = text.count(OLD)
+              if found != wanted:
+                  raise SystemExit(f"{name}: expected {wanted} old Engine pins, found {found}")
+              total += found
+              path.write_text(text.replace(OLD, NEW), encoding="utf-8")
+          if total != 11:
+              raise SystemExit(f"expected exactly 11 Engine pin replacements, observed {total}")
+          for name, wanted in expected.items():
+              text = Path(name).read_text(encoding="utf-8")
+              if OLD in text or text.count(NEW) < wanted:
+                  raise SystemExit(f"{name}: post-replacement pin verification failed")
+          print(f"Engine pin replacement PASS: {total} exact references -> {NEW}")
+          PY
+
+      - name: Commit exact pin closure
+        run: |
+          set -euo pipefail
+          git config user.name "isco-pin-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            .github/workflows/produce-resilient-v4.yml \
+            .github/workflows/telegram-editorial-control.yml \
+            .github/workflows/telegram-production-request.yml \
+            .github/workflows/verify-human-editorial-intent-m7.yml \
+            .github/workflows/verify-m11-live-integration.yml \
+            scripts/preproduction_contract.py \
+            scripts/test_editorial_stage9_integration.py \
+            scripts/test_telegram_editorial_control_workflow.py \
+            scripts/test_telegram_production_workflow.py
+          git diff --cached --check
+          test -n "$(git status --porcelain)"
+          git commit -m "chore: pin post-Planning merged Engine"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
