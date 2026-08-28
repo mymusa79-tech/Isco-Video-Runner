@@ -65,6 +65,58 @@ class PackagingArtifactDeliveryP0ETests(unittest.TestCase):
         self.assertEqual(result["thumbnail_3"].name, "thumbnail-3.jpg")
         self.assertEqual(result["rights_manifest"].name, "rights-manifest.json")
 
+    def test_budget_fallback_final_render_derivatives_are_deliverable_with_inherited_rights(self) -> None:
+        root = self._fixture()
+        package_path = root / "thumbnail-plan.json"
+        rights_path = root / "rights-manifest.json"
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        package["budget_degraded"] = True
+        package["budget_fallback"] = {
+            "reason": "p2_provider_attempt_capacity_exhausted",
+            "provider_attempts_consumed": 0,
+        }
+        rights = json.loads(rights_path.read_text(encoding="utf-8"))
+        rights["thumbnail_rights_mode"] = "derived_from_already_rights_cleared_final_render"
+        rights["visuals"] = [{"provider": "pexels", "provider_asset_id": 55}]
+        for index, item in enumerate(package["candidates"], 1):
+            item["photo_provider"] = "derived_final_render"
+            item["photo_id"] = f"final.mp4@{index * 10:.3f}s"
+        rights["thumbnails"] = [
+            {
+                "provider": "derived_final_render",
+                "provider_asset_id": f"final.mp4@{index * 10:.3f}s",
+                "output_file": filename,
+                "license_url": None,
+                "source_file": "final.mp4",
+                "source_timestamp_seconds": float(index * 10),
+                "rights_inheritance": "rights-manifest.visuals",
+                "inherited_visual_rights_count": 1,
+            }
+            for index, filename in enumerate(EXPECTED_THUMBNAILS, 1)
+        ]
+        package_path.write_text(json.dumps(package), encoding="utf-8")
+        rights_path.write_text(json.dumps(rights), encoding="utf-8")
+
+        result = validate_packaging_delivery(root)
+        self.assertEqual(result["thumbnail_2"].name, "thumbnail-2.jpg")
+
+    def test_derived_thumbnail_without_budget_degradation_fails_closed(self) -> None:
+        root = self._fixture()
+        rights_path = root / "rights-manifest.json"
+        rights = json.loads(rights_path.read_text(encoding="utf-8"))
+        rights["thumbnails"][0].update(
+            {
+                "provider": "derived_final_render",
+                "provider_asset_id": "final.mp4@10.000s",
+                "source_file": "final.mp4",
+                "rights_inheritance": "rights-manifest.visuals",
+                "inherited_visual_rights_count": 1,
+            }
+        )
+        rights_path.write_text(json.dumps(rights), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "budget_degraded"):
+            validate_packaging_delivery(root)
+
     def test_missing_thumbnail_fails_closed(self) -> None:
         root = self._fixture()
         (root / "thumbnail-2.jpg").unlink()
