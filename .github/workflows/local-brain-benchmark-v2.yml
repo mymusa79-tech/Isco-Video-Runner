@@ -26,23 +26,28 @@ jobs:
         run: |
           echo "MODEL_DIR=$RUNNER_TEMP/isco-local-brain" >> "$GITHUB_ENV"
           echo "MODEL_FILE=$RUNNER_TEMP/isco-local-brain/Qwen3-4B-Q4_K_M.gguf" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/isco-local-brain/runtime:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
       - name: Restore local brain cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: ${{ runner.temp }}/isco-local-brain
           key: isco-local-brain-qwen3-4b-q4km-7485fe6f-llama-b9637
-      - name: Install pinned runtime
+      - name: Install pinned runtime bundle
         run: |
           set -euo pipefail
           mkdir -p "$MODEL_DIR/runtime"
-          if [ ! -x "$MODEL_DIR/runtime/llama-server" ]; then
+          if [ ! -x "$MODEL_DIR/runtime/llama-server" ] || [ ! -f "$MODEL_DIR/runtime/libllama-server-impl.so" ]; then
+            rm -rf "$MODEL_DIR/runtime" "$RUNNER_TEMP/llama-src"
+            mkdir -p "$MODEL_DIR/runtime"
             git clone --filter=blob:none --no-checkout https://github.com/ggml-org/llama.cpp.git "$RUNNER_TEMP/llama-src"
             cd "$RUNNER_TEMP/llama-src"
             git checkout --detach aedb2a5e9ca3d4064148bbb919e0ddc0c1b70ab3
             cmake -B build -DLLAMA_CURL=OFF -DCMAKE_BUILD_TYPE=Release
             cmake --build build --config Release -j4 --target llama-server
-            cp build/bin/llama-server "$MODEL_DIR/runtime/llama-server"
+            cp -a build/bin/. "$MODEL_DIR/runtime"/
+            chmod 0755 "$MODEL_DIR/runtime/llama-server"
           fi
+          test -f "$MODEL_DIR/runtime/libllama-server-impl.so"
           "$MODEL_DIR/runtime/llama-server" --version
       - name: Download verified official model
         run: |
