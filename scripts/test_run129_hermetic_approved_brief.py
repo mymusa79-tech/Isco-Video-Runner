@@ -12,6 +12,9 @@ from scripts import immutable_planning_snapshot as snapshot
 from scripts import planning_checkpoint_state as checkpoint
 
 
+RUNNER_ROOT = Path(__file__).resolve().parents[1]
+
+
 class Run129HermeticApprovedBriefTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_installed = snapshot._INSTALLED
@@ -73,7 +76,7 @@ class Run129HermeticApprovedBriefTests(unittest.TestCase):
             with patch.dict(os.environ, env, clear=False), patch.object(
                 checkpoint, "canonical_runtime_enabled", return_value=True
             ):
-                path = snapshot.materialize_runtime_snapshot(root, engine)
+                path = snapshot.materialize_runtime_snapshot(RUNNER_ROOT, engine)
 
             self.assertEqual(path.read_bytes(), committed)
             self.assertNotEqual(path.read_bytes(), mutable.read_bytes())
@@ -105,11 +108,11 @@ class Run129HermeticApprovedBriefTests(unittest.TestCase):
             with patch.dict(os.environ, env, clear=False), patch.object(
                 checkpoint, "canonical_runtime_enabled", return_value=True
             ):
-                path = snapshot.materialize_runtime_snapshot(root, engine)
+                path = snapshot.materialize_runtime_snapshot(RUNNER_ROOT, engine)
                 snapshot._INSTALLED = False
                 snapshot.install_runtime_snapshot_binding(force=True)
                 self.assertEqual(Path(os.environ["ISCO_APPROVED_BRIEF_PATH"]).resolve(), path.resolve())
-                binding = checkpoint.build_runtime_binding(root, engine)
+                binding = checkpoint.build_runtime_binding(RUNNER_ROOT, engine)
 
             self.assertEqual(binding.approved_brief_sha256, expected)
 
