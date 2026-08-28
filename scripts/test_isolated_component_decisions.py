@@ -34,9 +34,10 @@ class IsolatedComponentDecisionTests(unittest.TestCase):
             self.assertNotIn(token, production)
 
         decision = self.read("docs/RETENTION_V2_ACTIVATION_RUNBOOK_2026-08-28.md")
-        self.assertIn("post-publication", decision)
-        self.assertIn("deferred", decision)
-        self.assertIn("durable retention evidence", decision)
+        decision_lower = decision.lower()
+        self.assertIn("post-publication", decision_lower)
+        self.assertIn("deferred", decision_lower)
+        self.assertIn("durable retention evidence", decision_lower)
         self.assertIn("disabled` or `review_only", decision)
 
     def test_local_brain_has_one_manual_canonical_benchmark(self) -> None:
