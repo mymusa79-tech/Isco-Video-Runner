@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import os
 from pathlib import Path
@@ -170,8 +171,8 @@ def _switch_groq_model(reason: str) -> bool:
     previous = _GROQ_MODEL_POOL[_ACTIVE_GROQ_INDEX]
     _ACTIVE_GROQ_INDEX += 1
     current = _GROQ_MODEL_POOL[_ACTIVE_GROQ_INDEX]
-    capacity._GROQ_RATE_STATE["remaining_tokens"] = None
-    capacity._GROQ_RATE_STATE["reset_at_monotonic"] = None
+    # Capacity evidence is model-scoped. Never clear another model's state merely
+    # because routing moved; the new model starts from its own persisted/observed state.
     router._last_call_rate_limit_headers.clear()
     router._last_call_response_meta.clear()
     print(f"Run125 Groq model failover: {previous} -> {current} reason={reason}")
@@ -179,16 +180,28 @@ def _switch_groq_model(reason: str) -> bool:
 
 
 def _groq_model_call(prompt: str, model_name: str) -> dict:
-    request_capacity = capacity.groq_capacity_estimate(prompt)
-    if request_capacity["estimated_request_tokens"] > capacity.GROQ_FREE_TPM_LIMIT:
+    request_capacity = capacity.groq_capacity_estimate(prompt, model_name=model_name)
+    decision = capacity.groq_admission_decision(
+        model_name, request_capacity["estimated_request_tokens"]
+    )
+    if decision["action"] == "impossible":
+        marker = (
+            "GROQ_ACTUAL_TPM_BELOW_REQUEST"
+            if decision["reason"] == "actual_limit_below_required"
+            else "GROQ_TPM_CAPACITY_PREFLIGHT"
+        )
         raise RuntimeError(
-            "GROQ_TPM_CAPACITY_PREFLIGHT "
-            f"contract={request_capacity['contract']} "
+            f"{marker} model={model_name} contract={request_capacity['contract']} "
             f"estimated_total={request_capacity['estimated_request_tokens']} "
-            f"limit={capacity.GROQ_FREE_TPM_LIMIT}"
+            f"limit={decision['actual_limit']}"
+        )
+    if decision["action"] == "unavailable":
+        raise RuntimeError(
+            "GROQ_MODEL_CAPACITY_UNAVAILABLE "
+            f"model={model_name} reason={decision['reason']}"
         )
 
-    capacity._proactive_groq_pacing(request_capacity)
+    capacity._proactive_groq_pacing(request_capacity, model_name=model_name)
     token = router._read_secret_file("GROQ_API_KEY_FILE")
     contract = router._structured_schema_for_prompt(prompt)
     contract_name = contract[0] if contract else "json_object"
@@ -219,10 +232,20 @@ def _groq_model_call(prompt: str, model_name: str) -> dict:
             json=payload,
             timeout=90,
         )
-        capacity._update_groq_rate_state(response.headers)
+        capacity.observe_groq_response(
+            response,
+            model_name,
+            required_tokens=request_capacity["estimated_request_tokens"],
+        )
         router._last_call_rate_limit_headers.update(router._extract_rate_limit_headers(response.headers))
         if not response.ok:
-            raise RuntimeError(capacity._safe_groq_error(response))
+            raise RuntimeError(
+                capacity._safe_groq_error(
+                    response,
+                    model_name=model_name,
+                    required_tokens=request_capacity["estimated_request_tokens"],
+                )
+            )
         body = response.json()
         choices = body.get("choices") or []
         if not choices:
@@ -263,6 +286,19 @@ def openrouter_preflight_blocked(path: Path | None = None) -> bool:
             continue
         return str(check.get("status") or "").strip().lower() == "block"
     return False
+
+
+def _assert_pacing_contract(callable_obj, *, label: str) -> None:
+    """Fail during installer composition, before a real provider call can expose drift."""
+    try:
+        inspect.signature(callable_obj, follow_wrapped=False).bind(
+            {"estimated_request_tokens": 1},
+            model_name=_active_groq_model(),
+        )
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            f"RUNTIME_CALL_CONTRACT_MISMATCH target={label} expected=model_aware_pacing detail={exc}"
+        ) from exc
 
 
 def install_run125_capacity_routing_closure() -> None:
@@ -317,22 +353,36 @@ def install_run125_capacity_routing_closure() -> None:
     router._record_attempt = cache_record
 
     original_pacing = capacity._proactive_groq_pacing
+    _assert_pacing_contract(original_pacing, label="pre_run125_capacity._proactive_groq_pacing")
 
-    def cache_aware_pacing(request_capacity: dict) -> float:
+    def cache_aware_pacing(
+        request_capacity: dict,
+        model_name: str = capacity._DEFAULT_GROQ_MODEL,
+    ) -> float:
+        model = str(model_name or _active_groq_model()).strip() or _active_groq_model()
         group = _cache_group(request_capacity.get("contract"))
-        model_name = _active_groq_model()
-        if group and (model_name, group) in _WARM_CACHE_GROUPS:
-            remaining = capacity._GROQ_RATE_STATE.get("remaining_tokens")
-            required = int(request_capacity.get("estimated_request_tokens") or 0)
-            if isinstance(remaining, int) and required > remaining:
-                print(
-                    "Run125 Groq cache-aware probe: "
-                    f"model={model_name} group={group} required_full_estimate={required} "
-                    f"remaining_window={remaining} action=provider_authoritative_cache_accounting"
-                )
-                return 0.0
-        return original_pacing(request_capacity)
+        required = int(request_capacity.get("estimated_request_tokens") or 0)
+        decision = capacity.groq_admission_decision(model, required)
 
+        # Cached-token accounting may make a full local prompt estimate larger than the
+        # remaining minute window. Only bypass that WAIT state after this exact model /
+        # prompt family has demonstrated a successful cacheable call. Impossible or
+        # unavailable states still go through the canonical pacing owner and fail fast.
+        if (
+            decision["action"] == "wait"
+            and group
+            and (model, group) in _WARM_CACHE_GROUPS
+        ):
+            print(
+                "Run125 Groq cache-aware probe: "
+                f"model={model} group={group} required_full_estimate={required} "
+                f"remaining_window={decision['remaining_tokens']} "
+                "action=provider_authoritative_cache_accounting"
+            )
+            return 0.0
+        return original_pacing(request_capacity, model_name=model)
+
+    _assert_pacing_contract(cache_aware_pacing, label="run125_cache_aware_pacing")
     capacity._proactive_groq_pacing = cache_aware_pacing
 
     # 3) Hard daily quota exhaustion is model-scoped. Move to another Groq model that
@@ -383,6 +433,7 @@ def install_run125_capacity_routing_closure() -> None:
     print(
         "Run125 capacity routing closure installed: "
         "writer_doctor_prefix_cache_layout=true groq_cache_authoritative_after_warm=true "
+        "groq_model_scoped_contract=true "
         "groq_model_pool=gpt-oss-20b->gpt-oss-120b->qwen3.8-27b "
         f"openrouter_preflight_blocked={str(_OPENROUTER_STRUCTURAL_BLOCKED).lower()}"
     )

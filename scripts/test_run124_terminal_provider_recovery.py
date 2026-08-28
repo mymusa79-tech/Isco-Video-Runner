@@ -6,11 +6,12 @@ from unittest.mock import patch
 from scripts import run124_terminal_provider_recovery as recovery
 
 
+MODEL = "openai/gpt-oss-120b"
 _FAILURE = (
     "All free providers failed for planning subtask: "
     "gemini:timeout | "
-    "groq:GROQ_TPM_WINDOW_BUSY_PRECHECK required_estimate=5928 remaining=3039 "
-    "reset_in=36.88s action=failover_without_http | "
+    f"groq:GROQ_TPM_WINDOW_BUSY_PRECHECK model={MODEL} required_estimate=5928 "
+    "remaining=3039 reset_in=36.88s action=failover_without_http | "
     "openrouter:OPENROUTER_PREMATURE_RESPONSE finish_reason=length"
 )
 
@@ -19,7 +20,6 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_call = recovery.batching._call_capacity_aware_shard
         self.original_markers = recovery.batching._TRANSPORT_PRESSURE_MARKERS
-        self.original_rate_state = dict(recovery.capacity._GROQ_RATE_STATE)
         self.had_flag = hasattr(recovery.batching, "_ISCO_RUN124_TERMINAL_PROVIDER_RECOVERY")
         self.original_flag = getattr(
             recovery.batching,
@@ -28,30 +28,32 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
         )
         if self.had_flag:
             delattr(recovery.batching, "_ISCO_RUN124_TERMINAL_PROVIDER_RECOVERY")
+        recovery.capacity.reset_groq_capacity_state_for_tests()
         recovery._RECOVERED_TERMINAL_SHARDS.clear()
+        recovery._TERMINAL_RECOVERY_COUNT = 0
+        recovery._TERMINAL_WAIT_SPENT_SECONDS = 0.0
 
     def tearDown(self) -> None:
         recovery.batching._call_capacity_aware_shard = self.original_call
         recovery.batching._TRANSPORT_PRESSURE_MARKERS = self.original_markers
-        recovery.capacity._GROQ_RATE_STATE.clear()
-        recovery.capacity._GROQ_RATE_STATE.update(self.original_rate_state)
+        recovery.capacity.reset_groq_capacity_state_for_tests()
         recovery._RECOVERED_TERMINAL_SHARDS.clear()
+        recovery._TERMINAL_RECOVERY_COUNT = 0
+        recovery._TERMINAL_WAIT_SPENT_SECONDS = 0.0
         if self.had_flag:
             recovery.batching._ISCO_RUN124_TERMINAL_PROVIDER_RECOVERY = self.original_flag
         elif hasattr(recovery.batching, "_ISCO_RUN124_TERMINAL_PROVIDER_RECOVERY"):
             delattr(recovery.batching, "_ISCO_RUN124_TERMINAL_PROVIDER_RECOVERY")
 
-    def test_run124_log_shape_is_recoverable_from_authoritative_reset_state(self) -> None:
-        recovery.capacity._GROQ_RATE_STATE["remaining_tokens"] = 3039
-        recovery.capacity._GROQ_RATE_STATE["reset_at_monotonic"] = 136.88
-        with patch.object(recovery.time, "monotonic", return_value=100.0):
-            self.assertAlmostEqual(
-                recovery._remaining_reset_seconds(RuntimeError(_FAILURE)),
-                36.88,
-                places=2,
-            )
+    def test_run124_log_shape_is_recoverable_from_exact_failure_evidence(self) -> None:
+        self.assertAlmostEqual(
+            recovery._remaining_reset_seconds(RuntimeError(_FAILURE)),
+            36.88,
+            places=2,
+        )
+        self.assertEqual(recovery._model_from_error(RuntimeError(_FAILURE)), MODEL)
 
-    def test_terminal_single_section_waits_once_then_retries(self) -> None:
+    def test_terminal_single_section_waits_once_then_clears_only_failed_model(self) -> None:
         calls: list[tuple[str, ...]] = []
 
         def fake_call(_api_key, _model, ids, *, prompt_builder, label):
@@ -62,14 +64,16 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
             return {ids[0]: {"id": ids[0], "narration": "ok", "key_point": "ok"}}
 
         recovery.batching._call_capacity_aware_shard = fake_call
-        recovery.capacity._GROQ_RATE_STATE["remaining_tokens"] = 3039
-        recovery.capacity._GROQ_RATE_STATE["reset_at_monotonic"] = 110.0
+        failed = recovery.capacity._model_state(MODEL)
+        failed["remaining_tokens"] = 3039
+        failed["reset_at_epoch"] = 1234.0
+        other_model = "openai/gpt-oss-20b"
+        other = recovery.capacity._model_state(other_model)
+        other["remaining_tokens"] = 777
+        other["reset_at_epoch"] = 9999.0
         recovery.install_run124_terminal_provider_recovery()
 
-        with patch.object(recovery.time, "monotonic", return_value=100.0), patch.object(
-            recovery.time,
-            "sleep",
-        ) as sleep:
+        with patch.object(recovery.time, "sleep") as sleep:
             result = recovery.batching._call_capacity_aware_shard(
                 "key",
                 "model",
@@ -80,9 +84,11 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
 
         self.assertEqual(result["S1"]["narration"], "ok")
         self.assertEqual(calls, [("S1",), ("S1",)])
-        sleep.assert_called_once_with(11.5)
-        self.assertIsNone(recovery.capacity._GROQ_RATE_STATE["remaining_tokens"])
-        self.assertIsNone(recovery.capacity._GROQ_RATE_STATE["reset_at_monotonic"])
+        sleep.assert_called_once_with(38.38)
+        self.assertIsNone(recovery.capacity._model_state(MODEL)["remaining_tokens"])
+        self.assertIsNone(recovery.capacity._model_state(MODEL)["reset_at_epoch"])
+        self.assertEqual(recovery.capacity._model_state(other_model)["remaining_tokens"], 777)
+        self.assertEqual(recovery.capacity._model_state(other_model)["reset_at_epoch"], 9999.0)
 
     def test_terminal_recovery_never_loops_if_retry_still_fails(self) -> None:
         calls = 0
@@ -94,14 +100,9 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
             raise RuntimeError(_FAILURE)
 
         recovery.batching._call_capacity_aware_shard = always_fail
-        recovery.capacity._GROQ_RATE_STATE["remaining_tokens"] = 3039
-        recovery.capacity._GROQ_RATE_STATE["reset_at_monotonic"] = 105.0
         recovery.install_run124_terminal_provider_recovery()
 
-        with patch.object(recovery.time, "monotonic", return_value=100.0), patch.object(
-            recovery.time,
-            "sleep",
-        ) as sleep:
+        with patch.object(recovery.time, "sleep") as sleep:
             with self.assertRaisesRegex(RuntimeError, "All free providers failed"):
                 recovery.batching._call_capacity_aware_shard(
                     "key",
@@ -115,23 +116,19 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
         self.assertEqual(sleep.call_count, 1)
 
     def test_reset_farther_than_one_minute_preserves_fail_fast_behavior(self) -> None:
+        far_failure = RuntimeError(_FAILURE.replace("reset_in=36.88s", "reset_in=61.01s"))
         calls = 0
 
         def fail(_api_key, _model, ids, *, prompt_builder, label):
             nonlocal calls
             del ids, prompt_builder, label
             calls += 1
-            raise RuntimeError(_FAILURE)
+            raise far_failure
 
         recovery.batching._call_capacity_aware_shard = fail
-        recovery.capacity._GROQ_RATE_STATE["remaining_tokens"] = 100
-        recovery.capacity._GROQ_RATE_STATE["reset_at_monotonic"] = 161.0
         recovery.install_run124_terminal_provider_recovery()
 
-        with patch.object(recovery.time, "monotonic", return_value=100.0), patch.object(
-            recovery.time,
-            "sleep",
-        ) as sleep:
+        with patch.object(recovery.time, "sleep") as sleep:
             with self.assertRaisesRegex(RuntimeError, "All free providers failed"):
                 recovery.batching._call_capacity_aware_shard(
                     "key",
@@ -154,14 +151,9 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
             raise RuntimeError(_FAILURE)
 
         recovery.batching._call_capacity_aware_shard = fail
-        recovery.capacity._GROQ_RATE_STATE["remaining_tokens"] = 3039
-        recovery.capacity._GROQ_RATE_STATE["reset_at_monotonic"] = 105.0
         recovery.install_run124_terminal_provider_recovery()
 
-        with patch.object(recovery.time, "monotonic", return_value=100.0), patch.object(
-            recovery.time,
-            "sleep",
-        ) as sleep:
+        with patch.object(recovery.time, "sleep") as sleep:
             with self.assertRaisesRegex(RuntimeError, "All free providers failed"):
                 recovery.batching._call_capacity_aware_shard(
                     "key",

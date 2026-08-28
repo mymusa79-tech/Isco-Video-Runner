@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import time
 
 import isco_video_agent.resilient_planner as staged
 from isco_video_agent.config import load_channel_persona
@@ -197,32 +196,61 @@ def _compact_repair_persona(prompt: str) -> str:
     )
 
 
-def _fast_failover_groq_pacing(request_capacity: dict) -> float:
-    """Use another free provider instead of sleeping on a known-empty Groq TPM window.
+def _fast_failover_groq_pacing(
+    request_capacity: dict,
+    model_name: str = capacity._DEFAULT_GROQ_MODEL,
+) -> float:
+    """Fail over on a busy Groq window without sleeping, using model-scoped evidence.
 
     No HTTP request and therefore no BudgetLedger provider attempt happens here. The
-    router will advance to OpenRouter for this logical subtask. Groq is NOT circuit
-    opened: once the recorded reset time passes, its local state is cleared and it is
-    eligible again on a later subtask.
+    router can advance to another provider/model. Terminal reset recovery remains owned
+    by Run124. The callable deliberately matches provider_capacity_hardening's canonical
+    `(request_capacity, model_name=...)` contract so wrapper composition cannot silently
+    drop model identity.
     """
-    remaining = capacity._GROQ_RATE_STATE.get("remaining_tokens")
-    reset_at = capacity._GROQ_RATE_STATE.get("reset_at_monotonic")
     required = int(request_capacity["estimated_request_tokens"])
-    now = time.monotonic()
+    model = str(model_name or capacity._DEFAULT_GROQ_MODEL).strip() or capacity._DEFAULT_GROQ_MODEL
+    decision = capacity.groq_admission_decision(model, required)
 
-    if isinstance(reset_at, (int, float)) and float(reset_at) <= now:
-        capacity._GROQ_RATE_STATE["remaining_tokens"] = None
-        capacity._GROQ_RATE_STATE["reset_at_monotonic"] = None
+    if decision["action"] == "impossible":
+        marker = (
+            "GROQ_ACTUAL_TPM_BELOW_REQUEST"
+            if decision["reason"] == "actual_limit_below_required"
+            else "GROQ_TPM_CAPACITY_PREFLIGHT"
+        )
+        raise RuntimeError(
+            f"{marker} model={model} required={required} limit={decision['actual_limit']}"
+        )
+    if decision["action"] == "unavailable":
+        raise RuntimeError(
+            "GROQ_MODEL_CAPACITY_UNAVAILABLE "
+            f"model={model} reason={decision['reason']}"
+        )
+    if decision["action"] != "wait":
         return 0.0
 
-    if isinstance(remaining, int) and required > remaining and isinstance(reset_at, (int, float)):
-        until_reset = max(0.0, float(reset_at) - now)
+    state = capacity._model_state(model)
+    reset_at_epoch = state.get("reset_at_epoch")
+    if not isinstance(reset_at_epoch, (int, float)):
         raise RuntimeError(
             "GROQ_TPM_WINDOW_BUSY_PRECHECK "
-            f"required_estimate={required} remaining={remaining} reset_in={until_reset:.2f}s "
+            f"model={model} required_estimate={required} "
+            f"remaining={decision['remaining_tokens']} reset_in=unknown "
             "action=failover_without_http"
         )
-    return 0.0
+
+    until_reset = max(0.0, float(reset_at_epoch) - capacity.time.time())
+    if until_reset <= 0:
+        state["remaining_tokens"] = None
+        state["reset_at_epoch"] = None
+        capacity._persist_model_states()
+        return 0.0
+
+    raise RuntimeError(
+        "GROQ_TPM_WINDOW_BUSY_PRECHECK "
+        f"model={model} required_estimate={required} remaining={decision['remaining_tokens']} "
+        f"reset_in={until_reset:.2f}s action=failover_without_http"
+    )
 
 
 def install_run123_planning_latency_hardening() -> None:
@@ -308,8 +336,8 @@ def install_run123_planning_latency_hardening() -> None:
 
     # Do not serialize the whole planning pipeline behind Groq's minute window. A
     # known-insufficient remaining-token header is a local routing fact, not a reason
-    # to sleep. OpenRouter can handle that subtask while Groq naturally becomes
-    # eligible again after reset.
+    # to sleep. This replacement preserves the capacity layer's model-aware call
+    # contract so later wrappers can safely forward model_name.
     capacity._proactive_groq_pacing = _fast_failover_groq_pacing
 
     # An actual escaped HTTP 429 may still include Retry-After. Keep one bounded outer
@@ -335,6 +363,6 @@ def install_run123_planning_latency_hardening() -> None:
     print(
         "Run123 planning latency hardening installed: "
         "writer_doctor=dynamically_bounded dossier=strict_schema_low_reasoning "
-        "append=compact_dynamic_budget groq_window=failover_without_sleep "
+        "append=compact_dynamic_budget groq_window=model_scoped_failover_without_sleep "
         "repair_persona=compact factual_claim_scopes=preserved retry_after_cap=20s"
     )

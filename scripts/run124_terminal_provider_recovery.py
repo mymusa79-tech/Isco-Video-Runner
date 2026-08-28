@@ -16,12 +16,27 @@ _RESET_SAFETY_SECONDS = 1.5
 _MAX_TERMINAL_RECOVERIES_PER_RUN = 3
 _MAX_TERMINAL_WAIT_SECONDS_PER_RUN = 60.0
 _RESET_RE = re.compile(r"reset_in=(\d+(?:\.\d+)?)s", flags=re.I)
+_MODEL_RE = re.compile(r"\bmodel=([^\s|]+)", flags=re.I)
 _RECOVERED_TERMINAL_SHARDS: set[tuple[str, tuple[str, ...], str]] = set()
 _TERMINAL_RECOVERY_COUNT = 0
 _TERMINAL_WAIT_SPENT_SECONDS = 0.0
 
 
+def _model_from_error(exc: BaseException) -> str | None:
+    match = _MODEL_RE.search(str(exc))
+    if match is None:
+        return None
+    model = match.group(1).strip()
+    return model or None
+
+
 def _remaining_reset_seconds(exc: BaseException) -> float | None:
+    """Read the reset evidence attached to the exact model failure.
+
+    Run126 made Groq capacity state model-scoped. A process-global "last response"
+    mirror is therefore no longer an authority for terminal recovery because another
+    model/provider call may have updated it before this outer wrapper handles the error.
+    """
     text = str(exc)
     lower = text.lower()
     if "all free providers failed for planning subtask" not in lower:
@@ -29,19 +44,23 @@ def _remaining_reset_seconds(exc: BaseException) -> float | None:
     if "groq_tpm_window_busy_precheck" not in lower:
         return None
 
-    now = time.monotonic()
-    reset_at = capacity._GROQ_RATE_STATE.get("reset_at_monotonic")
-    if isinstance(reset_at, (int, float)):
-        remaining = max(0.0, float(reset_at) - now)
-    else:
-        match = _RESET_RE.search(text)
-        if match is None:
-            return None
-        remaining = max(0.0, float(match.group(1)))
-
+    match = _RESET_RE.search(text)
+    if match is None:
+        return None
+    remaining = max(0.0, float(match.group(1)))
     if remaining > _TERMINAL_RESET_LIMIT_SECONDS:
         return None
     return remaining
+
+
+def _clear_waited_model_window(exc: BaseException) -> None:
+    model_name = _model_from_error(exc)
+    if not model_name:
+        return
+    state = capacity._model_state(model_name)
+    state["remaining_tokens"] = None
+    state["reset_at_epoch"] = None
+    capacity._persist_model_states()
 
 
 def _run_wait_budget_allows(wait_seconds: float) -> bool:
@@ -100,17 +119,17 @@ def install_run124_terminal_provider_recovery() -> None:
             _RECOVERED_TERMINAL_SHARDS.add(key)
             _TERMINAL_RECOVERY_COUNT += 1
             _TERMINAL_WAIT_SPENT_SECONDS += wait_seconds
+            waited_model = _model_from_error(exc) or "unknown"
             print(
                 "Run124 terminal provider recovery: "
-                f"label={label} section={ids[0]} groq_reset_in={remaining:.2f}s "
-                f"wait={wait_seconds:.2f}s action=single_bounded_retry "
+                f"label={label} section={ids[0]} groq_model={waited_model} "
+                f"groq_reset_in={remaining:.2f}s wait={wait_seconds:.2f}s "
+                "action=single_bounded_retry "
                 f"run_recovery={_TERMINAL_RECOVERY_COUNT}/{_MAX_TERMINAL_RECOVERIES_PER_RUN} "
                 f"run_wait_spent={_TERMINAL_WAIT_SPENT_SECONDS:.2f}s"
             )
             time.sleep(wait_seconds)
-
-            capacity._GROQ_RATE_STATE["remaining_tokens"] = None
-            capacity._GROQ_RATE_STATE["reset_at_monotonic"] = None
+            _clear_waited_model_window(exc)
 
             return original_call(
                 api_key,
@@ -124,7 +143,8 @@ def install_run124_terminal_provider_recovery() -> None:
     batching._ISCO_RUN124_TERMINAL_PROVIDER_RECOVERY = True
     print(
         "Run124 terminal provider recovery installed: "
-        "groq_window_is_transport_pressure terminal_single_shard_wait<=60s retry_once_per_shard=true "
+        "groq_window_is_transport_pressure model_scoped_reset=true "
+        "terminal_single_shard_wait<=60s retry_once_per_shard=true "
         f"run_recovery_cap={_MAX_TERMINAL_RECOVERIES_PER_RUN} "
         f"run_wait_cap={_MAX_TERMINAL_WAIT_SECONDS_PER_RUN:.0f}s"
     )
