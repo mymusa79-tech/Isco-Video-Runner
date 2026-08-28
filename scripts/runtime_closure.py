@@ -19,6 +19,7 @@ from scripts.m10_live_binding import install_m10_live_binding
 from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
 from scripts.provider_capacity_v2 import install_provider_capacity_v2
+from scripts.run124_terminal_provider_recovery import install_run124_terminal_provider_recovery
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
     install_release_transaction_guard,
@@ -105,6 +106,10 @@ def install_runtime_closure() -> None:
     install_bounded_output_recovery()
     install_schema_repair_policy()
     install_gemini_planning_output_guard()
+    # Run #124: Run #123's fast Groq-window failover remains the default, but a terminal
+    # one-section shard now gets one bounded <=60s reset wait only after every alternate
+    # provider has failed. This prevents fast failover from becoming fast failure.
+    install_run124_terminal_provider_recovery()
     install_provider_capacity_v2()
     install_media_trust_boundary_v2()
     install_core_reliability_guard()
