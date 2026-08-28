@@ -23,17 +23,36 @@ def _tree(fn) -> ast.AST:
     return ast.parse(source)
 
 
+def _callable_name(node: ast.expr) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ""
+
+
 def _literal_attempts_one_calls(fn, target_name: str) -> int:
+    """Count single-attempt provider handoffs, direct or callback-mediated.
+
+    Engine's direct-provider ledger intentionally receives the provider function as a
+    positional callback (`_ledger_call(..., synthesize_wav, ..., attempts=1)`). That is
+    the real wire boundary even though AST does not represent it as `synthesize_wav()`.
+    Treat both shapes equivalently while still requiring a literal attempts=1 keyword.
+    """
     count = 0
     for node in ast.walk(_tree(fn)):
         if not isinstance(node, ast.Call):
             continue
-        called = node.func
-        name = called.id if isinstance(called, ast.Name) else called.attr if isinstance(called, ast.Attribute) else ""
-        if name != target_name:
+        direct = _callable_name(node.func) == target_name
+        callback = any(_callable_name(argument) == target_name for argument in node.args)
+        if not (direct or callback):
             continue
         for keyword in node.keywords:
-            if keyword.arg == "attempts" and isinstance(keyword.value, ast.Constant) and keyword.value.value == 1:
+            if (
+                keyword.arg == "attempts"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value == 1
+            ):
                 count += 1
     return count
 
@@ -84,9 +103,9 @@ def certify_provider_retry_ownership() -> dict[str, object]:
             "tts_retry_owner_drift voice_mesh_must_forward_attempts_1_exactly_once"
         )
 
-    # Engine's production TTS owner must also force attempts=1 when Runner's Piper
-    # fallback is installed. TtsBudget/TtsCircuit then owns the one optional bonus
-    # cloud attempt and the Piper failover.
+    # Engine's production TTS owner passes synthesize_wav as a callback into its direct
+    # provider ledger and must force attempts=1 when Runner's Piper fallback is installed.
+    # TtsBudget/TtsCircuit then owns the one optional bonus cloud attempt and failover.
     if _literal_attempts_one_calls(orchestrator._synthesize_tts_section, "synthesize_wav") < 1:
         raise ProviderRetryOwnershipError(
             "tts_retry_owner_drift engine_runner_path_missing_attempts_1"
