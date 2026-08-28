@@ -13,6 +13,7 @@ from isco_video_agent.short_planner import DEFAULT_SIBLING_SPACING_HOURS, select
 
 import scripts.run_v3_voice as production
 from scripts.native_short_planner_router import install_native_short_router
+from scripts.short_voice_v2 import apply_short_voice_v2
 from scripts.shorts_production_binding import finalize_short_quality, prepare_short_render
 from scripts.sibling_short_orchestration import orchestrate_sibling_shorts, stage_sibling_assets
 from scripts.source_derived_short_planner import install_source_derived_short_planner
@@ -204,13 +205,34 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
     original_gold = production.run_gold_enforce_phase4
     original_install_router = production.install_router
     original_resolve_plan_source = production._resolve_plan_source
+    original_budget_factory = production._production_budget_ledger
     short_pre: dict[str, Any] | None = None
+    ledger_box: dict[str, Any] = {}
     before = _output_dirs()
+
+    def captured_budget_factory(fmt: str):
+        ledger = original_budget_factory(fmt)
+        ledger_box["ledger"] = ledger
+        return ledger
 
     def controlled_gold(**kwargs):
         nonlocal short_pre
         if request["kind"] == "short":
-            short_pre = prepare_short_render(Path(kwargs["output_dir"]), runtime_request)
+            output_dir = Path(kwargs["output_dir"])
+            short_pre = prepare_short_render(output_dir, runtime_request)
+            ledger = ledger_box.get("ledger")
+            if ledger is None:
+                raise RuntimeError("Short V2 lost the production AI budget ledger before voice synthesis")
+            short_pre = apply_short_voice_v2(
+                output_dir,
+                runtime_request,
+                short_pre,
+                ledger=ledger,
+            )
+            master_qc = production.run_final_master_qc(output_dir)
+            if master_qc.get("status") != "pass" or master_qc.get("final_media_mutated") is not False:
+                raise RuntimeError("Short V2 authoritative Final Master QC did not pass")
+            short_pre["authoritative_final_master_qc_rerun"] = True
         result = original_gold(**kwargs)
         if request["kind"] == "short":
             assert short_pre is not None
@@ -218,6 +240,7 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
         return result
 
     production.run_gold_enforce_phase4 = controlled_gold
+    production._production_budget_ledger = captured_budget_factory
     if request["kind"] == "short":
         short_install, plan_source = _short_router_for_request(request)
         production.install_router = short_install
@@ -229,6 +252,7 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
         production.run_gold_enforce_phase4 = original_gold
         production.install_router = original_install_router
         production._resolve_plan_source = original_resolve_plan_source
+        production._production_budget_ledger = original_budget_factory
         _restore_runtime_env(previous_env)
 
     if request["kind"] == "long":

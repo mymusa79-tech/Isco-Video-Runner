@@ -12,8 +12,11 @@ on:
     paths:
       - "scripts/native_short_planner_router.py"
       - "scripts/shorts_production_binding.py"
+      - "scripts/short_voice_v2.py"
+      - "scripts/run_control_production.py"
       - "scripts/test_native_short_planner_router.py"
       - "scripts/test_shorts_production_binding.py"
+      - "scripts/test_short_voice_v2.py"
       - ".github/workflows/verify-private-engine.yml"
   pull_request:
     branches: ["main"]
@@ -155,7 +158,8 @@ jobs:
           set -euo pipefail
           python -m unittest \
             scripts.test_native_short_planner_router \
-            scripts.test_shorts_production_binding -v
+            scripts.test_shorts_production_binding \
+            scripts.test_short_voice_v2 -v
 
       - name: Full Runner regression suite
         id: runner_regression
