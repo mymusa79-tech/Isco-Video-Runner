@@ -11,6 +11,11 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+try:
+    from scripts.runtime_phase import canonical_workflow_identity
+except ModuleNotFoundError:  # direct script/module compatibility
+    from runtime_phase import canonical_workflow_identity
+
 
 FORMAT = "isco-agent-state"
 VERSION = 2
@@ -27,7 +32,6 @@ KEY_BYTES = 32
 # legacy ciphertext indefinitely after AES-GCM state has become canonical.
 LEGACY_OPENSSL_MAGIC = b"Salted__"
 LEGACY_MIGRATION_RUN_NUMBER = "111"
-CANONICAL_PRODUCTION_WORKFLOW_MARKER = "/.github/workflows/produce-resilient-v4.yml@"
 
 
 @dataclass(frozen=True)
@@ -191,8 +195,10 @@ def open_envelope(payload: bytes, secret: str) -> tuple[bytes, EnvelopeMetadata]
 def _enforce_legacy_migration_epoch(payload: bytes) -> None:
     if not payload.startswith(LEGACY_OPENSSL_MAGIC):
         return
-    workflow_ref = str(os.environ.get("GITHUB_WORKFLOW_REF") or "")
-    if CANONICAL_PRODUCTION_WORKFLOW_MARKER not in workflow_ref:
+    # Run130 closure: workflow identity has one interpreter. This security migration
+    # guard may consume canonical identity, but it must not re-derive it from GITHUB_*
+    # variables or become a second production-phase authority.
+    if not canonical_workflow_identity():
         return
     run_number = str(os.environ.get("GITHUB_RUN_NUMBER") or "").strip()
     if run_number != LEGACY_MIGRATION_RUN_NUMBER:
