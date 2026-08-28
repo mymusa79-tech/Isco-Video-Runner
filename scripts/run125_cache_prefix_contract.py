@@ -4,6 +4,7 @@ from provider_failure import ProviderFailure
 
 from scripts import provider_capacity_hardening as capacity
 from scripts import run125_capacity_routing_closure as closure
+from scripts.retry_after_policy import parse_retry_after_seconds, retry_delay_decision
 
 
 _PRODUCTION_GROQ_MODEL_POOL = (
@@ -90,12 +91,9 @@ def _is_tpm_window_exhausted(error) -> bool:
 
 
 def _retry_after_seconds() -> float | None:
-    value = closure.router._last_call_rate_limit_headers.get("retry_after")
-    try:
-        seconds = float(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-    return seconds if seconds >= 0 else None
+    return parse_retry_after_seconds(
+        closure.router._last_call_rate_limit_headers.get("retry_after")
+    )
 
 
 def _model_reset_seconds(model_name: str) -> float | None:
@@ -125,14 +123,12 @@ def _terminal_tpm_window_error(error) -> RuntimeError:
 
 
 def _retry_after_exceeds_local_budget() -> bool:
-    retry_after = _retry_after_seconds()
-    if retry_after is None:
-        return False
-    try:
-        budget = float(closure.router.RETRY_AFTER_MAX_SECONDS)
-    except (TypeError, ValueError):
-        return False
-    return retry_after > max(0.0, budget)
+    decision = retry_delay_decision(
+        provider_hint=closure.router._last_call_rate_limit_headers.get("retry_after"),
+        calculated_delay_seconds=0.0,
+        wait_budget_seconds=closure.router.RETRY_AFTER_MAX_SECONDS,
+    )
+    return decision.action == "failover"
 
 
 def _install_rate_limit_ownership() -> None:
