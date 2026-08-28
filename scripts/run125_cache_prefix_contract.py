@@ -140,6 +140,10 @@ def _install_rate_limit_ownership() -> None:
     router = closure.router
     if getattr(router, "_ISCO_RUN128_RATE_LIMIT_OWNERSHIP", False):
         return
+    # Unit/import contexts can install the cache-prefix formatter without installing the
+    # Run125 model pool. Rate-limit ownership only makes sense once that owner is live.
+    if not closure._INSTALLED:
+        return
 
     original_is_model_unavailable = closure._is_model_unavailable
 
