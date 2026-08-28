@@ -5,12 +5,10 @@ import json
 import isco_video_agent.resilient_planner as staged
 from scripts import provider_capacity_hardening as capacity
 
-# Three sections remains the largest continuity-preserving transport shard.  Run #121
-# proved that section count alone is not a capacity unit: Doctor batch 2 was estimated
-# at 8077 TPM against Groq Free's 8000 TPM limit.  Every Writer/Doctor shard is now
-# admitted by the same provider-capacity estimator used by the router; an oversized or
-# output-truncated shard is recursively split 3 -> 2+1 -> 1 without replaying successful
-# siblings.  Schema repair remains owned by staged._call_with_schema_repair.
+# Three sections remains the largest continuity-preserving transport shard. Run #121
+# proved that section count alone is not a capacity unit. Admission is intentionally
+# delegated to the provider-capacity authority; the historical 8000 value is only a
+# pre-contact bootstrap inside that authority and is never read directly here.
 MAX_SCRIPT_BATCH_SECTIONS = 3
 
 _TRANSPORT_PRESSURE_MARKERS = (
@@ -49,15 +47,35 @@ def _is_transport_pressure(exc: BaseException) -> bool:
 def _split_ids(ids: list[str]) -> tuple[list[str], list[str]]:
     if len(ids) <= 1:
         raise ValueError("cannot split a single planning section")
-    # Preserve the Run #118 continuity preference: 3 -> 2+1.  A two-section shard
-    # becomes 1+1.  No arbitrary character/token slicing is ever applied to narration.
+    # Preserve the Run #118 continuity preference: 3 -> 2+1. A two-section shard
+    # becomes 1+1. No arbitrary character/token slicing is ever applied to narration.
     cut = len(ids) - 1 if len(ids) == 3 else max(1, len(ids) // 2)
     return ids[:cut], ids[cut:]
 
 
 def _capacity_admitted(prompt: str) -> tuple[bool, dict]:
+    """Base Groq admission without a duplicated numeric policy.
+
+    Run122/Dynamic Capacity later broaden this to provider-set viability in canonical
+    production. This base remains safe on its own: it asks the model-scoped capacity
+    authority and never treats the compatibility constant GROQ_FREE_TPM_LIMIT as truth.
+    """
     estimate = capacity.groq_capacity_estimate(prompt)
-    return estimate["estimated_request_tokens"] <= capacity.GROQ_FREE_TPM_LIMIT, estimate
+    model_name = str(estimate.get("provider_model") or capacity._DEFAULT_GROQ_MODEL)
+    decision = capacity.groq_admission_decision(
+        model_name,
+        int(estimate["estimated_request_tokens"]),
+    )
+    estimate["admission_action"] = decision["action"]
+    estimate["admission_reason"] = decision["reason"]
+    estimate["admission_limit"] = decision.get("actual_limit")
+    estimate["admission_remaining"] = decision.get("remaining_tokens")
+    return decision["action"] in {"admit", "unknown", "wait"}, estimate
+
+
+def _admission_limit_label(estimate: dict) -> str:
+    limit = estimate.get("admission_limit")
+    return str(limit) if isinstance(limit, int) else "unknown"
 
 
 def _call_capacity_aware_shard(
@@ -70,8 +88,8 @@ def _call_capacity_aware_shard(
 ) -> dict[str, dict]:
     """Execute one semantic shard with bounded recursive capacity splitting.
 
-    This is admission/sharding, not a retry owner.  The existing schema policy and
-    task-level router still own provider attempts.  A successful child shard is merged
+    This is admission/sharding, not a retry owner. The existing schema policy and
+    task-level router still own provider attempts. A successful child shard is merged
     immediately and never replayed if a later sibling fails.
     """
     prompt = prompt_builder(ids)
@@ -82,14 +100,17 @@ def _call_capacity_aware_shard(
                 "PLANNING_SINGLE_SHARD_NOT_PROVIDER_PORTABLE "
                 f"label={label} section={ids[0]} "
                 f"estimated_total={estimate['estimated_request_tokens']} "
-                f"limit={capacity.GROQ_FREE_TPM_LIMIT}"
+                f"limit={_admission_limit_label(estimate)} "
+                f"reason={estimate.get('admission_reason', 'unknown')}"
             )
         left, right = _split_ids(ids)
         print(
             "Planning capacity split before provider call: "
             f"label={label} sections={','.join(ids)} "
             f"estimated_total={estimate['estimated_request_tokens']} "
-            f"limit={capacity.GROQ_FREE_TPM_LIMIT} -> {','.join(left)} + {','.join(right)}"
+            f"limit={_admission_limit_label(estimate)} "
+            f"reason={estimate.get('admission_reason', 'unknown')} -> "
+            f"{','.join(left)} + {','.join(right)}"
         )
         merged: dict[str, dict] = {}
         merged.update(
