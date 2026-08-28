@@ -9,12 +9,37 @@ from typing import Callable
 STATUS_FILENAME = "analytics-observer-status.json"
 
 
-def _write_status(output_dir: Path, payload: dict) -> Path:
+def _persist_status_best_effort(output_dir: Path, payload: dict) -> dict:
     path = Path(output_dir) / STATUS_FILENAME
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
-    return path
+    enriched = dict(payload)
+    try:
+        tmp.write_text(json.dumps(enriched, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        enriched["status_persisted"] = False
+        enriched["status_persist_error_type"] = type(exc).__name__
+        print(f"YouTube analytics observer sidecar write failed: {type(exc).__name__}")
+        return enriched
+    enriched["status_persisted"] = True
+    enriched["status_persist_error_type"] = None
+    # Rewrite once with its own persistence state included. Failure here is still
+    # non-authoritative; telemetry receives the returned in-memory evidence below.
+    try:
+        tmp.write_text(json.dumps(enriched, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as exc:
+        enriched["status_persisted"] = False
+        enriched["status_persist_error_type"] = type(exc).__name__
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+    return enriched
 
 
 def observe_post_acceptance_analytics(
@@ -54,22 +79,26 @@ def observe_post_acceptance_analytics(
             binding_source=binding_source,
         )
     except Exception as exc:
-        payload = {
-            **base,
-            "status": "error",
-            "error_type": type(exc).__name__,
-            "release_blocked": False,
-        }
-        _write_status(output_dir, payload)
+        payload = _persist_status_best_effort(
+            output_dir,
+            {
+                **base,
+                "status": "error",
+                "error_type": type(exc).__name__,
+                "release_blocked": False,
+            },
+        )
         print(f"YouTube analytics observer error recorded: {type(exc).__name__}")
         return payload
 
-    payload = {
-        **base,
-        "status": "success",
-        "error_type": None,
-        "release_blocked": False,
-    }
-    _write_status(output_dir, payload)
+    payload = _persist_status_best_effort(
+        output_dir,
+        {
+            **base,
+            "status": "success",
+            "error_type": None,
+            "release_blocked": False,
+        },
+    )
     print("YouTube analytics observer status: success")
     return payload
