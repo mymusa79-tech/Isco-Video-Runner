@@ -91,7 +91,8 @@ class EdgeObservabilityContractTests(unittest.TestCase):
         self.assertIn('main = "observability-worker.js"', self.wrangler)
         self.assertIn('import baseWorker from "./index.js"', self.worker)
         self.assertIn('import { STATUS_CONTRACT } from "./status-contract.generated.js"', self.worker)
-        self.assertIn('observability: "v2"', self.worker)
+        self.assertIn('observability: "v1"', self.worker)
+        self.assertIn("edge_read_version: 2", self.worker)
 
     def test_worker_has_valid_javascript_syntax_when_node_is_available(self) -> None:
         node = shutil.which("node")
@@ -146,11 +147,13 @@ class EdgeObservabilityContractTests(unittest.TestCase):
         ):
             self.assertIn(marker, self.worker)
 
-    def test_global_refresh_is_read_only(self) -> None:
-        self.assertIn("Promise.all", self.worker)
+    def test_global_refresh_is_read_only_and_complete(self) -> None:
+        self.assertIn("Promise.allSettled", self.worker)
         self.assertIn('telegram(env, "getWebhookInfo"', self.worker)
         self.assertIn("pending_update_count", self.worker)
         self.assertIn("control-plane-state/state/telegram-status.json", self.worker)
+        self.assertIn("latestDelivery(env)", self.worker)
+        self.assertIn("youtubeOverview(env)", self.worker)
         self.assertIn("آخر تحقق شامل", self.worker)
         self.assertNotIn("telegram-production-request.yml", self.worker)
         self.assertNotIn("cmd:retry", self.worker)
@@ -161,17 +164,20 @@ class EdgeObservabilityContractTests(unittest.TestCase):
             "cmd:saved-short",
             "cmd:used-long",
             "cmd:used-short",
-            "cmd:saved-long-page-",
-            "cmd:saved-short-page-",
-            "cmd:used-long-page-",
-            "cmd:used-short-page-",
             "cmd:savedpick-",
         ):
             self.assertIn(callback, self.topic_ui)
+        self.assertIn('prefix = f"cmd:saved-{kind}-page-"', self.topic_ui)
+        self.assertIn('prefix = f"cmd:used-{kind}-page-"', self.topic_ui)
         self.assertIn("function pageSpec(data)", self.worker)
         self.assertIn("^cmd:(saved|used)-(long|short)", self.worker)
-        self.assertIn("cmd:${bucket}-${spec.kind}-page-", self.worker)
+        self.assertIn("cmd:${spec.bucket}-${spec.kind}-page-", self.worker)
         self.assertIn("cmd:savedpick-", self.worker)
+
+    def test_completed_failure_keeps_exact_failed_step(self) -> None:
+        self.assertIn("function failedLocation(jobs)", self.worker)
+        self.assertIn("const [job, step] = failedLocation(jobs)", self.worker)
+        self.assertIn("actions/runs/${run.id}/jobs?per_page=100", self.worker)
 
 
 class EdgeSecretInstallationTests(unittest.TestCase):
