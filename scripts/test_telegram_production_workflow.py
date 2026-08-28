@@ -61,28 +61,54 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         self.assertIn("python ../scripts/run_telegram_control_production.py", self.text)
         self.assertNotIn("python ../scripts/run_v3_voice.py", self.text)
 
-    def test_idempotent_release_prevents_successful_request_reproduction(self):
-        self.assertIn("Idempotency guard", self.text)
-        self.assertIn('gh release view "$RELEASE_TAG"', self.text)
-        self.assertIn('already_released=true', self.text)
-        self.assertIn("Create one deterministic delivery release", self.text)
-        self.assertIn('gh release create "$RELEASE_TAG"', self.text)
+    def test_idempotency_requires_verified_release_identity_not_tag_existence_only(self):
+        block_start = self.text.index("Idempotency guard")
+        block_end = self.text.index("Checkout exact private Engine")
+        block = self.text[block_start:block_end]
+        self.assertIn('gh release view "$RELEASE_TAG"', block)
+        self.assertIn("python scripts/telegram_release_identity.py", block)
+        self.assertIn('--target-sha "$GITHUB_SHA"', block)
+        self.assertIn('--request "$ISCO_CONTROL_REQUEST_PATH"', block)
+        self.assertIn('already_released=true', block)
+        self.assertIn("verified completed delivery release", block)
 
-    def test_delivery_stays_staged_until_real_release_step(self):
+    def test_release_uses_same_transactional_publisher_as_canonical_v4(self):
+        release_start = self.text.index("Create one deterministic delivery release")
+        release_end = self.text.index("Upload Telegram release transaction evidence")
+        block = self.text[release_start:release_end]
+        self.assertIn("python scripts/release_transaction.py", block)
+        self.assertIn('--target-sha "$GITHUB_SHA"', block)
+        self.assertIn('--journal "$journal"', block)
+        self.assertIn('release_cmd+=(--asset "$asset")', block)
+        self.assertIn('"${release_cmd[@]}"', block)
+        self.assertIn("python scripts/telegram_release_identity.py", block)
+        self.assertNotIn('gh release create "$RELEASE_TAG"', block)
+
+    def test_delivery_stays_staged_until_transactional_release_step(self):
         validate = self.text.index("Validate exact staged delivery package")
         finalize = self.text.index("finalize_release_manifest(")
-        release = self.text.index('gh release create "$RELEASE_TAG"')
+        release = self.text.index("python scripts/release_transaction.py")
+        verify = self.text.index("python scripts/telegram_release_identity.py", release)
         self.assertLess(validate, finalize)
         self.assertLess(finalize, release)
+        self.assertLess(release, verify)
         self.assertIn('data.get("release_state") != "staged"', self.text)
         self.assertIn('data.get("release_tag") is not None', self.text)
         self.assertIn('data.get("delivery_url") is not None', self.text)
 
-    def test_successful_topic_is_recorded_only_after_delivery_release_and_before_success_notification(self):
-        release = self.text.index('gh release create "$RELEASE_TAG"')
+    def test_release_transaction_evidence_is_durable_diagnostic(self):
+        self.assertIn("Upload Telegram release transaction evidence", self.text)
+        self.assertIn("telegram-release-transaction-${{ github.run_number }}", self.text)
+        self.assertIn("telegram-release-transaction.json", self.text)
+        self.assertIn("continue-on-error: true", self.text)
+
+    def test_successful_topic_is_recorded_only_after_verified_delivery_release_and_before_notification(self):
+        release = self.text.index("python scripts/release_transaction.py")
+        verify = self.text.index("python scripts/telegram_release_identity.py", release)
         used = self.text.index("Record successful topic in encrypted used-topic history")
         notify = self.text.index("Notify Telegram final status")
-        self.assertLess(release, used)
+        self.assertLess(release, verify)
+        self.assertLess(verify, used)
         self.assertLess(used, notify)
         self.assertIn("if: success() && steps.request.outcome == 'success'", self.text)
         self.assertIn("ui._mark_request_used(", self.text)
@@ -91,7 +117,7 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         self.assertIn("git push origin HEAD:control-plane-state", self.text)
         self.assertNotIn("continue-on-error: true\n        env:\n          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}\n          RELEASE_TAG", self.text)
 
-    def test_used_topic_persistence_is_idempotent_for_an_existing_release(self):
+    def test_used_topic_persistence_is_idempotent_for_an_existing_verified_release(self):
         used_block_start = self.text.index("Record successful topic in encrypted used-topic history")
         used_block_end = self.text.index("Checkout agent-state writer")
         block = self.text[used_block_start:used_block_end]
