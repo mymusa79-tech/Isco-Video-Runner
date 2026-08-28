@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from isco_video_agent.providers.gemini import (
 )
 from isco_video_agent.resilient_planner import build_outline_prompt
 from scripts.dynamic_planning_capacity import certify_general_planning_envelope
+from scripts.immutable_planning_snapshot import bind_runtime_approved_brief_path
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.provider_capacity_hardening import (
     completion_token_budget,
@@ -51,6 +53,13 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
     fixed Writer batching contract. Tier two runs on the exact first Writer shard inside
     dynamic_planning_capacity before that shard can call a provider.
     """
+    # Canonical V4 materializes a read-only approved-brief snapshot during state restore.
+    # A workflow step may still export the historical worktree path, so prefer the
+    # snapshot explicitly whenever it exists. This keeps preflight and production on the
+    # same immutable bytes even if an earlier test modified the Engine working tree.
+    if str(os.environ.get("ISCO_APPROVED_BRIEF_SNAPSHOT_PATH") or "").strip():
+        bind_runtime_approved_brief_path()
+
     brief = load_approved_brief(required=True)
     fmt = str(brief["format"]).strip().lower()
     outline_contract = ("editorial_outline", {})
