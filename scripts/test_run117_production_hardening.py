@@ -40,8 +40,10 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
         )
 
     def setUp(self) -> None:
-        capacity._GROQ_RATE_STATE["remaining_tokens"] = None
-        capacity._GROQ_RATE_STATE["reset_at_monotonic"] = None
+        capacity.reset_groq_capacity_state_for_tests()
+
+    def tearDown(self) -> None:
+        capacity.reset_groq_capacity_state_for_tests()
 
     def test_bounded_full_script_reserve_is_smaller_than_run117_whole_script_reserve(self) -> None:
         contract = capacity.router._structured_schema_for_prompt(self._full_script_prompt("x"))
@@ -66,24 +68,31 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
 
     def test_run119_low_remaining_tokens_waits_for_reset_before_provider_attempt(self) -> None:
         # Run #119 repeatedly needed ~7.7K tokens while Groq reported only tens/hundreds
-        # remaining. The reset-aware admission wait must happen before another request.
+        # remaining. Dynamic capacity persists reset as wall-clock epoch so the evidence
+        # remains valid across processes; model the 250ms elapsed time on that same clock.
         headers = {
             "x-ratelimit-remaining-tokens": "112",
             "x-ratelimit-reset-tokens": "1.0s",
         }
-        with patch.object(capacity.time, "monotonic", side_effect=[100.0, 100.25]), \
+        with patch.object(capacity.time, "time", side_effect=[100.0, 100.25]), \
+                patch.object(capacity.time, "monotonic", return_value=50.0), \
                 patch.object(capacity.time, "sleep") as sleep_mock:
             capacity._update_groq_rate_state(headers)
             waited = capacity._proactive_groq_pacing({"estimated_request_tokens": 7749})
 
         self.assertAlmostEqual(waited, 2.25)
         sleep_mock.assert_called_once_with(waited)
+        self.assertIsNone(capacity._model_state("openai/gpt-oss-20b")["remaining_tokens"])
         self.assertIsNone(capacity._GROQ_RATE_STATE["remaining_tokens"])
         self.assertIsNone(capacity._GROQ_RATE_STATE["reset_at_monotonic"])
 
     def test_groq_pacing_does_not_wait_when_remaining_tokens_cover_request(self) -> None:
-        capacity._GROQ_RATE_STATE["remaining_tokens"] = 7800
-        capacity._GROQ_RATE_STATE["reset_at_monotonic"] = 999.0
+        capacity._update_groq_rate_state(
+            {
+                "x-ratelimit-limit-tokens": "8000",
+                "x-ratelimit-remaining-tokens": "7800",
+            }
+        )
         with patch.object(capacity.time, "sleep") as sleep_mock:
             waited = capacity._proactive_groq_pacing({"estimated_request_tokens": 7749})
         self.assertEqual(waited, 0.0)

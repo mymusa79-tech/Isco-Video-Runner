@@ -6,10 +6,12 @@ from pathlib import Path
 
 try:
     from scripts import persistent_memory_core as _core
-    from scripts.planning_checkpoint_state import bootstrap_runtime_restore, canonical_runtime_enabled
+    from scripts.immutable_planning_snapshot import bootstrap_immutable_planning_checkpoint
+    from scripts.planning_checkpoint_state import canonical_runtime_enabled
 except ModuleNotFoundError:  # direct `python scripts/persistent_memory.py`
     import persistent_memory_core as _core
-    from planning_checkpoint_state import bootstrap_runtime_restore, canonical_runtime_enabled
+    from immutable_planning_snapshot import bootstrap_immutable_planning_checkpoint
+    from planning_checkpoint_state import canonical_runtime_enabled
 
 
 for _name in dir(_core):
@@ -25,10 +27,10 @@ def main(argv: list[str] | None = None) -> int:
         if not key:
             raise RuntimeError("STATE_ENCRYPTION_KEY is required for durable planning checkpoint restore")
         repo_root = Path(args.repo).resolve()
-        bootstrap_runtime_restore(
+        bootstrap_immutable_planning_checkpoint(
             repo_root=repo_root,
             engine_root=repo_root / "engine",
-            key=key,
+            encryption_key=key,
         )
     return result
 
