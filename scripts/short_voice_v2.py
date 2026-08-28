@@ -221,9 +221,10 @@ def apply_short_voice_v2(
     *,
     ledger: BudgetLedger,
 ) -> dict[str, Any]:
-    """Generate type-driven standalone Short voice before authoritative Final Master QC."""
+    """Generate template-driven voice for standalone and source-derived Shorts before authoritative Final Master QC."""
     root = Path(output_dir)
-    if str(control_request.get("approval_scope") or "").strip() != "short_only":
+    scope = str(control_request.get("approval_scope") or "").strip()
+    if scope not in {"short_only", "short_sibling"}:
         return pre_gold
 
     template = str(pre_gold.get("short_template") or "").strip()
@@ -279,6 +280,7 @@ def apply_short_voice_v2(
             "voice_generated": True,
             "voice_mode": mode,
             "voice_template_driven": True,
+            "voice_scope": scope,
             "voice_provider": provider,
             "voice_fallback_used": fallback_used,
             "voice_task_id": "SHORT_VOICE_V2",
@@ -294,6 +296,8 @@ def apply_short_voice_v2(
     updated["voice"] = {
         "mode": mode,
         "template": template,
+        "scope": scope,
+        "source_derived_from_long": scope == "short_sibling",
         "transcript": transcript,
         "provider": provider,
         "fallback_used": fallback_used,

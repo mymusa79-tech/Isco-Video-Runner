@@ -92,10 +92,15 @@ def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
         panel._github_output("needs_production", "false")
         return False
 
+    # Install the exact same UI stack as telegram_topic_memory_ui.install().
+    # Edge renders the long/short split locally, while saved-topic selection is
+    # deliberately stateful and is replayed here. Omitting _install_library_split()
+    # made the visible Edge callbacks and the Python callback contract diverge.
     memory_ui._install_policy()
     from scripts import telegram_persistent_control_ui as persistent_ui
 
     persistent_ui.install()
+    memory_ui._install_library_split()
     memory_ui._install_choice_clarity()
 
     original_call = panel.TelegramClient.call
