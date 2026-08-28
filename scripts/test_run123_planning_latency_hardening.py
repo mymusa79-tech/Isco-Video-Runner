@@ -7,7 +7,13 @@ from unittest.mock import patch
 from scripts import run123_planning_latency_hardening as hardening
 
 
+MODEL = "openai/gpt-oss-120b"
+
+
 class Run123PlanningLatencyHardeningTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        hardening.capacity.reset_groq_capacity_state_for_tests()
+
     def test_contract_names_distinguish_writer_doctor_dossier_and_append(self) -> None:
         cases = [
             (
@@ -165,37 +171,57 @@ class Run123PlanningLatencyHardeningTests(unittest.TestCase):
             )
         )
 
-    def test_busy_groq_window_fails_over_without_sleep_or_state_loss(self) -> None:
-        state = hardening.capacity._GROQ_RATE_STATE
-        original = dict(state)
-        try:
-            state["remaining_tokens"] = 900
-            state["reset_at_monotonic"] = 130.0
-            with patch.object(hardening.time, "monotonic", return_value=100.0):
-                with self.assertRaisesRegex(RuntimeError, "GROQ_TPM_WINDOW_BUSY_PRECHECK"):
-                    hardening._fast_failover_groq_pacing({"estimated_request_tokens": 3200})
-            self.assertEqual(state["remaining_tokens"], 900)
-            self.assertEqual(state["reset_at_monotonic"], 130.0)
-        finally:
-            state.clear()
-            state.update(original)
+    def test_busy_groq_window_fails_over_without_sleep_or_cross_model_state_loss(self) -> None:
+        hardening.capacity.reset_groq_capacity_state_for_tests()
+        state = hardening.capacity._model_state(MODEL)
+        state["contacted"] = True
+        state["actual_tpm_limit"] = 8000
+        state["remaining_tokens"] = 900
+        state["reset_at_epoch"] = 130.0
+        other_model = "openai/gpt-oss-20b"
+        other = hardening.capacity._model_state(other_model)
+        other["contacted"] = True
+        other["actual_tpm_limit"] = 8000
+        other["remaining_tokens"] = 7000
+        other["reset_at_epoch"] = 999.0
 
-    def test_expired_groq_window_clears_local_state_and_reenables_provider(self) -> None:
-        state = hardening.capacity._GROQ_RATE_STATE
-        original = dict(state)
-        try:
-            state["remaining_tokens"] = 200
-            state["reset_at_monotonic"] = 99.0
-            with patch.object(hardening.time, "monotonic", return_value=100.0):
-                self.assertEqual(
-                    hardening._fast_failover_groq_pacing({"estimated_request_tokens": 5000}),
-                    0.0,
+        with patch.object(hardening.capacity.time, "time", return_value=100.0):
+            with self.assertRaisesRegex(RuntimeError, "GROQ_TPM_WINDOW_BUSY_PRECHECK"):
+                hardening._fast_failover_groq_pacing(
+                    {"estimated_request_tokens": 3200},
+                    model_name=MODEL,
                 )
-            self.assertIsNone(state["remaining_tokens"])
-            self.assertIsNone(state["reset_at_monotonic"])
-        finally:
-            state.clear()
-            state.update(original)
+        self.assertEqual(state["remaining_tokens"], 900)
+        self.assertEqual(state["reset_at_epoch"], 130.0)
+        self.assertEqual(other["remaining_tokens"], 7000)
+        self.assertEqual(other["reset_at_epoch"], 999.0)
+
+    def test_expired_groq_window_clears_only_selected_model_state(self) -> None:
+        hardening.capacity.reset_groq_capacity_state_for_tests()
+        state = hardening.capacity._model_state(MODEL)
+        state["contacted"] = True
+        state["actual_tpm_limit"] = 8000
+        state["remaining_tokens"] = 200
+        state["reset_at_epoch"] = 99.0
+        other_model = "openai/gpt-oss-20b"
+        other = hardening.capacity._model_state(other_model)
+        other["contacted"] = True
+        other["actual_tpm_limit"] = 8000
+        other["remaining_tokens"] = 6000
+        other["reset_at_epoch"] = 120.0
+
+        with patch.object(hardening.capacity.time, "time", return_value=100.0):
+            self.assertEqual(
+                hardening._fast_failover_groq_pacing(
+                    {"estimated_request_tokens": 5000},
+                    model_name=MODEL,
+                ),
+                0.0,
+            )
+        self.assertIsNone(state["remaining_tokens"])
+        self.assertIsNone(state["reset_at_epoch"])
+        self.assertEqual(other["remaining_tokens"], 6000)
+        self.assertEqual(other["reset_at_epoch"], 120.0)
 
     def test_retry_after_cap_is_bounded_for_fast_failover(self) -> None:
         self.assertLessEqual(hardening._REPAIR_RETRY_AFTER_CAP_SECONDS, 20.0)
