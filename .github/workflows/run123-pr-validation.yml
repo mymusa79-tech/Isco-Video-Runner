@@ -39,14 +39,23 @@ jobs:
           python -m pip install --no-deps -e engine
           python -m pip check
 
-      - name: Focused Run123 regressions
+      - name: Focused Run123 and budget regressions
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
           python -m unittest \
             scripts.test_run123_planning_latency_hardening \
-            scripts.test_run123_runtime_latency_guard -v
+            scripts.test_run123_runtime_latency_guard \
+            scripts.test_run123_budget_closure \
+            scripts.test_packaging_artifact_delivery_p0e -v
+
+      - name: Full pinned Engine regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s engine/tests -p 'test_*.py' -q
 
       - name: Full Runner regression
         env:
