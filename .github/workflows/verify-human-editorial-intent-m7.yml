@@ -59,16 +59,30 @@ jobs:
 
       - name: Focused Human Editorial Intent and current-main compatibility tests
         working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m7-focused-engine-history.json
         run: |
           set -euo pipefail
           python -m unittest tests.test_human_editorial_intent -v
           python -m unittest tests.test_editorial_room_director_m7_binding_current_main -v
 
+      - name: Certify Engine source after focused M7 Engine tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_focused_engine")'
+
       - name: Full Engine suite
         working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m7-full-engine-history.json
         run: |
           set -o pipefail
           python -m unittest discover -s tests -q 2>&1 | tee "$RUNNER_TEMP/engine-unittest.log"
+
+      - name: Certify Engine source after M7 Full Engine suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_full_engine")'
 
       - name: Upload Engine unittest diagnostics
         if: always()
@@ -81,6 +95,8 @@ jobs:
 
       - name: Approved-Brief CLI contract matrix
         working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m7-approved-brief-cli-history.json
         run: |
           set -euo pipefail
           missing="$RUNNER_TEMP/isco-no-approved-brief.json"
@@ -96,17 +112,29 @@ jobs:
             exit 1
           fi
 
+      - name: Certify Engine source after M7 Approved-Brief CLI matrix
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_approved_brief_cli")'
+
       - name: Focused Runner HEI plus existing M7 and Security contracts
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m7-focused-runner-history.json
         run: |
           set -euo pipefail
           python -m unittest scripts.test_human_editorial_intent_binding -v
           python -m unittest scripts.test_m7_live_binding -v
 
+      - name: Certify Engine source after focused M7 Runner tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_focused_runner")'
+
       - name: Full Runner regression suite including Gold Packaging Cinematic Security
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m7-full-runner-history.json
         run: |
           set -euo pipefail
           mapfile -t test_modules < <(
@@ -115,6 +143,11 @@ jobs:
           )
           test "${#test_modules[@]}" -gt 0
           python -m unittest "${test_modules[@]}" -q
+
+      - name: Certify Engine source after M7 Full Runner suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_full_runner")'
 
       - name: Diff and verifier sanity
         run: |

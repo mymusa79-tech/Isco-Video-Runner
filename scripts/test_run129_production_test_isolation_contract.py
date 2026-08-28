@@ -8,6 +8,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_WORKFLOW = ROOT / ".github" / "workflows" / "produce-resilient-v4.yml"
 VERIFY_WORKFLOW = ROOT / ".github" / "workflows" / "verify-private-engine.yml"
+M7_WORKFLOW = ROOT / ".github" / "workflows" / "verify-human-editorial-intent-m7.yml"
+M11_WORKFLOW = ROOT / ".github" / "workflows" / "verify-m11-live-integration.yml"
 
 
 class Run129ProductionTestIsolationContractTests(unittest.TestCase):
@@ -52,16 +54,48 @@ class Run129ProductionTestIsolationContractTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
 
+    def test_m7_workflow_isolates_engine_and_runner_state(self) -> None:
+        text = M7_WORKFLOW.read_text(encoding="utf-8")
+        required = (
+            "m7-focused-engine-history.json",
+            "m7-full-engine-history.json",
+            "m7-approved-brief-cli-history.json",
+            "m7-focused-runner-history.json",
+            "m7-full-runner-history.json",
+            'certify_engine_source_hermeticity("m7_after_full_engine")',
+            'certify_engine_source_hermeticity("m7_after_approved_brief_cli")',
+            'certify_engine_source_hermeticity("m7_after_full_runner")',
+        )
+        for marker in required:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_m11_workflow_isolates_engine_and_runner_state(self) -> None:
+        text = M11_WORKFLOW.read_text(encoding="utf-8")
+        required = (
+            "m11-focused-engine-history.json",
+            "m11-renderer-smoke-history.json",
+            "m11-full-engine-history.json",
+            "m11-focused-runner-history.json",
+            "m11-full-runner-history.json",
+            'certify_engine_source_hermeticity("m11_after_full_engine")',
+            'certify_engine_source_hermeticity("m11_after_full_runner")',
+        )
+        for marker in required:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
     def test_no_cleanup_based_escape_hatch_is_introduced(self) -> None:
-        text = PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
         forbidden = (
             "git reset --hard",
             "git checkout -- engine/",
             "git restore engine/",
         )
-        for marker in forbidden:
-            with self.subTest(marker=marker):
-                self.assertNotIn(marker, text)
+        for workflow in (PRODUCTION_WORKFLOW, M7_WORKFLOW, M11_WORKFLOW):
+            text = workflow.read_text(encoding="utf-8")
+            for marker in forbidden:
+                with self.subTest(workflow=workflow.name, marker=marker):
+                    self.assertNotIn(marker, text)
 
 
 if __name__ == "__main__":
