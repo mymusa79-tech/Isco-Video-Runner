@@ -30,6 +30,26 @@ class WorkflowHygieneTests(unittest.TestCase):
             codes = {issue.code for issue in audit_workflows(root)}
             self.assertIn("run_specific_workflow_forbidden", codes)
 
+    def test_retired_one_time_workflow_families_are_rejected(self) -> None:
+        retired = (
+            "migrate-memory-and-launch-production.yml",
+            "youtube-analytics-backfill-write-once.yml",
+            "youtube-analytics-backfill-write-once-v4.yml",
+            "local-brain-smoke.yml",
+            "p0c-migration-contracts.yml",
+        )
+        for name in retired:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                folder = root / ".github" / "workflows"
+                folder.mkdir(parents=True)
+                (folder / name).write_text(
+                    "name: retired\non: workflow_dispatch\npermissions:\n  contents: read\n",
+                    encoding="utf-8",
+                )
+                codes = {issue.code for issue in audit_workflows(root)}
+                self.assertIn("retired_one_time_workflow_forbidden", codes)
+
     def test_unpinned_external_action_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
