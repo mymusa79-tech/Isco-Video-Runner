@@ -285,8 +285,16 @@ def synthesize(
     model: str,
     voice: str,
     style: str = "",
-    attempts: int = 3,
+    attempts: int = 1,
 ) -> Path:
+    # Retry ownership is outside this provider boundary. Engine orchestrator's
+    # TtsBudget/TtsCircuit decides whether one transient failure earns one extra cloud
+    # attempt or falls back to Piper. Never allow a caller to reactivate the provider's
+    # historical blind multi-attempt loop through this Runner surface.
+    if attempts != 1:
+        raise RuntimeError(
+            f"voice_mesh_retry_owner_violation attempts={attempts} expected=1"
+        )
     dialogue = os.environ.get("ISCO_DIALOGUE_QA") == "1"
     if dialogue:
         _gemini_dialogue(api_key, transcript, output, model=model, style=style)
@@ -306,7 +314,7 @@ def synthesize(
             model=model,
             voice=voice,
             style=style,
-            attempts=attempts,
+            attempts=1,
         )
         _qa(output, transcript)
         _record_voice_provenance(output, provider="gemini", fallback_used=False)
@@ -336,7 +344,7 @@ def install_voice_mesh() -> None:
     orchestrator.synthesize_local_wav = synthesize_local_wav
     print(
         "Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices "
-        f"{DIALOGUE_QUESTIONER_VOICE}/{DIALOGUE_RESPONDER_VOICE}"
+        f"{DIALOGUE_QUESTIONER_VOICE}/{DIALOGUE_RESPONDER_VOICE}; provider_attempts=1"
     )
 
 # Production trigger only: Agent pin afa2f08416ac2c0f85edb1b73f1ed17518990a93
