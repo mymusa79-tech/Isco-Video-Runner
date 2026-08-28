@@ -9,10 +9,12 @@ from scripts import provider_capacity_hardening as capacity
 from scripts import run125_capacity_routing_closure as run125
 from scripts import task_level_planner_router as router
 
-_GROQ_MODEL_POOL = (
+# Must match the production pool enforced by run125_cache_prefix_contract.py. Qwen is
+# intentionally excluded there because it is preview-only and therefore must not make a
+# capacity gate report a path that canonical production will never actually use.
+_PRODUCTION_GROQ_MODELS = (
     "openai/gpt-oss-20b",
     "openai/gpt-oss-120b",
-    "qwen/qwen3.8-27b",
 )
 _FIRST_WRITER_GATE_SEEN = False
 _INSTALLED = False
@@ -49,8 +51,8 @@ def viable_planning_providers(required_tokens: int, *, preflight_path: Path | No
     """Return providers that are not known incapable of this P0 planning request.
 
     Gemini/OpenRouter have no local TPM authority in this stack, so a passing provider
-    readiness check keeps them viable. Groq is stricter: each model uses provider-learned
-    capacity, with 8000 only as the pre-contact bootstrap assumption.
+    readiness check keeps them viable. Groq is stricter: each production model uses
+    provider-learned capacity, with 8000 only as its pre-contact bootstrap assumption.
     """
     statuses = _provider_statuses(preflight_path)
     viable: list[str] = []
@@ -62,7 +64,7 @@ def viable_planning_providers(required_tokens: int, *, preflight_path: Path | No
     # Local/unit contexts often do not materialize provider-preflight.json; only Groq's
     # deterministic bootstrap admission is used there so old split tests remain honest.
     if groq_status == "pass" or not statuses:
-        for model in _GROQ_MODEL_POOL:
+        for model in _PRODUCTION_GROQ_MODELS:
             decision = capacity.groq_admission_decision(model, required_tokens)
             if decision["action"] in {"admit", "unknown", "wait"}:
                 viable.append(f"groq:{model}")
@@ -141,10 +143,7 @@ def _dynamic_groq_model_call(prompt: str, model_name: str) -> dict:
             "temperature": 0.15,
             "max_completion_tokens": capacity.completion_token_budget(contract),
         }
-        if model_name.startswith("qwen/"):
-            payload["reasoning_effort"] = "none"
-            payload["include_reasoning"] = False
-        elif contract_name == "editorial_outline" or contract_name in capacity._OUTPUT_HEAVY_CONTRACTS:
+        if contract_name == "editorial_outline" or contract_name in capacity._OUTPUT_HEAVY_CONTRACTS:
             payload["reasoning_effort"] = "low"
             payload["include_reasoning"] = False
 
@@ -193,8 +192,9 @@ def install_dynamic_planning_capacity() -> None:
     if _INSTALLED:
         return
 
-    # Run125's model pool dynamically resolves this global function, so replacing it
-    # upgrades 120B/Qwen without rewriting its existing TPD/model failover ownership.
+    # Run125 remains the model-pool/failover owner; only the alternate model call gains
+    # the learned capacity authority. run125_cache_prefix_contract later restricts its
+    # pool to the same two production GPT-OSS models used by viability above.
     run125._groq_model_call = _dynamic_groq_model_call
 
     original_is_model_unavailable = run125._is_model_unavailable
@@ -218,7 +218,6 @@ def install_dynamic_planning_capacity() -> None:
         return bool(viable), estimate
 
     batching._capacity_admitted = provider_set_admitted
-
     original_shard = batching._call_capacity_aware_shard
 
     def exact_runtime_gate(
