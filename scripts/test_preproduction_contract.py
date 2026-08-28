@@ -51,6 +51,42 @@ class PreProductionContractTests(unittest.TestCase):
             tmp.cleanup()
         self.assertIn("release_target_binding", codes)
 
+    def test_orphan_tag_guard_may_live_in_wrapped_core(self) -> None:
+        tmp, root = self._repo("on:\n  workflow_dispatch:\nconcurrency:\njobs:\n  x:\n    runs-on: ubuntu-24.04\n")
+        try:
+            scripts = root / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "environment_preflight.py").write_text(
+                "from scripts import environment_preflight_core as _core\n",
+                encoding="utf-8",
+            )
+            (scripts / "environment_preflight_core.py").write_text(
+                'ref_url = f"https://api.github.com/repos/{repository}/git/ref/tags/{encoded_tag}"\n',
+                encoding="utf-8",
+            )
+            codes = {item.code for item in audit_preproduction_contract(root)}
+        finally:
+            tmp.cleanup()
+        self.assertNotIn("release_orphan_tag_guard", codes)
+
+    def test_orphan_tag_guard_still_fails_when_missing_from_wrapper_and_core(self) -> None:
+        tmp, root = self._repo("on:\n  workflow_dispatch:\nconcurrency:\njobs:\n  x:\n    runs-on: ubuntu-24.04\n")
+        try:
+            scripts = root / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "environment_preflight.py").write_text(
+                "from scripts import environment_preflight_core as _core\n",
+                encoding="utf-8",
+            )
+            (scripts / "environment_preflight_core.py").write_text(
+                "def main():\n    pass\n",
+                encoding="utf-8",
+            )
+            codes = {item.code for item in audit_preproduction_contract(root)}
+        finally:
+            tmp.cleanup()
+        self.assertIn("release_orphan_tag_guard", codes)
+
 
 if __name__ == "__main__":
     unittest.main()
