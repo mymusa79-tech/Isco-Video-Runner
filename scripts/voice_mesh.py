@@ -342,6 +342,11 @@ def synthesize_local_wav(transcript: str, output: Path) -> Path:
 def install_voice_mesh() -> None:
     orchestrator.synthesize_wav = synthesize
     orchestrator.synthesize_local_wav = synthesize_local_wav
+    # This certification runs only after the final TTS boundary has been installed,
+    # but still before orchestrator.produce() makes any provider request.
+    from scripts.provider_retry_ownership import certify_provider_retry_ownership
+
+    certify_provider_retry_ownership()
     print(
         "Voice Mesh installed: Gemini -> Piper Local -> QA; fixed dialogue voices "
         f"{DIALOGUE_QUESTIONER_VOICE}/{DIALOGUE_RESPONDER_VOICE}; provider_attempts=1"
