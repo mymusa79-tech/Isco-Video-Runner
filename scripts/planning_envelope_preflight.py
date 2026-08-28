@@ -17,9 +17,9 @@ from isco_video_agent.providers.gemini import (
     with_channel_persona,
 )
 from isco_video_agent.resilient_planner import build_outline_prompt
+from scripts.dynamic_planning_capacity import certify_general_planning_envelope
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.provider_capacity_hardening import (
-    GROQ_FREE_TPM_LIMIT,
     completion_token_budget,
     groq_capacity_estimate,
 )
@@ -35,8 +35,8 @@ class PlanningEnvelopeCertification:
     approved_sources: int
     approved_boundaries: int
     outline_estimated_request_tokens: int
-    groq_tpm_limit: int
-    outline_groq_tpm_headroom: int
+    groq_tpm_limit: int | None
+    outline_groq_tpm_headroom: int | None
     outline_completion_reserve: int
     full_script_completion_reserve: int
     max_script_batch_sections: int
@@ -44,12 +44,12 @@ class PlanningEnvelopeCertification:
 
 
 def certify_planning_envelope() -> PlanningEnvelopeCertification:
-    """Build the real approved outline envelope locally without an inference call.
+    """Certify the real general envelope and require at least one viable P0 provider.
 
-    The exact later writer prompt depends on the provider-produced outline, so it
-    cannot honestly be reconstructed before production. Preflight therefore certifies
-    the exact outline plus the immutable writer batching/token-budget policy; every
-    real later request is re-checked by the runtime token-capacity admission guard.
+    The exact Writer shard does not exist until the outline is produced. This gate is
+    intentionally tier one: it certifies the current approved outline envelope plus the
+    fixed Writer batching contract. Tier two runs on the exact first Writer shard inside
+    dynamic_planning_capacity before that shard can call a provider.
     """
     brief = load_approved_brief(required=True)
     fmt = str(brief["format"]).strip().lower()
@@ -66,12 +66,12 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
             approved_sources=len(brief.get("research_pack", [])),
             approved_boundaries=0,
             outline_estimated_request_tokens=0,
-            groq_tpm_limit=GROQ_FREE_TPM_LIMIT,
-            outline_groq_tpm_headroom=GROQ_FREE_TPM_LIMIT,
+            groq_tpm_limit=None,
+            outline_groq_tpm_headroom=None,
             outline_completion_reserve=completion_token_budget(outline_contract),
             full_script_completion_reserve=completion_token_budget(full_script_contract),
             max_script_batch_sections=MAX_SCRIPT_BATCH_SECTIONS,
-            runtime_token_admission="enabled",
+            runtime_token_admission="provider_set_dynamic+exact_writer",
         )
 
     research = planning_research_context(brief, {})
@@ -87,21 +87,24 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
     enriched = with_channel_persona(prompt)
     size = len(enriched.encode("utf-8"))
     if size > OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES:
-        # with_channel_persona() normally raises first; retain an explicit local
-        # assertion so this preflight remains fail-closed if its implementation moves.
         raise RuntimeError(
             "planning envelope exceeds provider-portable limit: "
             f"bytes={size} limit={OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES}"
         )
-
-    capacity = groq_capacity_estimate(enriched)
-    if capacity["estimated_request_tokens"] > GROQ_FREE_TPM_LIMIT:
-        raise RuntimeError(
-            "outline envelope exceeds Groq free TPM capacity estimate: "
-            f"estimated={capacity['estimated_request_tokens']} limit={GROQ_FREE_TPM_LIMIT}"
-        )
     if MAX_SCRIPT_BATCH_SECTIONS > 3:
         raise RuntimeError("long-form writer batch certification exceeds three sections")
+
+    request_capacity = groq_capacity_estimate(enriched)
+    # This is no longer "Groq <= 8000 therefore production is safe". It asks the
+    # provider set whether one path is currently not known incapable of the P0 envelope.
+    certify_general_planning_envelope(request_capacity["estimated_request_tokens"])
+
+    groq_limit = request_capacity.get("provider_tpm_limit")
+    headroom = (
+        int(groq_limit) - int(request_capacity["estimated_request_tokens"])
+        if isinstance(groq_limit, int)
+        else None
+    )
 
     return PlanningEnvelopeCertification(
         status="pass",
@@ -111,13 +114,13 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
         remaining_headroom_utf8_bytes=OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES - size,
         approved_sources=len(research.get("approved_research_pack", [])),
         approved_boundaries=len(research.get("content_boundaries", [])),
-        outline_estimated_request_tokens=capacity["estimated_request_tokens"],
-        groq_tpm_limit=GROQ_FREE_TPM_LIMIT,
-        outline_groq_tpm_headroom=GROQ_FREE_TPM_LIMIT - capacity["estimated_request_tokens"],
+        outline_estimated_request_tokens=request_capacity["estimated_request_tokens"],
+        groq_tpm_limit=groq_limit,
+        outline_groq_tpm_headroom=headroom,
         outline_completion_reserve=completion_token_budget(outline_contract),
         full_script_completion_reserve=completion_token_budget(full_script_contract),
         max_script_batch_sections=MAX_SCRIPT_BATCH_SECTIONS,
-        runtime_token_admission="enabled",
+        runtime_token_admission="provider_set_dynamic+exact_writer",
     )
 
 
@@ -137,8 +140,9 @@ def main() -> None:
         f"status={result.status} bytes={result.prompt_utf8_bytes} "
         f"limit={result.portable_limit_utf8_bytes} "
         f"byte_headroom={result.remaining_headroom_utf8_bytes} "
-        f"groq_estimated_tokens={result.outline_estimated_request_tokens} "
-        f"groq_tpm_headroom={result.outline_groq_tpm_headroom} "
+        f"required_tokens={result.outline_estimated_request_tokens} "
+        f"groq_observed_or_initial_limit={result.groq_tpm_limit} "
+        f"runtime_admission={result.runtime_token_admission} "
         f"script_batch_max={result.max_script_batch_sections}"
     )
 
