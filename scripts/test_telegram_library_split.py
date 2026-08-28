@@ -167,7 +167,7 @@ class TelegramLibrarySplitTests(unittest.TestCase):
         memory_source = (root / "scripts/telegram_topic_memory_ui.py").read_text(encoding="utf-8")
         replay_source = (root / "scripts/telegram_webhook_replay.py").read_text(encoding="utf-8")
 
-        # Edge-local navigation/read surfaces.
+        # Edge-local navigation/read surfaces with literal callback names.
         for callback in (
             "cmd:menu",
             "cmd:search_menu",
@@ -176,12 +176,12 @@ class TelegramLibrarySplitTests(unittest.TestCase):
             "cmd:refresh_all",
             "cmd:saved",
             "cmd:used",
-            "cmd:saved-long",
-            "cmd:saved-short",
-            "cmd:used-long",
-            "cmd:used-short",
         ):
             self.assertIn(callback, edge, callback)
+        # The four Long/Short library buttons are generated from one canonical bucket template.
+        self.assertIn('callback_data: `cmd:${bucket}-long`', edge)
+        self.assertIn('callback_data: `cmd:${bucket}-short`', edge)
+        self.assertIn('/^cmd:(saved|used)-(long|short)', edge)
         self.assertIn("pageSpec(data)", edge)
         self.assertIn("return baseWorker.fetch(request, env, ctx)", edge)
 
@@ -226,8 +226,8 @@ class TelegramLibrarySplitTests(unittest.TestCase):
         self.assertIn('route === "stateful"', base)
 
         # Operations details/compact buttons are self-bound and handled locally.
-        self.assertIn("cmd:opsdetails-", base)
-        self.assertIn("cmd:opscompact-", base)
+        self.assertIn("cmd:ops(details|compact)-", base)
+        self.assertIn("cmd:ops${next}-", base)
         self.assertIn("handleOperationsToggle", base)
 
 
