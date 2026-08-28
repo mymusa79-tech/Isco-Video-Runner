@@ -8,8 +8,8 @@ from typing import Any
 
 import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.ai_budget import BudgetLedger
-from isco_video_agent.config import env, secret
-from isco_video_agent.media.ffmpeg import duration, probe
+from isco_video_agent.config import env, load_channel_config, secret
+from isco_video_agent.media.ffmpeg import duration, measure_audio_loudness, probe
 from isco_video_agent.tts_budget import TtsBudget, TtsCircuit
 
 from scripts.voice_mesh import consume_voice_provenance
@@ -62,6 +62,15 @@ def _has_audio(path: Path) -> bool:
     info = probe(path)
     streams = info.get("streams") if isinstance(info, dict) else []
     return any(isinstance(item, dict) and item.get("codec_type") == "audio" for item in (streams or []))
+
+
+def _stream_duration(streams: list[dict[str, Any]]) -> float:
+    if not streams:
+        return 0.0
+    try:
+        return float(streams[0].get("duration", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _fit_voice_to_video(voice_path: Path, final_seconds: float) -> Path:
@@ -117,6 +126,94 @@ def _mix_voice(final_path: Path, voice_path: Path, output: Path) -> Path:
     return output
 
 
+def _refresh_quality_final(root: Path, final_path: Path) -> dict[str, Any]:
+    """Re-measure the exact voiced Short bytes that Final Critic and Gold will inspect."""
+    quality_path = root / "quality-final.json"
+    try:
+        previous = json.loads(quality_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError("Short Voice V2 requires valid quality-final.json before refresh") from exc
+    if not isinstance(previous, dict):
+        raise RuntimeError("Short Voice V2 quality-final.json must be an object")
+
+    info = probe(final_path)
+    streams = info.get("streams") if isinstance(info, dict) else []
+    video_streams = [x for x in (streams or []) if isinstance(x, dict) and x.get("codec_type") == "video"]
+    audio_streams = [x for x in (streams or []) if isinstance(x, dict) and x.get("codec_type") == "audio"]
+    if len(video_streams) != 1 or len(audio_streams) != 1:
+        raise RuntimeError("Short Voice V2 final master must contain exactly one video and one audio stream")
+
+    duration_seconds = _final_duration(final_path)
+    minimum = float(previous.get("duration_expected_min") or 7.0)
+    maximum = float(previous.get("duration_expected_max") or 25.0)
+    duration_ok = minimum <= duration_seconds <= maximum
+    audio_measurement = measure_audio_loudness(final_path)
+    target_lufs = float(load_channel_config()["quality"].get("audio_lufs", -16))
+    audio_ok = (
+        abs(float(audio_measurement["integrated_lufs"]) - target_lufs) <= 2.5
+        and float(audio_measurement["true_peak_dbtp"]) <= -1.0
+    )
+    video_seconds = _stream_duration(video_streams)
+    audio_seconds = _stream_duration(audio_streams)
+    av_delta = abs(video_seconds - audio_seconds)
+    av_sync_limit = float(load_channel_config()["quality"].get("av_sync_max_delta_seconds", 1.0))
+    coverage = (audio_seconds / video_seconds) if video_seconds > 0 else 0.0
+    av_sync_ok = av_delta <= av_sync_limit
+
+    refreshed = {
+        **previous,
+        "duration_seconds": duration_seconds,
+        "duration_ok": duration_ok,
+        "audio_measurement": audio_measurement,
+        "audio_ok": audio_ok,
+        "video_stream_duration": video_seconds,
+        "audio_stream_duration": audio_seconds,
+        "av_delta_seconds": av_delta,
+        "audio_coverage_ratio": coverage,
+        "av_sync_ok": av_sync_ok,
+        "video_streams": len(video_streams),
+        "audio_streams": len(audio_streams),
+        "short_voice_v2_refresh": True,
+        "quality_measurement_stage": "post_short_voice_pre_gold",
+        "audio_target_lufs": target_lufs,
+    }
+    quality_path.write_text(json.dumps(refreshed, ensure_ascii=False, indent=2), encoding="utf-8")
+    if not duration_ok:
+        raise RuntimeError("Short Voice V2 final duration failed refreshed quality-final gate")
+    if not audio_ok:
+        raise RuntimeError("Short Voice V2 final loudness/true-peak failed refreshed quality-final gate")
+    if not av_sync_ok:
+        raise RuntimeError("Short Voice V2 final A/V sync failed refreshed quality-final gate")
+    return refreshed
+
+
+def _record_voice_rights(
+    root: Path,
+    *,
+    provider: str,
+    fallback_used: object,
+    model: str,
+    voice: str,
+) -> None:
+    rights_path = root / "rights-manifest.json"
+    try:
+        rights = json.loads(rights_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError("Short Voice V2 requires valid rights-manifest.json") from exc
+    if not isinstance(rights, dict):
+        raise RuntimeError("Short Voice V2 rights manifest must be an object")
+    rights["short_voice_v2"] = {
+        "generated": True,
+        "provider": provider,
+        "fallback_used": fallback_used,
+        "requested_model": model,
+        "requested_voice": voice,
+        "source": "template_driven_semantic_beats",
+        "commercial_release_provenance_recorded": True,
+    }
+    rights_path.write_text(json.dumps(rights, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def apply_short_voice_v2(
     output_dir: Path,
     control_request: dict[str, Any],
@@ -164,10 +261,19 @@ def apply_short_voice_v2(
     _mix_voice(final_path, fitted_voice, voiced)
     shutil.move(str(voiced), str(final_path))
 
-    updated = dict(pre_gold)
-    compensation = dict(updated.get("compensation") or {})
     provider = str(provenance.get("provider") or "unknown")
     fallback_used = provenance.get("fallback_used")
+    quality = _refresh_quality_final(root, final_path)
+    _record_voice_rights(
+        root,
+        provider=provider,
+        fallback_used=fallback_used,
+        model=model,
+        voice=voice,
+    )
+
+    updated = dict(pre_gold)
+    compensation = dict(updated.get("compensation") or {})
     compensation.update(
         {
             "voice_generated": True,
@@ -176,11 +282,12 @@ def apply_short_voice_v2(
             "voice_provider": provider,
             "voice_fallback_used": fallback_used,
             "voice_task_id": "SHORT_VOICE_V2",
-            "tts_provider_attempt_cap": 1,
+            "gemini_provider_attempt_cap": 1,
             "piper_local_fallback": True,
             "extra_text_ai_calls": 0,
-            "extra_ai_calls": 1 if provider.startswith("gemini") or fallback_used is True else 0,
+            "extra_ai_calls": 1,
             "existing_audio_preserved": True,
+            "quality_final_refreshed_after_voice": True,
         }
     )
     updated["compensation"] = compensation
@@ -191,6 +298,8 @@ def apply_short_voice_v2(
         "provider": provider,
         "fallback_used": fallback_used,
         "generated_before_authoritative_final_master_qc": True,
+        "quality_final_stage": quality.get("quality_measurement_stage"),
+        "rights_provenance_recorded": True,
     }
     (root / "short-intelligence-pre-gold.json").write_text(
         json.dumps(updated, ensure_ascii=False, indent=2), encoding="utf-8"
