@@ -20,6 +20,8 @@ from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
 from scripts.provider_capacity_v2 import install_provider_capacity_v2
 from scripts.run124_terminal_provider_recovery import install_run124_terminal_provider_recovery
+from scripts.run125_cache_prefix_contract import install_run125_cache_prefix_contract
+from scripts.run125_capacity_routing_closure import install_run125_capacity_routing_closure
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
     install_release_transaction_guard,
@@ -110,6 +112,12 @@ def install_runtime_closure() -> None:
     # one-section shard now gets one bounded <=60s reset wait only after every alternate
     # provider has failed. This prevents fast failover from becoming fast failure.
     install_run124_terminal_provider_recovery()
+    # Run #125: keep the Run124 safety net, but stop depending on it for every shard.
+    # Reorder only transport context for Groq's exact-prefix cache, honor an OpenRouter
+    # preflight block/circuit, and fail over a model-scoped Groq daily quota to another
+    # schema-capable Groq model instead of replaying the dead quota.
+    install_run125_capacity_routing_closure()
+    install_run125_cache_prefix_contract()
     install_provider_capacity_v2()
     install_media_trust_boundary_v2()
     install_core_reliability_guard()
