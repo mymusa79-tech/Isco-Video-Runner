@@ -9,7 +9,7 @@ PRODUCTION_WORKFLOW = Path(".github/workflows/produce-resilient-v4.yml")
 RELEASE_TRANSACTION = Path("scripts/release_transaction.py")
 ENVIRONMENT_PREFLIGHT = Path("scripts/environment_preflight.py")
 ENVIRONMENT_PREFLIGHT_CORE = Path("scripts/environment_preflight_core.py")
-EXPECTED_ENGINE_SHA = "6a0d91cc80511a174a47b95c6c203f8d93ba86ca"
+EXPECTED_ENGINE_SHA = "f3c9357098947882882ca3010b46a565c2d90460"
 EXPECTED_RUNNER_IMAGE = "ubuntu-24.04"
 PROVIDERS = ("gemini", "groq", "openrouter", "pexels", "pixabay")
 
@@ -51,7 +51,7 @@ def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
     require("provider_preflight", "python scripts/provider_preflight.py", "all configured providers must be preflighted before production")
     for provider in PROVIDERS:
         require(f"provider_{provider}", f"--{provider}-key-file", f"provider preflight is missing {provider}")
-    require("release_namespace_guard", "Release namespace preflight", "non-idempotent GitHub Release tag must be checked before provider work")
+    require("release_namespace_guard", "Release namespace preflight", "non-idempotent GitHub Release tag must be checked before production")
     require("release_collision_fail_closed", "existing release tag blocks this run before production", "existing release tag must fail closed rather than overwrite/retry")
     require("release_orphan_tag_guard", "/git/ref/tags/", "orphan Git tags must block before production because they bypass --target", source=environment_text)
     require("production_entrypoint", "python ../scripts/run_v3_voice.py", "canonical production entrypoint changed unexpectedly")

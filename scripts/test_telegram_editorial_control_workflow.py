@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 
-ENGINE_SHA = "6a0d91cc80511a174a47b95c6c203f8d93ba86ca"
+ENGINE_SHA = "f3c9357098947882882ca3010b46a565c2d90460"
 OLD_ENGINE_SHA = "39d4a0ea613cf266c7b4c561acb4a01216909cd9"
 
 

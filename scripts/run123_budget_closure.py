@@ -7,6 +7,7 @@ from typing import Iterator
 import isco_video_agent.ai_budget as ai_budget
 import isco_video_agent.production_pipeline as production_pipeline
 from isco_video_agent.ai_budget import BudgetLedger, Priority
+from isco_video_agent.visual_selection import MAX_VISION_REVIEWS_PER_SECTION
 
 
 # Run #123 exposed that the original 42/30 hard caps pre-dated the now-live Gold
@@ -24,7 +25,6 @@ _GOLD_THUMBNAIL_PROVIDER_ATTEMPTS = 4  # concepts 1 + three A/B/C visual-board r
 _DIRECTOR_OBSERVER_PROVIDER_ATTEMPTS = 1
 _AUDIT_ROUNDS = 3  # initial + two RepairDossier re-audits
 _AUDITS_PER_ROUND = 3  # factuality + semantic repetition + tone
-_MAX_VISION_REVIEWS_PER_SECTION = 4  # two primary + two one-alt-query candidates
 _MAX_VISUAL_ALT_QUERY_CALLS_PER_SECTION = 1
 _TTS_RUN_EXTRA_PROVIDER_ATTEMPTS = 1
 _MAX_REPAIR_DOSSIER_ROUNDS = 2
@@ -92,7 +92,7 @@ def _successful_envelope(fmt: str) -> SuccessfulAttemptEnvelope:
     # provider attempt.
     tts = sections + _TTS_RUN_EXTRA_PROVIDER_ATTEMPTS
 
-    vision = sections * _MAX_VISION_REVIEWS_PER_SECTION
+    vision = sections * MAX_VISION_REVIEWS_PER_SECTION
     visual_recovery_text = sections * _MAX_VISUAL_ALT_QUERY_CALLS_PER_SECTION
 
     return SuccessfulAttemptEnvelope(
@@ -160,8 +160,10 @@ def install_run123_budget_closure() -> None:
     ai_budget._ISCO_RUN123_BUDGET_CLOSURE_INSTALLED = True
     print(
         "Run123 AI budget closure installed: "
-        "film=102 story=69 p2_release_reserve=3 "
-        "final_critic=enforce_only_P0 optional_p2=shed_first"
+        f"film={RUN123_PROVIDER_ATTEMPT_HARD_CAP['film']} "
+        f"story={RUN123_PROVIDER_ATTEMPT_HARD_CAP['story']} "
+        f"vision_per_section={MAX_VISION_REVIEWS_PER_SECTION} "
+        "p2_release_reserve=3 final_critic=enforce_only_P0 optional_p2=shed_first"
     )
 
 
