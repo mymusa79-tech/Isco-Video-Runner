@@ -34,13 +34,11 @@ class _Response:
 class Run126RootCauseClosureTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_build_runtime_binding = checkpoint.build_runtime_binding
-        self.original_contract_files = checkpoint.PLANNING_CONTRACT_FILES
         self.original_snapshot_installed = snapshot._INSTALLED
         capacity.reset_groq_capacity_state_for_tests()
 
     def tearDown(self) -> None:
         checkpoint.build_runtime_binding = self.original_build_runtime_binding
-        checkpoint.PLANNING_CONTRACT_FILES = self.original_contract_files
         snapshot._INSTALLED = self.original_snapshot_installed
         capacity.reset_groq_capacity_state_for_tests()
 
@@ -113,6 +111,13 @@ class Run126RootCauseClosureTests(unittest.TestCase):
                     expected_sha256=expected_brief_sha,
                 )
                 snapshot.install_runtime_snapshot_binding(force=True)
+
+                # Current checkpoint identity follows the transitive Runner-local
+                # production closure from run_v3_voice.py. The new Run126 modules must
+                # therefore be bound automatically without maintaining a second list.
+                contract_files = checkpoint.planning_contract_files(ROOT)
+                self.assertIn("scripts/dynamic_planning_capacity.py", contract_files)
+                self.assertIn("scripts/immutable_planning_snapshot.py", contract_files)
                 binding_before = checkpoint.build_runtime_binding(ROOT, engine)
 
                 # Exact first root: 20B's free daily quota is exhausted. The body has a
