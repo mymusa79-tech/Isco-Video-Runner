@@ -6,6 +6,7 @@ from pathlib import Path
 
 from scripts import planning_batch_hardening as batching
 from scripts import provider_capacity_hardening as capacity
+from scripts import research_provider_reliability as research_reliability
 from scripts import run125_capacity_routing_closure as run125
 from scripts import task_level_planner_router as router
 
@@ -191,13 +192,56 @@ def repository_runtime_patch_audit() -> dict[str, object]:
     }
 
 
+def _certify_retry_after_contracts() -> int:
+    """Prove final Planning + Research composition cannot partially honor Retry-After.
+
+    Run128 exposed a cross-generation policy conflict: an old local latency cap shortened
+    a real provider Retry-After and re-issued the same request inside the still-busy TPM
+    window. This check runs after all planning installers, makes no network call, and
+    verifies both live retry owners against the exact dangerous shape before production
+    can spend provider time or quota.
+    """
+    saved_headers = dict(router._last_call_rate_limit_headers)
+    try:
+        router._last_call_rate_limit_headers.clear()
+        router._last_call_rate_limit_headers["retry_after"] = "38"
+        planning_failure = router.classify_provider_failure(
+            "groq",
+            RuntimeError(
+                "GROQ_HTTP_429 status=429 code=rate_limit_exceeded "
+                "message=Rate limit reached on tokens per minute (TPM): Limit 8000"
+            ),
+        )
+        if planning_failure.telemetry_result == "429" or planning_failure.open_circuit:
+            raise RuntimeError(
+                "RUNTIME_RETRY_AFTER_CONTRACT_MISMATCH "
+                "target=planning expected=failover_without_partial_retry"
+            )
+
+        research_delay = research_reliability._backoff_seconds(
+            RuntimeError("HTTP 429 rate_limit_exceeded. Please retry in 38s."),
+            attempt=1,
+        )
+        if research_delay is not None:
+            raise RuntimeError(
+                "RUNTIME_RETRY_AFTER_CONTRACT_MISMATCH "
+                "target=research expected=failover_without_partial_retry"
+            )
+    finally:
+        router._last_call_rate_limit_headers.clear()
+        router._last_call_rate_limit_headers.update(saved_headers)
+    return 2
+
+
 def certify_runtime_patch_contracts() -> dict[str, object]:
     """Certify the final composed runtime surface before production calls providers.
 
     Run127 proved unit tests for each patch are insufficient when multiple installers
-    replace the same callable. This gate combines a full-source static audit with final
-    live signature checks after the canonical installer order. It executes no provider
-    request and changes no provider state.
+    replace the same callable. Run128 then proved that semantic policy composition must
+    also be certified: a callable can have a valid signature yet still combine an old
+    retry cap with newer provider evidence incorrectly. This gate therefore combines a
+    full-source static audit, final live signature checks, and provider-free Retry-After
+    policy probes after the canonical installer order.
     """
     static = repository_runtime_patch_audit()
     model_20b = "openai/gpt-oss-20b"
@@ -248,19 +292,23 @@ def certify_runtime_patch_contracts() -> dict[str, object]:
     for callable_obj, args, kwargs, contract_label in checks:
         _bind_contract(callable_obj, *args, contract_label=contract_label, **kwargs)
 
+    retry_after_checks = _certify_retry_after_contracts()
     result = {
         "status": "pass",
         "signature_checks": len(checks),
+        "retry_after_checks": retry_after_checks,
         "runtime_python_files_scanned": static["runtime_python_files_scanned"],
         "model_scoped_capacity": True,
         "legacy_capacity_authority": False,
+        "partial_retry_after": False,
         "static_patch_contract_violations": 0,
     }
     print(
         "Runtime patch contracts certified: "
         f"signature_checks={result['signature_checks']} "
+        f"retry_after_checks={result['retry_after_checks']} "
         f"runtime_files_scanned={result['runtime_python_files_scanned']} "
         "model_scoped_capacity=true legacy_capacity_authority=false "
-        "static_patch_contract_violations=0"
+        "partial_retry_after=false static_patch_contract_violations=0"
     )
     return result
