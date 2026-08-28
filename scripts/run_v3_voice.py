@@ -10,6 +10,7 @@ from isco_video_agent.ai_budget import BudgetLedger
 from isco_video_agent.config import secret
 from isco_video_agent.text_audit_router import text_audit_circuit_scope
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
+from scripts.analytics_observer_status import observe_post_acceptance_analytics
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.attempt9_schema_normalizer import install_attempt9_schema_normalizer
 from scripts.brand_anchor_guard import install_brand_anchor_guard
@@ -170,6 +171,7 @@ def _attach_observer_evidence_to_telemetry(
     ledger: BudgetLedger,
     output_dir: Path,
     gold_enforce: dict | None = None,
+    analytics_status: dict | None = None,
 ) -> None:
     """Make existing release telemetry the durable provenance/Gold envelope."""
     data = json.loads(telemetry_path.read_text(encoding="utf-8"))
@@ -180,6 +182,8 @@ def _attach_observer_evidence_to_telemetry(
     data["ai_budget"] = ledger.to_summary()
     if isinstance(gold_enforce, dict):
         data["gold_enforce_report"] = gold_enforce
+    if isinstance(analytics_status, dict):
+        data["analytics_observer_status"] = analytics_status
     opening_path = output_dir / "opening-visual-audit.json"
     if opening_path.exists():
         opening = json.loads(opening_path.read_text(encoding="utf-8"))
@@ -312,17 +316,17 @@ def main() -> None:
     ledger.write(out / "ai-budget.json")
     manifest = _write_production_manifest(out, production_id=production_id, fmt=plan.format)
 
-    # Analytics remains strictly post-acceptance. Gold has already passed and state has
-    # been accepted before any channel metric can be collected or attached.
-    try:
-        collect_latest_video_metrics_from_env(
-            format_hint=plan.format,
-            expected_video_id=manifest.get("youtube_video_id"),
-            production_id=production_id if manifest.get("publication_binding") == "verified" else None,
-            binding_source=manifest.get("binding_source"),
-        )
-    except Exception:
-        pass
+    # Analytics remains strictly post-acceptance and non-authoritative. Gold has
+    # already passed and the production manifest exists before this observer runs.
+    # A collector failure is durable evidence, never a release veto and never silence.
+    analytics_status = observe_post_acceptance_analytics(
+        out,
+        collector=collect_latest_video_metrics_from_env,
+        format_hint=plan.format,
+        expected_video_id=manifest.get("youtube_video_id"),
+        production_id=production_id if manifest.get("publication_binding") == "verified" else None,
+        binding_source=manifest.get("binding_source"),
+    )
 
     telemetry_path = write_planning_telemetry(out)
     _attach_observer_evidence_to_telemetry(
@@ -332,6 +336,7 @@ def main() -> None:
         ledger=ledger,
         output_dir=out,
         gold_enforce=gold_enforce,
+        analytics_status=analytics_status,
     )
     print(f"Production completed: {out.name}")
 
