@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import base64
 import hashlib
 import hmac
@@ -42,23 +43,12 @@ WRAPPER_SCHEMA_VERSION = 1
 KIND = "isco-planning-checkpoint"
 EMPTY_CHECKPOINT = {"version": 1, "responses": {}}
 
-# Exact Runner-side planner contract. Engine semantics are bound independently by its
-# pinned commit SHA. Any change to one of these files invalidates old resume data.
-PLANNING_CONTRACT_FILES = (
-    "scripts/task_level_planner_router.py",
-    "scripts/planning_batch_hardening.py",
-    "scripts/provider_capacity_hardening.py",
-    "scripts/provider_failure.py",
-    "scripts/run124_terminal_provider_recovery.py",
-    "scripts/run125_capacity_routing_closure.py",
-    "scripts/run125_cache_prefix_contract.py",
-    "scripts/schema_repair_policy.py",
-    "scripts/planner_quality_guard.py",
-    "scripts/run120_dossier_repair_hardening.py",
-    "scripts/run120_schema_policy_bridge.py",
-    "scripts/attempt9_schema_normalizer.py",
-    "scripts/append_retry_guard.py",
-)
+# Durable resume is bound to the real Runner-local source closure reachable from the
+# canonical production entrypoint. Engine semantics are independently bound by the
+# pinned Engine commit SHA. This intentionally favors safety over cache reuse: any
+# reachable Runner runtime change invalidates an old planning checkpoint rather than
+# risking reuse under a silently different production contract.
+PLANNING_CONTRACT_ROOTS = ("scripts/run_v3_voice.py",)
 
 _CANONICAL_WORKFLOW_MARKER = "/.github/workflows/produce-resilient-v4.yml@"
 _RUNTIME_STATE_DIRNAME = "isco-state"
@@ -114,13 +104,120 @@ def _canonical_bytes(data: dict) -> bytes:
     return (json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
+def _existing_local_module(root: Path, relative: Path) -> str | None:
+    candidate = relative.with_suffix(".py")
+    if (root / candidate).is_file():
+        return candidate.as_posix()
+    package = relative / "__init__.py"
+    if (root / package).is_file():
+        return package.as_posix()
+    return None
+
+
+def _absolute_module_candidate(root: Path, module: str) -> str | None:
+    value = str(module or "").strip()
+    if not value:
+        return None
+    if value == "scripts":
+        return _existing_local_module(root, Path("scripts"))
+    if value.startswith("scripts."):
+        return _existing_local_module(root, Path(*value.split(".")))
+    if "." not in value:
+        # Runner scripts historically support direct execution and therefore use a
+        # few bare sibling imports (for example `from provider_failure import ...`).
+        return _existing_local_module(root, Path("scripts") / value)
+    return None
+
+
+def _relative_module_candidate(
+    root: Path,
+    current_relative: str,
+    module: str | None,
+    level: int,
+) -> str | None:
+    current_parent = Path(current_relative).parent
+    base = current_parent
+    for _ in range(max(0, level - 1)):
+        base = base.parent
+    if module:
+        base = base.joinpath(*module.split("."))
+    return _existing_local_module(root, base)
+
+
+def _local_imports(root: Path, relative: str) -> set[str]:
+    path = root / relative
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=relative)
+    except (OSError, UnicodeError, SyntaxError) as exc:
+        raise ValueError(f"planning contract source could not be parsed: {relative}") from exc
+
+    resolved: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                candidate = _absolute_module_candidate(root, alias.name)
+                if candidate:
+                    resolved.add(candidate)
+            continue
+        if not isinstance(node, ast.ImportFrom):
+            continue
+
+        if node.level:
+            candidate = _relative_module_candidate(root, relative, node.module, node.level)
+            if candidate:
+                resolved.add(candidate)
+            # `from . import sibling` has no module name; each alias is a possible
+            # local module and must enter the closure if the file exists.
+            if node.module is None:
+                for alias in node.names:
+                    sibling = _relative_module_candidate(root, relative, alias.name, node.level)
+                    if sibling:
+                        resolved.add(sibling)
+            continue
+
+        candidate = _absolute_module_candidate(root, node.module or "")
+        if candidate:
+            resolved.add(candidate)
+        # `from scripts import foo` points at scripts/__init__.py syntactically but
+        # semantically imports the local foo module when it exists.
+        if node.module == "scripts":
+            for alias in node.names:
+                sibling = _existing_local_module(root, Path("scripts") / alias.name)
+                if sibling:
+                    resolved.add(sibling)
+    return resolved
+
+
+def planning_contract_files(contract_root: Path) -> tuple[str, ...]:
+    """Return the deterministic transitive Runner-local production source closure.
+
+    The closure starts at `scripts/run_v3_voice.py` and follows every Runner-local
+    Python import, including imports inside functions. That means a future Run126/127
+    planning installer cannot silently affect live production without also changing
+    this binding: if it becomes reachable, it enters the hash automatically.
+    """
+    root = contract_root.resolve()
+    pending = list(PLANNING_CONTRACT_ROOTS)
+    seen: set[str] = set()
+    while pending:
+        relative = pending.pop()
+        if relative in seen:
+            continue
+        path = root / relative
+        if not path.is_file():
+            raise ValueError(f"planning contract root/import missing: {relative}")
+        seen.add(relative)
+        for imported in sorted(_local_imports(root, relative), reverse=True):
+            if imported not in seen:
+                pending.append(imported)
+    return tuple(sorted(seen))
+
+
 def planning_contract_sha256(contract_root: Path) -> str:
     entries: list[tuple[str, str]] = []
     root = contract_root.resolve()
-    for relative in PLANNING_CONTRACT_FILES:
+    for relative in planning_contract_files(root):
         path = root / relative
-        if not path.is_file():
-            raise ValueError(f"planning contract file missing: {relative}")
         entries.append((relative, _sha256_file(path)))
     serialized = "\n".join(f"{name}\0{digest}" for name, digest in entries).encode("utf-8")
     return hashlib.sha256(serialized).hexdigest()
