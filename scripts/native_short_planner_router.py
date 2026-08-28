@@ -198,10 +198,15 @@ def select_native_short_template(topic: object, plan: object | None = None) -> d
     if " لماذا " in f" {topic_key} ":
         topic_scores["why_reframe"] += 3
 
-    quote_evidence = (
-        _paired_quote(topic_text)
-        or _signal_score(topic_text, _TEMPLATE_SIGNALS["quote_reflection"]) > 0
-    )
+    paired_quote_evidence = _paired_quote(topic_text)
+    quote_signal_score = _signal_score(topic_text, _TEMPLATE_SIGNALS["quote_reflection"])
+    quote_evidence = paired_quote_evidence or quote_signal_score > 0
+    if paired_quote_evidence and topic_scores["quote_reflection"] <= 0:
+        # Delimited quote text is itself positive topic evidence. Give it only a
+        # minimal score so stronger explicit story/reframe/dialogue signals can
+        # still win, while preventing the unrelated pillar fallback from
+        # overriding an otherwise unambiguous quote-only topic.
+        topic_scores["quote_reflection"] = 1
     if not quote_evidence:
         topic_scores["quote_reflection"] = -100
 

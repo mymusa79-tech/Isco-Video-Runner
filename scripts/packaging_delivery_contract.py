@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 EXPECTED_THUMBNAILS = ("thumbnail-1.jpg", "thumbnail-2.jpg", "thumbnail-3.jpg")
-_ALLOWED_PROVIDERS = {"pexels", "pixabay"}
+_ALLOWED_STOCK_PROVIDERS = {"pexels", "pixabay"}
+_DERIVED_FINAL_RENDER_PROVIDER = "derived_final_render"
 
 
 def _read_object(path: Path) -> dict:
@@ -23,8 +24,12 @@ def validate_packaging_delivery(root: Path) -> dict[str, Path]:
     """Validate the exact Gold packaging set before upload/release.
 
     This is deliberately local/deterministic. It does not call providers and does not
-    alter release authority; it only proves that the three reviewed Title+Thumbnail
-    candidates and their rights/Gold evidence are all present and mutually consistent.
+    alter release authority; it proves that three Title+Thumbnail candidates and their
+    rights/Gold evidence are present and mutually consistent. Normally thumbnails are
+    Pexels/Pixabay assets reviewed by Gold. Under the explicit P2 budget-safe fallback,
+    they may instead be exact frame derivatives from final.mp4; that path is accepted
+    only when the rights manifest proves inheritance from the already-cleared final-cut
+    visuals and the thumbnail plan marks the budget degradation explicitly.
     """
     root = Path(root)
     if not root.is_dir():
@@ -66,14 +71,39 @@ def validate_packaging_delivery(root: Path) -> dict[str, Path]:
     rights_files = [str(item.get("output_file") or "") for item in thumbnail_rights]
     if rights_files != list(EXPECTED_THUMBNAILS):
         raise RuntimeError("Thumbnail rights records do not bind to the delivered A/B/C files")
+
+    derived_records = 0
     for item in thumbnail_rights:
         provider = str(item.get("provider") or "").strip().lower()
-        if provider not in _ALLOWED_PROVIDERS:
+        if provider in _ALLOWED_STOCK_PROVIDERS:
+            if not str(item.get("license_url") or "").strip():
+                raise RuntimeError(f"Missing license URL for delivered {provider} thumbnail")
+            if item.get("provider_asset_id") in (None, ""):
+                raise RuntimeError(f"Missing provider asset ID for delivered {provider} thumbnail")
+            continue
+
+        if provider != _DERIVED_FINAL_RENDER_PROVIDER:
             raise RuntimeError(f"Unsupported delivered thumbnail provider: {provider or 'missing'}")
-        if not str(item.get("license_url") or "").strip():
-            raise RuntimeError(f"Missing license URL for delivered {provider} thumbnail")
+        derived_records += 1
+        if package.get("budget_degraded") is not True:
+            raise RuntimeError("Final-render thumbnail derivatives require explicit budget_degraded package evidence")
+        if str(item.get("source_file") or "") != "final.mp4":
+            raise RuntimeError("Final-render thumbnail derivative must bind to final.mp4")
+        if str(item.get("rights_inheritance") or "") != "rights-manifest.visuals":
+            raise RuntimeError("Final-render thumbnail derivative lacks visual-rights inheritance")
+        if int(item.get("inherited_visual_rights_count") or 0) < 1:
+            raise RuntimeError("Final-render thumbnail derivative has no inherited visual rights")
         if item.get("provider_asset_id") in (None, ""):
-            raise RuntimeError(f"Missing provider asset ID for delivered {provider} thumbnail")
+            raise RuntimeError("Final-render thumbnail derivative lacks timestamp provenance")
+
+    if derived_records not in {0, 3}:
+        raise RuntimeError("Packaging cannot mix stock thumbnails with budget-fallback final-render derivatives")
+    if derived_records == 3:
+        fallback = package.get("budget_fallback")
+        if not isinstance(fallback, dict) or fallback.get("provider_attempts_consumed") != 0:
+            raise RuntimeError("Budget-fallback packaging must prove zero thumbnail provider attempts")
+        if rights.get("thumbnail_rights_mode") != "derived_from_already_rights_cleared_final_render":
+            raise RuntimeError("Budget-fallback thumbnail rights mode is missing or inconsistent")
 
     gold = _read_object(gold_report)
     gold_decision = gold.get("gold")

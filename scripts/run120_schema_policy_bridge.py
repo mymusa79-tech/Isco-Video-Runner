@@ -70,6 +70,13 @@ def install_run120_schema_policy_bridge() -> None:
     from .run122_effective_capacity_admission import install_run122_effective_capacity_admission
 
     install_run122_effective_capacity_admission()
+
+    # Run #123: now that the final schema owner and post-enrichment admission wrapper
+    # are both installed, shrink only transport envelopes and provider wait behavior.
+    # Quality/audit/release gates remain unchanged.
+    from .run123_planning_latency_hardening import install_run123_planning_latency_hardening
+
+    install_run123_planning_latency_hardening()
     print(
         "Run120 schema-policy bridge installed: existing bounded schema owner reused; "
         "partial completion preserved; transport pressure routes to 2->1 only"
