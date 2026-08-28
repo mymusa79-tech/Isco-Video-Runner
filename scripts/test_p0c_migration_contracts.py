@@ -94,7 +94,7 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
             "_tag_plan_source(out)",
             "run_gold_enforce_phase4(",
             "_write_production_manifest(",
-            "collect_latest_video_metrics_from_env(",
+            "observe_post_acceptance_analytics(",
             "_attach_observer_evidence_to_telemetry(",
         ]
         positions = [source.index(marker) for marker in order]
@@ -139,7 +139,7 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
             source,
         )
         self.assertIn('binding_source=manifest.get("binding_source")', source)
-        self.assertLess(source.index("run_gold_enforce_phase4("), source.index("collect_latest_video_metrics_from_env("))
+        self.assertLess(source.index("run_gold_enforce_phase4("), source.index("observe_post_acceptance_analytics("))
 
     def test_voice_mesh_keeps_both_cloud_and_local_patch_points(self) -> None:
         original_cloud = getattr(orchestrator, "synthesize_wav", None)
