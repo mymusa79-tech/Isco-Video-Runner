@@ -14,7 +14,6 @@ from isco_video_agent.stock_search_cache import stock_search_cache as process_ca
 
 
 PIXABAY_CACHE_TTL_SECONDS = 24 * 60 * 60
-PIXABAY_CACHE_MAX_ENTRIES = 64
 CACHE_SCHEMA_VERSION = 2
 _INSTALLED = False
 
@@ -92,6 +91,13 @@ def _fresh_entry(entry: object, *, now: float) -> list[dict] | None:
 
 
 def _prune(entries: dict, *, now: float) -> dict:
+    """Remove only invalid/expired entries; never evict a still-fresh 24h request key.
+
+    Pixabay requires API requests to be cached for 24 hours. A previous internal
+    64-entry LRU-style ceiling could discard a fresh key early and cause the same
+    request to hit the provider again before its mandatory cache window expired.
+    The TTL itself is the natural bound; persistence is sanitized on every save.
+    """
     survivors: list[tuple[float, str, dict]] = []
     for key, entry in entries.items():
         if not isinstance(key, str) or not isinstance(entry, dict):
@@ -104,7 +110,7 @@ def _prune(entries: dict, *, now: float) -> dict:
             continue
         survivors.append((fetched_at, key, entry))
     survivors.sort(reverse=True)
-    return {key: entry for _, key, entry in survivors[:PIXABAY_CACHE_MAX_ENTRIES]}
+    return {key: entry for _, key, entry in survivors}
 
 
 def prepare_cache_for_persistence(path: Path | None = None) -> bool:
