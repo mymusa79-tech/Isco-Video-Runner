@@ -28,7 +28,7 @@ class Run127RuntimeCompositionTests(unittest.TestCase):
                 stale_cache_aware_pacing,
                 {"estimated_request_tokens": 1},
                 model_name=MODEL,
-                label="run127_exact_failure_shape",
+                contract_label="run127_exact_failure_shape",
             )
 
     def test_run123_replacement_and_run125_wrapper_share_canonical_model_keyword(self) -> None:
@@ -43,7 +43,7 @@ class Run127RuntimeCompositionTests(unittest.TestCase):
             capacity._proactive_groq_pacing,
             {"estimated_request_tokens": 1},
             model_name=MODEL,
-            label="canonical_capacity_pacing",
+            contract_label="canonical_capacity_pacing",
         )
 
 
