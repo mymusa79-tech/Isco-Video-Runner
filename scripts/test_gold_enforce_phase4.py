@@ -170,7 +170,7 @@ class Phase4RunnerContracts(unittest.TestCase):
             source.index("orchestrator.produce("),
             source.index("run_gold_enforce_phase4("),
             source.index("_write_production_manifest("),
-            source.index("collect_latest_video_metrics_from_env("),
+            source.index("observe_post_acceptance_analytics("),
         ]
         self.assertEqual(order, sorted(order))
         self.assertIn('"release_authority": "gold_enforced"', inspect.getsource(runner._write_production_manifest))
