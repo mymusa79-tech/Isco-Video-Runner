@@ -47,10 +47,22 @@ _GROQ_RATE_STATE: dict[str, float | int | None] = {
     "reset_at_monotonic": None,
 }
 _DURATION_PART_RE = re.compile(r"(\d+(?:\.\d+)?)(ms|s|m|h)", flags=re.I)
+_TPM_CONTEXT_RE = re.compile(r"(?:tokens\s+per\s+minute|\(\s*tpm\s*\)|\btpm\b)", re.I)
 _LIMIT_PATTERNS = (
-    re.compile(r"\blimit(?:\s+on)?\s*(?:tokens\s+per\s+minute|tpm)?\s*[:=]?\s*([\d,]+)\b", re.I),
-    re.compile(r"tokens\s+per\s+minute.*?\blimit\s*[:=]?\s*([\d,]+)\b", re.I | re.S),
-    re.compile(r"\btpm\b.*?\blimit\s*[:=]?\s*([\d,]+)\b", re.I | re.S),
+    # Error-body limits are authoritative only when the same message explicitly says
+    # TPM/tokens-per-minute. A bare "Limit N" is ambiguous and must never turn TPD
+    # evidence into a fake per-minute ceiling.
+    re.compile(
+        r"(?:tokens\s+per\s+minute|\(\s*tpm\s*\)|\btpm\b)"
+        r"[^0-9]{0,160}?\blimit(?:\s+on)?\s*[:=]?\s*([\d,]+)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\blimit(?:\s+on)?\s*"
+        r"(?:tokens\s+per\s+minute|\(\s*tpm\s*\)|\btpm\b)"
+        r"\s*[:=]?\s*([\d,]+)\b",
+        re.I,
+    ),
 )
 
 
@@ -261,12 +273,15 @@ def _response_error_text(response) -> str:
 
 
 def _limit_from_error_text(text: str) -> int | None:
+    value = str(text or "")
+    if not _TPM_CONTEXT_RE.search(value):
+        return None
     for pattern in _LIMIT_PATTERNS:
-        match = pattern.search(text or "")
+        match = pattern.search(value)
         if match:
-            value = _positive_int(match.group(1))
-            if isinstance(value, int) and value > 0:
-                return value
+            parsed = _positive_int(match.group(1))
+            if isinstance(parsed, int) and parsed > 0:
+                return parsed
     return None
 
 
