@@ -22,19 +22,42 @@ TPD_ERROR = (
 
 class Run128RateLimitOwnershipTests(unittest.TestCase):
     def setUp(self) -> None:
+        router = closure.router
         self.original_index = closure._ACTIVE_GROQ_INDEX
-        self.original_retry_cap = closure.router.RETRY_AFTER_MAX_SECONDS
-        self.original_headers = dict(closure.router._last_call_rate_limit_headers)
+        self.original_pool = closure._GROQ_MODEL_POOL
+        self.original_installed = closure._INSTALLED
+        self.original_is_model_unavailable = closure._is_model_unavailable
+        self.original_groq_call = router._groq_call
+        self.original_classify = router.classify_provider_failure
+        self.original_retry_cap = router.RETRY_AFTER_MAX_SECONDS
+        self.original_headers = dict(router._last_call_rate_limit_headers)
+        self.had_marker = hasattr(router, "_ISCO_RUN128_RATE_LIMIT_OWNERSHIP")
+        self.original_marker = getattr(router, "_ISCO_RUN128_RATE_LIMIT_OWNERSHIP", None)
+
         closure.capacity.reset_groq_capacity_state_for_tests()
+        closure._GROQ_MODEL_POOL = prefix._PRODUCTION_GROQ_MODEL_POOL
         closure._ACTIVE_GROQ_INDEX = 0
-        closure.router._last_call_rate_limit_headers.clear()
-        prefix.install_run125_cache_prefix_contract()
+        closure._INSTALLED = True
+        router._last_call_rate_limit_headers.clear()
+        if hasattr(router, "_ISCO_RUN128_RATE_LIMIT_OWNERSHIP"):
+            delattr(router, "_ISCO_RUN128_RATE_LIMIT_OWNERSHIP")
+        prefix._install_rate_limit_ownership()
 
     def tearDown(self) -> None:
+        router = closure.router
         closure._ACTIVE_GROQ_INDEX = self.original_index
-        closure.router.RETRY_AFTER_MAX_SECONDS = self.original_retry_cap
-        closure.router._last_call_rate_limit_headers.clear()
-        closure.router._last_call_rate_limit_headers.update(self.original_headers)
+        closure._GROQ_MODEL_POOL = self.original_pool
+        closure._INSTALLED = self.original_installed
+        closure._is_model_unavailable = self.original_is_model_unavailable
+        router._groq_call = self.original_groq_call
+        router.classify_provider_failure = self.original_classify
+        router.RETRY_AFTER_MAX_SECONDS = self.original_retry_cap
+        router._last_call_rate_limit_headers.clear()
+        router._last_call_rate_limit_headers.update(self.original_headers)
+        if self.had_marker:
+            router._ISCO_RUN128_RATE_LIMIT_OWNERSHIP = self.original_marker
+        elif hasattr(router, "_ISCO_RUN128_RATE_LIMIT_OWNERSHIP"):
+            delattr(router, "_ISCO_RUN128_RATE_LIMIT_OWNERSHIP")
         closure.capacity.reset_groq_capacity_state_for_tests()
 
     def test_run128_tpm_429_is_distinct_from_daily_quota(self) -> None:
