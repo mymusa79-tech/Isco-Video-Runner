@@ -38,14 +38,14 @@ _PATCH_CALL_SHAPES: dict[str, tuple[int, frozenset[str]]] = {
 }
 
 
-def _bind_contract(callable_obj, /, *args, label: str, **kwargs) -> None:
+def _bind_contract(callable_obj, /, *args, contract_label: str, **kwargs) -> None:
     """Validate final live wrapper-call compatibility without executing provider code."""
     try:
         signature = inspect.signature(callable_obj, follow_wrapped=False)
         signature.bind(*args, **kwargs)
     except (TypeError, ValueError) as exc:
         raise RuntimeError(
-            f"RUNTIME_CALL_CONTRACT_MISMATCH target={label} detail={exc}"
+            f"RUNTIME_CALL_CONTRACT_MISMATCH target={contract_label} detail={exc}"
         ) from exc
 
 
@@ -245,8 +245,8 @@ def certify_runtime_patch_contracts() -> dict[str, object]:
             "router._extract_response_meta",
         ),
     )
-    for callable_obj, args, kwargs, label in checks:
-        _bind_contract(callable_obj, *args, label=label, **kwargs)
+    for callable_obj, args, kwargs, contract_label in checks:
+        _bind_contract(callable_obj, *args, contract_label=contract_label, **kwargs)
 
     result = {
         "status": "pass",
