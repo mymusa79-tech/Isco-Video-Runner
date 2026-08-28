@@ -8,7 +8,6 @@ from scripts import research_provider_reliability as rpr
 
 class DailyQuotaDetectionTests(unittest.TestCase):
     def test_real_gemini_free_tier_quota_message_is_detected(self) -> None:
-        # The exact text observed in the live production incident this fix closes.
         error = RuntimeError(
             "Error code: 429 - {'error': {'message': 'You exceeded your current quota ... "
             "Quota exceeded for metric: generativelanguage.googleapis.com/"
@@ -26,17 +25,17 @@ class DailyQuotaDetectionTests(unittest.TestCase):
 
 
 class BackoffCalculationTests(unittest.TestCase):
-    def test_uses_hinted_retry_after_when_present_and_bounded(self) -> None:
+    def test_uses_hinted_retry_after_when_present_and_within_budget(self) -> None:
         error = RuntimeError("... Please retry in 1.447794966s.")
         with patch.object(rpr.random, "uniform", return_value=0.3):
             seconds = rpr._backoff_seconds(error, attempt=1)
-        self.assertAlmostEqual(seconds, 1.447794966 + 0.3, places=6)
+        self.assertAlmostEqual(seconds, 1.447794966, places=6)
 
-    def test_hint_above_ceiling_is_capped(self) -> None:
+    def test_hint_above_wait_budget_requires_failover_not_partial_sleep(self) -> None:
         error = RuntimeError("Please retry in 500s.")
         with patch.object(rpr.random, "uniform", return_value=0.0):
             seconds = rpr._backoff_seconds(error, attempt=1)
-        self.assertEqual(seconds, rpr.MAX_RETRY_AFTER_SECONDS)
+        self.assertIsNone(seconds)
 
     def test_no_hint_falls_back_to_attempt_scaled_floor(self) -> None:
         error = RuntimeError("server error, try again")
@@ -82,6 +81,17 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
         self.assertEqual(gemini.call_count, 2)
         openrouter.assert_not_called()
         sleep.assert_called_once()
+
+    def test_retry_after_above_budget_skips_same_provider_retry_and_falls_back(self) -> None:
+        transient_error = RuntimeError("HTTP 429 rate_limit_exceeded. Please retry in 38s.")
+        with patch.object(rpr, "gemini_json_text", side_effect=transient_error) as gemini, \
+                patch.object(rpr, "openrouter_json_text", return_value={"items": ["fallback"]}) as openrouter, \
+                patch.object(rpr.time, "sleep") as sleep:
+            result = rpr.gemini_research_call_with_fallback("key", "prompt", "model")
+        self.assertEqual(result, {"items": ["fallback"]})
+        gemini.assert_called_once()
+        openrouter.assert_called_once()
+        sleep.assert_not_called()
 
     def test_transient_rate_limit_exhausts_bounded_retry_then_falls_back(self) -> None:
         transient_error = RuntimeError("HTTP 429 rate_limit_exceeded")
@@ -131,9 +141,6 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
         self.assertIs(ctx.exception.__cause__, openrouter_error)
 
     def test_all_providers_failing_never_touches_the_ai_budget_or_planning_modules(self) -> None:
-        # Regression guard for the "do not touch Planning" constraint: this module
-        # must not import task_level_planner_router, provider_capacity_hardening,
-        # run_v3_voice, or anything AI-budget-related.
         import sys
 
         planning_markers = (
