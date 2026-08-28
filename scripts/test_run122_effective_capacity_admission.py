@@ -35,7 +35,7 @@ class Run122EffectiveCapacityAdmissionTests(unittest.TestCase):
         self.assertEqual(seen, ["persona|raw|dialogue"])
         self.assertEqual(result["estimated_request_tokens"], len("persona|raw|dialogue"))
 
-    def test_writer_doctor_admission_rejects_effective_oversize_before_provider(self) -> None:
+    def test_writer_doctor_rejects_before_provider_when_no_provider_can_carry_effective_prompt(self) -> None:
         original = planning._capacity_admitted
         had_flag = hasattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
         old_flag = getattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION", None)
@@ -51,10 +51,13 @@ class Run122EffectiveCapacityAdmissionTests(unittest.TestCase):
                 "reserved_completion_tokens": 2400,
                 "token_safety_reserve": 250,
             }
-            with patch.object(hardening, "_effective_capacity_estimate", return_value=estimate):
+            with patch.object(
+                hardening, "_effective_capacity_estimate", return_value=estimate
+            ), patch.object(hardening, "_provider_set_viable", return_value=[]):
                 admitted, returned = planning._capacity_admitted("raw")
             self.assertFalse(admitted)
             self.assertIs(returned, estimate)
+            self.assertEqual(returned["viable_providers"], [])
         finally:
             planning._capacity_admitted = original
             dossier._one_schema_bounded_call = original_dossier
@@ -63,7 +66,38 @@ class Run122EffectiveCapacityAdmissionTests(unittest.TestCase):
             elif hasattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION"):
                 delattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
 
-    def test_dossier_effective_oversize_becomes_existing_transport_pressure_without_call(self) -> None:
+    def test_writer_doctor_does_not_split_only_because_groq_bootstrap_8k_is_exceeded(self) -> None:
+        original = planning._capacity_admitted
+        had_flag = hasattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
+        old_flag = getattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION", None)
+        original_dossier = dossier._one_schema_bounded_call
+        try:
+            if had_flag:
+                delattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
+            hardening.install_run122_effective_capacity_admission()
+            estimate = {
+                "estimated_request_tokens": 8077,
+                "contract": "full_script",
+                "estimated_prompt_tokens": 5427,
+                "reserved_completion_tokens": 2400,
+                "token_safety_reserve": 250,
+            }
+            with patch.object(
+                hardening, "_effective_capacity_estimate", return_value=estimate
+            ), patch.object(hardening, "_provider_set_viable", return_value=["gemini"]):
+                admitted, returned = planning._capacity_admitted("raw")
+            self.assertTrue(admitted)
+            self.assertIs(returned, estimate)
+            self.assertEqual(returned["viable_providers"], ["gemini"])
+        finally:
+            planning._capacity_admitted = original
+            dossier._one_schema_bounded_call = original_dossier
+            if had_flag:
+                planning._ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION = old_flag
+            elif hasattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION"):
+                delattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
+
+    def test_dossier_no_viable_provider_becomes_existing_transport_pressure_without_call(self) -> None:
         original_admission = planning._capacity_admitted
         original_dossier = dossier._one_schema_bounded_call
         had_flag = hasattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
@@ -81,8 +115,12 @@ class Run122EffectiveCapacityAdmissionTests(unittest.TestCase):
                 "reserved_completion_tokens": 2400,
                 "token_safety_reserve": 250,
             }
-            with patch.object(hardening, "_effective_capacity_estimate", return_value=estimate):
-                with self.assertRaises(dossier._DossierTransportPressure):
+            with patch.object(
+                hardening, "_effective_capacity_estimate", return_value=estimate
+            ), patch.object(hardening, "_provider_set_viable", return_value=[]):
+                with self.assertRaisesRegex(
+                    dossier._DossierTransportPressure, "NO_VIABLE_PLANNING_CAPACITY"
+                ):
                     dossier._one_schema_bounded_call("key", "prompt", "model", ["s1", "s2"])
             owner.assert_not_called()
         finally:
@@ -93,7 +131,7 @@ class Run122EffectiveCapacityAdmissionTests(unittest.TestCase):
             elif hasattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION"):
                 delattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
 
-    def test_dossier_admitted_prompt_delegates_to_existing_schema_owner(self) -> None:
+    def test_dossier_viable_prompt_delegates_to_existing_schema_owner(self) -> None:
         original_admission = planning._capacity_admitted
         original_dossier = dossier._one_schema_bounded_call
         had_flag = hasattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
@@ -106,13 +144,15 @@ class Run122EffectiveCapacityAdmissionTests(unittest.TestCase):
                 delattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
             hardening.install_run122_effective_capacity_admission()
             estimate = {
-                "estimated_request_tokens": 7743,
+                "estimated_request_tokens": 8166,
                 "contract": "full_script",
-                "estimated_prompt_tokens": 5093,
+                "estimated_prompt_tokens": 5516,
                 "reserved_completion_tokens": 2400,
                 "token_safety_reserve": 250,
             }
-            with patch.object(hardening, "_effective_capacity_estimate", return_value=estimate):
+            with patch.object(
+                hardening, "_effective_capacity_estimate", return_value=estimate
+            ), patch.object(hardening, "_provider_set_viable", return_value=["gemini"]):
                 actual = dossier._one_schema_bounded_call("key", "prompt", "model", ["s1"])
             self.assertEqual(actual, expected)
             owner.assert_called_once_with("key", "prompt", "model", ["s1"])
