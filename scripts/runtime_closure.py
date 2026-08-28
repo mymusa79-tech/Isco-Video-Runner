@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import isco_video_agent.orchestrator as orchestrator
 from scripts.attempt10_append_bound_recovery import install_attempt10_append_bound_recovery
 from scripts.audio_mastering_live_binding import install_audio_mastering_live_binding
 from scripts.audio_semantic_integrity import (
@@ -18,6 +19,7 @@ from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
 from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
+from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
 from scripts.provider_capacity_v2 import install_provider_capacity_v2
 from scripts.run124_terminal_provider_recovery import install_run124_terminal_provider_recovery
 from scripts.run125_cache_prefix_contract import install_run125_cache_prefix_contract
@@ -133,6 +135,10 @@ def install_runtime_closure() -> None:
     install_release_transaction_guard()
     install_telemetry_reliability_binding()
     install_audio_semantic_final_gate(production_entrypoint_modules())
+    # Durable resume is deliberately outermost: every existing production/quality/safety
+    # wrapper remains untouched and authoritative. This layer only persists the local
+    # planner checkpoint after a failure, or writes a completion marker after success.
+    install_runtime_persistence_wrapper(orchestrator)
 
 
 def run_post_gold_observers(output_dir: Path) -> dict:
