@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from provider_failure import ProviderFailure
+
 from scripts import run125_capacity_routing_closure as closure
 
 
@@ -64,6 +66,25 @@ def _writer_cache_layout(prompt: str) -> str:
     )
 
 
+def _install_hard_tpd_classifier() -> None:
+    router = closure.router
+    if getattr(router, "_ISCO_RUN125_HARD_TPD_CLASSIFIER", False):
+        return
+    original = router.classify_provider_failure
+
+    def classify(provider_name: str, error):
+        if str(provider_name).startswith("groq") and closure._is_tpd_exhausted(error):
+            return ProviderFailure(
+                "quota_exhausted",
+                router.AttemptOutcome.RATE_LIMITED,
+                True,
+            )
+        return original(provider_name, error)
+
+    router.classify_provider_failure = classify
+    router._ISCO_RUN125_HARD_TPD_CLASSIFIER = True
+
+
 def install_run125_cache_prefix_contract() -> None:
     # Qwen 3.8 is currently a preview model. Keep the production failover path on the
     # two GPT-OSS models that share strict structured output and prompt caching; a
@@ -72,8 +93,9 @@ def install_run125_cache_prefix_contract() -> None:
     if closure._ACTIVE_GROQ_INDEX >= len(closure._GROQ_MODEL_POOL):
         closure._ACTIVE_GROQ_INDEX = 0
     closure._writer_cache_layout = _writer_cache_layout
+    _install_hard_tpd_classifier()
     print(
         "Run125 cache-prefix contract installed: "
         "writer_range_and_shard_state_after_shared_policy=true "
-        "groq_production_pool=gpt-oss-20b->gpt-oss-120b"
+        "groq_production_pool=gpt-oss-20b->gpt-oss-120b hard_tpd_retry=false"
     )
