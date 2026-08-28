@@ -114,19 +114,33 @@ jobs:
             --voice-dir "$RUNNER_TEMP/piper-voices" \
             --manifest security/piper_voice_hashes.json
 
-          python -m unittest discover -s tests -q
+          engine_test_history="$RUNNER_TEMP/isco-test-state/production-engine-suite/history.json"
+          mkdir -p "$(dirname "$engine_test_history")"
+          ISCO_HISTORY_PATH="$engine_test_history" python -m unittest discover -s tests -q
+
+      - name: Certify Engine source after production Engine suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("production_after_engine_suite")'
 
       - name: Full Runner pre-production regression
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/isco-test-state/production-runner-suite/history.json
         run: |
           set -euo pipefail
+          mkdir -p "$(dirname "$ISCO_HISTORY_PATH")"
           mapfile -t test_modules < <(
             find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
               | sort | sed -e 's#/#.#g' -e 's#\.py$##'
           )
           test "${#test_modules[@]}" -gt 0
           python -m unittest "${test_modules[@]}" -q
+
+      - name: Certify Engine source after production Runner suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("production_after_runner_suite")'
 
       - name: Isolated dependency vulnerability audit
         working-directory: engine
@@ -185,6 +199,11 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/environment_preflight.py
+
+      - name: Certify Engine source immediately before provider work
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("production_before_provider_work")'
 
       - name: Materialize approved production secrets
         id: prepare_request
@@ -775,6 +794,7 @@ jobs:
         run: |
           rm -rf "$RUNNER_TEMP/isco-secrets" || true
           rm -rf "$RUNNER_TEMP/isco-state" || true
+          rm -rf "$RUNNER_TEMP/isco-test-state" || true
           rm -rf "$RUNNER_TEMP/pip-audit-venv" || true
           rm -rf "$RUNNER_TEMP/piper-wheel" || true
           rm -f "$RUNNER_TEMP/isco-request.json" || true

@@ -52,6 +52,8 @@ jobs:
           pip-audit --no-deps -r requirements-lock.txt
       - name: Focused M11 Engine tests
         working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m11-focused-engine-history.json
         run: |
           set -euo pipefail
           python -m unittest tests.test_cinematic_v2_m11_cc0 -v
@@ -61,8 +63,14 @@ jobs:
           python -m unittest tests.test_m11_archive_policy_contract -v
           python -m unittest tests.test_human_editorial_intent -v
           python -m unittest tests.test_editorial_room_director_m7_binding_current_main -v
+      - name: Certify Engine source after focused M11 Engine tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m11_after_focused_engine")'
       - name: Real M11 FFmpeg renderer smoke
         working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m11-renderer-smoke-history.json
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/m11-smoke"
@@ -83,27 +91,47 @@ jobs:
           assert video[0]["width"] == 1920 and video[0]["height"] == 1080
           assert 4.0 <= duration <= 4.4, duration
           PY
+      - name: Certify Engine source after M11 renderer smoke
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m11_after_renderer_smoke")'
       - name: Full Engine suite
         working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m11-full-engine-history.json
         run: |
           set -o pipefail
           python -m unittest discover -s tests -q 2>&1 | tee "$RUNNER_TEMP/m11-engine-unittest.log"
+      - name: Certify Engine source after M11 Full Engine suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m11_after_full_engine")'
       - name: Focused Runner M11 HEI M7 Security tests
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m11-focused-runner-history.json
         run: |
           set -euo pipefail
           python -m unittest scripts.test_m11_live_binding -v
           python -m unittest scripts.test_human_editorial_intent_binding -v
           python -m unittest scripts.test_m7_live_binding -v
+      - name: Certify Engine source after focused M11 Runner tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m11_after_focused_runner")'
       - name: Full Runner regression suite
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m11-full-runner-history.json
         run: |
           set -euo pipefail
           mapfile -t test_modules < <(find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' | sort | sed -e 's#/#.#g' -e 's#\.py$##')
           test "${#test_modules[@]}" -gt 0
           python -m unittest "${test_modules[@]}" -q
+      - name: Certify Engine source after M11 Full Runner suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m11_after_full_runner")'
       - name: M11 contract sanity
         run: |
           set -euo pipefail

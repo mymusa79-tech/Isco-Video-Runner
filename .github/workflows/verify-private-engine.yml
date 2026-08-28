@@ -129,18 +129,40 @@ jobs:
       - name: Focused Run126 dynamic capacity and immutable snapshot regression
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-run126-history.json
         run: python -m unittest scripts.test_run126_capacity_snapshot_closure -v
+
+      - name: Certify Engine source after Run126 regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_run126")'
 
       - name: Focused Run 104 targeted structural repair regression
         working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-run104-history.json
         run: python -m unittest discover -s tests -p 'test_run104_targeted_structural_repair.py' -q
+
+      - name: Certify Engine source after Run104 regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_run104")'
 
       - name: Full Engine suite
         working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-full-engine-history.json
         run: python -m unittest discover -s tests -q
+
+      - name: Certify Engine source after Full Engine suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_full_engine_suite")'
 
       - name: Approved-Brief CLI contract matrix
         working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-approved-brief-cli-history.json
         run: |
           set -euo pipefail
           missing="$RUNNER_TEMP/isco-no-approved-brief.json"
@@ -156,9 +178,15 @@ jobs:
             exit 1
           fi
 
+      - name: Certify Engine source after Approved-Brief CLI matrix
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_approved_brief_cli")'
+
       - name: Standalone Short V2 focused regression
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-short-v2-history.json
         run: |
           set -euo pipefail
           python -m unittest \
@@ -166,11 +194,17 @@ jobs:
             scripts.test_shorts_production_binding \
             scripts.test_short_voice_v2 -v
 
+      - name: Certify Engine source after Standalone Short V2
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_short_v2")'
+
       - name: Full Runner regression suite
         id: runner_regression
         continue-on-error: true
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-full-runner-history.json
         run: |
           set -uo pipefail
           mapfile -t test_modules < <(
