@@ -7,8 +7,10 @@ from pathlib import Path
 
 try:
     from scripts import planning_checkpoint_state as checkpoint
+    from scripts.runtime_phase import canonical_runtime_enabled
 except ModuleNotFoundError:  # direct python scripts/persistent_memory.py compatibility
     import planning_checkpoint_state as checkpoint
+    from runtime_phase import canonical_runtime_enabled
 
 _SNAPSHOT_ENV = "ISCO_APPROVED_BRIEF_SNAPSHOT_PATH"
 _PIN_ENV = "ISCO_APPROVED_BRIEF_SHA256"
@@ -116,7 +118,7 @@ def materialize_runtime_snapshot(repo_root: Path, engine_root: Path) -> Path:
     HEAD and only uses the worktree for drift diagnostics.
     """
     del repo_root
-    if not checkpoint.canonical_runtime_enabled():
+    if not canonical_runtime_enabled():
         raise RuntimeError("immutable planning snapshot is canonical-runtime only")
 
     temp = str(os.environ.get("RUNNER_TEMP") or "").strip()
@@ -195,7 +197,7 @@ def install_runtime_snapshot_binding(*, force: bool = False) -> None:
     global _INSTALLED
     if _INSTALLED:
         return
-    if not force and not checkpoint.canonical_runtime_enabled():
+    if not force and not canonical_runtime_enabled():
         return
 
     bind_runtime_approved_brief_path()
@@ -232,7 +234,7 @@ def bootstrap_immutable_planning_checkpoint(
     encryption_key: str,
 ) -> checkpoint.RestoreStatus:
     """Create/bind the immutable brief before restoring the durable planner cache."""
-    if not checkpoint.canonical_runtime_enabled():
+    if not canonical_runtime_enabled():
         return checkpoint.RestoreStatus(True, False, "disabled", "non-canonical runtime")
     if not str(encryption_key or "").strip():
         raise RuntimeError("STATE_ENCRYPTION_KEY is required for durable planning checkpoint bootstrap")
