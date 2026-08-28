@@ -10,90 +10,57 @@ permissions:
   contents: write
 
 jobs:
-  prepare:
+  pin:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Checkout exact branch
+      - name: Checkout exact branch with workflow-authorized token
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          persist-credentials: false
-          fetch-depth: 1
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          persist-credentials: true
+          fetch-depth: 0
 
-      - name: Create exact remote pin commit object
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          OLD_SHA: 6a0d91cc80511a174a47b95c6c203f8d93ba86ca
-          NEW_SHA: f3c9357098947882882ca3010b46a565c2d90460
+      - name: Replace remaining exact Engine pins
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = "fix/post-planning-audit-closure"
           python - <<'PY'
-          import json, os, subprocess, urllib.request
           from pathlib import Path
 
-          repo = os.environ["REPO"]
-          token = os.environ["GH_TOKEN"]
-          old = os.environ["OLD_SHA"]
-          new = os.environ["NEW_SHA"]
+          OLD = "6a0d91cc80511a174a47b95c6c203f8d93ba86ca"
+          NEW = "f3c9357098947882882ca3010b46a565c2d90460"
           expected = {
               ".github/workflows/produce-resilient-v4.yml": 3,
-              ".github/workflows/telegram-editorial-control.yml": 1,
               ".github/workflows/telegram-production-request.yml": 1,
-              ".github/workflows/verify-human-editorial-intent-m7.yml": 1,
-              ".github/workflows/verify-m11-live-integration.yml": 1,
-              "scripts/preproduction_contract.py": 1,
-              "scripts/test_editorial_stage9_integration.py": 1,
-              "scripts/test_telegram_editorial_control_workflow.py": 1,
-              "scripts/test_telegram_production_workflow.py": 1,
           }
-
-          base_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-          base_tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip()
-
-          def api(path, method="GET", payload=None):
-              url = f"https://api.github.com/repos/{repo}{path}"
-              data = None if payload is None else json.dumps(payload).encode("utf-8")
-              req = urllib.request.Request(
-                  url,
-                  data=data,
-                  method=method,
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                      "Content-Type": "application/json",
-                  },
-              )
-              with urllib.request.urlopen(req, timeout=30) as response:
-                  body = response.read().decode("utf-8")
-                  return json.loads(body) if body else {}
-
-          tree_entries = []
           total = 0
           for name, wanted in expected.items():
-              text = Path(name).read_text(encoding="utf-8")
-              found = text.count(old)
+              path = Path(name)
+              text = path.read_text(encoding="utf-8")
+              found = text.count(OLD)
               if found != wanted:
                   raise SystemExit(f"{name}: expected {wanted} old Engine pins, found {found}")
-              updated = text.replace(old, new)
-              if old in updated or updated.count(new) < wanted:
-                  raise SystemExit(f"{name}: replacement verification failed")
               total += found
-              blob = api("/git/blobs", "POST", {"content": updated, "encoding": "utf-8"})
-              tree_entries.append({"path": name, "mode": "100644", "type": "blob", "sha": blob["sha"]})
-
-          if total != 11:
-              raise SystemExit(f"expected exactly 11 Engine pin replacements, observed {total}")
-
-          tree = api("/git/trees", "POST", {"base_tree": base_tree, "tree": tree_entries})
-          commit = api("/git/commits", "POST", {
-              "message": "chore: pin post-Planning merged Engine",
-              "tree": tree["sha"],
-              "parents": [base_commit],
-          })
-          print(f"BASE_COMMIT_SHA={base_commit}")
-          print(f"PREPARED_COMMIT_SHA={commit['sha']}")
-          print(f"Engine pin object PASS: {total} exact references -> {new}")
+              path.write_text(text.replace(OLD, NEW), encoding="utf-8")
+          if total != 4:
+              raise SystemExit(f"expected exactly 4 remaining Engine pin replacements, observed {total}")
+          for name, wanted in expected.items():
+              text = Path(name).read_text(encoding="utf-8")
+              if OLD in text or text.count(NEW) < wanted:
+                  raise SystemExit(f"{name}: post-replacement pin verification failed")
+          print(f"Remaining Engine pin replacement PASS: {total} exact references -> {NEW}")
           PY
+
+      - name: Commit exact workflow pin closure
+        run: |
+          set -euo pipefail
+          git config user.name "isco-pin-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            .github/workflows/produce-resilient-v4.yml \
+            .github/workflows/telegram-production-request.yml
+          git diff --cached --check
+          git diff --cached --quiet && { echo "No workflow pin delta" >&2; exit 1; }
+          git commit -m "chore: finish post-Planning Engine workflow pins"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
