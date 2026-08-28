@@ -105,7 +105,15 @@ class VoiceMeshLocalTests(unittest.TestCase):
         original_cloud = getattr(voice_mesh.orchestrator, "synthesize_wav", None)
         original_local = getattr(voice_mesh.orchestrator, "synthesize_local_wav", None)
         try:
-            voice_mesh.install_voice_mesh()
+            # This legacy unit verifies only the installer's name wiring. Production
+            # retry ownership has its own dedicated contract tests and startup check;
+            # do not make this isolated unit depend on suite-global orchestrator state.
+            with patch(
+                "scripts.provider_retry_ownership.certify_provider_retry_ownership",
+                return_value={"status": "pass", "provider_calls_executed": 0},
+            ) as certify:
+                voice_mesh.install_voice_mesh()
+            certify.assert_called_once_with()
             self.assertIs(voice_mesh.orchestrator.synthesize_wav, voice_mesh.synthesize)
             self.assertIs(voice_mesh.orchestrator.synthesize_local_wav, voice_mesh.synthesize_local_wav)
         finally:
