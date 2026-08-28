@@ -68,6 +68,7 @@ def _persist_snapshot_env(path: Path) -> None:
 
 def materialize_runtime_snapshot(repo_root: Path, engine_root: Path) -> Path:
     """Create the run snapshot once during cross-run state restore."""
+    del repo_root
     if not checkpoint.canonical_runtime_enabled():
         raise RuntimeError("immutable planning snapshot is canonical-runtime only")
     source = engine_root.resolve() / "production" / "approved_brief.json"
@@ -106,9 +107,17 @@ def _snapshot_path() -> Path:
     return path
 
 
-def install_runtime_snapshot_binding() -> None:
+def install_runtime_snapshot_binding(*, force: bool = False) -> None:
+    """Use the immutable run snapshot as checkpoint identity in canonical production.
+
+    Unit/regression processes are intentionally left untouched unless force=True, so a
+    test that imports runtime_closure cannot leak snapshot requirements into unrelated
+    checkpoint tests running later in the same Python process.
+    """
     global _INSTALLED
     if _INSTALLED:
+        return
+    if not force and not checkpoint.canonical_runtime_enabled():
         return
 
     for relative in _ADDITIONAL_CONTRACT_FILES:
@@ -153,7 +162,7 @@ def bootstrap_immutable_planning_checkpoint(
         raise RuntimeError("STATE_ENCRYPTION_KEY is required for durable planning checkpoint bootstrap")
 
     materialize_runtime_snapshot(repo_root, engine_root)
-    install_runtime_snapshot_binding()
+    install_runtime_snapshot_binding(force=True)
     status = checkpoint.bootstrap_runtime_restore(
         repo_root=repo_root,
         engine_root=engine_root,
