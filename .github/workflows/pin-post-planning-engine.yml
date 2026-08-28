@@ -54,21 +54,22 @@ jobs:
             .github/workflows/produce-resilient-v4.yml \
             .github/workflows/telegram-production-request.yml
 
-      - name: Stage exact patched workflows for export
+      - name: Stage visible exact patched workflows for export
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/post-planning-pin-export/.github/workflows"
-          cp .github/workflows/produce-resilient-v4.yml "$RUNNER_TEMP/post-planning-pin-export/.github/workflows/produce-resilient-v4.yml"
-          cp .github/workflows/telegram-production-request.yml "$RUNNER_TEMP/post-planning-pin-export/.github/workflows/telegram-production-request.yml"
+          export_dir="$RUNNER_TEMP/post-planning-pin-export"
+          mkdir -p "$export_dir"
+          cp .github/workflows/produce-resilient-v4.yml "$export_dir/produce-resilient-v4.yml"
+          cp .github/workflows/telegram-production-request.yml "$export_dir/telegram-production-request.yml"
           sha256sum \
-            "$RUNNER_TEMP/post-planning-pin-export/.github/workflows/produce-resilient-v4.yml" \
-            "$RUNNER_TEMP/post-planning-pin-export/.github/workflows/telegram-production-request.yml" \
-            > "$RUNNER_TEMP/post-planning-pin-export/SHA256SUMS"
+            "$export_dir/produce-resilient-v4.yml" \
+            "$export_dir/telegram-production-request.yml" \
+            > "$export_dir/SHA256SUMS"
 
       - name: Upload exact patched workflow export
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: post-planning-engine-pin-export
+          name: post-planning-engine-pin-export-visible
           path: ${{ runner.temp }}/post-planning-pin-export
           if-no-files-found: error
           retention-days: 1
