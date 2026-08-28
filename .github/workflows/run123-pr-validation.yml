@@ -51,11 +51,12 @@ jobs:
             scripts.test_packaging_artifact_delivery_p0e -v
 
       - name: Full pinned Engine regression
+        working-directory: engine
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python -m unittest discover -s engine/tests -p 'test_*.py' -q
+          python -m unittest discover -s tests -p 'test_*.py' -q
 
       - name: Full Runner regression
         env:
