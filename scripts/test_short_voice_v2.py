@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import inspect
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from scripts import run_control_production, short_voice_v2
 from scripts.short_voice_v2 import _voice_script, apply_short_voice_v2, decide_voice_mode
@@ -31,14 +34,49 @@ class ShortVoiceV2Tests(unittest.TestCase):
         self.assertTrue(hybrid.startswith("الخطوة الأولى"))
         self.assertIn("ابدأ بحركة صغيرة", hybrid)
 
-    def test_source_derived_short_is_not_revoiced_by_standalone_v2(self):
+    def _assert_scope_is_voiced(self, scope: str) -> dict:
+        pre = {
+            "short_template": "micro_story",
+            "timed_text_events": [
+                {"text": "المشهد يبدأ هنا"},
+                {"text": "ثم يتغير المعنى"},
+            ],
+            "compensation": {},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "final.mp4").write_bytes(b"short")
+            with (
+                mock.patch.object(short_voice_v2, "secret", return_value="key"),
+                mock.patch.object(short_voice_v2, "env", side_effect=lambda _name, default=None: default),
+                mock.patch.object(short_voice_v2.orchestrator, "_synthesize_tts_section"),
+                mock.patch.object(short_voice_v2, "consume_voice_provenance", return_value={"provider": "piper", "fallback_used": True}),
+                mock.patch.object(short_voice_v2, "_final_duration", return_value=15.0),
+                mock.patch.object(short_voice_v2, "_fit_voice_to_video", return_value=root / "voice.wav"),
+                mock.patch.object(short_voice_v2, "_mix_voice"),
+                mock.patch.object(short_voice_v2.shutil, "move"),
+                mock.patch.object(short_voice_v2, "_refresh_quality_final", return_value={"quality_measurement_stage": "post_short_voice_pre_gold"}),
+                mock.patch.object(short_voice_v2, "_record_voice_rights"),
+            ):
+                result = apply_short_voice_v2(root, {"approval_scope": scope}, pre, ledger=object())
+        self.assertTrue(result["compensation"]["voice_generated"])
+        self.assertEqual(result["compensation"]["voice_scope"], scope)
+        self.assertEqual(result["voice"]["scope"], scope)
+        return result
+
+    def test_standalone_short_is_voiced(self):
+        result = self._assert_scope_is_voiced("short_only")
+        self.assertFalse(result["voice"]["source_derived_from_long"])
+
+    def test_source_derived_short_is_voiced_from_inherited_template(self):
+        result = self._assert_scope_is_voiced("short_sibling")
+        self.assertTrue(result["voice"]["source_derived_from_long"])
+        self.assertEqual(result["voice"]["template"], "micro_story")
+        self.assertEqual(result["voice"]["mode"], "voice_led")
+
+    def test_non_short_scope_is_not_voiced(self):
         pre = {"short_template": "micro_story", "timed_text_events": [{"text": "أ"}, {"text": "ب"}]}
-        result = apply_short_voice_v2(
-            ".",
-            {"approval_scope": "short_sibling"},
-            pre,
-            ledger=object(),
-        )
+        result = apply_short_voice_v2(".", {"approval_scope": "long_only"}, pre, ledger=object())
         self.assertIs(result, pre)
 
     def test_voice_mutation_refreshes_quality_and_rights_before_return(self):
