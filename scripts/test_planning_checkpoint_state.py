@@ -242,18 +242,72 @@ class DurablePlanningCheckpointTests(unittest.TestCase):
             self.assertFalse(restored.resume_allowed)
             self.assertIn("complete", restored.reason)
 
-    def test_planning_contract_hash_changes_when_contract_file_changes(self) -> None:
+    def test_planning_contract_follows_transitive_local_imports_and_hashes_leaf_changes(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            for relative in state.PLANNING_CONTRACT_FILES:
-                path = root / relative
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(f"{relative}\n", encoding="utf-8")
+            scripts = root / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "run_v3_voice.py").write_text(
+                "from scripts import layer_a\n",
+                encoding="utf-8",
+            )
+            (scripts / "layer_a.py").write_text(
+                "from .layer_b import install\n",
+                encoding="utf-8",
+            )
+            (scripts / "layer_b.py").write_text(
+                "def install():\n    return 'v1'\n",
+                encoding="utf-8",
+            )
+
+            files = state.planning_contract_files(root)
+            self.assertEqual(
+                files,
+                (
+                    "scripts/layer_a.py",
+                    "scripts/layer_b.py",
+                    "scripts/run_v3_voice.py",
+                ),
+            )
             first = state.planning_contract_sha256(root)
-            target = root / state.PLANNING_CONTRACT_FILES[0]
-            target.write_text(target.read_text(encoding="utf-8") + "# changed\n", encoding="utf-8")
+            target = scripts / "layer_b.py"
+            target.write_text("def install():\n    return 'v2'\n", encoding="utf-8")
             second = state.planning_contract_sha256(root)
             self.assertNotEqual(first, second)
+
+    def test_dynamic_function_import_enters_contract_without_manual_registration(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scripts = root / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "run_v3_voice.py").write_text(
+                "from scripts.bridge import install\n",
+                encoding="utf-8",
+            )
+            (scripts / "bridge.py").write_text(
+                "def install():\n    from .future_run127 import activate\n    return activate()\n",
+                encoding="utf-8",
+            )
+            (scripts / "future_run127.py").write_text(
+                "def activate():\n    return True\n",
+                encoding="utf-8",
+            )
+            files = set(state.planning_contract_files(root))
+            self.assertIn("scripts/future_run127.py", files)
+
+    def test_current_live_closure_includes_run122_through_run125_layers(self) -> None:
+        files = set(state.planning_contract_files(Path.cwd()))
+        required = {
+            "scripts/run_v3_voice.py",
+            "scripts/runtime_closure.py",
+            "scripts/run120_schema_policy_bridge.py",
+            "scripts/run122_effective_capacity_admission.py",
+            "scripts/run123_planning_latency_hardening.py",
+            "scripts/run124_terminal_provider_recovery.py",
+            "scripts/run125_capacity_routing_closure.py",
+            "scripts/run125_cache_prefix_contract.py",
+        }
+        self.assertFalse(required - files, f"live planning/runtime contract missing: {sorted(required - files)}")
 
     def test_ciphertext_tamper_blocks_resume_and_future_persist(self) -> None:
         with tempfile.TemporaryDirectory() as td:
