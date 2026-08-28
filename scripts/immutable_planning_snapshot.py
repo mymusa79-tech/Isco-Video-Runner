@@ -6,7 +6,10 @@ import os
 import shutil
 from pathlib import Path
 
-from scripts import planning_checkpoint_state as checkpoint
+try:
+    from scripts import planning_checkpoint_state as checkpoint
+except ModuleNotFoundError:  # direct python scripts/persistent_memory.py compatibility
+    import planning_checkpoint_state as checkpoint
 
 _SNAPSHOT_ENV = "ISCO_APPROVED_BRIEF_SNAPSHOT_PATH"
 _PIN_ENV = "ISCO_APPROVED_BRIEF_SHA256"
