@@ -387,9 +387,9 @@ def certified_non_planning_contracts() -> tuple[StageContract, ...]:
             reserve_class="compute",
             side_effect_policy="idempotent",
             evidence_schema="TTSEvidenceV1",
-            adapter_id="legacy-tts-binding",
-            source_path="scripts/run_v3_voice.py",
-            source_sha="4fdbb64697f75c96acfea4b40c226056a8210524",
+            adapter_id="tts-runtime-port-v1",
+            source_path="scripts/orchestration_tts_port.py",
+            source_sha="64d6d31bb350e23e26f51a1678727d93ce1d918f",
         ),
         _contract(
             stage_id="media",
