@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -34,6 +35,20 @@ class MediaDurableCacheContractTests(unittest.TestCase):
             "ISCO_ENGINE_SHA": "b" * 40,
             "GEMINI_CONTENT_MODEL": "gemini-3.7-flash",
         }
+
+    def test_tts_semantic_bytes_remain_identical_to_final_tts_layer(self) -> None:
+        path = Path("scripts/tts_durable_cache_semantics.py")
+        payload = path.read_bytes()
+        git_blob_sha1 = hashlib.sha1(
+            f"blob {len(payload)}\0".encode("ascii") + payload
+        ).hexdigest()
+        self.assertEqual(git_blob_sha1, "518ce3cdd0a86399de24674ad458a8d6c84f9c12")
+
+        facade = Path("scripts/tts_durable_cache.py").read_text(encoding="utf-8")
+        self.assertIn("tts_durable_cache_semantics", facade)
+        self.assertIn("durable_stage_cache", facade)
+        self.assertNotIn("media_durable_cache", facade)
+        self.assertNotIn("media_search_durable_cache", facade)
 
     def test_media_namespace_derives_from_shared_durable_stage_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
