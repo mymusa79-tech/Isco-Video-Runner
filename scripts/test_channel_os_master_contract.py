@@ -226,13 +226,12 @@ class MasterApprovalContractTests(unittest.TestCase):
             self.assertFalse(channel_os_youtube_upload_allowed(p))
             self.assertFalse(channel_os_youtube_publish_allowed(p))
 
-    # 15 — Gate preservation / additive-only protected files
-    def test_15_protected_production_contract_files_match_approved_main_blobs(self):
+    # 15 — L6 transport ownership + unchanged non-Telegram protected contracts
+    def test_15_l6_owns_telegram_transport_and_channel_os_stays_projection_only(self):
         expected = {
             "scripts/retry_after_policy.py": "483281935a0907a9f74c571949bc7f122bed2f46",
             "scripts/provider_retry_ownership.py": "ed5b2826105f852eaf3c4f5f2e113d075905498e",
             "scripts/planning_checkpoint_state.py": "1a73a39336fc736f3d5a3006693494d5dc21b56a",
-            "scripts/telegram_publish_gate.py": "06fbc9c63918d13f8ff28e9a012e56bdd87ab679",
         }
         for name, sha in expected.items():
             data = Path(name).read_bytes()
@@ -240,6 +239,22 @@ class MasterApprovalContractTests(unittest.TestCase):
                 f"blob {len(data)}\0".encode() + data
             ).hexdigest()
             self.assertEqual(actual, sha, name)
+
+        gate = Path("scripts/telegram_publish_gate.py").read_text(encoding="utf-8")
+        webhook = Path("scripts/telegram_webhook_replay.py").read_text(encoding="utf-8")
+        outbox = Path("scripts/orchestration_telegram_ingress_outbox.py").read_text(encoding="utf-8")
+        adapter = Path("scripts/channel_os_telegram_adapter.py").read_text(encoding="utf-8")
+        self.assertNotIn("getUpdates", gate)
+        self.assertIn("record_webhook_approval", webhook)
+        self.assertIn("OutboxLedger", outbox)
+        for forbidden in (
+            "getUpdates",
+            "TELEGRAM_BOT_TOKEN",
+            "telegram_outbox_runtime",
+            "enqueue_request",
+            "sendMessage",
+        ):
+            self.assertNotIn(forbidden, adapter)
 
     # 16 — Integrated Gate scenario
     def test_16_integrated_scenario(self):
