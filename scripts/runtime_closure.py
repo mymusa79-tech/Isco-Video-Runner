@@ -22,6 +22,7 @@ from scripts.narrative_music_dynamics import install_narrative_music_dynamics
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
 from scripts.planning_runtime_contract import install_runtime_planning_contracts
 from scripts.provider_capacity_v2 import install_provider_capacity_v2
+from scripts.render_durable_cache import install_render_durable_cache
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
@@ -106,11 +107,13 @@ def install_runtime_closure() -> None:
     # of leaving a tested-but-bypassed static wrapper. Pexels metadata remains last in
     # the media group so both providers can resume search work without changing provider
     # order, AI budgets, or retry ownership.
-    # Audio Semantic Integrity is deliberately installed before Audio Mastering/SFX
-    # wrappers: at runtime its inner scope sees and wraps those already-active live
-    # transforms, binding the exact approved transcript/audio chain without replacing
-    # them. The final enforcing check is attached to Final Master QC only after every
-    # runtime wrapper has been installed.
+    # Render durability is deliberately installed only after the live M9/M10/CTA produce
+    # wrappers have been registered, but immediately before Narrative Music Dynamics
+    # wraps the global mux. It patches only M9's expensive xfade-pair renderer,
+    # orchestrator.burn_srt, and the underlying Engine mux. Consequently every SFX/M10/
+    # CTA/Narrative wrapper still executes on a durable final hit and writes fresh reports.
+    # Audio Semantic Integrity was registered earlier and remains the outer runtime mux
+    # authority; current Engine QC probes every restored final before it stays durable.
     # Canonical bundle is bound on every live run_v3_voice module before the release
     # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
@@ -127,6 +130,7 @@ def install_runtime_closure() -> None:
     install_m9_live_binding()
     install_m10_live_binding()
     install_cta_live_binding()
+    install_render_durable_cache()
     install_narrative_music_dynamics()
     install_canonical_v4_bundle_post_manifest()
     install_release_transaction_guard()

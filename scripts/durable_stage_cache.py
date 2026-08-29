@@ -18,9 +18,9 @@ def _remove_path(path: Path) -> None:
 def prepare_cache_for_persistence(root: Path) -> bool:
     """Sanitize each durable-stage namespace before the shared Actions cache is saved.
 
-    This module owns transport persistence only. TTS and Media keep independent semantic
-    fingerprints/validators; adding a new stage must never alter an older stage's cache
-    identity merely because they share the same GitHub Actions cache directory.
+    This module owns transport persistence only. TTS, Media, and Render keep independent
+    semantic fingerprints/validators; adding a new stage must never alter an older
+    stage's cache identity merely because they share one GitHub Actions cache directory.
     """
     root = Path(root)
     if root.is_symlink():
@@ -74,12 +74,27 @@ def prepare_cache_for_persistence(root: Path) -> bool:
                 _remove_path(media_root / "search")
                 print(f"Media search namespace sanitization rejected ({type(exc).__name__})")
 
-    allowed = tts_valid or media_shot_valid or media_prepared_live_valid or media_search_valid
+    render_valid = False
+    try:
+        from scripts.render_durable_cache import prepare_cache_for_persistence as prepare_render
+
+        render_valid = bool(prepare_render(root))
+    except Exception as exc:
+        _remove_path(root / "render")
+        print(f"Render durable namespace sanitization rejected ({type(exc).__name__})")
+
+    allowed = (
+        tts_valid
+        or media_shot_valid
+        or media_prepared_live_valid
+        or media_search_valid
+        or render_valid
+    )
     print(
         "Durable stage cache sanitized: "
         f"tts={tts_valid} media_shot={media_shot_valid} "
         f"media_prepared_live={media_prepared_live_valid} media_search={media_search_valid} "
-        f"save_allowed={allowed}"
+        f"render={render_valid} save_allowed={allowed}"
     )
     return allowed
 
