@@ -15,6 +15,7 @@ from scripts.final_master_qc import run_final_master_qc
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.m7_live_binding import install_m7_live_binding
 from scripts.opening_feasibility_guard import install_opening_feasibility_guard
+from scripts.orchestration_tts_port import install_tts_runtime_port
 from scripts.planning_runtime_contract import (
     install_entrypoint_planning_contracts,
     install_post_runtime_planning_contracts,
@@ -24,9 +25,6 @@ from scripts.production_model_contract import install_production_model_contract
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
 from scripts.task_level_planner_router import get_used_providers, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
-from scripts.tts_durable_cache import install_tts_durable_cache
-from scripts.voice_identity_observer import install_voice_identity_observer
-from scripts.voice_mesh import install_voice_mesh
 
 # Production-proof trigger only: no runtime behavior change.
 # Run36 trigger only: no runtime behavior change.
@@ -210,12 +208,10 @@ def main() -> None:
     install_runtime_closure()
     install_post_runtime_planning_contracts()
 
-    install_voice_mesh()
-    # TTS durability wraps the Engine's common section boundary after Voice Mesh has
-    # installed cloud/local synthesis and acoustic QA, but before Voice Identity wraps
-    # the same boundary. Cache hits therefore still receive Voice QA and identity audit.
-    install_tts_durable_cache()
-    install_voice_identity_observer()
+    # L7.1 stable port owns only the installation topology. Provider choice, retries,
+    # durable cache semantics, Voice QA, and observe-only identity behavior remain in
+    # their existing certified implementation owners and retain the historical order.
+    install_tts_runtime_port()
     install_m7_live_binding()
     # Run #93: install_m7_live_binding() installs Security V1 (its length-validating
     # stock-search wrapper) as a side effect. The opening feasibility guard must wrap
