@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import subprocess
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Sequence
@@ -15,6 +16,9 @@ METADATA_TIMEOUT_SECONDS = 120
 UPLOAD_TIMEOUT_SECONDS = 1800
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+RECEIPT_NAME = "release-receipt.json"
+RECEIPT_SCHEMA_VERSION = 1
+_MEDIA_SUFFIXES = frozenset({".mp4", ".mov", ".m4v", ".webm"})
 
 
 @dataclass(frozen=True)
@@ -44,11 +48,15 @@ def _run(
     )
 
 
-def _write_journal(path: Path, state: ReleaseState) -> None:
+def _atomic_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps({"schema_version": 2, **asdict(state)}, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def _write_journal(path: Path, state: ReleaseState) -> None:
+    _atomic_json(path, {"schema_version": 2, **asdict(state)})
 
 
 def _unique_assets(assets: list[Path]) -> None:
@@ -73,6 +81,27 @@ def _expected_assets(assets: list[Path]) -> dict[str, dict[str, object]]:
         item.name: {"size": item.stat().st_size, "digest": _sha256(item)}
         for item in assets
     }
+
+
+def _write_release_receipt(
+    path: Path,
+    *,
+    tag: str,
+    target_sha: str,
+    payload_assets: dict[str, dict[str, object]],
+) -> Path:
+    if RECEIPT_NAME in payload_assets:
+        raise RuntimeError("release payload must not contain the reserved receipt basename")
+    _atomic_json(
+        path,
+        {
+            "schema_version": RECEIPT_SCHEMA_VERSION,
+            "tag": tag,
+            "target_sha": target_sha,
+            "assets": payload_assets,
+        },
+    )
+    return path
 
 
 def _assert_release_identity(payload: dict, *, tag: str, target_sha: str) -> None:
@@ -157,6 +186,89 @@ def _view_if_exists(tag: str, repository: str, *, run: Run) -> dict | None:
     raise RuntimeError("could not prove GitHub Release absence during reconciliation")
 
 
+def _receipt_asset_map(value: object, *, tag: str, target_sha: str) -> dict[str, dict[str, object]]:
+    if not isinstance(value, dict):
+        raise RuntimeError("published Release receipt asset map is malformed")
+    normalized: dict[str, dict[str, object]] = {}
+    for name, identity in value.items():
+        if not isinstance(name, str) or not name or name == RECEIPT_NAME or not isinstance(identity, dict):
+            raise RuntimeError("published Release receipt contains invalid asset identity")
+        size = identity.get("size")
+        digest = str(identity.get("digest") or "").strip().lower()
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0 or not SHA256_DIGEST_RE.fullmatch(digest):
+            raise RuntimeError("published Release receipt contains malformed asset size or digest")
+        normalized[name] = {"size": size, "digest": digest}
+    if not normalized:
+        raise RuntimeError("published Release receipt contains no payload assets")
+    return normalized
+
+
+def _download_and_verify_receipt(
+    payload: dict,
+    *,
+    tag: str,
+    repository: str,
+    target_sha: str,
+    run: Run,
+) -> dict[str, dict[str, object]]:
+    remote = _remote_assets(payload, tag=tag, target_sha=target_sha)
+    receipt_identity = remote.get(RECEIPT_NAME)
+    if not isinstance(receipt_identity, dict):
+        raise RuntimeError("published GitHub Release is missing durable reconciliation receipt")
+
+    with tempfile.TemporaryDirectory(prefix="isco-release-receipt-") as tmp:
+        result = _run(
+            [
+                "gh", "release", "download", tag, "--repo", repository,
+                "--pattern", RECEIPT_NAME, "--dir", tmp,
+            ],
+            run=run,
+        )
+        if result.returncode != 0:
+            raise RuntimeError("could not download published Release reconciliation receipt")
+        receipt_path = Path(tmp) / RECEIPT_NAME
+        if not receipt_path.is_file() or receipt_path.is_symlink():
+            raise RuntimeError("published Release reconciliation receipt was not downloaded safely")
+        if receipt_path.stat().st_size != receipt_identity.get("size") or _sha256(receipt_path) != receipt_identity.get("digest"):
+            raise RuntimeError("published Release reconciliation receipt bytes do not match GitHub digest evidence")
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("published Release reconciliation receipt is malformed JSON") from exc
+
+    if not isinstance(receipt, dict):
+        raise RuntimeError("published Release reconciliation receipt must be an object")
+    if receipt.get("schema_version") != RECEIPT_SCHEMA_VERSION:
+        raise RuntimeError("published Release reconciliation receipt schema is unsupported")
+    if receipt.get("tag") != tag or str(receipt.get("target_sha") or "").strip().lower() != target_sha:
+        raise RuntimeError("published Release reconciliation receipt identity does not match current transaction")
+    receipt_assets = _receipt_asset_map(receipt.get("assets"), tag=tag, target_sha=target_sha)
+    remote_payload = {name: identity for name, identity in remote.items() if name != RECEIPT_NAME}
+    if remote_payload != receipt_assets:
+        raise RuntimeError("published Release assets drifted from their durable reconciliation receipt")
+    return receipt_assets
+
+
+def _assert_current_media_matches_receipt(
+    assets: list[Path],
+    receipt_assets: dict[str, dict[str, object]],
+) -> None:
+    """Prevent downstream state from binding to a different video than the published one.
+
+    JSON telemetry may legitimately change across GitHub run attempts (timestamps,
+    attempt number, observer timing), so it is not a safe retry identity. Final/sibling
+    video bytes are the semantic publication identity and must remain exact.
+    """
+    media = [path for path in assets if path.suffix.lower() in _MEDIA_SUFFIXES]
+    if not media:
+        raise RuntimeError("release reconciliation has no local video asset to bind")
+    for path in media:
+        expected = receipt_assets.get(path.name)
+        current = {"size": path.stat().st_size, "digest": _sha256(path)}
+        if expected != current:
+            raise RuntimeError("current reviewed video bytes do not match the already-published Release receipt")
+
+
 def _delete_draft_best_effort(tag: str, repository: str, *, run: Run) -> None:
     try:
         payload = _view(tag, repository, run=run)
@@ -208,8 +320,20 @@ def publish_release_transaction(
     target_sha = target_sha.strip().lower()
     if not SHA1_RE.fullmatch(target_sha):
         raise RuntimeError("release target_sha must be an exact 40-character commit SHA")
+    assets = [Path(item) for item in assets]
     _unique_assets(assets)
-    expected = _expected_assets(assets)
+    if any(item.name == RECEIPT_NAME for item in assets):
+        raise RuntimeError("release assets contain reserved durable receipt basename")
+
+    payload_expected = _expected_assets(assets)
+    receipt_path = _write_release_receipt(
+        Path(journal).with_name(RECEIPT_NAME),
+        tag=tag,
+        target_sha=target_sha,
+        payload_assets=payload_expected,
+    )
+    transaction_assets = [*assets, receipt_path]
+    expected = _expected_assets(transaction_assets)
     expected_digests = {name: str(identity["digest"]) for name, identity in expected.items()}
 
     def record(state: str, *, verified: int = 0, detail: str = "") -> None:
@@ -218,7 +342,7 @@ def publish_release_transaction(
             ReleaseState(
                 state=state,
                 tag=tag,
-                assets_expected=len(assets),
+                assets_expected=len(transaction_assets),
                 assets_verified=verified,
                 target_sha=target_sha,
                 asset_digests=expected_digests,
@@ -229,11 +353,12 @@ def publish_release_transaction(
     record("validated")
 
     # Re-runs must be idempotent after the release boundary. A published Release is
-    # accepted only when it is already the exact reviewed transaction: same tag, exact
-    # Runner SHA, and the exact complete asset size+SHA256 map. Any drift is immutable
-    # conflict evidence and must never be overwritten. A same-SHA draft is non-public
-    # partial state, so remove it (including its Git tag) and rebuild from local reviewed
-    # assets rather than incrementally mutating an unknown partial upload.
+    # accepted only when it carries a self-verifying receipt bound to this exact Runner
+    # SHA and its current remote asset set exactly matches that receipt. Current video
+    # bytes must also match, while retry-variant telemetry metadata may differ safely.
+    # Any conflict is immutable evidence and is never overwritten. A same-SHA draft is
+    # non-public partial state, so remove it (including its Git tag) and rebuild from
+    # current reviewed local assets rather than incrementally mutating a partial upload.
     try:
         existing = _view_if_exists(tag, repository, run=run)
     except Exception as exc:
@@ -248,16 +373,22 @@ def publish_release_transaction(
         is_draft = existing.get("isDraft")
         if is_draft is False:
             try:
-                verified = _assert_remote_matches(
+                receipt_assets = _download_and_verify_receipt(
                     existing,
                     tag=tag,
+                    repository=repository,
                     target_sha=target_sha,
-                    expected=expected,
+                    run=run,
                 )
+                _assert_current_media_matches_receipt(assets, receipt_assets)
             except Exception as exc:
                 record("existing_published_conflict", detail=type(exc).__name__)
                 raise
-            record("complete", verified=verified, detail="reconciled_existing_published")
+            record(
+                "complete",
+                verified=len(receipt_assets) + 1,
+                detail="reconciled_existing_published_receipt",
+            )
             return
         if is_draft is not True:
             record("existing_release_conflict", detail="invalid_draft_state")
@@ -296,7 +427,7 @@ def publish_release_transaction(
     published = False
     try:
         upload = _run(
-            ["gh", "release", "upload", tag, *[str(item) for item in assets], "--repo", repository],
+            ["gh", "release", "upload", tag, *[str(item) for item in transaction_assets], "--repo", repository],
             run=run,
             timeout=UPLOAD_TIMEOUT_SECONDS,
         )
