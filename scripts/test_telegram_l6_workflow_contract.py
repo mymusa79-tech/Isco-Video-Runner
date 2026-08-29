@@ -17,9 +17,21 @@ def _text(path: Path) -> str:
 
 
 def _step(text: str, name: str, next_name: str) -> str:
-    start = text.index(f"- name: {name}")
-    end = text.index(f"- name: {next_name}", start)
-    return text[start:end]
+    lines = text.splitlines()
+    start_marker = f"- name: {name}"
+    end_marker = f"- name: {next_name}"
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == start_marker)
+        end = next(
+            i
+            for i, line in enumerate(lines[start + 1 :], start + 1)
+            if line.strip() == end_marker
+        )
+    except StopIteration as exc:
+        raise AssertionError(
+            f"workflow step boundary missing: {name!r} -> {next_name!r}"
+        ) from exc
+    return "\n".join(lines[start:end])
 
 
 class TelegramL6WorkflowContractTests(unittest.TestCase):
