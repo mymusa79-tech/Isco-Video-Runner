@@ -7,11 +7,11 @@ from pathlib import Path
 try:
     from scripts import persistent_memory_core as _core
     from scripts.immutable_planning_snapshot import bootstrap_immutable_planning_checkpoint
-    from scripts.planning_checkpoint_state import canonical_runtime_enabled
+    from scripts.runtime_phase import activate_canonical_runtime, canonical_workflow_identity
 except ModuleNotFoundError:  # direct `python scripts/persistent_memory.py`
     import persistent_memory_core as _core
     from immutable_planning_snapshot import bootstrap_immutable_planning_checkpoint
-    from planning_checkpoint_state import canonical_runtime_enabled
+    from runtime_phase import activate_canonical_runtime, canonical_workflow_identity
 
 
 for _name in dir(_core):
@@ -22,11 +22,16 @@ for _name in dir(_core):
 def main(argv: list[str] | None = None) -> int:
     args = _core.build_parser().parse_args(argv)
     result = int(args.func(args))
-    if result == 0 and args.command == "restore" and canonical_runtime_enabled():
+    if result == 0 and args.command == "restore" and canonical_workflow_identity():
         key = (os.environ.get("STATE_ENCRYPTION_KEY") or "").strip()
         if not key:
             raise RuntimeError("STATE_ENCRYPTION_KEY is required for durable planning checkpoint restore")
         repo_root = Path(args.repo).resolve()
+        # Run130 closure: workflow identity is only context. The application owns the
+        # exact transition from certified pre-production into live runtime. Activate
+        # here, after the pre-production suites have completed and immediately before
+        # the immutable production snapshot/durable checkpoint bootstrap.
+        activate_canonical_runtime()
         bootstrap_immutable_planning_checkpoint(
             repo_root=repo_root,
             engine_root=repo_root / "engine",

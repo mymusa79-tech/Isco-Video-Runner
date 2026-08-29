@@ -99,19 +99,29 @@ class RuntimeClosureTests(unittest.TestCase):
         self.assertLess(semantic_line,audio_line)
         self.assertLess(telemetry_line,final_line)
 
-    def test_bundle_activation_is_exact_workflow_or_explicit_opt_in(self) -> None:
+    def test_bundle_activation_requires_live_runtime_or_explicit_test_opt_in(self) -> None:
         with patch.dict(os.environ,{},clear=True):
             self.assertFalse(runtime_closure._canonical_v4_bundle_enabled())
         with patch.dict(os.environ,{"ISCO_CANONICAL_V4_BUNDLE_ENABLED":"1"},clear=True):
             self.assertTrue(runtime_closure._canonical_v4_bundle_enabled())
         with patch.dict(os.environ,{
+            "GITHUB_ACTIONS":"true",
             "GITHUB_EVENT_NAME":"workflow_dispatch",
             "GITHUB_WORKFLOW_REF":"mymusa79-tech/Isco-Video-Runner/.github/workflows/produce-resilient-v4.yml@refs/heads/main",
         },clear=True):
+            self.assertFalse(runtime_closure._canonical_v4_bundle_enabled())
+        with patch.dict(os.environ,{
+            "GITHUB_ACTIONS":"true",
+            "GITHUB_EVENT_NAME":"workflow_dispatch",
+            "GITHUB_WORKFLOW_REF":"mymusa79-tech/Isco-Video-Runner/.github/workflows/produce-resilient-v4.yml@refs/heads/main",
+            "ISCO_CANONICAL_RUNTIME":"1",
+        },clear=True):
             self.assertTrue(runtime_closure._canonical_v4_bundle_enabled())
         with patch.dict(os.environ,{
+            "GITHUB_ACTIONS":"true",
             "GITHUB_EVENT_NAME":"pull_request",
             "GITHUB_WORKFLOW_REF":"mymusa79-tech/Isco-Video-Runner/.github/workflows/verify-canonical-v4-bundle-temp.yml@refs/pull/241/merge",
+            "ISCO_CANONICAL_RUNTIME":"1",
         },clear=True):
             self.assertFalse(runtime_closure._canonical_v4_bundle_enabled())
 
