@@ -61,11 +61,10 @@ class DurablePlanningCheckpointTests(unittest.TestCase):
 
     @staticmethod
     def _router_key(model: str, prompt: str) -> str:
-        # Exact persisted key contract in task_level_planner_router.py.
         return hashlib.sha256((model + "\n" + prompt).encode("utf-8")).hexdigest()
 
     def test_run125_s7_of_8_failure_resumes_next_run_at_s7(self) -> None:
-        """Run125 shape: S1-S6 saved, S7 fails, next run's first provider work is S7."""
+        """S1-S6 survive a failed S7 and the next run starts provider work at S7."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             remote, run125_repo = self._remote_and_clone(root)
@@ -242,12 +241,18 @@ class DurablePlanningCheckpointTests(unittest.TestCase):
             self.assertFalse(restored.resume_allowed)
             self.assertIn("complete", restored.reason)
 
+    def test_default_contract_root_is_planning_runtime_seam(self) -> None:
+        self.assertEqual(
+            state.PLANNING_CONTRACT_ROOTS,
+            ("scripts/planning_runtime_contract.py",),
+        )
+
     def test_planning_contract_follows_transitive_local_imports_and_hashes_leaf_changes(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             scripts = root / "scripts"
             scripts.mkdir(parents=True)
-            (scripts / "run_v3_voice.py").write_text(
+            (scripts / "planning_runtime_contract.py").write_text(
                 "from scripts import layer_a\n",
                 encoding="utf-8",
             )
@@ -266,7 +271,7 @@ class DurablePlanningCheckpointTests(unittest.TestCase):
                 (
                     "scripts/layer_a.py",
                     "scripts/layer_b.py",
-                    "scripts/run_v3_voice.py",
+                    "scripts/planning_runtime_contract.py",
                 ),
             )
             first = state.planning_contract_sha256(root)
@@ -280,7 +285,7 @@ class DurablePlanningCheckpointTests(unittest.TestCase):
             root = Path(td)
             scripts = root / "scripts"
             scripts.mkdir(parents=True)
-            (scripts / "run_v3_voice.py").write_text(
+            (scripts / "planning_runtime_contract.py").write_text(
                 "from scripts.bridge import install\n",
                 encoding="utf-8",
             )
@@ -295,19 +300,69 @@ class DurablePlanningCheckpointTests(unittest.TestCase):
             files = set(state.planning_contract_files(root))
             self.assertIn("scripts/future_run127.py", files)
 
-    def test_current_live_closure_includes_run122_through_run125_layers(self) -> None:
+    def test_unrelated_entrypoint_change_does_not_invalidate_planning_hash(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scripts = root / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "planning_runtime_contract.py").write_text(
+                "from scripts.planning_leaf import install\n",
+                encoding="utf-8",
+            )
+            (scripts / "planning_leaf.py").write_text(
+                "def install():\n    return 'planning-v1'\n",
+                encoding="utf-8",
+            )
+            entrypoint = scripts / "run_v3_voice.py"
+            entrypoint.write_text("VOICE_VERSION = 'v1'\n", encoding="utf-8")
+
+            first = state.planning_contract_sha256(root)
+            entrypoint.write_text("VOICE_VERSION = 'v2'\n", encoding="utf-8")
+            second = state.planning_contract_sha256(root)
+
+            self.assertEqual(first, second)
+            self.assertNotIn("scripts/run_v3_voice.py", state.planning_contract_files(root))
+
+    def test_current_live_closure_is_planning_only_and_covers_every_installed_planning_owner(self) -> None:
         files = set(state.planning_contract_files(Path.cwd()))
         required = {
-            "scripts/run_v3_voice.py",
-            "scripts/runtime_closure.py",
+            "scripts/planning_runtime_contract.py",
+            "scripts/append_retry_guard.py",
+            "scripts/attempt10_append_bound_recovery.py",
+            "scripts/attempt9_schema_normalizer.py",
+            "scripts/bounded_output_recovery.py",
+            "scripts/brand_anchor_guard.py",
+            "scripts/dynamic_planning_capacity.py",
+            "scripts/gemini_planning_output_guard.py",
+            "scripts/planner_quality_guard.py",
+            "scripts/planner_schema_guard.py",
+            "scripts/planning_batch_hardening.py",
+            "scripts/product_proof_plan.py",
+            "scripts/provider_capacity_hardening.py",
+            "scripts/run120_dossier_repair_hardening.py",
             "scripts/run120_schema_policy_bridge.py",
-            "scripts/run122_effective_capacity_admission.py",
-            "scripts/run123_planning_latency_hardening.py",
+            "scripts/run123_budget_closure.py",
             "scripts/run124_terminal_provider_recovery.py",
             "scripts/run125_capacity_routing_closure.py",
             "scripts/run125_cache_prefix_contract.py",
+            "scripts/runtime_patch_contracts.py",
+            "scripts/schema_repair_policy.py",
+            "scripts/task_level_planner_router.py",
         }
-        self.assertFalse(required - files, f"live planning/runtime contract missing: {sorted(required - files)}")
+        excluded = {
+            "scripts/run_v3_voice.py",
+            "scripts/runtime_closure.py",
+            "scripts/voice_mesh.py",
+            "scripts/voice_identity_observer.py",
+            "scripts/media_trust_boundary_v2.py",
+            "scripts/audio_mastering_live_binding.py",
+            "scripts/final_master_qc.py",
+            "scripts/gold_enforce_phase4.py",
+            "scripts/m7_live_binding.py",
+            "scripts/telegram_progress.py",
+        }
+        self.assertFalse(required - files, f"planning contract missing: {sorted(required - files)}")
+        self.assertFalse(files & excluded, f"non-planning files leaked into contract: {sorted(files & excluded)}")
 
     def test_ciphertext_tamper_blocks_resume_and_future_persist(self) -> None:
         with tempfile.TemporaryDirectory() as td:
