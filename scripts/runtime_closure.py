@@ -10,7 +10,12 @@ from scripts.audio_semantic_integrity import (
     install_audio_semantic_integrity_binding,
 )
 from scripts.cta_live_binding import install_cta_live_binding
-from scripts.groq_audio_audit import run_groq_audio_audit
+from scripts.final_qc_observer_cache_trust import sanitize_final_observer_cache_before_runtime
+from scripts.final_qc_observer_durability import (
+    install_final_qc_observer_durability,
+    run_groq_audio_audit_durable,
+)
+from scripts.groq_audio_audit import DEFAULT_AUDIO_MODEL, run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
@@ -94,7 +99,7 @@ def install_runtime_closure() -> None:
 
     # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
     # Planning-affecting composition now has one canonical seam, including immutable
-    # approved-input rebinding. This call preserves the exact historical installer order
+    # approved-input rebinding. This call preserves the exact historical V4 ordering
     # while keeping media/audio/release code outside the durable planning contract hash.
     install_runtime_planning_contracts()
 
@@ -136,6 +141,14 @@ def install_runtime_closure() -> None:
     install_release_transaction_guard()
     install_telemetry_reliability_binding()
     install_audio_semantic_final_gate(production_entrypoint_modules())
+    # Final QC/Observer durability is optimization-only and is installed after all
+    # media/release authorities are already composed. Its restored cache parent is
+    # sanitized first so a symlinked Actions-cache namespace becomes a clean miss.
+    # It then patches only the imported run_v3_voice Final Master QC call and Voice
+    # Identity observe_output boundary. Groq uses an explicit durable wrapper below;
+    # analytics remains intentionally live.
+    sanitize_final_observer_cache_before_runtime()
+    install_final_qc_observer_durability()
     # Durable resume is deliberately outermost: every existing production/quality/safety
     # wrapper remains untouched and authoritative. This layer only persists the local
     # planner checkpoint after a failure, or writes a completion marker after success.
@@ -143,12 +156,20 @@ def install_runtime_closure() -> None:
         install_runtime_persistence_wrapper(orchestrator)
 
 
+def _run_groq_audio_audit_compat(output_dir: Path, *, api_key: str | None, model: str = DEFAULT_AUDIO_MODEL) -> dict:
+    """Preserve the historical default-model call shape for tests and diagnostics."""
+    if model == DEFAULT_AUDIO_MODEL:
+        return run_groq_audio_audit(Path(output_dir), api_key=api_key)
+    return run_groq_audio_audit(Path(output_dir), api_key=api_key, model=model)
+
+
 def run_post_gold_observers(output_dir: Path) -> dict:
     """Run G1/G2 only after Gold has accepted the final render."""
     try:
-        return run_groq_audio_audit(
+        return run_groq_audio_audit_durable(
             Path(output_dir),
             api_key=_groq_key(),
+            original=_run_groq_audio_audit_compat,
         )
     except Exception as exc:
         print(
