@@ -3,9 +3,10 @@ from __future__ import annotations
 """Canonical Runner-owned planning runtime seam.
 
 Every Runner patch that can change planning prompts, provider routing, planner output,
-repair semantics, or plan-level fallback must be activated through this module. Durable
-planning-state binding hashes the transitive import closure rooted here, so planning
-changes invalidate incompatible checkpoints while unrelated production changes do not.
+repair semantics, immutable approved-input binding, or plan-level fallback must be
+activated through this module. Durable planning-state binding hashes the transitive
+import closure rooted here, so planning changes invalidate incompatible checkpoints
+while unrelated production changes do not.
 
 Do not install planning-affecting patches directly from run_v3_voice.py or
 runtime_closure.py. Add them here in the correct lifecycle phase instead; doing so both
@@ -19,6 +20,7 @@ from scripts.bounded_output_recovery import install_bounded_output_recovery
 from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.dynamic_planning_capacity import install_dynamic_planning_capacity
 from scripts.gemini_planning_output_guard import install_gemini_planning_output_guard
+from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.planning_batch_hardening import install_planning_batch_hardening
@@ -31,6 +33,7 @@ from scripts.run124_terminal_provider_recovery import install_run124_terminal_pr
 from scripts.run125_cache_prefix_contract import install_run125_cache_prefix_contract
 from scripts.run125_capacity_routing_closure import install_run125_capacity_routing_closure
 from scripts.runtime_patch_contracts import certify_runtime_patch_contracts
+from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.task_level_planner_router import install_router
 
@@ -54,8 +57,12 @@ def install_entrypoint_planning_contracts() -> None:
 
 def install_runtime_planning_contracts() -> None:
     """Install the planning/recovery portion historically owned by runtime_closure."""
-    # This runs after immutable snapshot activation and before media/release wrappers,
-    # preserving the exact canonical runtime order while giving planning its own seam.
+    # Workflow bootstrap materializes the immutable brief snapshot in an earlier
+    # process. Rebind those verified bytes inside the live production process before
+    # any runtime planning patch can build durable checkpoint identity.
+    if canonical_runtime_enabled():
+        install_runtime_snapshot_binding()
+
     install_attempt10_append_bound_recovery()
     install_bounded_output_recovery()
     install_schema_repair_policy()
