@@ -14,6 +14,7 @@ from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
+from scripts.media_durable_asset_cache import install_media_durable_asset_cache
 from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
@@ -96,10 +97,10 @@ def install_runtime_closure() -> None:
 
     # Pixabay Provider Capacity V2 is search-result reuse only: it is installed before
     # Media Trust so cached normalized metadata can avoid duplicate API calls while
-    # exact media bytes are still freshly downloaded and inspected by Media Trust V2.
-    # It changes no provider order, retry budget, quality threshold, or rights gate.
-    # Media Trust V2 changes no AI/retry budget. It only binds exact stock bytes and
-    # local inspection before the reliability contract is frozen for produce().
+    # exact media bytes remain bound to Media Trust V2. Durable selected-media reuse is
+    # installed only after Media Trust, so a cache hit must reconstruct a valid trusted
+    # record and still passes the existing local Security/Vision review path. It never
+    # caches rejected review candidates or replaces candidate selection.
     # Audio Semantic Integrity is deliberately installed before Audio Mastering/SFX
     # wrappers: at runtime its inner scope sees and wraps those already-active live
     # transforms, binding the exact approved transcript/audio chain without replacing
@@ -110,6 +111,8 @@ def install_runtime_closure() -> None:
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
     install_provider_capacity_v2()
     install_media_trust_boundary_v2()
+    if str(os.environ.get("ISCO_MEDIA_CACHE_DIR") or "").strip():
+        install_media_durable_asset_cache()
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
