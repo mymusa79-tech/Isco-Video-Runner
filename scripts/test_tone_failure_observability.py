@@ -91,13 +91,13 @@ class ToneFailureObservabilityTests(unittest.TestCase):
             (out / "tone-quality-audit.json").write_text(json.dumps(tone), encoding="utf-8")
 
             installers = [
-                "install_schema_guard",
-                "install_router",
-                "install_planner_quality_guard",
-                "install_append_retry_guard",
-                "install_brand_anchor_guard",
-                "install_product_proof_fallback",
+                "install_entrypoint_planning_contracts",
+                "install_runtime_closure",
+                "install_post_runtime_planning_contracts",
                 "install_voice_mesh",
+                "install_voice_identity_observer",
+                "install_m7_live_binding",
+                "install_opening_feasibility_guard",
                 "start_progress",
                 "install_progress_hooks",
             ]
