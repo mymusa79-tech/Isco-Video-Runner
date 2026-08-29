@@ -49,10 +49,15 @@ class CanonicalV4FinalMasterQCDeliveryTests(unittest.TestCase):
         self.assertIn("test -n \"$FINAL_PLAN_PATH\"", block)
         self.assertIn("final_master_qc != root / 'final-master-qc.json'", block)
         self.assertIn("plan != root / 'plan.json'", block)
-        self.assertIn("for required in (video, quality, plan, critic, budget, manifest, final_master_qc):", block)
+        self.assertIn("capability_manifest = root / 'capability-manifest.json'", block)
+        self.assertIn(
+            "for required in (video, quality, plan, critic, budget, manifest, final_master_qc, capability_manifest):",
+            block,
+        )
         self.assertIn("qc.get('status') != 'pass'", block)
         self.assertIn('release_assets=("$FINAL_VIDEO_PATH" "$FINAL_QUALITY_PATH" "$FINAL_PLAN_PATH"', block)
         self.assertIn('"$FINAL_MASTER_QC_PATH"', block)
+        self.assertIn('"$FINAL_OUTPUT_ROOT/capability-manifest.json"', block)
 
     def test_telegram_notification_calls_are_bounded(self) -> None:
         start = self.text.index("- name: Notify Telegram")
