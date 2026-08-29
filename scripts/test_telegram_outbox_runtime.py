@@ -179,6 +179,27 @@ class TelegramOutboxRuntimeTests(unittest.TestCase):
             with self.assertRaises(TelegramControlContractError):
                 send_current(self.state, "release-approval-1")
 
+    def test_hydration_rejects_non_pending_snapshot_without_attempt(self) -> None:
+        with patch.dict(os.environ, self.env, clear=False):
+            enqueue(self.state, self.request)
+        state = json.loads(self.state.read_text(encoding="utf-8"))
+        message = state[STATE_KEY]["release-approval-1"]["message"]
+        message["status"] = "SENDING"
+        message["attempts"] = 0
+        self.state.write_text(json.dumps(state), encoding="utf-8")
+        with self.assertRaises(TelegramControlContractError):
+            begin_send(self.state, "release-approval-1")
+
+    def test_hydration_rejects_provider_message_id_before_sent(self) -> None:
+        with patch.dict(os.environ, self.env, clear=False):
+            enqueue(self.state, self.request)
+        state = json.loads(self.state.read_text(encoding="utf-8"))
+        message = state[STATE_KEY]["release-approval-1"]["message"]
+        message["telegram_message_id"] = "unexpected"
+        self.state.write_text(json.dumps(state), encoding="utf-8")
+        with self.assertRaises(TelegramControlContractError):
+            begin_send(self.state, "release-approval-1")
+
 
 if __name__ == "__main__":
     unittest.main()
