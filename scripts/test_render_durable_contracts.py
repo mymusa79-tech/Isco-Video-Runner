@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import isco_video_agent.orchestrator as orchestrator
-
 from scripts import durable_stage_cache
-from scripts import render_durable_cache as render
 
 
 class RenderDurableContractTests(unittest.TestCase):
@@ -37,73 +33,48 @@ class RenderDurableContractTests(unittest.TestCase):
             "be20ecdafbe667e04723172b684cbb76ab0fe808",
         )
 
-    def test_runtime_install_order_keeps_audio_integrity_outside_render_and_cinematic_scopes_inside(self) -> None:
+    def test_runtime_order_keeps_render_inside_cinematic_wrappers(self) -> None:
         source = Path("scripts/runtime_closure.py").read_text(encoding="utf-8")
         audio = source.index("    install_audio_semantic_integrity_binding()")
-        render_install = source.index("    install_render_durable_cache()")
         mastering = source.index("    install_audio_mastering_live_binding()")
         sfx = source.index("    install_sfx_live_binding()")
         m8 = source.index("    install_m8_live_binding()")
         m9 = source.index("    install_m9_live_binding()")
         m10 = source.index("    install_m10_live_binding()")
         cta = source.index("    install_cta_live_binding()")
-        self.assertLess(audio, render_install)
-        for later in (mastering, sfx, m8, m9, m10, cta):
-            self.assertLess(render_install, later)
+        render = source.index("    install_render_durable_cache()")
+        narrative = source.index("    install_narrative_music_dynamics()")
+        self.assertLess(audio, mastering)
+        self.assertLess(mastering, sfx)
+        self.assertLess(sfx, m8)
+        self.assertLess(m8, m9)
+        self.assertLess(m9, m10)
+        self.assertLess(m10, cta)
+        self.assertLess(cta, render)
+        self.assertLess(render, narrative)
 
-    def test_scope_wraps_current_live_seams_not_static_engine_functions(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, patch.dict(
-            os.environ,
-            {
-                "ISCO_TTS_CACHE_PATH": str(Path(tmp) / "stage-cache"),
-                "ISCO_APPROVED_BRIEF_SHA256": "a" * 64,
-                "ISCO_ENGINE_SHA": "b" * 40,
-            },
-            clear=False,
-        ):
-            old_concat = orchestrator.concat_video
-            old_burn = orchestrator.burn_srt
-            old_mux = orchestrator.mux
+    def test_render_never_replays_cinematic_reports_or_caches_copy_concat(self) -> None:
+        source = Path("scripts/render_durable_cache.py").read_text(encoding="utf-8")
+        self.assertIn("_wrap_m9_pair", source)
+        self.assertNotIn("def _wrap_concat", source)
+        self.assertNotIn("_FINAL_SIDECARS", source)
+        self.assertNotIn("m10-cards.json", source)
+        self.assertNotIn("cta-plan.json", source)
+        self.assertNotIn("narrative-music-dynamics.json", source)
+        self.assertIn("render_cache_install_order_must_precede_narrative_music_dynamics", source)
 
-            def active_concat(inputs, output):
-                return old_concat(inputs, output)
+    def test_render_binding_is_semantically_isolated_from_transport_code(self) -> None:
+        source = Path("scripts/render_durable_cache.py").read_text(encoding="utf-8")
+        self.assertNotIn("render_contract_sha256", source)
+        self.assertNotIn("_module_sha(sys.modules[__name__])", source)
+        self.assertIn('CACHE_NAMESPACE = "render-durable-v2"', source)
+        self.assertIn('"ffmpeg": ffmpeg', source)
+        self.assertIn('"font": font', source)
 
-            def active_burn(video, srt, output, *, portrait=False):
-                return old_burn(video, srt, output, portrait=portrait)
-
-            def active_mux(video, narration, output, music=None, **kwargs):
-                return old_mux(video, narration, output, music=music, **kwargs)
-
-            orchestrator.concat_video = active_concat
-            orchestrator.burn_srt = active_burn
-            orchestrator.mux = active_mux
-            try:
-                with render.render_durable_scope():
-                    self.assertIs(
-                        getattr(orchestrator.concat_video, "_isco_render_durable_original", None),
-                        active_concat,
-                    )
-                    self.assertIs(
-                        getattr(orchestrator.burn_srt, "_isco_render_durable_original", None),
-                        active_burn,
-                    )
-                    self.assertIs(
-                        getattr(orchestrator.mux, "_isco_render_durable_original", None),
-                        active_mux,
-                    )
-            finally:
-                orchestrator.concat_video = old_concat
-                orchestrator.burn_srt = old_burn
-                orchestrator.mux = old_mux
-
-    def test_shared_transport_can_save_render_without_requiring_tts_or_media_entries(self) -> None:
+    def test_shared_transport_can_save_render_without_tts_or_media_entries(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "stage-cache"
-            render_root = root / "render"
-            render_root.mkdir(parents=True, exist_ok=True)
-
-            # This test isolates transport ownership. The Render namespace validator is
-            # patched to represent a prevalidated Render entry; TTS/Media remain empty.
+            (root / "render").mkdir(parents=True, exist_ok=True)
             with patch(
                 "scripts.render_durable_cache.prepare_cache_for_persistence",
                 return_value=True,
