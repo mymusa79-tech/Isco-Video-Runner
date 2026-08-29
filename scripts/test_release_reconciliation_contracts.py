@@ -21,13 +21,23 @@ class ReleaseReconciliationContractTests(unittest.TestCase):
             "e38e88df66aa224c6968ff74730a59ad4c060343",
         )
 
-    def test_reconciliation_never_overwrites_a_published_release(self) -> None:
+    def test_published_reconciliation_is_receipt_bound_and_non_destructive(self) -> None:
         source = Path("scripts/release_transaction.py").read_text(encoding="utf-8")
-        self.assertIn("reconciled_existing_published", source)
+        self.assertIn('RECEIPT_NAME = "release-receipt.json"', source)
+        self.assertIn("_download_and_verify_receipt", source)
+        self.assertIn("published Release assets drifted from their durable reconciliation receipt", source)
+        self.assertIn("_assert_current_media_matches_receipt", source)
+        self.assertIn("reconciled_existing_published_receipt", source)
         self.assertIn("existing_published_conflict", source)
-        self.assertIn("remote != expected", source)
         self.assertNotIn("--clobber", source)
-        self.assertNotIn("release edit", source.replace('"gh", "release", "edit"', ""))
+
+    def test_new_release_still_verifies_exact_complete_remote_asset_map_before_publish(self) -> None:
+        source = Path("scripts/release_transaction.py").read_text(encoding="utf-8")
+        verify = source.index("verified = _assert_remote_matches(")
+        publish = source.index('["gh", "release", "edit", tag, "--repo", repository, "--draft=false"]')
+        self.assertLess(verify, publish)
+        self.assertIn("transaction_assets = [*assets, receipt_path]", source)
+        self.assertIn("remote != expected", source)
 
     def test_draft_rollback_cleans_the_git_tag(self) -> None:
         source = Path("scripts/release_transaction.py").read_text(encoding="utf-8")
