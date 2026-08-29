@@ -9,17 +9,26 @@ from scripts import provider_capacity_hardening as capacity
 
 # Run #124 proved that fast failover must not become fast failure. Run #125 then proved
 # the inverse risk: a bounded wait PER shard can still accumulate into minutes across a
-# long Writer/Doctor graph. Keep the edge-case recovery bounded by both a per-recovery
-# cap and a run-wide time budget. Run132 proved the previous 60-second run cap was too
-# small. Run133 then proved a separate hard recovery-count cap can still reject a
-# legitimate retry even when the cumulative wait remains inside the advertised 180s
-# ceiling. The public contract is now literal and evidence-driven: reported reset
-# evidence up to 60s remains recoverable, every actual recovery sleep is <=60s, each
-# terminal shard can be retried at most once, and total terminal wait per run is <=180s.
+# long Writer/Doctor graph. Run132 proved the previous 60-second run cap was too small.
+# Run133 proved a separate hard recovery-count cap could reject a legitimate retry even
+# while cumulative wait remained inside the advertised time budget. Run134 then proved
+# that the remaining fixed 180-second run cap was another topology-blind magic number:
+# Gemini's real runtime model (3.7 Flash) hit project quota, Groq legitimately carried
+# the eight-section Film writer, four reset recoveries consumed 155.59s, and S8 needed
+# only 38.73s more. 194.32s was still a finite, evidence-backed recovery path, but the
+# independent 180s constant killed it.
+#
+# Keep the contract bounded without inventing another fixed total. The per-recovery cap
+# remains 60s, each terminal (label, shard, model) can be retried only once, and the
+# run-wide ceiling is derived from the Engine's largest configured long-form section
+# graph. If that topology changes, the recovery budget changes with it instead of
+# silently drifting out of sync. This preserves a finite upper bound while allowing a
+# free-tier fallback to finish one reset-backed recovery per possible section.
 _TERMINAL_RESET_LIMIT_SECONDS = 60.0
 _TERMINAL_WAIT_LIMIT_SECONDS = 60.0
 _RESET_SAFETY_SECONDS = 1.5
-_MAX_TERMINAL_WAIT_SECONDS_PER_RUN = 180.0
+_MAX_LONGFORM_SECTIONS = max(batching.staged._SECTION_COUNTS.values())
+_MAX_TERMINAL_WAIT_SECONDS_PER_RUN = _TERMINAL_WAIT_LIMIT_SECONDS * _MAX_LONGFORM_SECTIONS
 _RESET_RE = re.compile(r"reset_in=(\d+(?:\.\d+)?)s", flags=re.I)
 _MODEL_RE = re.compile(r"\bmodel=([^\s|]+)", flags=re.I)
 _RECOVERED_TERMINAL_SHARDS: set[tuple[str, tuple[str, ...], str]] = set()
@@ -115,7 +124,7 @@ def install_run124_terminal_provider_recovery() -> None:
             )
             if not _run_wait_budget_allows(wait_seconds):
                 print(
-                    "Run124 terminal provider recovery skipped by run-wide retry budget: "
+                    "Run124 terminal provider recovery skipped by topology-derived run-wide retry budget: "
                     f"label={label} section={ids[0]} requested_wait={wait_seconds:.2f}s "
                     f"recoveries={_TERMINAL_RECOVERY_COUNT} "
                     f"wait_spent={_TERMINAL_WAIT_SPENT_SECONDS:.2f}/{_MAX_TERMINAL_WAIT_SECONDS_PER_RUN:.0f}s"
@@ -152,5 +161,6 @@ def install_run124_terminal_provider_recovery() -> None:
         "groq_window_is_transport_pressure model_scoped_reset=true "
         "terminal_single_shard_wait<=60s retry_once_per_shard=true "
         "recovery_count=telemetry_only "
-        f"run_wait_cap={_MAX_TERMINAL_WAIT_SECONDS_PER_RUN:.0f}s"
+        f"run_wait_cap={_MAX_TERMINAL_WAIT_SECONDS_PER_RUN:.0f}s "
+        f"topology_sections={_MAX_LONGFORM_SECTIONS}"
     )
