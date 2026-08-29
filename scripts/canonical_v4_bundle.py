@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from isco_video_agent.brief_approval_binding import verify_brief_approval
+from isco_video_agent.editorial_room import EditorialContractError, intent_from_dict
 from isco_video_agent.short_planner import DEFAULT_SIBLING_SPACING_HOURS, select_sibling_jobs
 
 from scripts.packaging_delivery_contract import validate_packaging_delivery
@@ -175,6 +176,16 @@ def _source_excerpt(source_plan: dict[str, Any], job: str) -> dict[str, Any]:
     }
 
 
+def _source_editorial_intent(source_plan: dict[str, Any]) -> dict[str, Any]:
+    raw = source_plan.get("editorial_intent")
+    if not isinstance(raw, dict) or not raw:
+        raise RuntimeError("Canonical sibling Shorts require source long EditorialIntent")
+    try:
+        return intent_from_dict(dict(raw)).to_dict()
+    except EditorialContractError as exc:
+        raise RuntimeError(f"Canonical source EditorialIntent is invalid: {exc}") from exc
+
+
 def build_parent_request(root: Path) -> dict[str, Any]:
     root = Path(root)
     plan = _read_object(root / "plan.json")
@@ -253,6 +264,7 @@ def build_child_requests(parent: dict[str, Any], sibling_plan: dict[str, Any], s
     jobs = [str(item.get("semantic_job") or "").strip() for item in sibling_plan.get("semantic_jobs") or []]
     if not MIN_SHORTS <= len(jobs) <= MAX_SHORTS or len({job.casefold() for job in jobs}) != len(jobs):
         raise RuntimeError("Canonical V4 sibling plan must contain 2–3 distinct jobs")
+    source_editorial_intent = _source_editorial_intent(source_plan)
     sibling_plan_sha = _canonical_hash(sibling_plan)
     candidate = parent["candidate"]
     requests: list[dict[str, Any]] = []
@@ -289,6 +301,7 @@ def build_child_requests(parent: dict[str, Any], sibling_plan: dict[str, Any], s
             "source_long_topic": parent["approved_topic"],
             "source_semantic_job": job,
             "source_episode_excerpt": excerpt,
+            "source_editorial_intent": dict(source_editorial_intent),
             "sibling_index": index,
             "sibling_count": len(jobs),
             "production_dispatch_authorized": False,

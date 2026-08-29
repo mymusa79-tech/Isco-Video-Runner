@@ -8,6 +8,20 @@ from pathlib import Path
 from scripts import sibling_short_orchestration as sibling
 
 
+def _editorial_intent() -> dict:
+    return {
+        "editorial_thesis": "التأجيل يتغذى على انتظار شعور كامل بالاستعداد قبل الحركة.",
+        "viewer_starting_belief": "المشاهد يعتقد أن نقص الدافع هو السبب المباشر لعدم البدء.",
+        "hidden_assumption": "الافتراض الخفي أن الثقة يجب أن تسبق أي خطوة عملية صغيرة.",
+        "editorial_turn": "التحول أن الحركة الصغيرة يمكن أن تسبق الثقة وتبنيها تدريجيًا.",
+        "stakes": "استمرار الانتظار يجعل المهام الصغيرة تبدو أكبر ويطيل دائرة الجمود.",
+        "viewer_promise": "سيفهم المشاهد لماذا تكفي بداية صغيرة لكسر انتظار الاستعداد الكامل.",
+        "evidence_boundaries": ["نلتزم بما تثبته الحلقة الأم ولا نضيف ادعاءات جديدة."],
+        "earned_payoff": "يخرج المشاهد بخطوة واحدة صغيرة يبدأ بها اليوم بدل انتظار الدافع.",
+        "persona_version": 1,
+    }
+
+
 class SiblingShortOrchestrationTests(unittest.TestCase):
     def _parent(self) -> dict:
         return {
@@ -41,6 +55,7 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
         return {
             "topic": "موضوع الحلقة",
             "format": "film",
+            "editorial_intent": _editorial_intent(),
             "sections": [
                 {
                     "id": "s1",
@@ -149,6 +164,11 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertEqual(len(request["source_sibling_plan_sha256"]), 64)
             self.assertEqual(request["youtube_publish_mode"], "manual_in_youtube_studio")
             self.assertEqual(request["short_admission"]["evidence_source"], "approved_parent_candidate_metrics")
+            self.assertEqual(
+                request["source_editorial_intent"]["editorial_thesis"],
+                _editorial_intent()["editorial_thesis"],
+            )
+            self.assertTrue(request["source_editorial_intent"]["editorial_fingerprint"])
             excerpt = request["source_episode_excerpt"]
             self.assertEqual(excerpt["source_key_point"], request["approved_topic"])
             self.assertTrue(excerpt["source_narration"])
@@ -157,6 +177,12 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertEqual(request["source_short_plan"]["semantic_job"], request["approved_topic"])
             self.assertGreaterEqual(len(request["source_short_plan"]["beats"]), 2)
             self.assertEqual(request["request_sha256"], sibling._canonical_hash({k: v for k, v in request.items() if k != "request_sha256"}))
+
+    def test_source_long_editorial_intent_is_required(self):
+        source_plan = self._source_plan()
+        source_plan.pop("editorial_intent")
+        with self.assertRaisesRegex(RuntimeError, "source long EditorialIntent"):
+            sibling.build_sibling_requests(self._parent(), self._plan(), source_plan)
 
     def test_parent_candidate_must_pass_short_topic_admission(self):
         parent = self._parent()

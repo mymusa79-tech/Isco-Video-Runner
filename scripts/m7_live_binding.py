@@ -7,12 +7,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 import isco_video_agent.cinematic_m7_live_binding as engine_m7
+import isco_video_agent.media.ffmpeg as media_ffmpeg
 import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.ai_budget import AttemptOutcome, Capability, Priority, TaskSpec
 from isco_video_agent.anti_repetition import recent_videos
 from isco_video_agent.cinematic_m7_live_binding import live_m7_binding_scope
-from isco_video_agent.media.ffmpeg import make_image_review_preview
 from isco_video_agent.text_audit_router import _classify_exception
+import scripts.security_v1_live_binding as security_v1
 from scripts.security_v1_live_binding import install_security_v1_live_binding
 
 
@@ -80,13 +81,41 @@ def _human_editorial_intent_scope():
         orchestrator.append_history = original_append_history
 
 
+def _m11_security_preflight(image: Path) -> dict[str, Any] | None:
+    """Run the exact Security V1 multimodal firewall before M11 can consume Vision budget.
+
+    M11 archive acquisition already owns rights, host and byte-integrity checks. This
+    closes the remaining trust-boundary gap: no archive image may be transformed into a
+    cloud Vision prompt until the same local OCR/QR/barcode/prompt-injection firewall
+    used by certified stock media has inspected it. Any firewall finding remains a hard
+    block for the archive candidate; the already-qualified M7 stock fallback is retained.
+    """
+    try:
+        security_v1._scan_media_before_vision(Path(image))
+    except RuntimeError as exc:
+        codes = security_v1._firewall_block_codes(exc)
+        if not codes:
+            raise
+        return {
+            "status": "block",
+            "reason": "M11 archive blocked by Security V1 before cloud Vision",
+            "local_media_rejection": ",".join(codes),
+        }
+    return None
+
+
 def _m11_review_fn(
     *, output_dir: Path, gemini_api_key: str, content_model: str, ledger: Any, audit_fn: Callable
 ):
-    """One budget-accounted P2 review per archive opportunity; no approval shopping."""
+    """One Security-V1-screened, budget-accounted P2 review per archive opportunity."""
     def review(image: Path, item: dict[str, Any], candidate: Any) -> dict[str, Any]:
         if not gemini_api_key or ledger is None:
             return {"status": "block", "reason": "M11 visual reviewer unavailable"}
+
+        security_block = _m11_security_preflight(Path(image))
+        if security_block is not None:
+            return security_block
+
         task_id = f"M11_ARCHIVE_REVIEW_{int(item['body_index']) + 1:02d}"
         spec = TaskSpec(
             task_id=task_id,
@@ -103,7 +132,7 @@ def _m11_review_fn(
             return {"status": "block", "reason": "M11 P2 AI budget denied enhancement review"}
         preview = output_dir / "m11" / "review" / f"{candidate.provider.value}-{candidate.object_id}.jpg"
         try:
-            make_image_review_preview(Path(image), preview)
+            media_ffmpeg.make_image_review_preview(Path(image), preview)
             result = audit_fn(
                 gemini_api_key,
                 preview,
@@ -130,6 +159,35 @@ def _m11_review_fn(
         )
         return result
     return review
+
+
+def _unlink_if_present(path: Path) -> None:
+    try:
+        Path(path).unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _m11_color_authority_render_fn(runtime: Any) -> Callable[..., Path]:
+    """Render archive motion first, then re-enter the live M8/base color authority.
+
+    During real Production V4, runtime_closure installs M8 before M7. Therefore the
+    dynamic media_ffmpeg.prepare_clip callable here is M8's BT.709/SDR normalizer, which
+    then delegates to the Engine's existing creative grade. M11 no longer bypasses the
+    sequence-wide technical normalization or creative look simply because it replaced a
+    previously materialized stock clip.
+    """
+    def render(image: Path, dest: Path, seconds: float, *, fps: int) -> Path:
+        dest = Path(dest)
+        raw = dest.with_name(dest.stem + ".m11-pre-color" + dest.suffix)
+        _unlink_if_present(raw)
+        try:
+            runtime._render_archive_clip(Path(image), raw, seconds, fps=fps)
+            return media_ffmpeg.prepare_clip(raw, dest, seconds, portrait=False, fps=fps)
+        finally:
+            _unlink_if_present(raw)
+
+    return render
 
 
 @contextmanager
@@ -167,6 +225,7 @@ def _m11_archive_scope(
                 ledger=ledger,
                 audit_fn=review_module.audit_archive_image,
             ),
+            render_fn=_m11_color_authority_render_fn(runtime),
         )
         if report.get("status") == "applied":
             engine_m7._write_timeline(output_dir, timeline)
