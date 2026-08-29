@@ -4,16 +4,12 @@ import os
 from pathlib import Path
 
 import isco_video_agent.orchestrator as orchestrator
-from scripts.attempt10_append_bound_recovery import install_attempt10_append_bound_recovery
 from scripts.audio_mastering_live_binding import install_audio_mastering_live_binding
 from scripts.audio_semantic_integrity import (
     install_audio_semantic_final_gate,
     install_audio_semantic_integrity_binding,
 )
-from scripts.bounded_output_recovery import install_bounded_output_recovery
 from scripts.cta_live_binding import install_cta_live_binding
-from scripts.dynamic_planning_capacity import install_dynamic_planning_capacity
-from scripts.gemini_planning_output_guard import install_gemini_planning_output_guard
 from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
 from scripts.m8_live_binding import install_m8_live_binding
@@ -22,11 +18,8 @@ from scripts.m10_live_binding import install_m10_live_binding
 from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
+from scripts.planning_runtime_contract import install_runtime_planning_contracts
 from scripts.provider_capacity_v2 import install_provider_capacity_v2
-from scripts.run124_terminal_provider_recovery import install_run124_terminal_provider_recovery
-from scripts.run125_cache_prefix_contract import install_run125_cache_prefix_contract
-from scripts.run125_capacity_routing_closure import install_run125_capacity_routing_closure
-from scripts.runtime_patch_contracts import certify_runtime_patch_contracts
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
@@ -35,7 +28,6 @@ from scripts.runtime_reliability import (
     manifest_wrapper_chain_has_marker,
     production_entrypoint_modules,
 )
-from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.sfx_live_binding import install_sfx_live_binding
 
 
@@ -105,6 +97,11 @@ def install_runtime_closure() -> None:
         install_runtime_snapshot_binding()
 
     # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
+    # Planning-affecting composition now has one canonical seam. This call preserves the
+    # exact historical installer order while keeping media/audio/release code outside the
+    # durable planning contract hash.
+    install_runtime_planning_contracts()
+
     # Pixabay Provider Capacity V2 is search-result reuse only: it is installed before
     # Media Trust so cached normalized metadata can avoid duplicate API calls while
     # exact media bytes are still freshly downloaded and inspected by Media Trust V2.
@@ -119,30 +116,6 @@ def install_runtime_closure() -> None:
     # Canonical bundle is bound on every live run_v3_voice module before the release
     # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
-    install_attempt10_append_bound_recovery()
-    install_bounded_output_recovery()
-    install_schema_repair_policy()
-    install_gemini_planning_output_guard()
-    # Run #124: Run #123's fast Groq-window failover remains the default, but a terminal
-    # one-section shard now gets one bounded <=60s reset wait only after every alternate
-    # provider has failed. This prevents fast failover from becoming fast failure.
-    install_run124_terminal_provider_recovery()
-    # Run #125: keep the Run124 safety net, but stop depending on it for every shard.
-    # Reorder only transport context for Groq's exact-prefix cache, honor an OpenRouter
-    # preflight block/circuit, and fail over a model-scoped Groq daily quota to another
-    # schema-capable Groq model instead of replaying the dead quota.
-    install_run125_capacity_routing_closure()
-    # Dynamic authority must install after Run125 so its model pool remains the routing
-    # owner while learned per-model TPM evidence replaces the old theoretical 8K truth.
-    install_dynamic_planning_capacity()
-    install_run125_cache_prefix_contract()
-
-    # Run127 closure: certify the FINAL composed monkey-patch surface, not each installer
-    # in isolation. This is intentionally before provider/media work, so a future wrapper
-    # signature drift or legacy capacity authority fails fast during startup rather than
-    # after Gemini/Groq/OpenRouter calls have already consumed time/quota.
-    certify_runtime_patch_contracts()
-
     install_provider_capacity_v2()
     install_media_trust_boundary_v2()
     install_core_reliability_guard()
