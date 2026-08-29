@@ -18,9 +18,10 @@ def _remove_path(path: Path) -> None:
 def prepare_cache_for_persistence(root: Path) -> bool:
     """Sanitize each durable-stage namespace before the shared Actions cache is saved.
 
-    This module owns transport persistence only. TTS, Media, and Render keep independent
-    semantic fingerprints/validators; adding a new stage must never alter an older
-    stage's cache identity merely because they share one GitHub Actions cache directory.
+    This module owns transport persistence only. TTS, Media, Render, Final QC, and
+    observers keep independent semantic fingerprints/validators; adding a new stage
+    must never alter an older stage's cache identity merely because they share one
+    GitHub Actions cache directory.
     """
     root = Path(root)
     if root.is_symlink():
@@ -83,18 +84,31 @@ def prepare_cache_for_persistence(root: Path) -> bool:
         _remove_path(root / "render")
         print(f"Render durable namespace sanitization rejected ({type(exc).__name__})")
 
+    final_observer_valid = False
+    try:
+        from scripts.final_qc_observer_durability import (
+            prepare_cache_for_persistence as prepare_final_observers,
+        )
+
+        final_observer_valid = bool(prepare_final_observers(root))
+    except Exception as exc:
+        _remove_path(root / "final-qc")
+        _remove_path(root / "observers")
+        print(f"Final QC/Observer durable namespace sanitization rejected ({type(exc).__name__})")
+
     allowed = (
         tts_valid
         or media_shot_valid
         or media_prepared_live_valid
         or media_search_valid
         or render_valid
+        or final_observer_valid
     )
     print(
         "Durable stage cache sanitized: "
         f"tts={tts_valid} media_shot={media_shot_valid} "
         f"media_prepared_live={media_prepared_live_valid} media_search={media_search_valid} "
-        f"render={render_valid} save_allowed={allowed}"
+        f"render={render_valid} final_observers={final_observer_valid} save_allowed={allowed}"
     )
     return allowed
 
