@@ -98,6 +98,21 @@ class ChannelOSTelegramAdapterTests(unittest.TestCase):
         self.assertEqual(by_id["req-1"].durable_state, "Ready")
         self.assertEqual(by_id["req-1"].run_id, "12345")
 
+    def test_malformed_queue_attempt_does_not_break_read_only_projection(self):
+        state = self._state()
+        state["production_queue"].append(
+            {
+                "request_id": "req-1",
+                "attempt": "not-an-integer",
+                "status": "dispatch_consumed",
+                "consumed_at": "2026-08-29T20:06:00+00:00",
+                "workflow_run_id": "99999",
+            }
+        )
+        entities = video_entities_from_control_state(state)
+        by_id = {item.video_id: item for item in entities}
+        self.assertEqual(by_id["req-1"].run_id, "12345")
+
     def test_successful_production_never_implies_published(self):
         provider = Provider({"req-1": live("req-1", "success", "12345")})
         text, _ = render_control_state(
