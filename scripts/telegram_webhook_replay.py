@@ -19,7 +19,7 @@ from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
 from scripts import telegram_topic_memory_ui as memory_ui
 from scripts.channel_os_telegram_adapter import callback_view, render_control_state, text_view
-from scripts.telegram_release_approval import record_webhook_approval
+from scripts.telegram_release_approval import parse_callback_data, record_webhook_approval
 
 # workflow_dispatch inputs have a finite payload budget; base64 expands bytes by ~4/3.
 # Keeping raw Telegram updates below 48 KiB leaves safe room for the JSON envelope.
@@ -27,6 +27,7 @@ MAX_UPDATE_BYTES = 48 * 1024
 SEEN_UPDATES_KEY = "telegram_webhook_seen_update_ids"
 MAX_SEEN_UPDATES = 256
 NOT_RELEASE_APPROVAL_EXIT = 3
+SAFE_CHANNEL_OS_EXIT = 4
 
 
 def decode_update(encoded: str) -> dict[str, Any]:
@@ -102,6 +103,13 @@ def _record_release_approval_if_present(state_path: Path, update: dict[str, Any]
     return True
 
 
+def _is_release_approval(update: dict[str, Any]) -> bool:
+    callback = update.get("callback_query")
+    if not isinstance(callback, dict):
+        return False
+    return parse_callback_data(str(callback.get("data") or "")) is not None
+
+
 def replay_release_approval_only(state_path: Path, update: dict[str, Any]) -> bool:
     """Consume only an L6 release approval while general control is read-only.
 
@@ -112,7 +120,9 @@ def replay_release_approval_only(state_path: Path, update: dict[str, Any]) -> bo
     """
     update_id = int(update["update_id"])
     if _is_seen(state_path, update_id):
-        print(f"Webhook update {update_id} already processed; no side effect")
+        if not _is_release_approval(update):
+            return False
+        print(f"Webhook release approval {update_id} already processed; no side effect")
         panel._github_output("needs_engine", "false")
         panel._github_output("needs_production", "false")
         return True
@@ -177,6 +187,28 @@ def _replay_channel_os_if_present(state_path: Path, update: dict[str, Any]) -> b
     panel._github_output("needs_production", "false")
     print(f"Channel OS Mission Control rendered through webhook ingress: view={view}")
     return True
+
+
+def replay_safe_during_production(state_path: Path, update: dict[str, Any]) -> str | None:
+    """Allow only release approval or Channel OS read-only views during Production."""
+    update_id = int(update["update_id"])
+    if _is_seen(state_path, update_id):
+        if _is_release_approval(update):
+            panel._github_output("needs_engine", "false")
+            panel._github_output("needs_production", "false")
+            return "release_approval"
+        if _channel_os_view(update) is not None:
+            panel._github_output("needs_engine", "false")
+            panel._github_output("needs_production", "false")
+            return "channel_os"
+        return None
+    if _record_release_approval_if_present(state_path, update):
+        _mark_seen(state_path, update_id)
+        return "release_approval"
+    if _replay_channel_os_if_present(state_path, update):
+        _mark_seen(state_path, update_id)
+        return "channel_os"
+    return None
 
 
 def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
@@ -259,6 +291,10 @@ def main() -> None:
     approval.add_argument("--state", required=True, type=Path)
     approval.add_argument("--update-b64", required=True)
 
+    safe = sub.add_parser("safe-during-production")
+    safe.add_argument("--state", required=True, type=Path)
+    safe.add_argument("--update-b64", required=True)
+
     sub.add_parser("webhook-active")
 
     args = parser.parse_args()
@@ -269,6 +305,13 @@ def main() -> None:
     if args.mode == "release-approval-only":
         consumed = replay_release_approval_only(args.state, update)
         raise SystemExit(0 if consumed else NOT_RELEASE_APPROVAL_EXIT)
+    if args.mode == "safe-during-production":
+        kind = replay_safe_during_production(args.state, update)
+        if kind == "release_approval":
+            raise SystemExit(0)
+        if kind == "channel_os":
+            raise SystemExit(SAFE_CHANNEL_OS_EXIT)
+        raise SystemExit(NOT_RELEASE_APPROVAL_EXIT)
     replay_update(args.state, update)
 
 
