@@ -20,10 +20,22 @@ CHANNEL_OS_CALLBACKS = {
     "cmd:channelos-needs": "needs",
     "cmd:channelos-problems": "problems",
 }
+CHANNEL_OS_TEXT_COMMANDS = {
+    "channel os",
+    "channelos",
+    "لوحة القناة",
+    "نظام القناة",
+    "حالة القناة",
+}
 
 
 def callback_view(data: object) -> str | None:
     return CHANNEL_OS_CALLBACKS.get(str(data or "").strip())
+
+
+def text_view(text: object) -> str | None:
+    normalized = " ".join(str(text or "").strip().casefold().split())
+    return "all" if normalized in CHANNEL_OS_TEXT_COMMANDS else None
 
 
 def _latest_runs(state: Mapping[str, Any]) -> dict[str, str]:
@@ -38,7 +50,10 @@ def _latest_runs(state: Mapping[str, Any]) -> dict[str, str]:
         run_id = str(item.get("workflow_run_id") or "").strip()
         if not request_id or not run_id.isdigit():
             continue
-        attempt = int(item.get("attempt") or 0)
+        try:
+            attempt = int(item.get("attempt") or 0)
+        except (TypeError, ValueError):
+            continue
         stamp = str(item.get("consumed_at") or item.get("reserved_at") or item.get("requested_at") or "")
         rank = (stamp, attempt)
         previous = latest.get(request_id)
