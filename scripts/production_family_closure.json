@@ -20,208 +20,88 @@
     "production_dispatch_allowed_by_this_register": false
   },
   "audit_cohorts": [
-    {
-      "id": "C01",
-      "runs": "51-70",
-      "purpose": "Re-certify early end-to-end provider, output, media, quality and release surfaces against the modern pipeline.",
-      "required_phases": ["P0", "P1", "P2", "P3", "P4", "P5", "P6"]
-    },
-    {
-      "id": "C02",
-      "runs": "71-80",
-      "purpose": "Re-certify structured-output, section-shape and wrapper/order changes as one current composition.",
-      "required_phases": ["P0", "P1", "P4", "P5", "P6"]
-    },
-    {
-      "id": "C03",
-      "runs": "81-92",
-      "purpose": "Re-certify visual feasibility, stock/media identity and runtime isolation changes.",
-      "required_phases": ["P0", "P1", "P3", "P4", "P5", "P6"]
-    },
-    {
-      "id": "C04",
-      "runs": "93-105",
-      "purpose": "Re-certify runtime composition, editorial repair, task identity and budget ownership changes.",
-      "required_phases": ["P0", "P1", "P3", "P4", "P5", "P6"]
-    },
-    {
-      "id": "C05",
-      "runs": "106-112",
-      "purpose": "Re-certify media/security/environment/state boundaries after the modern production topology diverged from video-50.",
-      "required_phases": ["P0", "P2", "P3", "P4", "P5", "P6"]
-    },
-    {
-      "id": "C06",
-      "runs": "113-126",
-      "purpose": "Re-certify provider capacity, structured generation, retry ownership and cache/routing changes.",
-      "required_phases": ["P0", "P1", "P4", "P5", "P6"]
-    },
-    {
-      "id": "C07",
-      "runs": "127-128",
-      "purpose": "Re-certify final runtime composition and provider retry ownership closures.",
-      "required_phases": ["P0", "P1", "P2", "P3", "P4", "P5", "P6"]
-    },
-    {
-      "id": "C08",
-      "runs": "129",
-      "purpose": "Re-certify immutable production input and test/production workspace isolation.",
-      "required_phases": ["P0", "P1", "P4", "P5", "P6"]
-    },
-    {
-      "id": "C09",
-      "runs": "130",
-      "purpose": "Re-certify explicit live-runtime phase ownership and prevent ambient CI context from activating production behavior.",
-      "required_phases": ["P0", "P1", "P4", "P5", "P6"]
-    }
+    {"id":"C01","runs":"51-70","required_phases":["P0","P1","P2","P3","P4","P5","P6"],"purpose":"early end-to-end provider/output/media/quality/release recertification"},
+    {"id":"C02","runs":"71-80","required_phases":["P0","P1","P4","P5","P6"],"purpose":"structured-output and wrapper/order recertification"},
+    {"id":"C03","runs":"81-92","required_phases":["P0","P1","P3","P4","P5","P6"],"purpose":"visual/media feasibility and identity recertification"},
+    {"id":"C04","runs":"93-105","required_phases":["P0","P1","P3","P4","P5","P6"],"purpose":"runtime composition, repair and budget recertification"},
+    {"id":"C05","runs":"106-112","required_phases":["P0","P2","P3","P4","P5","P6"],"purpose":"media/security/environment/state recertification"},
+    {"id":"C06","runs":"113-126","required_phases":["P0","P1","P4","P5","P6"],"purpose":"provider capacity, generation and retry recertification"},
+    {"id":"C07","runs":"127-128","required_phases":["P0","P1","P2","P3","P4","P5","P6"],"purpose":"runtime composition and retry-ownership recertification"},
+    {"id":"C08","runs":"129","required_phases":["P0","P1","P4","P5","P6"],"purpose":"test/production isolation and immutable-input recertification"},
+    {"id":"C09","runs":"130","required_phases":["P0","P1","P4","P5","P6"],"purpose":"explicit runtime phase-boundary recertification"}
   ],
   "families": [
     {
-      "id": "F01",
-      "name": "planning_structured_output_and_repair",
-      "historical_runs": ["54", "71", "73-80", "84", "94", "96", "98-101", "114", "116-126"],
-      "required_phases": ["P1", "P4", "P5", "P6"],
-      "contracts": [
-        "scripts.test_planner_quality_guard",
-        "scripts.test_planning_provider_reliability_v2",
-        "scripts.test_bounded_output_recovery",
-        "scripts.test_schema_repair_policy",
-        "scripts.test_run120_dossier_repair_hardening"
-      ]
+      "id":"F01","name":"planning_structured_output_and_repair",
+      "historical_runs":["54","71","73-80","84","94","96","98-101","114","116-126"],
+      "required_phases":["P1","P4","P5","P6"],
+      "contracts":["scripts.test_planner_quality_guard","scripts.test_planning_provider_reliability_v2","scripts.test_bounded_output_recovery","scripts.test_schema_repair_policy","scripts.test_run120_dossier_repair_hardening"]
     },
     {
-      "id": "F02",
-      "name": "runtime_composition_wrapper_and_install_order",
-      "historical_runs": ["72", "75", "93", "102-103", "127"],
-      "required_phases": ["P0", "P1"],
-      "contracts": [
-        "scripts.test_runtime_closure",
-        "scripts.test_runtime_closure_idempotence_run102",
-        "scripts.test_run103_runtime_marker_preservation",
-        "scripts.test_run127_runtime_composition"
-      ]
+      "id":"F02","name":"runtime_composition_wrapper_and_install_order",
+      "historical_runs":["72","75","93","102-103","127"],
+      "required_phases":["P0","P1"],
+      "contracts":["scripts.test_runtime_closure","scripts.test_runtime_closure_idempotence_run102","scripts.test_run103_runtime_marker_preservation","scripts.test_run127_runtime_composition"]
     },
     {
-      "id": "F03",
-      "name": "media_visual_feasibility_stock_and_security",
-      "historical_runs": ["54", "82", "89", "92", "108-110"],
-      "required_phases": ["P3", "P4"],
-      "contracts": [
-        "scripts.test_media_trust_boundary_v2",
-        "scripts.test_opening_feasibility_guard",
-        "scripts.test_run108_stock_candidate_isolation",
-        "scripts.test_security_v1_live_binding"
-      ]
+      "id":"F03","name":"media_visual_feasibility_stock_and_security",
+      "historical_runs":["54","82","89","92","108-110"],
+      "required_phases":["P3","P4"],
+      "contracts":["scripts.test_media_trust_boundary_v2","scripts.test_run92_opening_feasibility_guard","scripts.test_run108_stock_candidate_isolation","scripts.test_security_v1_live_binding"]
     },
     {
-      "id": "F04",
-      "name": "provider_capacity_fallback_retry_and_retry_after",
-      "historical_runs": ["57-59", "113-128"],
-      "required_phases": ["P1"],
-      "contracts": [
-        "scripts.test_provider_retry_ownership",
-        "scripts.test_retry_after_policy",
-        "scripts.test_run123_budget_closure",
-        "scripts.test_run124_terminal_provider_recovery",
-        "scripts.test_run125_capacity_routing_closure",
-        "scripts.test_run126_capacity_snapshot_closure",
-        "scripts.test_run128_rate_limit_ownership"
-      ]
+      "id":"F04","name":"provider_capacity_fallback_retry_and_retry_after",
+      "historical_runs":["57-59","113-128"],
+      "required_phases":["P1"],
+      "contracts":["scripts.test_provider_retry_ownership","scripts.test_retry_after_policy","scripts.test_run123_budget_closure","scripts.test_run124_terminal_provider_recovery","scripts.test_run125_capacity_routing_closure","scripts.test_run126_capacity_snapshot_closure","scripts.test_run128_rate_limit_ownership"]
     },
     {
-      "id": "F05",
-      "name": "task_identity_budget_and_review_capacity",
-      "historical_runs": ["94", "96", "100", "104-105"],
-      "required_phases": ["P1", "P3", "P5"],
-      "contracts": [
-        "scripts.test_p0_2_budget_enforcement",
-        "scripts.test_budget_wire_attempts",
-        "scripts.test_gold_enforce_phase4"
-      ]
+      "id":"F05","name":"task_identity_budget_and_review_capacity",
+      "historical_runs":["94","96","100","104-105"],
+      "required_phases":["P1","P3","P5"],
+      "contracts":["scripts.test_p0_2_budget_enforcement","scripts.test_budget_wire_attempts","scripts.test_gold_enforce_phase4"]
     },
     {
-      "id": "F06",
-      "name": "tts_audio_vision_and_retry_ownership",
-      "historical_runs": ["106-110", "128"],
-      "required_phases": ["P2", "P3"],
-      "contracts": [
-        "scripts.test_voice_mesh",
-        "scripts.test_piper_chunking",
-        "scripts.test_audio_semantic_integrity",
-        "scripts.test_audio_mastering_runtime_contract",
-        "scripts.test_groq_audio_audit",
-        "scripts.test_provider_retry_ownership"
-      ]
+      "id":"F06","name":"tts_audio_vision_and_retry_ownership",
+      "historical_runs":["106-110","128"],
+      "required_phases":["P2","P3"],
+      "contracts":["scripts.test_voice_mesh","scripts.test_piper_chunking","scripts.test_audio_semantic_integrity","scripts.test_audio_mastering_runtime_contract","scripts.test_groq_audio_audit","scripts.test_provider_retry_ownership"]
     },
     {
-      "id": "F07",
-      "name": "state_persistence_and_test_production_isolation",
-      "historical_runs": ["88", "111-112", "129"],
-      "required_phases": ["P0", "P4", "P5", "P6"],
-      "contracts": [
-        "scripts.test_persistent_memory",
-        "scripts.test_persistent_memory_migration_epoch",
-        "scripts.test_run129_hermetic_approved_brief",
-        "scripts.test_run129_production_test_isolation_contract"
-      ]
+      "id":"F07","name":"state_persistence_and_test_production_isolation",
+      "historical_runs":["88","111-112","129"],
+      "required_phases":["P0","P4","P5","P6"],
+      "contracts":["scripts.test_persistent_memory","scripts.test_persistent_memory_migration_epoch","scripts.test_run129_hermetic_approved_brief","scripts.test_run129_production_test_isolation_contract"]
     },
     {
-      "id": "F08",
-      "name": "environment_preflight_and_provider_readiness",
-      "historical_runs": ["111", "113-126"],
-      "required_phases": ["P0", "P1"],
-      "contracts": [
-        "scripts.test_environment_preflight",
-        "scripts.test_provider_preflight",
-        "scripts.test_preproduction_contract"
-      ]
+      "id":"F08","name":"environment_preflight_and_provider_readiness",
+      "historical_runs":["111","113-126"],
+      "required_phases":["P0","P1"],
+      "contracts":["scripts.test_environment_preflight","scripts.test_provider_preflight","scripts.test_preproduction_contract"]
     },
     {
-      "id": "F09",
-      "name": "post_render_qc_gold_packaging_and_release",
-      "historical_runs": ["51-70", "81-112"],
-      "required_phases": ["P4", "P5", "P6"],
-      "contracts": [
-        "scripts.test_final_master_qc",
-        "scripts.test_final_master_qc_ffmpeg",
-        "scripts.test_gold_enforce_phase4",
-        "scripts.test_packaging_artifact_delivery_p0e",
-        "scripts.test_unified_delivery_canonical",
-        "scripts.test_release_transaction"
-      ]
+      "id":"F09","name":"post_render_qc_gold_packaging_and_release",
+      "historical_runs":["51-70","81-112"],
+      "required_phases":["P4","P5","P6"],
+      "contracts":["scripts.test_final_master_qc","scripts.test_final_master_qc_ffmpeg","scripts.test_gold_enforce_phase4","scripts.test_packaging_artifact_delivery_p0e","scripts.test_unified_delivery_canonical","scripts.test_release_transaction"]
     },
     {
-      "id": "F10",
-      "name": "runtime_phase_boundary_and_ambient_environment",
-      "historical_runs": ["130"],
-      "required_phases": ["P0"],
-      "contracts": [
-        "scripts.test_run130_runtime_phase",
-        "scripts.test_run130_runtime_authority_contract"
-      ]
+      "id":"F10","name":"runtime_phase_boundary_and_ambient_environment",
+      "historical_runs":["130"],
+      "required_phases":["P0"],
+      "contracts":["scripts.test_run130_explicit_runtime_phase","scripts.test_run130_runtime_authority_contract"]
     },
     {
-      "id": "F11",
-      "name": "observers_analytics_and_non_authoritative_side_effects",
-      "historical_runs": ["51-130"],
-      "required_phases": ["P0", "P6"],
-      "contracts": [
-        "scripts.test_analytics_live_observability",
-        "scripts.test_analytics_observer_status"
-      ]
+      "id":"F11","name":"observers_analytics_and_non_authoritative_side_effects",
+      "historical_runs":["51-130"],
+      "required_phases":["P0","P6"],
+      "contracts":["scripts.test_analytics_live_observability","scripts.test_analytics_observer_status"]
     },
     {
-      "id": "F12",
-      "name": "shorts_integration_and_unified_delivery",
-      "historical_runs": ["51-130"],
-      "required_phases": ["P2", "P3", "P6"],
-      "contracts": [
-        "scripts.test_native_short_planner_router",
-        "scripts.test_shorts_production_binding",
-        "scripts.test_short_voice_v2",
-        "scripts.test_sibling_short_orchestration",
-        "scripts.test_unified_delivery_canonical"
-      ]
+      "id":"F12","name":"shorts_integration_and_unified_delivery",
+      "historical_runs":["51-130"],
+      "required_phases":["P2","P3","P6"],
+      "contracts":["scripts.test_native_short_planner_router","scripts.test_shorts_production_binding","scripts.test_short_voice_v2","scripts.test_sibling_short_orchestration","scripts.test_unified_delivery_canonical"]
     }
   ]
 }
