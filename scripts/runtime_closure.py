@@ -15,6 +15,8 @@ from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
 from scripts.media_durable_asset_cache import install_media_durable_asset_cache
+from scripts.media_durable_cache_auth import install_media_cache_auth
+from scripts.media_durable_selection_resume import install_media_durable_selection_resume
 from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
@@ -95,24 +97,19 @@ def install_runtime_closure() -> None:
     # while keeping media/audio/release code outside the durable planning contract hash.
     install_runtime_planning_contracts()
 
-    # Pixabay Provider Capacity V2 is search-result reuse only: it is installed before
-    # Media Trust so cached normalized metadata can avoid duplicate API calls while
-    # exact media bytes remain bound to Media Trust V2. Durable selected-media reuse is
-    # installed only after Media Trust, so a cache hit must reconstruct a valid trusted
-    # record and still passes the existing local Security/Vision review path. It never
-    # caches rejected review candidates or replaces candidate selection.
-    # Audio Semantic Integrity is deliberately installed before Audio Mastering/SFX
-    # wrappers: at runtime its inner scope sees and wraps those already-active live
-    # transforms, binding the exact approved transcript/audio chain without replacing
-    # them. The final enforcing check is attached to Final Master QC only after every
-    # runtime wrapper has been installed.
-    # Canonical bundle is bound on every live run_v3_voice module before the release
-    # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
-    # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
+    # Pixabay Provider Capacity V2 is search-result reuse only. Media Trust remains the
+    # authoritative byte/security boundary. Durable media is installed only AFTER it:
+    # cache manifests are authenticated, selected raw bytes are SHA256-bound back into
+    # Media Trust, and an authenticated prior Vision decision may be reused only when
+    # its narration/query/model/security/selection contract and exact raw bytes still
+    # match. M8 then wraps prepared-clip caching around its complete normalization +
+    # creative-grade path, so reuse cannot bypass the live color pipeline evidence.
     install_provider_capacity_v2()
     install_media_trust_boundary_v2()
     if str(os.environ.get("ISCO_MEDIA_CACHE_DIR") or "").strip():
+        install_media_cache_auth()
         install_media_durable_asset_cache()
+        install_media_durable_selection_resume()
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
