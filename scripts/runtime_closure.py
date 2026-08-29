@@ -15,7 +15,7 @@ from scripts.final_qc_observer_durability import (
     install_final_qc_observer_durability,
     run_groq_audio_audit_durable,
 )
-from scripts.groq_audio_audit import run_groq_audio_audit
+from scripts.groq_audio_audit import DEFAULT_AUDIO_MODEL, run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
@@ -156,13 +156,20 @@ def install_runtime_closure() -> None:
         install_runtime_persistence_wrapper(orchestrator)
 
 
+def _run_groq_audio_audit_compat(output_dir: Path, *, api_key: str | None, model: str = DEFAULT_AUDIO_MODEL) -> dict:
+    """Preserve the historical default-model call shape for tests and diagnostics."""
+    if model == DEFAULT_AUDIO_MODEL:
+        return run_groq_audio_audit(Path(output_dir), api_key=api_key)
+    return run_groq_audio_audit(Path(output_dir), api_key=api_key, model=model)
+
+
 def run_post_gold_observers(output_dir: Path) -> dict:
     """Run G1/G2 only after Gold has accepted the final render."""
     try:
         return run_groq_audio_audit_durable(
             Path(output_dir),
             api_key=_groq_key(),
-            original=run_groq_audio_audit,
+            original=_run_groq_audio_audit_compat,
         )
     except Exception as exc:
         print(
