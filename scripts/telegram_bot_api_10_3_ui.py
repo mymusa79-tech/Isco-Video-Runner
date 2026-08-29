@@ -192,7 +192,7 @@ def _send_with_bot_api_10_3(
 
 
 def install() -> None:
-    """Install Bot API 10.3 UX without changing authority or production semantics."""
+    """Install Bot API 10.3 UX and the read-only Channel OS UI junction."""
     if not hasattr(panel, "_ISCO_BOT_API_10_3_BASE_PANEL_TEXT"):
         panel._ISCO_BOT_API_10_3_BASE_PANEL_TEXT = panel._candidate_panel_text
         panel._candidate_panel_text = _candidate_panel_text
@@ -202,3 +202,12 @@ def install() -> None:
     if not hasattr(panel.TelegramClient, "_ISCO_BOT_API_10_3_BASE_ANSWER_CALLBACK"):
         panel.TelegramClient._ISCO_BOT_API_10_3_BASE_ANSWER_CALLBACK = panel.TelegramClient.answer_callback
         panel.TelegramClient.answer_callback = _remember_callback_query
+
+    # `_install_choice_clarity()` invokes this installer in both certified ingress
+    # modes: webhook replay and the webhook-inactive fallback poll. Installing the
+    # Channel OS read-only adapter here keeps those paths behaviorally identical
+    # without granting Channel OS any Telegram token, update ownership, or Production
+    # authority of its own.
+    from scripts import channel_os_telegram_adapter
+
+    channel_os_telegram_adapter.install()
