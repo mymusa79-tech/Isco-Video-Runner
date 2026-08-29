@@ -140,6 +140,31 @@ def _cache_group(contract_name: object) -> str | None:
     return None
 
 
+def _mark_cache_warm_from_observed_usage(provider_name: str, result: str) -> bool:
+    """Trust Groq cache accounting only after the response proves cached tokens.
+
+    Run132 showed that a successful request is not evidence of a prompt-cache hit. A
+    false warm marker let the next Writer request bypass a known-insufficient TPM
+    window. Groq exposes the authoritative cache evidence in
+    usage.prompt_tokens_details.cached_tokens, already captured in response metadata.
+    """
+    if not str(provider_name).startswith("groq") or result != "success":
+        return False
+    group = _cache_group(router._CURRENT_REQUEST_META.get("response_contract"))
+    model_name = _active_groq_model()
+    cached_tokens = router._last_call_response_meta.get("cached_tokens")
+    if (
+        group
+        and model_name in _CACHEABLE_GROQ_MODELS
+        and isinstance(cached_tokens, (int, float))
+        and not isinstance(cached_tokens, bool)
+        and cached_tokens > 0
+    ):
+        _WARM_CACHE_GROUPS.add((model_name, group))
+        return True
+    return False
+
+
 def _is_tpd_exhausted(error: BaseException | str) -> bool:
     lower = str(error).lower()
     return (
@@ -324,9 +349,8 @@ def install_run125_capacity_routing_closure() -> None:
 
     batching._call_capacity_aware_shard = cache_layout_shard
 
-    # 2) Expose cache-hit telemetry and warm a family after its first successful Groq
-    # call. Once warm, do not reject the next same-family call solely from a local
-    # full-prompt estimate; the provider is the authority on cached-token accounting.
+    # 2) Expose cache-hit telemetry and warm a family only after Groq itself proves a
+    # positive cached-token count. A successful request alone is not cache evidence.
     original_meta = router._extract_response_meta
 
     def cache_meta(body: dict, choice: dict) -> dict:
@@ -343,11 +367,7 @@ def install_run125_capacity_routing_closure() -> None:
     original_record = router._record_attempt
 
     def cache_record(provider_name: str, result: str, **kwargs) -> None:
-        if str(provider_name).startswith("groq") and result == "success":
-            group = _cache_group(router._CURRENT_REQUEST_META.get("response_contract"))
-            model_name = _active_groq_model()
-            if group and model_name in _CACHEABLE_GROQ_MODELS:
-                _WARM_CACHE_GROUPS.add((model_name, group))
+        _mark_cache_warm_from_observed_usage(provider_name, result)
         original_record(provider_name, result, **kwargs)
 
     router._record_attempt = cache_record
@@ -365,9 +385,9 @@ def install_run125_capacity_routing_closure() -> None:
         decision = capacity.groq_admission_decision(model, required)
 
         # Cached-token accounting may make a full local prompt estimate larger than the
-        # remaining minute window. Only bypass that WAIT state after this exact model /
-        # prompt family has demonstrated a successful cacheable call. Impossible or
-        # unavailable states still go through the canonical pacing owner and fail fast.
+        # remaining minute window. Bypass WAIT only after this exact model/family has a
+        # provider-reported positive cached_tokens observation. Impossible or unavailable
+        # states still go through the canonical pacing owner and fail fast.
         if (
             decision["action"] == "wait"
             and group
@@ -432,7 +452,7 @@ def install_run125_capacity_routing_closure() -> None:
     _INSTALLED = True
     print(
         "Run125 capacity routing closure installed: "
-        "writer_doctor_prefix_cache_layout=true groq_cache_authoritative_after_warm=true "
+        "writer_doctor_prefix_cache_layout=true groq_cache_authoritative_after_proven_hit=true "
         "groq_model_scoped_contract=true "
         "groq_model_pool=gpt-oss-20b->gpt-oss-120b->qwen3.8-27b "
         f"openrouter_preflight_blocked={str(_OPENROUTER_STRUCTURAL_BLOCKED).lower()}"
