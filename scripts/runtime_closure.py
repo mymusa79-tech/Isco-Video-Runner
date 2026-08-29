@@ -11,7 +11,6 @@ from scripts.audio_semantic_integrity import (
 )
 from scripts.cta_live_binding import install_cta_live_binding
 from scripts.groq_audio_audit import run_groq_audio_audit
-from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
@@ -89,17 +88,10 @@ def install_runtime_closure() -> None:
     """Install bounded production recovery plus cinematic and delivery stages."""
     runtime_active = canonical_runtime_enabled()
 
-    # Run130 closure: pre-production tests execute inside the same GitHub workflow and
-    # inherit its GITHUB_* identity, but they are not live runtime. Snapshot binding and
-    # durable persistence are runtime-only responsibilities and are activated explicitly
-    # by persistent_memory restore after pre-production certification has completed.
-    if runtime_active:
-        install_runtime_snapshot_binding()
-
     # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
-    # Planning-affecting composition now has one canonical seam. This call preserves the
-    # exact historical installer order while keeping media/audio/release code outside the
-    # durable planning contract hash.
+    # Planning-affecting composition now has one canonical seam, including immutable
+    # approved-input rebinding. This call preserves the exact historical installer order
+    # while keeping media/audio/release code outside the durable planning contract hash.
     install_runtime_planning_contracts()
 
     # Pixabay Provider Capacity V2 is search-result reuse only: it is installed before
