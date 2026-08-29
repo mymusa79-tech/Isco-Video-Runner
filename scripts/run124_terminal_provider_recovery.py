@@ -9,12 +9,19 @@ from scripts import provider_capacity_hardening as capacity
 
 # Run #124 proved that fast failover must not become fast failure. Run #125 then proved
 # the inverse risk: a bounded wait PER shard can still accumulate into minutes across a
-# long Writer/Doctor graph. Keep the edge-case recovery, but give it one run-wide retry
-# budget as recommended for overloaded distributed systems.
+# long Writer/Doctor graph. Keep the edge-case recovery bounded by both a per-recovery
+# cap and a run-wide cap. Run132 proved the previous 60-second run cap contradicted the
+# advertised three-recovery allowance: one legitimate ~49s reset made a second ~41s
+# reset impossible. The public contract is now literal: reported reset evidence up to
+# 60s remains recoverable, every actual recovery sleep is <=60s, at most three
+# recoveries are allowed, and the run-wide wait ceiling is 180s.
 _TERMINAL_RESET_LIMIT_SECONDS = 60.0
+_TERMINAL_WAIT_LIMIT_SECONDS = 60.0
 _RESET_SAFETY_SECONDS = 1.5
 _MAX_TERMINAL_RECOVERIES_PER_RUN = 3
-_MAX_TERMINAL_WAIT_SECONDS_PER_RUN = 60.0
+_MAX_TERMINAL_WAIT_SECONDS_PER_RUN = (
+    _TERMINAL_WAIT_LIMIT_SECONDS * _MAX_TERMINAL_RECOVERIES_PER_RUN
+)
 _RESET_RE = re.compile(r"reset_in=(\d+(?:\.\d+)?)s", flags=re.I)
 _MODEL_RE = re.compile(r"\bmodel=([^\s|]+)", flags=re.I)
 _RECOVERED_TERMINAL_SHARDS: set[tuple[str, tuple[str, ...], str]] = set()
@@ -106,7 +113,10 @@ def install_run124_terminal_provider_recovery() -> None:
             if remaining is None or key in _RECOVERED_TERMINAL_SHARDS:
                 raise
 
-            wait_seconds = remaining + _RESET_SAFETY_SECONDS
+            wait_seconds = min(
+                remaining + _RESET_SAFETY_SECONDS,
+                _TERMINAL_WAIT_LIMIT_SECONDS,
+            )
             if not _run_wait_budget_allows(wait_seconds):
                 print(
                     "Run124 terminal provider recovery skipped by run-wide retry budget: "
