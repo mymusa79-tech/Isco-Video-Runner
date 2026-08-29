@@ -381,12 +381,17 @@ def prepare_cache_for_persistence(root: Path) -> bool:
     if media_root.exists():
         try:
             from scripts.media_durable_cache import prepare_cache_for_persistence as prepare_media_cache
+            from scripts.media_search_durable_cache import (
+                prepare_cache_for_persistence as prepare_media_search_cache,
+            )
 
-            media_valid = bool(prepare_media_cache(media_root))
+            media_shot_valid = bool(prepare_media_cache(media_root))
+            media_search_valid = bool(prepare_media_search_cache(media_root))
+            media_valid = media_shot_valid or media_search_valid
         except Exception as exc:
             # Cache persistence is an optimization and must never turn a completed
             # production into a failure. Leave the Media namespace unsaved if its
-            # sanitizer cannot prove it safe.
+            # sanitizers cannot prove it safe.
             print(f"Media durable cache envelope sanitization skipped ({type(exc).__name__})")
             media_valid = False
 
