@@ -1,0 +1,196 @@
+name: Verify Production Stage Ladder
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: write
+
+jobs:
+  production-stage-ladder:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Initialize Stage Ladder runtime paths
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/production-stage-ladder"
+          mkdir -p "$root/evidence" "$root/video-50" "$root/staging"
+          {
+            echo "EVIDENCE_DIR=$root/evidence"
+            echo "BASELINE_DIR=$root/video-50"
+            echo "STAGING_DIR=$root/staging"
+            echo "CERTIFICATE_PATH=$root/stage-ladder-certification.json"
+          } >> "$GITHUB_ENV"
+
+      - name: Checkout exact Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Runner candidate
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+
+      - name: Resolve exact canonical Engine pin
+        id: engine_contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          text = Path('.github/workflows/produce-resilient-v4.yml').read_text(encoding='utf-8')
+          checkout = re.findall(r'^\s+ref:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          env_pin = re.findall(r'^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          if len(checkout) != 1 or len(env_pin) != 1 or checkout[0] != env_pin[0]:
+              raise SystemExit(f'Canonical V4 Engine pin mismatch: checkout={checkout} env={env_pin}')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as handle:
+              handle.write(f'engine_sha={checkout[0]}\n')
+          PY
+
+      - name: Checkout exact private Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ steps.engine_contract.outputs.engine_sha }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        env:
+          ENGINE_SHA: ${{ steps.engine_contract.outputs.engine_sha }}
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install current production dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg fonts-noto-core
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: P0 runtime environment state isolation
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python scripts/production_stage_ladder.py phase P0 --evidence-dir "$EVIDENCE_DIR"
+
+      - name: Certify Engine source after P0
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("stage_ladder_P0")'
+
+      - name: P1 planning provider routing capacity contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python scripts/production_stage_ladder.py phase P1 --evidence-dir "$EVIDENCE_DIR"
+
+      - name: Certify Engine source after P1
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("stage_ladder_P1")'
+
+      - name: P2 TTS voice and audio contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python scripts/production_stage_ladder.py phase P2 --evidence-dir "$EVIDENCE_DIR"
+
+      - name: Certify Engine source after P2
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("stage_ladder_P2")'
+
+      - name: P3 media visual security and cinematic contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python scripts/production_stage_ladder.py phase P3 --evidence-dir "$EVIDENCE_DIR"
+
+      - name: Certify Engine source after P3
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("stage_ladder_P3")'
+
+      - name: Fetch exact video-50 known-good baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$BASELINE_DIR"
+          gh release download video-50 --repo "$GITHUB_REPOSITORY" --pattern final.mp4 --dir "$BASELINE_DIR"
+          test -f "$BASELINE_DIR/final.mp4"
+          test "$(stat -c %s "$BASELINE_DIR/final.mp4")" = "239012306"
+          echo "143abdfb7b55f2269cab2c4634b68e7a99a5581ac08eceeccfb8cdda2ffdc742  $BASELINE_DIR/final.mp4" | sha256sum -c -
+
+      - name: P4 real video-50 current Final Master QC replay
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python scripts/production_stage_ladder.py phase P4 --evidence-dir "$EVIDENCE_DIR" --baseline "$BASELINE_DIR/final.mp4" --staging "$STAGING_DIR"
+
+      - name: P5 current Gold same-render replay
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python scripts/production_stage_ladder.py phase P5 --evidence-dir "$EVIDENCE_DIR" --staging "$STAGING_DIR"
+
+      - name: P6 current packaging delivery release dry replay
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python scripts/production_stage_ladder.py phase P6 --evidence-dir "$EVIDENCE_DIR" --staging "$STAGING_DIR"
+
+      - name: Certify P0-P6 same-SHA family closure
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: |
+          python scripts/production_stage_ladder.py certify --evidence-dir "$EVIDENCE_DIR" --output "$CERTIFICATE_PATH"
+          test "$(jq -r .runner_sha "$CERTIFICATE_PATH")" = "$CANDIDATE_SHA"
+          test "$(jq -r .engine_sha "$CERTIFICATE_PATH")" = "${{ steps.engine_contract.outputs.engine_sha }}"
+          test "$(jq -r .status "$CERTIFICATE_PATH")" = "green"
+          test "$(jq -r .production_dispatch_performed "$CERTIFICATE_PATH")" = "false"
+
+      - name: Final Engine source hermeticity
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("stage_ladder_final")'
+
+      - name: Publish exact-SHA Stage Ladder certification ref
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="stage-ladder-green-$CANDIDATE_SHA"
+          endpoint="repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"
+          if payload="$(gh api "$endpoint" 2>/dev/null)"; then
+            test "$(jq -r .object.type <<<"$payload")" = "commit"
+            test "$(jq -r .object.sha <<<"$payload")" = "$CANDIDATE_SHA"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$tag" \
+              -f sha="$CANDIDATE_SHA" >/dev/null
+          fi
+          echo "Published exact-SHA Stage Ladder certification: $tag"
+
+      - name: Upload exact-SHA Stage Ladder certificate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: production-stage-ladder-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/production-stage-ladder/stage-ladder-certification.json
+            ${{ runner.temp }}/production-stage-ladder/evidence/*.json
+          if-no-files-found: error
+          retention-days: 30
