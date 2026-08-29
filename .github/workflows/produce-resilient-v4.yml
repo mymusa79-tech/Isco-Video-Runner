@@ -252,7 +252,7 @@ jobs:
           OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
           PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
           PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
-          GEMINI_CONTENT_MODEL: gemini-2.5-flash
+          GEMINI_CONTENT_MODEL: gemini-3.7-flash
           GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
         run: |
           set -euo pipefail
@@ -309,7 +309,7 @@ jobs:
           TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
           REQUEST_FILE: ${{ runner.temp }}/isco-request.json
           PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
-          GEMINI_CONTENT_MODEL: gemini-2.5-flash
+          GEMINI_CONTENT_MODEL: gemini-3.7-flash
           GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
           TRENDS_GEO: SA
           YOUTUBE_REGION: SA
