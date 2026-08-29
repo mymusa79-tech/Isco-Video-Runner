@@ -7,13 +7,18 @@ import os
 import scripts.task_level_planner_router as router
 
 
-CHECKPOINT_SCHEMA_VERSION = 2
+# The router checkpoint document is consumed by planning_checkpoint_state_core, whose
+# authenticated persistence contract is schema version 1. Namespace evolution is a
+# separate concern: changing the namespace recipe must invalidate stale responses
+# without silently changing the durable document schema.
+CHECKPOINT_SCHEMA_VERSION = 1
+CHECKPOINT_NAMESPACE_SCHEMA_VERSION = 2
 _MARKER = "_isco_checkpoint_namespace_guard"
 
 
 def checkpoint_namespace() -> str:
     payload = {
-        "schema": CHECKPOINT_SCHEMA_VERSION,
+        "schema": CHECKPOINT_NAMESPACE_SCHEMA_VERSION,
         "runner_sha": (os.environ.get("GITHUB_SHA") or "local").strip(),
         "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "local").strip(),
         "planning_contract": "bounded-output-v2",
@@ -27,7 +32,9 @@ def install_checkpoint_namespace_guard() -> None:
 
     A retry of the same Runner+Engine revision may reuse the checkpoint. A code or
     Engine change gets a fresh namespace, so old valid-looking JSON cannot bypass new
-    validators or semantics after a deployment.
+    validators or semantics after a deployment. The namespace recipe version is kept
+    independent from the durable checkpoint document version so both live layers share
+    one explicit contract.
     """
     current_load = router._load_checkpoint
     current_save = router._save_checkpoint
