@@ -13,6 +13,7 @@ import isco_video_agent.resilient_planner as staged
 import scripts.gold_enforce_phase4 as gold_phase4
 import scripts.gold_single_evaluator_phase3 as gold_phase3
 import scripts.gold_thumbnail_budget as thumbnail_budget
+import scripts.planning_runtime_contract as planning_contract
 import scripts.run_v3_voice as runner
 import scripts.task_level_planner_router as router
 import scripts.voice_mesh as voice_mesh
@@ -61,20 +62,36 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
     def test_all_runtime_adapters_install_before_the_core_production_call(self) -> None:
         source = _main_source()
         production = source.index("orchestrator.produce(")
-        installers = (
+        entrypoint_adapters = (
+            "install_entrypoint_planning_contracts()",
+            "install_runtime_closure()",
+            "install_post_runtime_planning_contracts()",
+            "install_voice_mesh()",
+            "install_voice_identity_observer()",
+            "install_m7_live_binding()",
+            "install_opening_feasibility_guard()",
+            "install_progress_hooks()",
+        )
+        for installer in entrypoint_adapters:
+            with self.subTest(installer=installer):
+                self.assertLess(source.index(installer), production)
+
+        entrypoint_planning = inspect.getsource(planning_contract.install_entrypoint_planning_contracts)
+        post_runtime_planning = inspect.getsource(planning_contract.install_post_runtime_planning_contracts)
+        for installer in (
             "install_schema_guard()",
             "install_router()",
             "install_planner_quality_guard()",
             "install_append_retry_guard()",
+        ):
+            with self.subTest(planning_installer=installer):
+                self.assertIn(installer, entrypoint_planning)
+        for installer in (
             "install_brand_anchor_guard()",
             "install_product_proof_fallback()",
-            "install_voice_mesh()",
-            "install_voice_identity_observer()",
-            "install_progress_hooks()",
-        )
-        for installer in installers:
-            with self.subTest(installer=installer):
-                self.assertLess(source.index(installer), production)
+        ):
+            with self.subTest(post_runtime_planning_installer=installer):
+                self.assertIn(installer, post_runtime_planning)
 
     def test_one_runner_ledger_is_forwarded_to_core_and_gold_enforcer(self) -> None:
         calls = _calls_in_main()
