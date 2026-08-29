@@ -8,10 +8,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from scripts import durable_stage_cache as stage_cache
 from scripts import media_durable_cache as durable
 from scripts import media_search_durable_cache as media_search
 from scripts import media_trust_boundary_v2 as trust
-from scripts import tts_durable_cache as tts_cache
 
 
 class MediaDurableCacheContractTests(unittest.TestCase):
@@ -68,7 +68,7 @@ class MediaDurableCacheContractTests(unittest.TestCase):
                     ),
                     encoding="utf-8",
                 )
-                self.assertTrue(tts_cache.prepare_cache_for_persistence(root / "stage-cache"))
+                self.assertTrue(stage_cache.prepare_cache_for_persistence(root / "stage-cache"))
                 self.assertTrue(target.is_file())
 
     def test_reset_never_resurrects_an_external_test_patch_after_context_exit(self) -> None:
