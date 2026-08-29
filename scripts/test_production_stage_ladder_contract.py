@@ -4,18 +4,15 @@ import json
 import unittest
 from pathlib import Path
 
-from scripts.production_stage_ladder import (
-    BASELINE_SHA256,
-    BASELINE_SIZE,
-    PHASES,
-    PHASE_TESTS,
-)
-
+from scripts.production_stage_ladder import BASELINE_SHA256, BASELINE_SIZE, PHASES, PHASE_TESTS
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTER = ROOT / "scripts" / "production_family_closure.json"
 LADDER_WORKFLOW = ROOT / ".github" / "workflows" / "verify-production-stage-ladder.yml"
 PRODUCTION_WORKFLOW = ROOT / ".github" / "workflows" / "produce-resilient-v4.yml"
+ENVIRONMENT_PREFLIGHT = ROOT / "scripts" / "environment_preflight.py"
+CHECKPOINT_WRAPPER = ROOT / "scripts" / "planning_checkpoint_state.py"
+CHECKPOINT_CORE = ROOT / "scripts" / "planning_checkpoint_state_core.py"
 RELIABILITY_MATRIX = ROOT / "scripts" / "reliability_failure_matrix.json"
 
 
@@ -72,7 +69,7 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             for module in family["contracts"]:
                 self.assertTrue(_module_path(module).is_file(), f"{family['id']} missing {module}")
 
-    def test_ladder_workflow_replays_real_baseline_sequentially_without_dispatch(self) -> None:
+    def test_ladder_replays_video50_in_phase_order_and_never_dispatches_production(self) -> None:
         text = LADDER_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("push:\n    branches: [\"main\"]", text)
         self.assertIn("pull_request:\n    branches: [\"main\"]", text)
@@ -86,18 +83,39 @@ class ProductionStageLadderContractTests(unittest.TestCase):
         self.assertNotIn("workflow_call:", text)
         self.assertNotIn("repository_dispatch", text)
 
-    def test_production_requires_same_sha_ladder_before_provider_secrets(self) -> None:
-        text = PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("actions: read", text)
-        marker = "Require exact-SHA Production Stage Ladder certification"
+    def test_only_green_main_push_can_publish_exact_sha_certification_ref(self) -> None:
+        text = LADDER_WORKFLOW.read_text(encoding="utf-8")
+        marker = "Publish exact-SHA Stage Ladder certification ref"
         self.assertIn(marker, text)
-        gate = text.index(marker)
-        provider = text.index("Materialize approved production secrets")
-        self.assertLess(gate, provider)
-        self.assertIn("verify-production-stage-ladder.yml", text[gate:provider])
-        self.assertIn("GITHUB_SHA", text[gate:provider])
-        self.assertIn("conclusion", text[gate:provider])
-        self.assertIn("success", text[gate:provider])
+        tail = text[text.index(marker):]
+        self.assertIn("github.event_name == 'push'", tail)
+        self.assertIn("github.ref == 'refs/heads/main'", tail)
+        self.assertIn('tag="stage-ladder-green-$CANDIDATE_SHA"', tail)
+        self.assertIn('-f sha="$CANDIDATE_SHA"', tail)
+
+    def test_production_preflight_requires_exact_sha_ladder_before_provider_secrets(self) -> None:
+        production = PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
+        self.assertLess(
+            production.index("Verify production environment and release namespace"),
+            production.index("Materialize approved production secrets"),
+        )
+        preflight = ENVIRONMENT_PREFLIGHT.read_text(encoding="utf-8")
+        self.assertIn("runtime_phase import canonical_runtime_enabled", preflight)
+        self.assertIn("require_exact_sha_stage_ladder(", preflight)
+        self.assertIn('sha=os.environ.get("GITHUB_SHA")', preflight)
+        self.assertLess(
+            preflight.index("require_exact_sha_stage_ladder("),
+            preflight.index("materialize_runtime_github_token(token)"),
+        )
+
+    def test_legacy_checkpoint_runtime_identity_is_inert_behind_explicit_wrapper(self) -> None:
+        wrapper = CHECKPOINT_WRAPPER.read_text(encoding="utf-8")
+        core = CHECKPOINT_CORE.read_text(encoding="utf-8")
+        self.assertIn("runtime_phase import canonical_runtime_enabled as _canonical_runtime_enabled", wrapper)
+        self.assertIn("_core.canonical_runtime_enabled = _canonical_runtime_enabled", wrapper)
+        self.assertIn("def canonical_runtime_enabled()", core)
+        self.assertNotIn("GITHUB_WORKFLOW_REF", wrapper)
+        self.assertNotIn("GITHUB_EVENT_NAME", wrapper)
 
     def test_provider_capacity_policy_has_no_stale_fixed_groq_tpm_truth(self) -> None:
         data = json.loads(RELIABILITY_MATRIX.read_text(encoding="utf-8"))
