@@ -24,6 +24,7 @@ from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.planning_batch_hardening import install_planning_batch_hardening
+from scripts.planning_cache_authority import install_planning_cache_authority
 from scripts.product_proof_plan import install_product_proof_fallback
 from scripts.provider_capacity_hardening import install_provider_capacity_hardening
 from scripts.run120_dossier_repair_hardening import install_run120_dossier_repair_hardening
@@ -53,6 +54,9 @@ def install_entrypoint_planning_contracts() -> None:
     install_planner_quality_guard()
     install_attempt9_schema_normalizer()
     install_append_retry_guard()
+    # Cache authority is deliberately outermost for this lifecycle phase: provider
+    # results are validated before write and restored hits are revalidated before use.
+    install_planning_cache_authority()
 
 
 def install_runtime_planning_contracts() -> None:
@@ -76,9 +80,15 @@ def install_runtime_planning_contracts() -> None:
     # work. This stays in the planning seam because it checks the live routing/capacity
     # composition that determines whether a checkpoint can be safely continued.
     certify_runtime_patch_contracts()
+    # Re-assert read-side authority after runtime wrappers in case one replaced
+    # resilient_planner.json_text after the entrypoint phase.
+    install_planning_cache_authority()
 
 
 def install_post_runtime_planning_contracts() -> None:
     """Install plan-level guards/fallbacks that historically follow runtime_closure."""
     install_brand_anchor_guard()
     install_product_proof_fallback()
+    # Final idempotent assertion keeps the authority wrapper outermost across the whole
+    # canonical planning seam without altering provider/retry ownership.
+    install_planning_cache_authority()
