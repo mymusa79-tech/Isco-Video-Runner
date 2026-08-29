@@ -10,6 +10,12 @@ from unittest import mock
 from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
 from scripts import telegram_webhook_replay as replay
+from scripts.orchestration_telegram_ingress_outbox import (
+    ApprovalDecision,
+    ReleaseCandidateDigest,
+    TelegramControlContractError,
+)
+from scripts.telegram_release_approval import callback_data_for
 
 
 def _state(path: Path) -> None:
@@ -37,6 +43,36 @@ def _update(update_id: int = 101) -> dict:
             "data": "cmd:menu",
         },
     }
+
+
+def _candidate() -> ReleaseCandidateDigest:
+    return ReleaseCandidateDigest(
+        run_id="run-1",
+        final_mp4_sha256="a" * 64,
+        delivery_manifest_sha256="b" * 64,
+        capability_manifest_sha256="c" * 64,
+        release_asset_set_digest="d" * 64,
+    )
+
+
+def _release_update(update_id: int = 201, *, user_id: int = 88, chat_id: int = 77) -> dict:
+    return {
+        "update_id": update_id,
+        "callback_query": {
+            "id": f"approval-{update_id}",
+            "from": {"id": user_id},
+            "message": {"message_id": 99, "chat": {"id": chat_id}},
+            "data": callback_data_for(_candidate(), ApprovalDecision.APPROVED),
+        },
+    }
+
+
+def _secret(name: str, *, required: bool = False) -> str:
+    values = {
+        "TELEGRAM_ALLOWED_USER_ID_FILE": "88",
+        "TELEGRAM_CHAT_ID_FILE": "77",
+    }
+    return values.get(name, "")
 
 
 class TelegramWebhookReplayTests(unittest.TestCase):
@@ -109,6 +145,53 @@ class TelegramWebhookReplayTests(unittest.TestCase):
                 self.assertTrue(replay.replay_update(path, _update(104)))
             saved = panel.load_state(path)
             self.assertEqual(saved[replay.SEEN_UPDATES_KEY], [105, 104])
+
+    def test_release_approval_only_consumes_approval_without_legacy_poll(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            _state(path)
+            with mock.patch.object(panel, "_read_secret_file", side_effect=_secret), \
+                 mock.patch.object(active, "_poll") as poll:
+                self.assertTrue(replay.replay_release_approval_only(path, _release_update()))
+            poll.assert_not_called()
+            state = panel.load_state(path)
+            self.assertEqual(state[replay.SEEN_UPDATES_KEY], [201])
+            self.assertEqual(len(state["release_approval_receipts"]), 1)
+
+    def test_release_approval_only_rejects_non_release_command_without_marking_seen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            _state(path)
+            with mock.patch.object(panel, "_read_secret_file", side_effect=_secret), \
+                 mock.patch.object(active, "_poll") as poll:
+                self.assertFalse(replay.replay_release_approval_only(path, _update(202)))
+            poll.assert_not_called()
+            state = panel.load_state(path)
+            self.assertNotIn(replay.SEEN_UPDATES_KEY, state)
+            self.assertNotIn("release_approval_receipts", state)
+
+    def test_release_approval_only_fails_closed_for_unauthorized_actor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            _state(path)
+            with mock.patch.object(panel, "_read_secret_file", side_effect=_secret), \
+                 self.assertRaises(TelegramControlContractError):
+                replay.replay_release_approval_only(path, _release_update(user_id=999))
+            state = panel.load_state(path)
+            self.assertNotIn(replay.SEEN_UPDATES_KEY, state)
+            self.assertNotIn("release_approval_receipts", state)
+
+    def test_release_approval_only_duplicate_update_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            _state(path)
+            update = _release_update(203)
+            with mock.patch.object(panel, "_read_secret_file", side_effect=_secret):
+                self.assertTrue(replay.replay_release_approval_only(path, update))
+                first = panel.load_state(path)
+                self.assertTrue(replay.replay_release_approval_only(path, update))
+            second = panel.load_state(path)
+            self.assertEqual(first, second)
 
 
 if __name__ == "__main__":
