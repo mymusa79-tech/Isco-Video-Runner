@@ -188,20 +188,19 @@ class RenderDurableCacheTests(unittest.TestCase):
             def mux(*args, **kwargs):
                 del args, kwargs
 
-            with patch.dict(os.environ, self._env(root), clear=False), patch.object(
-                render, "_ffmpeg_identity", return_value=_FFMPEG_A
-            ):
-                base = render._final_binding(video, narration, mux, None, {"target_lufs": -16.0})
-                future_kw = render._final_binding(
-                    video,
-                    narration,
-                    mux,
-                    None,
-                    {"target_lufs": -16.0, "future_semantic_knob": 1},
-                )
-                self.assertNotEqual(render._binding_hash(base), render._binding_hash(future_kw))
-            with patch.object(render, "_ffmpeg_identity", return_value=_FFMPEG_B):
-                changed_runtime = render._final_binding(video, narration, mux, None, {"target_lufs": -16.0})
+            with patch.dict(os.environ, self._env(root), clear=False):
+                with patch.object(render, "_ffmpeg_identity", return_value=_FFMPEG_A):
+                    base = render._final_binding(video, narration, mux, None, {"target_lufs": -16.0})
+                    future_kw = render._final_binding(
+                        video,
+                        narration,
+                        mux,
+                        None,
+                        {"target_lufs": -16.0, "future_semantic_knob": 1},
+                    )
+                    self.assertNotEqual(render._binding_hash(base), render._binding_hash(future_kw))
+                with patch.object(render, "_ffmpeg_identity", return_value=_FFMPEG_B):
+                    changed_runtime = render._final_binding(video, narration, mux, None, {"target_lufs": -16.0})
             self.assertNotEqual(render._binding_hash(base), render._binding_hash(changed_runtime))
 
     def test_m9_pair_cache_skips_only_expensive_xfade_pair_not_m9_policy(self) -> None:
