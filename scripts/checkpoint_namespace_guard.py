@@ -7,10 +7,10 @@ import os
 import scripts.task_level_planner_router as router
 
 
-# The router checkpoint document is consumed by planning_checkpoint_state_core, whose
-# authenticated persistence contract is schema version 1. Namespace evolution is a
-# separate concern: changing the namespace recipe must invalidate stale responses
-# without silently changing the durable document schema.
+# The router checkpoint document is consumed by the authenticated durable-persistence
+# layer, whose document contract is schema version 1. Namespace evolution is a separate
+# concern: changing the namespace recipe must invalidate stale responses without
+# silently changing the durable document schema.
 CHECKPOINT_SCHEMA_VERSION = 1
 CHECKPOINT_NAMESPACE_SCHEMA_VERSION = 2
 _MARKER = "_isco_checkpoint_namespace_guard"
