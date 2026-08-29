@@ -142,10 +142,32 @@ def test_l4_does_not_register_planning_but_registry_seam_accepts_future_l5_adapt
     assert "planning" not in registry.stage_ids()
     registry.register_provider(
         "future-l5-adapter",
-        lambda: (_base(stage_id="planning", contract_id="planning-stage-from-canonical-adapter-v1"),),
+        lambda: (
+            _base(
+                stage_id="planning.editorial_outline",
+                contract_id="planning.editorial_outline.v1",
+            ),
+        ),
     )
     registry.load_provider("future-l5-adapter")
-    assert registry.get("planning").contract_id == "planning-stage-from-canonical-adapter-v1"
+    assert registry.get("planning.editorial_outline").contract_id == "planning.editorial_outline.v1"
+
+
+def test_canonical_dotted_planning_stage_ids_are_valid_without_rewriting_identity():
+    contract = _base(
+        stage_id="planning.append_only_repair",
+        contract_id="planning.append_only_repair.exact.v1",
+    )
+    assert contract.stage_id == "planning.append_only_repair"
+
+
+@pytest.mark.parametrize(
+    "stage_id",
+    (".planning", "planning.", "planning..outline", "Planning.outline", "planning.-outline"),
+)
+def test_malformed_dotted_stage_ids_are_rejected(stage_id):
+    with pytest.raises(StageRegistryError, match="invalid stage_id"):
+        _base(stage_id=stage_id)
 
 
 def test_provider_plugin_is_atomic_on_duplicate_conflict():
