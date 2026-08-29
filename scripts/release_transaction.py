@@ -186,7 +186,7 @@ def _view_if_exists(tag: str, repository: str, *, run: Run) -> dict | None:
     raise RuntimeError("could not prove GitHub Release absence during reconciliation")
 
 
-def _receipt_asset_map(value: object, *, tag: str, target_sha: str) -> dict[str, dict[str, object]]:
+def _receipt_asset_map(value: object) -> dict[str, dict[str, object]]:
     if not isinstance(value, dict):
         raise RuntimeError("published Release receipt asset map is malformed")
     normalized: dict[str, dict[str, object]] = {}
@@ -210,7 +210,7 @@ def _download_and_verify_receipt(
     repository: str,
     target_sha: str,
     run: Run,
-) -> dict[str, dict[str, object]]:
+) -> tuple[dict[str, dict[str, object]], dict[str, dict[str, object]]]:
     remote = _remote_assets(payload, tag=tag, target_sha=target_sha)
     receipt_identity = remote.get(RECEIPT_NAME)
     if not isinstance(receipt_identity, dict):
@@ -242,11 +242,11 @@ def _download_and_verify_receipt(
         raise RuntimeError("published Release reconciliation receipt schema is unsupported")
     if receipt.get("tag") != tag or str(receipt.get("target_sha") or "").strip().lower() != target_sha:
         raise RuntimeError("published Release reconciliation receipt identity does not match current transaction")
-    receipt_assets = _receipt_asset_map(receipt.get("assets"), tag=tag, target_sha=target_sha)
+    receipt_assets = _receipt_asset_map(receipt.get("assets"))
     remote_payload = {name: identity for name, identity in remote.items() if name != RECEIPT_NAME}
     if remote_payload != receipt_assets:
         raise RuntimeError("published Release assets drifted from their durable reconciliation receipt")
-    return receipt_assets
+    return receipt_assets, remote
 
 
 def _assert_current_media_matches_receipt(
@@ -334,18 +334,24 @@ def publish_release_transaction(
     )
     transaction_assets = [*assets, receipt_path]
     expected = _expected_assets(transaction_assets)
-    expected_digests = {name: str(identity["digest"]) for name, identity in expected.items()}
 
-    def record(state: str, *, verified: int = 0, detail: str = "") -> None:
+    def record(
+        state: str,
+        *,
+        verified: int = 0,
+        detail: str = "",
+        identities: dict[str, dict[str, object]] | None = None,
+    ) -> None:
+        evidence = expected if identities is None else identities
         _write_journal(
             journal,
             ReleaseState(
                 state=state,
                 tag=tag,
-                assets_expected=len(transaction_assets),
+                assets_expected=len(evidence),
                 assets_verified=verified,
                 target_sha=target_sha,
-                asset_digests=expected_digests,
+                asset_digests={name: str(identity["digest"]) for name, identity in evidence.items()},
                 detail=detail,
             ),
         )
@@ -373,7 +379,7 @@ def publish_release_transaction(
         is_draft = existing.get("isDraft")
         if is_draft is False:
             try:
-                receipt_assets = _download_and_verify_receipt(
+                receipt_assets, remote_identities = _download_and_verify_receipt(
                     existing,
                     tag=tag,
                     repository=repository,
@@ -386,8 +392,9 @@ def publish_release_transaction(
                 raise
             record(
                 "complete",
-                verified=len(receipt_assets) + 1,
+                verified=len(remote_identities),
                 detail="reconciled_existing_published_receipt",
+                identities=remote_identities,
             )
             return
         if is_draft is not True:
