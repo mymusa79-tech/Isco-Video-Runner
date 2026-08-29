@@ -22,6 +22,7 @@ from scripts.planning_batch_hardening import install_planning_batch_hardening
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
+from scripts.production_model_contract import install_production_model_contract
 from scripts.provider_capacity_hardening import install_provider_capacity_hardening
 from scripts.run120_dossier_repair_hardening import install_run120_dossier_repair_hardening
 from scripts.run120_schema_policy_bridge import install_run120_schema_policy_bridge
@@ -203,6 +204,9 @@ def _attach_observer_evidence_to_telemetry(
 
 
 def main() -> None:
+    # Runner is the sole V4 production authority for the concrete provider models.
+    # Install and prove that contract before any capacity/retry policy or provider work.
+    install_production_model_contract(orchestrator)
     # Install the recalculated run-wide envelope before any production BudgetLedger is
     # constructed. This closes the stale 42/34 policy from the pre-Gold production graph.
     install_run123_budget_closure()
