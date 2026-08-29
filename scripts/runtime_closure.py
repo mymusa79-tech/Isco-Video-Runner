@@ -22,6 +22,7 @@ from scripts.narrative_music_dynamics import install_narrative_music_dynamics
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
 from scripts.planning_runtime_contract import install_runtime_planning_contracts
 from scripts.provider_capacity_v2 import install_provider_capacity_v2
+from scripts.render_durable_cache import install_render_durable_cache
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
@@ -106,11 +107,12 @@ def install_runtime_closure() -> None:
     # of leaving a tested-but-bypassed static wrapper. Pexels metadata remains last in
     # the media group so both providers can resume search work without changing provider
     # order, AI budgets, or retry ownership.
-    # Audio Semantic Integrity is deliberately installed before Audio Mastering/SFX
-    # wrappers: at runtime its inner scope sees and wraps those already-active live
-    # transforms, binding the exact approved transcript/audio chain without replacing
-    # them. The final enforcing check is attached to Final Master QC only after every
-    # runtime wrapper has been installed.
+    # Audio Semantic Integrity is installed before Render durability. Render is then
+    # installed before Mastering/SFX/M8/M9/M10/CTA. At runtime those later scopes activate
+    # first, so Render wraps the actual live cinematic mux/M9 seams, while Audio Semantic
+    # Integrity activates inside Render and becomes the final outer mux authority. A
+    # durable final hit therefore still receives a fresh narration/final binding and
+    # current Final Master QC; Render never bypasses Audio Semantic Integrity.
     # Canonical bundle is bound on every live run_v3_voice module before the release
     # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
@@ -121,6 +123,7 @@ def install_runtime_closure() -> None:
     install_media_search_durable_cache()
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
+    install_render_durable_cache()
     install_audio_mastering_live_binding()
     install_sfx_live_binding()
     install_m8_live_binding()
