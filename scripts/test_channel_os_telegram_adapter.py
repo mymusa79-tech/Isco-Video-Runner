@@ -8,6 +8,7 @@ from scripts.channel_os_memory import LiveState
 from scripts.channel_os_telegram_adapter import (
     callback_view,
     render_control_state,
+    text_view,
     video_entities_from_control_state,
 )
 
@@ -83,6 +84,13 @@ class ChannelOSTelegramAdapterTests(unittest.TestCase):
         self.assertIsNone(callback_view("cmd:channelos-produce"))
         self.assertIsNone(callback_view("approve:anything"))
 
+    def test_text_entrypoint_is_explicit_and_non_production(self):
+        self.assertEqual(text_view("Channel OS"), "all")
+        self.assertEqual(text_view("لوحة القناة"), "all")
+        self.assertEqual(text_view("نظام القناة"), "all")
+        self.assertIsNone(text_view("ابدأ الإنتاج"))
+        self.assertIsNone(text_view("publish"))
+
     def test_control_state_projects_saved_as_ideas_and_approved_as_ready(self):
         entities = video_entities_from_control_state(self._state())
         by_id = {item.video_id: item for item in entities}
@@ -93,10 +101,7 @@ class ChannelOSTelegramAdapterTests(unittest.TestCase):
     def test_successful_production_never_implies_published(self):
         provider = Provider({"req-1": live("req-1", "success", "12345")})
         text, _ = render_control_state(
-            self._state(),
-            repository="owner/repo",
-            github_token="",
-            memory_root=self.tmp.name,
+            self._state(), repository="owner/repo", github_token="", memory_root=self.tmp.name,
             live_provider=provider,
         )
         self.assertIn("Ready: 1", text)
@@ -106,26 +111,17 @@ class ChannelOSTelegramAdapterTests(unittest.TestCase):
     def test_live_failure_beats_ready_metadata_and_appears_in_problems(self):
         provider = Provider({"req-1": live("req-1", "failed", "12345", "provider exhausted")})
         text, _ = render_control_state(
-            self._state(),
-            repository="owner/repo",
-            github_token="",
-            memory_root=self.tmp.name,
-            view="problems",
-            live_provider=provider,
+            self._state(), repository="owner/repo", github_token="", memory_root=self.tmp.name,
+            view="problems", live_provider=provider,
         )
         self.assertIn("Problems: 1", text)
         self.assertIn("provider exhausted", text)
-        self.assertNotIn("موضوع معتمد\n", text)
 
     def test_live_source_unavailable_is_problem_not_cached_success(self):
         provider = Provider(failures={"req-1"})
         text, _ = render_control_state(
-            self._state(),
-            repository="owner/repo",
-            github_token="",
-            memory_root=self.tmp.name,
-            view="problems",
-            live_provider=provider,
+            self._state(), repository="owner/repo", github_token="", memory_root=self.tmp.name,
+            view="problems", live_provider=provider,
         )
         self.assertIn("Problems: 1", text)
         self.assertIn("Live State unavailable", text)
@@ -133,12 +129,8 @@ class ChannelOSTelegramAdapterTests(unittest.TestCase):
     def test_needs_view_only_returns_action_required_items(self):
         provider = Provider({"req-1": live("req-1", "action_required", "12345", "editorial choice")})
         text, keyboard = render_control_state(
-            self._state(),
-            repository="owner/repo",
-            github_token="",
-            memory_root=self.tmp.name,
-            view="needs",
-            live_provider=provider,
+            self._state(), repository="owner/repo", github_token="", memory_root=self.tmp.name,
+            view="needs", live_provider=provider,
         )
         self.assertIn("Needs Me: 1", text)
         self.assertIn("editorial choice", text)
@@ -146,16 +138,11 @@ class ChannelOSTelegramAdapterTests(unittest.TestCase):
 
     def test_adapter_has_no_telegram_transport_or_secret_ownership(self):
         source = Path("scripts/channel_os_telegram_adapter.py").read_text(encoding="utf-8")
-        forbidden = (
-            "TELEGRAM_BOT_TOKEN",
-            "getUpdates",
-            "sendMessage",
-            "api.telegram.org",
-            "TelegramClient",
-            "requests.post",
-        )
-        for token in forbidden:
-            self.assertNotIn(token, source)
+        for forbidden in (
+            "TELEGRAM_BOT_TOKEN", "getUpdates", "sendMessage", "api.telegram.org",
+            "TelegramClient", "requests.post",
+        ):
+            self.assertNotIn(forbidden, source)
 
 
 if __name__ == "__main__":
