@@ -8,7 +8,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.orchestration_telegram_ingress_outbox import OutboxStatus, TelegramControlContractError
-from scripts.telegram_outbox_runtime import STATE_KEY, begin_send, enqueue, send_current
+from scripts.telegram_outbox_runtime import (
+    STATE_KEY,
+    begin_send,
+    enqueue,
+    reconcile_absent,
+    reconcile_sent,
+    send_current,
+)
 
 UTC = "2026-08-29T20:00:00+00:00"
 
@@ -67,6 +74,14 @@ class TelegramOutboxRuntimeTests(unittest.TestCase):
         state = json.loads(self.state.read_text(encoding="utf-8"))
         return state[STATE_KEY]["release-approval-1"]
 
+    def _make_reconciliation_required(self) -> None:
+        with patch.dict(os.environ, self.env, clear=False):
+            enqueue(self.state, self.request)
+            begin_send(self.state, "release-approval-1")
+            recovered, allowed = begin_send(self.state, "release-approval-1")
+        self.assertFalse(allowed)
+        self.assertEqual(recovered.status, OutboxStatus.RECONCILIATION_REQUIRED)
+
     def test_enqueue_persists_pending_before_send(self) -> None:
         with patch.dict(os.environ, self.env, clear=False):
             message = enqueue(self.state, self.request)
@@ -95,13 +110,48 @@ class TelegramOutboxRuntimeTests(unittest.TestCase):
         self.assertEqual(self._state_record()["message"]["status"], "SENDING")
 
     def test_restart_from_sending_becomes_reconciliation_required_and_never_resends(self) -> None:
-        with patch.dict(os.environ, self.env, clear=False):
-            enqueue(self.state, self.request)
-            begin_send(self.state, "release-approval-1")
+        self._make_reconciliation_required()
+        with patch("scripts.telegram_outbox_runtime.requests.post") as post:
             recovered, allowed = begin_send(self.state, "release-approval-1")
         self.assertFalse(allowed)
         self.assertEqual(recovered.status, OutboxStatus.RECONCILIATION_REQUIRED)
-        self.assertEqual(self._state_record()["message"]["status"], "RECONCILIATION_REQUIRED")
+        post.assert_not_called()
+
+    def test_reconcile_sent_requires_provider_message_id_and_never_calls_telegram(self) -> None:
+        self._make_reconciliation_required()
+        with patch("scripts.telegram_outbox_runtime.requests.post") as post:
+            with self.assertRaises(TelegramControlContractError):
+                reconcile_sent(self.state, "release-approval-1", "")
+            sent = reconcile_sent(self.state, "release-approval-1", "777")
+        post.assert_not_called()
+        self.assertEqual(sent.status, OutboxStatus.SENT)
+        self.assertEqual(sent.telegram_message_id, "777")
+        self.assertEqual(self._state_record()["message"]["status"], "SENT")
+
+    def test_reconcile_absent_returns_pending_without_provider_call_then_retry_is_explicit(self) -> None:
+        self._make_reconciliation_required()
+        with patch("scripts.telegram_outbox_runtime.requests.post") as post:
+            pending = reconcile_absent(
+                self.state,
+                "release-approval-1",
+                next_retry_at="2026-08-29T20:05:00+00:00",
+            )
+        post.assert_not_called()
+        self.assertEqual(pending.status, OutboxStatus.PENDING)
+        self.assertEqual(pending.next_retry_at, "2026-08-29T20:05:00+00:00")
+        with patch.dict(os.environ, self.env, clear=False):
+            sending, allowed = begin_send(self.state, "release-approval-1")
+        self.assertTrue(allowed)
+        self.assertEqual(sending.status, OutboxStatus.SENDING)
+        self.assertEqual(sending.attempts, 2)
+
+    def test_reconciliation_commands_refuse_non_ambiguous_state(self) -> None:
+        with patch.dict(os.environ, self.env, clear=False):
+            enqueue(self.state, self.request)
+        with self.assertRaises(TelegramControlContractError):
+            reconcile_sent(self.state, "release-approval-1", "777")
+        with self.assertRaises(TelegramControlContractError):
+            reconcile_absent(self.state, "release-approval-1")
 
     def test_send_marks_sent_only_after_provider_message_id(self) -> None:
         response = type(
