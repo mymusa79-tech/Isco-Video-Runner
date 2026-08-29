@@ -107,12 +107,13 @@ def install_runtime_closure() -> None:
     # of leaving a tested-but-bypassed static wrapper. Pexels metadata remains last in
     # the media group so both providers can resume search work without changing provider
     # order, AI budgets, or retry ownership.
-    # Audio Semantic Integrity is installed before Render durability. Render is then
-    # installed before Mastering/SFX/M8/M9/M10/CTA. At runtime those later scopes activate
-    # first, so Render wraps the actual live cinematic mux/M9 seams, while Audio Semantic
-    # Integrity activates inside Render and becomes the final outer mux authority. A
-    # durable final hit therefore still receives a fresh narration/final binding and
-    # current Final Master QC; Render never bypasses Audio Semantic Integrity.
+    # Render durability is deliberately installed only after the live M9/M10/CTA produce
+    # wrappers have been registered, but immediately before Narrative Music Dynamics
+    # wraps the global mux. It patches only M9's expensive xfade-pair renderer,
+    # orchestrator.burn_srt, and the underlying Engine mux. Consequently every SFX/M10/
+    # CTA/Narrative wrapper still executes on a durable final hit and writes fresh reports.
+    # Audio Semantic Integrity was registered earlier and remains the outer runtime mux
+    # authority; current Engine QC probes every restored final before it stays durable.
     # Canonical bundle is bound on every live run_v3_voice module before the release
     # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
@@ -123,13 +124,13 @@ def install_runtime_closure() -> None:
     install_media_search_durable_cache()
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
-    install_render_durable_cache()
     install_audio_mastering_live_binding()
     install_sfx_live_binding()
     install_m8_live_binding()
     install_m9_live_binding()
     install_m10_live_binding()
     install_cta_live_binding()
+    install_render_durable_cache()
     install_narrative_music_dynamics()
     install_canonical_v4_bundle_post_manifest()
     install_release_transaction_guard()
