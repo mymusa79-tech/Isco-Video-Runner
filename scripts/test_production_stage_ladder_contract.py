@@ -83,6 +83,15 @@ class ProductionStageLadderContractTests(unittest.TestCase):
         self.assertNotIn("workflow_call:", text)
         self.assertNotIn("repository_dispatch", text)
 
+    def test_runtime_temp_paths_are_initialized_inside_a_step(self) -> None:
+        text = LADDER_WORKFLOW.read_text(encoding="utf-8")
+        job_header = text.split("    steps:", 1)[0]
+        self.assertNotIn("${{ runner.temp }}", job_header)
+        self.assertIn("Initialize Stage Ladder runtime paths", text)
+        self.assertIn('root="$RUNNER_TEMP/production-stage-ladder"', text)
+        self.assertIn('echo "EVIDENCE_DIR=$root/evidence"', text)
+        self.assertIn('>> "$GITHUB_ENV"', text)
+
     def test_only_green_main_push_can_publish_exact_sha_certification_ref(self) -> None:
         text = LADDER_WORKFLOW.read_text(encoding="utf-8")
         marker = "Publish exact-SHA Stage Ladder certification ref"
