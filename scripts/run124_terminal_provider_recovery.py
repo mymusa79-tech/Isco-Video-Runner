@@ -12,13 +12,12 @@ from scripts import provider_capacity_hardening as capacity
 # long Writer/Doctor graph. Keep the edge-case recovery bounded by both a per-recovery
 # cap and a run-wide cap. Run132 proved the previous 60-second run cap contradicted the
 # advertised three-recovery allowance: one legitimate ~49s reset made a second ~41s
-# reset impossible. The public contract is now literal: every actual recovery sleep is
-# <=60s, at most three recoveries are allowed, and the run-wide wait ceiling is 180s.
+# reset impossible. The public contract is now literal: reported reset evidence up to
+# 60s remains recoverable, every actual recovery sleep is <=60s, at most three
+# recoveries are allowed, and the run-wide wait ceiling is 180s.
+_TERMINAL_RESET_LIMIT_SECONDS = 60.0
 _TERMINAL_WAIT_LIMIT_SECONDS = 60.0
 _RESET_SAFETY_SECONDS = 1.5
-# Reserve the safety tail inside the 60-second actual-sleep contract rather than adding
-# it on top. This keeps the printed/runtime contract and the aggregate 3*60s budget true.
-_TERMINAL_RESET_LIMIT_SECONDS = _TERMINAL_WAIT_LIMIT_SECONDS - _RESET_SAFETY_SECONDS
 _MAX_TERMINAL_RECOVERIES_PER_RUN = 3
 _MAX_TERMINAL_WAIT_SECONDS_PER_RUN = (
     _TERMINAL_WAIT_LIMIT_SECONDS * _MAX_TERMINAL_RECOVERIES_PER_RUN
@@ -114,7 +113,10 @@ def install_run124_terminal_provider_recovery() -> None:
             if remaining is None or key in _RECOVERED_TERMINAL_SHARDS:
                 raise
 
-            wait_seconds = remaining + _RESET_SAFETY_SECONDS
+            wait_seconds = min(
+                remaining + _RESET_SAFETY_SECONDS,
+                _TERMINAL_WAIT_LIMIT_SECONDS,
+            )
             if not _run_wait_budget_allows(wait_seconds):
                 print(
                     "Run124 terminal provider recovery skipped by run-wide retry budget: "
