@@ -14,6 +14,7 @@ from scripts.final_qc_observer_durability import (
     install_final_qc_observer_durability,
     run_groq_audio_audit_durable,
 )
+from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
@@ -157,6 +158,7 @@ def run_post_gold_observers(output_dir: Path) -> dict:
         return run_groq_audio_audit_durable(
             Path(output_dir),
             api_key=_groq_key(),
+            original=run_groq_audio_audit,
         )
     except Exception as exc:
         print(
