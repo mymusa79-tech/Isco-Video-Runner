@@ -161,6 +161,13 @@ def _m11_review_fn(
     return review
 
 
+def _unlink_if_present(path: Path) -> None:
+    try:
+        Path(path).unlink()
+    except FileNotFoundError:
+        pass
+
+
 def _m11_color_authority_render_fn(runtime: Any) -> Callable[..., Path]:
     """Render archive motion first, then re-enter the live M8/base color authority.
 
@@ -173,12 +180,12 @@ def _m11_color_authority_render_fn(runtime: Any) -> Callable[..., Path]:
     def render(image: Path, dest: Path, seconds: float, *, fps: int) -> Path:
         dest = Path(dest)
         raw = dest.with_name(dest.stem + ".m11-pre-color" + dest.suffix)
-        raw.unlink(missing_ok=True)
+        _unlink_if_present(raw)
         try:
             runtime._render_archive_clip(Path(image), raw, seconds, fps=fps)
             return media_ffmpeg.prepare_clip(raw, dest, seconds, portrait=False, fps=fps)
         finally:
-            raw.unlink(missing_ok=True)
+            _unlink_if_present(raw)
 
     return render
 
