@@ -11,6 +11,7 @@ from orchestration_stage_registry import (
     StageRegistryError,
     build_l4_registry,
     certified_non_planning_contracts,
+    materialize_contract_data,
 )
 
 
@@ -168,6 +169,45 @@ def test_canonical_dotted_planning_stage_ids_are_valid_without_rewriting_identit
 def test_malformed_dotted_stage_ids_are_rejected(stage_id):
     with pytest.raises(StageRegistryError, match="invalid stage_id"):
         _base(stage_id=stage_id)
+
+
+def test_structured_schema_and_semantic_rules_are_frozen_without_field_loss():
+    output_schema = {
+        "type": "object",
+        "properties": {"sections": {"type": "array", "items": {"type": "string"}}},
+        "required": ["sections"],
+    }
+    semantic_rules = {
+        "kind": "script",
+        "expected_ids": ["s1", "s2"],
+        "exact_order": True,
+    }
+    contract = _base(output_schema=output_schema, semantic_rules=semantic_rules)
+    assert materialize_contract_data(contract.output_schema) == output_schema
+    assert materialize_contract_data(contract.semantic_rules) == semantic_rules
+    with pytest.raises(TypeError):
+        contract.output_schema["type"] = "array"
+
+
+def test_cache_policy_can_retain_canonical_policy_as_lossless_adapter_metadata():
+    canonical = {
+        "read": True,
+        "write": True,
+        "revalidate_on_hit": True,
+        "evict_invalid": True,
+        "namespace": "planning-stage-contract-v1",
+    }
+    policy = CachePolicy(
+        read=True,
+        write=True,
+        write_after_validation=True,
+        revalidate_hits=True,
+        canonical_policy=canonical,
+    )
+    contract = _base(cache_policy=policy)
+    assert materialize_contract_data(contract.cache_policy.canonical_policy) == canonical
+    with pytest.raises(TypeError):
+        contract.cache_policy.canonical_policy["namespace"] = "changed"
 
 
 def test_provider_plugin_is_atomic_on_duplicate_conflict():
