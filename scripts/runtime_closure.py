@@ -15,6 +15,7 @@ from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
 from scripts.media_durable_cache import install_media_durable_cache
+from scripts.media_prepared_live_cache import install_media_prepared_live_cache
 from scripts.media_search_durable_cache import install_media_search_durable_cache
 from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
@@ -99,9 +100,12 @@ def install_runtime_closure() -> None:
     # Pixabay Provider Capacity V2 owns its provider-required 24h metadata cache. Media
     # Trust then establishes exact-byte/security authority. Media durability may reuse
     # only decisions/derivatives bound to those bytes, and every durable Vision hit
-    # re-runs current local trust/security. The Pexels metadata layer is installed last
-    # in this media group so both providers can resume search work without changing
-    # provider order, AI budgets, or retry ownership.
+    # re-runs current local trust/security. The live prepared bridge is installed before
+    # M8's produce wrapper so its inner scope executes only after M8 has replaced the
+    # prepare seam; this keeps the durable wrapper outside the real M8 renderer instead
+    # of leaving a tested-but-bypassed static wrapper. Pexels metadata remains last in
+    # the media group so both providers can resume search work without changing provider
+    # order, AI budgets, or retry ownership.
     # Audio Semantic Integrity is deliberately installed before Audio Mastering/SFX
     # wrappers: at runtime its inner scope sees and wraps those already-active live
     # transforms, binding the exact approved transcript/audio chain without replacing
@@ -113,6 +117,7 @@ def install_runtime_closure() -> None:
     install_provider_capacity_v2()
     install_media_trust_boundary_v2()
     install_media_durable_cache()
+    install_media_prepared_live_cache()
     install_media_search_durable_cache()
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
