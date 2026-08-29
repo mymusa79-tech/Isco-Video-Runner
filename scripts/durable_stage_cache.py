@@ -39,6 +39,7 @@ def prepare_cache_for_persistence(root: Path) -> bool:
 
     media_root = root / "media"
     media_shot_valid = False
+    media_prepared_live_valid = False
     media_search_valid = False
     if media_root.exists():
         if media_root.is_symlink():
@@ -54,6 +55,16 @@ def prepare_cache_for_persistence(root: Path) -> bool:
                 print(f"Media shot namespace sanitization rejected ({type(exc).__name__})")
 
             try:
+                from scripts.media_prepared_live_cache import (
+                    prepare_cache_for_persistence as prepare_media_prepared_live,
+                )
+
+                media_prepared_live_valid = bool(prepare_media_prepared_live(media_root))
+            except Exception as exc:
+                _remove_path(media_root / "prepared-live")
+                print(f"Media prepared-live namespace sanitization rejected ({type(exc).__name__})")
+
+            try:
                 from scripts.media_search_durable_cache import (
                     prepare_cache_for_persistence as prepare_media_search,
                 )
@@ -63,10 +74,11 @@ def prepare_cache_for_persistence(root: Path) -> bool:
                 _remove_path(media_root / "search")
                 print(f"Media search namespace sanitization rejected ({type(exc).__name__})")
 
-    allowed = tts_valid or media_shot_valid or media_search_valid
+    allowed = tts_valid or media_shot_valid or media_prepared_live_valid or media_search_valid
     print(
         "Durable stage cache sanitized: "
-        f"tts={tts_valid} media_shot={media_shot_valid} media_search={media_search_valid} "
+        f"tts={tts_valid} media_shot={media_shot_valid} "
+        f"media_prepared_live={media_prepared_live_valid} media_search={media_search_valid} "
         f"save_allowed={allowed}"
     )
     return allowed
