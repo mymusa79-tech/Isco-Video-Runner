@@ -45,8 +45,15 @@ _TRANSIENT_AUDIT_KEYS = {
 
 
 def _cache_root() -> Path | None:
-    value = (os.environ.get("ISCO_MEDIA_CACHE_PATH") or "").strip()
-    return Path(value) if value else None
+    explicit = (os.environ.get("ISCO_MEDIA_CACHE_PATH") or "").strip()
+    if explicit:
+        return Path(explicit)
+    # Media owns its own semantic namespace but reuses the already-hardened durable
+    # stage transport. The TTS workflow restores/saves this parent even after failure;
+    # nesting Media here gives cross-run persistence without a second competing Actions
+    # cache owner or duplicate save race.
+    shared = (os.environ.get("ISCO_TTS_CACHE_PATH") or "").strip()
+    return Path(shared) / "media" if shared else None
 
 
 def _required_env(name: str) -> str:
@@ -293,6 +300,21 @@ def _validate_raw(root: Path, raw_key: str, *, provider: str | None = None, sour
     return media, manifest
 
 
+def _revalidate_cached_raw(raw_key: str, media: Path) -> bool:
+    """Re-run current deterministic Trust/Security gates on restored exact bytes once."""
+    if raw_key in _LOCAL_REVALIDATED_RAW:
+        return True
+    try:
+        local_block = trust._inspect_exact_review_source(Path(media))
+        if local_block is not None:
+            return False
+        trust._distributed_scan_media_before_vision(Path(media))
+    except Exception:
+        return False
+    _LOCAL_REVALIDATED_RAW.add(raw_key)
+    return True
+
+
 def _restore_raw(root: Path, provider: str, source_url: str, dest: Path) -> Path | None:
     provider = provider.strip().casefold()
     source_url = source_url.strip()
@@ -301,6 +323,12 @@ def _restore_raw(root: Path, provider: str, source_url: str, dest: Path) -> Path
     if valid is None:
         return None
     media, manifest = valid
+    # A digest/cache-contract match proves identity, not current safety. Re-run the
+    # live deterministic stock preflight and distributed Security V1 scan before a
+    # cached blob may regain TrustedMediaRecord authority in this process.
+    if not _revalidate_cached_raw(raw_key, media):
+        print(f"Media durable raw restore rejected (local_trust_security) key={raw_key[:12]}")
+        return None
     suffix = _safe_suffix(media.name)
     quarantine = trust._root() / f"durable-{raw_key}{suffix}"
     try:
@@ -421,16 +449,10 @@ def _load_persistent_audit(root: Path, provider: str, candidate: dict, narration
         return None
 
     # Durable semantic Vision reuse never bypasses the current local trust/security
-    # rules. Re-run the complete deterministic local preflight over the exact cached
-    # bytes before accepting the old cloud verdict.
-    if raw_key not in _LOCAL_REVALIDATED_RAW:
-        try:
-            local_block = trust._inspect_exact_review_source(raw_media)
-        except Exception:
-            return None
-        if local_block is not None:
-            return None
-        _LOCAL_REVALIDATED_RAW.add(raw_key)
+    # rules. Both the stock-media structural preflight and distributed Security V1
+    # frame/OCR scan are required before the old cloud verdict regains authority.
+    if not _revalidate_cached_raw(raw_key, raw_media):
+        return None
     return ctx_hash, dict(audit)
 
 
@@ -593,7 +615,7 @@ def install_media_durable_cache() -> None:
     global _INSTALLED, _ORIGINAL_TRUSTED_DOWNLOAD, _ORIGINAL_PREPARE_CLIP
     root = _cache_root()
     if root is None:
-        print("Media durable cache disabled: ISCO_MEDIA_CACHE_PATH not configured")
+        print("Media durable cache disabled: durable stage cache not configured")
         return
     if _INSTALLED:
         return
@@ -614,22 +636,35 @@ def install_media_durable_cache() -> None:
     orchestrator.prepare_clip = _wrap_prepare_clip(root, _ORIGINAL_PREPARE_CLIP)
     _INSTALLED = True
     print(
-        "Media durable cache installed: exact candidate/context Vision reuse with local revalidation, "
+        "Media durable cache installed: exact candidate/context Vision reuse with full local revalidation, "
         "trusted raw reuse, prepared-clip reuse; no search/Vision/retry budget expansion"
     )
 
 
 def reset_media_durable_cache_for_tests() -> None:
     global _INSTALLED, _ORIGINAL_TRUSTED_DOWNLOAD, _ORIGINAL_PREPARE_CLIP
-    if _ORIGINAL_TRUSTED_DOWNLOAD is not None:
+    # Tests may install the durable layer while unittest.mock owns an outer patch. If
+    # that outer context has already restored its target, never resurrect the stale
+    # test-local callable captured during install. Only unwind wrappers we still own.
+    if _ORIGINAL_TRUSTED_DOWNLOAD is not None and getattr(
+        trust.trusted_download, "_isco_media_durable_raw", False
+    ):
         trust.trusted_download = _ORIGINAL_TRUSTED_DOWNLOAD
-    if _ORIGINAL_PREPARE_CLIP is not None:
+    if _ORIGINAL_PREPARE_CLIP is not None and getattr(
+        orchestrator.prepare_clip, "_isco_media_durable_prepare", False
+    ):
         orchestrator.prepare_clip = _ORIGINAL_PREPARE_CLIP
-    if "visual_selection" in _ORIGINAL_REVIEW_FUNCTIONS:
+    if "visual_selection" in _ORIGINAL_REVIEW_FUNCTIONS and getattr(
+        visual_selection.review_candidates, "_isco_media_durable_review", False
+    ):
         visual_selection.review_candidates = _ORIGINAL_REVIEW_FUNCTIONS["visual_selection"]
-    if "opening_director" in _ORIGINAL_REVIEW_FUNCTIONS:
+    if "opening_director" in _ORIGINAL_REVIEW_FUNCTIONS and getattr(
+        opening_director.review_candidates, "_isco_media_durable_review", False
+    ):
         opening_director.review_candidates = _ORIGINAL_REVIEW_FUNCTIONS["opening_director"]
-    if "section_visual_sequence" in _ORIGINAL_REVIEW_FUNCTIONS:
+    if "section_visual_sequence" in _ORIGINAL_REVIEW_FUNCTIONS and getattr(
+        section_visual_sequence.review_candidates, "_isco_media_durable_review", False
+    ):
         section_visual_sequence.review_candidates = _ORIGINAL_REVIEW_FUNCTIONS["section_visual_sequence"]
     _ORIGINAL_REVIEW_FUNCTIONS.clear()
     _LOCAL_REVALIDATED_RAW.clear()
