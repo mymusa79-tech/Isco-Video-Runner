@@ -29,8 +29,13 @@ class M7RunnerInstallerTests(unittest.TestCase):
             calls.append(("scope", pexels_api_key, pixabay_api_key, module is bridge.orchestrator))
             yield
 
+        # This test owns only the M7 installer/idempotence contract. Keep the optional
+        # M11 archive lane out of scope here; dedicated tests below exercise its new
+        # Security V1 and color-authority handoffs directly.
         with patch.object(bridge.orchestrator, "produce", core), patch.object(
             bridge, "live_m7_binding_scope", scope
+        ), patch.object(
+            bridge, "_load_m11_runtime", return_value=None
         ), patch.object(
             bridge, "install_security_v1_live_binding"
         ) as security, patch.dict(
