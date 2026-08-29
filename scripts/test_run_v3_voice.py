@@ -151,6 +151,28 @@ class ProductionManifestTests(unittest.TestCase):
 
 class _MainPatchMixin:
     def setUp(self) -> None:
+        # main() now enforces the exact V4 production model contract before any
+        # provider work. Give these flow tests the same explicit environment as the
+        # real workflow rather than bypassing or mocking that guard.
+        self._model_env = patch.dict(
+            os.environ,
+            {
+                "GEMINI_CONTENT_MODEL": "gemini-3.7-flash",
+                "GEMINI_TTS_MODEL": "gemini-3.1-flash-tts-preview",
+            },
+            clear=False,
+        )
+        self._model_env.start()
+        self.addCleanup(self._model_env.stop)
+        original_content_models = set(run_v3_voice.orchestrator.FREE_CONTENT_MODELS)
+        original_tts_models = set(run_v3_voice.orchestrator.FREE_TTS_MODELS)
+        self.addCleanup(
+            lambda: setattr(run_v3_voice.orchestrator, "FREE_CONTENT_MODELS", original_content_models)
+        )
+        self.addCleanup(
+            lambda: setattr(run_v3_voice.orchestrator, "FREE_TTS_MODELS", original_tts_models)
+        )
+
         names = [
             "install_schema_guard",
             "install_router",
