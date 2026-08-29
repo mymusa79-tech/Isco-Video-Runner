@@ -11,25 +11,18 @@ from isco_video_agent.config import secret
 from isco_video_agent.text_audit_router import text_audit_circuit_scope
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.analytics_observer_status import observe_post_acceptance_analytics
-from scripts.append_retry_guard import install_append_retry_guard
-from scripts.attempt9_schema_normalizer import install_attempt9_schema_normalizer
-from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.final_master_qc import run_final_master_qc
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.m7_live_binding import install_m7_live_binding
 from scripts.opening_feasibility_guard import install_opening_feasibility_guard
-from scripts.planning_batch_hardening import install_planning_batch_hardening
-from scripts.planner_quality_guard import install_planner_quality_guard
-from scripts.planner_schema_guard import install_schema_guard
-from scripts.product_proof_plan import install_product_proof_fallback, was_fallback_used
+from scripts.planning_runtime_contract import (
+    install_entrypoint_planning_contracts,
+    install_post_runtime_planning_contracts,
+)
+from scripts.product_proof_plan import was_fallback_used
 from scripts.production_model_contract import install_production_model_contract
-from scripts.provider_capacity_hardening import install_provider_capacity_hardening
-from scripts.run120_dossier_repair_hardening import install_run120_dossier_repair_hardening
-from scripts.run120_schema_policy_bridge import install_run120_schema_policy_bridge
-from scripts.run123_budget_closure import install_run123_budget_closure
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
-from scripts.schema_repair_policy import install_schema_repair_policy
-from scripts.task_level_planner_router import get_used_providers, install_router, write_planning_telemetry
+from scripts.task_level_planner_router import get_used_providers, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
 from scripts.voice_identity_observer import install_voice_identity_observer
 from scripts.voice_mesh import install_voice_mesh
@@ -207,34 +200,15 @@ def main() -> None:
     # Runner is the sole V4 production authority for the concrete provider models.
     # Install and prove that contract before any capacity/retry policy or provider work.
     install_production_model_contract(orchestrator)
-    # Install the recalculated run-wide envelope before any production BudgetLedger is
-    # constructed. This closes the stale 42/34 policy from the pre-Gold production graph.
-    install_run123_budget_closure()
-    install_schema_guard()
-    # Capacity policy is installed before provider routing so every planning subtask
-    # inherits token-aware admission, bounded completion reserves and Retry-After.
-    install_provider_capacity_hardening()
-    install_router()
-    # Keep one global canonical outline, but split only output-heavy writer/doctor
-    # calls. The existing quality guard wraps this batch writer afterwards, preserving
-    # the single-use transition and all downstream hard quality gates.
-    install_planning_batch_hardening()
-    # Reuse the Runner's existing bounded schema-recovery owner in real production.
-    # It retries only local shape/id/order defects; provider/router/auth/network/budget
-    # failures are not replayed. Partial Script Doctor output completes only missing ids.
-    install_schema_repair_policy()
-    # Run #120: preserve the successful base plan during RepairDossier. Install before
-    # planner_quality_guard so the existing tone wrapper remains outside both initial
-    # planning and in-place dossier repair. The bridge dynamically calls the bounded
-    # schema owner above; only pure length/capacity pressure may shrink 2 -> 1.
-    install_run120_dossier_repair_hardening()
-    install_run120_schema_policy_bridge()
-    install_planner_quality_guard()
-    install_attempt9_schema_normalizer()
-    install_append_retry_guard()
+
+    # One canonical planning seam now owns every Runner patch that can alter prompts,
+    # routing, repairs, or plan-level fallback. The ordering inside the seam is the exact
+    # historical V4 ordering; centralizing it makes durable checkpoint binding semantic
+    # instead of accidentally depending on unrelated production code in this file.
+    install_entrypoint_planning_contracts()
     install_runtime_closure()
-    install_brand_anchor_guard()
-    install_product_proof_fallback()
+    install_post_runtime_planning_contracts()
+
     install_voice_mesh()
     install_voice_identity_observer()
     install_m7_live_binding()

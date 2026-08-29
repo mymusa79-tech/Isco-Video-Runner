@@ -174,17 +174,13 @@ class _MainPatchMixin:
         )
 
         names = [
-            "install_schema_guard",
-            "install_router",
-            "install_planner_quality_guard",
-            "install_attempt9_schema_normalizer",
-            "install_append_retry_guard",
+            "install_entrypoint_planning_contracts",
             "install_runtime_closure",
-            "install_brand_anchor_guard",
-            "install_product_proof_fallback",
+            "install_post_runtime_planning_contracts",
             "install_voice_mesh",
             "install_voice_identity_observer",
             "install_m7_live_binding",
+            "install_opening_feasibility_guard",
             "start_progress",
             "install_progress_hooks",
         ]
