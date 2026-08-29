@@ -25,7 +25,7 @@
     "groq_output_heavy_reasoning_effort": "low",
     "groq_large_request_admission_control": true,
     "groq_token_capacity_admission_control": true,
-    "groq_free_tpm_limit": 8000,
+    "groq_capacity_source": "runtime_provider_evidence_model_scoped",
     "long_form_writer_max_batch_sections": 3,
     "long_form_script_doctor_max_batch_sections": 3,
     "retry_after_respected_when_present": true,
