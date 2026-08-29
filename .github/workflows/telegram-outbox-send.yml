@@ -1,0 +1,171 @@
+name: Telegram Outbox Send
+
+on:
+  workflow_dispatch:
+    inputs:
+      outbox_request_b64:
+        description: "Base64-encoded Telegram outbox request"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: telegram-editorial-control
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Restore encrypted control-plane state
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          mkdir -p "$RUNNER_TEMP/isco-outbox"
+          state="$RUNNER_TEMP/isco-outbox/control-panel.json"
+          encrypted="$RUNNER_TEMP/isco-outbox/control-panel.json.enc"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          git show origin/control-plane-state:state/control-panel.json.enc > "$encrypted"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+          chmod 600 "$state"
+          echo "CONTROL_STATE_PATH=$state" >> "$GITHUB_ENV"
+
+      - name: Materialize Telegram secrets
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$TELEGRAM_BOT_TOKEN"
+          test -n "$TELEGRAM_CHAT_ID"
+          umask 077
+          printf '%s' "$TELEGRAM_BOT_TOKEN" > "$RUNNER_TEMP/isco-outbox/telegram-token"
+          printf '%s' "$TELEGRAM_CHAT_ID" > "$RUNNER_TEMP/isco-outbox/telegram-chat"
+          echo "TELEGRAM_BOT_TOKEN_FILE=$RUNNER_TEMP/isco-outbox/telegram-token" >> "$GITHUB_ENV"
+          echo "TELEGRAM_CHAT_ID_FILE=$RUNNER_TEMP/isco-outbox/telegram-chat" >> "$GITHUB_ENV"
+
+      - name: Decode bounded outbox request
+        env:
+          OUTBOX_REQUEST_B64: ${{ inputs.outbox_request_b64 }}
+        run: |
+          set -euo pipefail
+          test -n "$OUTBOX_REQUEST_B64"
+          python - <<'PY'
+          import base64, os
+          from pathlib import Path
+          raw = base64.b64decode(os.environ['OUTBOX_REQUEST_B64'], validate=True)
+          if not raw or len(raw) > 48 * 1024:
+              raise SystemExit('Telegram outbox request size is invalid')
+          path = Path(os.environ['RUNNER_TEMP']) / 'isco-outbox' / 'request.json'
+          path.write_bytes(raw)
+          print(path)
+          PY
+          echo "OUTBOX_REQUEST_PATH=$RUNNER_TEMP/isco-outbox/request.json" >> "$GITHUB_ENV"
+
+      - name: Enqueue durable outbox message
+        id: enqueue
+        run: |
+          set -euo pipefail
+          python scripts/telegram_outbox_runtime.py enqueue \
+            --state "$CONTROL_STATE_PATH" \
+            --request "$OUTBOX_REQUEST_PATH"
+
+      - name: Persist PENDING before any provider call
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          encrypted="$RUNNER_TEMP/isco-outbox/control-panel.pending.json.enc"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$CONTROL_STATE_PATH" -out "$encrypted"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/isco-outbox-pending-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$encrypted" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if ! git diff --cached --quiet; then
+            git commit -m "state: enqueue Telegram outbox message"
+            git push origin HEAD:control-plane-state
+          fi
+
+      - name: Enter SENDING state
+        id: begin
+        run: |
+          set -euo pipefail
+          python scripts/telegram_outbox_runtime.py begin \
+            --state "$CONTROL_STATE_PATH" \
+            --outbox-message-id "${{ steps.enqueue.outputs.outbox_message_id }}"
+
+      - name: Persist SENDING or reconciliation state before send
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          encrypted="$RUNNER_TEMP/isco-outbox/control-panel.sending.json.enc"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$CONTROL_STATE_PATH" -out "$encrypted"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/isco-outbox-sending-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$encrypted" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if ! git diff --cached --quiet; then
+            git commit -m "state: begin Telegram outbox send"
+            git push origin HEAD:control-plane-state
+          fi
+
+      - name: Send through the sole Telegram outbound owner
+        id: send
+        if: steps.begin.outputs.send_allowed == 'true'
+        run: |
+          set -euo pipefail
+          python scripts/telegram_outbox_runtime.py send \
+            --state "$CONTROL_STATE_PATH" \
+            --outbox-message-id "${{ steps.enqueue.outputs.outbox_message_id }}"
+
+      - name: Persist provider outcome
+        if: always()
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          encrypted="$RUNNER_TEMP/isco-outbox/control-panel.final.json.enc"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$CONTROL_STATE_PATH" -out "$encrypted"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/isco-outbox-final-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$encrypted" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if ! git diff --cached --quiet; then
+            git commit -m "state: persist Telegram outbox provider outcome"
+            git push origin HEAD:control-plane-state
+          fi
+
+      - name: Remove plaintext state and secrets
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/isco-outbox" || true
