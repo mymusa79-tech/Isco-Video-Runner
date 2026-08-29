@@ -22,13 +22,18 @@ BASELINE_SHA256 = "143abdfb7b55f2269cab2c4634b68e7a99a5581ac08eceeccfb8cdda2ffdc
 PHASE_TESTS: dict[str, tuple[str, ...]] = {
     "P0": (
         "scripts.test_environment_preflight",
+        "scripts.test_provider_preflight",
+        "scripts.test_preproduction_contract",
         "scripts.test_persistent_memory",
         "scripts.test_persistent_memory_migration_epoch",
+        "scripts.test_checkpoint_namespace_guard",
         "scripts.test_run129_hermetic_approved_brief",
         "scripts.test_run129_production_test_isolation_contract",
         "scripts.test_run130_explicit_runtime_phase",
         "scripts.test_run130_runtime_authority_contract",
         "scripts.test_runtime_closure",
+        "scripts.test_runtime_closure_idempotence_run102",
+        "scripts.test_run103_runtime_marker_preservation",
         "scripts.test_state_persistence_strict",
     ),
     "P1": (
@@ -45,9 +50,12 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_run123_planning_latency_hardening",
         "scripts.test_run124_terminal_provider_recovery",
         "scripts.test_run125_capacity_routing_closure",
+        "scripts.test_run125_terminal_retry_budget",
         "scripts.test_run126_capacity_snapshot_closure",
         "scripts.test_run127_runtime_composition",
         "scripts.test_run128_rate_limit_ownership",
+        "scripts.test_p0_2_budget_enforcement",
+        "scripts.test_budget_wire_attempts",
         "scripts.test_provider_retry_ownership",
         "scripts.test_retry_after_policy",
         "scripts.test_reliability_failure_matrix",
@@ -319,13 +327,27 @@ def certify(evidence_dir: Path, output: Path) -> None:
         evidence[phase] = item
 
     window = register["historical_window"]
-    expected = set(range(int(window["first_run"]), int(window["last_run"]) + 1))
-    covered: set[int] = set()
+    first_run = int(window["first_run"])
+    last_run = int(window["last_run"])
+    expected = set(range(first_run, last_run + 1))
+    cohort_membership: dict[int, list[str]] = {}
     for cohort in register.get("audit_cohorts") or []:
-        covered.update(_expand(cohort["runs"]))
-    if covered != expected:
-        raise RuntimeError(f"audit cohorts do not exactly cover Run51-130 missing={sorted(expected-covered)} extra={sorted(covered-expected)}")
+        cohort_id = str(cohort.get("id") or "unknown")
+        for run_number in _expand(cohort["runs"]):
+            cohort_membership.setdefault(run_number, []).append(cohort_id)
+    covered = set(cohort_membership)
+    duplicates = {run: ids for run, ids in cohort_membership.items() if len(ids) != 1}
+    if covered != expected or duplicates:
+        raise RuntimeError(
+            f"audit cohorts do not exactly-once cover Run{first_run}-{last_run} "
+            f"missing={sorted(expected-covered)} extra={sorted(covered-expected)} duplicates={duplicates}"
+        )
 
+    executed_tests = {
+        str(test_name)
+        for phase in PHASES
+        for test_name in (evidence[phase].get("tests") or [])
+    }
     families = []
     for family in register.get("families") or []:
         required = list(family.get("required_phases") or [])
@@ -334,9 +356,24 @@ def certify(evidence_dir: Path, output: Path) -> None:
         contracts = list(family.get("contracts") or [])
         if not contracts:
             raise RuntimeError(f"family {family.get('id')} has no executable contracts")
+        missing_contracts = sorted(set(contracts) - executed_tests)
+        if missing_contracts:
+            raise RuntimeError(
+                f"family {family.get('id')} declares contracts not executed by current Stage Ladder: "
+                f"{missing_contracts}"
+            )
+        family_runs: set[int] = set()
+        for spec in family.get("historical_runs") or []:
+            family_runs.update(_expand(spec))
+        if not family_runs or not family_runs.issubset(expected):
+            raise RuntimeError(
+                f"family {family.get('id')} references runs outside certified window: "
+                f"{sorted(family_runs-expected)}"
+            )
         families.append({
             "id": family["id"], "name": family["name"], "status": "closed_on_certified_sha",
-            "required_phases": required, "historical_runs": family.get("historical_runs"), "contracts": contracts,
+            "required_phases": required, "historical_runs": family.get("historical_runs"),
+            "contracts": contracts, "contracts_executed_on_sha": True,
         })
 
     baseline = evidence["P4"].get("baseline") or {}
@@ -346,12 +383,15 @@ def certify(evidence_dir: Path, output: Path) -> None:
         "schema_version": 1, "status": "green", "runner_sha": runner_sha, "engine_sha": engine_sha,
         "known_good_baseline": baseline,
         "phases": {phase: {"status": "pass", "evidence": f"{phase}.json"} for phase in PHASES},
-        "historical_run_coverage": {"first_run": 51, "last_run": 130, "complete": True},
+        "historical_run_coverage": {"first_run": first_run, "last_run": last_run, "complete": True},
         "families": families, "production_dispatch_performed": False, "release_publication_performed": False,
-        "certification_rule": "all_P0_through_P6_same_runner_sha_same_engine_sha",
+        "certification_rule": "all_P0_through_P6_same_runner_sha_same_engine_sha_all_family_contracts_executed",
     }
     _write_json(output, certificate)
-    print(f"PRODUCTION_STAGE_LADDER GREEN runner={runner_sha} engine={engine_sha} families={len(families)}")
+    print(
+        f"PRODUCTION_STAGE_LADDER GREEN runner={runner_sha} engine={engine_sha} "
+        f"runs={first_run}-{last_run} families={len(families)}"
+    )
 
 
 def main() -> int:
