@@ -13,7 +13,7 @@ except ModuleNotFoundError:  # direct python scripts/persistent_memory.py compat
     from runtime_phase import canonical_runtime_enabled
 
 _SNAPSHOT_ENV = "ISCO_APPROVED_BRIEF_SNAPSHOT_PATH"
-_PIN_ENV = "ISCO_APPROVED_BRIEF_SHA256"
+_SNAPSHOT_SHA_ENV = "ISCO_APPROVED_BRIEF_SNAPSHOT_SHA256"
 _RUNTIME_BRIEF_ENV = "ISCO_APPROVED_BRIEF_PATH"
 _SNAPSHOT_FILENAME = "approved-brief.snapshot.json"
 _COMMITTED_BRIEF_PATH = "production/approved_brief.json"
@@ -93,13 +93,22 @@ def _committed_approved_brief_bytes(engine_root: Path) -> bytes:
     return bytes(shown.stdout)
 
 
-def _persist_snapshot_env(path: Path) -> None:
+def _persist_snapshot_env(path: Path, snapshot_sha256: str) -> None:
+    """Persist snapshot identity without reusing the semantic approval hash authority.
+
+    ISCO_APPROVED_BRIEF_SHA256 belongs to Engine brief approval and is computed from
+    canonical JSON with hash metadata excluded. Snapshot/checkpoint integrity instead
+    binds the exact bytes from the pinned Engine commit, so it has its own raw-byte SHA.
+    """
+    expected = _validate_expected_sha256(snapshot_sha256)
     os.environ[_SNAPSHOT_ENV] = str(path)
+    os.environ[_SNAPSHOT_SHA_ENV] = expected
     github_env = str(os.environ.get("GITHUB_ENV") or "").strip()
     if not github_env:
         return
     with Path(github_env).open("a", encoding="utf-8") as handle:
         handle.write(f"{_SNAPSHOT_ENV}={path}\n")
+        handle.write(f"{_SNAPSHOT_SHA_ENV}={expected}\n")
 
 
 def _worktree_brief_drift(engine_root: Path, expected_sha256: str) -> bool:
@@ -116,6 +125,10 @@ def materialize_runtime_snapshot(repo_root: Path, engine_root: Path) -> Path:
     mutate tracked files before production. The approved production input must remain
     attached to source identity, so canonical V4 reads the committed blob at Engine
     HEAD and only uses the worktree for drift diagnostics.
+
+    The raw snapshot hash is intentionally derived from those committed bytes. It must
+    never reuse ISCO_APPROVED_BRIEF_SHA256, which is the Engine's canonical semantic
+    approval fingerprint and can legitimately differ from the file-byte SHA256.
     """
     del repo_root
     if not canonical_runtime_enabled():
@@ -127,11 +140,7 @@ def materialize_runtime_snapshot(repo_root: Path, engine_root: Path) -> Path:
     destination = Path(temp).resolve() / "isco-state" / _SNAPSHOT_FILENAME
 
     committed = _committed_approved_brief_bytes(engine_root)
-    committed_sha = _sha256_bytes(committed)
-    expected = str(os.environ.get(_PIN_ENV) or "").strip().lower() or committed_sha
-    expected = _validate_expected_sha256(expected)
-    if not hmac.compare_digest(committed_sha, expected):
-        raise ValueError("pinned Engine commit approved brief does not match pinned SHA256")
+    expected = _validate_expected_sha256(_sha256_bytes(committed))
 
     if destination.is_file():
         # One-copy rule: never refresh a snapshot after the run has started.
@@ -139,8 +148,8 @@ def materialize_runtime_snapshot(repo_root: Path, engine_root: Path) -> Path:
             raise RuntimeError("existing approved brief snapshot is writable")
         actual = _sha256_file(destination)
         if not hmac.compare_digest(actual, expected):
-            raise RuntimeError("existing approved brief snapshot no longer matches pinned SHA256")
-        _persist_snapshot_env(destination)
+            raise RuntimeError("existing approved brief snapshot no longer matches pinned Engine bytes")
+        _persist_snapshot_env(destination, expected)
         return destination
 
     snapshot = snapshot_approved_brief_bytes(
@@ -148,7 +157,7 @@ def materialize_runtime_snapshot(repo_root: Path, engine_root: Path) -> Path:
         destination,
         expected_sha256=expected,
     )
-    _persist_snapshot_env(snapshot)
+    _persist_snapshot_env(snapshot, expected)
 
     if _worktree_brief_drift(engine_root, expected):
         print(
@@ -170,14 +179,19 @@ def _snapshot_path() -> Path:
     return path
 
 
+def _snapshot_expected_sha256() -> str:
+    raw = str(os.environ.get(_SNAPSHOT_SHA_ENV) or "").strip().lower()
+    if not raw:
+        raise RuntimeError(f"{_SNAPSHOT_SHA_ENV} is required for canonical durable planning")
+    return _validate_expected_sha256(raw)
+
+
 def bind_runtime_approved_brief_path() -> Path:
     """Make every in-process Engine reader consume the immutable approved snapshot."""
     path = _snapshot_path()
-    expected = str(os.environ.get(_PIN_ENV) or "").strip().lower()
-    if expected:
-        expected = _validate_expected_sha256(expected)
-        if not hmac.compare_digest(_sha256_file(path), expected):
-            raise RuntimeError("immutable approved brief snapshot does not match pinned SHA256")
+    expected = _snapshot_expected_sha256()
+    if not hmac.compare_digest(_sha256_file(path), expected):
+        raise RuntimeError("immutable approved brief snapshot does not match pinned Engine bytes")
     os.environ[_RUNTIME_BRIEF_ENV] = str(path)
     return path
 
@@ -204,10 +218,7 @@ def install_runtime_snapshot_binding(*, force: bool = False) -> None:
 
     def build_snapshot_binding(repo_root: Path, engine_root: Path) -> checkpoint.Binding:
         brief = bind_runtime_approved_brief_path()
-        expected_brief = str(os.environ.get(_PIN_ENV) or "").strip().lower()
-        actual_brief = _sha256_file(brief)
-        if not expected_brief:
-            expected_brief = actual_brief
+        expected_brief = _snapshot_expected_sha256()
         engine_head = checkpoint._git_value(
             checkpoint._run,
             ["git", "rev-parse", "HEAD"],
