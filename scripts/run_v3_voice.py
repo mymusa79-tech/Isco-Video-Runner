@@ -24,6 +24,7 @@ from scripts.production_model_contract import install_production_model_contract
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
 from scripts.task_level_planner_router import get_used_providers, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
+from scripts.tts_durable_section_cache import install_tts_durable_section_cache
 from scripts.voice_identity_observer import install_voice_identity_observer
 from scripts.voice_mesh import install_voice_mesh
 
@@ -210,6 +211,11 @@ def main() -> None:
     install_post_runtime_planning_contracts()
 
     install_voice_mesh()
+    # Resume accepted section audio before the observer is wrapped around the section
+    # boundary. Cache hits therefore still pass Voice Identity observation and, because
+    # Audio Semantic Integrity scopes the live boundary at produce(), remain bound to
+    # the exact approved transcript/bytes before concat and mux.
+    install_tts_durable_section_cache()
     install_voice_identity_observer()
     install_m7_live_binding()
     # Run #93: install_m7_live_binding() installs Security V1 (its length-validating
