@@ -37,10 +37,12 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
 
     def test_dedicated_production_workflow_owns_authorization_consumption(self):
         self.assertIn('-f authorization_id="$AUTHORIZATION_ID"', self.text)
-        self.assertIn(
-            "if: always() && steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true'",
-            self.text,
-        )
+        persist_start = self.text.index("- name: Persist encrypted control-panel state")
+        persist_end = self.text.index("\n\n      - name: Build sanitized Telegram read projection", persist_start)
+        persist_block = self.text[persist_start:persist_end]
+        self.assertIn("steps.poll.outputs.needs_production != 'true'", persist_block)
+        self.assertIn("steps.poll.outputs.production_active != 'true' ||", persist_block)
+        self.assertIn("steps.poll.outputs.release_approval_consumed == 'true'", persist_block)
         reservation = self.text.index("Persist dispatch reservation before workflow dispatch")
         dispatch = self.text.index("gh workflow run telegram-production-request.yml")
         generic_persist = self.text.index("Persist encrypted control-panel state")
