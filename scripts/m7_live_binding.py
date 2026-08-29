@@ -176,7 +176,7 @@ def _m11_color_authority_render_fn(runtime: Any) -> Callable[..., Path]:
         raw.unlink(missing_ok=True)
         try:
             runtime._render_archive_clip(Path(image), raw, seconds, fps=fps)
-            return media_ffmpeg.prepare_clip(raw, dest, seconds, False, fps)
+            return media_ffmpeg.prepare_clip(raw, dest, seconds, portrait=False, fps=fps)
         finally:
             raw.unlink(missing_ok=True)
 
