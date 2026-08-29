@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from scripts.telegram_release_approval import approval_projection
+
 SCHEMA_VERSION = 1
 _BOOTSTRAP_TIME = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
@@ -74,6 +76,7 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
         "schema_version": SCHEMA_VERSION,
         "generated_at": now.isoformat().replace("+00:00", "Z"),
         "source_last_event_at": str(state.get("last_event_at") or ""),
+        "release_approvals": approval_projection(state),
         "editorial": {
             "research_active": bool(active_session),
             "research_session_hash": _hash_id(active_session),
