@@ -45,6 +45,24 @@ def _update(update_id: int = 101) -> dict:
     }
 
 
+def _channel_update(
+    update_id: int = 301,
+    *,
+    data: str = "cmd:channelos-refresh",
+    user_id: int = 88,
+    chat_id: int = 77,
+) -> dict:
+    return {
+        "update_id": update_id,
+        "callback_query": {
+            "id": f"channel-os-{update_id}",
+            "from": {"id": user_id},
+            "message": {"message_id": 52, "chat": {"id": chat_id}},
+            "data": data,
+        },
+    }
+
+
 def _candidate() -> ReleaseCandidateDigest:
     return ReleaseCandidateDigest(
         run_id="run-1",
@@ -71,6 +89,7 @@ def _secret(name: str, *, required: bool = False) -> str:
     values = {
         "TELEGRAM_ALLOWED_USER_ID_FILE": "88",
         "TELEGRAM_CHAT_ID_FILE": "77",
+        "TELEGRAM_BOT_TOKEN_FILE": "bot-token",
     }
     return values.get(name, "")
 
@@ -164,7 +183,7 @@ class TelegramWebhookReplayTests(unittest.TestCase):
             _state(path)
             with mock.patch.object(panel, "_read_secret_file", side_effect=_secret), \
                  mock.patch.object(active, "_poll") as poll:
-                self.assertFalse(replay.replay_release_approval_only(path, _update(202)))
+                self.assertFalse(replay.replay_release_approval_only(path, _channel_update(202)))
             poll.assert_not_called()
             state = panel.load_state(path)
             self.assertNotIn(replay.SEEN_UPDATES_KEY, state)
@@ -192,6 +211,49 @@ class TelegramWebhookReplayTests(unittest.TestCase):
                 self.assertTrue(replay.replay_release_approval_only(path, update))
             second = panel.load_state(path)
             self.assertEqual(first, second)
+
+    def test_channel_os_callback_is_rendered_before_legacy_poll_and_marked_seen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            _state(path)
+            update = _channel_update(301, data="cmd:channelos-problems")
+            keyboard = [[{"text": "Back", "callback_data": "cmd:menu"}]]
+            with mock.patch.object(panel, "_read_secret_file", side_effect=_secret), \
+                 mock.patch.object(replay, "render_control_state", return_value=("Problems", keyboard)) as render, \
+                 mock.patch.object(panel.TelegramClient, "send") as send, \
+                 mock.patch.object(active, "_poll") as poll:
+                self.assertTrue(replay.replay_update(path, update))
+            poll.assert_not_called()
+            render.assert_called_once()
+            send.assert_called_once_with(77, "Problems", keyboard=keyboard)
+            state = panel.load_state(path)
+            self.assertEqual(state[replay.SEEN_UPDATES_KEY], [301])
+            self.assertNotIn("release_approval_receipts", state)
+
+    def test_channel_os_duplicate_update_never_renders_or_sends_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            _state(path)
+            state = panel.load_state(path)
+            state[replay.SEEN_UPDATES_KEY] = [302]
+            panel.save_state(path, state)
+            with mock.patch.object(replay, "render_control_state") as render, \
+                 mock.patch.object(panel.TelegramClient, "send") as send:
+                self.assertFalse(replay.replay_update(path, _channel_update(302)))
+            render.assert_not_called()
+            send.assert_not_called()
+
+    def test_channel_os_callback_fails_closed_for_unauthorized_actor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            _state(path)
+            with mock.patch.object(panel, "_read_secret_file", side_effect=_secret), \
+                 mock.patch.object(panel.TelegramClient, "send") as send, \
+                 self.assertRaises(RuntimeError):
+                replay.replay_update(path, _channel_update(303, user_id=999))
+            send.assert_not_called()
+            state = panel.load_state(path)
+            self.assertNotIn(replay.SEEN_UPDATES_KEY, state)
 
 
 if __name__ == "__main__":
