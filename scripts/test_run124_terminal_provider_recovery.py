@@ -128,7 +128,7 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
         self.assertEqual(recovery._TERMINAL_WAIT_SPENT_SECONDS, 60.0)
 
     def test_run132_two_legitimate_reset_windows_fit_the_run_budget(self) -> None:
-        """Run132 regression: ~49s then ~41s must not contradict recovery_cap=3."""
+        """Run132 regression: ~49s then ~41s must fit the run-wide wait budget."""
         attempts: dict[str, int] = {}
         reset_by_id = {"S7": 47.88, "S8": 39.18}
 
@@ -165,9 +165,11 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
             recovery._MAX_TERMINAL_WAIT_SECONDS_PER_RUN,
         )
 
-    def test_run_wide_recovery_count_remains_hard_bounded(self) -> None:
-        recovery._TERMINAL_RECOVERY_COUNT = recovery._MAX_TERMINAL_RECOVERIES_PER_RUN
-        self.assertFalse(recovery._run_wait_budget_allows(1.0))
+    def test_run133_fourth_recovery_is_allowed_when_time_budget_has_room(self) -> None:
+        recovery._TERMINAL_RECOVERY_COUNT = 3
+        recovery._TERMINAL_WAIT_SPENT_SECONDS = 140.76
+        self.assertTrue(recovery._run_wait_budget_allows(33.86))
+        self.assertLessEqual(140.76 + 33.86, recovery._MAX_TERMINAL_WAIT_SECONDS_PER_RUN)
 
     def test_terminal_recovery_never_loops_if_retry_still_fails(self) -> None:
         calls = 0
