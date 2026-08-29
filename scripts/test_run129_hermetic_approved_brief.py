@@ -167,6 +167,50 @@ class Run129HermeticApprovedBriefTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "pinned Engine bytes"):
                     snapshot.materialize_runtime_snapshot(RUNNER_ROOT, engine)
 
+    def test_direct_materialization_does_not_publish_test_fixture_to_later_actions_steps(self) -> None:
+        committed = b'{"approved_by_user":true,"approved_topic":"approved","format":"film"}\n'
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            runner_temp = root / "runner-temp"
+            runner_temp.mkdir()
+            github_env = root / "github-env"
+            engine, engine_sha = self._engine_repo(root, committed)
+            env = self._runtime_env(
+                runner_temp=runner_temp,
+                approval_hash="d" * 64,
+                engine_sha=engine_sha,
+            )
+            env["GITHUB_ENV"] = str(github_env)
+            with patch.dict(os.environ, env, clear=False):
+                snapshot.materialize_runtime_snapshot(RUNNER_ROOT, engine)
+            self.assertFalse(github_env.exists())
+
+    def test_application_bootstrap_mode_publishes_raw_snapshot_identity_for_later_steps(self) -> None:
+        committed = b'{"approved_by_user":true,"approved_topic":"approved","format":"film"}\n'
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            runner_temp = root / "runner-temp"
+            runner_temp.mkdir()
+            github_env = root / "github-env"
+            engine, engine_sha = self._engine_repo(root, committed)
+            expected_raw = hashlib.sha256(committed).hexdigest()
+            env = self._runtime_env(
+                runner_temp=runner_temp,
+                approval_hash="e" * 64,
+                engine_sha=engine_sha,
+            )
+            env["GITHUB_ENV"] = str(github_env)
+            with patch.dict(os.environ, env, clear=False):
+                path = snapshot.materialize_runtime_snapshot(
+                    RUNNER_ROOT,
+                    engine,
+                    persist_workflow_env=True,
+                )
+            published = github_env.read_text(encoding="utf-8")
+            self.assertIn(f"ISCO_APPROVED_BRIEF_SNAPSHOT_PATH={path}\n", published)
+            self.assertIn(f"ISCO_APPROVED_BRIEF_SNAPSHOT_SHA256={expected_raw}\n", published)
+            self.assertNotIn("ISCO_APPROVED_BRIEF_SHA256=", published)
+
 
 if __name__ == "__main__":
     unittest.main()
