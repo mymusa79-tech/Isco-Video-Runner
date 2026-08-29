@@ -19,6 +19,9 @@ from typing import Mapping
 
 from scripts.channel_os_mission_control import MISSION_STATES, MissionSnapshot, render_telegram
 
+TELEGRAM_TEXT_LIMIT = 4096
+MAX_INTERACTION_ID_CHARS = 128
+
 
 class ChannelOSTelegramContractError(ValueError):
     pass
@@ -49,7 +52,14 @@ def is_channel_os_callback(callback_data: str) -> bool:
     return str(callback_data or "").strip() in _CALLBACKS
 
 
+def _require_command(command: ChannelOSTelegramCommand) -> ChannelOSTelegramCommand:
+    if not isinstance(command, ChannelOSTelegramCommand):
+        raise ChannelOSTelegramContractError("command must be a ChannelOSTelegramCommand")
+    return command
+
+
 def _filtered_snapshot(snapshot: MissionSnapshot, command: ChannelOSTelegramCommand) -> MissionSnapshot:
+    command = _require_command(command)
     if command is ChannelOSTelegramCommand.REFRESH:
         return snapshot
     wanted = "Needs Me" if command is ChannelOSTelegramCommand.NEEDS_ME else "Problems"
@@ -66,6 +76,7 @@ def _filtered_snapshot(snapshot: MissionSnapshot, command: ChannelOSTelegramComm
 
 
 def _snapshot_digest(snapshot: MissionSnapshot, command: ChannelOSTelegramCommand) -> str:
+    command = _require_command(command)
     payload = {
         "authority": "projection_only",
         "command": command.value,
@@ -89,6 +100,15 @@ def _snapshot_digest(snapshot: MissionSnapshot, command: ChannelOSTelegramComman
     return hashlib.sha256(raw).hexdigest()
 
 
+def _validate_interaction_id(interaction_id: str) -> str:
+    interaction = str(interaction_id or "").strip()
+    if not interaction:
+        raise ChannelOSTelegramContractError("interaction_id must be non-empty")
+    if len(interaction) > MAX_INTERACTION_ID_CHARS or any(ord(ch) < 32 for ch in interaction):
+        raise ChannelOSTelegramContractError("interaction_id is not a bounded printable identifier")
+    return interaction
+
+
 def build_l6_outbox_intent(
     snapshot: MissionSnapshot,
     *,
@@ -103,14 +123,15 @@ def build_l6_outbox_intent(
     Replaying the same interaction against the same snapshot therefore yields the
     same outbox_message_id, while a later explicit click can produce a fresh message.
     """
-    interaction = str(interaction_id or "").strip()
-    if not interaction:
-        raise ChannelOSTelegramContractError("interaction_id must be non-empty")
+    command = _require_command(command)
+    interaction = _validate_interaction_id(interaction_id)
     if not isinstance(max_items, int) or isinstance(max_items, bool) or not 1 <= max_items <= 50:
         raise ChannelOSTelegramContractError("max_items must be between 1 and 50")
 
     selected = _filtered_snapshot(snapshot, command)
     text, keyboard = render_telegram(selected, max_items=max_items)
+    if len(text) > TELEGRAM_TEXT_LIMIT:
+        raise ChannelOSTelegramContractError("Mission Control rendering exceeds Telegram text limit")
     digest = _snapshot_digest(selected, command)
     identity_raw = json.dumps(
         {"interaction_id": interaction, "snapshot_digest": digest, "command": command.value},
