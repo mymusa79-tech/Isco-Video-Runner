@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Callable, Iterable, Mapping
 
 
-_ALLOWED_STAGE_ID = re.compile(r"^[a-z][a-z0-9_]*$")
+_ALLOWED_STAGE_ID = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
 _ALLOWED_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 ERROR_TAXONOMY = frozenset(
