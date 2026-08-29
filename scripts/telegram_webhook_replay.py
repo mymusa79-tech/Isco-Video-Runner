@@ -18,7 +18,7 @@ if __package__ in {None, ""}:
 from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
 from scripts import telegram_topic_memory_ui as memory_ui
-from scripts.channel_os_telegram_adapter import callback_view, render_control_state
+from scripts.channel_os_telegram_adapter import callback_view, render_control_state, text_view
 from scripts.telegram_release_approval import record_webhook_approval
 
 # workflow_dispatch inputs have a finite payload budget; base64 expands bytes by ~4/3.
@@ -122,11 +122,18 @@ def replay_release_approval_only(state_path: Path, update: dict[str, Any]) -> bo
     return True
 
 
-def _authorized_channel_os_callback(update: dict[str, Any]) -> tuple[str, int | str] | None:
+def _channel_os_view(update: dict[str, Any]) -> str | None:
     callback = update.get("callback_query")
-    if not isinstance(callback, dict):
-        return None
-    view = callback_view(callback.get("data"))
+    if isinstance(callback, dict):
+        return callback_view(callback.get("data"))
+    message = update.get("message")
+    if isinstance(message, dict):
+        return text_view(message.get("text"))
+    return None
+
+
+def _authorized_channel_os_request(update: dict[str, Any]) -> tuple[str, int | str] | None:
+    view = _channel_os_view(update)
     if view is None:
         return None
     allowed_text = panel._read_secret_file("TELEGRAM_ALLOWED_USER_ID_FILE", required=True)
@@ -137,7 +144,7 @@ def _authorized_channel_os_callback(update: dict[str, Any]) -> tuple[str, int | 
         raise RuntimeError("TELEGRAM_ALLOWED_USER_ID_FILE is invalid") from exc
     authorized, chat_id, _ = panel._authorized_user(update, allowed_user, allowed_chat)
     if not authorized or chat_id is None:
-        raise RuntimeError("Channel OS callback is not authorized for this user/chat")
+        raise RuntimeError("Channel OS request is not authorized for this user/chat")
     return view, chat_id
 
 
@@ -149,7 +156,7 @@ def _replay_channel_os_if_present(state_path: Path, update: dict[str, Any]) -> b
     read-only query response. Critical Telegram side effects continue to use the L6
     durable outbox; a Mission Control refresh has no authoritative state mutation.
     """
-    resolved = _authorized_channel_os_callback(update)
+    resolved = _authorized_channel_os_request(update)
     if resolved is None:
         return False
     view, chat_id = resolved
@@ -176,7 +183,7 @@ def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
     """Run one authenticated Telegram update through the existing control plane exactly once.
 
     Release approval callbacks are consumed directly by the webhook-owned L6 adapter.
-    Channel OS callbacks are read-only Mission Control projections rendered at this
+    Channel OS requests are read-only Mission Control projections rendered at this
     same ingress boundary. All other stateful callbacks continue through the certified
     legacy parser using an injected already-received update; that injection is not a
     live Telegram poll.
