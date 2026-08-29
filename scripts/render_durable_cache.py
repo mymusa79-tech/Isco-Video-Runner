@@ -110,6 +110,7 @@ def _optional_file_binding(path: Path | None) -> dict[str, Any] | None:
     if path.is_symlink() or not path.is_file():
         return None
     return {
+        "name": path.name,
         "sha256": _sha256_file(path),
         "byte_length": path.stat().st_size,
         "suffix": path.suffix.lower(),
@@ -135,6 +136,7 @@ def _picture_binding(inputs: list[Path], renderer: Callable[..., Any], output: P
         "m9_live_sha256": _module_sha(m9_live_binding),
         "ordered_inputs": [
             {
+                "name": Path(path).name,
                 "sha256": _sha256_file(path),
                 "byte_length": Path(path).stat().st_size,
             }
@@ -239,7 +241,7 @@ def _capture_sidecars(output_root: Path, names: tuple[str, ...], entry: Path) ->
     sidecar_root = entry / "sidecars"
     for name in names:
         source = Path(output_root) / name
-        if source.is_symlink() or not source.is_file():
+        if source.is_symlink() or not source.is_file() or _load_json(source) is None:
             continue
         size = source.stat().st_size
         if size <= 0 or size > MAX_SIDECAR_BYTES:
@@ -262,7 +264,7 @@ def _validate_sidecars(entry: Path, manifest: dict[str, Any]) -> dict[str, Path]
         if name != Path(name).name or not isinstance(meta, dict):
             return None
         path = entry / "sidecars" / name
-        if path.is_symlink() or not path.is_file():
+        if path.is_symlink() or not path.is_file() or _load_json(path) is None:
             return None
         size = path.stat().st_size
         if size <= 0 or size > MAX_SIDECAR_BYTES or meta.get("byte_length") != size:
@@ -272,6 +274,32 @@ def _validate_sidecars(entry: Path, manifest: dict[str, Any]) -> dict[str, Path]
             return None
         result[name] = path
     return result
+
+
+def _picture_is_cacheable(output_root: Path) -> bool:
+    report = _load_json(Path(output_root) / "m9-transitions.json")
+    if report is None or str(report.get("status") or "") != "applied":
+        return False
+    try:
+        return int(report.get("dissolve_count") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _final_reports_cacheable(output_root: Path) -> bool:
+    """Never memorialize transient optional-polish fallbacks as the durable final."""
+    root = Path(output_root)
+    for name in _FINAL_SIDECARS:
+        path = root / name
+        if not path.exists():
+            continue
+        report = _load_json(path)
+        if report is None:
+            return False
+        status = str(report.get("status") or "").strip().casefold()
+        if "error" in status or "fallback" in status:
+            return False
+    return True
 
 
 def _validate_entry(root: Path, kind: str, fingerprint: str, binding: dict[str, Any] | None = None):
@@ -382,6 +410,8 @@ def _wrap_concat(root: Path, original: Callable[..., Path]) -> Callable[..., Pat
         ):
             return output
         result = Path(original(paths, output))
+        if not _picture_is_cacheable(result.parent):
+            return result
         try:
             _persist_entry(
                 root,
@@ -443,6 +473,8 @@ def _wrap_mux(root: Path, original: Callable[..., Path], pending: list[dict[str,
         music_path = Path(music) if music is not None else None
         if output.name != "final.mp4" or not video.is_file():
             return original(video, narration, output, music=music, **kwargs)
+        if narration_path is None and music_path is None:
+            return original(video, narration, output, music=music, **kwargs)
         binding = _final_binding(video, narration_path, original, output, music_path, kwargs)
         fingerprint = _binding_hash(binding)
         hit = _restore_entry(
@@ -478,7 +510,7 @@ def _reconcile_final_candidates(cache_root: Path, pending: list[dict[str, Any]])
         fingerprint = str(item["fingerprint"])
         binding = item["binding"]
         hit = bool(item["hit"])
-        passed = _quality_passed(output_root)
+        passed = _quality_passed(output_root) and _final_reports_cacheable(output_root)
         if passed:
             if not hit:
                 try:
@@ -496,7 +528,7 @@ def _reconcile_final_candidates(cache_root: Path, pending: list[dict[str, Any]])
             continue
         if hit:
             shutil.rmtree(_entry(cache_root, _KIND_FINAL, fingerprint), ignore_errors=True)
-            print(f"Render durable final EVICTED after current QC did not certify fingerprint={fingerprint[:12]}")
+            print(f"Render durable final EVICTED after current QC/polish did not certify fingerprint={fingerprint[:12]}")
 
 
 @contextmanager
