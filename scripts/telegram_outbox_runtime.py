@@ -92,25 +92,62 @@ def _message_from_dict(raw: Mapping[str, Any]) -> OutboxMessage:
 
 
 def _restore_ledger(message: OutboxMessage) -> OutboxLedger:
-    """Hydrate one durable snapshot without pretending it is a new enqueue.
+    """Rehydrate a durable snapshot only through public outbox transitions.
 
-    `OutboxLedger.enqueue()` intentionally accepts only a brand-new PENDING message
-    with zero attempts. A durable snapshot may legitimately be SENDING, SENT,
-    FAILED, RECONCILIATION_REQUIRED, or a retried PENDING message. This persistence
-    adapter validates those snapshot invariants once, then loads the immutable
-    record into the same ledger whose public methods continue to own all state
-    transitions.
+    Persistence is not authority to invent a state. Replaying the smallest valid
+    transition history proves the stored snapshot could have been produced by the
+    contract. Impossible or internally inconsistent snapshots fail closed.
     """
-    if message.status is not OutboxStatus.PENDING and message.attempts < 1:
-        raise TelegramControlContractError("persisted non-PENDING outbox message requires at least one attempt")
-    if message.status is not OutboxStatus.SENT and message.telegram_message_id is not None:
-        raise TelegramControlContractError("only persisted SENT outbox message may carry telegram_message_id")
-    if message.status in {OutboxStatus.SENDING, OutboxStatus.RECONCILIATION_REQUIRED, OutboxStatus.SENT} and message.next_retry_at is not None:
-        raise TelegramControlContractError("active/ambiguous/sent outbox snapshot cannot carry next_retry_at")
     ledger = OutboxLedger()
-    # Persistence hydration is intentionally distinct from enqueue semantics. The
-    # ledger remains the sole owner of every transition after this one load seam.
-    ledger._messages[message.outbox_message_id] = message
+    message_id = message.outbox_message_id
+    ledger.enqueue(
+        OutboxMessage.pending(
+            outbox_message_id=message_id,
+            bot_token_hash=message.bot_token_hash,
+            chat_id=message.chat_id,
+            message_kind=message.message_kind,
+            correlation_id=message.correlation_id,
+            payload_hash=message.payload_hash,
+            journal_event_ref=message.journal_event_ref,
+            created_at=message.created_at,
+        )
+    )
+
+    if message.status is OutboxStatus.PENDING and message.attempts == 0:
+        restored = ledger.get(message_id)
+        if restored != message:
+            raise TelegramControlContractError("persisted initial PENDING outbox state is inconsistent")
+        return ledger
+
+    if message.attempts < 1:
+        raise TelegramControlContractError("persisted non-initial outbox state requires at least one send attempt")
+
+    for _ in range(message.attempts - 1):
+        ledger.begin_send(message_id)
+        ledger.mark_failed(message_id, next_retry_at=None)
+
+    ledger.begin_send(message_id)
+    if message.status is OutboxStatus.SENDING:
+        pass
+    elif message.status is OutboxStatus.FAILED:
+        ledger.mark_failed(message_id, next_retry_at=message.next_retry_at)
+    elif message.status is OutboxStatus.RECONCILIATION_REQUIRED:
+        ledger.recover_interrupted_send(message_id)
+    elif message.status is OutboxStatus.SENT:
+        ledger.mark_sent(message_id, telegram_message_id=str(message.telegram_message_id or ""))
+    elif message.status is OutboxStatus.PENDING:
+        ledger.recover_interrupted_send(message_id)
+        ledger.reconcile(
+            message_id,
+            confirmed_absent=True,
+            next_retry_at=message.next_retry_at,
+        )
+    else:
+        raise TelegramControlContractError("unsupported persisted outbox status")
+
+    restored = ledger.get(message_id)
+    if restored != message:
+        raise TelegramControlContractError("persisted outbox state is inconsistent with contract transitions")
     return ledger
 
 
