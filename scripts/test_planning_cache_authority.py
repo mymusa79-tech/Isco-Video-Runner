@@ -31,7 +31,7 @@ def _full_script_prompt(ids: list[str]) -> str:
 def _script(ids: list[str]) -> dict:
     return {
         "sections": [
-            {"id": section_id, "narration": f"ٶ� {section_id}", "key_point": f"key-{section_id}"}
+            {"id": section_id, "narration": f"نص {section_id}", "key_point": f"key-{section_id}"}
             for section_id in ids
         ]
     }

@@ -301,4 +301,32 @@ def install_cache_authority_post_router() -> None:
         cached = state[0].get(key) if state is not None else None
         if isinstance(cached, dict):
             try:
-                contract_name = validate_response_for_caci”¡…¡•°•™™•Ñ¥Ù”¤(€€€€€€€€€€€•á•ÁÐá•ÁÑ¥½¸…Ì•áŒè(€€€€€€€€€€€€€€€}•Ù¥Ñ}±¥Ù•}•¹ÑÉä¡ÕÉÉ•¹Ð°­•ä°É•…Í½¸õ˜‰¥¹Ù…±¥‘}É•ÍÑ½É•éíÑåÁ”¡•áŒ¤¹}}¹…µ•}}ôˆ¤(€€€€€€€€€€€•±Í”è(€€€€€€€€€€€€€€€¥˜½¹ÑÉ…Ñ}¹…µ”¥Ì9½¹”è(€€€€€€€€€€€€€€€€€€€}•Ù¥Ñ}±¥Ù•}•¹ÑÉä¡ÕÉÉ•¹Ð°­•ä°É•…Í½¸ô‰Õ¹­¹½Ý¹}É•ÍÑ½É•‘}½¹ÑÉ…Ðˆ¤((€€€€€€€É•ÍÕ±Ð€ôÕÉÉ•¹Ð¡…Á¥}­•ä°ÁÉ½µÁÐ°µ½‘•°õµ½‘•°¤(€€€€€€€¥˜¹½Ð¥Í¥¹ÍÑ…¹”¡É•ÍÕ±Ð°‘¥Ð¤è(€€€€€€€€€€€}•Ù¥Ñ}±¥Ù•}•¹ÑÉä¡ÕÉÉ•¹Ð°­•ä°É•…Í½¸ô‰¹½¹}½‰©•Ñ}É•ÍÕ±Ðˆ¤(€€€€€€€€€€€É…¥Í”A±…¹¹¥¹…¡•½¹ÑÉ…ÑÉÉ½È ‰A199%9}!}=9QIQ}I)QÍ¡•µ„µ¥Íµ…Ñ Á…Ñ ô‘•Ñ…¥°õ¹½¹}½‰©•Ñ}É•ÍÕ±Ðˆ¤(€€€€€€€ÑÉäè(€€€€€€€€€€€½¹ÑÉ…Ñ}¹…µ”€ôÙ…±¥‘…Ñ•}É•ÍÁ½¹Í•}™½É}…¡”¡É•ÍÕ±Ð°•™™•Ñ¥Ù”¤(€€€€€€€•á•ÁÐá•ÁÑ¥½¸è(€€€€€€€€€€€}•Ù¥Ñ}±¥Ù•}•¹ÑÉä¡ÕÉÉ•¹Ð°­•ä°É•…Í½¸ô‰Á½ÍÑ}É•…‘}Ù…±¥‘…Ñ¥½¹}™…¥±•ˆ¤(€€€€€€€€€€€É…¥Í”(€€€€€€€¥˜½¹ÑÉ…Ñ}¹…µ”¥Ì9½¹”è(€€€€€€€€€€€}•Ù¥Ñ}±¥Ù•}•¹ÑÉä¡ÕÉÉ•¹Ð°­•ä°É•…Í½¸ô‰Õ¹­¹½Ý¹}±¥Ù•}½¹ÑÉ…Ðˆ¤(€€€€€€€É•ÑÕÉ¸É•ÍÕ±Ð((€€€…ÕÑ¡½É¥Ñ…Ñ¥Ù•}©Í½¹}Ñ•áÐ¹}¥Í½}Á±…¹¹¥¹}…¡•}…ÕÑ¡½É¥Ñå}É•…€ôQÉÕ”(€€€…ÕÑ¡½É¥Ñ…Ñ¥Ù•}©Í½¹}Ñ•áÐ¹}¥Í½}Á±…¹¹¥¹}…¡•}…ÕÑ¡½É¥Ñå}É•…‘}½É¥¥¹…°€ôÕÉÉ•¹Ð(€€€ÍÑ…•¹©Í½¹}Ñ•áÐ€ô…ÕÑ¡½É¥Ñ…Ñ¥Ù•}©Í½¹}Ñ•áÐ(()‘•˜¥¹ÍÑ…±±}Á±…¹¹¥¹}…¡•}…ÕÑ¡½É¥Ñä ¤€´ø9½¹”è(€€€€ˆˆ‰%¹ÍÑ…±°ÝÉ¥Ñ”µÍ¥‘”Ù…±¥‘…Ñ¥½¸…¹É•…µÍ¥‘”•Ù¥Ñ¥½¸…É½Õ¹Ñ¡”±¥Ù”Á±…¹¹•ÈÉ½ÕÑ•È¸ˆˆˆ(€€€¥¹ÍÑ…±±}…¡•}…ÕÑ¡½É¥Ñå}ÁÉ•}É½ÕÑ•È ¤(€€€¥¹ÍÑ…±±}…¡•}…ÕÑ¡½É¥Ñå}Á½ÍÑ}É½ÕÑ•È ¤(
+                contract_name = validate_response_for_cache(cached, effective)
+            except Exception as exc:
+                _evict_live_entry(current, key, reason=f"invalid_restored:{type(exc).__name__}")
+            else:
+                if contract_name is None:
+                    _evict_live_entry(current, key, reason="unknown_restored_contract")
+
+        result = current(api_key, prompt, model=model)
+        if not isinstance(result, dict):
+            _evict_live_entry(current, key, reason="non_object_result")
+            raise PlanningCacheContractError("PLANNING_CACHE_CONTRACT_REJECTED schema mismatch path=$ detail=non_object_result")
+        try:
+            contract_name = validate_response_for_cache(result, effective)
+        except Exception:
+            _evict_live_entry(current, key, reason="post_read_validation_failed")
+            raise
+        if contract_name is None:
+            _evict_live_entry(current, key, reason="unknown_live_contract")
+        return result
+
+    authoritative_json_text._isco_planning_cache_authority_read = True
+    authoritative_json_text._isco_planning_cache_authority_read_original = current
+    staged.json_text = authoritative_json_text
+
+
+def install_planning_cache_authority() -> None:
+    """Install write-side validation and read-side eviction around the live planner router."""
+    install_cache_authority_pre_router()
+    install_cache_authority_post_router()
