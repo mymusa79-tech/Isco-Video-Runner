@@ -86,13 +86,15 @@ class TelegramReleaseApprovalTests(unittest.TestCase):
                 allowed_chat_id="22",
             )
 
-    def test_duplicate_callback_is_idempotent(self):
+    def test_repeated_same_decision_with_new_update_id_is_idempotent(self):
         candidate = _candidate()
-        update = {"update_id": 7, "callback_query": {"data": callback_data_for(candidate, ApprovalDecision.APPROVED), "from": {"id": 11}, "message": {"chat": {"id": 22}}}}
+        first_update = {"update_id": 7, "callback_query": {"data": callback_data_for(candidate, ApprovalDecision.APPROVED), "from": {"id": 11}, "message": {"chat": {"id": 22}}}}
+        second_update = {"update_id": 8, "callback_query": {"data": callback_data_for(candidate, ApprovalDecision.APPROVED), "from": {"id": 11}, "message": {"chat": {"id": 22}}}}
         state = {}
-        first = record_webhook_approval(state, update=update, allowed_user_id="11", allowed_chat_id="22", decided_at="2026-08-29T19:00:00+00:00")
-        second = record_webhook_approval(state, update=update, allowed_user_id="11", allowed_chat_id="22", decided_at="2026-08-29T19:05:00+00:00")
+        first = record_webhook_approval(state, update=first_update, allowed_user_id="11", allowed_chat_id="22", decided_at="2026-08-29T19:00:00+00:00")
+        second = record_webhook_approval(state, update=second_update, allowed_user_id="11", allowed_chat_id="22", decided_at="2026-08-29T19:05:00+00:00")
         self.assertEqual(first, second)
+        self.assertEqual(first.update_id, 7)
         self.assertEqual(len(state["release_approval_receipts"]), 1)
 
     def test_conflicting_duplicate_fails(self):
