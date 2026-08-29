@@ -106,7 +106,9 @@ class M7RunnerInstallerTests(unittest.TestCase):
         runtime._render_archive_clip.assert_called_once_with(
             Path("archive.jpg"), expected_raw, 7.5, fps=30
         )
-        prepare.assert_called_once_with(expected_raw, destination, 7.5, False, 30)
+        prepare.assert_called_once_with(
+            expected_raw, destination, 7.5, portrait=False, fps=30
+        )
 
 
 if __name__ == "__main__":
