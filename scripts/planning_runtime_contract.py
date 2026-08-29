@@ -24,6 +24,7 @@ from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.planning_batch_hardening import install_planning_batch_hardening
+from scripts.planning_legacy_authority_guard import install_legacy_planning_authority_guard
 from scripts.planning_stage_contract import (
     assert_planning_stage_contract_installed,
     install_planning_contract_router,
@@ -114,6 +115,8 @@ def install_post_runtime_planning_contracts() -> None:
     install_brand_anchor_guard()
     install_product_proof_fallback()
     # Plan-level wrappers may replace build/repair surfaces. Reassert the explicit
-    # Planning contract at the final canonical seam. No cache-authority wrapper exists:
-    # validation and the sole durable write both live inside planning_stage_contract.
+    # Planning contract at the final canonical seam. The final seal then removes the
+    # dormant prompt-hash checkpoint loader/writer from runtime authority entirely.
     _reassert_after_lifecycle_patch()
+    if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
+        install_legacy_planning_authority_guard()
