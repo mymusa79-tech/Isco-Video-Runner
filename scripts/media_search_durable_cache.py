@@ -10,6 +10,8 @@ from typing import Any, Callable
 
 from isco_video_agent.providers import pexels as pexels_provider
 
+from scripts.media_durable_cache import _cache_root as _media_cache_root
+
 
 CACHE_SCHEMA_VERSION = 1
 CACHE_NAMESPACE = "media-search-v1"
@@ -21,8 +23,9 @@ _ORIGINAL_SEARCH_CACHE = None
 
 
 def _root() -> Path | None:
-    value = (os.environ.get("ISCO_MEDIA_CACHE_PATH") or "").strip()
-    return Path(value) if value else None
+    # One Media root authority: explicit ISCO_MEDIA_CACHE_PATH wins, otherwise the
+    # shared durable-stage transport resolved by media_durable_cache is used.
+    return _media_cache_root()
 
 
 def _path(root: Path) -> Path:
@@ -198,7 +201,7 @@ def install_media_search_durable_cache() -> None:
     global _INSTALLED, _ORIGINAL_SEARCH_CACHE
     root = _root()
     if root is None:
-        print("Media durable Pexels search cache disabled: ISCO_MEDIA_CACHE_PATH not configured")
+        print("Media durable Pexels search cache disabled: durable Media root not configured")
         return
     if _INSTALLED:
         return
@@ -210,7 +213,9 @@ def install_media_search_durable_cache() -> None:
 
 def reset_media_search_durable_cache_for_tests() -> None:
     global _INSTALLED, _ORIGINAL_SEARCH_CACHE
-    if _ORIGINAL_SEARCH_CACHE is not None:
+    if _ORIGINAL_SEARCH_CACHE is not None and isinstance(
+        pexels_provider.stock_search_cache, DurablePexelsSearchCache
+    ):
         pexels_provider.stock_search_cache = _ORIGINAL_SEARCH_CACHE
     _ORIGINAL_SEARCH_CACHE = None
     _INSTALLED = False
