@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts.channel_os_mission_control import MISSION_STATES, MissionItem, MissionSnapshot
 from scripts.channel_os_publication_policy import (
@@ -16,6 +20,8 @@ from scripts.channel_os_telegram_junction import (
     is_channel_os_callback,
     parse_channel_os_callback,
 )
+from scripts.orchestration_telegram_ingress_outbox import OutboxStatus
+from scripts.telegram_outbox_runtime import enqueue
 
 UTC = "2026-08-30T00:00:00+00:00"
 
@@ -102,6 +108,50 @@ class ChannelOSTelegramJunctionTests(unittest.TestCase):
         self.assertNotEqual(first["outbox_message_id"], changed["outbox_message_id"])
         self.assertNotEqual(first["journal_event_ref"], changed["journal_event_ref"])
 
+    def test_junction_intent_is_accepted_by_l6_runtime_as_pending_without_provider_call(self):
+        current = snapshot(item("a", "Ready"))
+        intent = build_l6_outbox_intent(
+            current,
+            command=ChannelOSTelegramCommand.REFRESH,
+            interaction_id="integration-400",
+        )
+        with tempfile.TemporaryDirectory() as root_text:
+            root = Path(root_text)
+            state = root / "state.json"
+            state.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "telegram_offset": 0,
+                        "sessions": {},
+                        "requests": {},
+                        "pending_actions": [],
+                        "last_event_at": None,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            request = root / "request.json"
+            request.write_text(json.dumps(intent, ensure_ascii=False), encoding="utf-8")
+            token = root / "token"
+            chat = root / "chat"
+            token.write_text("bot-token", encoding="utf-8")
+            chat.write_text("123", encoding="utf-8")
+            env = {
+                "TELEGRAM_BOT_TOKEN_FILE": str(token),
+                "TELEGRAM_CHAT_ID_FILE": str(chat),
+            }
+            with patch.dict(os.environ, env, clear=False), patch(
+                "scripts.telegram_outbox_runtime.requests.post"
+            ) as post:
+                queued = enqueue(state, request)
+            post.assert_not_called()
+            self.assertEqual(queued.status, OutboxStatus.PENDING)
+            saved = json.loads(state.read_text(encoding="utf-8"))
+            record = saved["telegram_outbox_v1"][intent["outbox_message_id"]]
+            self.assertEqual(record["message"]["status"], "PENDING")
+            self.assertEqual(record["request"]["payload"]["chat_id"], "123")
+
     def test_junction_rejects_missing_interaction_or_invalid_page_bound(self):
         current = snapshot(item("a", "Ready"))
         with self.assertRaises(ChannelOSTelegramContractError):
@@ -133,8 +183,6 @@ class ChannelOSTelegramJunctionTests(unittest.TestCase):
             self.assertNotIn("getUpdates", source, path.name)
 
     def test_channel_os_still_cannot_upload_or_publish_youtube(self):
-        import tempfile
-
         with tempfile.TemporaryDirectory() as root:
             policy = ChannelOSMemory(root).get_policy()
             self.assertFalse(channel_os_youtube_upload_allowed(policy))
