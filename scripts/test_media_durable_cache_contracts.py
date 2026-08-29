@@ -1,26 +1,29 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import isco_video_agent.orchestrator as orchestrator
-import isco_video_agent.visual_selection as visual_selection
-
 from scripts import media_durable_cache as durable
+from scripts import media_search_durable_cache as media_search
 from scripts import media_trust_boundary_v2 as trust
+from scripts import tts_durable_cache as tts_cache
 
 
 class MediaDurableCacheContractTests(unittest.TestCase):
     def setUp(self) -> None:
         durable.reset_media_durable_cache_for_tests()
+        media_search.reset_media_search_durable_cache_for_tests()
         trust.reset_media_trust_state_for_tests()
         durable._LOCAL_REVALIDATED_RAW.clear()
 
     def tearDown(self) -> None:
         durable.reset_media_durable_cache_for_tests()
+        media_search.reset_media_search_durable_cache_for_tests()
         trust.reset_media_trust_state_for_tests()
         durable._LOCAL_REVALIDATED_RAW.clear()
 
@@ -37,7 +40,36 @@ class MediaDurableCacheContractTests(unittest.TestCase):
             root = Path(tmp)
             with patch.dict(os.environ, self._env(root), clear=False):
                 os.environ.pop("ISCO_MEDIA_CACHE_PATH", None)
-                self.assertEqual(durable._cache_root(), root / "stage-cache" / "media")
+                expected = root / "stage-cache" / "media"
+                self.assertEqual(durable._cache_root(), expected)
+                self.assertEqual(media_search._root(), expected)
+
+    def test_search_only_media_namespace_is_sanitized_and_keeps_envelope_saveable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = self._env(root)
+            with patch.dict(os.environ, env, clear=False):
+                os.environ.pop("ISCO_MEDIA_CACHE_PATH", None)
+                media_root = root / "stage-cache" / "media"
+                target = media_search._path(media_root)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": media_search.CACHE_SCHEMA_VERSION,
+                            "contract": media_search._contract(),
+                            "entries": {
+                                "a" * 64: {
+                                    "fetched_at": time.time(),
+                                    "response": [{"id": 1, "url": "https://www.pexels.com/video/1/"}],
+                                }
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                self.assertTrue(tts_cache.prepare_cache_for_persistence(root / "stage-cache"))
+                self.assertTrue(target.is_file())
 
     def test_reset_never_resurrects_an_external_test_patch_after_context_exit(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
