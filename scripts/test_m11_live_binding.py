@@ -55,7 +55,7 @@ class M11LiveBindingTests(unittest.TestCase):
         audit_calls = []
         reviewer = self._reviewer(ledger, lambda *a, **k: audit_calls.append(1))
         candidate = SimpleNamespace(provider=SimpleNamespace(value="the_met"), object_id="42")
-        with patch.object(binding, "make_image_review_preview") as preview:
+        with patch.object(binding.media_ffmpeg, "make_image_review_preview") as preview:
             result = reviewer(Path("unused.jpg"), {"body_index": 0, "director_evidence": "museum artwork"}, candidate)
         self.assertEqual(result["status"], "block")
         preview.assert_not_called()
@@ -71,7 +71,7 @@ class M11LiveBindingTests(unittest.TestCase):
             lambda *a, **k: {"status": "pass", "relevance": 0.9, "visual_quality": 0.9},
         )
         candidate = SimpleNamespace(provider=SimpleNamespace(value="the_met"), object_id="42")
-        with patch.object(binding, "make_image_review_preview"):
+        with patch.object(binding.media_ffmpeg, "make_image_review_preview"):
             result = reviewer(Path("image.jpg"), {"body_index": 0, "director_evidence": "museum artwork"}, candidate)
         self.assertEqual(result["status"], "pass")
         self.assertIs(ledger.attempts[0][1]["outcome"], AttemptOutcome.SUCCESS)
@@ -80,7 +80,7 @@ class M11LiveBindingTests(unittest.TestCase):
         ledger = _Ledger()
         reviewer = self._reviewer(ledger, lambda *a, **k: {"status": "block", "reason": "cultural risk"})
         candidate = SimpleNamespace(provider=SimpleNamespace(value="the_met"), object_id="42")
-        with patch.object(binding, "make_image_review_preview"):
+        with patch.object(binding.media_ffmpeg, "make_image_review_preview"):
             result = reviewer(Path("image.jpg"), {"body_index": 0, "director_evidence": "museum artwork"}, candidate)
         self.assertEqual(result["status"], "block")
         self.assertIs(ledger.attempts[0][1]["outcome"], AttemptOutcome.CONTENT_BLOCKED)
