@@ -75,12 +75,16 @@ def _expected_assets(assets: list[Path]) -> dict[str, dict[str, object]]:
     }
 
 
-def _remote_assets(payload: dict, *, tag: str, target_sha: str) -> dict[str, dict[str, object]]:
+def _assert_release_identity(payload: dict, *, tag: str, target_sha: str) -> None:
     if payload.get("tagName") != tag:
         raise RuntimeError("GitHub Release tag identity does not match requested tag")
     remote_target = str(payload.get("targetCommitish") or "").strip().lower()
     if remote_target != target_sha:
         raise RuntimeError("GitHub Release target does not match reviewed Runner SHA")
+
+
+def _remote_assets(payload: dict, *, tag: str, target_sha: str) -> dict[str, dict[str, object]]:
+    _assert_release_identity(payload, tag=tag, target_sha=target_sha)
 
     items = payload.get("assets")
     if not isinstance(items, list):
@@ -115,16 +119,14 @@ def _assert_remote_matches(
     return len(remote)
 
 
-def _view(tag: str, repository: str, *, run: Run) -> dict:
-    result = _run(
-        [
-            "gh", "release", "view", tag, "--repo", repository,
-            "--json", "tagName,isDraft,targetCommitish,assets",
-        ],
-        run=run,
-    )
-    if result.returncode != 0:
-        raise RuntimeError("could not verify GitHub Release state")
+def _view_command(tag: str, repository: str) -> list[str]:
+    return [
+        "gh", "release", "view", tag, "--repo", repository,
+        "--json", "tagName,isDraft,targetCommitish,assets",
+    ]
+
+
+def _parse_view_result(result: subprocess.CompletedProcess) -> dict:
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
@@ -134,13 +136,62 @@ def _view(tag: str, repository: str, *, run: Run) -> dict:
     return payload
 
 
+def _view(tag: str, repository: str, *, run: Run) -> dict:
+    result = _run(_view_command(tag, repository), run=run)
+    if result.returncode != 0:
+        raise RuntimeError("could not verify GitHub Release state")
+    return _parse_view_result(result)
+
+
+def _view_if_exists(tag: str, repository: str, *, run: Run) -> dict | None:
+    """Return an existing Release or prove absence without treating probe errors as absence."""
+    try:
+        result = _run(_view_command(tag, repository), run=run)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("GitHub Release reconciliation probe timed out") from exc
+    if result.returncode == 0:
+        return _parse_view_result(result)
+    detail = f"{result.stdout}\n{result.stderr}".casefold()
+    if "release not found" in detail or "http 404" in detail or "not found" in detail:
+        return None
+    raise RuntimeError("could not prove GitHub Release absence during reconciliation")
+
+
 def _delete_draft_best_effort(tag: str, repository: str, *, run: Run) -> None:
     try:
         payload = _view(tag, repository, run=run)
     except Exception:
         return
     if payload.get("isDraft") is True:
-        _run(["gh", "release", "delete", tag, "--repo", repository, "--yes"], run=run)
+        # Deleting only the Release can leave an orphan Git tag. That tag blocks the
+        # next production preflight and can also make a later --target silently lose
+        # authority. Always request release + tag cleanup together.
+        _run(
+            ["gh", "release", "delete", tag, "--repo", repository, "--yes", "--cleanup-tag"],
+            run=run,
+        )
+
+
+def _remove_exact_existing_draft(
+    tag: str,
+    repository: str,
+    *,
+    target_sha: str,
+    run: Run,
+) -> None:
+    """Strictly remove only a draft proven to belong to this exact reviewed SHA."""
+    payload = _view(tag, repository, run=run)
+    _assert_release_identity(payload, tag=tag, target_sha=target_sha)
+    if payload.get("isDraft") is not True:
+        raise RuntimeError("existing GitHub Release changed state before draft reconciliation")
+    result = _run(
+        ["gh", "release", "delete", tag, "--repo", repository, "--yes", "--cleanup-tag"],
+        run=run,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("could not remove exact stale draft Release for reconciliation")
+    if _view_if_exists(tag, repository, run=run) is not None:
+        raise RuntimeError("stale draft Release still exists after reconciliation cleanup")
 
 
 def publish_release_transaction(
@@ -177,6 +228,53 @@ def publish_release_transaction(
 
     record("validated")
 
+    # Re-runs must be idempotent after the release boundary. A published Release is
+    # accepted only when it is already the exact reviewed transaction: same tag, exact
+    # Runner SHA, and the exact complete asset size+SHA256 map. Any drift is immutable
+    # conflict evidence and must never be overwritten. A same-SHA draft is non-public
+    # partial state, so remove it (including its Git tag) and rebuild from local reviewed
+    # assets rather than incrementally mutating an unknown partial upload.
+    try:
+        existing = _view_if_exists(tag, repository, run=run)
+    except Exception as exc:
+        record("reconciliation_probe_failed", detail=type(exc).__name__)
+        raise
+    if existing is not None:
+        try:
+            _assert_release_identity(existing, tag=tag, target_sha=target_sha)
+        except Exception as exc:
+            record("existing_release_conflict", detail=type(exc).__name__)
+            raise
+        is_draft = existing.get("isDraft")
+        if is_draft is False:
+            try:
+                verified = _assert_remote_matches(
+                    existing,
+                    tag=tag,
+                    target_sha=target_sha,
+                    expected=expected,
+                )
+            except Exception as exc:
+                record("existing_published_conflict", detail=type(exc).__name__)
+                raise
+            record("complete", verified=verified, detail="reconciled_existing_published")
+            return
+        if is_draft is not True:
+            record("existing_release_conflict", detail="invalid_draft_state")
+            raise RuntimeError("existing GitHub Release has invalid draft state")
+        record("existing_draft_detected")
+        try:
+            _remove_exact_existing_draft(
+                tag,
+                repository,
+                target_sha=target_sha,
+                run=run,
+            )
+        except Exception as exc:
+            record("existing_draft_cleanup_failed", detail=type(exc).__name__)
+            raise
+        record("existing_draft_removed")
+
     try:
         create = _run(
             [
@@ -186,6 +284,8 @@ def publish_release_transaction(
             run=run,
         )
     except subprocess.TimeoutExpired as exc:
+        # The remote side may have created a draft before the client timed out. A later
+        # retry can now reconcile that same-SHA draft instead of deadlocking forever.
         record("create_failed", detail="draft release creation timed out")
         raise RuntimeError("draft GitHub Release creation timed out") from exc
     if create.returncode != 0:
