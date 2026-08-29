@@ -19,6 +19,38 @@ APPROVE_PREFIX = "approve"
 REJECT_PREFIX = "reject"
 PROJECTION_LIMIT = 32
 
+_REQUIRED_RELEASE_ASSETS = (
+    "final.mp4",
+    "quality-final.json",
+    "plan.json",
+    "final-critic.json",
+    "ai-budget.json",
+    "production-manifest.json",
+    "final-master-qc.json",
+    "thumbnail-plan.json",
+    "thumbnail-1.jpg",
+    "thumbnail-2.jpg",
+    "thumbnail-3.jpg",
+    "rights-manifest.json",
+    "gold-enforce-report.json",
+    "delivery-manifest.json",
+    "capability-manifest.json",
+)
+_OPTIONAL_RELEASE_ASSETS = (
+    "planning-telemetry.json",
+    "opening-visual-audit.json",
+    "canonical-bundle-request.json",
+    "sibling-short-plan.json",
+    "sibling-short-results.json",
+    "visual-timeline.json",
+    "audio-mastering.json",
+    "sfx-plan.json",
+    "m9-transitions.json",
+    "m10-cards.json",
+    "m11-report.json",
+    "cta-plan.json",
+)
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -33,6 +65,23 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def release_asset_names_for_output(root: Path) -> tuple[str, ...]:
+    """Mirror the certified Release transaction asset set, plus L3 capability evidence."""
+    root = Path(root)
+    missing = [name for name in _REQUIRED_RELEASE_ASSETS if not (root / name).is_file()]
+    if missing:
+        raise TelegramControlContractError(
+            "release candidate is incomplete; missing assets:" + ",".join(sorted(missing))
+        )
+    names = list(_REQUIRED_RELEASE_ASSETS)
+    names.extend(name for name in _OPTIONAL_RELEASE_ASSETS if (root / name).is_file())
+    for pattern in ("short-*", "*.m8.json"):
+        names.extend(path.name for path in sorted(root.glob(pattern)) if path.is_file())
+    if len(names) != len(set(names)):
+        raise TelegramControlContractError("release asset discovery produced duplicate names")
+    return tuple(names)
 
 
 def canonical_release_asset_set_digest(root: Path, asset_names: tuple[str, ...]) -> str:
@@ -57,16 +106,17 @@ def build_release_candidate(
     *,
     root: Path,
     run_id: str,
-    capability_manifest_name: str,
-    release_asset_names: tuple[str, ...],
+    capability_manifest_name: str = "capability-manifest.json",
+    release_asset_names: tuple[str, ...] | None = None,
 ) -> ReleaseCandidateDigest:
     root = Path(root)
+    asset_names = release_asset_names or release_asset_names_for_output(root)
     return ReleaseCandidateDigest(
         run_id=run_id,
         final_mp4_sha256=_sha256_file(root / "final.mp4"),
         delivery_manifest_sha256=_sha256_file(root / "delivery-manifest.json"),
         capability_manifest_sha256=_sha256_file(root / capability_manifest_name),
-        release_asset_set_digest=canonical_release_asset_set_digest(root, release_asset_names),
+        release_asset_set_digest=canonical_release_asset_set_digest(root, asset_names),
     )
 
 
