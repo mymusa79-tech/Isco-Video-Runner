@@ -199,6 +199,34 @@ class TelegramWebhookReplayTests(unittest.TestCase):
                 replay.replay_update(path, _channel_update(303, user_id=999))
             send.assert_not_called(); self.assertNotIn(replay.SEEN_UPDATES_KEY, panel.load_state(path))
 
+    def test_safe_during_production_keeps_release_approval_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"; _state(path)
+            with mock.patch.object(panel, "_read_secret_file", side_effect=_secret), mock.patch.object(active, "_poll") as poll:
+                self.assertEqual(replay.replay_safe_during_production(path, _release_update(401)), "release_approval")
+            poll.assert_not_called()
+            self.assertEqual(panel.load_state(path)[replay.SEEN_UPDATES_KEY], [401])
+
+    def test_safe_during_production_serves_channel_os_without_legacy_parser(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"; _state(path)
+            keyboard = [[{"text": "Refresh", "callback_data": "cmd:channelos-refresh"}]]
+            with mock.patch.object(panel, "_read_secret_file", side_effect=_secret), \
+                 mock.patch.object(replay, "render_control_state", return_value=("Producing", keyboard)) as render, \
+                 mock.patch.object(panel.TelegramClient, "send") as send, mock.patch.object(active, "_poll") as poll:
+                self.assertEqual(replay.replay_safe_during_production(path, _channel_update(402)), "channel_os")
+            poll.assert_not_called(); render.assert_called_once(); send.assert_called_once_with(77, "Producing", keyboard=keyboard)
+            self.assertEqual(panel.load_state(path)[replay.SEEN_UPDATES_KEY], [402])
+
+    def test_safe_during_production_rejects_other_stateful_commands_without_marking_seen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"; _state(path)
+            with mock.patch.object(panel, "_read_secret_file", side_effect=_secret), \
+                 mock.patch.object(active, "_poll") as poll, mock.patch.object(panel.TelegramClient, "send") as send:
+                self.assertIsNone(replay.replay_safe_during_production(path, _update(403)))
+            poll.assert_not_called(); send.assert_not_called()
+            self.assertNotIn(replay.SEEN_UPDATES_KEY, panel.load_state(path))
+
 
 if __name__ == "__main__":
     unittest.main()
