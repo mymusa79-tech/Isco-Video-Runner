@@ -101,6 +101,7 @@ class Run126RootCauseClosureTests(unittest.TestCase):
                 "GROQ_API_KEY_FILE": str(groq_key),
                 "ISCO_PROVIDER_PREFLIGHT_PATH": str(provider_preflight),
                 "ISCO_APPROVED_BRIEF_SNAPSHOT_PATH": str(snapshot_path),
+                "ISCO_APPROVED_BRIEF_SNAPSHOT_SHA256": expected_brief_sha,
                 "ISCO_APPROVED_BRIEF_SHA256": expected_brief_sha,
                 "ISCO_ENGINE_SHA": engine_sha,
             }
