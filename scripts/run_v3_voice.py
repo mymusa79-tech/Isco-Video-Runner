@@ -24,6 +24,7 @@ from scripts.production_model_contract import install_production_model_contract
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
 from scripts.task_level_planner_router import get_used_providers, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
+from scripts.tts_cache_budget_accounting import install_tts_cache_budget_accounting
 from scripts.tts_durable_section_cache import install_tts_durable_section_cache
 from scripts.voice_identity_observer import install_voice_identity_observer
 from scripts.voice_mesh import install_voice_mesh
@@ -213,9 +214,11 @@ def main() -> None:
     install_voice_mesh()
     # Cache activation is explicit: unit/diagnostic processes without a persistent cache
     # path retain the historical boundary unchanged. Production configures the path in
-    # its workflow before this entrypoint starts.
+    # its workflow before this entrypoint starts. Accounting wraps outside the cache so
+    # a hit remains a logical TTS task while producing exactly zero provider attempts.
     if str(os.environ.get("ISCO_TTS_CACHE_DIR") or "").strip():
         install_tts_durable_section_cache()
+        install_tts_cache_budget_accounting()
     install_voice_identity_observer()
     install_m7_live_binding()
     # Run #93: install_m7_live_binding() installs Security V1 (its length-validating
