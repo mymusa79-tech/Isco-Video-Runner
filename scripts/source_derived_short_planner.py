@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 import isco_video_agent.orchestrator as orchestrator
+from isco_video_agent.editorial_room import EditorialContractError, intent_from_dict
 from isco_video_agent.models import ProductionPlan, ScriptSection
 from isco_video_agent.short_planner import build_short_plan, plan_as_dict
 
@@ -220,6 +221,17 @@ def _select_template(control_request: dict[str, Any]) -> str:
     return next(template for template in tie_break_order if scores[template] == best_score)
 
 
+def _source_editorial_intent(control_request: dict[str, Any]) -> dict[str, Any]:
+    """Validate and canonicalize the signed long-form EditorialIntent inheritance."""
+    raw = control_request.get("source_editorial_intent")
+    if not isinstance(raw, dict) or not raw:
+        raise SourceDerivedShortError("source_editorial_intent_missing")
+    try:
+        return intent_from_dict(dict(raw)).to_dict()
+    except EditorialContractError as exc:
+        raise SourceDerivedShortError(f"source_editorial_intent_invalid:{exc}") from exc
+
+
 def build_source_short_blueprint(control_request: dict[str, Any]) -> dict[str, Any]:
     if control_request.get("kind") != "short":
         raise SourceDerivedShortError("source_short_request_kind_invalid")
@@ -279,6 +291,7 @@ def _validated_blueprint(control_request: dict[str, Any]) -> dict[str, Any]:
 
 def build_production_plan(control_request: dict[str, Any]) -> ProductionPlan:
     blueprint = _validated_blueprint(control_request)
+    editorial_intent = _source_editorial_intent(control_request)
     excerpt = control_request["source_episode_excerpt"]
     beat_texts = [_clean(item.get("text")) for item in blueprint["beats"]]
     if len(beat_texts) < 2:
@@ -318,13 +331,14 @@ def build_production_plan(control_request: dict[str, Any]) -> ProductionPlan:
         sections=[section],
         cta="",
         closing_payoff=beat_texts[-1][:300],
-        editorial_intent={},
+        editorial_intent=editorial_intent,
     )
 
 
 def install_source_derived_short_planner(control_request: dict[str, Any]) -> None:
     expected_topic = _clean(control_request.get("approved_topic"))
     _validated_blueprint(control_request)
+    _source_editorial_intent(control_request)
 
     def routed_build_plan(_api_key, topic, requested_format, _content_model, **_kwargs):
         if _clean(topic) != expected_topic:
