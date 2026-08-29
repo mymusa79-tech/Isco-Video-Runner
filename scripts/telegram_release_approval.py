@@ -208,13 +208,19 @@ def record_webhook_approval(
     if existing is not None:
         if not isinstance(existing, dict):
             raise TelegramControlContractError("release approval receipt is malformed")
+        existing_update_id = existing.get("update_id")
         same = (
             existing.get("candidate_digest") == candidate_digest
             and existing.get("decision") == decision.value
-            and existing.get("update_id") == update_id
+            and isinstance(existing_update_id, int)
+            and not isinstance(existing_update_id, bool)
+            and existing_update_id >= 0
         )
         if not same:
             raise TelegramControlContractError("release approval callback conflicts with durable receipt")
+        # Repeated presses of the same decision can arrive with a new Telegram
+        # update_id. They are the same business decision, so retain the first
+        # durable receipt rather than creating a second effective side effect.
         canonical = existing
     else:
         receipts[approval_id] = canonical
@@ -222,7 +228,7 @@ def record_webhook_approval(
     return BoundApproval(
         approval_id=approval_id,
         actor_id=actor_id,
-        update_id=update_id,
+        update_id=int(canonical["update_id"]),
         candidate_digest=candidate_digest,
         decision=decision,
         journal_event_ref=f"telegram-release-approval:{approval_id}",
