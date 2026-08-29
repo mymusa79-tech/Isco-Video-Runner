@@ -88,7 +88,8 @@ class MediaDurableCacheTests(unittest.TestCase):
 
             with patch.dict(os.environ, self._env(root), clear=False), \
                     patch.object(trust, "trusted_download", original_download), \
-                    patch.object(trust, "_inspect_exact_review_source", return_value=None):
+                    patch.object(trust, "_inspect_exact_review_source", return_value=None), \
+                    patch.object(trust, "_distributed_scan_media_before_vision", return_value=None):
                 durable.install_media_durable_cache()
                 first_cache = visual_selection.VisualCandidateCache(excluded_assets={})
                 first = visual_selection.review_candidates(
@@ -280,6 +281,8 @@ class MediaDurableCacheTests(unittest.TestCase):
 
             with patch.dict(os.environ, self._env(root), clear=False), \
                     patch.object(trust, "trusted_download", original_download), \
+                    patch.object(trust, "_inspect_exact_review_source", return_value=None), \
+                    patch.object(trust, "_distributed_scan_media_before_vision", return_value=None), \
                     patch.object(orchestrator, "prepare_clip", original_prepare), \
                     patch.object(orchestrator, "duration", return_value=12.0):
                 durable.install_media_durable_cache()
