@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import unittest
-from unittest.mock import patch
 
 import scripts.task_level_planner_router as router
+from scripts import planning_checkpoint_state_core as durable_state
 from scripts.checkpoint_namespace_guard import (
+    CHECKPOINT_NAMESPACE_SCHEMA_VERSION,
     CHECKPOINT_SCHEMA_VERSION,
     checkpoint_namespace,
     install_checkpoint_namespace_guard,
@@ -34,6 +36,10 @@ class CheckpointNamespaceGuardTests(unittest.TestCase):
         os.environ["GITHUB_SHA"] = "d" * 40
         self.assertNotEqual(first, checkpoint_namespace())
 
+    def test_namespace_recipe_version_is_independent_from_document_schema(self) -> None:
+        self.assertEqual(CHECKPOINT_SCHEMA_VERSION, 1)
+        self.assertEqual(CHECKPOINT_NAMESPACE_SCHEMA_VERSION, 2)
+
     def test_old_checkpoint_is_invalidated_instead_of_reused(self) -> None:
         os.environ["GITHUB_SHA"] = "a" * 40
         os.environ["ISCO_ENGINE_SHA"] = "b" * 40
@@ -60,6 +66,34 @@ class CheckpointNamespaceGuardTests(unittest.TestCase):
         router._save_checkpoint = lambda data: None
         install_checkpoint_namespace_guard()
         self.assertEqual(router._load_checkpoint()["responses"], {"key": {"ok": True}})
+
+    def test_guarded_router_checkpoint_is_accepted_by_durable_persistence_contract(self) -> None:
+        """Run132 regression: the live namespace layer and durable writer must compose."""
+        os.environ["GITHUB_SHA"] = "a" * 40
+        os.environ["ISCO_ENGINE_SHA"] = "b" * 40
+        captured: dict = {}
+        router._load_checkpoint = lambda: {"version": 1, "responses": {}}
+        router._save_checkpoint = lambda data: captured.update(data)
+        install_checkpoint_namespace_guard()
+
+        cache_key = hashlib.sha256(b"run132-composed-checkpoint").hexdigest()
+        router._save_checkpoint(
+            {
+                "version": 1,
+                "responses": {
+                    cache_key: {
+                        "sections": [
+                            {"id": "S1", "narration": "done", "key_point": "done"}
+                        ]
+                    }
+                },
+            }
+        )
+
+        normalized = durable_state._normalize_checkpoint(captured)
+        self.assertEqual(normalized["version"], durable_state.EMPTY_CHECKPOINT["version"])
+        self.assertEqual(normalized["responses"], captured["responses"])
+        self.assertEqual(captured["namespace"], checkpoint_namespace())
 
 
 if __name__ == "__main__":
