@@ -1,4 +1,5 @@
-import pytest
+import unittest
+from contextlib import contextmanager
 
 from orchestration_stage_registry import (
     CachePolicy,
@@ -13,6 +14,12 @@ from orchestration_stage_registry import (
     certified_non_planning_contracts,
     materialize_contract_data,
 )
+
+
+@contextmanager
+def _raises(exc_type, match):
+    with unittest.TestCase().assertRaisesRegex(exc_type, match):
+        yield
 
 
 def _base(**overrides):
@@ -71,27 +78,27 @@ def test_every_contract_has_required_general_fields():
 def test_duplicate_stage_ids_fail_loud():
     registry = StageRegistry()
     registry.register(_base())
-    with pytest.raises(StageRegistryError, match="duplicate stage_id"):
+    with _raises(StageRegistryError, "duplicate stage_id"):
         registry.register(_base(contract_id="media-stage-v2", contract_version=2))
 
 
 def test_invalid_contract_version_is_rejected():
-    with pytest.raises(StageRegistryError, match="contract_version"):
+    with _raises(StageRegistryError, "contract_version"):
         _base(contract_version=0)
 
 
 def test_missing_retry_owner_is_rejected():
-    with pytest.raises(StageRegistryError, match="retry_policy.owner"):
+    with _raises(StageRegistryError, r"retry_policy\.owner"):
         _base(retry_policy=RetryPolicy(owner="", max_attempts=1))
 
 
 def test_unbounded_retry_is_rejected():
-    with pytest.raises(StageRegistryError, match="bounded"):
+    with _raises(StageRegistryError, "bounded"):
         _base(retry_policy=RetryPolicy(owner="media", bounded=False, max_attempts=2))
 
 
 def test_cache_write_before_validation_is_rejected():
-    with pytest.raises(StageRegistryError, match="cache write before"):
+    with _raises(StageRegistryError, "cache write before"):
         _base(
             cache_policy=CachePolicy(
                 read=False,
@@ -103,7 +110,7 @@ def test_cache_write_before_validation_is_rejected():
 
 
 def test_cache_hit_without_current_contract_revalidation_is_rejected():
-    with pytest.raises(StageRegistryError, match="cache hits"):
+    with _raises(StageRegistryError, "cache hits"):
         _base(
             cache_policy=CachePolicy(
                 read=True,
@@ -115,7 +122,7 @@ def test_cache_hit_without_current_contract_revalidation_is_rejected():
 
 
 def test_illegal_error_taxonomy_is_rejected():
-    with pytest.raises(StageRegistryError, match="illegal error taxonomy"):
+    with _raises(StageRegistryError, "illegal error taxonomy"):
         _base(error_taxonomy=("SOME_TEXT_MATCHED_EXCEPTION",))
 
 
@@ -162,13 +169,10 @@ def test_canonical_dotted_planning_stage_ids_are_valid_without_rewriting_identit
     assert contract.stage_id == "planning.append_only_repair"
 
 
-@pytest.mark.parametrize(
-    "stage_id",
-    (".planning", "planning.", "planning..outline", "Planning.outline", "planning.-outline"),
-)
-def test_malformed_dotted_stage_ids_are_rejected(stage_id):
-    with pytest.raises(StageRegistryError, match="invalid stage_id"):
-        _base(stage_id=stage_id)
+def test_malformed_dotted_stage_ids_are_rejected():
+    for stage_id in (".planning", "planning.", "planning..outline", "Planning.outline", "planning.-outline"):
+        with _raises(StageRegistryError, "invalid stage_id"):
+            _base(stage_id=stage_id)
 
 
 def test_structured_schema_and_semantic_rules_are_frozen_without_field_loss():
@@ -185,7 +189,7 @@ def test_structured_schema_and_semantic_rules_are_frozen_without_field_loss():
     contract = _base(output_schema=output_schema, semantic_rules=semantic_rules)
     assert materialize_contract_data(contract.output_schema) == output_schema
     assert materialize_contract_data(contract.semantic_rules) == semantic_rules
-    with pytest.raises(TypeError):
+    with _raises(TypeError, ""):
         contract.output_schema["type"] = "array"
 
 
@@ -206,7 +210,7 @@ def test_cache_policy_can_retain_canonical_policy_as_lossless_adapter_metadata()
     )
     contract = _base(cache_policy=policy)
     assert materialize_contract_data(contract.cache_policy.canonical_policy) == canonical
-    with pytest.raises(TypeError):
+    with _raises(TypeError, ""):
         contract.cache_policy.canonical_policy["namespace"] = "changed"
 
 
@@ -220,7 +224,7 @@ def test_provider_plugin_is_atomic_on_duplicate_conflict():
             _base(stage_id="media", contract_id="media-stage-v9", contract_version=9),
         ),
     )
-    with pytest.raises(StageRegistryError, match="duplicate stage_id"):
+    with _raises(StageRegistryError, "duplicate stage_id"):
         registry.load_provider("bad-provider")
     assert registry.stage_ids() == ("media",)
 
@@ -228,7 +232,7 @@ def test_provider_plugin_is_atomic_on_duplicate_conflict():
 def test_duplicate_provider_ids_are_rejected():
     registry = StageRegistry()
     registry.register_provider("p", lambda: ())
-    with pytest.raises(StageRegistryError, match="duplicate stage provider"):
+    with _raises(StageRegistryError, "duplicate stage provider"):
         registry.register_provider("p", lambda: ())
 
 
@@ -258,14 +262,14 @@ def test_request_specific_resolver_does_not_mutate_static_registry():
 def test_duplicate_resolver_ids_are_rejected():
     registry = StageRegistry()
     registry.register_resolver("planning", lambda: _base())
-    with pytest.raises(StageRegistryError, match="duplicate stage resolver"):
+    with _raises(StageRegistryError, "duplicate stage resolver"):
         registry.register_resolver("planning", lambda: _base())
 
 
 def test_resolver_must_return_stage_contract():
     registry = StageRegistry()
     registry.register_resolver("bad", lambda: {"stage_id": "planning.full_script"})
-    with pytest.raises(StageRegistryError, match="did not return StageContract"):
+    with _raises(StageRegistryError, "did not return StageContract"):
         registry.resolve("bad")
 
 
@@ -275,17 +279,17 @@ def test_run_snapshot_is_immutable_and_not_affected_by_later_registration():
     snapshot = registry.freeze_for_run()
     registry.register(_base(stage_id="tts", contract_id="tts-stage-v1"))
     assert tuple(snapshot) == ("media",)
-    with pytest.raises(TypeError):
+    with _raises(TypeError, ""):
         snapshot["tts"] = registry.get("tts")
 
 
 def test_implementation_binding_requires_full_blob_sha():
-    with pytest.raises(StageRegistryError, match="40-char"):
+    with _raises(StageRegistryError, "40-char"):
         _base(implementation_binding=ImplementationBinding("x", 1, "x.py", "deadbeef"))
 
 
 def test_deadline_contract_rejects_local_cap_below_minimum():
-    with pytest.raises(StageRegistryError, match="local_cap_ms"):
+    with _raises(StageRegistryError, "local_cap_ms"):
         _base(deadline_policy=DeadlinePolicy(5_000, 4_999, "compute"))
 
 
@@ -296,7 +300,7 @@ def test_builtin_deadlines_are_explicit_policy_refs_not_invented_numbers():
 
 
 def test_deadline_policy_rejects_untyped_free_text_reference():
-    with pytest.raises(StageRegistryError, match="contract-owned reference"):
+    with _raises(StageRegistryError, "contract-owned reference"):
         _base(deadline_policy=DeadlinePolicy("later", "later", "compute"))
 
 
@@ -309,3 +313,15 @@ def test_builtins_preserve_existing_core_bindings_not_orchestration_executor():
     assert contracts["qc"].implementation_binding.source_path == "scripts/final_master_qc.py"
     assert contracts["shorts"].implementation_binding.source_path == "scripts/shorts_production_binding.py"
     assert all("orchestration" not in c.implementation_binding.adapter_id for c in contracts.values())
+
+
+def load_tests(loader, tests, pattern):
+    suite = unittest.TestSuite()
+    for name, func in sorted(globals().items()):
+        if name.startswith("test_") and callable(func):
+            suite.addTest(unittest.FunctionTestCase(func, description=name))
+    return suite
+
+
+if __name__ == "__main__":
+    unittest.main()
