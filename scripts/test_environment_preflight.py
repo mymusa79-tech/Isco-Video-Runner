@@ -9,21 +9,90 @@ import requests
 from scripts import environment_preflight as envp
 
 
+TARGET_SHA = "1" * 40
+
+
 class EnvironmentPreflightTests(unittest.TestCase):
-    def _response(self, status: int) -> Mock:
+    def _response(self, status: int, payload: dict | None = None) -> Mock:
         response = Mock(spec=requests.Response)
         response.status_code = status
         response.ok = 200 <= status < 300
+        if payload is not None:
+            response.json.return_value = payload
         return response
+
+    @staticmethod
+    def _release_payload(*, target: str = TARGET_SHA, draft: bool = False, tag: str = "video-1") -> dict:
+        return {
+            "tag_name": tag,
+            "target_commitish": target,
+            "draft": draft,
+        }
 
     def test_absent_release_tag_is_available(self) -> None:
         with patch.object(envp.requests, "get", side_effect=[self._response(404), self._response(404)]):
             self.assertEqual(envp._release_namespace_status("owner/repo", "video-1"), "available")
 
-    def test_existing_release_tag_fails_closed(self) -> None:
+    def test_existing_release_tag_without_exact_target_fails_closed(self) -> None:
         with patch.object(envp.requests, "get", return_value=self._response(200)):
             with self.assertRaisesRegex(RuntimeError, "existing release tag blocks"):
                 envp._release_namespace_status("owner/repo", "video-1")
+
+    def test_existing_published_release_same_target_enters_reconciliation(self) -> None:
+        response = self._response(200, self._release_payload(draft=False))
+        with patch.object(envp.requests, "get", return_value=response) as get:
+            state = envp._release_namespace_status(
+                "owner/repo",
+                "video-1",
+                target_sha=TARGET_SHA,
+            )
+        self.assertEqual(state, "reconcile_existing_published")
+        self.assertEqual(get.call_count, 1, "a real Release owns the tag; orphan-tag probe is unnecessary")
+
+    def test_existing_draft_release_same_target_enters_reconciliation(self) -> None:
+        response = self._response(200, self._release_payload(draft=True))
+        with patch.object(envp.requests, "get", return_value=response):
+            state = envp._release_namespace_status(
+                "owner/repo",
+                "video-1",
+                target_sha=TARGET_SHA,
+            )
+        self.assertEqual(state, "reconcile_existing_draft")
+
+    def test_existing_release_different_target_fails_closed(self) -> None:
+        response = self._response(200, self._release_payload(target="2" * 40, draft=False))
+        with patch.object(envp.requests, "get", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "different Runner SHA"):
+                envp._release_namespace_status(
+                    "owner/repo",
+                    "video-1",
+                    target_sha=TARGET_SHA,
+                )
+
+    def test_existing_release_malformed_target_context_fails_closed(self) -> None:
+        response = self._response(200, self._release_payload(draft=False))
+        with patch.object(envp.requests, "get", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "exact current Runner SHA"):
+                envp._release_namespace_status(
+                    "owner/repo",
+                    "video-1",
+                    target_sha="main",
+                )
+
+    def test_existing_release_identity_or_draft_state_malformed_fails_closed(self) -> None:
+        cases = (
+            ({"tag_name": "other", "target_commitish": TARGET_SHA, "draft": False}, "tag identity"),
+            ({"tag_name": "video-1", "target_commitish": TARGET_SHA, "draft": "false"}, "draft state"),
+        )
+        for payload, marker in cases:
+            with self.subTest(marker=marker):
+                with patch.object(envp.requests, "get", return_value=self._response(200, payload)):
+                    with self.assertRaisesRegex(RuntimeError, marker):
+                        envp._release_namespace_status(
+                            "owner/repo",
+                            "video-1",
+                            target_sha=TARGET_SHA,
+                        )
 
     def test_uncertain_namespace_is_never_treated_as_absent(self) -> None:
         for status in (403, 429, 500, 503):
@@ -32,14 +101,18 @@ class EnvironmentPreflightTests(unittest.TestCase):
                     with self.assertRaises(RuntimeError):
                         envp._release_namespace_status("owner/repo", "video-1")
 
-    def test_orphan_git_tag_fails_closed(self) -> None:
+    def test_orphan_git_tag_fails_closed_even_with_same_target_reconciliation_context(self) -> None:
         with patch.object(
             envp.requests,
             "get",
             side_effect=[self._response(404), self._response(200)],
         ):
             with self.assertRaisesRegex(RuntimeError, "orphan Git tag blocks"):
-                envp._release_namespace_status("owner/repo", "video-1")
+                envp._release_namespace_status(
+                    "owner/repo",
+                    "video-1",
+                    target_sha=TARGET_SHA,
+                )
 
     def test_uncertain_git_tag_probe_is_never_treated_as_absent(self) -> None:
         for status in (403, 429, 500, 503):
@@ -88,7 +161,10 @@ class EnvironmentPreflightTests(unittest.TestCase):
             "get",
             side_effect=[self._response(404), self._response(404)],
         ) as get:
-            self.assertEqual(envp._release_namespace_status("owner/repo", "video-2", token="gh-secret"), "available")
+            self.assertEqual(
+                envp._release_namespace_status("owner/repo", "video-2", token="gh-secret"),
+                "available",
+            )
         self.assertEqual(get.call_count, 2)
         for call in get.call_args_list:
             self.assertEqual(call.kwargs["headers"]["Authorization"], "Bearer gh-secret")
