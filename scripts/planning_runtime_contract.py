@@ -24,6 +24,12 @@ from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.planning_batch_hardening import install_planning_batch_hardening
+from scripts.planning_legacy_authority_guard import install_legacy_planning_authority_guard
+from scripts.planning_stage_contract import (
+    assert_planning_stage_contract_installed,
+    install_planning_contract_router,
+    install_planning_stage_boundaries,
+)
 from scripts.product_proof_plan import install_product_proof_fallback
 from scripts.provider_capacity_hardening import install_provider_capacity_hardening
 from scripts.run120_dossier_repair_hardening import install_run120_dossier_repair_hardening
@@ -38,14 +44,32 @@ from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.task_level_planner_router import install_router
 
 
+# runtime_closure is intentionally unit-testable in isolation.  Such a test must not
+# fabricate an entrypoint contract that production would normally install earlier.
+# Once the canonical entrypoint has bootstrapped the explicit Stage Contract, however,
+# every later lifecycle phase is fail-closed: any patch that loses the router/boundaries
+# is an INTERNAL_CONTRACT_ERROR rather than a silent fallback to historical behavior.
+_ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED = False
+
+
+def _reassert_after_lifecycle_patch() -> None:
+    install_planning_stage_boundaries()
+    if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
+        assert_planning_stage_contract_installed()
+
+
 def install_entrypoint_planning_contracts() -> None:
     """Install the planning stack that precedes runtime_closure in canonical V4."""
-    # Keep this order identical to the historical run_v3_voice composition. Several
-    # wrappers intentionally nest around earlier owners, so ordering is contract data.
+    global _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED
+
+    # Keep the provider/router composition order identical to the historical seam.
+    # The explicit Stage Contract then replaces the legacy prompt-inferred json_text
+    # owner before any Planning call can occur.
     install_run123_budget_closure()
     install_schema_guard()
     install_provider_capacity_hardening()
     install_router()
+    install_planning_contract_router()
     install_planning_batch_hardening()
     install_schema_repair_policy()
     install_run120_dossier_repair_hardening()
@@ -53,6 +77,11 @@ def install_entrypoint_planning_contracts() -> None:
     install_planner_quality_guard()
     install_attempt9_schema_normalizer()
     install_append_retry_guard()
+    # These wrappers are deliberately installed after batch/repair/append owners so
+    # stage identity is attached to the final live call boundaries, never prompt text.
+    install_planning_stage_boundaries()
+    assert_planning_stage_contract_installed()
+    _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED = True
 
 
 def install_runtime_planning_contracts() -> None:
@@ -72,13 +101,22 @@ def install_runtime_planning_contracts() -> None:
     install_dynamic_planning_capacity()
     install_run125_cache_prefix_contract()
 
-    # Certify the final composed planning monkey-patch surface before provider/media
-    # work. This stays in the planning seam because it checks the live routing/capacity
-    # composition that determines whether a checkpoint can be safely continued.
+    # Certify the historical routing/capacity composition first. No provider call is
+    # made by certification. Then rebind explicit stage wrappers around any function
+    # a runtime installer replaced. In an isolated runtime_closure unit test there is
+    # deliberately no entrypoint bootstrap to assert. In canonical production there
+    # is, so loss of the explicit router remains fail-closed.
     certify_runtime_patch_contracts()
+    _reassert_after_lifecycle_patch()
 
 
 def install_post_runtime_planning_contracts() -> None:
     """Install plan-level guards/fallbacks that historically follow runtime_closure."""
     install_brand_anchor_guard()
     install_product_proof_fallback()
+    # Plan-level wrappers may replace build/repair surfaces. Reassert the explicit
+    # Planning contract at the final canonical seam. The final seal then removes the
+    # dormant prompt-hash checkpoint loader/writer from runtime authority entirely.
+    _reassert_after_lifecycle_patch()
+    if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
+        install_legacy_planning_authority_guard()

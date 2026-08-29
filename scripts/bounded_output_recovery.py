@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import isco_video_agent.resilient_planner as staged
 import scripts.append_retry_guard as append_guard
+from scripts import planning_stage_contract as stage_contract
 
 
 _REPAIR_MARKER = "_isco_bounded_output_recovery"
@@ -271,7 +272,10 @@ Return ONLY JSON: {{"additions": [{{"id": "...", "append_text": "..."}}, ...]}} 
 {len(rescue_ids)} entries using these exact ids and this exact order:
 {json.dumps(rescue_ids, ensure_ascii=False)}.
 """
-    data = staged.json_text(context.api_key, prompt, model=context.model)
+    # Recovery is a distinct provider request with its own exact target set. Do not
+    # inherit the broader append parent contract and do not infer targets from prompt.
+    with stage_contract.append_subrequest_scope(rescue_ids):
+        data = staged.json_text(context.api_key, prompt, model=context.model)
     return append_guard._parse_safe_partial_additions(data, rescue_ids)
 
 

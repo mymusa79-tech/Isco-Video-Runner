@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import isco_video_agent.resilient_planner as staged
+from scripts import planning_stage_contract as stage_contract
 
 
 _MARKER = "_isco_schema_repair_policy"
@@ -131,7 +132,7 @@ ORIGINAL_MISSING_SECTIONS:
 ALREADY_CORRECTED_SECTION_KEY_POINTS (context only; do not return these ids):
 {json.dumps(corrected_context, ensure_ascii=False)}
 
-CANONICAL_EDITORIAL_INTENT (immutable):
+CANONICAL EDITORIAL_INTENT (immutable):
 {json.dumps(editorial_intent or {}, ensure_ascii=False)}
 
 AUTOMATED_ISSUES_FROM_THE_PARENT_REVIEW:
@@ -200,7 +201,11 @@ def install_schema_repair_policy() -> None:
             compact = _compact_script_doctor_repair(prompt, data, expected_ids)
             if compact is not None:
                 compact_prompt, partial, missing_ids = compact
-                repair_data = staged.json_text(api_key, compact_prompt, model=model)
+                # This is a distinct provider request with a smaller exact ID set.
+                # Give it its own explicit contract instead of inheriting the parent
+                # Script Doctor contract and hoping the prompt text explains the subset.
+                with stage_contract.script_repair_subrequest_scope(missing_ids):
+                    repair_data = staged.json_text(api_key, compact_prompt, model=model)
                 repaired = staged._parse_full_script_response(repair_data, missing_ids)
                 result = _merge_partial_and_repair(partial, repaired, expected_ids)
                 print(
@@ -217,6 +222,6 @@ def install_schema_repair_policy() -> None:
     staged._call_with_schema_repair = bounded_schema_call
     print(
         "Schema repair policy installed: one local shape/id/order recovery only; "
-        "partial Script Doctor replies use compact missing-section completion; "
+        "partial Script Doctor replies use compact missing-section completion with an explicit subrequest contract; "
         "provider/router/auth/network/budget failures are never replayed as schema repair"
     )

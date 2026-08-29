@@ -5,6 +5,7 @@ from contextvars import ContextVar
 
 import isco_video_agent.repair_dossier as repair_dossier
 import isco_video_agent.resilient_planner as staged
+from scripts import planning_stage_contract as stage_contract
 
 
 _RETRY_ATTEMPTED: ContextVar[bool] = ContextVar("isco_append_retry_attempted", default=False)
@@ -381,7 +382,12 @@ Return ONLY JSON: {{"additions": [{{"id": "...", "append_text": "..."}}, ...]}} 
 {len(target_ids)} entries, using these exact ids and this exact order:
 {json.dumps(target_ids, ensure_ascii=False)}.
 """
-    data = staged.json_text(api_key, prompt, model=model)
+    first_spec = stage_contract.append_stage_spec(
+        target_ids,
+        allow_ordered_subset=current_words < minimum,
+    )
+    with stage_contract.request_stage_scope(first_spec):
+        data = staged.json_text(api_key, prompt, model=model)
 
     # Attempt 7 exposed omitted targets; Attempt 8 exposed a complete response with
     # a target that still landed below the 110-word hard floor. On the aggregate-
@@ -445,7 +451,9 @@ Return ONLY JSON: {{"additions": [{{"id": "...", "append_text": "..."}}, ...]}} 
 {len(pending_ids)} entries using these exact ids and this exact order:
 {json.dumps(pending_ids, ensure_ascii=False)}.
 """
-            completion_data = staged.json_text(api_key, completion_prompt, model=model)
+            completion_spec = stage_contract.append_stage_spec(pending_ids)
+            with stage_contract.request_stage_scope(completion_spec):
+                completion_data = staged.json_text(api_key, completion_prompt, model=model)
             completion_additions = _parse_safe_partial_additions(completion_data, pending_ids)
 
             # Run #99: a target omitted entirely from the very first response has no
@@ -507,7 +515,9 @@ Return ONLY JSON: {{"additions": [{{"id": "...", "append_text": "..."}}, ...]}} 
 {len(rescue_ids)} entries using these exact ids and this exact order:
 {json.dumps(rescue_ids, ensure_ascii=False)}.
 """
-                rescue_data = staged.json_text(api_key, rescue_prompt, model=model)
+                rescue_spec = stage_contract.append_stage_spec(rescue_ids)
+                with stage_contract.request_stage_scope(rescue_spec):
+                    rescue_data = staged.json_text(api_key, rescue_prompt, model=model)
                 rescue_additions = _parse_safe_partial_additions(rescue_data, rescue_ids)
                 for section_id in rescue_ids:
                     completion_additions[section_id] = rescue_additions[section_id]
