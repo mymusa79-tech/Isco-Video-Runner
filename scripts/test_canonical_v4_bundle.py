@@ -15,12 +15,27 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _editorial_intent() -> dict:
+    return {
+        "editorial_thesis": "التأجيل يتغذى على انتظار شعور كامل بالاستعداد قبل الحركة.",
+        "viewer_starting_belief": "المشاهد يعتقد أن نقص الدافع هو السبب المباشر لعدم البدء.",
+        "hidden_assumption": "الافتراض الخفي أن الثقة يجب أن تسبق أي خطوة عملية صغيرة.",
+        "editorial_turn": "التحول أن الحركة الصغيرة يمكن أن تسبق الثقة وتبنيها تدريجيًا.",
+        "stakes": "استمرار الانتظار يجعل المهام الصغيرة تبدو أكبر ويطيل دائرة الجمود.",
+        "viewer_promise": "سيفهم المشاهد لماذا تكفي بداية صغيرة لكسر انتظار الاستعداد الكامل.",
+        "evidence_boundaries": ["نلتزم بما تثبته الحلقة الأم ولا نضيف ادعاءات جديدة."],
+        "earned_payoff": "يخرج المشاهد بخطوة واحدة صغيرة يبدأ بها اليوم بدل انتظار الدافع.",
+        "persona_version": 1,
+    }
+
+
 def _source_plan() -> dict:
     return {
         "topic": "موضوع معتمد",
         "pillar": "understand",
         "format": "film",
         "hook": "خطاف",
+        "editorial_intent": _editorial_intent(),
         "sections": [
             {
                 "id": f"s{i}",
@@ -166,7 +181,31 @@ class CanonicalV4BundleTests(unittest.TestCase):
                 self.assertEqual(request["youtube_publish_mode"], "manual_in_youtube_studio")
                 self.assertEqual(len(request["source_episode_excerpt"]["source_narration_sha256"]), 64)
                 self.assertIsInstance(request["source_short_plan"], dict)
+                self.assertEqual(
+                    request["source_editorial_intent"]["editorial_thesis"],
+                    _editorial_intent()["editorial_thesis"],
+                )
+                self.assertTrue(request["source_editorial_intent"]["editorial_fingerprint"])
                 self.assertEqual(request["request_sha256"], bundle._canonical_hash(request))
+
+    def test_missing_long_editorial_intent_fails_before_child_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _, approved_hash = _make_long_root(root)
+            source_plan = _source_plan()
+            source_plan.pop("editorial_intent")
+            with patch.dict(
+                os.environ,
+                {
+                    "ISCO_APPROVED_BRIEF_PATH": str(root / "approved-brief.json"),
+                    "ISCO_APPROVED_BRIEF_SHA256": approved_hash,
+                },
+                clear=False,
+            ):
+                parent = bundle.build_parent_request(root)
+                sibling_plan = bundle.build_sibling_plan(root, parent)
+                with self.assertRaisesRegex(RuntimeError, "source long EditorialIntent"):
+                    bundle.build_child_requests(parent, sibling_plan, source_plan)
 
     def test_bundle_is_skipped_for_moment_or_explicit_control_plane(self) -> None:
         with tempfile.TemporaryDirectory() as td:
