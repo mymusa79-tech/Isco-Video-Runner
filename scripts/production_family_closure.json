@@ -2,7 +2,7 @@
   "schema_version": 1,
   "historical_window": {
     "first_run": 51,
-    "last_run": 130,
+    "last_run": 132,
     "known_good_baseline": {
       "release_tag": "video-50",
       "runner_commit": "a98bc309d52159d65ef6ac65e516beaab344a32e",
@@ -28,7 +28,9 @@
     {"id":"C06","runs":"113-126","required_phases":["P0","P1","P4","P5","P6"],"purpose":"provider capacity, generation and retry recertification"},
     {"id":"C07","runs":"127-128","required_phases":["P0","P1","P2","P3","P4","P5","P6"],"purpose":"runtime composition and retry-ownership recertification"},
     {"id":"C08","runs":"129","required_phases":["P0","P1","P4","P5","P6"],"purpose":"test/production isolation and immutable-input recertification"},
-    {"id":"C09","runs":"130","required_phases":["P0","P1","P4","P5","P6"],"purpose":"explicit runtime phase-boundary recertification"}
+    {"id":"C09","runs":"130","required_phases":["P0","P1","P4","P5","P6"],"purpose":"explicit runtime phase-boundary recertification"},
+    {"id":"C10","runs":"131","required_phases":["P0","P1","P4","P5","P6"],"purpose":"approved-brief semantic-vs-raw hash authority and immutable snapshot recertification"},
+    {"id":"C11","runs":"132","required_phases":["P0","P1","P4","P5","P6"],"purpose":"durable-resume schema, provider-proven cache authority and terminal wait-budget composition recertification"}
   ],
   "families": [
     {
@@ -51,9 +53,9 @@
     },
     {
       "id":"F04","name":"provider_capacity_fallback_retry_and_retry_after",
-      "historical_runs":["57-59","113-128"],
+      "historical_runs":["57-59","113-128","132"],
       "required_phases":["P1"],
-      "contracts":["scripts.test_provider_retry_ownership","scripts.test_retry_after_policy","scripts.test_run123_budget_closure","scripts.test_run124_terminal_provider_recovery","scripts.test_run125_capacity_routing_closure","scripts.test_run126_capacity_snapshot_closure","scripts.test_run128_rate_limit_ownership"]
+      "contracts":["scripts.test_provider_retry_ownership","scripts.test_retry_after_policy","scripts.test_run123_budget_closure","scripts.test_run124_terminal_provider_recovery","scripts.test_run125_capacity_routing_closure","scripts.test_run126_capacity_snapshot_closure","scripts.test_run128_rate_limit_ownership","scripts.test_run125_terminal_retry_budget"]
     },
     {
       "id":"F05","name":"task_identity_budget_and_review_capacity",
@@ -69,9 +71,9 @@
     },
     {
       "id":"F07","name":"state_persistence_and_test_production_isolation",
-      "historical_runs":["88","111-112","129"],
+      "historical_runs":["88","111-112","129","131-132"],
       "required_phases":["P0","P4","P5","P6"],
-      "contracts":["scripts.test_persistent_memory","scripts.test_persistent_memory_migration_epoch","scripts.test_run129_hermetic_approved_brief","scripts.test_run129_production_test_isolation_contract"]
+      "contracts":["scripts.test_persistent_memory","scripts.test_persistent_memory_migration_epoch","scripts.test_run129_hermetic_approved_brief","scripts.test_run129_production_test_isolation_contract","scripts.test_checkpoint_namespace_guard"]
     },
     {
       "id":"F08","name":"environment_preflight_and_provider_readiness",
@@ -93,15 +95,27 @@
     },
     {
       "id":"F11","name":"observers_analytics_and_non_authoritative_side_effects",
-      "historical_runs":["51-130"],
+      "historical_runs":["51-132"],
       "required_phases":["P0","P6"],
       "contracts":["scripts.test_analytics_live_observability","scripts.test_analytics_observer_status"]
     },
     {
       "id":"F12","name":"shorts_integration_and_unified_delivery",
-      "historical_runs":["51-130"],
+      "historical_runs":["51-132"],
       "required_phases":["P2","P3","P6"],
       "contracts":["scripts.test_native_short_planner_router","scripts.test_shorts_production_binding","scripts.test_short_voice_v2","scripts.test_sibling_short_orchestration","scripts.test_unified_delivery_canonical"]
+    },
+    {
+      "id":"F13","name":"approved_brief_snapshot_hash_authority",
+      "historical_runs":["129","131"],
+      "required_phases":["P0","P1"],
+      "contracts":["scripts.test_run126_capacity_snapshot_closure","scripts.test_run129_hermetic_approved_brief"]
+    },
+    {
+      "id":"F14","name":"durable_resume_cache_authority_and_terminal_budget_composition",
+      "historical_runs":["125","132"],
+      "required_phases":["P0","P1"],
+      "contracts":["scripts.test_checkpoint_namespace_guard","scripts.test_run124_terminal_provider_recovery","scripts.test_run125_capacity_routing_closure","scripts.test_run125_terminal_retry_budget"]
     }
   ]
 }

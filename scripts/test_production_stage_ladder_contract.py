@@ -37,11 +37,11 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             for module in modules:
                 self.assertTrue(_module_path(module).is_file(), f"{phase} missing {module}")
 
-    def test_register_exactly_covers_every_run_51_through_130(self) -> None:
+    def test_register_exactly_covers_every_run_51_through_132(self) -> None:
         data = json.loads(REGISTER.read_text(encoding="utf-8"))
         window = data["historical_window"]
-        self.assertEqual((window["first_run"], window["last_run"]), (51, 130))
-        expected = set(range(51, 131))
+        self.assertEqual((window["first_run"], window["last_run"]), (51, 132))
+        expected = set(range(51, 133))
         seen: set[int] = set()
         for cohort in data["audit_cohorts"]:
             runs = _expand(cohort["runs"])
@@ -59,6 +59,7 @@ class ProductionStageLadderContractTests(unittest.TestCase):
         self.assertEqual(baseline["sha256"], BASELINE_SHA256)
         self.assertFalse(data["closure_policy"]["historical_fix_alone_is_closure_evidence"])
         self.assertFalse(data["closure_policy"]["production_dispatch_allowed_by_this_register"])
+        executed = {module for modules in PHASE_TESTS.values() for module in modules}
         ids: set[str] = set()
         for family in data["families"]:
             self.assertNotIn(family["id"], ids)
@@ -68,6 +69,7 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             self.assertTrue(family["contracts"])
             for module in family["contracts"]:
                 self.assertTrue(_module_path(module).is_file(), f"{family['id']} missing {module}")
+                self.assertIn(module, executed, f"{family['id']} contract not executed by Stage Ladder: {module}")
 
     def test_ladder_replays_video50_in_phase_order_and_never_dispatches_production(self) -> None:
         text = LADDER_WORKFLOW.read_text(encoding="utf-8")
