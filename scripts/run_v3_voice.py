@@ -211,11 +211,11 @@ def main() -> None:
     install_post_runtime_planning_contracts()
 
     install_voice_mesh()
-    # Resume accepted section audio before the observer is wrapped around the section
-    # boundary. Cache hits therefore still pass Voice Identity observation and, because
-    # Audio Semantic Integrity scopes the live boundary at produce(), remain bound to
-    # the exact approved transcript/bytes before concat and mux.
-    install_tts_durable_section_cache()
+    # Cache activation is explicit: unit/diagnostic processes without a persistent cache
+    # path retain the historical boundary unchanged. Production configures the path in
+    # its workflow before this entrypoint starts.
+    if str(os.environ.get("ISCO_TTS_CACHE_DIR") or "").strip():
+        install_tts_durable_section_cache()
     install_voice_identity_observer()
     install_m7_live_binding()
     # Run #93: install_m7_live_binding() installs Security V1 (its length-validating
