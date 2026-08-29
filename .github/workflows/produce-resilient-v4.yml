@@ -287,6 +287,19 @@ jobs:
           restore-keys: |
             pixabay-search-v2-${{ runner.os }}-
 
+      # TTS audio is a separate rebuildable cache, never Git state. Entries contain no
+      # transcript plaintext or provider secrets and are re-certified by SHA256 + Voice
+      # QA before every reuse. A unique run key plus prefix restore makes failed-run
+      # sections available to the next run while allowing the bounded cache to evolve.
+      - name: Restore durable TTS section cache
+        id: restore_tts_cache
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/isco-tts-section-cache
+          key: tts-section-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            tts-section-v1-${{ runner.os }}-
+
       - name: Produce with task-level brain and voice meshes
         id: produce_video
         working-directory: engine
@@ -304,6 +317,7 @@ jobs:
           ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
           ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
           ISCO_PIXABAY_CACHE_PATH: ${{ runner.temp }}/isco-pixabay-api-cache/search-cache-v2.json
+          ISCO_TTS_CACHE_DIR: ${{ runner.temp }}/isco-tts-section-cache
           TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token
           TELEGRAM_CHAT_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-chat-id
           TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
@@ -318,6 +332,32 @@ jobs:
         run: |
           set -o pipefail
           python ../scripts/run_v3_voice.py 2>&1 | tee "$RUNNER_TEMP/production-step.log"
+
+      - name: Prepare durable TTS section cache for cross-run save
+        id: prepare_tts_cache
+        if: always() && steps.produce_video.outcome != 'skipped'
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_TTS_CACHE_DIR: ${{ runner.temp }}/isco-tts-section-cache
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.tts_durable_section_cache import prepare_cache_for_persistence
+          path = Path(os.environ["ISCO_TTS_CACHE_DIR"])
+          allowed = prepare_cache_for_persistence(path)
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
+              fh.write(f"save_allowed={'true' if allowed else 'false'}\n")
+          print(f"TTS durable cache persistence sanitized: save_allowed={allowed}")
+          PY
+
+      - name: Save durable TTS section cache
+        if: always() && steps.prepare_tts_cache.outputs.save_allowed == 'true'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/isco-tts-section-cache
+          key: tts-section-v1-${{ runner.os }}-${{ github.run_id }}
 
       - name: Prepare Pixabay cache for cross-run save
         id: prepare_pixabay_cache
@@ -364,6 +404,7 @@ jobs:
             engine/output/*/production-manifest.json
             engine/output/*/opening-visual-audit.json
             engine/output/*/final-master-qc.json
+            engine/output/*/tts-durable-cache-audit.json
             engine/output/*/thumbnail-plan.json
             engine/output/*/thumbnail-*.jpg
             engine/output/*/rights-manifest.json
@@ -510,6 +551,7 @@ jobs:
             ${{ steps.final_review.outputs.plan_path }}
             ${{ steps.final_review.outputs.telemetry_path }}
             engine/output/*/visual-audit.json
+            engine/output/*/tts-durable-cache-audit.json
             ${{ steps.final_review.outputs.critic_path }}
             ${{ steps.final_review.outputs.budget_path }}
             ${{ steps.final_review.outputs.manifest_path }}
