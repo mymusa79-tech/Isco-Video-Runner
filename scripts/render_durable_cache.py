@@ -470,6 +470,12 @@ def _wrap_mux(root: Path, original: Callable[..., Path]) -> Callable[..., Path]:
         music_path = Path(music) if music is not None else None
         if output.name != "final.mp4":
             return Path(original(video_path, narration, output, music=music, **kwargs))
+        # Engine mux is a plain FFmpeg stream copy when both audio inputs are absent.
+        # Durable storage would add more I/O than the work it avoids, so keep this cheap
+        # path live exactly like the hard-cut concat path. Music-only moments remain
+        # cache-eligible because they still execute two-pass loudness + audio encoding.
+        if narration_path is None and music_path is None:
+            return Path(original(video_path, narration, output, music=music, **kwargs))
 
         binding = _final_binding(video_path, narration_path, original, music_path, kwargs)
         if binding is None:
