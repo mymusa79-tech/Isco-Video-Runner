@@ -25,9 +25,18 @@ class Run125TerminalRetryBudgetTests(unittest.TestCase):
         self.assertFalse(recovery._run_wait_budget_allows(1.5))
         self.assertTrue(recovery._run_wait_budget_allows(1.0))
 
-    def test_budget_contract_is_stricter_than_run125_observed_waits(self) -> None:
-        self.assertLessEqual(recovery._MAX_TERMINAL_WAIT_SECONDS_PER_RUN, 60.0)
+    def test_budget_contract_is_coherent_after_run132(self) -> None:
+        self.assertLessEqual(recovery._TERMINAL_WAIT_LIMIT_SECONDS, 60.0)
+        self.assertLessEqual(
+            recovery._TERMINAL_RESET_LIMIT_SECONDS + recovery._RESET_SAFETY_SECONDS,
+            recovery._TERMINAL_WAIT_LIMIT_SECONDS,
+        )
         self.assertLessEqual(recovery._MAX_TERMINAL_RECOVERIES_PER_RUN, 3)
+        self.assertEqual(
+            recovery._MAX_TERMINAL_WAIT_SECONDS_PER_RUN,
+            recovery._TERMINAL_WAIT_LIMIT_SECONDS
+            * recovery._MAX_TERMINAL_RECOVERIES_PER_RUN,
+        )
 
 
 if __name__ == "__main__":
