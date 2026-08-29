@@ -222,12 +222,14 @@ class StageContract:
 
 
 StageProvider = Callable[[], Iterable[StageContract]]
+StageResolver = Callable[..., StageContract]
 
 
 @dataclass
 class StageRegistry:
     _contracts: dict[str, StageContract] = field(default_factory=dict)
     _providers: dict[str, StageProvider] = field(default_factory=dict)
+    _resolvers: dict[str, StageResolver] = field(default_factory=dict)
 
     def register(self, contract: StageContract) -> None:
         contract.validate()
@@ -257,6 +259,26 @@ class StageRegistry:
             seen.add(contract.stage_id)
         for contract in staged:
             self._contracts[contract.stage_id] = contract
+
+    def register_resolver(self, resolver_id: str, resolver: StageResolver) -> None:
+        key = resolver_id.strip()
+        if not key:
+            raise StageRegistryError("resolver_id is required")
+        if key in self._resolvers:
+            raise StageRegistryError(f"duplicate stage resolver: {key}")
+        self._resolvers[key] = resolver
+
+    def resolve(self, resolver_id: str, *args: object, **kwargs: object) -> StageContract:
+        """Resolve a request-specific immutable contract without mutating registry state."""
+        try:
+            resolver = self._resolvers[resolver_id]
+        except KeyError as exc:
+            raise StageRegistryError(f"unknown stage resolver: {resolver_id}") from exc
+        contract = resolver(*args, **kwargs)
+        if not isinstance(contract, StageContract):
+            raise StageRegistryError(f"resolver did not return StageContract: {resolver_id}")
+        contract.validate()
+        return contract
 
     def get(self, stage_id: str) -> StageContract:
         try:
