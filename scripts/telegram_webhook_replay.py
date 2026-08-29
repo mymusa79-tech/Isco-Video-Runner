@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ if __package__ in {None, ""}:
 from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
 from scripts import telegram_topic_memory_ui as memory_ui
+from scripts.channel_os_telegram_adapter import callback_view, render_control_state
 from scripts.telegram_release_approval import record_webhook_approval
 
 # workflow_dispatch inputs have a finite payload budget; base64 expands bytes by ~4/3.
@@ -120,12 +122,64 @@ def replay_release_approval_only(state_path: Path, update: dict[str, Any]) -> bo
     return True
 
 
+def _authorized_channel_os_callback(update: dict[str, Any]) -> tuple[str, int | str] | None:
+    callback = update.get("callback_query")
+    if not isinstance(callback, dict):
+        return None
+    view = callback_view(callback.get("data"))
+    if view is None:
+        return None
+    allowed_text = panel._read_secret_file("TELEGRAM_ALLOWED_USER_ID_FILE", required=True)
+    allowed_chat = panel._read_secret_file("TELEGRAM_CHAT_ID_FILE", required=True)
+    try:
+        allowed_user = int(allowed_text)
+    except ValueError as exc:
+        raise RuntimeError("TELEGRAM_ALLOWED_USER_ID_FILE is invalid") from exc
+    authorized, chat_id, _ = panel._authorized_user(update, allowed_user, allowed_chat)
+    if not authorized or chat_id is None:
+        raise RuntimeError("Channel OS callback is not authorized for this user/chat")
+    return view, chat_id
+
+
+def _replay_channel_os_if_present(state_path: Path, update: dict[str, Any]) -> bool:
+    """Render Channel OS through the existing L6 webhook transport boundary.
+
+    The Channel OS adapter itself owns no Telegram credential, polling, send method,
+    retry policy, production dispatch, or publication authority. This bridge is a
+    read-only query response. Critical Telegram side effects continue to use the L6
+    durable outbox; a Mission Control refresh has no authoritative state mutation.
+    """
+    resolved = _authorized_channel_os_callback(update)
+    if resolved is None:
+        return False
+    view, chat_id = resolved
+    state = panel.load_state(state_path)
+    repository = str(os.environ.get("GITHUB_REPOSITORY") or "mymusa79-tech/Isco-Video-Runner").strip()
+    github_token = str(os.environ.get("GITHUB_TOKEN") or "").strip()
+    memory_root = Path(os.environ.get("RUNNER_TEMP") or state_path.parent) / "channel-os-mission-control"
+    text, keyboard = render_control_state(
+        state,
+        repository=repository,
+        github_token=github_token,
+        memory_root=memory_root,
+        view=view,
+    )
+    token = panel._read_secret_file("TELEGRAM_BOT_TOKEN_FILE", required=True)
+    panel.TelegramClient(token).send(chat_id, text, keyboard=keyboard)
+    panel._github_output("needs_engine", "false")
+    panel._github_output("needs_production", "false")
+    print(f"Channel OS Mission Control rendered through webhook ingress: view={view}")
+    return True
+
+
 def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
     """Run one authenticated Telegram update through the existing control plane exactly once.
 
     Release approval callbacks are consumed directly by the webhook-owned L6 adapter.
-    All other stateful callbacks continue through the certified legacy parser using an
-    injected already-received update; that injection is not a live Telegram poll.
+    Channel OS callbacks are read-only Mission Control projections rendered at this
+    same ingress boundary. All other stateful callbacks continue through the certified
+    legacy parser using an injected already-received update; that injection is not a
+    live Telegram poll.
     """
     update_id = int(update["update_id"])
     if _is_seen(state_path, update_id):
@@ -135,6 +189,10 @@ def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
         return False
 
     if replay_release_approval_only(state_path, update):
+        return True
+
+    if _replay_channel_os_if_present(state_path, update):
+        _mark_seen(state_path, update_id)
         return True
 
     # Install the exact same UI stack as telegram_topic_memory_ui.install().
