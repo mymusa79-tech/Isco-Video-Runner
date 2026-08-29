@@ -4,6 +4,7 @@ import importlib.metadata as md
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,7 @@ EXPECTED_PYTHON = (3, 12)
 EXPECTED_PIPER = "1.4.2"
 MIN_FREE_BYTES = 6 * 1024 * 1024 * 1024
 REQUIRED_FFMPEG_FILTERS = {"blackdetect", "silencedetect", "freezedetect", "loudnorm", "subtitles"}
+SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass(frozen=True)
@@ -106,7 +108,37 @@ def _certify_arabic_font() -> str:
     return result.stdout.strip()[:160]
 
 
-def _release_namespace_status(repository: str, release_tag: str, *, token: str = "", timeout: int = 15) -> str:
+def _same_target_release_state(release: requests.Response, *, release_tag: str, target_sha: str) -> str:
+    target_sha = target_sha.strip().lower()
+    if not SHA1_RE.fullmatch(target_sha):
+        raise RuntimeError("existing release cannot be reconciled without exact current Runner SHA")
+    try:
+        payload = release.json()
+    except Exception as exc:
+        raise RuntimeError("existing release reconciliation returned malformed JSON") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("existing release reconciliation returned non-object JSON")
+    if str(payload.get("tag_name") or "") != release_tag:
+        raise RuntimeError("existing release tag identity does not match requested namespace")
+    remote_target = str(payload.get("target_commitish") or "").strip().lower()
+    if remote_target != target_sha:
+        raise RuntimeError("existing release tag belongs to a different Runner SHA")
+    draft = payload.get("draft")
+    if draft is True:
+        return "reconcile_existing_draft"
+    if draft is False:
+        return "reconcile_existing_published"
+    raise RuntimeError("existing release draft state is malformed")
+
+
+def _release_namespace_status(
+    repository: str,
+    release_tag: str,
+    *,
+    target_sha: str = "",
+    token: str = "",
+    timeout: int = 15,
+) -> str:
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if token:
         headers["Authorization"] = "Bearer " + token
@@ -115,7 +147,16 @@ def _release_namespace_status(repository: str, release_tag: str, *, token: str =
     release_url = f"https://api.github.com/repos/{repository}/releases/tags/{encoded_tag}"
     release = requests.get(release_url, headers=headers, timeout=timeout)
     if release.ok:
-        raise RuntimeError(f"existing release tag blocks this run before production: {release_tag}")
+        # Backward-compatible fail-closed behavior for callers that do not supply the
+        # exact current SHA. Canonical production supplies GITHUB_SHA and may proceed
+        # only far enough for release_transaction.py to verify the complete asset set.
+        if not target_sha:
+            raise RuntimeError(f"existing release tag blocks this run before production: {release_tag}")
+        return _same_target_release_state(
+            release,
+            release_tag=release_tag,
+            target_sha=target_sha,
+        )
     if release.status_code != 404:
         if release.status_code == 403:
             raise RuntimeError("release namespace preflight could not prove release availability: HTTP 403")
@@ -124,7 +165,9 @@ def _release_namespace_status(repository: str, release_tag: str, *, token: str =
         raise RuntimeError(f"release namespace preflight failed: HTTP {release.status_code}")
 
     # A lightweight/annotated Git tag can exist without a Release. GitHub ignores
-    # --target when that happens, so it must also block before production begins.
+    # --target when that happens, so it remains blocking even during reconciliation.
+    # Future transaction rollback uses --cleanup-tag so it does not manufacture this
+    # dead-end state itself.
     ref_url = f"https://api.github.com/repos/{repository}/git/ref/tags/{encoded_tag}"
     ref = requests.get(ref_url, headers=headers, timeout=timeout)
     if ref.status_code == 404:
@@ -138,7 +181,14 @@ def _release_namespace_status(repository: str, release_tag: str, *, token: str =
     raise RuntimeError(f"release Git tag namespace preflight failed: HTTP {ref.status_code}")
 
 
-def run_environment_preflight(*, output: Path, repository: str, run_number: str, github_token: str = "") -> EnvironmentEvidence:
+def run_environment_preflight(
+    *,
+    output: Path,
+    repository: str,
+    run_number: str,
+    github_token: str = "",
+    target_sha: str = "",
+) -> EnvironmentEvidence:
     os_release = platform.freedesktop_os_release()
     os_version = str(os_release.get("VERSION_ID") or "")
     if os_version != EXPECTED_OS_VERSION:
@@ -175,7 +225,12 @@ def run_environment_preflight(*, output: Path, repository: str, run_number: str,
     _require_command(["gh", "--version"], description="GitHub CLI")
 
     release_tag = f"video-{run_number}"
-    release_namespace = _release_namespace_status(repository, release_tag, token=github_token)
+    release_namespace = _release_namespace_status(
+        repository,
+        release_tag,
+        target_sha=target_sha,
+        token=github_token,
+    )
 
     evidence = EnvironmentEvidence(
         os_version=os_version,
@@ -206,14 +261,16 @@ def run_environment_preflight(*, output: Path, repository: str, run_number: str,
 def main() -> None:
     repository = (os.environ.get("GITHUB_REPOSITORY") or "").strip()
     run_number = (os.environ.get("GITHUB_RUN_NUMBER") or "").strip()
-    if not repository or not run_number:
-        raise RuntimeError("GitHub run identity is required for production environment preflight")
+    target_sha = (os.environ.get("GITHUB_SHA") or "").strip().lower()
+    if not repository or not run_number or not SHA1_RE.fullmatch(target_sha):
+        raise RuntimeError("exact GitHub run identity is required for production environment preflight")
     output = Path(os.environ.get("RUNNER_TEMP") or ".") / "preproduction-environment.json"
     evidence = run_environment_preflight(
         output=output,
         repository=repository,
         run_number=run_number,
         github_token=(os.environ.get("GITHUB_TOKEN") or "").strip(),
+        target_sha=target_sha,
     )
     print(
         "Environment preflight PASS: "
