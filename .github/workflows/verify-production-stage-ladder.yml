@@ -16,11 +16,19 @@ jobs:
     timeout-minutes: 55
     env:
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-      EVIDENCE_DIR: ${{ runner.temp }}/production-stage-ladder/evidence
-      BASELINE_DIR: ${{ runner.temp }}/production-stage-ladder/video-50
-      STAGING_DIR: ${{ runner.temp }}/production-stage-ladder/staging
-      CERTIFICATE_PATH: ${{ runner.temp }}/production-stage-ladder/stage-ladder-certification.json
     steps:
+      - name: Initialize Stage Ladder runtime paths
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/production-stage-ladder"
+          mkdir -p "$root/evidence" "$root/video-50" "$root/staging"
+          {
+            echo "EVIDENCE_DIR=$root/evidence"
+            echo "BASELINE_DIR=$root/video-50"
+            echo "STAGING_DIR=$root/staging"
+            echo "CERTIFICATE_PATH=$root/stage-ladder-certification.json"
+          } >> "$GITHUB_ENV"
+
       - name: Checkout exact Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
