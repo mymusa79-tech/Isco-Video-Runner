@@ -345,38 +345,56 @@ def install_tts_durable_cache() -> None:
 
 
 def prepare_cache_for_persistence(root: Path) -> bool:
-    """Sanitize restored/new entries before an Actions cache save after success or failure."""
+    """Sanitize the shared durable-stage envelope before Actions cache persistence.
+
+    TTS keeps ownership of the historical Actions restore/save envelope. Stacked stages
+    may add independent namespaces under that root; each namespace sanitizes itself and
+    only a valid namespace can make the envelope persist. This keeps one bounded cache
+    transport while preserving separate TTS and Media semantic authorities.
+    """
     root = Path(root)
     entries_root = root / "entries"
+    valid: list[tuple[float, Path]] = []
     if entries_root.is_symlink():
         _invalidate_entry(entries_root)
-        return False
-    if not entries_root.is_dir():
-        return False
-
-    valid: list[tuple[float, Path]] = []
-    for entry in list(entries_root.iterdir()):
-        if entry.is_symlink() or not entry.is_dir() or len(entry.name) != 64:
-            _invalidate_entry(entry)
-            continue
-        checked = _validate_entry(root, fingerprint=entry.name)
-        if checked is None:
-            _invalidate_entry(entry)
-            continue
-        try:
-            valid.append((entry.stat().st_mtime, entry))
-        except OSError:
-            _invalidate_entry(entry)
+    elif entries_root.is_dir():
+        for entry in list(entries_root.iterdir()):
+            if entry.is_symlink() or not entry.is_dir() or len(entry.name) != 64:
+                _invalidate_entry(entry)
+                continue
+            checked = _validate_entry(root, fingerprint=entry.name)
+            if checked is None:
+                _invalidate_entry(entry)
+                continue
+            try:
+                valid.append((entry.stat().st_mtime, entry))
+            except OSError:
+                _invalidate_entry(entry)
 
     if len(valid) > MAX_PERSISTED_ENTRIES:
         for _, entry in sorted(valid)[: len(valid) - MAX_PERSISTED_ENTRIES]:
             _invalidate_entry(entry)
         valid = sorted(valid)[-MAX_PERSISTED_ENTRIES:]
-    return bool(valid)
+
+    media_valid = False
+    media_root = root / "media"
+    if media_root.exists():
+        try:
+            from scripts.media_durable_cache import prepare_cache_for_persistence as prepare_media_cache
+
+            media_valid = bool(prepare_media_cache(media_root))
+        except Exception as exc:
+            # Cache persistence is an optimization and must never turn a completed
+            # production into a failure. Leave the Media namespace unsaved if its
+            # sanitizer cannot prove it safe.
+            print(f"Media durable cache envelope sanitization skipped ({type(exc).__name__})")
+            media_valid = False
+
+    return bool(valid) or media_valid
 
 
 def _main() -> int:
-    parser = argparse.ArgumentParser(description="Sanitize Isco durable TTS cache before persistence")
+    parser = argparse.ArgumentParser(description="Sanitize Isco durable stage cache before persistence")
     parser.add_argument("prepare", nargs="?")
     parser.add_argument("--root", required=True)
     args = parser.parse_args()

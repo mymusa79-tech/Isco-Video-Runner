@@ -14,6 +14,8 @@ from scripts.groq_audio_audit import run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
+from scripts.media_durable_cache import install_media_durable_cache
+from scripts.media_search_durable_cache import install_media_search_durable_cache
 from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
@@ -94,12 +96,12 @@ def install_runtime_closure() -> None:
     # while keeping media/audio/release code outside the durable planning contract hash.
     install_runtime_planning_contracts()
 
-    # Pixabay Provider Capacity V2 is search-result reuse only: it is installed before
-    # Media Trust so cached normalized metadata can avoid duplicate API calls while
-    # exact media bytes are still freshly downloaded and inspected by Media Trust V2.
-    # It changes no provider order, retry budget, quality threshold, or rights gate.
-    # Media Trust V2 changes no AI/retry budget. It only binds exact stock bytes and
-    # local inspection before the reliability contract is frozen for produce().
+    # Pixabay Provider Capacity V2 owns its provider-required 24h metadata cache. Media
+    # Trust then establishes exact-byte/security authority. Media durability may reuse
+    # only decisions/derivatives bound to those bytes, and every durable Vision hit
+    # re-runs current local trust/security. The Pexels metadata layer is installed last
+    # in this media group so both providers can resume search work without changing
+    # provider order, AI budgets, or retry ownership.
     # Audio Semantic Integrity is deliberately installed before Audio Mastering/SFX
     # wrappers: at runtime its inner scope sees and wraps those already-active live
     # transforms, binding the exact approved transcript/audio chain without replacing
@@ -110,6 +112,8 @@ def install_runtime_closure() -> None:
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
     install_provider_capacity_v2()
     install_media_trust_boundary_v2()
+    install_media_durable_cache()
+    install_media_search_durable_cache()
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
