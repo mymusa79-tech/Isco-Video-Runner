@@ -91,13 +91,13 @@ class ToneFailureObservabilityTests(unittest.TestCase):
             (out / "tone-quality-audit.json").write_text(json.dumps(tone), encoding="utf-8")
 
             installers = [
-                "install_schema_guard",
-                "install_router",
-                "install_planner_quality_guard",
-                "install_append_retry_guard",
-                "install_brand_anchor_guard",
-                "install_product_proof_fallback",
+                "install_entrypoint_planning_contracts",
+                "install_runtime_closure",
+                "install_post_runtime_planning_contracts",
                 "install_voice_mesh",
+                "install_voice_identity_observer",
+                "install_m7_live_binding",
+                "install_opening_feasibility_guard",
                 "start_progress",
                 "install_progress_hooks",
             ]
@@ -109,7 +109,17 @@ class ToneFailureObservabilityTests(unittest.TestCase):
                     patch.object(run_v3_voice.orchestrator, "produce", side_effect=RuntimeError("tone blocked"))
                 )
                 stack.enter_context(patch.object(run_v3_voice, "write_planning_telemetry"))
-                stack.enter_context(patch.dict(os.environ, {"REQUEST_FILE": str(request)}, clear=False))
+                stack.enter_context(
+                    patch.dict(
+                        os.environ,
+                        {
+                            "REQUEST_FILE": str(request),
+                            "GEMINI_CONTENT_MODEL": "gemini-3.7-flash",
+                            "GEMINI_TTS_MODEL": "gemini-3.1-flash-tts-preview",
+                        },
+                        clear=False,
+                    )
+                )
 
                 with self.assertRaisesRegex(RuntimeError, "tone blocked"):
                     run_v3_voice.main()

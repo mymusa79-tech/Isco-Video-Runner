@@ -4,7 +4,7 @@ import inspect
 import unittest
 
 import scripts
-from scripts import run_v3_voice
+from scripts import planning_runtime_contract
 
 
 class Run120ProductionWiringTests(unittest.TestCase):
@@ -14,7 +14,7 @@ class Run120ProductionWiringTests(unittest.TestCase):
         self.assertNotIn("install_run120_schema_policy_bridge", source)
 
     def test_run120_installers_are_explicit_and_inside_existing_quality_wrapper(self):
-        source = inspect.getsource(run_v3_voice.main)
+        source = inspect.getsource(planning_runtime_contract.install_entrypoint_planning_contracts)
         batch = source.index("install_planning_batch_hardening()")
         schema = source.index("install_schema_repair_policy()")
         dossier = source.index("install_run120_dossier_repair_hardening()")
