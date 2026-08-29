@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from isco_video_agent.editorial_room import EditorialContractError, intent_from_dict
 from isco_video_agent.short_topic_gate import evaluate_short_topic
 from scripts.source_derived_short_planner import build_source_short_blueprint
 
@@ -141,6 +142,16 @@ def _source_excerpt(source_plan: dict[str, Any], job: str) -> dict[str, Any]:
     }
 
 
+def _source_editorial_intent(source_plan: dict[str, Any]) -> dict[str, Any]:
+    raw = source_plan.get("editorial_intent")
+    if not isinstance(raw, dict) or not raw:
+        raise RuntimeError("Sibling Shorts require source long EditorialIntent")
+    try:
+        return intent_from_dict(dict(raw)).to_dict()
+    except EditorialContractError as exc:
+        raise RuntimeError(f"Sibling source EditorialIntent is invalid: {exc}") from exc
+
+
 def build_sibling_requests(
     parent_request: dict[str, Any],
     sibling_plan: dict[str, Any],
@@ -171,6 +182,7 @@ def build_sibling_requests(
     if sibling_plan.get("automatic_production_started") is not False:
         raise RuntimeError("Sibling Short plan already claims automatic production started")
 
+    source_editorial_intent = _source_editorial_intent(source_plan)
     jobs = _semantic_jobs(sibling_plan)
     admission = _short_admission_from_parent(parent_request)
     candidate = parent_request.get("candidate")
@@ -209,6 +221,7 @@ def build_sibling_requests(
             "source_long_topic": parent_topic,
             "source_semantic_job": job,
             "source_episode_excerpt": excerpt,
+            "source_editorial_intent": dict(source_editorial_intent),
             "sibling_index": index,
             "sibling_count": len(jobs),
             "production_dispatch_authorized": False,
