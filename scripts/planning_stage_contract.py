@@ -2,10 +2,8 @@ from __future__ import annotations
 
 """Explicit request contracts for every Planning model call.
 
-The planning stage is selected at a stable Python call boundary, never inferred from
-prompt text.  The live router binds the selected stage to the exact effective input,
-performs admission before provider contact, validates structure + semantics, and only
-then commits one cache row.  Restored rows are revalidated against the same contract.
+Stage identity is bound at stable Python call boundaries. Prompt text is input data only:
+it never selects a schema, semantic contract, provider policy, or cache policy.
 """
 
 import functools
@@ -22,7 +20,6 @@ import isco_video_agent.repair_dossier as repair_dossier
 import isco_video_agent.resilient_planner as staged
 from isco_video_agent.ai_budget import TaskSpec, budget_task_scope, get_active_budget_task
 
-from provider_failure import classify_provider_failure
 from scripts import task_level_planner_router as router
 
 
@@ -226,7 +223,7 @@ def _script_schema(expected: int) -> dict:
     )
 
 
-def _append_schema(expected: int) -> dict:
+def _append_schema(expected: int, *, ordered_subset: bool) -> dict:
     item = _strict_object(
         {"id": {"type": "string"}, "append_text": {"type": "string"}},
         ["id", "append_text"],
@@ -236,7 +233,7 @@ def _append_schema(expected: int) -> dict:
             "additions": {
                 "type": "array",
                 "items": item,
-                "minItems": expected,
+                "minItems": 0 if ordered_subset else expected,
                 "maxItems": expected,
             }
         },
@@ -250,8 +247,8 @@ def _provider_policy(completion_tokens: int) -> ProviderPolicy:
         max_attempts_per_provider=router.TRANSIENT_PROVIDER_MAX_ATTEMPTS,
         max_total_attempts=router.PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS,
         completion_tokens=completion_tokens,
-        # Preserve the existing evidence-backed Groq preflight boundary.  Unknown
-        # provider limits are intentionally not invented here.
+        # Preserve only evidence-backed local limits. Unknown provider limits are not
+        # invented; their own preflight owners may reject before HTTP contact.
         max_prompt_utf8_bytes=(("groq", router.GROQ_MAX_PROMPT_UTF8_BYTES),),
         openrouter_compact_repair_max_attempts=1,
     )
@@ -303,7 +300,11 @@ def script_stage_spec(stage_kind: str, expected_ids: list[str]) -> PlanningStage
     )
 
 
-def append_stage_spec(expected_ids: list[str]) -> PlanningStageSpec:
+def append_stage_spec(
+    expected_ids: list[str],
+    *,
+    allow_ordered_subset: bool = False,
+) -> PlanningStageSpec:
     ids = [str(item).strip() for item in expected_ids]
     if not ids or any(not item for item in ids) or len(ids) != len(set(ids)):
         raise PlanningStageError(
@@ -311,13 +312,24 @@ def append_stage_spec(expected_ids: list[str]) -> PlanningStageSpec:
             "append contract requires unique nonempty expected ids",
             stage_id="planning.append_only_repair",
         )
+    suffix = "candidate.v1" if allow_ordered_subset else "exact.v1"
+    # Append repair is a compound transaction with downstream word-band and aggregate
+    # validation. Its provider fragments are deliberately never durable cache authority.
+    # This prevents an intermediate/partial repair candidate from becoming reusable state.
+    no_fragment_cache = CachePolicy(read=False, write=False)
     return PlanningStageSpec(
         stage_id="planning.append_only_repair",
-        contract_id="planning.append_only_repair.v1",
-        output_schema=_append_schema(len(ids)),
-        semantic_rules={"kind": "append", "expected_ids": ids, "exact_order": True},
+        contract_id=f"planning.append_only_repair.{suffix}",
+        output_schema=_append_schema(len(ids), ordered_subset=allow_ordered_subset),
+        semantic_rules={
+            "kind": "append",
+            "expected_ids": ids,
+            "exact_order": not allow_ordered_subset,
+            "ordered_subset_allowed": allow_ordered_subset,
+            "nonempty_append_text": True,
+        },
         provider_policy=_provider_policy(3200),
-        cache_policy=CachePolicy(),
+        cache_policy=no_fragment_cache,
     )
 
 
@@ -340,11 +352,10 @@ def section_repair_stage_spec(section_id: str) -> PlanningStageSpec:
 
 
 def bind_request_contract(spec: PlanningStageSpec, effective_prompt: str) -> PlanningStageContract:
-    input_hash = hashlib.sha256(effective_prompt.encode("utf-8")).hexdigest()
     return PlanningStageContract(
         stage_id=spec.stage_id,
         contract_id=spec.contract_id,
-        input_hash=input_hash,
+        input_hash=hashlib.sha256(effective_prompt.encode("utf-8")).hexdigest(),
         output_schema=spec.output_schema,
         semantic_rules=spec.semantic_rules,
         provider_policy=spec.provider_policy,
@@ -377,11 +388,21 @@ def _cache_key(contract: PlanningStageContract, model: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _raise_validation(code: PlanningErrorCode, contract: PlanningStageContract, path: str, detail: str) -> None:
+def _raise_validation(
+    code: PlanningErrorCode,
+    contract: PlanningStageContract,
+    path: str,
+    detail: str,
+) -> None:
     raise PlanningStageError(code, f"path={path} detail={detail}", stage_id=contract.stage_id)
 
 
-def _validate_schema(value: object, schema: dict, contract: PlanningStageContract, path: str = "$") -> None:
+def _validate_schema(
+    value: object,
+    schema: dict,
+    contract: PlanningStageContract,
+    path: str = "$",
+) -> None:
     expected_type = schema.get("type")
     if expected_type == "object":
         if not isinstance(value, dict):
@@ -458,7 +479,10 @@ def _unique_ids(entries: list, contract: PlanningStageContract, label: str) -> l
         ids.append(section_id)
     if len(ids) != len(set(ids)):
         _raise_validation(
-            PlanningErrorCode.SEMANTIC_INVALID, contract, f"$.{label}", "duplicate_ids"
+            PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            f"$.{label}",
+            "duplicate_ids",
         )
     return ids
 
@@ -467,21 +491,29 @@ def _validate_outline_semantics(data: dict, contract: PlanningStageContract) -> 
     briefs = data.get("section_briefs")
     if not isinstance(briefs, list):
         _raise_validation(
-            PlanningErrorCode.SEMANTIC_INVALID, contract, "$.section_briefs", "expected_array"
+            PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.section_briefs",
+            "expected_array",
         )
     _unique_ids(briefs, contract, "section_briefs")
     if any(not str(item.get("purpose") or "").strip() for item in briefs):
         _raise_validation(
-            PlanningErrorCode.SEMANTIC_INVALID, contract, "$.section_briefs", "empty_purpose"
+            PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.section_briefs",
+            "empty_purpose",
         )
 
     narrative_format = str(data.get("narrative_format") or "").strip()
     if narrative_format not in getattr(staged, "_NARRATIVE_FORMATS", {}):
         _raise_validation(
-            PlanningErrorCode.SEMANTIC_INVALID, contract, "$.narrative_format", "unsupported"
+            PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.narrative_format",
+            "unsupported",
         )
-    flags = staged.validate_narrative_format(narrative_format, n=6)
-    if flags:
+    if staged.validate_narrative_format(narrative_format, n=6):
         _raise_validation(
             PlanningErrorCode.SEMANTIC_INVALID,
             contract,
@@ -494,7 +526,10 @@ def _validate_outline_semantics(data: dict, contract: PlanningStageContract) -> 
     transitions = data.get("transition_variants")
     if not opener or not closer:
         _raise_validation(
-            PlanningErrorCode.SEMANTIC_INVALID, contract, "$", "empty_identity_variant"
+            PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$",
+            "empty_identity_variant",
         )
     if not isinstance(transitions, list) or len(transitions) != 3 or any(
         not str(item).strip() for item in transitions
@@ -505,10 +540,12 @@ def _validate_outline_semantics(data: dict, contract: PlanningStageContract) -> 
             "$.transition_variants",
             "invalid_transitions",
         )
-    identity_flags = staged.validate_identity_phrases(opener, closer, n=6)
-    if identity_flags:
+    if staged.validate_identity_phrases(opener, closer, n=6):
         _raise_validation(
-            PlanningErrorCode.SEMANTIC_INVALID, contract, "$", "identity_anti_repetition"
+            PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$",
+            "identity_anti_repetition",
         )
     try:
         staged.intent_from_dict(data.get("editorial_intent"))
@@ -521,6 +558,56 @@ def _validate_outline_semantics(data: dict, contract: PlanningStageContract) -> 
         )
 
 
+def _validate_append_semantics(data: dict, contract: PlanningStageContract) -> None:
+    additions = data.get("additions")
+    if not isinstance(additions, list):
+        _raise_validation(
+            PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.additions",
+            "expected_array",
+        )
+    returned_ids = _unique_ids(additions, contract, "additions")
+    if any(not str(item.get("append_text") or "").strip() for item in additions):
+        _raise_validation(
+            PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.additions",
+            "empty_append_text",
+        )
+
+    expected_ids = list(contract.semantic_rules.get("expected_ids") or [])
+    if contract.semantic_rules.get("ordered_subset_allowed"):
+        positions = {section_id: index for index, section_id in enumerate(expected_ids)}
+        previous = -1
+        for section_id in returned_ids:
+            position = positions.get(section_id)
+            if position is None:
+                _raise_validation(
+                    PlanningErrorCode.SEMANTIC_INVALID,
+                    contract,
+                    "$.additions",
+                    f"unexpected_id={section_id}",
+                )
+            if position <= previous:
+                _raise_validation(
+                    PlanningErrorCode.SEMANTIC_INVALID,
+                    contract,
+                    "$.additions",
+                    "subset_order_changed",
+                )
+            previous = position
+        return
+
+    if returned_ids != expected_ids:
+        _raise_validation(
+            PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.additions",
+            "exact_id_order_mismatch",
+        )
+
+
 def validate_response(contract: PlanningStageContract, data: dict) -> dict:
     _validate_schema(data, contract.output_schema, contract)
     kind = str(contract.semantic_rules.get("kind") or "")
@@ -528,13 +615,19 @@ def validate_response(contract: PlanningStageContract, data: dict) -> dict:
         if kind == "editorial_outline":
             _validate_outline_semantics(data, contract)
         elif kind == "script":
-            staged._parse_full_script_response(data, list(contract.semantic_rules["expected_ids"]))
+            staged._parse_full_script_response(
+                data,
+                list(contract.semantic_rules["expected_ids"]),
+            )
         elif kind == "append":
-            staged._parse_append_only_response(data, list(contract.semantic_rules["expected_ids"]))
+            _validate_append_semantics(data, contract)
         elif kind == "section_repair":
             if not str(data.get("narration") or "").strip():
                 _raise_validation(
-                    PlanningErrorCode.SEMANTIC_INVALID, contract, "$.narration", "empty"
+                    PlanningErrorCode.SEMANTIC_INVALID,
+                    contract,
+                    "$.narration",
+                    "empty",
                 )
         else:
             raise PlanningStageError(
@@ -566,9 +659,12 @@ def _load_checkpoint_strict() -> dict:
         ) from exc
     if not isinstance(data, dict) or not isinstance(data.get("responses", {}), dict):
         raise PlanningStageError(
-            PlanningErrorCode.CHECKPOINT_INVALID, "checkpoint_root_shape_invalid"
+            PlanningErrorCode.CHECKPOINT_INVALID,
+            "checkpoint_root_shape_invalid",
         )
-    data.setdefault("version", 2)
+    # Contract-v1 intentionally invalidates historical prompt-hash cache authority.
+    if data.get("version") != 2:
+        return {"version": 2, "responses": {}}
     data.setdefault("responses", {})
     return data
 
@@ -582,9 +678,8 @@ def _save_checkpoint(checkpoint: dict) -> None:
 
 
 def _evict(checkpoint: dict, key: str, error: PlanningStageError) -> None:
-    responses = checkpoint["responses"]
-    if key in responses:
-        responses.pop(key, None)
+    if key in checkpoint["responses"]:
+        checkpoint["responses"].pop(key, None)
         _save_checkpoint(checkpoint)
     print(f"Planning checkpoint evicted: {error}")
 
@@ -601,13 +696,12 @@ def _cache_read(
     if row is None:
         return None
 
-    fingerprint = _contract_fingerprint(contract)
     valid_envelope = (
         isinstance(row, dict)
         and row.get("stage_id") == contract.stage_id
         and row.get("contract_id") == contract.contract_id
         and row.get("input_hash") == contract.input_hash
-        and row.get("contract_fingerprint") == fingerprint
+        and row.get("contract_fingerprint") == _contract_fingerprint(contract)
         and isinstance(row.get("payload"), dict)
     )
     if not valid_envelope:
@@ -644,11 +738,9 @@ def _cache_commit(
     payload: dict,
     provider: str,
 ) -> None:
-    """The single cache-write authority for Planning responses."""
+    """Single durable Planning response-write authority."""
     if not contract.cache_policy.write:
         return
-    # This is intentionally redundant with provider-loop validation: this one function
-    # is the only durable-write point, so it refuses any payload not authoritative now.
     validate_response(contract, payload)
     key = _cache_key(contract, model)
     checkpoint["version"] = 2
@@ -669,12 +761,12 @@ def _schema_tuple(contract: PlanningStageContract) -> tuple[str, dict]:
 
 
 def _explicit_schema_adapter(_prompt: str) -> tuple[str, dict]:
-    """Compatibility seam for old low-level provider helpers; never reads prompt text."""
+    """Compatibility seam for old provider helpers; prompt content is ignored."""
     contract = _ACTIVE_REQUEST_CONTRACT.get()
     if contract is None:
         raise PlanningStageError(
             PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-            "legacy prompt schema inference is disabled; no active explicit request contract",
+            "prompt schema inference is disabled; no active explicit request contract",
         )
     return _schema_tuple(contract)
 
@@ -720,12 +812,12 @@ def _admit_provider(contract: PlanningStageContract, prompt: str, provider: str)
         )
 
 
-def _classify_provider_error(
-    contract: PlanningStageContract, provider: str, exc: BaseException
-) -> tuple[PlanningStageError, bool, object]:
-    if isinstance(exc, PlanningStageError):
-        return exc, False, None
-    failure = classify_provider_failure(provider, exc)
+def _provider_failure(
+    contract: PlanningStageContract,
+    provider: str,
+    exc: BaseException,
+) -> tuple[PlanningStageError, bool, object, object]:
+    failure = router.classify_provider_failure(provider, exc)
     retry_after = router._last_call_rate_limit_headers.get("retry_after")
     detail = str(exc).replace("\n", " ")[:300]
     lower = detail.lower()
@@ -742,30 +834,28 @@ def _classify_provider_error(
         "rate limit",
         "quota",
     )
-    if any(marker in lower for marker in capacity_markers):
-        return (
-            PlanningStageError(
-                PlanningErrorCode.CAPACITY,
-                detail,
-                stage_id=contract.stage_id,
-                provider=provider,
-            ),
-            False,
-            retry_after,
-        )
+    code = (
+        PlanningErrorCode.CAPACITY
+        if any(marker in lower for marker in capacity_markers)
+        else PlanningErrorCode.PROVIDER_TRANSIENT
+    )
     retryable = (
-        failure.telemetry_result in router._TRANSIENT_RESULTS
-        or (failure.telemetry_result == "429" and retry_after is not None)
+        code == PlanningErrorCode.PROVIDER_TRANSIENT
+        and (
+            failure.telemetry_result in router._TRANSIENT_RESULTS
+            or (failure.telemetry_result == "429" and retry_after is not None)
+        )
     )
     return (
         PlanningStageError(
-            PlanningErrorCode.PROVIDER_TRANSIENT,
+            code,
             detail,
             stage_id=contract.stage_id,
             provider=provider,
         ),
         retryable,
         retry_after,
+        failure,
     )
 
 
@@ -774,9 +864,9 @@ def _provider_result(
     prompt: str,
     model: str,
     contract: PlanningStageContract,
-    gemini_key: str,
 ):
     if provider == "gemini":
+        gemini_key = router._read_secret_file("GEMINI_API_KEY_FILE")
         return router._budgeted_provider_call(
             "gemini",
             model,
@@ -786,8 +876,6 @@ def _provider_result(
             model=model,
         )
     if provider == "groq":
-        # _groq_call asks the compatibility schema seam; that seam now resolves only
-        # from _ACTIVE_REQUEST_CONTRACT and cannot inspect the prompt.
         return router._groq_call(prompt)
     if provider == "openrouter":
         return router._openrouter_call_with_repair(
@@ -804,7 +892,7 @@ def _provider_result(
 
 
 def install_planning_contract_router() -> None:
-    """Replace the legacy prompt-inferred task router with one explicit-contract owner."""
+    """Replace prompt-inferred routing with one explicit-contract request owner."""
     if _contains_marker(staged.json_text, _ROUTER_MARKER):
         return
 
@@ -813,10 +901,9 @@ def install_planning_contract_router() -> None:
     transient_cooldown_until: dict[str, float] = {}
     last_call_at: dict[str, float] = {}
     sequence = 0
-    gemini_key = router._read_secret_file("GEMINI_API_KEY_FILE")
 
-    # Make any accidental use of the old helper context-backed instead of prompt-backed.
-    # This closes the old inference path even inside low-level compatibility utilities.
+    # Every old low-level caller that still asks for a response schema now resolves it
+    # from the active request contract. The prompt argument is deliberately ignored.
     router._structured_schema_for_prompt = _explicit_schema_adapter
 
     def contract_router(_api_key, prompt, model="gemini-2.5-flash"):
@@ -837,15 +924,18 @@ def install_planning_contract_router() -> None:
         if cached is not None:
             return cached
 
-        providers = list(contract.provider_policy.providers)
         admitted: list[str] = []
         admission_failures: list[PlanningStageError] = []
-        for provider in providers:
+        for provider in contract.provider_policy.providers:
             try:
                 _admit_provider(contract, effective_prompt, provider)
             except PlanningStageError as exc:
                 admission_failures.append(exc)
-                router._record_attempt(provider, "capacity-preflight", error_detail=str(exc)[:220])
+                router._record_attempt(
+                    provider,
+                    "capacity-preflight",
+                    error_detail=str(exc)[:220],
+                )
             else:
                 admitted.append(provider)
         if not admitted:
@@ -877,13 +967,12 @@ def install_planning_contract_router() -> None:
                         since = time.monotonic() - last_call_at.get(provider, 0.0)
                         if since < router.MIN_PROVIDER_CALL_INTERVAL_SECONDS:
                             time.sleep(router.MIN_PROVIDER_CALL_INTERVAL_SECONDS - since)
-                        last_call_at[provider] = time.monotonic()
+                        started = time.monotonic()
+                        last_call_at[provider] = started
                         try:
-                            raw = _provider_result(
-                                provider, effective_prompt, model, contract, gemini_key
-                            )
+                            raw = _provider_result(provider, effective_prompt, model, contract)
                             try:
-                                parsed = router._parse_json(raw)
+                                parsed = raw if isinstance(raw, dict) else router._parse_json(raw)
                             except Exception as exc:
                                 raise PlanningStageError(
                                     PlanningErrorCode.STRUCTURAL_INVALID,
@@ -898,11 +987,11 @@ def install_planning_contract_router() -> None:
                                 provider,
                                 exc.code.value.lower(),
                                 error_detail=str(exc)[:220],
-                                duration_seconds=time.monotonic() - last_call_at[provider],
+                                duration_seconds=time.monotonic() - started,
                                 provider_attempt=provider_attempt + 1,
                             )
-                            # Invalid model output is not replayed against the same
-                            # provider; move to fallback. Capacity also moves directly.
+                            # Invalid output, capacity, and contract failures never hit
+                            # the same provider again for this request.
                             if exc.code in {
                                 PlanningErrorCode.STRUCTURAL_INVALID,
                                 PlanningErrorCode.SEMANTIC_INVALID,
@@ -910,37 +999,47 @@ def install_planning_contract_router() -> None:
                                 PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
                             }:
                                 break
-                            retryable = exc.code == PlanningErrorCode.PROVIDER_TRANSIENT
                             has_retry = provider_attempt + 1 < contract.provider_policy.max_attempts_per_provider
-                            if retryable and has_retry and total_attempts < contract.provider_policy.max_total_attempts:
-                                delay = router._retry_delay_seconds(provider, provider_attempt)
-                                time.sleep(delay)
+                            if (
+                                exc.code == PlanningErrorCode.PROVIDER_TRANSIENT
+                                and has_retry
+                                and total_attempts < contract.provider_policy.max_total_attempts
+                            ):
+                                time.sleep(router._retry_delay_seconds(provider, provider_attempt))
                                 continue
                             transient_cooldown_until[provider] = (
                                 time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
                             )
                             break
                         except Exception as exc:
-                            classified, retryable, retry_after = _classify_provider_error(
-                                contract, provider, exc
+                            classified, retryable, retry_after, failure = _provider_failure(
+                                contract,
+                                provider,
+                                exc,
                             )
                             failures.append(classified)
-                            failure = classify_provider_failure(provider, exc)
                             router._record_attempt(
                                 provider,
                                 failure.telemetry_result,
                                 error_detail=str(classified)[:220],
-                                duration_seconds=time.monotonic() - last_call_at[provider],
+                                duration_seconds=time.monotonic() - started,
                                 provider_attempt=provider_attempt + 1,
                             )
                             if failure.open_circuit:
                                 cooldown.add(provider)
                             has_retry = provider_attempt + 1 < contract.provider_policy.max_attempts_per_provider
-                            if retryable and has_retry and total_attempts < contract.provider_policy.max_total_attempts:
-                                delay = router._retry_delay_seconds(
-                                    provider, provider_attempt, retry_after
+                            if (
+                                retryable
+                                and has_retry
+                                and total_attempts < contract.provider_policy.max_total_attempts
+                            ):
+                                time.sleep(
+                                    router._retry_delay_seconds(
+                                        provider,
+                                        provider_attempt,
+                                        retry_after,
+                                    )
                                 )
-                                time.sleep(delay)
                                 continue
                             if retryable:
                                 transient_cooldown_until[provider] = (
@@ -952,7 +1051,7 @@ def install_planning_contract_router() -> None:
                             router._record_attempt(
                                 provider,
                                 "success",
-                                duration_seconds=time.monotonic() - last_call_at[provider],
+                                duration_seconds=time.monotonic() - started,
                                 provider_attempt=provider_attempt + 1,
                             )
                             print(
@@ -995,8 +1094,8 @@ def install_planning_contract_router() -> None:
             with budget_task_scope(active.ledger, child, requested_model=active.requested_model):
                 payload, provider = run_provider_loop()
 
-        # The only durable cache write is here, after successful structural + semantic
-        # validation and after provider ownership has completed.
+        # Exactly one response-cache write authority exists, and it is reached only
+        # after the complete structural + semantic request contract has passed.
         _cache_commit(checkpoint, contract, model, payload, provider)
         return payload
 
@@ -1057,6 +1156,14 @@ def append_subrequest_scope(expected_ids: list[str]) -> Iterator[None]:
         yield
 
 
+@contextmanager
+def append_candidate_subrequest_scope(expected_ids: list[str]) -> Iterator[None]:
+    with request_stage_scope(
+        append_stage_spec(expected_ids, allow_ordered_subset=True)
+    ):
+        yield
+
+
 def _wrap_stage_parent(name: str, stage_kind: str) -> None:
     current = getattr(staged, name)
     if getattr(current, _STAGE_WRAPPER_MARKER, None) == stage_kind:
@@ -1081,13 +1188,7 @@ def _wrap_outline() -> None:
 
     @functools.wraps(current)
     def wrapped(*args, **kwargs):
-        fmt = kwargs.get("fmt")
-        if fmt is None:
-            raise PlanningStageError(
-                PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-                "outline wrapper could not resolve fmt",
-                stage_id="planning.editorial_outline",
-            )
+        fmt = kwargs.get("fmt", args[2] if len(args) > 2 else None)
         expected = staged._SECTION_COUNTS.get(fmt)
         if not isinstance(expected, int):
             raise PlanningStageError(
@@ -1147,12 +1248,19 @@ def _wrap_append_stage() -> None:
             )
         ids = _append_target_ids(sections)
         if not ids:
-            # Let the existing deterministic guard produce its precise business error
-            # without constructing a fake provider contract.
             return current(*args, **kwargs)
+        current_words = kwargs.get("current_words")
+        minimum = kwargs.get("minimum")
+        ordered_subset = (
+            isinstance(current_words, (int, float))
+            and isinstance(minimum, (int, float))
+            and current_words < minimum
+        )
         token = _ACTIVE_STAGE_KIND.set("append_only_repair")
         try:
-            with request_stage_scope(append_stage_spec(ids)):
+            with request_stage_scope(
+                append_stage_spec(ids, allow_ordered_subset=ordered_subset)
+            ):
                 return current(*args, **kwargs)
         finally:
             _ACTIVE_STAGE_KIND.reset(token)
@@ -1168,7 +1276,7 @@ def _wrap_section_repair() -> None:
 
     @functools.wraps(current)
     def wrapped(*args, **kwargs):
-        section_id = kwargs.get("section_id")
+        section_id = kwargs.get("section_id", args[2] if len(args) > 2 else None)
         with request_stage_scope(section_repair_stage_spec(str(section_id or ""))):
             return current(*args, **kwargs)
 
@@ -1192,17 +1300,17 @@ def assert_planning_stage_contract_installed() -> None:
             PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
             "explicit contract router is not reachable from resilient_planner.json_text",
         )
-    required = {
-        "_outline": "editorial_outline",
-        "_write_full_script": "full_script",
-        "_script_doctor": "script_doctor",
-        "_call_with_schema_repair": "script_schema_call",
-        "_script_doctor_underlength_retry": "append_only_repair",
-        "_repair_section": "section_repair",
-    }
-    for name, marker in required.items():
+    required = (
+        "_outline",
+        "_write_full_script",
+        "_script_doctor",
+        "_call_with_schema_repair",
+        "_script_doctor_underlength_retry",
+        "_repair_section",
+    )
+    for name in required:
         if not _contains_marker(getattr(staged, name), _STAGE_WRAPPER_MARKER):
             raise PlanningStageError(
                 PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-                f"missing explicit stage boundary wrapper:{name}:{marker}",
+                f"missing explicit stage boundary wrapper:{name}",
             )
