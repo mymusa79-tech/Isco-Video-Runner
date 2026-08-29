@@ -24,7 +24,19 @@ class TelegramOutboxRuntimeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.state = self.root / "state.json"
-        self.state.write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
+        self.state.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "telegram_offset": 0,
+                    "sessions": {},
+                    "requests": {},
+                    "pending_actions": [],
+                    "last_event_at": None,
+                }
+            ),
+            encoding="utf-8",
+        )
         self.request = self.root / "request.json"
         self.request.write_text(
             json.dumps(
