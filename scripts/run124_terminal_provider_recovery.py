@@ -9,12 +9,14 @@ from scripts import provider_capacity_hardening as capacity
 
 # Run #124 proved that fast failover must not become fast failure. Run #125 then proved
 # the inverse risk: a bounded wait PER shard can still accumulate into minutes across a
-# long Writer/Doctor graph. Keep the edge-case recovery, but give it one run-wide retry
-# budget as recommended for overloaded distributed systems.
+# long Writer/Doctor graph. Keep the edge-case recovery bounded by both a per-reset cap
+# and a run-wide cap. Run132 proved the previous 60-second run cap contradicted the
+# advertised three-recovery allowance: one legitimate ~49s reset made a second ~41s
+# reset impossible. Three <=60s recoveries now have a coherent hard ceiling of 180s.
 _TERMINAL_RESET_LIMIT_SECONDS = 60.0
 _RESET_SAFETY_SECONDS = 1.5
 _MAX_TERMINAL_RECOVERIES_PER_RUN = 3
-_MAX_TERMINAL_WAIT_SECONDS_PER_RUN = 60.0
+_MAX_TERMINAL_WAIT_SECONDS_PER_RUN = 180.0
 _RESET_RE = re.compile(r"reset_in=(\d+(?:\.\d+)?)s", flags=re.I)
 _MODEL_RE = re.compile(r"\bmodel=([^\s|]+)", flags=re.I)
 _RECOVERED_TERMINAL_SHARDS: set[tuple[str, tuple[str, ...], str]] = set()
