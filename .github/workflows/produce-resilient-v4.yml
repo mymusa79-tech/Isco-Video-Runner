@@ -167,6 +167,23 @@ jobs:
           test -f "$state_dir/history.json"
           chmod 600 "$state_dir/history.json"
           echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import hashlib
+          import hmac
+          import os
+          from pathlib import Path
+          state_key = os.environ["STATE_ENCRYPTION_KEY"].encode("utf-8")
+          if len(state_key) < 16:
+              raise SystemExit("STATE_ENCRYPTION_KEY is too short for media-cache key derivation")
+          derived = hmac.new(
+              state_key, b"isco-media-cache-auth-v1", hashlib.sha256
+          ).hexdigest()
+          path = Path(os.environ["RUNNER_TEMP"]) / "isco-state" / "media-cache-hmac"
+          path.write_text(derived, encoding="utf-8")
+          path.chmod(0o600)
+          print("Derived isolated media-cache authentication key")
+          PY
+          echo "ISCO_MEDIA_CACHE_HMAC_KEY_FILE=$state_dir/media-cache-hmac" >> "$GITHUB_ENV"
 
       - name: Require healthy restored cross-run memory
         run: test "${{ steps.restore_state.outputs.save_allowed }}" = "true"
@@ -300,10 +317,9 @@ jobs:
           restore-keys: |
             tts-section-v1-${{ runner.os }}-
 
-      # Selected media bytes and deterministic prepared clips are rebuildable cache
-      # data, never trust authority or Git state. Only assets that reached the final
-      # clips/ path are persisted; restored bytes are SHA256-certified and rehydrated
-      # into Media Trust before existing Security/Vision review continues.
+      # Selected media bytes, prepared clips and selected-shot decisions are rebuildable
+      # cache data, never trust authority or Git state. Manifests/decisions are HMAC
+      # authenticated; exact bytes are SHA256-certified and rehydrated into Media Trust.
       - name: Restore durable selected-media cache
         id: restore_media_cache
         uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
@@ -379,17 +395,27 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
           ISCO_MEDIA_CACHE_DIR: ${{ runner.temp }}/isco-media-asset-cache
+          GEMINI_CONTENT_MODEL: gemini-3.7-flash
+          ISCO_ENGINE_SHA: f3c9357098947882882ca3010b46a565c2d90460
         run: |
           set -euo pipefail
           python - <<'PY'
           import os
           from pathlib import Path
+          from scripts.media_durable_cache_auth import install_media_cache_auth
           from scripts.media_durable_asset_cache import prepare_cache_for_persistence
+          from scripts.media_durable_selection_resume import prepare_selection_cache_for_persistence
           path = Path(os.environ["ISCO_MEDIA_CACHE_DIR"])
-          allowed = prepare_cache_for_persistence(path)
+          install_media_cache_auth()
+          asset_allowed = prepare_cache_for_persistence(path)
+          selection_records = prepare_selection_cache_for_persistence(path)
+          allowed = bool(asset_allowed or selection_records > 0)
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
               fh.write(f"save_allowed={'true' if allowed else 'false'}\n")
-          print(f"Media durable cache persistence sanitized: save_allowed={allowed}")
+          print(
+              "Media durable cache persistence sanitized: "
+              f"save_allowed={allowed} selection_records={selection_records}"
+          )
           PY
 
       - name: Save durable selected-media cache
