@@ -24,6 +24,7 @@ from scripts.telegram_release_approval import record_webhook_approval
 MAX_UPDATE_BYTES = 48 * 1024
 SEEN_UPDATES_KEY = "telegram_webhook_seen_update_ids"
 MAX_SEEN_UPDATES = 256
+NOT_RELEASE_APPROVAL_EXIT = 3
 
 
 def decode_update(encoded: str) -> dict[str, Any]:
@@ -99,6 +100,26 @@ def _record_release_approval_if_present(state_path: Path, update: dict[str, Any]
     return True
 
 
+def replay_release_approval_only(state_path: Path, update: dict[str, Any]) -> bool:
+    """Consume only an L6 release approval while general control is read-only.
+
+    Production may be active when the release-candidate approval button is pressed.
+    This narrow path never installs or invokes the legacy/stateful command parser. It
+    therefore cannot execute research, mutate topic memory, or dispatch production.
+    Duplicate webhook update ids are harmless and treated as already consumed.
+    """
+    update_id = int(update["update_id"])
+    if _is_seen(state_path, update_id):
+        print(f"Webhook update {update_id} already processed; no side effect")
+        panel._github_output("needs_engine", "false")
+        panel._github_output("needs_production", "false")
+        return True
+    if not _record_release_approval_if_present(state_path, update):
+        return False
+    _mark_seen(state_path, update_id)
+    return True
+
+
 def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
     """Run one authenticated Telegram update through the existing control plane exactly once.
 
@@ -113,8 +134,7 @@ def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
         panel._github_output("needs_production", "false")
         return False
 
-    if _record_release_approval_if_present(state_path, update):
-        _mark_seen(state_path, update_id)
+    if replay_release_approval_only(state_path, update):
         return True
 
     # Install the exact same UI stack as telegram_topic_memory_ui.install().
@@ -170,6 +190,10 @@ def main() -> None:
     replay.add_argument("--state", required=True, type=Path)
     replay.add_argument("--update-b64", required=True)
 
+    approval = sub.add_parser("release-approval-only")
+    approval.add_argument("--state", required=True, type=Path)
+    approval.add_argument("--update-b64", required=True)
+
     sub.add_parser("webhook-active")
 
     args = parser.parse_args()
@@ -177,6 +201,9 @@ def main() -> None:
         raise SystemExit(0 if webhook_active() else 1)
 
     update = decode_update(args.update_b64)
+    if args.mode == "release-approval-only":
+        consumed = replay_release_approval_only(args.state, update)
+        raise SystemExit(0 if consumed else NOT_RELEASE_APPROVAL_EXIT)
     replay_update(args.state, update)
 
 
