@@ -1,43 +1,46 @@
 # Production Closure Register
 
-This register records systemic production bug families that must be closed by architecture and executable prevention, not by restoring files, adding one-off retries, or hiding symptoms after a run.
+This document is the human-readable view only. The machine-readable authority is `scripts/production_family_closure.json`, and a family is considered closed for production only when `Verify Production Stage Ladder` certifies P0–P6 on the exact current Runner SHA and exact Engine pin.
 
 ## Closure 1 — Provider guidance / Retry-After ownership
 
-**State:** CLOSED before Run129.
+**State:** ARCHITECTURALLY CLOSED; current validity is re-certified by P1.
 
-**Failure family:** local latency/retry policy could shorten provider-mandated `Retry-After` evidence and retry the same provider/model before the provider-declared safe window.
-
-**Systemic closure:**
-- Provider `Retry-After` is a minimum safe delay, never a value to truncate.
-- If the local latency budget can afford the provider delay, wait the full provider delay.
-- If it cannot, fail over immediately rather than partially sleeping and retrying early.
-- Groq short-window TPM exhaustion is model-scoped; hard daily/session quota remains separate.
-- Runtime composition certification rejects reintroduction of partial `Retry-After` ownership.
-- Research uses the same canonical rule, preventing the family from surviving outside Planning.
-
-**Acceptance principle:** one retry owner, provider evidence is authoritative, no partial same-provider retry.
+Provider `Retry-After` is a minimum safe delay. One retry owner decides whether the full provider delay fits the local budget; otherwise the request fails over immediately. Partial sleep followed by an early same-provider retry is forbidden. Model-scoped short-window capacity and hard quota/session exhaustion remain separate failure classes.
 
 ## Closure 2 — Test / production source isolation
 
-**State:** BLOCKING CLOSURE. No new production attempt until the PR carrying this closure satisfies the exact-SHA CI criteria below and is merged.
+**State:** ARCHITECTURALLY CLOSED after Run129; current validity is re-certified by P0/P4/P5/P6.
 
-**Failure family:** GitHub Actions test and production steps share one workspace. A successful test suite can mutate tracked Engine state or production inputs and silently change what later production/checkpoint code observes. Run129 exposed this family through tracked Engine state leakage and approved-brief identity drift.
+Production input identity comes from the exact pinned Engine commit object. Approved-brief runtime bytes are materialized as a read-only snapshot. Test histories live under runner-temporary paths, tracked Engine source cleanliness is certified after test phases, and Production V4 fails closed on source mutation. Reset/restore/allowlist cleanup is not accepted as a substitute for isolation.
 
-**Systemic closure:**
-- Production-approved brief identity comes from the exact pinned Engine commit object, not mutable working-tree bytes.
-- A read-only approved-brief snapshot is the canonical runtime/checkpoint input.
-- Every Engine/Runner test phase that can touch history receives its own `ISCO_HISTORY_PATH` under runner temporary storage, never the tracked Engine `state/history.json` default.
-- Engine tracked-source hermeticity gates fail closed on any tracked modification after test phases.
-- Production V4 runs the same isolation and must certify a clean Engine source tree before provider work begins.
-- No `git reset`, checkout cleanup, tracked-file allowlist, or post-test restoration is accepted as closure because those approaches hide the write instead of preventing it.
+## Closure 3 — Runtime phase / ambient CI authority
 
-**Exact-SHA acceptance gate:**
-1. Full Engine suite: GREEN.
-2. Full Runner regression: GREEN.
-3. Verify Human Editorial Intent M7: GREEN.
-4. Verify M11 Live Integration: GREEN.
-5. All four results must target the exact same final PR head SHA.
-6. Any code/workflow commit after those results invalidates the evidence and requires all four gates again.
+**State:** ARCHITECTURALLY CLOSED by PR #366; current validity is re-certified by P0.
 
-**Production rule:** this closure is a prerequisite for the next production attempt.
+Run130 showed that workflow identity is not the same thing as live production phase. `scripts/runtime_phase.py` is the application-owned authority and requires explicit `ISCO_CANONICAL_RUNTIME=1` activation in addition to exact Production V4 identity. The historical planning-checkpoint implementation is retained only as compatibility/storage logic behind a wrapper that injects this authority before exporting any function.
+
+PR #366 was merged only after Full Engine + Full Runner + M7 + M11 were Green on exact head `984983afa25f6898bcc7279fbf5e6c17006381cf`.
+
+## Closure 4 — Run51–130 cumulative regression / stale-stage evidence
+
+**State:** BLOCKING until the exact current `main` SHA receives a Green P0–P6 Stage Ladder certificate.
+
+Run50 is the last independently verified historical End-to-End success and is the known-good media baseline. Its `final.mp4` identity is locked in the machine-readable register by exact size and SHA256. A historical fix, a test named after a run, or an old success at Stage 6 is not current closure evidence.
+
+The mandatory ladder is:
+- P0 — runtime, environment, state, checkpoint and test/production isolation.
+- P1 — planning, schema/repair, provider routing, capacity and retry ownership.
+- P2 — TTS, voice, audio semantics and mastering.
+- P3 — media/visual feasibility, security and M7–M11 cinematic bindings.
+- P4 — current Final Master QC over the real immutable `video-50/final.mp4` baseline.
+- P5 — current Gold same-render state transition over that staging media with deterministic recorded external boundaries.
+- P6 — current packaging, unified delivery and release-transaction dry replay with zero publication.
+
+Every Run from 51 through 130 belongs to exactly one audit cohort in `scripts/production_family_closure.json`; known repeated failure families are mapped separately to executable contracts and required phases.
+
+## Permanent production rule
+
+A Green ladder run on a PR is review evidence only. After merge, the ladder must run again on the resulting `main` SHA. Only a successful **push-to-main** ladder may publish `stage-ladder-green-<sha>`, and Production V4's existing environment preflight must resolve that exact ref to `GITHUB_SHA` before provider secrets are materialized.
+
+Therefore a commit after certification invalidates production readiness automatically. The Ladder never dispatches Production V4 and never publishes a release. Production remains manual.
