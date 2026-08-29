@@ -5,9 +5,9 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from scripts import planning_runtime_contract
 from scripts import run120_dossier_repair_hardening as hardening
 from scripts import run120_schema_policy_bridge as bridge
-from scripts import run_v3_voice
 
 
 def _section(section_id: str, words: int = 120):
@@ -94,7 +94,6 @@ class Run120DossierRepairHardeningTests(unittest.TestCase):
         for section in repaired.sections:
             if section.id not in {"S3", "S4"}:
                 self.assertEqual(section.narration, before[section.id])
-        # The successful base plan is a checkpoint: no partial mutation leaks back.
         self.assertEqual(
             {section.id: section.narration for section in plan.sections}, before
         )
@@ -329,7 +328,6 @@ class Run120DossierRepairHardeningTests(unittest.TestCase):
                 self.assertEqual(calls["repair"], 1)
                 self.assertEqual(calls["repair_existing"], 1)
                 self.assertEqual(calls["reaudit"], 1)
-                # No second outline/writer/doctor full build during dossier repair.
                 self.assertEqual(calls["full_build"], 1)
         finally:
             hardening.staged.build_plan = real_build
@@ -340,7 +338,9 @@ class Run120DossierRepairHardeningTests(unittest.TestCase):
                 delattr(hardening.orchestrator, marker)
 
     def test_production_wires_existing_schema_policy_after_batch_transport(self):
-        source = inspect.getsource(run_v3_voice.main)
+        source = inspect.getsource(
+            planning_runtime_contract.install_entrypoint_planning_contracts
+        )
         batch_index = source.index("install_planning_batch_hardening()")
         schema_index = source.index("install_schema_repair_policy()")
         quality_index = source.index("install_planner_quality_guard()")
