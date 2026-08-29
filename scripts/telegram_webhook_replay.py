@@ -17,6 +17,7 @@ if __package__ in {None, ""}:
 from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
 from scripts import telegram_topic_memory_ui as memory_ui
+from scripts.telegram_release_approval import record_webhook_approval
 
 # workflow_dispatch inputs have a finite payload budget; base64 expands bytes by ~4/3.
 # Keeping raw Telegram updates below 48 KiB leaves safe room for the JSON envelope.
@@ -78,12 +79,32 @@ def _is_seen(state_path: Path, update_id: int) -> bool:
     return update_id in _seen_ids(panel.load_state(state_path))
 
 
+def _record_release_approval_if_present(state_path: Path, update: dict[str, Any]) -> bool:
+    state = panel.load_state(state_path)
+    bound = record_webhook_approval(
+        state,
+        update=update,
+        allowed_user_id=panel._read_secret_file("TELEGRAM_ALLOWED_USER_ID_FILE"),
+        allowed_chat_id=panel._read_secret_file("TELEGRAM_CHAT_ID_FILE"),
+    )
+    if bound is None:
+        return False
+    panel.save_state(state_path, state)
+    panel._github_output("needs_engine", "false")
+    panel._github_output("needs_production", "false")
+    print(
+        "Release approval receipt persisted through webhook ingress: "
+        f"approval={bound.approval_id} decision={bound.decision.value}"
+    )
+    return True
+
+
 def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
     """Run one authenticated Telegram update through the existing control plane exactly once.
 
-    Telegram callback acknowledgement is intentionally suppressed here because the edge
-    webhook answers it immediately. Authorization, run binding, selection, approval and
-    production queue semantics remain inside the existing Python control plane.
+    Release approval callbacks are consumed directly by the webhook-owned L6 adapter.
+    All other stateful callbacks continue through the certified legacy parser using an
+    injected already-received update; that injection is not a live Telegram poll.
     """
     update_id = int(update["update_id"])
     if _is_seen(state_path, update_id):
@@ -91,6 +112,10 @@ def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
         panel._github_output("needs_engine", "false")
         panel._github_output("needs_production", "false")
         return False
+
+    if _record_release_approval_if_present(state_path, update):
+        _mark_seen(state_path, update_id)
+        return True
 
     # Install the exact same UI stack as telegram_topic_memory_ui.install().
     # Edge renders the long/short split locally, while saved-topic selection is
