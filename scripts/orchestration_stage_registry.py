@@ -9,6 +9,45 @@ from typing import Callable, Iterable, Mapping
 _ALLOWED_STAGE_ID = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
 _ALLOWED_SHA = re.compile(r"^[0-9a-f]{40}$")
 
+
+class FrozenList(tuple):
+    """Tuple-backed marker that can be losslessly materialized back to a JSON list."""
+
+
+def freeze_contract_data(value: object) -> object:
+    """Freeze JSON-like contract metadata without dropping semantic fields."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: freeze_contract_data(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return FrozenList(freeze_contract_data(item) for item in value)
+    if isinstance(value, tuple):
+        return tuple(freeze_contract_data(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(freeze_contract_data(item) for item in value)
+    return value
+
+
+def materialize_contract_data(value: object) -> object:
+    """Return ordinary Python containers for lossless invariant comparisons/adapters."""
+    if isinstance(value, Mapping):
+        return {key: materialize_contract_data(item) for key, item in value.items()}
+    if isinstance(value, FrozenList):
+        return [materialize_contract_data(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(materialize_contract_data(item) for item in value)
+    if isinstance(value, frozenset):
+        return {materialize_contract_data(item) for item in value}
+    return value
+
+
+def _has_contract_data(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (Mapping, tuple, list, set, frozenset)):
+        return bool(value)
+    return value is not None
+
+
 ERROR_TAXONOMY = frozenset(
     {
         "TRANSIENT_PROVIDER",
@@ -60,6 +99,10 @@ class CachePolicy:
     write_after_validation: bool
     revalidate_hits: bool
     ttl_policy: str = "contract-owned"
+    canonical_policy: object | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "canonical_policy", freeze_contract_data(self.canonical_policy))
 
     def validate(self) -> None:
         if self.write and not self.write_after_validation:
@@ -126,10 +169,10 @@ class StageContract:
     stage_id: str
     contract_id: str
     contract_version: int
-    input_schema: str
+    input_schema: object
     input_hash_policy: str
-    output_schema: str
-    semantic_rules: tuple[str, ...]
+    output_schema: object
+    semantic_rules: object
     provider_policy: Mapping[str, object]
     retry_policy: RetryPolicy
     cache_policy: CachePolicy
@@ -140,8 +183,10 @@ class StageContract:
     implementation_binding: ImplementationBinding
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "provider_policy", MappingProxyType(dict(self.provider_policy)))
-        object.__setattr__(self, "semantic_rules", tuple(self.semantic_rules))
+        object.__setattr__(self, "input_schema", freeze_contract_data(self.input_schema))
+        object.__setattr__(self, "output_schema", freeze_contract_data(self.output_schema))
+        object.__setattr__(self, "semantic_rules", freeze_contract_data(self.semantic_rules))
+        object.__setattr__(self, "provider_policy", freeze_contract_data(self.provider_policy))
         object.__setattr__(self, "error_taxonomy", tuple(self.error_taxonomy))
         self.validate()
 
@@ -152,11 +197,11 @@ class StageContract:
             raise StageRegistryError("contract_id is required")
         if self.contract_version < 1:
             raise StageRegistryError("contract_version must be >= 1")
-        if not self.input_schema.strip() or not self.output_schema.strip():
+        if not _has_contract_data(self.input_schema) or not _has_contract_data(self.output_schema):
             raise StageRegistryError("input_schema and output_schema are required")
         if not self.input_hash_policy.strip():
             raise StageRegistryError("input_hash_policy is required")
-        if not self.semantic_rules or any(not rule.strip() for rule in self.semantic_rules):
+        if not _has_contract_data(self.semantic_rules):
             raise StageRegistryError("semantic_rules must be non-empty")
         owner = str(self.provider_policy.get("owner") or "").strip()
         if not owner:
