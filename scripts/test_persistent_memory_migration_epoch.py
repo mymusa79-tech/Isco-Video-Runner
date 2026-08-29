@@ -18,6 +18,15 @@ PRODUCTION_WORKFLOW_REF = (
 )
 
 
+def _production_env(run_number: str) -> dict[str, str]:
+    return {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_EVENT_NAME": "workflow_dispatch",
+        "GITHUB_WORKFLOW_REF": PRODUCTION_WORKFLOW_REF,
+        "GITHUB_RUN_NUMBER": str(run_number),
+    }
+
+
 class PersistentMemoryMigrationEpochTests(unittest.TestCase):
     def _legacy_payload(self, root: Path) -> Path:
         path = root / "history.json.enc"
@@ -30,12 +39,8 @@ class PersistentMemoryMigrationEpochTests(unittest.TestCase):
             encrypted = self._legacy_payload(root)
             out = root / "history.json"
             pin = "a" * 40
-            env = {
-                "GITHUB_WORKFLOW_REF": PRODUCTION_WORKFLOW_REF,
-                "GITHUB_RUN_NUMBER": "111",
-            }
             with (
-                patch.dict(os.environ, env, clear=False),
+                patch.dict(os.environ, _production_env("111"), clear=False),
                 patch.object(pm, "APPROVED_LEGACY_BLOB_SHAS", frozenset({pin})),
                 patch.object(pm, "_legacy_decrypt", return_value=b'{"videos":[]}\n') as decrypt,
             ):
@@ -56,12 +61,8 @@ class PersistentMemoryMigrationEpochTests(unittest.TestCase):
             encrypted = self._legacy_payload(root)
             out = root / "history.json"
             pin = "a" * 40
-            env = {
-                "GITHUB_WORKFLOW_REF": PRODUCTION_WORKFLOW_REF,
-                "GITHUB_RUN_NUMBER": "112",
-            }
             with (
-                patch.dict(os.environ, env, clear=False),
+                patch.dict(os.environ, _production_env("112"), clear=False),
                 patch.object(pm, "APPROVED_LEGACY_BLOB_SHAS", frozenset({pin})),
                 patch.object(pm, "_legacy_decrypt") as decrypt,
             ):
@@ -79,6 +80,8 @@ class PersistentMemoryMigrationEpochTests(unittest.TestCase):
     def test_verifier_workflows_are_not_mistaken_for_production_epoch(self) -> None:
         payload = b"Salted__" + b"x" * 64
         env = {
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_EVENT_NAME": "pull_request",
             "GITHUB_WORKFLOW_REF": (
                 "mymusa79-tech/Isco-Video-Runner/.github/workflows/verify-private-engine.yml@refs/pull/1/merge"
             ),
@@ -93,11 +96,7 @@ class PersistentMemoryMigrationEpochTests(unittest.TestCase):
             previous_state_commit="none",
         )
         payload = crypto.seal(b'{"videos":[]}\n', "key", metadata=metadata)
-        env = {
-            "GITHUB_WORKFLOW_REF": PRODUCTION_WORKFLOW_REF,
-            "GITHUB_RUN_NUMBER": "112",
-        }
-        with patch.dict(os.environ, env, clear=False):
+        with patch.dict(os.environ, _production_env("112"), clear=False):
             self.assertTrue(crypto.is_authenticated_v2(payload))
             plaintext, restored = crypto.open_envelope(payload, "key")
         self.assertEqual(plaintext, b'{"videos":[]}\n')
@@ -105,10 +104,7 @@ class PersistentMemoryMigrationEpochTests(unittest.TestCase):
 
     def test_general_legacy_contracts_are_hermetic_inside_canonical_run_112(self) -> None:
         env = dict(os.environ)
-        env.update({
-            "GITHUB_WORKFLOW_REF": PRODUCTION_WORKFLOW_REF,
-            "GITHUB_RUN_NUMBER": "112",
-        })
+        env.update(_production_env("112"))
         selected = [
             "scripts.test_persistent_memory.PersistentMemoryTests.test_arbitrary_legacy_cbc_is_rejected",
             "scripts.test_persistent_memory.PersistentMemoryTests.test_pinned_legacy_cbc_can_migrate_once",
