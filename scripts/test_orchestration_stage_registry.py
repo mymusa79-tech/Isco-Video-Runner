@@ -232,6 +232,43 @@ def test_duplicate_provider_ids_are_rejected():
         registry.register_provider("p", lambda: ())
 
 
+def test_request_specific_resolver_does_not_mutate_static_registry():
+    registry = build_l4_registry()
+    before = registry.stage_ids()
+    registry.register_resolver(
+        "planning-canonical-v1",
+        lambda expected_ids: _base(
+            stage_id="planning.full_script",
+            contract_id="planning.full_script.v1",
+            output_schema={"type": "object", "required": ["sections"]},
+            semantic_rules={
+                "kind": "script",
+                "expected_ids": list(expected_ids),
+                "exact_order": True,
+            },
+        ),
+    )
+    first = registry.resolve("planning-canonical-v1", ("s1", "s2"))
+    second = registry.resolve("planning-canonical-v1", ("s3",))
+    assert materialize_contract_data(first.semantic_rules)["expected_ids"] == ["s1", "s2"]
+    assert materialize_contract_data(second.semantic_rules)["expected_ids"] == ["s3"]
+    assert registry.stage_ids() == before
+
+
+def test_duplicate_resolver_ids_are_rejected():
+    registry = StageRegistry()
+    registry.register_resolver("planning", lambda: _base())
+    with pytest.raises(StageRegistryError, match="duplicate stage resolver"):
+        registry.register_resolver("planning", lambda: _base())
+
+
+def test_resolver_must_return_stage_contract():
+    registry = StageRegistry()
+    registry.register_resolver("bad", lambda: {"stage_id": "planning.full_script"})
+    with pytest.raises(StageRegistryError, match="did not return StageContract"):
+        registry.resolve("bad")
+
+
 def test_run_snapshot_is_immutable_and_not_affected_by_later_registration():
     registry = StageRegistry()
     registry.register(_base())
