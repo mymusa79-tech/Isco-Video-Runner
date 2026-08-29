@@ -173,6 +173,27 @@ class TelegramOutboxRuntimeTests(unittest.TestCase):
         self.assertEqual(self._state_record()["message"]["status"], "SENT")
         self.assertEqual(post.call_count, 1)
 
+    def test_enqueue_after_sent_rehydrates_idempotently_without_second_send(self) -> None:
+        response = type(
+            "Response",
+            (),
+            {
+                "raise_for_status": lambda self: None,
+                "json": lambda self: {"ok": True, "result": {"message_id": 88}},
+            },
+        )()
+        with patch.dict(os.environ, self.env, clear=False), patch(
+            "scripts.telegram_outbox_runtime.requests.post", return_value=response
+        ) as post:
+            enqueue(self.state, self.request)
+            begin_send(self.state, "release-approval-1")
+            sent = send_current(self.state, "release-approval-1")
+            replay = enqueue(self.state, self.request)
+        self.assertEqual(sent.status, OutboxStatus.SENT)
+        self.assertEqual(replay, sent)
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual(self._state_record()["message"]["status"], "SENT")
+
     def test_send_refuses_non_sending_state(self) -> None:
         with patch.dict(os.environ, self.env, clear=False):
             enqueue(self.state, self.request)
