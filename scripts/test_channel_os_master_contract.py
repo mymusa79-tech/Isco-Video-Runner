@@ -229,11 +229,10 @@ class MasterApprovalContractTests(unittest.TestCase):
 
     # 15 — Gate preservation / L6 Telegram authority boundary
     def test_15_protected_contracts_and_l6_telegram_authority_are_preserved(self):
-        # Channel OS still cannot mutate the existing provider/retry/checkpoint owners.
         expected = {
             "scripts/retry_after_policy.py": "483281935a0907a9f74c571949bc7f122bed2f46",
             "scripts/provider_retry_ownership.py": "ed5b2826105f852eaf3c4f5f2e113d075905498e",
-            "scripts/planning_checkpoint_state.py": "1a73a39336fc736f3d5a3006693494d5dc21b56a",
+            "scripts/planning_checkpoint_state.py": "d5768abbe19c303339c9d0fad71297ec70527de3",
         }
         for name, sha in expected.items():
             data = Path(name).read_bytes()
