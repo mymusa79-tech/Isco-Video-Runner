@@ -91,6 +91,29 @@ def _message_from_dict(raw: Mapping[str, Any]) -> OutboxMessage:
     )
 
 
+def _restore_ledger(message: OutboxMessage) -> OutboxLedger:
+    """Hydrate one durable snapshot without pretending it is a new enqueue.
+
+    `OutboxLedger.enqueue()` intentionally accepts only a brand-new PENDING message
+    with zero attempts. A durable snapshot may legitimately be SENDING, SENT,
+    FAILED, RECONCILIATION_REQUIRED, or a retried PENDING message. This persistence
+    adapter validates those snapshot invariants once, then loads the immutable
+    record into the same ledger whose public methods continue to own all state
+    transitions.
+    """
+    if message.status is not OutboxStatus.PENDING and message.attempts < 1:
+        raise TelegramControlContractError("persisted non-PENDING outbox message requires at least one attempt")
+    if message.status is not OutboxStatus.SENT and message.telegram_message_id is not None:
+        raise TelegramControlContractError("only persisted SENT outbox message may carry telegram_message_id")
+    if message.status in {OutboxStatus.SENDING, OutboxStatus.RECONCILIATION_REQUIRED, OutboxStatus.SENT} and message.next_retry_at is not None:
+        raise TelegramControlContractError("active/ambiguous/sent outbox snapshot cannot carry next_retry_at")
+    ledger = OutboxLedger()
+    # Persistence hydration is intentionally distinct from enqueue semantics. The
+    # ledger remains the sole owner of every transition after this one load seam.
+    ledger._messages[message.outbox_message_id] = message
+    return ledger
+
+
 def _entries(state: dict[str, Any]) -> dict[str, Any]:
     raw = state.setdefault(STATE_KEY, {})
     if not isinstance(raw, dict):
@@ -141,8 +164,7 @@ def enqueue(state_path: Path, request_path: Path) -> OutboxMessage:
         if not isinstance(existing, dict) or not isinstance(existing.get("request"), dict):
             raise TelegramControlContractError("existing Telegram outbox record is malformed")
         current = _message_from_dict(existing["message"])
-        ledger = OutboxLedger()
-        ledger.enqueue(current)
+        ledger = _restore_ledger(current)
         ledger.enqueue(message)
         if existing["request"] != canonical:
             raise TelegramControlContractError("outbox_message_id reused with conflicting request payload")
@@ -154,8 +176,7 @@ def enqueue(state_path: Path, request_path: Path) -> OutboxMessage:
 
 def begin_send(state_path: Path, outbox_message_id: str) -> tuple[OutboxMessage, bool]:
     state, record, current = _load_record(state_path, outbox_message_id)
-    ledger = OutboxLedger()
-    ledger.enqueue(current)
+    ledger = _restore_ledger(current)
     if current.status is OutboxStatus.SENDING:
         recovered = ledger.recover_interrupted_send(outbox_message_id)
         record["message"] = _message_to_dict(recovered)
@@ -186,8 +207,7 @@ def send_current(state_path: Path, outbox_message_id: str) -> OutboxMessage:
     message_id = str(body["result"].get("message_id") or "").strip()
     if not message_id:
         raise RuntimeError("Telegram send returned no message_id")
-    ledger = OutboxLedger()
-    ledger.enqueue(current)
+    ledger = _restore_ledger(current)
     sent = ledger.mark_sent(outbox_message_id, telegram_message_id=message_id)
     record["message"] = _message_to_dict(sent)
     save_state(Path(state_path), state)
@@ -205,8 +225,7 @@ def reconcile_sent(state_path: Path, outbox_message_id: str, telegram_message_id
     if not message_id:
         raise TelegramControlContractError("reconcile-sent requires telegram_message_id evidence")
     state, record, current = _load_record(state_path, outbox_message_id)
-    ledger = OutboxLedger()
-    ledger.enqueue(current)
+    ledger = _restore_ledger(current)
     reconciled = ledger.reconcile(outbox_message_id, confirmed_sent_message_id=message_id)
     record["message"] = _message_to_dict(reconciled)
     save_state(Path(state_path), state)
@@ -221,8 +240,7 @@ def reconcile_absent(state_path: Path, outbox_message_id: str, *, next_retry_at:
     become a hidden second outbound owner or blind resend path.
     """
     state, record, current = _load_record(state_path, outbox_message_id)
-    ledger = OutboxLedger()
-    ledger.enqueue(current)
+    ledger = _restore_ledger(current)
     reconciled = ledger.reconcile(
         outbox_message_id,
         confirmed_absent=True,
