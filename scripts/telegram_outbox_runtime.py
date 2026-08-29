@@ -105,6 +105,15 @@ def _load_request(path: Path) -> dict[str, Any]:
     return data
 
 
+def _load_record(state_path: Path, outbox_message_id: str) -> tuple[dict[str, Any], dict[str, Any], OutboxMessage]:
+    state = load_state(Path(state_path))
+    entries = _entries(state)
+    record = entries.get(outbox_message_id)
+    if not isinstance(record, dict) or not isinstance(record.get("message"), dict):
+        raise TelegramControlContractError("unknown outbox_message_id")
+    return state, record, _message_from_dict(record["message"])
+
+
 def enqueue(state_path: Path, request_path: Path) -> OutboxMessage:
     token = _read_secret_file_required("TELEGRAM_BOT_TOKEN_FILE")
     chat_id = _read_secret_file_required("TELEGRAM_CHAT_ID_FILE")
@@ -144,12 +153,7 @@ def enqueue(state_path: Path, request_path: Path) -> OutboxMessage:
 
 
 def begin_send(state_path: Path, outbox_message_id: str) -> tuple[OutboxMessage, bool]:
-    state = load_state(Path(state_path))
-    entries = _entries(state)
-    record = entries.get(outbox_message_id)
-    if not isinstance(record, dict) or not isinstance(record.get("message"), dict):
-        raise TelegramControlContractError("unknown outbox_message_id")
-    current = _message_from_dict(record["message"])
+    state, record, current = _load_record(state_path, outbox_message_id)
     ledger = OutboxLedger()
     ledger.enqueue(current)
     if current.status is OutboxStatus.SENDING:
@@ -167,12 +171,9 @@ def begin_send(state_path: Path, outbox_message_id: str) -> tuple[OutboxMessage,
 
 def send_current(state_path: Path, outbox_message_id: str) -> OutboxMessage:
     token = _read_secret_file_required("TELEGRAM_BOT_TOKEN_FILE")
-    state = load_state(Path(state_path))
-    entries = _entries(state)
-    record = entries.get(outbox_message_id)
-    if not isinstance(record, dict) or not isinstance(record.get("message"), dict) or not isinstance(record.get("request"), dict):
-        raise TelegramControlContractError("unknown outbox_message_id")
-    current = _message_from_dict(record["message"])
+    state, record, current = _load_record(state_path, outbox_message_id)
+    if not isinstance(record.get("request"), dict):
+        raise TelegramControlContractError("outbox request state is malformed")
     if current.status is not OutboxStatus.SENDING:
         raise TelegramControlContractError("outbox send requires durable SENDING state")
     request = record["request"]
@@ -191,6 +192,45 @@ def send_current(state_path: Path, outbox_message_id: str) -> OutboxMessage:
     record["message"] = _message_to_dict(sent)
     save_state(Path(state_path), state)
     return sent
+
+
+def reconcile_sent(state_path: Path, outbox_message_id: str, telegram_message_id: str) -> OutboxMessage:
+    """Resolve an ambiguous send only from explicit provider evidence.
+
+    This path intentionally has no Telegram token and performs no provider call. An
+    operator/reconciler must supply the concrete Telegram message id recovered from
+    independent evidence; otherwise the ambiguous send remains blocked.
+    """
+    message_id = str(telegram_message_id or "").strip()
+    if not message_id:
+        raise TelegramControlContractError("reconcile-sent requires telegram_message_id evidence")
+    state, record, current = _load_record(state_path, outbox_message_id)
+    ledger = OutboxLedger()
+    ledger.enqueue(current)
+    reconciled = ledger.reconcile(outbox_message_id, confirmed_sent_message_id=message_id)
+    record["message"] = _message_to_dict(reconciled)
+    save_state(Path(state_path), state)
+    return reconciled
+
+
+def reconcile_absent(state_path: Path, outbox_message_id: str, *, next_retry_at: str | None = None) -> OutboxMessage:
+    """Return an ambiguous send to PENDING only after absence is externally proven.
+
+    `confirmed_absent=True` is represented by choosing this explicit command. No
+    Telegram credential is accepted or used here, so reconciliation itself can never
+    become a hidden second outbound owner or blind resend path.
+    """
+    state, record, current = _load_record(state_path, outbox_message_id)
+    ledger = OutboxLedger()
+    ledger.enqueue(current)
+    reconciled = ledger.reconcile(
+        outbox_message_id,
+        confirmed_absent=True,
+        next_retry_at=(str(next_retry_at).strip() if next_retry_at else None),
+    )
+    record["message"] = _message_to_dict(reconciled)
+    save_state(Path(state_path), state)
+    return reconciled
 
 
 def _github_output(name: str, value: str) -> None:
@@ -212,6 +252,14 @@ def main() -> None:
     p_send = sub.add_parser("send")
     p_send.add_argument("--state", required=True, type=Path)
     p_send.add_argument("--outbox-message-id", required=True)
+    p_reconcile_sent = sub.add_parser("reconcile-sent")
+    p_reconcile_sent.add_argument("--state", required=True, type=Path)
+    p_reconcile_sent.add_argument("--outbox-message-id", required=True)
+    p_reconcile_sent.add_argument("--telegram-message-id", required=True)
+    p_reconcile_absent = sub.add_parser("reconcile-absent")
+    p_reconcile_absent.add_argument("--state", required=True, type=Path)
+    p_reconcile_absent.add_argument("--outbox-message-id", required=True)
+    p_reconcile_absent.add_argument("--next-retry-at")
     args = parser.parse_args()
 
     if args.command == "enqueue":
@@ -224,9 +272,14 @@ def main() -> None:
         _github_output("send_allowed", "true" if allowed else "false")
         _github_output("outbox_status", message.status.value)
         return
-    sent = send_current(args.state, args.outbox_message_id)
-    _github_output("outbox_status", sent.status.value)
-    _github_output("telegram_message_id", str(sent.telegram_message_id or ""))
+    if args.command == "send":
+        message = send_current(args.state, args.outbox_message_id)
+    elif args.command == "reconcile-sent":
+        message = reconcile_sent(args.state, args.outbox_message_id, args.telegram_message_id)
+    else:
+        message = reconcile_absent(args.state, args.outbox_message_id, next_retry_at=args.next_retry_at)
+    _github_output("outbox_status", message.status.value)
+    _github_output("telegram_message_id", str(message.telegram_message_id or ""))
 
 
 if __name__ == "__main__":
