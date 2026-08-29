@@ -21,6 +21,7 @@ CACHE_NAMESPACE = "media-asset-v1"
 AUDIT_FILENAME = "media-durable-cache-audit.json"
 RAW_FILENAME = "source.bin"
 PREPARED_FILENAME = "prepared.mp4"
+PREPARED_SIDECAR_FILENAME = "m8.json"
 MANIFEST_FILENAME = "manifest.json"
 MAX_CACHE_ENTRIES = 64
 MAX_CACHE_BYTES = 1024 * 1024 * 1024
@@ -47,8 +48,7 @@ def _sha256_file(path: Path) -> str:
 
 
 def _module_sha256(module: Any) -> str:
-    path = Path(module.__file__).resolve()
-    return _sha256_file(path)
+    return _sha256_file(Path(module.__file__).resolve())
 
 
 def _media_trust_contract_sha256() -> str:
@@ -56,13 +56,21 @@ def _media_trust_contract_sha256() -> str:
 
 
 def _render_contract_sha256() -> str:
-    # prepare_clip depends on ffmpeg.py and its color-grade module. Binding both module
-    # files is conservative and deliberately rebuilds prepared clips after renderer
-    # semantics change, while unrelated Runner changes leave media reuse intact.
+    """Hash the complete live clip-normalization/render contract.
+
+    Canonical V4 does not call Engine ``prepare_clip`` directly. M8 temporarily wraps
+    the live boundary so every selected stock asset first passes BT.709/SDR technical
+    normalization and only then the Engine creative grade. A prepared-cache identity
+    therefore has to include both halves of that path, not just ffmpeg.py.
+    """
     color_module = __import__("isco_video_agent.media.color", fromlist=["*"])
+    m8_kernel = __import__("isco_video_agent.cinematic_m8_color_kernel", fromlist=["*"])
+    m8_binding = Path(__file__).with_name("m8_live_binding.py")
     payload = {
         "ffmpeg_module_sha256": _module_sha256(engine_ffmpeg),
         "color_module_sha256": _module_sha256(color_module),
+        "m8_kernel_sha256": _module_sha256(m8_kernel),
+        "m8_runner_binding_sha256": _sha256_file(m8_binding),
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return _sha256_bytes(canonical)
@@ -158,10 +166,9 @@ def _atomic_copy(source: Path, destination: Path) -> None:
 
 
 def _is_final_clip_path(path: Path) -> bool:
-    # Review candidates are intentionally not persisted. Only assets that reached the
-    # renderer's final clips/ directory enter the durable cache, preventing rejected
-    # Vision candidates from consuming the bounded cross-run cache.
-    return path.parent.name == "clips"
+    # Review candidates are deliberately not persisted. Only assets that actually reach
+    # the renderer's final clips/ directory enter the cross-run cache.
+    return Path(path).parent.name == "clips"
 
 
 def _output_root_for(path: Path) -> Path | None:
@@ -184,7 +191,11 @@ def _append_audit(path: Path, event: dict[str, Any]) -> None:
         if not isinstance(document, dict) or not isinstance(document.get("events"), list):
             document = {"schema_version": 1, "mode": "trusted_asset_and_render_resume", "events": []}
         document["events"].append(event)
-        outcomes = [str(item.get("outcome") or "") for item in document["events"] if isinstance(item, dict)]
+        outcomes = [
+            str(item.get("outcome") or "")
+            for item in document["events"]
+            if isinstance(item, dict)
+        ]
         document["summary"] = {
             "raw_hits": outcomes.count("raw_hit"),
             "raw_stored": outcomes.count("raw_stored"),
@@ -209,16 +220,14 @@ def raw_fingerprint(*, provider: str, source_url: str) -> tuple[str, dict[str, A
         "source_url": source_url,
         "media_trust_contract_sha256": _media_trust_contract_sha256(),
     }
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    canonical = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
     return _sha256_bytes(canonical), payload
 
 
 def prepared_fingerprint(
-    *,
-    source_sha256: str,
-    seconds: float,
-    portrait: bool,
-    fps: int,
+    *, source_sha256: str, seconds: float, portrait: bool, fps: int
 ) -> tuple[str, dict[str, Any]]:
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -231,7 +240,9 @@ def prepared_fingerprint(
         "render_contract_sha256": _render_contract_sha256(),
         "ffmpeg_identity": _ffmpeg_identity(),
     }
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    canonical = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
     return _sha256_bytes(canonical), payload
 
 
@@ -245,7 +256,9 @@ def _evict_entry(entry: Path) -> None:
         pass
 
 
-def _read_manifest(entry: Path, *, fingerprint: str, kind: str) -> tuple[dict[str, Any], Path]:
+def _read_manifest(
+    entry: Path, *, fingerprint: str, kind: str
+) -> tuple[dict[str, Any], Path]:
     if entry.is_symlink():
         raise CacheEntryInvalid("media_cache_entry_symlink_rejected")
     manifest_path = entry / MANIFEST_FILENAME
@@ -275,6 +288,27 @@ def _read_manifest(entry: Path, *, fingerprint: str, kind: str) -> tuple[dict[st
         raise CacheEntryInvalid("media_cache_payload_size_mismatch")
     if _sha256_file(payload_path) != expected_sha:
         raise CacheEntryInvalid("media_cache_payload_sha_mismatch")
+
+    if kind == "prepared" and (
+        manifest.get("sidecar_sha256") is not None or manifest.get("sidecar_bytes") is not None
+    ):
+        sidecar = entry / PREPARED_SIDECAR_FILENAME
+        if sidecar.is_symlink() or not sidecar.is_file():
+            raise CacheEntryInvalid("media_cache_prepared_sidecar_missing")
+        sidecar_sha = manifest.get("sidecar_sha256")
+        sidecar_bytes = manifest.get("sidecar_bytes")
+        if not isinstance(sidecar_sha, str) or len(sidecar_sha) != 64:
+            raise CacheEntryInvalid("media_cache_prepared_sidecar_sha_invalid")
+        if not isinstance(sidecar_bytes, int) or sidecar_bytes <= 0:
+            raise CacheEntryInvalid("media_cache_prepared_sidecar_size_invalid")
+        if sidecar.stat().st_size != sidecar_bytes or _sha256_file(sidecar) != sidecar_sha:
+            raise CacheEntryInvalid("media_cache_prepared_sidecar_mismatch")
+        try:
+            sidecar_doc = json.loads(sidecar.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise CacheEntryInvalid("media_cache_prepared_sidecar_invalid_json") from exc
+        if not isinstance(sidecar_doc, dict):
+            raise CacheEntryInvalid("media_cache_prepared_sidecar_not_object")
     return manifest, payload_path
 
 
@@ -285,15 +319,20 @@ def _store_entry(
     fingerprint: str,
     manifest: dict[str, Any],
     source: Path,
+    sidecar: Path | None = None,
 ) -> None:
     if source.is_symlink() or not source.is_file() or source.stat().st_size <= 0:
         raise CacheEntryInvalid("media_cache_source_invalid")
+    if sidecar is not None and (sidecar.is_symlink() or not sidecar.is_file()):
+        raise CacheEntryInvalid("media_cache_sidecar_invalid")
     entry = _entry_dir(root, kind, fingerprint)
     parent = entry.parent
     tmp = Path(tempfile.mkdtemp(prefix=f".{fingerprint[:12]}-", dir=parent))
     payload_name = RAW_FILENAME if kind == "raw" else PREPARED_FILENAME
     try:
         shutil.copyfile(source, tmp / payload_name)
+        if sidecar is not None:
+            shutil.copyfile(sidecar, tmp / PREPARED_SIDECAR_FILENAME)
         _atomic_json(tmp / MANIFEST_FILENAME, manifest)
         _evict_entry(entry)
         os.replace(tmp, entry)
@@ -369,16 +408,18 @@ def _restore_raw(
     if not entry.exists():
         return None
     manifest, payload = _read_manifest(entry, fingerprint=fingerprint, kind="raw")
-    semantic = manifest.get("semantic_contract")
-    expected_fingerprint, expected_semantic = raw_fingerprint(provider=provider, source_url=source_url)
-    if expected_fingerprint != fingerprint or semantic != expected_semantic:
+    expected_fingerprint, expected_semantic = raw_fingerprint(
+        provider=provider, source_url=source_url
+    )
+    if expected_fingerprint != fingerprint or manifest.get("semantic_contract") != expected_semantic:
         raise CacheEntryInvalid("media_cache_raw_semantic_mismatch")
 
     final_url = str(manifest.get("final_url") or "").strip()
     media_trust._validate_provider_url(provider, source_url)
     media_trust._validate_provider_url(provider, final_url)
-
-    quarantine = media_trust._root() / f"durable-{fingerprint}{Path(destination).suffix or '.bin'}"
+    quarantine = media_trust._root() / (
+        f"durable-{fingerprint}{Path(destination).suffix or '.bin'}"
+    )
     _atomic_copy(payload, quarantine)
     record = media_trust.TrustedMediaRecord(
         provider=provider,
@@ -389,7 +430,7 @@ def _restore_raw(
         quarantine_path=quarantine,
     )
     media_trust._records_by_url[(provider, source_url)] = record
-    result = media_trust._materialize_verified(record, Path(destination))
+    media_trust._materialize_verified(record, Path(destination))
     _touch(entry)
     return manifest
 
@@ -440,11 +481,15 @@ def _validate_prepared_clip(path: Path, *, seconds: float, portrait: bool, fps: 
         raise CacheEntryInvalid("media_cache_prepared_file_invalid")
     probe = engine_ffmpeg.probe(path)
     streams = probe.get("streams", []) if isinstance(probe, dict) else []
-    videos = [item for item in streams if isinstance(item, dict) and item.get("codec_type") == "video"]
-    audios = [item for item in streams if isinstance(item, dict) and item.get("codec_type") == "audio"]
+    videos = [
+        item for item in streams if isinstance(item, dict) and item.get("codec_type") == "video"
+    ]
+    audios = [
+        item for item in streams if isinstance(item, dict) and item.get("codec_type") == "audio"
+    ]
     if len(videos) != 1 or audios:
         raise CacheEntryInvalid("media_cache_prepared_stream_contract_failed")
-    expected_w, expected_h = ((1080, 1920) if portrait else (1920, 1080))
+    expected_w, expected_h = (1080, 1920) if portrait else (1920, 1080)
     if int(videos[0].get("width") or 0) != expected_w or int(videos[0].get("height") or 0) != expected_h:
         raise CacheEntryInvalid("media_cache_prepared_dimensions_mismatch")
     actual = engine_ffmpeg.duration(path)
@@ -477,15 +522,26 @@ def _restore_prepared(
     manifest, payload = _read_manifest(entry, fingerprint=fingerprint, kind="prepared")
     if manifest.get("semantic_contract") != semantic:
         raise CacheEntryInvalid("media_cache_prepared_semantic_mismatch")
+    destination_sidecar = destination.with_suffix(".m8.json")
     _atomic_copy(payload, destination)
     try:
+        if manifest.get("sidecar_sha256") is not None:
+            cached_sidecar = entry / PREPARED_SIDECAR_FILENAME
+            _atomic_copy(cached_sidecar, destination_sidecar)
+            if (
+                destination_sidecar.stat().st_size != manifest["sidecar_bytes"]
+                or _sha256_file(destination_sidecar) != manifest["sidecar_sha256"]
+            ):
+                raise CacheEntryInvalid("media_cache_prepared_restored_sidecar_mismatch")
+        else:
+            destination_sidecar.unlink(missing_ok=True)
         _validate_prepared_clip(destination, seconds=seconds, portrait=portrait, fps=fps)
+        if _sha256_file(destination) != manifest["payload_sha256"]:
+            raise CacheEntryInvalid("media_cache_prepared_restored_sha_mismatch")
     except Exception:
         destination.unlink(missing_ok=True)
+        destination_sidecar.unlink(missing_ok=True)
         raise
-    if _sha256_file(destination) != manifest["payload_sha256"]:
-        destination.unlink(missing_ok=True)
-        raise CacheEntryInvalid("media_cache_prepared_restored_sha_mismatch")
     _touch(entry)
     return manifest
 
@@ -501,6 +557,23 @@ def _store_prepared(
     fps: int,
 ) -> dict[str, Any]:
     _validate_prepared_clip(destination, seconds=seconds, portrait=portrait, fps=fps)
+    sidecar = destination.with_suffix(".m8.json")
+    sidecar_to_store: Path | None = None
+    sidecar_sha: str | None = None
+    sidecar_bytes: int | None = None
+    if sidecar.exists():
+        if sidecar.is_symlink() or not sidecar.is_file():
+            raise CacheEntryInvalid("media_cache_prepared_sidecar_invalid")
+        try:
+            sidecar_doc = json.loads(sidecar.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise CacheEntryInvalid("media_cache_prepared_sidecar_invalid_json") from exc
+        if not isinstance(sidecar_doc, dict):
+            raise CacheEntryInvalid("media_cache_prepared_sidecar_not_object")
+        sidecar_to_store = sidecar
+        sidecar_sha = _sha256_file(sidecar)
+        sidecar_bytes = sidecar.stat().st_size
+
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "namespace": CACHE_NAMESPACE,
@@ -509,6 +582,8 @@ def _store_prepared(
         "semantic_contract": semantic,
         "payload_sha256": _sha256_file(destination),
         "payload_bytes": destination.stat().st_size,
+        "sidecar_sha256": sidecar_sha,
+        "sidecar_bytes": sidecar_bytes,
         "created_unix": int(time.time()),
     }
     _store_entry(
@@ -517,12 +592,112 @@ def _store_prepared(
         fingerprint=fingerprint,
         manifest=manifest,
         source=destination,
+        sidecar=sidecar_to_store,
     )
     return manifest
 
 
+def prepare_trusted_clip_with_cache(
+    original_prepare: Callable[..., Path],
+    src: Path,
+    dest: Path,
+    seconds: float,
+    portrait: bool,
+    fps: int = 30,
+) -> Path:
+    """Cache the complete trusted selected-clip render pipeline.
+
+    ``original_prepare`` may be Engine prepare_clip directly or the live M8 pipeline.
+    In canonical production M8 passes its complete normalization + creative-grade
+    function here, so a cache hit resumes the exact final prepared clip and its M8
+    evidence sidecar rather than bypassing the technical-normalization layer.
+    """
+    source = Path(src)
+    destination = Path(dest)
+    try:
+        root = _configured_cache_root()
+    except Exception as exc:
+        root = None
+        print(f"Media durable prepared cache disabled for this call ({type(exc).__name__})")
+    if root is None:
+        return Path(original_prepare(source, destination, seconds, portrait, fps=fps))
+
+    trust_record = media_trust.trusted_record(source)
+    if trust_record is None or source.is_symlink() or not source.is_file():
+        return Path(original_prepare(source, destination, seconds, portrait, fps=fps))
+    source_sha = _sha256_file(source)
+    if source_sha != trust_record.sha256 or source.stat().st_size != trust_record.byte_length:
+        raise RuntimeError("media_cache_prepare_source_no_longer_matches_trust_record")
+
+    fingerprint, semantic = prepared_fingerprint(
+        source_sha256=source_sha,
+        seconds=seconds,
+        portrait=portrait,
+        fps=fps,
+    )
+    entry = _entry_dir(root, "prepared", fingerprint)
+    try:
+        manifest = _restore_prepared(
+            root=root,
+            fingerprint=fingerprint,
+            semantic=semantic,
+            destination=destination,
+            seconds=seconds,
+            portrait=portrait,
+            fps=fps,
+        )
+        if manifest is not None:
+            _append_audit(
+                destination,
+                {
+                    "outcome": "prepared_hit",
+                    "fingerprint": fingerprint,
+                    "source_sha256": source_sha,
+                    "sha256": manifest["payload_sha256"],
+                    "m8_sidecar_restored": manifest.get("sidecar_sha256") is not None,
+                },
+            )
+            return destination
+    except Exception as exc:
+        _evict_entry(entry)
+        _append_audit(
+            destination,
+            {
+                "outcome": "prepared_invalidated",
+                "fingerprint": fingerprint,
+                "source_sha256": source_sha,
+                "reason": type(exc).__name__,
+            },
+        )
+
+    result = Path(original_prepare(source, destination, seconds, portrait, fps=fps))
+    try:
+        manifest = _store_prepared(
+            root=root,
+            fingerprint=fingerprint,
+            semantic=semantic,
+            destination=result,
+            seconds=seconds,
+            portrait=portrait,
+            fps=fps,
+        )
+        _append_audit(
+            destination,
+            {
+                "outcome": "prepared_stored",
+                "fingerprint": fingerprint,
+                "source_sha256": source_sha,
+                "sha256": manifest["payload_sha256"],
+                "m8_sidecar_stored": manifest.get("sidecar_sha256") is not None,
+            },
+        )
+    except Exception as exc:
+        print(f"Media durable prepared store skipped ({type(exc).__name__})")
+    return result
+
+
 def prepare_cache_for_persistence(path: Path | None = None) -> bool:
-    """Sanitize the bounded rebuildable media cache before Actions cache persistence."""
+    """Sanitize the bounded rebuildable media cache before Actions persistence."""
     try:
         if path is not None:
             candidate = Path(path)
@@ -561,7 +736,7 @@ def prepare_cache_for_persistence(path: Path | None = None) -> bool:
 
 
 def install_media_durable_asset_cache() -> None:
-    """Resume trusted selected media bytes and deterministic prepared clips across runs."""
+    """Resume trusted selected bytes and prepared clips without owning safety policy."""
     global _original_trusted_download, _original_prepare_clip
 
     current_download = media_trust.trusted_download
@@ -579,9 +754,11 @@ def install_media_durable_asset_cache() -> None:
                 root = None
                 print(f"Media durable raw cache disabled for this call ({type(exc).__name__})")
             if root is None:
-                return _original_trusted_download(provider_name, source_url, destination)
+                return Path(_original_trusted_download(provider_name, source_url, destination))
 
-            fingerprint, semantic = raw_fingerprint(provider=provider_name, source_url=source_url)
+            fingerprint, semantic = raw_fingerprint(
+                provider=provider_name, source_url=source_url
+            )
             entry = _entry_dir(root, "raw", fingerprint)
             try:
                 manifest = _restore_raw(
@@ -642,6 +819,9 @@ def install_media_durable_asset_cache() -> None:
         durable_trusted_download._isco_media_durable_original = current_download
         media_trust.trusted_download = durable_trusted_download
 
+    # Non-M8 callers still get durable prepared-clip reuse. Canonical production M8
+    # temporarily replaces orchestrator.prepare_clip inside its live scope and calls
+    # prepare_trusted_clip_with_cache around the complete M8 pipeline itself.
     current_prepare = orchestrator.prepare_clip
     if getattr(current_prepare, "_isco_media_durable_prepared_cache", False) is not True:
         _original_prepare_clip = current_prepare
@@ -654,86 +834,14 @@ def install_media_durable_asset_cache() -> None:
             fps: int = 30,
         ) -> Path:
             assert _original_prepare_clip is not None
-            source = Path(src)
-            destination = Path(dest)
-            try:
-                root = _configured_cache_root()
-            except Exception as exc:
-                root = None
-                print(f"Media durable prepared cache disabled for this call ({type(exc).__name__})")
-            if root is None:
-                return _original_prepare_clip(source, destination, seconds, portrait, fps=fps)
-
-            trust_record = media_trust.trusted_record(source)
-            if trust_record is None or source.is_symlink() or not source.is_file():
-                return _original_prepare_clip(source, destination, seconds, portrait, fps=fps)
-            source_sha = _sha256_file(source)
-            if source_sha != trust_record.sha256 or source.stat().st_size != trust_record.byte_length:
-                raise RuntimeError("media_cache_prepare_source_no_longer_matches_trust_record")
-
-            fingerprint, semantic = prepared_fingerprint(
-                source_sha256=source_sha,
-                seconds=seconds,
-                portrait=portrait,
+            return prepare_trusted_clip_with_cache(
+                _original_prepare_clip,
+                src,
+                dest,
+                seconds,
+                portrait,
                 fps=fps,
             )
-            entry = _entry_dir(root, "prepared", fingerprint)
-            try:
-                manifest = _restore_prepared(
-                    root=root,
-                    fingerprint=fingerprint,
-                    semantic=semantic,
-                    destination=destination,
-                    seconds=seconds,
-                    portrait=portrait,
-                    fps=fps,
-                )
-                if manifest is not None:
-                    _append_audit(
-                        destination,
-                        {
-                            "outcome": "prepared_hit",
-                            "fingerprint": fingerprint,
-                            "source_sha256": source_sha,
-                            "sha256": manifest["payload_sha256"],
-                        },
-                    )
-                    return destination
-            except Exception as exc:
-                _evict_entry(entry)
-                _append_audit(
-                    destination,
-                    {
-                        "outcome": "prepared_invalidated",
-                        "fingerprint": fingerprint,
-                        "source_sha256": source_sha,
-                        "reason": type(exc).__name__,
-                    },
-                )
-
-            result = Path(_original_prepare_clip(source, destination, seconds, portrait, fps=fps))
-            try:
-                manifest = _store_prepared(
-                    root=root,
-                    fingerprint=fingerprint,
-                    semantic=semantic,
-                    destination=result,
-                    seconds=seconds,
-                    portrait=portrait,
-                    fps=fps,
-                )
-                _append_audit(
-                    destination,
-                    {
-                        "outcome": "prepared_stored",
-                        "fingerprint": fingerprint,
-                        "source_sha256": source_sha,
-                        "sha256": manifest["payload_sha256"],
-                    },
-                )
-            except Exception as exc:
-                print(f"Media durable prepared store skipped ({type(exc).__name__})")
-            return result
 
         durable_prepare_clip._isco_media_durable_prepared_cache = True
         durable_prepare_clip._isco_media_durable_original = current_prepare
