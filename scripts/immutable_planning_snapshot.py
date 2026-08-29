@@ -93,16 +93,28 @@ def _committed_approved_brief_bytes(engine_root: Path) -> bytes:
     return bytes(shown.stdout)
 
 
-def _persist_snapshot_env(path: Path, snapshot_sha256: str) -> None:
-    """Persist snapshot identity without reusing the semantic approval hash authority.
+def _persist_snapshot_env(
+    path: Path,
+    snapshot_sha256: str,
+    *,
+    persist_workflow_env: bool,
+) -> None:
+    """Bind snapshot identity in-process and optionally publish it to later Actions steps.
 
     ISCO_APPROVED_BRIEF_SHA256 belongs to Engine brief approval and is computed from
     canonical JSON with hash metadata excluded. Snapshot/checkpoint integrity instead
     binds the exact bytes from the pinned Engine commit, so it has its own raw-byte SHA.
+
+    Low-level materialization is intentionally process-local by default. Only the
+    application-owned bootstrap may publish snapshot fixture state through GITHUB_ENV;
+    this prevents unit/regression simulations of canonical runtime from contaminating
+    later CI steps with temporary snapshot paths.
     """
     expected = _validate_expected_sha256(snapshot_sha256)
     os.environ[_SNAPSHOT_ENV] = str(path)
     os.environ[_SNAPSHOT_SHA_ENV] = expected
+    if not persist_workflow_env:
+        return
     github_env = str(os.environ.get("GITHUB_ENV") or "").strip()
     if not github_env:
         return
@@ -118,7 +130,12 @@ def _worktree_brief_drift(engine_root: Path, expected_sha256: str) -> bool:
     return not hmac.compare_digest(_sha256_file(path), expected_sha256)
 
 
-def materialize_runtime_snapshot(repo_root: Path, engine_root: Path) -> Path:
+def materialize_runtime_snapshot(
+    repo_root: Path,
+    engine_root: Path,
+    *,
+    persist_workflow_env: bool = False,
+) -> Path:
     """Create the run snapshot from the pinned Engine commit, not the mutable worktree.
 
     GitHub Actions steps share one workspace. Test suites may therefore accidentally
@@ -149,7 +166,11 @@ def materialize_runtime_snapshot(repo_root: Path, engine_root: Path) -> Path:
         actual = _sha256_file(destination)
         if not hmac.compare_digest(actual, expected):
             raise RuntimeError("existing approved brief snapshot no longer matches pinned Engine bytes")
-        _persist_snapshot_env(destination, expected)
+        _persist_snapshot_env(
+            destination,
+            expected,
+            persist_workflow_env=persist_workflow_env,
+        )
         return destination
 
     snapshot = snapshot_approved_brief_bytes(
@@ -157,7 +178,11 @@ def materialize_runtime_snapshot(repo_root: Path, engine_root: Path) -> Path:
         destination,
         expected_sha256=expected,
     )
-    _persist_snapshot_env(snapshot, expected)
+    _persist_snapshot_env(
+        snapshot,
+        expected,
+        persist_workflow_env=persist_workflow_env,
+    )
 
     if _worktree_brief_drift(engine_root, expected):
         print(
@@ -250,7 +275,11 @@ def bootstrap_immutable_planning_checkpoint(
     if not str(encryption_key or "").strip():
         raise RuntimeError("STATE_ENCRYPTION_KEY is required for durable planning checkpoint bootstrap")
 
-    materialize_runtime_snapshot(repo_root, engine_root)
+    materialize_runtime_snapshot(
+        repo_root,
+        engine_root,
+        persist_workflow_env=True,
+    )
     install_runtime_snapshot_binding(force=True)
     status = checkpoint.bootstrap_runtime_restore(
         repo_root=repo_root,
