@@ -49,6 +49,21 @@ def _record_voice_provenance(output: Path, *, provider: str, fallback_used: bool
     }
 
 
+def record_voice_provenance(output: Path, *, provider: str, fallback_used: bool) -> None:
+    """Record trusted TTS provenance for downstream observers and durable-cache hits."""
+    _record_voice_provenance(Path(output), provider=provider, fallback_used=fallback_used)
+
+
+def peek_voice_provenance(output: Path) -> dict:
+    """Return current provenance without consuming it."""
+    return dict(
+        _voice_provenance.get(
+            _output_key(Path(output)),
+            {"provider": "unknown", "fallback_used": None},
+        )
+    )
+
+
 def consume_voice_provenance(output: Path) -> dict:
     """Return actual final TTS provenance once, for the post-synthesis observer."""
     return _voice_provenance.pop(
@@ -102,6 +117,12 @@ def _qa(path: Path, text: str) -> None:
     rms = math.sqrt(total_square / total_samples)
     if rms < VOICE_QA_RMS_FLOOR:
         raise RuntimeError("voice_qa_silence")
+
+
+def qa_voice_output(path: Path, transcript: str) -> None:
+    """Run the same final acoustic QA used by live Voice Mesh on a restored WAV."""
+    text = _DIALOGUE_LABEL.sub("", transcript) if os.environ.get("ISCO_DIALOGUE_QA") == "1" else transcript
+    _qa(Path(path), text)
 
 
 def _local_voice():
