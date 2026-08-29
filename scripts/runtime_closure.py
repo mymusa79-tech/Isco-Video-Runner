@@ -10,6 +10,7 @@ from scripts.audio_semantic_integrity import (
     install_audio_semantic_integrity_binding,
 )
 from scripts.cta_live_binding import install_cta_live_binding
+from scripts.final_qc_observer_cache_trust import sanitize_final_observer_cache_before_runtime
 from scripts.final_qc_observer_durability import (
     install_final_qc_observer_durability,
     run_groq_audio_audit_durable,
@@ -141,9 +142,12 @@ def install_runtime_closure() -> None:
     install_telemetry_reliability_binding()
     install_audio_semantic_final_gate(production_entrypoint_modules())
     # Final QC/Observer durability is optimization-only and is installed after all
-    # media/release authorities are already composed. It patches only the imported
-    # run_v3_voice Final Master QC call and Voice Identity observe_output boundary.
-    # Groq uses an explicit durable wrapper below; analytics remains intentionally live.
+    # media/release authorities are already composed. Its restored cache parent is
+    # sanitized first so a symlinked Actions-cache namespace becomes a clean miss.
+    # It then patches only the imported run_v3_voice Final Master QC call and Voice
+    # Identity observe_output boundary. Groq uses an explicit durable wrapper below;
+    # analytics remains intentionally live.
+    sanitize_final_observer_cache_before_runtime()
     install_final_qc_observer_durability()
     # Durable resume is deliberately outermost: every existing production/quality/safety
     # wrapper remains untouched and authoritative. This layer only persists the local
