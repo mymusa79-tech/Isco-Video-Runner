@@ -9,6 +9,20 @@ from isco_video_agent.short_planner import ALLOWED_TEMPLATES, validate_single_ac
 from scripts import source_derived_short_planner as planner
 
 
+def _editorial_intent() -> dict:
+    return {
+        "editorial_thesis": "التأجيل يتغذى على انتظار شعور كامل بالاستعداد قبل الحركة.",
+        "viewer_starting_belief": "المشاهد يعتقد أن نقص الدافع هو السبب المباشر لعدم البدء.",
+        "hidden_assumption": "الافتراض الخفي أن الثقة يجب أن تسبق أي خطوة عملية صغيرة.",
+        "editorial_turn": "التحول أن الحركة الصغيرة يمكن أن تسبق الثقة وتبنيها تدريجيًا.",
+        "stakes": "استمرار الانتظار يجعل المهام الصغيرة تبدو أكبر ويطيل دائرة الجمود.",
+        "viewer_promise": "سيفهم المشاهد لماذا تكفي بداية صغيرة لكسر انتظار الاستعداد الكامل.",
+        "evidence_boundaries": ["نلتزم بما تثبته الحلقة الأم ولا نضيف ادعاءات جديدة."],
+        "earned_payoff": "يخرج المشاهد بخطوة واحدة صغيرة يبدأ بها اليوم بدل انتظار الدافع.",
+        "persona_version": 1,
+    }
+
+
 class SourceDerivedShortPlannerTests(unittest.TestCase):
     def _request(
         self,
@@ -33,6 +47,7 @@ class SourceDerivedShortPlannerTests(unittest.TestCase):
             "parent_control_request_id": "req-parent",
             "source_production_plan_sha256": "a" * 64,
             "source_semantic_job": semantic_job,
+            "source_editorial_intent": _editorial_intent(),
             "candidate": {"pillar": pillar},
             "short_admission": {"single_action_contract": "اختر خطوة واحدة صغيرة قابلة للتنفيذ وابدأ بها اليوم"},
             "source_episode_excerpt": {
@@ -224,6 +239,24 @@ class SourceDerivedShortPlannerTests(unittest.TestCase):
         self.assertTrue(plan.hook)
         self.assertTrue(plan.closing_payoff)
         self.assertNotEqual(plan.hook, plan.closing_payoff)
+        self.assertEqual(
+            plan.editorial_intent["editorial_thesis"],
+            _editorial_intent()["editorial_thesis"],
+        )
+        self.assertEqual(plan.editorial_intent["persona_version"], 1)
+        self.assertTrue(plan.editorial_intent["editorial_fingerprint"])
+
+    def test_missing_inherited_editorial_intent_fails_closed(self):
+        request = self._request()
+        request.pop("source_editorial_intent")
+        with self.assertRaisesRegex(planner.SourceDerivedShortError, "source_editorial_intent_missing"):
+            planner.build_production_plan(request)
+
+    def test_invalid_inherited_editorial_intent_fails_closed(self):
+        request = self._request()
+        request["source_editorial_intent"]["persona_version"] = 999
+        with self.assertRaisesRegex(planner.SourceDerivedShortError, "source_editorial_intent_invalid"):
+            planner.build_production_plan(request)
 
     def test_source_narration_tampering_is_blocked(self):
         request = self._request()
