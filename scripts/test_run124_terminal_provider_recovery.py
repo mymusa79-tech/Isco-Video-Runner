@@ -90,6 +90,43 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
         self.assertEqual(recovery.capacity._model_state(other_model)["remaining_tokens"], 777)
         self.assertEqual(recovery.capacity._model_state(other_model)["reset_at_epoch"], 9999.0)
 
+    def test_near_limit_reset_remains_recoverable_and_actual_sleep_is_capped(self) -> None:
+        near_limit_failure = RuntimeError(
+            _FAILURE.replace("reset_in=36.88s", "reset_in=59.50s")
+        )
+        calls = 0
+
+        def fake_call(_api_key, _model, ids, *, prompt_builder, label):
+            nonlocal calls
+            del prompt_builder, label
+            calls += 1
+            if calls == 1:
+                raise near_limit_failure
+            return {ids[0]: {"id": ids[0], "narration": "ok", "key_point": "ok"}}
+
+        self.assertAlmostEqual(
+            recovery._remaining_reset_seconds(near_limit_failure),
+            59.50,
+            places=2,
+        )
+        recovery.batching._call_capacity_aware_shard = fake_call
+        recovery.install_run124_terminal_provider_recovery()
+
+        with patch.object(recovery.time, "sleep") as sleep:
+            result = recovery.batching._call_capacity_aware_shard(
+                "key",
+                "model",
+                ["S-limit"],
+                prompt_builder=lambda _ids: "prompt",
+                label="writer",
+            )
+
+        self.assertEqual(result["S-limit"]["narration"], "ok")
+        self.assertEqual(calls, 2)
+        sleep.assert_called_once_with(60.0)
+        self.assertEqual(recovery._TERMINAL_RECOVERY_COUNT, 1)
+        self.assertEqual(recovery._TERMINAL_WAIT_SPENT_SECONDS, 60.0)
+
     def test_run132_two_legitimate_reset_windows_fit_the_run_budget(self) -> None:
         """Run132 regression: ~49s then ~41s must not contradict recovery_cap=3."""
         attempts: dict[str, int] = {}
