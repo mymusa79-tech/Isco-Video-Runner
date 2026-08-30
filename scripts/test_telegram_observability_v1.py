@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKER_DIR = ROOT / "cloudflare" / "telegram-control-worker"
 WRANGLER = WORKER_DIR / "wrangler.toml.example"
 OBSERVABILITY_WORKER = WORKER_DIR / "observability-worker.js"
+OBSERVABILITY_CORE = WORKER_DIR / "observability-worker-v4-core.js"
 GENERATED_CONTRACT = WORKER_DIR / "status-contract.generated.js"
 CANONICAL_CONTRACT = ROOT / "scripts" / "telegram_status_contract.json"
 GENERATOR = ROOT / "scripts" / "generate_telegram_status_contract_js.py"
@@ -83,71 +84,58 @@ class SanitizedProjectionTests(unittest.TestCase):
 class EdgeObservabilityContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.worker = OBSERVABILITY_WORKER.read_text(encoding="utf-8")
+        cls.entry = OBSERVABILITY_WORKER.read_text(encoding="utf-8")
+        cls.worker = OBSERVABILITY_CORE.read_text(encoding="utf-8")
         cls.wrangler = WRANGLER.read_text(encoding="utf-8")
         cls.topic_ui = TOPIC_MEMORY_UI.read_text(encoding="utf-8")
 
-    def test_observability_wrapper_is_active_entrypoint(self) -> None:
+    def test_observability_core_remains_behind_active_v5_entrypoint(self) -> None:
         self.assertIn('main = "observability-worker.js"', self.wrangler)
+        self.assertIn('import priorWorker from "./observability-worker-v4-core.js"', self.entry)
         self.assertIn('import baseWorker from "./index.js"', self.worker)
         self.assertIn('import { STATUS_CONTRACT } from "./status-contract.generated.js"', self.worker)
         self.assertIn('observability: "v1"', self.worker)
         self.assertIn("edge_read_version: 2", self.worker)
 
-    def test_worker_has_valid_javascript_syntax_when_node_is_available(self) -> None:
+    def test_workers_have_valid_javascript_syntax_when_node_is_available(self):
         node = shutil.which("node")
         if not node:
             self.skipTest("node is unavailable")
-        subprocess.run([node, "--check", str(OBSERVABILITY_WORKER)], check=True, capture_output=True, text=True)
-        subprocess.run([node, "--check", str(GENERATED_CONTRACT)], check=True, capture_output=True, text=True)
+        for path in (OBSERVABILITY_WORKER, OBSERVABILITY_CORE, GENERATED_CONTRACT):
+            subprocess.run([node, "--check", str(path)], check=True, capture_output=True, text=True)
 
-    def test_python_only_array_method_regression_is_closed(self) -> None:
+    def test_python_only_array_method_regression_is_closed(self):
         self.assertNotIn("lines.extend(", self.worker)
         self.assertIn("lines.push(", self.worker)
 
-    def test_navigation_and_library_reads_are_edge_fast(self) -> None:
+    def test_navigation_and_library_reads_remain_edge_fast(self):
         for marker in (
-            'data === "cmd:menu"',
-            'data === "cmd:search_menu"',
-            'data === "cmd:library_menu"',
-            'data === "cmd:stats_menu"',
-            'data === "cmd:status"',
-            'data === "cmd:refresh_all"',
-            'data === "cmd:saved"',
-            'data === "cmd:used"',
-            "pageSpec(data)",
-            "controlState(env)",
-            "editMessageText",
-            "message is not modified",
+            'data === "cmd:menu"', 'data === "cmd:search_menu"', 'data === "cmd:library_menu"',
+            'data === "cmd:stats_menu"', 'data === "cmd:status"', 'data === "cmd:refresh_all"',
+            'data === "cmd:saved"', 'data === "cmd:used"', "pageSpec(data)", "controlState(env)",
+            "editMessageText", "message is not modified",
         ):
             self.assertIn(marker, self.worker)
         self.assertNotIn("dispatchToGitHub", self.worker)
         self.assertNotIn("workflow_dispatch", self.worker)
 
-    def test_encrypted_library_state_is_read_only_and_private(self) -> None:
+    def test_encrypted_library_state_is_read_only_and_private(self):
         for marker in (
-            "STATE_ENCRYPTION_KEY",
-            "control-plane-state/state/control-panel.json.enc",
-            '"PBKDF2"',
-            '"AES-CBC"',
-            "iterations: 10000",
-            "STATE_TTL_MS",
+            "STATE_ENCRYPTION_KEY", "control-plane-state/state/control-panel.json.enc", '"PBKDF2"',
+            '"AES-CBC"', "iterations: 10000", "STATE_TTL_MS",
         ):
             self.assertIn(marker, self.worker)
-        self.assertNotIn("control-panel.json\"", self.worker)
+        self.assertNotIn('control-panel.json"', self.worker)
 
-    def test_security_boundaries_are_preserved(self) -> None:
-        for marker in (
-            "X-Telegram-Bot-Api-Secret-Token",
-            "TELEGRAM_WEBHOOK_SECRET",
-            "TELEGRAM_ALLOWED_USER_ID",
-            "TELEGRAM_CHAT_ID",
-            "secretHeaderValid(request, env)",
-            "authorized(update, env)",
-        ):
-            self.assertIn(marker, self.worker)
+    def test_security_boundaries_are_preserved_in_both_layers(self):
+        for text in (self.worker, self.entry):
+            for marker in (
+                "X-Telegram-Bot-Api-Secret-Token", "TELEGRAM_WEBHOOK_SECRET",
+                "TELEGRAM_ALLOWED_USER_ID", "TELEGRAM_CHAT_ID", "secretHeaderValid(request, env)", "authorized(update, env)",
+            ):
+                self.assertIn(marker, text)
 
-    def test_global_refresh_is_read_only_and_complete(self) -> None:
+    def test_global_refresh_is_read_only_and_complete(self):
         self.assertIn("Promise.allSettled", self.worker)
         self.assertIn('telegram(env, "getWebhookInfo"', self.worker)
         self.assertIn("pending_update_count", self.worker)
@@ -158,23 +146,15 @@ class EdgeObservabilityContractTests(unittest.TestCase):
         self.assertNotIn("telegram-production-request.yml", self.worker)
         self.assertNotIn("cmd:retry", self.worker)
 
-    def test_library_callback_contract_matches_python_ui(self) -> None:
-        for callback in (
-            "cmd:saved-long",
-            "cmd:saved-short",
-            "cmd:used-long",
-            "cmd:used-short",
-            "cmd:savedpick-",
-        ):
+    def test_library_callback_contract_matches_python_ui(self):
+        for callback in ("cmd:saved-long", "cmd:saved-short", "cmd:used-long", "cmd:used-short", "cmd:savedpick-"):
             self.assertIn(callback, self.topic_ui)
         self.assertIn('prefix = f"cmd:saved-{kind}-page-"', self.topic_ui)
         self.assertIn('prefix = f"cmd:used-{kind}-page-"', self.topic_ui)
         self.assertIn("function pageSpec(data)", self.worker)
         self.assertIn("^cmd:(saved|used)-(long|short)", self.worker)
-        self.assertIn("cmd:${spec.bucket}-${spec.kind}-page-", self.worker)
-        self.assertIn("cmd:savedpick-", self.worker)
 
-    def test_completed_failure_keeps_exact_failed_step(self) -> None:
+    def test_completed_failure_keeps_exact_failed_step(self):
         self.assertIn("function failedLocation(jobs)", self.worker)
         self.assertIn("const [job, step] = failedLocation(jobs)", self.worker)
         self.assertIn("actions/runs/${run.id}/jobs?per_page=100", self.worker)

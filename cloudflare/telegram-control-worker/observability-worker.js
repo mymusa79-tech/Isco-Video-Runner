@@ -1,37 +1,46 @@
-import baseWorker from "./index.js";
+import priorWorker from "./observability-worker-v4-core.js";
 import { STATUS_CONTRACT } from "./status-contract.generated.js";
 
 const DEFAULT_REPO = "mymusa79-tech/Isco-Video-Runner";
 const DEFAULT_CHANNEL_ID = "UC_fmWGRen6QUQNd4Dj80MgA";
-const PAGE_SIZE = 5;
+const CONFIRM_TEXT = "تأكيد الإنتاج";
 const STATE_TTL_MS = 15_000;
 let stateCache = null;
 let stateCacheAt = 0;
 
 const ROOT_ROWS = [
-  [{ text: "🔄 تحديث الكل", callback_data: "cmd:refresh_all" }],
-  [{ text: "1️⃣ 🔎 البحث", callback_data: "cmd:search_menu" }],
-  [{ text: "2️⃣ 📚 المواضيع", callback_data: "cmd:library_menu" }],
-  [{ text: "3️⃣ 🎁 آخر إنتاج", callback_data: "cmd:last_delivery" }],
-  [{ text: "4️⃣ 📊 الحالة", callback_data: "cmd:status" }],
-  [{ text: "5️⃣ 📈 الإحصائيات", callback_data: "cmd:stats_menu" }],
+  [
+    { text: "🔎 البحث", callback_data: "cmd:search_menu" },
+    { text: "📚 المواضيع", callback_data: "cmd:library_menu" },
+  ],
+  [
+    { text: "🎁 آخر إنتاج", callback_data: "cmd:last_delivery" },
+    { text: "📈 الإحصائيات", callback_data: "cmd:stats_menu" },
+  ],
+  [
+    { text: "🧭 الحالة", callback_data: "cmd:status" },
+    { text: "🔄 تحديث الكل", callback_data: "cmd:refresh_all" },
+  ],
 ];
+
 const SEARCH_ROWS = [
-  [{ text: "🎬 بحث حلقة", callback_data: "cmd:topic" }],
-  [{ text: "⚡ بحث شورت", callback_data: "cmd:short" }],
+  [
+    { text: "🎬 حلقة", callback_data: "cmd:topic" },
+    { text: "⚡ شورت", callback_data: "cmd:short" },
+  ],
   [{ text: "↩️ الرئيسية", callback_data: "cmd:menu" }],
 ];
-const LIBRARY_ROWS = [
-  [{ text: "📚 المحفوظة", callback_data: "cmd:saved" }],
-  [{ text: "✅ المستعملة", callback_data: "cmd:used" }],
-  [{ text: "↩️ الرئيسية", callback_data: "cmd:menu" }],
-];
+
 const STATS_ROWS = [
-  [{ text: "🎬 آخر فيديو", callback_data: "cmd:stats_last_long" }],
-  [{ text: "⚡ آخر Short", callback_data: "cmd:stats_last_short" }],
-  [{ text: "🗓️ اليوم", callback_data: "cmd:stats_today" }],
-  [{ text: "📅 آخر 7 أيام", callback_data: "cmd:stats_week" }],
-  [{ text: "🌐 عامة", callback_data: "cmd:stats_overview" }],
+  [{ text: "🌐 نظرة عامة", callback_data: "cmd:stats_overview" }],
+  [
+    { text: "🎬 آخر فيديو", callback_data: "cmd:stats_last_long" },
+    { text: "⚡ آخر Short", callback_data: "cmd:stats_last_short" },
+  ],
+  [
+    { text: "🗓️ اليوم", callback_data: "cmd:stats_today" },
+    { text: "📅 7 أيام", callback_data: "cmd:stats_week" },
+  ],
   [{ text: "↩️ الرئيسية", callback_data: "cmd:menu" }],
 ];
 
@@ -39,25 +48,31 @@ function inline(rows) {
   return { inline_keyboard: rows };
 }
 
-function omanTime(value = new Date()) {
-  return new Intl.DateTimeFormat("ar-OM", {
-    timeZone: "Asia/Muscat",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
+function rootText() {
+  return [
+    "🏠 نداء اليقظة — مركز التحكم",
+    "",
+    "اختر ما تريد إنجازه الآن:",
+    "🔎 فرص جديدة · 📚 مكتبة المواضيع · 🎁 التسليم",
+    "📈 أداء القناة · 🧭 ما يحدث الآن",
+    "",
+    "🔐 أزرار القراءة والاختيار لا تبدأ Production.",
+  ].join("\n");
 }
 
-function formatNum(value) {
-  const n = Math.max(0, Number(value || 0));
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return Math.trunc(n).toLocaleString("en-US");
+function searchText() {
+  return [
+    "🔎 بحث جديد",
+    "",
+    "اختر النوع. سأبحث عن 3 فرص حية مرتبة وأعرض سبب قوة كل واحدة.",
+    "",
+    "هذا بحث فقط؛ لا يبدأ Production.",
+  ].join("\n");
 }
 
 function actor(update) {
   const callback = update && update.callback_query;
-  if (callback) {
+  if (callback && typeof callback === "object") {
     return {
       userId: callback.from && callback.from.id,
       chatId: callback.message && callback.message.chat && callback.message.chat.id,
@@ -100,21 +115,16 @@ async function telegram(env, method, payload = {}) {
     body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => ({}));
-  if (!response.ok || !body.ok) {
-    throw new Error(`Telegram ${method} failed: ${String(body.description || response.status)}`);
-  }
+  if (!response.ok || !body.ok) throw new Error(`Telegram ${method} failed: ${String(body.description || response.status)}`);
   return body.result;
 }
 
 async function ack(env, id, text = "") {
   if (!id) return;
   try {
-    await telegram(env, "answerCallbackQuery", {
-      callback_query_id: id,
-      ...(text ? { text } : {}),
-    });
+    await telegram(env, "answerCallbackQuery", { callback_query_id: id, ...(text ? { text } : {}) });
   } catch (_) {
-    // A callback toast is UX only. Never convert an expired callback into a side effect.
+    // Callback toasts are UX only and never own a state change.
   }
 }
 
@@ -129,10 +139,7 @@ async function updatePanel(env, target, text, rows) {
         reply_markup: inline(rows),
       });
     } catch (error) {
-      if (String((error && error.message) || "").toLowerCase().includes("message is not modified")) {
-        return null;
-      }
-      // If Telegram no longer permits editing an old message, keep one bounded send fallback.
+      if (String((error && error.message) || "").toLowerCase().includes("message is not modified")) return null;
     }
   }
   return telegram(env, "sendMessage", {
@@ -143,39 +150,10 @@ async function updatePanel(env, target, text, rows) {
   });
 }
 
-function rootText() {
-  return [
-    "🏠 نداء اليقظة",
-    "",
-    "1️⃣ 🔎 البحث",
-    "2️⃣ 📚 المواضيع",
-    "3️⃣ 🎁 آخر إنتاج",
-    "4️⃣ 📊 الحالة",
-    "5️⃣ 📈 الإحصائيات",
-    "",
-    "⚡ التنقل والقراءة السريعة تعمل مباشرة من Edge.",
-    "🔐 لا يبدأ Production من أزرار القراءة.",
-  ].join("\n");
-}
-
-function menuRoute(data) {
-  if (data === "cmd:menu") return [rootText(), ROOT_ROWS];
-  if (data === "cmd:search_menu") {
-    return ["🔎 البحث\n\nاختر نوع البحث. هذا بحث فقط ولا يبدأ Production.", SEARCH_ROWS];
-  }
-  if (data === "cmd:library_menu") {
-    return ["📚 المواضيع\n\nاختر المحفوظة أو المستعملة.", LIBRARY_ROWS];
-  }
-  if (data === "cmd:stats_menu") {
-    return ["📈 الإحصائيات\n\nاختر القراءة التي تريدها من YouTube.", STATS_ROWS];
-  }
-  return null;
-}
-
 function githubHeaders(env, authenticated = true) {
   const headers = {
     accept: "application/vnd.github+json",
-    "user-agent": "isco-telegram-edge-v2",
+    "user-agent": "isco-telegram-control-v5",
     "x-github-api-version": "2022-11-28",
   };
   if (authenticated) {
@@ -230,12 +208,13 @@ function productionStage(run, jobs) {
   const conclusion = String(run.conclusion || "").toLowerCase();
   const terminal = (STATUS_CONTRACT.run_terminal || {})[conclusion];
   if (terminal) {
-    if (conclusion === "success") {
-      return { label: terminal.label, detail: "اكتمل Workflow بنجاح.", progress: 100 };
-    }
+    if (conclusion === "success") return { label: terminal.label, detail: "اكتمل Workflow بنجاح.", progress: 100 };
     const [job, step] = failedLocation(jobs);
-    const detail = step ? `توقف عند: ${step}` : job ? `توقف عند: ${job}` : `الحالة: ${conclusion}`;
-    return { label: terminal.label, detail, progress: null };
+    return {
+      label: String(terminal.label || conclusion),
+      detail: step ? `توقف عند: ${step}` : job ? `توقف عند: ${job}` : `الحالة: ${conclusion}`,
+      progress: null,
+    };
   }
   const steps = (jobs || []).flatMap((job) => Array.isArray(job.steps) ? job.steps : []);
   const current = steps.find((step) => String(step.status || "") === "in_progress");
@@ -253,61 +232,18 @@ function productionStage(run, jobs) {
       progress,
     };
   }
-  return { label: String(run.status || "غير نشط"), detail: "Workflow قيد التنفيذ.", progress };
-}
-
-async function showStatus(env, target) {
-  const value = await productionState(env);
-  const stage = productionStage(value.run, value.jobs);
-  const rows = [
-    [
-      { text: "🔄 تحديث الحالة", callback_data: "cmd:status" },
-      { text: "🔄 تحديث الكل", callback_data: "cmd:refresh_all" },
-    ],
-    [{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }],
-  ];
-  if (value.run && String(value.run.html_url || "").startsWith("https://")) {
-    rows.splice(1, 0, [{ text: "🔗 GitHub", url: value.run.html_url }]);
-  }
-  const title = `📊 حالة الإنتاج${value.run && value.run.run_number ? ` · Run #${value.run.run_number}` : ""}`;
-  await updatePanel(
-    env,
-    target,
-    `${title}\n\n${stage.label}${Number.isFinite(stage.progress) ? ` · ${stage.progress}%` : ""}\n${stage.detail}\n\n✅ قراءة مباشرة من GitHub · ${omanTime()} عُمان\nℹ️ قراءة فقط؛ لا تعيد Production.`,
-    rows,
-  );
+  return { label: String(run.status || "الإنتاج الجاري"), detail: "Workflow قيد التنفيذ.", progress };
 }
 
 async function decryptState(bytes, passphrase) {
-  if (new TextDecoder().decode(bytes.slice(0, 8)) !== "Salted__") {
-    throw new Error("Unsupported encrypted state envelope");
-  }
+  if (new TextDecoder().decode(bytes.slice(0, 8)) !== "Salted__") throw new Error("Unsupported encrypted state envelope");
   const salt = bytes.slice(8, 16);
-  const password = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(passphrase),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
+  const password = await crypto.subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveBits"]);
   const derived = new Uint8Array(await crypto.subtle.deriveBits({
-    name: "PBKDF2",
-    hash: "SHA-256",
-    salt,
-    iterations: 10000,
+    name: "PBKDF2", hash: "SHA-256", salt, iterations: 10000,
   }, password, 384));
-  const key = await crypto.subtle.importKey(
-    "raw",
-    derived.slice(0, 32),
-    { name: "AES-CBC" },
-    false,
-    ["decrypt"],
-  );
-  const plain = await crypto.subtle.decrypt(
-    { name: "AES-CBC", iv: derived.slice(32, 48) },
-    key,
-    bytes.slice(16),
-  );
+  const key = await crypto.subtle.importKey("raw", derived.slice(0, 32), { name: "AES-CBC" }, false, ["decrypt"]);
+  const plain = await crypto.subtle.decrypt({ name: "AES-CBC", iv: derived.slice(32, 48) }, key, bytes.slice(16));
   const state = JSON.parse(new TextDecoder().decode(plain));
   if (!state || typeof state !== "object" || Array.isArray(state)) throw new Error("Invalid Telegram state");
   return state;
@@ -318,10 +254,9 @@ async function controlState(env) {
   const secret = String(env.STATE_ENCRYPTION_KEY || "").trim();
   if (!secret) throw new Error("STATE_ENCRYPTION_KEY is missing at Edge");
   const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
-  const response = await fetch(
-    `https://raw.githubusercontent.com/${repo}/control-plane-state/state/control-panel.json.enc`,
-    { headers: { "user-agent": "isco-telegram-edge-v2" } },
-  );
+  const response = await fetch(`https://raw.githubusercontent.com/${repo}/control-plane-state/state/control-panel.json.enc`, {
+    headers: { "user-agent": "isco-telegram-control-v5" },
+  });
   if (!response.ok) throw new Error(`Encrypted control state read failed: ${response.status}`);
   stateCache = await decryptState(new Uint8Array(await response.arrayBuffer()), secret);
   stateCacheAt = Date.now();
@@ -329,292 +264,381 @@ async function controlState(env) {
 }
 
 function savedItems(state) {
-  return (Array.isArray(state.saved_suggestions) ? state.saved_suggestions : [])
-    .filter((item) => item && item.status === "available" && item.candidate && String(item.candidate.title || "").trim())
-    .sort((a, b) => String(b.last_seen_at || b.saved_at || "").localeCompare(String(a.last_seen_at || a.saved_at || "")));
+  return (Array.isArray(state && state.saved_suggestions) ? state.saved_suggestions : [])
+    .filter((item) => item && item.status === "available" && item.candidate && String(item.candidate.title || "").trim());
 }
 
 function usedItems(state) {
-  return (Array.isArray(state.used_topics) ? state.used_topics : [])
-    .filter((item) => item && ["long", "short"].includes(String(item.kind || "")) && String(item.topic || "").trim())
-    .sort((a, b) => String(b.used_at || "").localeCompare(String(a.used_at || "")));
+  return (Array.isArray(state && state.used_topics) ? state.used_topics : [])
+    .filter((item) => item && ["long", "short"].includes(String(item.kind || "")) && String(item.topic || "").trim());
 }
 
-function byKind(items, kind) {
-  return items.filter((item) => String(item.kind || "") === kind);
-}
-
-function libraryKindMenu(state, bucket) {
-  const items = bucket === "saved" ? savedItems(state) : usedItems(state);
-  const longCount = byKind(items, "long").length;
-  const shortCount = byKind(items, "short").length;
-  const isSaved = bucket === "saved";
-  return {
-    text: `${isSaved ? "📚 المحفوظة" : "✅ المستعملة"}\n\n🎬 طويل — ${longCount}\n⚡ شورت — ${shortCount}\n\n⚡ قراءة مباشرة من Edge؛ لا تنتظر GitHub Actions.`,
-    rows: [
-      [{ text: `🎬 طويل (${longCount})`, callback_data: `cmd:${bucket}-long` }],
-      [{ text: `⚡ شورت (${shortCount})`, callback_data: `cmd:${bucket}-short` }],
-      [{ text: "↩️ المواضيع", callback_data: "cmd:library_menu" }],
-    ],
-  };
-}
-
-function pageSpec(data) {
-  const match = /^cmd:(saved|used)-(long|short)(?:-page-(\d+))?$/.exec(String(data || ""));
-  return match
-    ? { bucket: match[1], kind: match[2], page: Math.max(0, Number(match[3] || 0) || 0) }
-    : null;
-}
-
-function libraryPage(state, spec) {
-  const source = spec.bucket === "saved" ? savedItems(state) : usedItems(state);
-  const items = byKind(source, spec.kind);
-  const icon = spec.kind === "long" ? "🎬" : "⚡";
-  const label = spec.kind === "long" ? "طويل" : "شورت";
-  const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
-  const page = Math.min(spec.page, pages - 1);
-  const start = page * PAGE_SIZE;
-  const current = items.slice(start, start + PAGE_SIZE);
-  const rows = [];
-  const lines = [
-    `${spec.bucket === "saved" ? "📚 المحفوظة" : "✅ المستعملة"} — ${icon} ${label}`,
-    "",
-    `${items.length} موضوعًا — صفحة ${page + 1}/${pages}.`,
-  ];
-  if (!current.length) lines.push("", "لا توجد عناصر حاليًا.");
-  current.forEach((item, index) => {
-    if (spec.bucket === "saved") {
-      const title = String(item.candidate.title || "").trim();
-      const shortTitle = title.length <= 42 ? title : `${title.slice(0, 39).trim()}…`;
-      rows.push([{
-        text: `${icon} ${shortTitle}`,
-        callback_data: `cmd:savedpick-${String(item.archive_id || "")}`,
-      }]);
-    } else {
-      lines.push("", `${start + index + 1}) ${icon} ${String(item.topic || "")}`);
-      if (item.used_at) lines.push(`   ${String(item.used_at).slice(0, 10)}`);
-    }
-  });
-  const nav = [];
-  if (page > 0) {
-    nav.push({ text: "⬅️ أحدث", callback_data: `cmd:${spec.bucket}-${spec.kind}-page-${page - 1}` });
-  }
-  if (page + 1 < pages) {
-    nav.push({ text: "أقدم ➡️", callback_data: `cmd:${spec.bucket}-${spec.kind}-page-${page + 1}` });
-  }
-  if (nav.length) rows.push(nav);
-  rows.push([{
-    text: spec.bucket === "saved" ? "↩️ المحفوظة" : "↩️ المستعملة",
-    callback_data: `cmd:${spec.bucket}`,
-  }]);
-  lines.push("", "⚡ هذه الصفحة من Edge. اختيار موضوع محفوظ لا يبدأ Production.");
-  return { text: lines.join("\n"), rows };
-}
-
-async function showLibrary(env, target, data) {
+async function showLibraryOverview(env, target) {
   const state = await controlState(env);
-  const panel = data === "cmd:saved"
-    ? libraryKindMenu(state, "saved")
-    : data === "cmd:used"
-      ? libraryKindMenu(state, "used")
-      : libraryPage(state, pageSpec(data));
-  await updatePanel(env, target, panel.text, panel.rows);
+  const saved = savedItems(state);
+  const used = usedItems(state);
+  const savedLong = saved.filter((item) => String(item.kind || "") === "long").length;
+  const savedShort = saved.filter((item) => String(item.kind || "") === "short").length;
+  const usedLong = used.filter((item) => String(item.kind || "") === "long").length;
+  const usedShort = used.filter((item) => String(item.kind || "") === "short").length;
+  const text = [
+    "📚 مكتبة المواضيع",
+    "",
+    `📥 محفوظة: ${saved.length} · 🎬 ${savedLong} حلقات · ⚡ ${savedShort} Shorts`,
+    `✅ مستعملة: ${used.length} · 🎬 ${usedLong} حلقات · ⚡ ${usedShort} Shorts`,
+    "",
+    "كل نوع يبقى في قائمته المستقلة.",
+  ].join("\n");
+  await updatePanel(env, target, text, [
+    [
+      { text: `📥 المحفوظة (${saved.length})`, callback_data: "cmd:saved" },
+      { text: `✅ المستعملة (${used.length})`, callback_data: "cmd:used" },
+    ],
+    [{ text: "↩️ الرئيسية", callback_data: "cmd:menu" }],
+  ]);
 }
 
-async function publicProjection(env) {
-  const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
-  const response = await fetch(
-    `https://raw.githubusercontent.com/${repo}/control-plane-state/state/telegram-status.json`,
-    { headers: { "user-agent": "isco-telegram-edge-v2" } },
-  );
-  if (!response.ok) throw new Error(`Projection read failed: ${response.status}`);
-  const value = await response.json();
-  if (!value || Number(value.schema_version) !== 1) throw new Error("Unsupported editorial projection");
-  return value;
+function currentTarget(state) {
+  const target = state && state.production_target;
+  if (!target || typeof target !== "object") return null;
+  const requestId = String(target.request_id || "").trim();
+  const sessionId = String(target.session_id || "").trim();
+  if (!requestId || !sessionId || String(state.active_research_session_id || "") !== sessionId) return null;
+  return { requestId, sessionId };
 }
 
-async function latestDelivery(env) {
-  const releases = await githubJson(env, "releases?per_page=30");
-  if (!Array.isArray(releases)) return null;
-  return releases
-    .filter((release) => {
-      if (!release || release.draft) return false;
-      const tag = String(release.tag_name || "");
-      return tag.startsWith("video-") || tag.startsWith("short-");
-    })
+async function showOperatorStatus(env, target) {
+  const [productionResult, stateResult] = await Promise.allSettled([productionState(env), controlState(env)]);
+  const production = productionResult.status === "fulfilled" ? productionResult.value : { run: null, jobs: [] };
+  const state = stateResult.status === "fulfilled" ? stateResult.value : null;
+  const activeRun = production.run && String(production.run.status || "") !== "completed";
+  let now = "🟢 لا توجد مهمة معلقة تحتاج تدخلك الآن.";
+  let action = "لا يوجد إجراء مطلوب.";
+
+  if (activeRun) {
+    const stage = productionStage(production.run, production.jobs);
+    now = `🚀 Production جارٍ: ${stage.label}${Number.isFinite(stage.progress) ? ` · ${stage.progress}%` : ""}`;
+    action = "لا شيء الآن — لا تكرر التأكيد أثناء التشغيل.";
+  } else if (state) {
+    const pending = (Array.isArray(state.pending_actions) ? state.pending_actions : []).find((item) => item && item.status === "pending");
+    const queued = (Array.isArray(state.production_queue) ? state.production_queue : []).find((item) => item && ["queued", "reserved"].includes(String(item.status || "")));
+    const bound = currentTarget(state);
+    if (pending) {
+      now = `🔎 بحث ${String(pending.kind || "") === "short" ? "الشورت" : "الحلقة"} قيد التنفيذ أو الانتظار.`;
+      action = "لا شيء الآن — انتظر ظهور 3 الخيارات.";
+    } else if (queued) {
+      now = "🚀 طلب Production مؤكد وموجود في مسار الإرسال المحمي.";
+      action = "لا شيء الآن — لا تكرر التأكيد.";
+    } else if (bound && state.requests && state.requests[bound.requestId]) {
+      const request = state.requests[bound.requestId];
+      const topic = String(request.approved_topic || "").trim();
+      now = `✅ لديك موضوع معتمد ينتظر قرار التشغيل.${topic ? `\n🎯 ${topic.slice(0, 140)}` : ""}`;
+      action = `إذا كان القرار نهائيًا، أرسل حرفيًا: ${CONFIRM_TEXT}`;
+    }
+  } else {
+    now = "⚠️ لا يوجد Production Run نشط، لكن تعذر قراءة حالة الاختيار الحالية.";
+    action = "لا ترسل تأكيد Production اعتمادًا على هذه الشاشة؛ حدّث الحالة بعد قليل أو افتح التفاصيل.";
+  }
+
+  const latest = production.run ? productionStage(production.run, production.jobs) : null;
+  const lines = [
+    "🧭 الحالة — ماذا يحدث الآن؟",
+    "",
+    "الآن",
+    now,
+    "",
+    "مطلوب منك",
+    action,
+    "",
+    "آخر تشغيل معروف",
+    latest ? `${latest.label}${production.run && production.run.run_number ? ` · Run #${production.run.run_number}` : ""}` : "لا يوجد تشغيل معروف.",
+    "",
+    "ℹ️ هذه شاشة تشغيلية؛ التفاصيل التقنية خلف زر مستقل.",
+  ];
+  await updatePanel(env, target, lines.join("\n"), [
+    [{ text: "📋 تفاصيل النظام", callback_data: "cmd:system_status" }],
+    [{ text: "🔄 تحديث", callback_data: "cmd:status" }, { text: "🏠 الرئيسية", callback_data: "cmd:menu" }],
+  ]);
+}
+
+async function showSystemStatus(env, target) {
+  const value = await productionState(env);
+  const stage = productionStage(value.run, value.jobs);
+  const lines = [
+    `📋 تفاصيل النظام${value.run && value.run.run_number ? ` · Run #${value.run.run_number}` : ""}`,
+    "",
+    `الحالة: ${stage.label}${Number.isFinite(stage.progress) ? ` · ${stage.progress}%` : ""}`,
+    stage.detail,
+    "",
+    "هذه شاشة تشخيص فقط؛ لا تغيّر Production أو Quality Gates.",
+  ];
+  const rows = [[{ text: "↩️ الحالة", callback_data: "cmd:status" }]];
+  if (value.run && String(value.run.html_url || "").startsWith("https://")) rows.push([{ text: "🔗 GitHub", url: value.run.html_url }]);
+  rows.push([{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }]);
+  await updatePanel(env, target, lines.join("\n"), rows);
+}
+
+async function releases(env) {
+  const payload = await githubJson(env, "releases?per_page=30");
+  return Array.isArray(payload) ? payload.filter((release) => release && !release.draft) : [];
+}
+
+function latestByPrefix(items, prefix) {
+  return items
+    .filter((item) => String(item.tag_name || "").startsWith(prefix))
     .sort((a, b) => String(b.published_at || b.created_at || "").localeCompare(String(a.published_at || a.created_at || "")))[0] || null;
 }
 
-async function youtubeOverview(env) {
+function releaseTitle(release, fallback) {
+  const name = String((release && release.name) || "").trim();
+  const tag = String((release && release.tag_name) || "").trim();
+  return name && name !== tag ? name.slice(0, 140) : fallback;
+}
+
+async function showLastDelivery(env, target) {
+  const items = await releases(env);
+  const longRelease = latestByPrefix(items, "video-");
+  const shortRelease = latestByPrefix(items, "short-");
+  const lines = ["🎁 آخر إنتاج", ""];
+  if (longRelease) {
+    lines.push("🎬 آخر حلقة", releaseTitle(longRelease, "حزمة الحلقة الأخيرة"), `✅ جاهزة · ${String(longRelease.published_at || longRelease.created_at || "").slice(0, 10)}`);
+  } else {
+    lines.push("🎬 آخر حلقة", "لا توجد حزمة حلقة منشورة بعد.");
+  }
+  lines.push("");
+  if (shortRelease) {
+    lines.push("⚡ آخر Short", releaseTitle(shortRelease, "حزمة الشورت الأخيرة"), `✅ جاهزة · ${String(shortRelease.published_at || shortRelease.created_at || "").slice(0, 10)}`);
+  } else {
+    lines.push("⚡ آخر Short", "لا توجد حزمة Short منشورة بعد.");
+  }
+  lines.push("", "📦 افتح الحزمة فقط عندما تحتاج الملفات أو خيارات النشر.");
+  const rows = [];
+  if (longRelease && String(longRelease.html_url || "").startsWith("https://")) rows.push([{ text: "🎬 حزمة الحلقة", url: longRelease.html_url }]);
+  if (shortRelease && String(shortRelease.html_url || "").startsWith("https://")) rows.push([{ text: "⚡ حزمة الشورت", url: shortRelease.html_url }]);
+  if (longRelease) {
+    const tag = String(longRelease.tag_name || "");
+    if (tag && tag.length <= 35) rows.push([{ text: "🅰️ عناوين وصور A/B/C", callback_data: `pack:${tag}` }]);
+  }
+  rows.push([{ text: "🔄 تحديث", callback_data: "cmd:last_delivery" }, { text: "🏠 الرئيسية", callback_data: "cmd:menu" }]);
+  await updatePanel(env, target, lines.join("\n"), rows);
+}
+
+function durationSeconds(value) {
+  const match = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(String(value || ""));
+  if (!match) return 0;
+  return Number(match[1] || 0) * 86400 + Number(match[2] || 0) * 3600 + Number(match[3] || 0) * 60 + Number(match[4] || 0);
+}
+
+async function youtubeJson(env, resource, params) {
   const key = String(env.YOUTUBE_API_KEY || "").trim();
   if (!key) throw new Error("YOUTUBE_API_KEY is missing");
-  const channelId = String(env.YOUTUBE_CHANNEL_ID || DEFAULT_CHANNEL_ID).trim();
-  const query = new URLSearchParams({ part: "statistics", id: channelId, maxResults: "1", key });
-  const response = await fetch(`https://www.googleapis.com/youtube/v3/channels?${query.toString()}`);
+  const query = new URLSearchParams({ ...params, key });
+  const response = await fetch(`https://www.googleapis.com/youtube/v3/${resource}?${query.toString()}`);
   if (!response.ok) throw new Error(`YouTube API failed: ${response.status}`);
-  const payload = await response.json();
-  const channel = (payload.items || [])[0];
+  return response.json();
+}
+
+async function liveYoutube(env) {
+  const channelId = String(env.YOUTUBE_CHANNEL_ID || DEFAULT_CHANNEL_ID).trim();
+  const channelPayload = await youtubeJson(env, "channels", { part: "snippet,statistics,contentDetails", id: channelId, maxResults: "1" });
+  const channel = (channelPayload.items || [])[0];
   if (!channel) throw new Error("YouTube channel not found");
+  const uploads = channel.contentDetails && channel.contentDetails.relatedPlaylists && channel.contentDetails.relatedPlaylists.uploads;
+  if (!uploads) throw new Error("YouTube uploads playlist unavailable");
+  const playlist = await youtubeJson(env, "playlistItems", { part: "contentDetails", playlistId: uploads, maxResults: "25" });
+  const ids = (playlist.items || []).map((item) => item.contentDetails && item.contentDetails.videoId).filter(Boolean);
+  let videos = [];
+  if (ids.length) {
+    const payload = await youtubeJson(env, "videos", { part: "snippet,statistics,contentDetails", id: ids.join(","), maxResults: "50" });
+    videos = (payload.items || []).map((item) => ({
+      id: String(item.id || ""),
+      title: String((item.snippet && item.snippet.title) || "").trim(),
+      publishedAt: String((item.snippet && item.snippet.publishedAt) || ""),
+      duration: durationSeconds(item.contentDetails && item.contentDetails.duration),
+      views: Number((item.statistics && item.statistics.viewCount) || 0),
+      likes: Number((item.statistics && item.statistics.likeCount) || 0),
+      comments: Number((item.statistics && item.statistics.commentCount) || 0),
+    })).sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)));
+  }
   const stats = channel.statistics || {};
   return {
-    subscribers: Number(stats.subscriberCount || 0),
+    fetchedAt: new Date(),
+    channelTitle: String((channel.snippet && channel.snippet.title) || "نداء اليقظة"),
     hiddenSubscribers: Boolean(stats.hiddenSubscriberCount),
+    subscribers: Number(stats.subscriberCount || 0),
     views: Number(stats.viewCount || 0),
+    videoCount: Number(stats.videoCount || 0),
+    videos,
   };
 }
 
-async function showDashboard(env, target) {
-  const results = await Promise.allSettled([
-    productionState(env),
-    publicProjection(env),
-    telegram(env, "getWebhookInfo", {}),
-    latestDelivery(env),
-    youtubeOverview(env),
-  ]);
-  const [productionResult, projectionResult, hookResult, deliveryResult, youtubeResult] = results;
-  const lines = ["🏠 نداء اليقظة · لوحة التشغيل", ""];
-
-  if (productionResult.status === "fulfilled") {
-    const production = productionResult.value;
-    const stage = productionStage(production.run, production.jobs);
-    lines.push(`🎬 الإنتاج: ${stage.label}${Number.isFinite(stage.progress) ? ` · ${stage.progress}%` : ""}`);
-  } else {
-    lines.push("🎬 الإنتاج: ⚠️ تعذر التحقق الآن");
-  }
-
-  if (projectionResult.status === "fulfilled") {
-    const editorial = (projectionResult.value && projectionResult.value.editorial) || {};
-    lines.push(`📚 التحرير: محفوظة ${Number(editorial.saved_count || 0)} · مستعملة ${Number(editorial.used_count || 0)}`);
-  } else {
-    lines.push("📚 التحرير: ⚠️ تعذر التحقق الآن");
-  }
-
-  if (deliveryResult.status === "fulfilled") {
-    const release = deliveryResult.value;
-    lines.push(`🎁 آخر حزمة: ${release ? String(release.name || release.tag_name || "الحزمة الأخيرة") : "لا توجد حزمة منشورة"}`);
-  } else {
-    lines.push("🎁 آخر حزمة: ⚠️ تعذر التحقق الآن");
-  }
-
-  if (youtubeResult.status === "fulfilled") {
-    const yt = youtubeResult.value;
-    const subs = yt.hiddenSubscribers ? "مخفية" : formatNum(yt.subscribers);
-    lines.push(`📈 YouTube: ${subs} مشترك · ${formatNum(yt.views)} مشاهدة`);
-  } else {
-    lines.push("📈 YouTube: ⚠️ تعذر التحقق الآن");
-  }
-
-  if (hookResult.status === "fulfilled") {
-    const hook = hookResult.value || {};
-    const pending = Number(hook.pending_update_count || 0);
-    const error = String(hook.last_error_message || "").trim();
-    lines.push(`🛰️ Telegram: webhook ✅ · pending ${pending}${error ? " · ⚠️ خطأ مسجل" : ""}`);
-  } else {
-    lines.push("🛰️ Telegram: ⚠️ تعذر فحص webhook الآن");
-  }
-
-  lines.push(
-    "",
-    `🕒 آخر تحقق شامل: ${omanTime()} · عُمان`,
-    "ℹ️ «تحديث الكل» قراءة فقط؛ لا يبدأ ولا يعيد أي Production Run.",
-  );
-  await updatePanel(env, target, lines.join("\n"), ROOT_ROWS);
+function isShort(video) {
+  return Number(video && video.duration || 0) > 0 && Number(video.duration) <= 180;
 }
 
-function isMenuText(text) {
-  return ["🏠 ابدأ", "🎛 ابدأ", "/start", "/menu", "ابدأ", "القائمة"].includes(String(text || "").trim());
+function formatNum(value) {
+  const n = Math.max(0, Number(value || 0));
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return Math.trunc(n).toLocaleString("en-US");
 }
 
-function fastRoute(update) {
-  const callback = update && update.callback_query;
-  if (callback) {
-    const data = String(callback.data || "");
-    if (menuRoute(data)) return { kind: "menu", data };
-    if (data === "cmd:status") return { kind: "status" };
-    if (data === "cmd:refresh_all") return { kind: "dashboard" };
-    if (data === "cmd:saved" || data === "cmd:used" || pageSpec(data)) {
-      return { kind: "library", data };
-    }
-    return null;
-  }
-  return isMenuText(update && update.message && update.message.text)
-    ? { kind: "menu", data: "cmd:menu" }
-    : null;
+function omanTime(value = new Date()) {
+  return new Intl.DateTimeFormat("ar-OM", { timeZone: "Asia/Muscat", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
 }
 
-async function handleFast(route, update, env) {
-  const target = actor(update);
-  if (route.kind === "menu") {
-    await ack(env, target.callbackId);
-    const [text, rows] = menuRoute(route.data);
+function miniContent(label, item) {
+  if (!item) return `${label}\nلا يوجد عنصر حديث مناسب.`;
+  return `${label}\n${String(item.title || "").slice(0, 100)}\n👁️ ${formatNum(item.views)} · 👍 ${formatNum(item.likes)} · 💬 ${formatNum(item.comments)}`;
+}
+
+function visibleEngagement(item) {
+  const views = Number(item && item.views || 0);
+  if (views <= 0) return null;
+  return (100 * (Number(item.likes || 0) + Number(item.comments || 0)) / views).toFixed(1);
+}
+
+function periodStartUtc(days, now = new Date()) {
+  const shifted = new Date(now.getTime() + 4 * 3600 * 1000);
+  return new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate() - Math.max(0, days - 1), 0, 0, 0) - 4 * 3600 * 1000);
+}
+
+async function showStats(env, target, kind) {
+  const live = await liveYoutube(env);
+  const latestLong = live.videos.find((video) => !isShort(video));
+  const latestShort = live.videos.find((video) => isShort(video));
+  const rows = [...STATS_ROWS];
+
+  if (kind === "stats_overview" || kind === "stats_menu") {
+    const subs = live.hiddenSubscribers ? "مخفية" : formatNum(live.subscribers);
+    const text = [
+      `📊 ${live.channelTitle || "نداء اليقظة"} — نظرة سريعة`,
+      "",
+      "القناة الآن",
+      `👥 ${subs} مشترك`,
+      `👁️ ${formatNum(live.views)} مشاهدة إجمالية`,
+      `🎞️ ${formatNum(live.videoCount)} منشورًا`,
+      "",
+      miniContent("🎬 آخر فيديو", latestLong),
+      "",
+      miniContent("⚡ آخر Short", latestShort),
+      "",
+      `🔄 تحديث: ${omanTime(live.fetchedAt)} بتوقيت عُمان`,
+      "↗️ CTR والاحتفاظ ومدة المشاهدة والمقارنة بالأداء المعتاد: YouTube Studio.",
+    ].join("\n");
     await updatePanel(env, target, text, rows);
     return;
   }
-  if (route.kind === "status") {
-    await ack(env, target.callbackId, "أتحقق من GitHub الآن…");
-    await showStatus(env, target);
+
+  if (kind === "stats_last_long" || kind === "stats_last_short") {
+    const wantShort = kind === "stats_last_short";
+    const item = wantShort ? latestShort : latestLong;
+    if (!item) {
+      await updatePanel(env, target, `📈 آخر ${wantShort ? "Short" : "فيديو طويل"}\n\nلم أجد عنصرًا حديثًا مناسبًا.`, rows);
+      return;
+    }
+    const engagement = visibleEngagement(item);
+    const published = item.publishedAt ? new Intl.DateTimeFormat("ar-OM", { timeZone: "Asia/Muscat", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(item.publishedAt)) : "غير معروف";
+    const lines = [
+      `${wantShort ? "⚡" : "🎬"} آخر ${wantShort ? "Short" : "فيديو طويل"}`,
+      "",
+      String(item.title || "").slice(0, 140),
+      "",
+      `👁️ ${formatNum(item.views)} مشاهدة`,
+      `👍 ${formatNum(item.likes)} إعجاب · 💬 ${formatNum(item.comments)} تعليق`,
+    ];
+    if (engagement !== null) lines.push(`💬 تفاعل ظاهر: ${engagement}%  (إعجاب + تعليق ÷ مشاهدة)`);
+    lines.push(`🕒 نُشر: ${published} بتوقيت عُمان`, "", `🔄 آخر تحديث: ${omanTime(live.fetchedAt)}`);
+    if (wantShort) lines.push("ℹ️ تصنيف Short هنا تقريبي بالمدة (≤3 دقائق).");
+    lines.push("↗️ CTR والاحتفاظ ومدة المشاهدة التفصيلية تبقى في YouTube Studio.");
+    const contentRows = [[{ text: "▶️ فتح على YouTube", url: `https://youtu.be/${item.id}` }], ...rows];
+    await updatePanel(env, target, lines.join("\n"), contentRows);
     return;
   }
-  if (route.kind === "dashboard") {
-    await ack(env, target.callbackId, "أحدّث الصورة الكاملة الآن…");
-    await showDashboard(env, target);
-    return;
-  }
-  await ack(env, target.callbackId, "أفتح القائمة مباشرة…");
-  await showLibrary(env, target, route.data);
+
+  const days = kind === "stats_today" ? 1 : 7;
+  const start = periodStartUtc(days, live.fetchedAt);
+  const items = live.videos.filter((video) => new Date(video.publishedAt) >= start);
+  const shorts = items.filter(isShort).length;
+  const longs = items.length - shorts;
+  const currentViews = items.reduce((sum, item) => sum + Number(item.views || 0), 0);
+  const label = days === 1 ? "اليوم" : "آخر 7 أيام";
+  const text = [
+    `📈 ${label} — المحتوى المنشور`,
+    "",
+    `🎬 فيديو طويل: ${longs}`,
+    `⚡ Shorts تقريبًا: ${shorts}`,
+    `🆕 الإجمالي: ${items.length}`,
+    `👁️ المشاهدات الحالية لهذه الرفعات: ${formatNum(currentViews)}`,
+    "",
+    `🔄 تحديث: ${omanTime(live.fetchedAt)} بتوقيت عُمان`,
+    "ℹ️ هذه لا تدّعي عدد المشاهدات المكتسبة داخل الفترة؛ النمو الدقيق وCTR/Retention في YouTube Studio.",
+  ].join("\n");
+  await updatePanel(env, target, text, rows);
 }
 
-async function safeFast(route, update, env) {
-  const target = actor(update);
-  try {
-    await handleFast(route, update, env);
-  } catch (error) {
-    console.error("Fast Telegram read failed", String((error && error.message) || error || "unknown"));
-    try {
-      await updatePanel(
-        env,
-        target,
-        `⚠️ تعذر إكمال القراءة السريعة الآن. لم يبدأ ولم يتغير أي Production Run.\n\n🕒 ${omanTime()} · عُمان`,
-        ROOT_ROWS,
-      );
-    } catch (_) {
-      // Telegram itself may be unavailable. Do not mutate anything else.
-    }
+function callbackRoute(data) {
+  if (data === "cmd:menu") return { kind: "menu" };
+  if (data === "cmd:search_menu") return { kind: "search" };
+  if (data === "cmd:library_menu") return { kind: "library" };
+  if (data === "cmd:stats_menu" || ["cmd:stats_overview", "cmd:stats_last_long", "cmd:stats_last_short", "cmd:stats_today", "cmd:stats_week"].includes(data)) {
+    return { kind: "stats", data: data.slice(4) };
   }
+  if (data === "cmd:status") return { kind: "status" };
+  if (data === "cmd:system_status") return { kind: "system_status" };
+  if (data === "cmd:last_delivery") return { kind: "delivery" };
+  return null;
+}
+
+function textRoute(text) {
+  const value = String(text || "").trim();
+  if (["🏠 ابدأ", "🎛 ابدأ", "/start", "/menu", "ابدأ", "القائمة"].includes(value)) return { kind: "menu" };
+  if (["بحث", "1", "١"].includes(value)) return { kind: "search" };
+  if (["المواضيع", "2", "٢"].includes(value)) return { kind: "library" };
+  if (["آخر إنتاج", "اخر انتاج", "3", "٣"].includes(value)) return { kind: "delivery" };
+  if (["الحالة", "حالة", "status", "4", "٤"].includes(value)) return { kind: "status" };
+  if (["الإحصائيات", "الاحصائيات", "5", "٥"].includes(value)) return { kind: "stats", data: "stats_menu" };
+  return null;
+}
+
+async function handleRoute(env, target, route) {
+  if (route.kind === "menu") return updatePanel(env, target, rootText(), ROOT_ROWS);
+  if (route.kind === "search") return updatePanel(env, target, searchText(), SEARCH_ROWS);
+  if (route.kind === "library") return showLibraryOverview(env, target);
+  if (route.kind === "stats") return showStats(env, target, route.data);
+  if (route.kind === "status") return showOperatorStatus(env, target);
+  if (route.kind === "system_status") return showSystemStatus(env, target);
+  return showLastDelivery(env, target);
 }
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/health") {
-      return new Response(JSON.stringify({
-        ok: true,
-        mode: "telegram-edge-control",
-        observability: "v1",
-        edge_read_version: 2,
-        status_schema: STATUS_CONTRACT.schema_version,
-        fast_library: Boolean(String(env.STATE_ENCRYPTION_KEY || "").trim()),
-      }), { headers: { "content-type": "application/json" } });
+    if (request.method !== "POST" || url.pathname !== "/telegram" || !secretHeaderValid(request, env)) {
+      return priorWorker.fetch(request, env, ctx);
     }
-
-    if (request.method === "POST" && url.pathname === "/telegram" && secretHeaderValid(request, env)) {
-      let update;
+    let update;
+    try {
+      update = await request.clone().json();
+    } catch (_) {
+      return priorWorker.fetch(request, env, ctx);
+    }
+    if (!update || !Number.isInteger(update.update_id) || !authorized(update, env)) {
+      return priorWorker.fetch(request, env, ctx);
+    }
+    const target = actor(update);
+    const route = update.callback_query ? callbackRoute(target.data) : textRoute(update.message && update.message.text);
+    if (!route) return priorWorker.fetch(request, env, ctx);
+    ctx.waitUntil((async () => {
+      const toast = route.kind === "stats" ? "أحدّث الأرقام الآن…" : route.kind === "library" ? "أفتح المكتبة الآن…" : "أحدّث اللوحة الآن…";
+      await ack(env, target.callbackId, toast);
       try {
-        update = await request.clone().json();
-      } catch (_) {
-        return baseWorker.fetch(request, env, ctx);
+        await handleRoute(env, target, route);
+      } catch (error) {
+        console.error("Creator Control Center V5 read failed", String((error && error.message) || error || "unknown"));
+        await updatePanel(env, target, "⚠️ تعذر تحديث هذه القراءة الآن. لم يبدأ ولم يتغير أي Production Run.", ROOT_ROWS);
       }
-      if (update && Number.isInteger(update.update_id) && authorized(update, env)) {
-        const route = fastRoute(update);
-        if (route) {
-          if (route.kind === "library" && !String(env.STATE_ENCRYPTION_KEY || "").trim()) {
-            return baseWorker.fetch(request, env, ctx);
-          }
-          ctx.waitUntil(safeFast(route, update, env));
-          return new Response("OK");
-        }
-      }
-    }
-    return baseWorker.fetch(request, env, ctx);
+    })());
+    return new Response("OK");
   },
 };
