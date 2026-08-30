@@ -478,9 +478,9 @@ def certified_non_planning_contracts() -> tuple[StageContract, ...]:
             reserve_class="validation",
             side_effect_policy="none",
             evidence_schema="QCEvidenceV1",
-            adapter_id="final-master-qc",
-            source_path="scripts/final_master_qc.py",
-            source_sha="e3412fc5710618eb9d7529710d8dbbc539e9fa91",
+            adapter_id="qc-runtime-port-v1",
+            source_path="scripts/orchestration_qc_port.py",
+            source_sha="9d23051dc3db8ad8f5913dd5a21dcc2f4bee7035",
         ),
         _contract(
             stage_id="shorts",
