@@ -14,37 +14,56 @@ from scripts.orchestration_stage_registry import build_l4_registry
 class CinematicStablePortTests(unittest.TestCase):
     def setUp(self) -> None:
         self.calls: list[str] = []
-        self.modules = (
-            port.sfx_live_binding,
-            port.m8_live_binding,
-            port.m9_live_binding,
-            port.m10_live_binding,
-            port.cta_live_binding,
-            port.m7_live_binding,
-        )
-        self.original_flags = [module._INSTALLED for module in self.modules]
-        for module in self.modules:
-            module._INSTALLED = False
+        self.original_produce = port.orchestrator.produce
 
     def tearDown(self) -> None:
-        for module, flag in zip(self.modules, self.original_flags):
-            module._INSTALLED = flag
+        port.orchestrator.produce = self.original_produce
 
-    def _installer(self, label: str, module, *, install: bool = True):
+    def _installer(self, label: str, marker: str, *, install: bool = True):
         def run() -> None:
-            if not module._INSTALLED:
-                self.calls.append(label)
-                if install:
-                    module._INSTALLED = True
+            if port._binding_installed(marker):
+                return
+            self.calls.append(label)
+            if not install:
+                return
+            current = port.orchestrator.produce
+
+            def wrapped(*args, **kwargs):
+                return current(*args, **kwargs)
+
+            setattr(wrapped, marker, True)
+            setattr(wrapped, marker.removesuffix("_live_binding") + "_original", current)
+            port.orchestrator.produce = wrapped
+
         return run
 
     def _patch_inner(self):
         return (
-            patch.object(port.sfx_live_binding, "install_sfx_live_binding", side_effect=self._installer("sfx", port.sfx_live_binding)),
-            patch.object(port.m8_live_binding, "install_m8_live_binding", side_effect=self._installer("m8", port.m8_live_binding)),
-            patch.object(port.m9_live_binding, "install_m9_live_binding", side_effect=self._installer("m9", port.m9_live_binding)),
-            patch.object(port.m10_live_binding, "install_m10_live_binding", side_effect=self._installer("m10", port.m10_live_binding)),
-            patch.object(port.cta_live_binding, "install_cta_live_binding", side_effect=self._installer("cta", port.cta_live_binding)),
+            patch.object(
+                port.sfx_live_binding,
+                "install_sfx_live_binding",
+                side_effect=self._installer("sfx", "_isco_sfx_live_binding"),
+            ),
+            patch.object(
+                port.m8_live_binding,
+                "install_m8_live_binding",
+                side_effect=self._installer("m8", "_isco_m8_live_binding"),
+            ),
+            patch.object(
+                port.m9_live_binding,
+                "install_m9_live_binding",
+                side_effect=self._installer("m9", "_isco_m9_live_binding"),
+            ),
+            patch.object(
+                port.m10_live_binding,
+                "install_m10_live_binding",
+                side_effect=self._installer("m10", "_isco_m10_live_binding"),
+            ),
+            patch.object(
+                port.cta_live_binding,
+                "install_cta_live_binding",
+                side_effect=self._installer("cta", "_isco_cta_live_binding"),
+            ),
         )
 
     def test_inner_phase_preserves_historical_order_and_is_idempotent(self) -> None:
@@ -66,7 +85,7 @@ class CinematicStablePortTests(unittest.TestCase):
         with patch.object(
             port.m7_live_binding,
             "install_m7_live_binding",
-            side_effect=self._installer("m7-m11", port.m7_live_binding),
+            side_effect=self._installer("m7-m11", "_isco_m7_live_binding"),
         ):
             first = port.install_cinematic_runtime_port(port.CinematicInstallPhase.OUTER)
             second = port.install_cinematic_runtime_port("outer")
@@ -80,7 +99,7 @@ class CinematicStablePortTests(unittest.TestCase):
         with patch.object(
             port.sfx_live_binding,
             "install_sfx_live_binding",
-            side_effect=self._installer("sfx", port.sfx_live_binding, install=False),
+            side_effect=self._installer("sfx", "_isco_sfx_live_binding", install=False),
         ), patch.object(port.m8_live_binding, "install_m8_live_binding") as m8:
             with self.assertRaises(port.CinematicRuntimePortError):
                 port.install_cinematic_runtime_port(port.CinematicInstallPhase.INNER)
@@ -90,7 +109,7 @@ class CinematicStablePortTests(unittest.TestCase):
         with patch.object(
             port.m7_live_binding,
             "install_m7_live_binding",
-            side_effect=self._installer("m7-m11", port.m7_live_binding, install=False),
+            side_effect=self._installer("m7-m11", "_isco_m7_live_binding", install=False),
         ):
             with self.assertRaises(port.CinematicRuntimePortError):
                 port.install_cinematic_runtime_port(port.CinematicInstallPhase.OUTER)

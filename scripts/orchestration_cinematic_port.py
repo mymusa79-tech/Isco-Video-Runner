@@ -12,9 +12,11 @@ This module owns composition only. It does not select providers, retry provider
 calls, render frames, mutate quality thresholds, or change any cinematic policy.
 """
 
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from enum import Enum
 
+import isco_video_agent.orchestrator as orchestrator
 from scripts import cta_live_binding
 from scripts import m7_live_binding
 from scripts import m8_live_binding
@@ -54,9 +56,38 @@ class CinematicRuntimePortEvidence:
     m7_m11_installed: bool
 
 
+def _wrapper_chain() -> Iterator[Callable[..., object]]:
+    """Walk the installed Runner wrapper topology without depending on module flags."""
+    pending = [orchestrator.produce]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        identity = id(current)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        yield current
+        namespace = getattr(current, "__dict__", {})
+        for name, value in namespace.items():
+            if name.startswith("_isco_") and name.endswith("_original") and callable(value):
+                pending.append(value)
+
+
+def _binding_installed(marker: str) -> bool:
+    return any(bool(getattr(layer, marker, False)) for layer in _wrapper_chain())
+
+
 def _required(flag: bool, label: str) -> None:
     if not flag:
         raise CinematicRuntimePortError(f"{label} did not install")
+
+
+def _install_required(installer: Callable[[], None], marker: str, label: str) -> None:
+    """Install once, then verify the binding from the real wrapper topology."""
+    if _binding_installed(marker):
+        return
+    installer()
+    _required(_binding_installed(marker), label)
 
 
 def install_cinematic_runtime_port(
@@ -69,25 +100,39 @@ def install_cinematic_runtime_port(
         raise CinematicRuntimePortError(f"unknown Cinematic install phase: {phase!r}") from exc
 
     if resolved is CinematicInstallPhase.INNER:
-        sfx_live_binding.install_sfx_live_binding()
-        _required(bool(sfx_live_binding._INSTALLED), "SFX live binding")
-
-        m8_live_binding.install_m8_live_binding()
-        _required(bool(m8_live_binding._INSTALLED), "M8 live binding")
-
-        m9_live_binding.install_m9_live_binding()
-        _required(bool(m9_live_binding._INSTALLED), "M9 live binding")
-
-        m10_live_binding.install_m10_live_binding()
-        _required(bool(m10_live_binding._INSTALLED), "M10 live binding")
-
-        cta_live_binding.install_cta_live_binding()
-        _required(bool(cta_live_binding._INSTALLED), "CTA live binding")
+        _install_required(
+            sfx_live_binding.install_sfx_live_binding,
+            "_isco_sfx_live_binding",
+            "SFX live binding",
+        )
+        _install_required(
+            m8_live_binding.install_m8_live_binding,
+            "_isco_m8_live_binding",
+            "M8 live binding",
+        )
+        _install_required(
+            m9_live_binding.install_m9_live_binding,
+            "_isco_m9_live_binding",
+            "M9 live binding",
+        )
+        _install_required(
+            m10_live_binding.install_m10_live_binding,
+            "_isco_m10_live_binding",
+            "M10 live binding",
+        )
+        _install_required(
+            cta_live_binding.install_cta_live_binding,
+            "_isco_cta_live_binding",
+            "CTA live binding",
+        )
     else:
         # M7 owns the certified M11 composition internally. Keeping that existing
         # owner intact avoids duplicating M11 installation or changing its nesting.
-        m7_live_binding.install_m7_live_binding()
-        _required(bool(m7_live_binding._INSTALLED), "M7/M11 live binding")
+        _install_required(
+            m7_live_binding.install_m7_live_binding,
+            "_isco_m7_live_binding",
+            "M7/M11 live binding",
+        )
 
     return CinematicRuntimePortEvidence(
         port_id=PORT_ID,
@@ -96,10 +141,10 @@ def install_cinematic_runtime_port(
         phase=resolved,
         provider_owner=PROVIDER_OWNER,
         retry_owner=RETRY_OWNER,
-        sfx_installed=bool(sfx_live_binding._INSTALLED),
-        m8_installed=bool(m8_live_binding._INSTALLED),
-        m9_installed=bool(m9_live_binding._INSTALLED),
-        m10_installed=bool(m10_live_binding._INSTALLED),
-        cta_installed=bool(cta_live_binding._INSTALLED),
-        m7_m11_installed=bool(m7_live_binding._INSTALLED),
+        sfx_installed=_binding_installed("_isco_sfx_live_binding"),
+        m8_installed=_binding_installed("_isco_m8_live_binding"),
+        m9_installed=_binding_installed("_isco_m9_live_binding"),
+        m10_installed=_binding_installed("_isco_m10_live_binding"),
+        cta_installed=_binding_installed("_isco_cta_live_binding"),
+        m7_m11_installed=_binding_installed("_isco_m7_live_binding"),
     )
