@@ -24,7 +24,18 @@ def _install_v5_after_active() -> None:
 
 def replay_update(state_path, update):
     _install_v5_after_active()
-    return core.replay_update(state_path, update)
+    from scripts import telegram_creator_control_center_v5 as creator_v5
+
+    # The replay core substitutes getUpdates with the already-authorized webhook
+    # update. Preserve that callback's message identity as a class-level fallback
+    # so V5 can still edit the exact Telegram card in place after the replay core
+    # replaces TelegramClient.call for this one invocation.
+    context = creator_v5._context_from_update(update)
+    core.panel.TelegramClient._isco_v5_surface_context = context
+    try:
+        return core.replay_update(state_path, update)
+    finally:
+        core.panel.TelegramClient._isco_v5_surface_context = None
 
 
 def main() -> None:
