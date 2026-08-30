@@ -5,6 +5,7 @@ on:
     paths:
       - "scripts/telegram_topic_research_v2.py"
       - "scripts/test_telegram_topic_research_v2.py"
+      - "scripts/test_telegram_editorial_control_workflow.py"
       - ".github/workflows/telegram-editorial-control.yml"
       - ".github/workflows/verify-topic-research-v2.yml"
 
@@ -14,7 +15,7 @@ permissions:
 jobs:
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Checkout Runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -36,12 +37,21 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
       - name: Install locked research runtime
         run: |
           set -euo pipefail
           python -m pip install -r engine/requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e engine
           python -m pip check
+
+      - name: Dependency audit research Engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r engine/requirements-lock.txt
 
       - name: Compile research contract modules
         run: |
@@ -57,10 +67,21 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/engine/src
         run: python -m unittest discover -s engine/tests -p 'test_research.py' -v
 
+      - name: Full Agent regression on research SHA
+        working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/topic-research-v2-agent-history.json
+        run: python -m unittest discover -s tests -q
+
       - name: Runner Telegram research contract tests
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: python scripts/test_telegram_topic_research_v2.py
+
+      - name: Updated Telegram workflow contract test
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python -m unittest scripts.test_telegram_editorial_control_workflow -v
 
       - name: Production pin remains unchanged
         run: |
