@@ -178,7 +178,7 @@ class _MainPatchMixin:
             "install_runtime_closure",
             "install_post_runtime_planning_contracts",
             "install_tts_runtime_port",
-            "install_m7_live_binding",
+            "install_cinematic_runtime_port",
             "install_opening_feasibility_guard",
             "start_progress",
             "install_progress_hooks",
