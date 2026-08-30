@@ -14,6 +14,10 @@ from scripts.piper_bootstrap_cache import (
 )
 
 
+ROOT = Path(__file__).resolve().parents[1]
+PRODUCTION_WORKFLOW = ROOT / ".github" / "workflows" / "produce-resilient-v4.yml"
+
+
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -133,6 +137,36 @@ class PiperBootstrapCacheTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(PiperBootstrapCacheError, "not a regular file"):
                 validate_voice_directory(voice, manifest)
+
+    def test_production_cache_is_piper_only_and_revalidated(self) -> None:
+        text = PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
+        for needle in (
+            "Restore untrusted Piper wheel cache",
+            "Restore untrusted Piper voice cache",
+            "scripts/piper_bootstrap_cache.py wheel",
+            "scripts/piper_bootstrap_cache.py voice",
+            "piper_wheel_save=true",
+            "piper_voice_save=true",
+            "Save verified Piper wheel cache",
+            "Save verified Piper voice cache",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
+        self.assertNotIn("cache: pip", text)
+        self.assertNotIn("/var/cache/apt", text)
+
+    def test_cache_keys_bind_immutable_artifact_identity_and_allow_recovery(self) -> None:
+        text = PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn(
+            "piper-wheel-v2-${{ runner.os }}-py312-b17184a664bd9431ce95c138f4bfb3025e1280cf26075a703dbfdcab989b8ee3-${{ github.run_id }}",
+            text,
+        )
+        self.assertIn(
+            "piper-wheel-v2-${{ runner.os }}-py312-b17184a664bd9431ce95c138f4bfb3025e1280cf26075a703dbfdcab989b8ee3-",
+            text,
+        )
+        self.assertIn("hashFiles('engine/security/piper_voice_hashes.json')", text)
+        self.assertIn("-${{ github.run_id }}", text)
 
 
 if __name__ == "__main__":
