@@ -111,6 +111,15 @@ _PROVIDER_ORDER = ("gemini", "groq", "openrouter")
 _STAGE_WRAPPER_MARKER = "_isco_explicit_planning_stage_contract"
 _ROUTER_MARKER = "_isco_explicit_planning_contract_router"
 
+# Run #140 showed that a 3200-token outline reserve made the exact 20.6 KiB P0
+# envelope require 8306 Groq TPM, leaving Gemini as the only real provider while
+# OpenRouter was unavailable. 2400 is the already-established outline transport budget
+# in provider_capacity_hardening and keeps the same strict JSON/semantic contract while
+# restoring Groq portability (7506 estimated tokens for the Run #140 envelope).
+OUTLINE_COMPLETION_TOKEN_BUDGET = 2400
+OUTLINE_MAX_ATTEMPTS_PER_PROVIDER = 1
+OUTLINE_MAX_TOTAL_ATTEMPTS = len(_PROVIDER_ORDER)
+
 # One explicit provider-output budget per bounded Planning transport contract.  These
 # names are produced from stage identity + expected ids below; prompt text has no role
 # in selecting either the name or the budget.  Run123 consumes this same table for its
@@ -137,7 +146,7 @@ SHARD_COMPLETION_TOKEN_BUDGETS = {
 
 def _transport_completion_tokens(profile: str, expected_items: int) -> int:
     if profile == "editorial_outline":
-        return 3200
+        return OUTLINE_COMPLETION_TOKEN_BUDGET
     if profile == "section_repair":
         return 2200
     name = f"{profile}_{expected_items}"
@@ -279,11 +288,31 @@ def _append_schema(expected: int, *, ordered_subset: bool) -> dict:
     )
 
 
-def _provider_policy(completion_tokens: int) -> ProviderPolicy:
+def _provider_policy(
+    completion_tokens: int,
+    *,
+    max_attempts_per_provider: int | None = None,
+    max_total_attempts: int | None = None,
+) -> ProviderPolicy:
+    attempts_per_provider = (
+        router.TRANSIENT_PROVIDER_MAX_ATTEMPTS
+        if max_attempts_per_provider is None
+        else int(max_attempts_per_provider)
+    )
+    total_attempts = (
+        router.PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS
+        if max_total_attempts is None
+        else int(max_total_attempts)
+    )
+    if attempts_per_provider <= 0 or total_attempts <= 0:
+        raise PlanningStageError(
+            PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            "provider policy requires positive bounded attempts",
+        )
     return ProviderPolicy(
         providers=_PROVIDER_ORDER,
-        max_attempts_per_provider=router.TRANSIENT_PROVIDER_MAX_ATTEMPTS,
-        max_total_attempts=router.PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS,
+        max_attempts_per_provider=attempts_per_provider,
+        max_total_attempts=total_attempts,
         completion_tokens=completion_tokens,
         # Preserve only evidence-backed local limits. Unknown provider limits are not
         # invented; their own preflight owners may reject before HTTP contact.
@@ -311,8 +340,14 @@ def outline_stage_spec(expected_count: int) -> PlanningStageSpec:
             "nonempty_purpose": True,
             "narrative_identity_gates": True,
         },
+        # P0 outline optimizes for independent-provider failover, not repeated waiting
+        # on one transiently slow provider. Run #140 spent ~181 s on two Gemini timeouts
+        # while Groq/OpenRouter had not yet been tried. One bounded attempt per family
+        # moves directly Gemini -> Groq -> OpenRouter without weakening validation.
         provider_policy=_provider_policy(
-            _transport_completion_tokens("editorial_outline", expected_count)
+            _transport_completion_tokens("editorial_outline", expected_count),
+            max_attempts_per_provider=OUTLINE_MAX_ATTEMPTS_PER_PROVIDER,
+            max_total_attempts=OUTLINE_MAX_TOTAL_ATTEMPTS,
         ),
         cache_policy=CachePolicy(),
     )

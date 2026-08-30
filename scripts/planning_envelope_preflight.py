@@ -18,7 +18,10 @@ from isco_video_agent.providers.gemini import (
     with_channel_persona,
 )
 from isco_video_agent.resilient_planner import build_outline_prompt
-from scripts.dynamic_planning_capacity import certify_general_planning_envelope
+from scripts.dynamic_planning_capacity import (
+    certify_general_planning_envelope,
+    viable_provider_families,
+)
 from scripts.immutable_planning_snapshot import bind_runtime_approved_brief_path
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.planning_stage_contract import (
@@ -28,6 +31,9 @@ from scripts.planning_stage_contract import (
 from scripts.provider_capacity_hardening import (
     groq_capacity_estimate,
 )
+
+
+P0_OUTLINE_MIN_PROVIDER_FAMILIES = 2
 
 
 @dataclass(frozen=True)
@@ -45,16 +51,23 @@ class PlanningEnvelopeCertification:
     outline_completion_reserve: int
     full_script_completion_reserve: int
     max_script_batch_sections: int
+    viable_provider_families: tuple[str, ...]
+    required_provider_families: int
     runtime_token_admission: str
 
 
 def certify_planning_envelope() -> PlanningEnvelopeCertification:
-    """Certify the real general envelope and require at least one viable P0 provider.
+    """Certify P0 planning has two independent provider failure domains before run.
 
     The exact Writer shard does not exist until the outline is produced. This gate is
     intentionally tier one: it certifies the current approved outline envelope plus the
     fixed Writer batching contract. Tier two runs on the exact first Writer shard inside
     dynamic_planning_capacity before that shard can call a provider.
+
+    Run #140 proved that one nominally viable provider is insufficient: Gemini was the
+    only actual P0 route, timed out twice, Groq was 306 tokens over its 8K envelope, and
+    OpenRouter was preflight-blocked. Production now fails before network work unless at
+    least two independent provider families can carry the exact outline request.
     """
     # Canonical V4 materializes a read-only approved-brief snapshot during state restore.
     # A workflow step may still export the historical worktree path, so prefer the
@@ -81,6 +94,8 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
             outline_completion_reserve=0,
             full_script_completion_reserve=0,
             max_script_batch_sections=MAX_SCRIPT_BATCH_SECTIONS,
+            viable_provider_families=(),
+            required_provider_families=0,
             runtime_token_admission="provider_set_dynamic+exact_writer",
         )
 
@@ -113,16 +128,19 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
         raise RuntimeError("long-form writer batch certification exceeds three sections")
 
     # The standalone workflow process has no active runtime StageSpec. Pass the exact
-    # canonical Stage Contract budget explicitly so preflight cannot silently fall back
-    # to provider_capacity_hardening's historical prompt-inferred 2400-token table.
+    # canonical Stage Contract budget explicitly so preflight and the live request share
+    # one transport budget. P0 additionally requires two independent provider families;
+    # multiple Groq models count as one failure domain, not fake redundancy.
     request_capacity = groq_capacity_estimate(
         enriched,
         reserved_completion_tokens=outline_reserve,
         contract_name=str(outline_spec.semantic_rules["transport_profile"]),
     )
-    # This is no longer "Groq <= 8000 therefore production is safe". It asks the
-    # provider set whether one path is currently not known incapable of the P0 envelope.
-    certify_general_planning_envelope(request_capacity["estimated_request_tokens"])
+    viable = certify_general_planning_envelope(
+        request_capacity["estimated_request_tokens"],
+        min_provider_families=P0_OUTLINE_MIN_PROVIDER_FAMILIES,
+    )
+    families = tuple(viable_provider_families(viable))
 
     groq_limit = request_capacity.get("provider_tpm_limit")
     headroom = (
@@ -145,7 +163,9 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
         outline_completion_reserve=outline_reserve,
         full_script_completion_reserve=writer_reserve,
         max_script_batch_sections=MAX_SCRIPT_BATCH_SECTIONS,
-        runtime_token_admission="provider_set_dynamic+exact_writer",
+        viable_provider_families=families,
+        required_provider_families=P0_OUTLINE_MIN_PROVIDER_FAMILIES,
+        runtime_token_admission="p0_two_provider_families+provider_set_dynamic+exact_writer",
     )
 
 
@@ -167,6 +187,8 @@ def main() -> None:
         f"byte_headroom={result.remaining_headroom_utf8_bytes} "
         f"required_tokens={result.outline_estimated_request_tokens} "
         f"groq_observed_or_initial_limit={result.groq_tpm_limit} "
+        f"viable_families={','.join(result.viable_provider_families) if result.viable_provider_families else 'n/a'} "
+        f"required_families={result.required_provider_families} "
         f"runtime_admission={result.runtime_token_admission} "
         f"script_batch_max={result.max_script_batch_sections}"
     )
