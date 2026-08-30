@@ -66,6 +66,25 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
         )
         self.assertEqual(seen, ["حديث", "حديث آخر"])
 
+    def test_short_and_long_seen_cooldowns_are_independent(self):
+        state = {
+            "sessions": {
+                "long": {
+                    "kind": "long",
+                    "created_at": "2026-08-29T00:00:00Z",
+                    "candidates": [{"title": "حلقة حديثة"}],
+                },
+                "short": {
+                    "kind": "short",
+                    "created_at": "2026-08-29T00:00:00Z",
+                    "candidates": [{"title": "شورت حديث"}],
+                },
+            }
+        }
+        now = datetime(2026, 8, 30, tzinfo=timezone.utc)
+        self.assertEqual(v2._recent_seen_topics(state, "short", now=now), ["شورت حديث"])
+        self.assertEqual(v2._recent_seen_topics(state, "long", now=now), ["حلقة حديثة"])
+
     def test_diverse_top_prefers_different_market_classes(self):
         candidates = [
             self._candidate("صاعد", 0.80, 0.60, 0.92),
@@ -94,6 +113,29 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
             if item.get("market_timing_status") == "measured" and item.get("source_mode") == "live_research"
         ]
         self.assertEqual(live, [])
+
+    def test_short_payload_uses_same_live_contract_and_adds_short_admission(self):
+        candidate = self._candidate("فكرة شورت", 0.72, 0.75, 0.90)
+        payload = v2._build_candidate_payload(candidate, "short")
+        self.assertEqual(payload["research_contract_version"], v2.RESEARCH_CONTRACT_VERSION)
+        self.assertEqual(payload["source_mode"], "live_research")
+        self.assertEqual(payload["market_timing_status"], "measured")
+        self.assertEqual(payload["format_hint"], "moment")
+        self.assertIn("short_admission", payload)
+        self.assertIn("single_action_contract", payload["short_admission"])
+        self.assertGreater(payload["short_admission"]["short_fit_score"], 0)
+
+    def test_short_score_keeps_measured_market_timing_in_formula(self):
+        low_timing = self._candidate("شورت أ", 0.10, 0.75, 0.0)
+        high_timing = self._candidate("شورت ب", 0.90, 0.75, 0.0)
+        self.assertGreater(v2._control_score(high_timing, "short"), v2._control_score(low_timing, "short"))
+
+    def test_short_panel_is_explicitly_live_research(self):
+        candidate = v2._build_candidate_payload(self._candidate("فكرة شورت", 0.72, 0.75, 0.90), "short")
+        text = v2._candidate_panel_text("short", [candidate, candidate, candidate])
+        self.assertIn("3 فرص بحث حي للشورت", text)
+        self.assertIn("الآن:", text)
+        self.assertIn("ملاءمة القناة", text)
 
     def test_workflow_separates_research_engine_from_production_engine(self):
         workflow = (ROOT / ".github/workflows/telegram-editorial-control.yml").read_text(encoding="utf-8")
