@@ -41,7 +41,7 @@ class CreatorControlCenterV5EdgeTests(unittest.TestCase):
             "لا تدّعي عدد المشاهدات المكتسبة داخل الفترة",
         ):
             self.assertIn(marker, self.text)
-        self.assertIn("duration <= 180", self.text)
+        self.assertIn("Number(video.duration) <= 180", self.text)
 
     def test_status_is_operator_first_with_technical_details_separated(self):
         self.assertIn("الحالة — ماذا يحدث الآن؟", self.text)
