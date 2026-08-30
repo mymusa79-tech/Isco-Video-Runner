@@ -27,11 +27,45 @@ class _Response:
         return self._buffer.read()
 
 
+def _run(
+    *,
+    run_id: int,
+    name: str,
+    path: str,
+    event: str = "push",
+    conclusion: str = "success",
+    head_sha: str = SHA,
+    head_branch: str = "main",
+) -> dict[str, Any]:
+    return {
+        "id": run_id,
+        "name": name,
+        "path": path,
+        "head_sha": head_sha,
+        "head_branch": head_branch,
+        "event": event,
+        "status": "completed",
+        "conclusion": conclusion,
+    }
+
+
 class _Opener:
-    def __init__(self, *, protected: bool = True, branch_sha: str = SHA, bad_tag: str | None = None):
+    def __init__(
+        self,
+        *,
+        protected: bool = True,
+        branch_sha: str = SHA,
+        bad_tag: str | None = None,
+        private_event: str = "push",
+        stage_conclusion: str = "success",
+        omit_workflow: str | None = None,
+    ):
         self.protected = protected
         self.branch_sha = branch_sha
         self.bad_tag = bad_tag
+        self.private_event = private_event
+        self.stage_conclusion = stage_conclusion
+        self.omit_workflow = omit_workflow
         self.urls: list[str] = []
 
     def __call__(self, request, timeout=20):
@@ -46,11 +80,29 @@ class _Opener:
             if self.bad_tag and tag == self.bad_tag:
                 return _Response({"object": {"type": "commit", "sha": "b" * 40}})
             return _Response({"object": {"type": "commit", "sha": SHA}})
+        if "/actions/runs?" in url:
+            runs = [
+                _run(
+                    run_id=101,
+                    name="Verify Private Engine",
+                    path=".github/workflows/verify-private-engine.yml",
+                    event=self.private_event,
+                ),
+                _run(
+                    run_id=102,
+                    name="Verify Production Stage Ladder",
+                    path=".github/workflows/verify-production-stage-ladder.yml",
+                    conclusion=self.stage_conclusion,
+                ),
+            ]
+            if self.omit_workflow:
+                runs = [item for item in runs if item["name"] != self.omit_workflow]
+            return _Response({"total_count": len(runs), "workflow_runs": runs})
         raise urllib.error.URLError(f"unexpected URL {url}")
 
 
 class ProductionCertificationGateTests(unittest.TestCase):
-    def test_accepts_protected_current_main_with_both_exact_sha_refs(self) -> None:
+    def test_accepts_protected_current_main_with_exact_refs_and_successful_runs(self) -> None:
         opener = _Opener()
         result = verify_certified_production_source(
             repository=REPO,
@@ -65,7 +117,17 @@ class ProductionCertificationGateTests(unittest.TestCase):
             result["certification_refs"],
             [f"full-regression-green-{SHA}", f"stage-ladder-green-{SHA}"],
         )
+        self.assertEqual(
+            [item["name"] for item in result["certification_runs"]],
+            ["Verify Private Engine", "Verify Production Stage Ladder"],
+        )
+        self.assertEqual([item["run_id"] for item in result["certification_runs"]], [101, 102])
         self.assertFalse(result["production_dispatch_performed"])
+        actions_url = next(url for url in opener.urls if "/actions/runs?" in url)
+        self.assertIn("head_sha=" + SHA, actions_url)
+        self.assertIn("branch=main", actions_url)
+        self.assertIn("event=push", actions_url)
+        self.assertIn("status=success", actions_url)
 
     def test_rejects_unprotected_main(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "main is not protected"):
@@ -96,6 +158,36 @@ class ProductionCertificationGateTests(unittest.TestCase):
                 git_ref="refs/heads/main",
                 token="token",
                 opener=_Opener(bad_tag=bad_tag),
+            )
+
+    def test_rejects_tag_only_pr_certification(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "missing exact successful main-push certification run"):
+            verify_certified_production_source(
+                repository=REPO,
+                runner_sha=SHA,
+                git_ref="refs/heads/main",
+                token="token",
+                opener=_Opener(private_event="pull_request"),
+            )
+
+    def test_rejects_failed_stage_ladder_even_when_tags_match(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Verify Production Stage Ladder"):
+            verify_certified_production_source(
+                repository=REPO,
+                runner_sha=SHA,
+                git_ref="refs/heads/main",
+                token="token",
+                opener=_Opener(stage_conclusion="failure"),
+            )
+
+    def test_rejects_missing_canonical_run_even_when_tags_match(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Verify Private Engine"):
+            verify_certified_production_source(
+                repository=REPO,
+                runner_sha=SHA,
+                git_ref="refs/heads/main",
+                token="token",
+                opener=_Opener(omit_workflow="Verify Private Engine"),
             )
 
     def test_rejects_non_main_dispatch(self) -> None:
