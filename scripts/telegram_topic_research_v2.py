@@ -18,6 +18,7 @@ from scripts import telegram_topic_memory_ui as memory_ui
 RESEARCH_CONTRACT_VERSION = "topic-research-v2"
 SEEN_COOLDOWN_DAYS = 21
 MIN_LIVE_MARKET_CANDIDATES = 3
+MAX_YOUTUBE_MARKET_PROBES = 5
 
 
 def _parse_time(value: object) -> datetime | None:
@@ -83,7 +84,7 @@ def _market_class(candidate: dict[str, Any]) -> str:
 
 def _market_class_ar(candidate: dict[str, Any]) -> str:
     return {
-        "rising": "🔥 صاعد الآن",
+        "rising": "🔥 زخم حديث قوي",
         "hybrid": "⚖️ هجين: الآن + مستمر",
         "evergreen": "🌲 Evergreen مع قياس حي",
         "explore": "🧭 فرصة استكشاف",
@@ -269,9 +270,13 @@ def _research_current_v2(state_path: Path) -> None:
         region = (os.environ.get("YOUTUBE_REGION") or "SA").strip()
         language = (os.environ.get("YOUTUBE_LANGUAGE") or "ar").strip()
         exclusions = _recent_seen_topics(state, kind)
+        # Topic Research V2 deliberately does not spend search.list quota on the
+        # legacy five broad YouTube discovery seeds. Gemini grounded research +
+        # Google Trends generate the pool; only the strongest five candidates are
+        # then measured against YouTube recent-search evidence below.
         signals = gather_signals(
             gemini,
-            youtube,
+            None,
             (os.environ.get("TRENDS_GEO") or "SA").strip(),
             region,
             language,
@@ -283,7 +288,8 @@ def _research_current_v2(state_path: Path) -> None:
             allow_fallback=False,
             excluded_topics=exclusions,
         )
-        ranked = measure_market_timing(youtube, ranked, region=region, language=language)
+        probe_pool = sorted(ranked, key=lambda item: item.channel_fit_score, reverse=True)[:MAX_YOUTUBE_MARKET_PROBES]
+        ranked = measure_market_timing(youtube, probe_pool, region=region, language=language)
         live = [item for item in ranked if item.market_timing_status == "measured" and item.source_mode == "live_research"]
         if len(live) < MIN_LIVE_MARKET_CANDIDATES:
             raise RuntimeError(
@@ -293,7 +299,7 @@ def _research_current_v2(state_path: Path) -> None:
         candidates.sort(key=lambda item: float(item.get("control_score", 0.0) or 0.0), reverse=True)
         unused_candidates, used_filtered = active._filter_used_candidates(state, kind, candidates)
         if kind == "long":
-            research_ready = simple._research_ready_long_candidates(gemini, unused_candidates[:6], model)
+            research_ready = simple._research_ready_long_candidates(gemini, unused_candidates[:5], model)
         else:
             research_ready = unused_candidates
         chosen = _diverse_top(research_ready, 3)
@@ -308,6 +314,7 @@ def _research_current_v2(state_path: Path) -> None:
             "research_contract_version": RESEARCH_CONTRACT_VERSION,
             "source_mode": "live_research",
             "seen_cooldown_days": SEEN_COOLDOWN_DAYS,
+            "youtube_market_probe_limit": MAX_YOUTUBE_MARKET_PROBES,
             "excluded_recent_topics": exclusions,
             "candidates": chosen,
             "used_topics_filtered": used_filtered,
