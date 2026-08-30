@@ -53,6 +53,9 @@ _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED = False
 
 
 def _reassert_after_lifecycle_patch() -> None:
+    # Reassert both halves of the contract.  json_text may still contain the routed
+    # wrapper while a later installer has replaced only the compatibility schema seam.
+    install_planning_contract_router()
     install_planning_stage_boundaries()
     if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
         assert_planning_stage_contract_installed()

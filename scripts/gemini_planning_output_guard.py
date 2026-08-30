@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 import isco_video_agent.providers.gemini as gemini_provider
+import scripts.planning_stage_contract as stage_contract
 import scripts.task_level_planner_router as planner_router
 
 
@@ -50,7 +51,12 @@ def _guarded_gemini_json_text(
     }
     effective_max = max_output_tokens
     if effective_max is None and contract is not None:
-        effective_max = _DEFAULT_MAX_OUTPUT_TOKENS.get(schema_name)
+        # Canonical production gets the budget from the active explicit Stage
+        # Contract. The legacy name table remains only for isolated/noncanonical
+        # compatibility tests where no StageSpec is active.
+        effective_max = stage_contract.active_planning_completion_tokens()
+        if effective_max is None:
+            effective_max = _DEFAULT_MAX_OUTPUT_TOKENS.get(schema_name)
     if effective_max is not None:
         kwargs["generation_config"] = {"max_output_tokens": effective_max}
 

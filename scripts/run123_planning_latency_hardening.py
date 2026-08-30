@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import re
 
 import isco_video_agent.resilient_planner as staged
 from isco_video_agent.config import load_channel_persona
 
 from scripts import append_retry_guard as append_retry
+from scripts import planning_stage_contract as stage_contract
 from scripts import provider_capacity_hardening as capacity
 from scripts import run120_dossier_repair_hardening as dossier
 from scripts import task_level_planner_router as router
@@ -24,24 +24,7 @@ from scripts import task_level_planner_router as router
 
 _REPAIR_RETRY_AFTER_CAP_SECONDS = 20.0
 
-_SHARD_COMPLETION_BUDGETS = {
-    "script_writer_1": 900,
-    "script_writer_2": 1300,
-    "script_writer_3": 1800,
-    "script_doctor_1": 900,
-    "script_doctor_2": 1400,
-    "script_doctor_3": 1800,
-    "dossier_repair_1": 850,
-    "dossier_repair_2": 1400,
-    "append_repair_1": 600,
-    "append_repair_2": 800,
-    "append_repair_3": 1000,
-    "append_repair_4": 1200,
-    "append_repair_5": 1400,
-    "append_repair_6": 1600,
-    "append_repair_7": 1800,
-    "append_repair_8": 2000,
-}
+_SHARD_COMPLETION_BUDGETS = stage_contract.SHARD_COMPLETION_TOKEN_BUDGETS
 
 _WRITER_DOCTOR_CONTRACTS = frozenset(
     name for name in _SHARD_COMPLETION_BUDGETS if name.startswith(("script_writer_", "script_doctor_"))
@@ -124,26 +107,6 @@ def compact_planning_research_json(raw: str) -> str:
                 )
         payload[key] = compact_pack
     return _compact_json(payload)
-
-
-def _contract_name_for_prompt(prompt: str, base_name: str) -> str:
-    exact_match = re.search(r"with EXACTLY\s*(\d+)\s+entries", prompt, flags=re.I)
-    if not exact_match:
-        return base_name
-    count = int(exact_match.group(1))
-
-    if base_name == "append_only_repair" and '"additions"' in prompt:
-        name = f"append_repair_{count}"
-        return name if name in _APPEND_CONTRACTS else base_name
-    if base_name != "full_script":
-        return base_name
-    if "Repair ONLY this bounded shard" in prompt:
-        return f"dossier_repair_{count}"
-    if "Repair ONE BOUNDED BATCH" in prompt:
-        return f"script_doctor_{count}"
-    if "writing ONE BOUNDED BATCH" in prompt:
-        return f"script_writer_{count}"
-    return base_name
 
 
 def _is_compact_repair_prompt(prompt: str) -> bool:
@@ -257,7 +220,6 @@ def install_run123_planning_latency_hardening() -> None:
     if getattr(router, "_ISCO_RUN123_PLANNING_LATENCY_HARDENED", False):
         return
 
-    original_schema = router._structured_schema_for_prompt
     original_budget = capacity.completion_token_budget
     original_persona = router.with_channel_persona
     original_write = staged._write_full_script
@@ -266,14 +228,10 @@ def install_run123_planning_latency_hardening() -> None:
     original_append_repair = append_retry._repair_all_residual_underlength
     original_response_format = capacity._response_format_for_contract
 
-    def shard_schema(prompt: str):
-        contract = original_schema(prompt)
-        if contract is None:
-            return None
-        name, schema = contract
-        return _contract_name_for_prompt(prompt, name), schema
-
     def shard_completion_budget(contract) -> int:
+        explicit = stage_contract.active_planning_completion_tokens()
+        if explicit is not None:
+            return explicit
         name = contract[0] if contract else "json_object"
         return _SHARD_COMPLETION_BUDGETS.get(name, original_budget(contract))
 
@@ -319,7 +277,6 @@ def install_run123_planning_latency_hardening() -> None:
             kwargs["research_json"] = compact_planning_research_json(kwargs["research_json"])
         return original_append_repair(*args, **kwargs)
 
-    router._structured_schema_for_prompt = shard_schema
     router.with_channel_persona = task_persona
     capacity.completion_token_budget = shard_completion_budget
     router._completion_tokens_for_contract = shard_completion_budget
@@ -362,7 +319,8 @@ def install_run123_planning_latency_hardening() -> None:
     router._ISCO_RUN123_PLANNING_LATENCY_HARDENED = True
     print(
         "Run123 planning latency hardening installed: "
-        "writer_doctor=dynamically_bounded dossier=strict_schema_low_reasoning "
+        "writer_doctor=explicit_contract_bounded dossier=strict_schema_low_reasoning "
         "append=compact_dynamic_budget groq_window=model_scoped_failover_without_sleep "
-        "repair_persona=compact factual_claim_scopes=preserved retry_after_cap=20s"
+        "repair_persona=compact factual_claim_scopes=preserved retry_after_cap=20s "
+        "prompt_schema_inference=false"
     )

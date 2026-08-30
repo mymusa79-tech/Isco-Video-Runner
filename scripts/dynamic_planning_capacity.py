@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 from scripts import planning_batch_hardening as batching
+from scripts import planning_stage_contract as stage_contract
 from scripts import provider_capacity_hardening as capacity
 from scripts import run125_capacity_routing_closure as run125
 from scripts import task_level_planner_router as router
@@ -229,31 +230,35 @@ def install_dynamic_planning_capacity() -> None:
         label: str,
     ) -> dict[str, dict]:
         global _FIRST_WRITER_GATE_SEEN
-        prompt = prompt_builder(ids)
-        estimate = effective_request_capacity(prompt)
-        viable = viable_planning_providers(estimate["estimated_request_tokens"])
+        # This wrapper runs before the base batching function establishes its own
+        # scope. Bind the exact request here as well so the early capacity gate cannot
+        # fall back to prompt-derived schema/budget identity.
+        with stage_contract.script_batch_scope(label, ids):
+            prompt = prompt_builder(ids)
+            estimate = effective_request_capacity(prompt)
+            viable = viable_planning_providers(estimate["estimated_request_tokens"])
 
-        if label == "writer" and not _FIRST_WRITER_GATE_SEEN:
-            _FIRST_WRITER_GATE_SEEN = True
-            print(
-                "Exact first Writer capacity gate: "
-                f"required={estimate['estimated_request_tokens']} "
-                f"viable={','.join(viable) if viable else 'none'}"
-            )
+            if label == "writer" and not _FIRST_WRITER_GATE_SEEN:
+                _FIRST_WRITER_GATE_SEEN = True
+                print(
+                    "Exact first Writer capacity gate: "
+                    f"required={estimate['estimated_request_tokens']} "
+                    f"viable={','.join(viable) if viable else 'none'}"
+                )
 
-        if not viable and len(ids) <= 1:
-            raise RuntimeError(
-                "NO_VIABLE_PLANNING_CAPACITY "
-                f"phase=exact_runtime_{label} section={ids[0]} "
-                f"required_tokens={estimate['estimated_request_tokens']}"
+            if not viable and len(ids) <= 1:
+                raise RuntimeError(
+                    "NO_VIABLE_PLANNING_CAPACITY "
+                    f"phase=exact_runtime_{label} section={ids[0]} "
+                    f"required_tokens={estimate['estimated_request_tokens']}"
+                )
+            return original_shard(
+                api_key,
+                model,
+                ids,
+                prompt_builder=prompt_builder,
+                label=label,
             )
-        return original_shard(
-            api_key,
-            model,
-            ids,
-            prompt_builder=prompt_builder,
-            label=label,
-        )
 
     batching._call_capacity_aware_shard = exact_runtime_gate
     _INSTALLED = True
