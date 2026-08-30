@@ -17,6 +17,8 @@ PRODUCTION = WORKFLOWS / "produce-resilient-v4.yml"
 ENGINE_FULL = "python -m unittest discover -s tests -q"
 RUNNER_DISCOVERY = "find scripts -maxdepth 1 -type f -name 'test_*.py'"
 DEPENDENCY_AUDIT = "pip-audit --no-deps -r requirements-lock.txt"
+DEPENDENCY_AUDIT_PACKAGE = "pip-audit==2.10.1"
+DEPENDENCY_AUDIT_ARGS = "--no-deps -r requirements-lock.txt"
 
 
 class CIFullRegressionOwnershipTests(unittest.TestCase):
@@ -38,7 +40,7 @@ class CIFullRegressionOwnershipTests(unittest.TestCase):
                 text = path.read_text(encoding="utf-8")
                 self.assertNotIn(ENGINE_FULL, text)
                 self.assertNotIn(RUNNER_DISCOVERY, text)
-                self.assertNotIn(DEPENDENCY_AUDIT, text)
+                self.assertNotIn(DEPENDENCY_AUDIT_PACKAGE, text)
 
     def test_specialized_workflows_keep_their_unique_evidence(self) -> None:
         m7 = SPECIALIZED[0].read_text(encoding="utf-8")
@@ -59,7 +61,11 @@ class CIFullRegressionOwnershipTests(unittest.TestCase):
         production = PRODUCTION.read_text(encoding="utf-8")
         self.assertIn(ENGINE_FULL, production)
         self.assertIn(RUNNER_DISCOVERY, production)
-        self.assertIn(DEPENDENCY_AUDIT, production)
+        # Production intentionally installs pip-audit in an isolated venv and
+        # invokes it by an absolute quoted path, so freeze semantics rather than
+        # one shell spelling.
+        self.assertIn(DEPENDENCY_AUDIT_PACKAGE, production)
+        self.assertIn(DEPENDENCY_AUDIT_ARGS, production)
 
 
 if __name__ == "__main__":
