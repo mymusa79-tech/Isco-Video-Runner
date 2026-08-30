@@ -67,7 +67,7 @@ class RuntimeClosureTests(unittest.TestCase):
              patch.object(runtime_closure,"install_audio_semantic_integrity_binding",side_effect=lambda:calls.append("audio-semantic-binding")) as semantic_binding, \
              patch.object(runtime_closure,"install_audio_mastering_live_binding",side_effect=lambda:calls.append("audio")) as audio, \
              patch.object(runtime_closure,"install_cinematic_runtime_port",side_effect=lambda phase:calls.append("cinematic-inner")) as cinematic, \
-             patch.object(runtime_closure,"install_render_durable_cache",side_effect=lambda:calls.append("render-cache")) as render_cache, \
+             patch.object(runtime_closure,"install_render_runtime_port",side_effect=lambda:calls.append("render-port")) as render_port, \
              patch.object(runtime_closure,"install_narrative_music_dynamics",side_effect=lambda:calls.append("music")) as music, \
              patch.object(runtime_closure,"install_canonical_v4_bundle_post_manifest",side_effect=lambda:calls.append("bundle")) as bundle, \
              patch.object(runtime_closure,"install_release_transaction_guard",side_effect=lambda:calls.append("release")) as release, \
@@ -80,7 +80,7 @@ class RuntimeClosureTests(unittest.TestCase):
             runtime_closure.install_runtime_closure()
         planning.assert_called_once_with(); media_port.assert_called_once_with(); core.assert_called_once_with(); semantic_binding.assert_called_once_with()
         audio.assert_called_once_with(); cinematic.assert_called_once_with(runtime_closure.CinematicInstallPhase.INNER)
-        render_cache.assert_called_once_with(); music.assert_called_once_with(); bundle.assert_called_once_with(); release.assert_called_once_with(); telemetry.assert_called_once_with()
+        render_port.assert_called_once_with(); music.assert_called_once_with(); bundle.assert_called_once_with(); release.assert_called_once_with(); telemetry.assert_called_once_with()
         observer_cache_trust.assert_called_once_with(); observer_durability.assert_called_once_with()
         modules.assert_called(); semantic_final.assert_called_once()
         self.assertLess(calls.index("planning"), calls.index("media-port"))
@@ -88,7 +88,7 @@ class RuntimeClosureTests(unittest.TestCase):
         self.assertLess(calls.index("core"), calls.index("audio-semantic-binding"))
         self.assertLess(calls.index("audio-semantic-binding"), calls.index("audio"))
         self.assertLess(calls.index("audio"), calls.index("cinematic-inner"))
-        self.assertLess(calls.index("cinematic-inner"), calls.index("render-cache"))
+        self.assertLess(calls.index("cinematic-inner"), calls.index("render-port"))
         self.assertEqual(calls[-1], "observer-durability")
 
     def test_stable_ports_and_audio_semantic_order_around_render(self) -> None:
@@ -102,7 +102,7 @@ class RuntimeClosureTests(unittest.TestCase):
         semantic_line=next(line for line,name in calls if name=="install_audio_semantic_integrity_binding")
         audio_line=next(line for line,name in calls if name=="install_audio_mastering_live_binding")
         cinematic_line=next(line for line,name in calls if name=="install_cinematic_runtime_port")
-        render_line=next(line for line,name in calls if name=="install_render_durable_cache")
+        render_line=next(line for line,name in calls if name=="install_render_runtime_port")
         final_line=next(line for line,name in calls if name=="install_audio_semantic_final_gate")
         telemetry_line=next(line for line,name in calls if name=="install_telemetry_reliability_binding")
         self.assertLess(planning_line,media_line)
