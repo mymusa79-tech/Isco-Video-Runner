@@ -318,6 +318,18 @@ def outline_stage_spec(expected_count: int) -> PlanningStageSpec:
     )
 
 
+def outline_stage_spec_for_format(fmt: str) -> PlanningStageSpec:
+    """Resolve the Engine-owned outline size into the canonical transport policy."""
+    expected = staged._SECTION_COUNTS.get(str(fmt or "").strip().lower())
+    if not isinstance(expected, int):
+        raise PlanningStageError(
+            PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"outline unknown fmt={fmt}",
+            stage_id="planning.editorial_outline",
+        )
+    return outline_stage_spec(expected)
+
+
 def script_stage_spec(stage_kind: str, expected_ids: list[str]) -> PlanningStageSpec:
     ids = [str(item).strip() for item in expected_ids]
     if not ids or any(not item for item in ids) or len(ids) != len(set(ids)):
@@ -959,9 +971,22 @@ def _provider_result(
     prompt: str,
     model: str,
     contract: PlanningStageContract,
+    primary_api_key: str,
 ):
     if provider == "gemini":
-        gemini_key = router._read_secret_file("GEMINI_API_KEY_FILE")
+        # Engine config.secret() deliberately consumes and deletes the one-time file
+        # before build_plan().  Its api_key argument is therefore the only canonical
+        # request-scoped credential at this boundary; re-reading *_FILE here breaks the
+        # secure one-time lifecycle and caused the uploaded Production run to fail
+        # before any provider request was made.
+        gemini_key = str(primary_api_key or "").strip()
+        if not gemini_key:
+            raise PlanningStageError(
+                PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+                "Gemini request credential unavailable after one-time secret consumption",
+                stage_id=contract.stage_id,
+                provider=provider,
+            )
         return router._budgeted_provider_call(
             "gemini",
             model,
@@ -1005,7 +1030,7 @@ def install_planning_contract_router() -> None:
     # from the active request contract. The prompt argument is deliberately ignored.
     router._structured_schema_for_prompt = _explicit_schema_adapter
 
-    def contract_router(_api_key, prompt, model="gemini-2.5-flash"):
+    def contract_router(api_key, prompt, model="gemini-2.5-flash"):
         nonlocal sequence
         spec = _ACTIVE_STAGE_SPEC.get()
         if spec is None:
@@ -1069,7 +1094,13 @@ def install_planning_contract_router() -> None:
                         started = time.monotonic()
                         last_call_at[provider] = started
                         try:
-                            raw = _provider_result(provider, effective_prompt, model, contract)
+                            raw = _provider_result(
+                                provider,
+                                effective_prompt,
+                                model,
+                                contract,
+                                api_key,
+                            )
                             try:
                                 parsed = raw if isinstance(raw, dict) else router._parse_json(raw)
                             except Exception as exc:
@@ -1318,14 +1349,7 @@ def _wrap_outline() -> None:
     @functools.wraps(current)
     def wrapped(*args, **kwargs):
         fmt = kwargs.get("fmt", args[2] if len(args) > 2 else None)
-        expected = staged._SECTION_COUNTS.get(fmt)
-        if not isinstance(expected, int):
-            raise PlanningStageError(
-                PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-                f"outline unknown fmt={fmt}",
-                stage_id="planning.editorial_outline",
-            )
-        with request_stage_scope(outline_stage_spec(expected)):
+        with request_stage_scope(outline_stage_spec_for_format(fmt)):
             return current(*args, **kwargs)
 
     setattr(wrapped, _STAGE_WRAPPER_MARKER, "editorial_outline")

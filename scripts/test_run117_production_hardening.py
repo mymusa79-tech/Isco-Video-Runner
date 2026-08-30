@@ -57,6 +57,21 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
         self.assertLessEqual(normal["estimated_request_tokens"], capacity.GROQ_FREE_TPM_LIMIT)
         self.assertGreater(oversized["estimated_request_tokens"], capacity.GROQ_FREE_TPM_LIMIT)
 
+    def test_explicit_capacity_contract_never_invokes_prompt_inference(self) -> None:
+        with patch.object(
+            capacity.router,
+            "_structured_schema_for_prompt",
+            side_effect=AssertionError("explicit capacity must not inspect prompt text"),
+        ):
+            estimate = capacity.groq_capacity_estimate(
+                "opaque prompt",
+                reserved_completion_tokens=3200,
+                contract_name="editorial_outline",
+            )
+
+        self.assertEqual(estimate["contract"], "editorial_outline")
+        self.assertEqual(estimate["reserved_completion_tokens"], 3200)
+
     def test_retry_after_bound_can_honor_run117_69_second_header(self) -> None:
         self.assertGreaterEqual(capacity.MAX_RETRY_AFTER_SECONDS, 69.0)
         self.assertLessEqual(capacity.MAX_RETRY_AFTER_SECONDS, 120.0)

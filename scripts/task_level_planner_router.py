@@ -634,19 +634,18 @@ def install_router() -> None:
     _TELEMETRY.clear()
     _CURRENT_REQUEST_META.clear()
     _last_call_response_meta.clear()
-    gemini_key = _read_secret_file("GEMINI_API_KEY_FILE")
 
     providers = [
         (
             "gemini",
-            lambda prompt, model: _budgeted_provider_call(
-                "gemini", model, gemini_json_text, gemini_key, prompt, model=model
+            lambda api_key, prompt, model: _budgeted_provider_call(
+                "gemini", model, gemini_json_text, api_key, prompt, model=model
             ),
         ),
-        ("groq", lambda prompt, model: _groq_call(prompt)),
+        ("groq", lambda _api_key, prompt, model: _groq_call(prompt)),
         (
             "openrouter",
-            lambda prompt, model: _openrouter_call_with_repair(
+            lambda _api_key, prompt, model: _openrouter_call_with_repair(
                 prompt,
                 "openrouter/free",
                 "openrouter",
@@ -655,7 +654,7 @@ def install_router() -> None:
         ),
     ]
 
-    def task_router(_api_key, prompt, model="gemini-2.5-flash"):
+    def task_router(api_key, prompt, model="gemini-2.5-flash"):
         nonlocal planning_subtask_sequence
         prompt = _enrich_dialogue_prompt(prompt)
         prompt = with_channel_persona(prompt)
@@ -686,7 +685,7 @@ def install_router() -> None:
                         time.sleep(MIN_PROVIDER_CALL_INTERVAL_SECONDS - since_last_call)
                     last_call_at[name] = time.monotonic()
                     try:
-                        raw = provider(prompt, model)
+                        raw = provider(api_key, prompt, model)
                         data = _normalize_outline(_parse_json(raw), prompt)
                         responses[cache_key] = data
                         checkpoint["last_provider"] = name
