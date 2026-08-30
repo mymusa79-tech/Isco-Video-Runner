@@ -8,6 +8,8 @@ from unittest.mock import patch
 from scripts import orchestration_media_port as port
 from scripts.orchestration_stage_registry import build_l4_registry
 
+# Certification sync marker: test-only change to trigger main-filtered PR workflows.
+
 
 class MediaStablePortTests(unittest.TestCase):
     def setUp(self) -> None:
