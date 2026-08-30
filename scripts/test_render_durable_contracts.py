@@ -40,12 +40,13 @@ class RenderDurableContractTests(unittest.TestCase):
         cinematic = source.index(
             "    install_cinematic_runtime_port(CinematicInstallPhase.INNER)"
         )
-        render = source.index("    install_render_durable_cache()")
+        render = source.index("    install_render_runtime_port()")
         narrative = source.index("    install_narrative_music_dynamics()")
         self.assertLess(audio, mastering)
         self.assertLess(mastering, cinematic)
         self.assertLess(cinematic, render)
         self.assertLess(render, narrative)
+        self.assertNotIn("    install_render_durable_cache()", source)
         for direct in (
             "    install_sfx_live_binding()",
             "    install_m8_live_binding()",
