@@ -124,7 +124,7 @@ def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
     """Run one authenticated Telegram update through the existing control plane exactly once.
 
     Release approval callbacks are consumed directly by the webhook-owned L6 adapter.
-    All other stateful callbacks continue through the certified legacy parser using an
+    All other stateful callbacks continue through the certified stateful parser using an
     injected already-received update; that injection is not a live Telegram poll.
     """
     update_id = int(update["update_id"])
@@ -137,16 +137,19 @@ def replay_update(state_path: Path, update: dict[str, Any]) -> bool:
     if replay_release_approval_only(state_path, update):
         return True
 
-    # Install the exact same UI stack as telegram_topic_memory_ui.install().
-    # Edge renders the long/short split locally, while saved-topic selection is
-    # deliberately stateful and is replayed here. Omitting _install_library_split()
-    # made the visible Edge callbacks and the Python callback contract diverge.
+    # Install the same stateful UI stack used by telegram_topic_memory_ui.main().
+    # The Edge renders read-only long/short library pages locally, while selections
+    # are deliberately replayed here. The final active._install() is essential: the
+    # normal entrypoint reaches it through active.main(), which binds the fully wrapped
+    # command/approval handlers into panel.poll. Without that bind, replay fell through
+    # to the legacy base menu for callbacks such as cmd:savedpick-*.
     memory_ui._install_policy()
     from scripts import telegram_persistent_control_ui as persistent_ui
 
     persistent_ui.install()
     memory_ui._install_library_split()
     memory_ui._install_choice_clarity()
+    active._install()
 
     original_call = panel.TelegramClient.call
     original_answer = panel.TelegramClient.answer_callback
