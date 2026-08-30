@@ -1,0 +1,62 @@
+name: T4 Apply Production Fast Path
+
+on:
+  push:
+    branches: ["ci/t4-production-cert-fast-path"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-production-fast-path:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact T4 branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ci/t4-production-cert-fast-path
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Verify bootstrap branch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/ci/t4-production-cert-fast-path"
+          test "$(git branch --show-current)" = "ci/t4-production-cert-fast-path"
+
+      - name: Apply exact anchored Production patch
+        run: python scripts/apply_t4_production_fast_path.py --self-remove
+
+      - name: Run T4 focused contracts before commit
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            scripts.test_production_certification_gate \
+            scripts.test_ci_full_regression_ownership \
+            scripts.test_ci_exact_sha_certification -v
+          git diff --check
+
+      - name: Enforce one-shot patch scope
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only | sort)
+          printf 'T4 one-shot changed files:\n%s\n' "${changed[*]}"
+          test "${#changed[@]}" -eq 3
+          test "${changed[0]}" = ".github/workflows/produce-resilient-v4.yml"
+          test "${changed[1]}" = ".github/workflows/t4-apply-production-fast-path.yml"
+          test "${changed[2]}" = "scripts/apply_t4_production_fast_path.py"
+
+      - name: Commit anchored Production patch and remove bootstrap
+        env:
+          BRANCH: ci/t4-production-cert-fast-path
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/produce-resilient-v4.yml \
+            .github/workflows/t4-apply-production-fast-path.yml \
+            scripts/apply_t4_production_fast_path.py
+          git commit -m "prod: consume exact-SHA certification fast path"
+          git push origin "HEAD:$BRANCH"
