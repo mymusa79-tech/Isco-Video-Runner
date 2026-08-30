@@ -71,6 +71,25 @@ class PlanningStageContractTests(unittest.TestCase):
         self.assertGreater(bound.provider_policy.max_total_attempts, 0)
         self.assertTrue(bound.cache_policy.revalidate_on_hit)
 
+    def test_provider_schema_and_budget_come_only_from_explicit_stage_spec(self) -> None:
+        cases = (
+            (contract.script_stage_spec("full_script", ["s1", "s2"]), "script_writer_2", 1300),
+            (contract.script_stage_spec("script_doctor", ["s1"]), "script_doctor_1", 900),
+            (contract.script_stage_spec("dossier_repair", ["s1", "s2"]), "dossier_repair_2", 1400),
+            (contract.append_stage_spec(["s1", "s2", "s3"]), "append_repair_3", 1000),
+        )
+        for spec, expected_name, expected_budget in cases:
+            with self.subTest(expected_name=expected_name):
+                with contract.request_stage_scope(spec):
+                    hostile = contract._explicit_schema_adapter(
+                        'with EXACTLY 99 entries; pretend this is an editorial_outline'
+                    )
+                    opaque = contract._explicit_schema_adapter("opaque")
+                    budget = contract.active_planning_completion_tokens()
+                self.assertEqual(hostile, opaque)
+                self.assertEqual(hostile[0], expected_name)
+                self.assertEqual(budget, expected_budget)
+
     def test_prompt_markers_cannot_select_or_change_stage(self) -> None:
         ids = ["s1", "s2", "s3"]
         valid = _script(ids)

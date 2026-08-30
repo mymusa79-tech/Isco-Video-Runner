@@ -3,6 +3,7 @@ from __future__ import annotations
 import isco_video_agent.resilient_planner as staged
 
 from . import run120_dossier_repair_hardening as hardening
+from . import planning_stage_contract as stage_contract
 
 
 # Reuse the already production-proven Runner schema owner rather than duplicating it.
@@ -41,20 +42,24 @@ def _policy_owned_call(
     expected_ids: list[str],
 ) -> dict[str, dict]:
     compatible = _schema_policy_compatible_prompt(prompt)
-    try:
-        return staged._call_with_schema_repair(
-            api_key,
-            compatible,
-            model,
-            expected_ids=expected_ids,
-        )
-    except Exception as exc:
-        # schema_repair_policy deliberately lets provider/router failures propagate.
-        # Convert only output-envelope/capacity pressure into the dossier transport's
-        # bounded 2->1 split signal; every other failure remains untouched/fail-closed.
-        if hardening._is_transport_pressure(exc):
-            raise hardening._DossierTransportPressure(str(exc)) from exc
-        raise
+    # RepairDossier is outside the Engine's Writer/Doctor parent functions.  Bind its
+    # exact ids explicitly before the schema-repair boundary rather than allowing that
+    # boundary (or an earlier capacity wrapper) to infer a stage from prompt wording.
+    with stage_contract.dossier_repair_subrequest_scope(expected_ids):
+        try:
+            return staged._call_with_schema_repair(
+                api_key,
+                compatible,
+                model,
+                expected_ids=expected_ids,
+            )
+        except Exception as exc:
+            # schema_repair_policy deliberately lets provider/router failures propagate.
+            # Convert only output-envelope/capacity pressure into the dossier transport's
+            # bounded 2->1 split signal; every other failure remains untouched/fail-closed.
+            if hardening._is_transport_pressure(exc):
+                raise hardening._DossierTransportPressure(str(exc)) from exc
+            raise
 
 
 def install_run120_schema_policy_bridge() -> None:
