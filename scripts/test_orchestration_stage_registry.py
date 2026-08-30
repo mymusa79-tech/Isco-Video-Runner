@@ -304,22 +304,19 @@ def test_deadline_policy_rejects_untyped_free_text_reference():
         _base(deadline_policy=DeadlinePolicy("later", "later", "compute"))
 
 
-def test_builtins_preserve_existing_core_bindings_until_each_stage_migrates():
+def test_builtins_use_certified_stable_ports_for_all_l7_stages():
     contracts = {c.stage_id: c for c in certified_non_planning_contracts()}
-    # L7.1-L7.5 migrate TTS, Media, Cinematic, Render, and QC to certified stable ports.
-    # Shorts remains pinned to its existing core until its isolated L7.6 migration.
-    assert contracts["tts"].implementation_binding.adapter_id == "tts-runtime-port-v1"
-    assert contracts["tts"].implementation_binding.source_path == "scripts/orchestration_tts_port.py"
-    assert contracts["media"].implementation_binding.adapter_id == "media-runtime-port-v1"
-    assert contracts["media"].implementation_binding.source_path == "scripts/orchestration_media_port.py"
-    assert contracts["cinematic"].implementation_binding.adapter_id == "cinematic-runtime-port-v1"
-    assert contracts["cinematic"].implementation_binding.source_path == "scripts/orchestration_cinematic_port.py"
-    assert contracts["render"].implementation_binding.adapter_id == "render-runtime-port-v1"
-    assert contracts["render"].implementation_binding.source_path == "scripts/orchestration_render_port.py"
-    assert contracts["qc"].implementation_binding.adapter_id == "qc-runtime-port-v1"
-    assert contracts["qc"].implementation_binding.source_path == "scripts/orchestration_qc_port.py"
-    assert contracts["shorts"].implementation_binding.source_path == "scripts/shorts_production_binding.py"
-    assert "orchestration" not in contracts["shorts"].implementation_binding.adapter_id
+    expected = {
+        "tts": ("tts-runtime-port-v1", "scripts/orchestration_tts_port.py"),
+        "media": ("media-runtime-port-v1", "scripts/orchestration_media_port.py"),
+        "cinematic": ("cinematic-runtime-port-v1", "scripts/orchestration_cinematic_port.py"),
+        "render": ("render-runtime-port-v1", "scripts/orchestration_render_port.py"),
+        "qc": ("qc-runtime-port-v1", "scripts/orchestration_qc_port.py"),
+        "shorts": ("shorts-runtime-port-v1", "scripts/orchestration_shorts_port.py"),
+    }
+    for stage_id, (adapter_id, source_path) in expected.items():
+        assert contracts[stage_id].implementation_binding.adapter_id == adapter_id
+        assert contracts[stage_id].implementation_binding.source_path == source_path
 
 
 def load_tests(loader, tests, pattern):
