@@ -1,0 +1,70 @@
+name: Verify Topic Research V2
+
+on:
+  pull_request:
+    paths:
+      - "scripts/telegram_topic_research_v2.py"
+      - "scripts/test_telegram_topic_research_v2.py"
+      - ".github/workflows/telegram-editorial-control.yml"
+      - ".github/workflows/verify-topic-research-v2.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Checkout exact research Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: bf85607f6e34dcedc199abad7e610b12c4685309
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked research runtime
+        run: |
+          set -euo pipefail
+          python -m pip install -r engine/requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e engine
+          python -m pip check
+
+      - name: Compile research contract modules
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            engine/src/isco_video_agent/models.py \
+            engine/src/isco_video_agent/providers/youtube.py \
+            engine/src/isco_video_agent/research.py \
+            scripts/telegram_topic_research_v2.py
+
+      - name: Agent research contract tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src
+        run: python -m unittest discover -s engine/tests -p 'test_research.py' -v
+
+      - name: Runner Telegram research contract tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python scripts/test_telegram_topic_research_v2.py
+
+      - name: Production pin remains unchanged
+        run: |
+          set -euo pipefail
+          grep -F 'ENGINE_SHA: f3c9357098947882882ca3010b46a565c2d90460' .github/workflows/telegram-editorial-control.yml
+          grep -F 'RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309' .github/workflows/telegram-editorial-control.yml
+          grep -F 'engine_sha="$ENGINE_SHA"' .github/workflows/telegram-editorial-control.yml
