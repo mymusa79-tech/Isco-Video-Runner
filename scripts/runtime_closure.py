@@ -21,9 +21,9 @@ from scripts.orchestration_cinematic_port import (
     install_cinematic_runtime_port,
 )
 from scripts.orchestration_media_port import install_media_runtime_port
+from scripts.orchestration_render_port import install_render_runtime_port
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
 from scripts.planning_runtime_contract import install_runtime_planning_contracts
-from scripts.render_durable_cache import install_render_durable_cache
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
@@ -107,6 +107,9 @@ def install_runtime_closure() -> None:
     # seam. INNER preserves the exact historical SFX -> M8 -> M9 -> M10 -> CTA order.
     # The OUTER M7/M11 phase remains intentionally later in run_v3_voice after TTS, so
     # wrapper nesting and the opening-feasibility guard boundary do not change.
+    # L7.4 moves only Render installation behind one stable seam. Durable cache
+    # semantics, fingerprints, promotion/eviction, and current Engine QC revalidation
+    # remain byte-for-byte owned by render_durable_cache.py.
     # Render durability is deliberately installed only after those inner cinematic
     # wrappers have been registered, but immediately before Narrative Music Dynamics
     # wraps the global mux. It patches only M9's expensive xfade-pair renderer,
@@ -122,7 +125,7 @@ def install_runtime_closure() -> None:
     install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
     install_cinematic_runtime_port(CinematicInstallPhase.INNER)
-    install_render_durable_cache()
+    install_render_runtime_port()
     install_narrative_music_dynamics()
     install_canonical_v4_bundle_post_manifest()
     install_release_transaction_guard()
