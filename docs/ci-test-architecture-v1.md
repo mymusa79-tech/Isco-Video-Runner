@@ -26,22 +26,44 @@ The following workflows are specialized evidence owners and must not rerun the g
 
 `verify-production-stage-ladder.yml` remains the end-to-end P0-P6 certification owner and is not weakened by T2.
 
-## Production status during T2
+## T3 exact-SHA canonical regression receipt
 
-`produce-resilient-v4.yml` is intentionally unchanged in T2. It still executes Full Engine, Full Runner, and dependency audit before provider work.
+The canonical full-regression owner must certify the exact Runner/Engine identity rather than an implicit pull-request merge checkout.
 
-Production may use a fast path only after a later isolated stage provides a fail-closed exact-SHA certification receipt and P0 main protection is active.
+T3 therefore requires `verify-private-engine.yml` to:
+
+- resolve `CANDIDATE_SHA` as the pull-request head SHA for PR events and `github.sha` otherwise;
+- checkout that exact Runner SHA and verify `git rev-parse HEAD` before any certification work;
+- resolve the exact canonical Engine SHA from the production workflow and verify the private Engine checkout;
+- run on every push to `main`, not a path-filtered subset, so every future main commit can obtain canonical immutable-code certification;
+- build a fail-closed `isco.ci.canonical-full-regression-receipt.v1` only after dependency audit, focused regressions, Full Engine, Approved-Brief CLI, Standalone Short V2, Full Runner, and exact closure delta have all passed;
+- bind the receipt to both exact SHAs and record `production_dispatch_performed=false`;
+- upload the JSON receipt as CI evidence;
+- on a successful push to `main`, publish a durable ref named `canonical-full-regression-green-<runner_sha>-<engine_sha>` pointing to that exact Runner commit.
+
+The receipt contract lives in `scripts/exact_sha_regression_receipt.py`. It rejects malformed SHAs, identity mismatches, missing/extra evidence, any non-green evidence, an unexpected owner/schema, a production dispatch marker, or an incorrect certification tag.
+
+The Stage Ladder remains independent and continues to publish its own `stage-ladder-green-<runner_sha>` certification only after P0-P6 pass.
+
+## Production status during T2/T3
+
+`produce-resilient-v4.yml` remains unchanged. It still executes Full Engine, Full Runner, and dependency audit before provider work.
+
+T3 creates certification evidence but **does not enable Production reuse**. Production may use a fast path only after a later isolated stage verifies the exact canonical regression receipt plus Stage Ladder certification and P0 main protection is active.
 
 ## P0 blocker
 
 Before enabling the production fast path, `main` must require pull requests and the canonical certification checks, block force pushes/deletion, and avoid ordinary bypass of those checks.
 
+Until that repository configuration exists, absence of a Production fast path is intentional fail-closed behavior.
+
 ## Non-goals
 
-T2 does not:
+T2/T3 do not:
 
 - delete semantic, security, historical-regression, QC, Shorts, or Stage Ladder tests;
 - change any Quality Gate threshold;
 - change provider/retry/cache semantics;
 - launch a Production Run;
-- enable production reuse of CI results.
+- enable production reuse of CI results;
+- weaken Stage Ladder certification.
