@@ -1,39 +1,16 @@
 """Provider reliability for the Telegram editorial *Research* call site only.
 
-Scope discipline: this module exists because Research (topic-candidate discovery,
-run from ``scripts/telegram_control_active_ui.py::_research_current`` via
-``scripts/telegram_control_simple_ui.py::_english_research_queries``) has never had
-any of the provider-failure protection that Planning already has (see
-docs/PLANNING_PROVIDER_RELIABILITY_V2_2026-08-26.md and
-docs/RUN116_PLANNING_PORTABILITY_2026-08-26.md). It intentionally does NOT import,
-patch, or otherwise touch any Planning module (task_level_planner_router.py,
-provider_capacity_hardening.py, run_v3_voice.py, resilient_planner.py, or anything
-under isco_video_agent's planning/orchestrator path). It reuses only the one
-provider-neutral, side-effect-free classifier already shared across this codebase
-(``scripts.provider_failure.classify_provider_failure``) plus the canonical
-non-truncating Retry-After policy.
+This module owns only Research provider transport reliability. It does not patch
+Planning, change AI budgets, enable paid models, or relax quality/safety gates.
 
-Design, matching the same "one retry owner, bounded backoff, then fail over" shape
-already applied to Planning, scoped to a single Research provider call:
+The reliability shape is deliberately bounded: Gemini gets at most one retry for
+transient failures, then the request may fail over to OpenRouter's free-model
+chain. Safety blocks fail closed and never cross providers.
 
-- A daily/session quota failure (Gemini free-tier "quota exceeded" / "daily quota")
-  cannot heal within the next few seconds, so it never retries Gemini itself; it
-  fails over to the OpenRouter free-model chain immediately.
-- A transient failure (short-window rate limit, server error, network error,
-  timeout, capacity-unavailable) gets at most one bounded Gemini retry before
-  failing over.
-- A provider Retry-After is a minimum safe delay, never a value to truncate. If it
-  exceeds Research's local wait budget, Research fails over immediately instead of
-  sleeping only part of the delay and re-hitting the same provider early.
-- A content-safety block never fails over to a different provider: that is a
-  safety-gate outcome, not a capacity problem, and silently trying another
-  provider would weaken the gate rather than recover from an outage.
-- Every other Gemini failure (bad output shape, auth, schema mismatch, ...) fails
-  over once to OpenRouter, since that is a different provider and key and may
-  simply succeed where Gemini did not.
-
-No AI budget cap is touched, no paid provider is used (OpenRouter's own module
-enforces a free-model allowlist), and no quality/safety gate is relaxed.
+Provider diagnostics emitted here are intentionally metadata-only. They contain
+provider, normalized failure class, numeric HTTP status when safely available,
+numeric Retry-After when safely available, attempt, and action. Raw exception
+messages, prompts, responses, headers, URLs, and credentials are never emitted.
 """
 
 from __future__ import annotations
@@ -43,24 +20,16 @@ import re
 import time
 from typing import Any
 
-from scripts.provider_failure import classify_provider_failure
+from scripts.provider_failure import ProviderFailure, classify_provider_failure
 from scripts.retry_after_policy import retry_delay_decision
 from isco_video_agent.providers.gemini import json_text as gemini_json_text
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
 
-# Bounded retry budget for one Research provider call. Deliberately small: Research
-# runs inside a 5-minute-cron GitHub Actions job shared with other Telegram control
-# work. This is a WAIT BUDGET, not permission to truncate provider Retry-After.
 MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE = 2
 MIN_BACKOFF_SECONDS = 1.0
 MAX_RETRY_AFTER_SECONDS = 15.0
 
-# Matches Gemini's own "Please retry in 1.447794966s" style hint.
 _RETRY_AFTER_RE = re.compile(r"retry in (\d+(?:\.\d+)?)s", re.IGNORECASE)
-
-# Same daily/session quota vocabulary already used by scripts/provider_failure.py's
-# quota_markers, kept local because Research specifically needs the finer split between
-# "retrying now cannot help" and "a bounded retry might help".
 _QUOTA_MARKERS = (
     "quota_exceeded",
     "quota exceeded",
@@ -69,15 +38,13 @@ _QUOTA_MARKERS = (
     "insufficient quota",
     "free_tier_requests",
 )
-
-# Failure classes worth exactly one bounded same-provider retry before failing over.
 _RETRYABLE_ON_SAME_PROVIDER = frozenset(
     {"429", "server_error", "network_error", "timeout", "capacity_unavailable"}
 )
 
 
 class ResearchProviderExhausted(RuntimeError):
-    """Both Gemini and the OpenRouter fallback failed for one Research provider call."""
+    """All eligible live Research providers failed for one provider call."""
 
 
 def _is_daily_quota_failure(error: BaseException) -> bool:
@@ -86,6 +53,17 @@ def _is_daily_quota_failure(error: BaseException) -> bool:
 
 
 def _parsed_retry_after_seconds(error: BaseException) -> float | None:
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is not None:
+        try:
+            raw = headers.get("Retry-After") or headers.get("retry-after")
+            if raw is not None:
+                value = float(raw)
+                if value >= 0:
+                    return value
+        except (AttributeError, TypeError, ValueError):
+            pass
     match = _RETRY_AFTER_RE.search(str(error))
     if not match:
         return None
@@ -93,6 +71,51 @@ def _parsed_retry_after_seconds(error: BaseException) -> float | None:
         return float(match.group(1))
     except ValueError:
         return None
+
+
+def _http_status(error: BaseException) -> int | None:
+    """Extract only a numeric HTTP status from structured exception metadata."""
+    candidates = [getattr(error, "status_code", None), getattr(error, "status", None)]
+    response = getattr(error, "response", None)
+    if response is not None:
+        candidates.extend(
+            [getattr(response, "status_code", None), getattr(response, "status", None)]
+        )
+    for candidate in candidates:
+        try:
+            value = int(candidate)
+        except (TypeError, ValueError):
+            continue
+        if 100 <= value <= 599:
+            return value
+    return None
+
+
+def _format_optional_number(value: int | float | None) -> str:
+    if value is None:
+        return "none"
+    if isinstance(value, float):
+        return f"{value:g}"
+    return str(value)
+
+
+def _emit_provider_failure(
+    provider: str,
+    error: BaseException,
+    classification: ProviderFailure,
+    *,
+    attempt: int,
+    action: str,
+) -> None:
+    """Emit a stable, non-sensitive provider-failure diagnostic line."""
+    print(
+        "RESEARCH_PROVIDER_TELEMETRY "
+        f"provider={provider} "
+        f"failure_class={classification.telemetry_result} "
+        f"http_status={_format_optional_number(_http_status(error))} "
+        f"retry_after_s={_format_optional_number(_parsed_retry_after_seconds(error))} "
+        f"attempt={attempt} action={action}"
+    )
 
 
 def _backoff_seconds(error: BaseException, attempt: int) -> float | None:
@@ -107,10 +130,6 @@ def _backoff_seconds(error: BaseException, attempt: int) -> float | None:
 
 
 def _is_eligible_for_fallback(telemetry_result: str) -> bool:
-    # Every capacity/availability/output-shape failure may try the fallback
-    # provider. A content-safety block must not: that is a safety-gate outcome the
-    # request itself triggered, not a capacity problem, so it fails closed instead
-    # of quietly being retried against a provider with a different safety review.
     return telemetry_result != "content_blocked"
 
 
@@ -122,18 +141,18 @@ def gemini_research_call_with_fallback(
     openrouter_model: str = "openrouter/free",
     openrouter_fallback_models: tuple[str, ...] = ("openai/gpt-oss-20b:free",),
 ) -> dict[str, Any]:
-    """Run one Research JSON provider call with classification, bounded retry, and
-    a same-task OpenRouter fallback. Raises ``ResearchProviderExhausted`` (chaining
-    the last OpenRouter error) only when both providers have failed."""
-    gemini_errors: list[str] = []
+    """Run one live Research call with bounded Gemini retry and free failover."""
     attempt = 0
+    last_gemini_class = "none"
+    last_gemini_status: int | None = None
     while True:
         attempt += 1
         try:
             return gemini_json_text(api_key, prompt, model=model)
-        except Exception as exc:  # noqa: BLE001 - classified immediately below
-            gemini_errors.append(str(exc)[:300])
+        except Exception as exc:  # noqa: BLE001 - normalized immediately below
             classification = classify_provider_failure("gemini", exc)
+            last_gemini_class = classification.telemetry_result
+            last_gemini_status = _http_status(exc)
             quota = _is_daily_quota_failure(exc)
             can_retry_same_provider = (
                 not quota
@@ -143,11 +162,26 @@ def gemini_research_call_with_fallback(
             if can_retry_same_provider:
                 delay = _backoff_seconds(exc, attempt)
                 if delay is not None:
+                    _emit_provider_failure(
+                        "gemini", exc, classification, attempt=attempt, action="retry"
+                    )
                     time.sleep(delay)
                     continue
-                print(
-                    "Research provider Retry-After exceeds local wait budget: "
-                    f"provider=gemini budget={MAX_RETRY_AFTER_SECONDS:g}s action=failover_without_partial_retry"
+                _emit_provider_failure(
+                    "gemini",
+                    exc,
+                    classification,
+                    attempt=attempt,
+                    action="failover_retry_after_budget",
+                )
+            elif not _is_eligible_for_fallback(classification.telemetry_result):
+                _emit_provider_failure(
+                    "gemini", exc, classification, attempt=attempt, action="fail_closed"
+                )
+                raise
+            else:
+                _emit_provider_failure(
+                    "gemini", exc, classification, attempt=attempt, action="failover"
                 )
             if not _is_eligible_for_fallback(classification.telemetry_result):
                 raise
@@ -159,9 +193,16 @@ def gemini_research_call_with_fallback(
             model=openrouter_model,
             fallback_models=openrouter_fallback_models,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - normalized immediately below
+        classification = classify_provider_failure("openrouter", exc)
+        _emit_provider_failure(
+            "openrouter", exc, classification, attempt=1, action="exhausted"
+        )
+        openrouter_status = _http_status(exc)
         raise ResearchProviderExhausted(
-            "research_provider_exhausted gemini=["
-            + " | ".join(gemini_errors)
-            + "] openrouter=[" + str(exc)[:300] + "]"
+            "research_provider_exhausted "
+            f"gemini_failure_class={last_gemini_class} "
+            f"gemini_http_status={_format_optional_number(last_gemini_status)} "
+            f"openrouter_failure_class={classification.telemetry_result} "
+            f"openrouter_http_status={_format_optional_number(openrouter_status)}"
         ) from exc
