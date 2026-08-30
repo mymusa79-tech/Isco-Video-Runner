@@ -24,7 +24,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - name: Checkout runner observer branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -93,6 +93,9 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
+      # Full Engine ownership lives only in verify-private-engine.yml
+      # (Canonical Full Regression). This workflow owns Voice/Gold contracts,
+      # immutable reference provenance and the real ECAPA smoke.
       - name: Verify V4 uses the checked-out Engine
         env:
           ENGINE_SHA: ${{ steps.engine_pin.outputs.engine_sha }}
@@ -115,10 +118,6 @@ jobs:
               raise SystemExit(f'V4 does not use checked-out Engine: checkout={checkout} env={env_pin} expected={current}')
           print('V4 Engine pin contract OK:', current)
           PY
-
-      - name: Run full Engine unit suite
-        working-directory: engine
-        run: python -m unittest discover -s tests -q
 
       - name: Run combined Runner Voice and Gold contracts
         env:
@@ -174,9 +173,6 @@ jobs:
           assert data.get('profile_version') == 'channel-voice-roster-v1'
           assert data.get('mode') == 'human_approved_reference'
           assert source.get('runner_run_id') == 32224276241
-          # Preserve the historical artifact id as provenance even though GitHub's
-          # seven-day artifact retention has expired. The immutable reference itself
-          # is the enrolled profile below, including the human-approved source hashes.
           assert source.get('artifact_id') == 9355112613
           assert source.get('tts_model') == 'gemini-3.1-flash-tts-preview'
           assert source.get('human_approval') == 'Charon=primary; Orus=questioner'
@@ -221,9 +217,6 @@ jobs:
           frames = bytearray()
           for index in range(total):
               t = index / rate
-              # Deterministic speech-like harmonic excitation with slow pitch and
-              # amplitude movement. It is NOT a voice reference and carries no human
-              # approval semantics; it exists only to exercise the real ECAPA runtime.
               f0 = 118.0 + 18.0 * math.sin(2.0 * math.pi * 0.31 * t)
               phase += 2.0 * math.pi * f0 / rate
               envelope = 0.42 + 0.16 * math.sin(2.0 * math.pi * 2.7 * t) + 0.08 * math.sin(2.0 * math.pi * 4.9 * t)
