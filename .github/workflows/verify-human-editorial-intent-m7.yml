@@ -9,8 +9,9 @@ permissions:
 
 jobs:
   combined-regression:
+    name: Human Editorial Intent M7 Focused Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 25
     env:
       ENGINE_SHA: f3c9357098947882882ca3010b46a565c2d90460
     steps:
@@ -50,13 +51,9 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
-      - name: Dependency audit
-        working-directory: engine
-        run: |
-          set -euo pipefail
-          python -m pip install pip-audit==2.10.1
-          pip-audit --no-deps -r requirements-lock.txt
-
+      # Generic dependency audit, Full Engine and Full Runner ownership lives only
+      # in verify-private-engine.yml (Canonical Full Regression). This workflow
+      # owns only M7-specific evidence.
       - name: Focused Human Editorial Intent and current-main compatibility tests
         working-directory: engine
         env:
@@ -71,52 +68,6 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_focused_engine")'
 
-      - name: Full Engine suite
-        working-directory: engine
-        env:
-          ISCO_HISTORY_PATH: ${{ runner.temp }}/m7-full-engine-history.json
-        run: |
-          set -o pipefail
-          python -m unittest discover -s tests -q 2>&1 | tee "$RUNNER_TEMP/engine-unittest.log"
-
-      - name: Certify Engine source after M7 Full Engine suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_full_engine")'
-
-      - name: Upload Engine unittest diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: human-editorial-intent-engine-unittest
-          path: ${{ runner.temp }}/engine-unittest.log
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Approved-Brief CLI contract matrix
-        working-directory: engine
-        env:
-          ISCO_HISTORY_PATH: ${{ runner.temp }}/m7-approved-brief-cli-history.json
-        run: |
-          set -euo pipefail
-          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
-          rm -f "$missing"
-          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
-            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
-          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
-            --format auto --dry-run --no-research
-          isco-video produce --format auto --dry-run --no-research
-          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
-            --format auto --dry-run --no-research; then
-            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
-            exit 1
-          fi
-
-      - name: Certify Engine source after M7 Approved-Brief CLI matrix
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_approved_brief_cli")'
-
       - name: Focused Runner HEI plus existing M7 and Security contracts
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
@@ -130,24 +81,6 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_focused_runner")'
-
-      - name: Full Runner regression suite including Gold Packaging Cinematic Security
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
-          ISCO_HISTORY_PATH: ${{ runner.temp }}/m7-full-runner-history.json
-        run: |
-          set -euo pipefail
-          mapfile -t test_modules < <(
-            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
-              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
-          )
-          test "${#test_modules[@]}" -gt 0
-          python -m unittest "${test_modules[@]}" -q
-
-      - name: Certify Engine source after M7 Full Runner suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_full_runner")'
 
       - name: Diff and verifier sanity
         run: |
