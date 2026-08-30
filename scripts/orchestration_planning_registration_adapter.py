@@ -18,7 +18,7 @@ from scripts.orchestration_stage_registry import (
 
 PLANNING_RESOLVER_ID = "planning-canonical-v1"
 PLANNING_CONTRACT_SOURCE_PATH = "scripts/planning_stage_contract.py"
-PLANNING_CONTRACT_SOURCE_SHA = "181dd2f9c9b7b288dd9a6794dbe681b44444f1de"
+PLANNING_CONTRACT_SOURCE_SHA = "1665a54b8e9136a9d52fa785f761edd157c1a532"
 
 
 class PlanningRegistrationError(StageRegistryError):
@@ -29,6 +29,7 @@ class PlanningRequestKind(str, Enum):
     EDITORIAL_OUTLINE = "editorial_outline"
     FULL_SCRIPT = "full_script"
     SCRIPT_DOCTOR = "script_doctor"
+    DOSSIER_REPAIR = "dossier_repair"
     APPEND_EXACT = "append_exact"
     APPEND_CANDIDATE = "append_candidate"
     SECTION_REPAIR = "section_repair"
@@ -71,7 +72,11 @@ def _canonical_spec(request: PlanningRegistrationRequest) -> canonical.PlanningS
             raise PlanningRegistrationError("editorial_outline requires expected_count only")
         return canonical.outline_stage_spec(request.expected_count)
 
-    if request.kind in {PlanningRequestKind.FULL_SCRIPT, PlanningRequestKind.SCRIPT_DOCTOR}:
+    if request.kind in {
+        PlanningRequestKind.FULL_SCRIPT,
+        PlanningRequestKind.SCRIPT_DOCTOR,
+        PlanningRequestKind.DOSSIER_REPAIR,
+    }:
         if request.expected_count is not None or not request.expected_ids or request.section_id is not None:
             raise PlanningRegistrationError(f"{request.kind.value} requires expected_ids only")
         return canonical.script_stage_spec(request.kind.value, list(request.expected_ids))

@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from scripts import planning_batch_hardening as planning
+from scripts import planning_stage_contract as stage_contract
 from scripts import run120_dossier_repair_hardening as dossier
 from scripts import run122_effective_capacity_admission as hardening
 
@@ -137,7 +138,17 @@ class Run122EffectiveCapacityAdmissionTests(unittest.TestCase):
         had_flag = hasattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION")
         old_flag = getattr(planning, "_ISCO_RUN122_EFFECTIVE_CAPACITY_ADMISSION", None)
         expected = {"s1": {"narration": "ok", "key_point": "k"}}
-        owner = Mock(return_value=expected)
+        seen: dict[str, object] = {}
+
+        def explicit_owner(*args):
+            del args
+            seen["schema"] = stage_contract._explicit_schema_adapter(
+                'misleading prompt says "script_writer_99"'
+            )[0]
+            seen["budget"] = stage_contract.active_planning_completion_tokens()
+            return expected
+
+        owner = Mock(side_effect=explicit_owner)
         try:
             dossier._one_schema_bounded_call = owner
             if had_flag:
@@ -156,6 +167,8 @@ class Run122EffectiveCapacityAdmissionTests(unittest.TestCase):
                 actual = dossier._one_schema_bounded_call("key", "prompt", "model", ["s1"])
             self.assertEqual(actual, expected)
             owner.assert_called_once_with("key", "prompt", "model", ["s1"])
+            self.assertEqual(seen["schema"], "dossier_repair_1")
+            self.assertEqual(seen["budget"], 850)
         finally:
             planning._capacity_admitted = original_admission
             dossier._one_schema_bounded_call = original_dossier

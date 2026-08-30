@@ -1,5 +1,7 @@
+import hashlib
 import unittest
 from dataclasses import asdict
+from pathlib import Path
 
 from scripts import planning_stage_contract as canonical
 from scripts.orchestration_planning_registration_adapter import (
@@ -61,6 +63,16 @@ class PlanningRegistrationAdapterTests(unittest.TestCase):
         )
         self._assert_canonical_parity(general, canonical.script_stage_spec("script_doctor", list(ids)))
 
+    def test_dossier_repair_contract_is_consumed_from_canonical_factory(self):
+        ids = ("s1", "s2")
+        general = self._resolve(
+            PlanningRegistrationRequest(PlanningRequestKind.DOSSIER_REPAIR, expected_ids=ids)
+        )
+        self._assert_canonical_parity(
+            general,
+            canonical.script_stage_spec("dossier_repair", list(ids)),
+        )
+
     def test_append_exact_contract_preserves_no_fragment_cache(self):
         ids = ("s1", "s2")
         general = self._resolve(
@@ -110,6 +122,11 @@ class PlanningRegistrationAdapterTests(unittest.TestCase):
         )
         self.assertEqual(general.implementation_binding.source_path, PLANNING_CONTRACT_SOURCE_PATH)
         self.assertEqual(general.implementation_binding.source_sha, PLANNING_CONTRACT_SOURCE_SHA)
+        source = Path(PLANNING_CONTRACT_SOURCE_PATH).read_bytes()
+        actual_blob_sha = hashlib.sha1(
+            f"blob {len(source)}\0".encode("ascii") + source
+        ).hexdigest()
+        self.assertEqual(actual_blob_sha, PLANNING_CONTRACT_SOURCE_SHA)
 
     def test_invalid_parameter_shapes_fail_closed(self):
         cases = (
@@ -118,6 +135,7 @@ class PlanningRegistrationAdapterTests(unittest.TestCase):
                 PlanningRequestKind.EDITORIAL_OUTLINE, expected_count=2, expected_ids=("s1",)
             ),
             PlanningRegistrationRequest(PlanningRequestKind.FULL_SCRIPT),
+            PlanningRegistrationRequest(PlanningRequestKind.DOSSIER_REPAIR),
             PlanningRegistrationRequest(
                 PlanningRequestKind.FULL_SCRIPT, expected_ids=("s1",), section_id="s1"
             ),
