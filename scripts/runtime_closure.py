@@ -9,17 +9,17 @@ from scripts.audio_semantic_integrity import (
     install_audio_semantic_final_gate,
     install_audio_semantic_integrity_binding,
 )
-from scripts.cta_live_binding import install_cta_live_binding
 from scripts.final_qc_observer_cache_trust import sanitize_final_observer_cache_before_runtime
 from scripts.final_qc_observer_durability import (
     install_final_qc_observer_durability,
     run_groq_audio_audit_durable,
 )
 from scripts.groq_audio_audit import DEFAULT_AUDIO_MODEL, run_groq_audio_audit
-from scripts.m8_live_binding import install_m8_live_binding
-from scripts.m9_live_binding import install_m9_live_binding
-from scripts.m10_live_binding import install_m10_live_binding
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
+from scripts.orchestration_cinematic_port import (
+    CinematicInstallPhase,
+    install_cinematic_runtime_port,
+)
 from scripts.orchestration_media_port import install_media_runtime_port
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
 from scripts.planning_runtime_contract import install_runtime_planning_contracts
@@ -32,7 +32,6 @@ from scripts.runtime_reliability import (
     manifest_wrapper_chain_has_marker,
     production_entrypoint_modules,
 )
-from scripts.sfx_live_binding import install_sfx_live_binding
 
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -104,7 +103,11 @@ def install_runtime_closure() -> None:
     # -> durable asset/decision cache -> M8-composed prepared cache -> Pexels search
     # cache. Provider selection, retry ownership, trust/security decisions, cache
     # semantics, hit revalidation, and write policy remain in their existing owners.
-    # Render durability is deliberately installed only after the live M9/M10/CTA produce
+    # L7.3 moves only the inner Cinematic composition behind one phase-explicit stable
+    # seam. INNER preserves the exact historical SFX -> M8 -> M9 -> M10 -> CTA order.
+    # The OUTER M7/M11 phase remains intentionally later in run_v3_voice after TTS, so
+    # wrapper nesting and the opening-feasibility guard boundary do not change.
+    # Render durability is deliberately installed only after those inner cinematic
     # wrappers have been registered, but immediately before Narrative Music Dynamics
     # wraps the global mux. It patches only M9's expensive xfade-pair renderer,
     # orchestrator.burn_srt, and the underlying Engine mux. Consequently every SFX/M10/
@@ -118,11 +121,7 @@ def install_runtime_closure() -> None:
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
-    install_sfx_live_binding()
-    install_m8_live_binding()
-    install_m9_live_binding()
-    install_m10_live_binding()
-    install_cta_live_binding()
+    install_cinematic_runtime_port(CinematicInstallPhase.INNER)
     install_render_durable_cache()
     install_narrative_music_dynamics()
     install_canonical_v4_bundle_post_manifest()
