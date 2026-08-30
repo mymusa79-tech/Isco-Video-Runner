@@ -15,6 +15,71 @@ def __getattr__(name: str):
     return getattr(core, name)
 
 
+def _state_arg() -> Path | None:
+    args = sys.argv[1:]
+    try:
+        index = args.index("--state")
+    except ValueError:
+        return None
+    if index + 1 >= len(args):
+        return None
+    return Path(args[index + 1])
+
+
+def _durable_pending_research_exists(state_path: Path | None) -> bool:
+    if state_path is None or not state_path.is_file():
+        return False
+    state = core.panel.load_state(state_path)
+    actions = state.get("pending_actions")
+    if not isinstance(actions, list):
+        return False
+    return any(
+        isinstance(item, dict)
+        and str(item.get("status") or "") == "pending"
+        and str(item.get("kind") or "long") in {"long", "short"}
+        for item in actions
+    )
+
+
+def _claim_pending_scheduler_retry_without_polling(mode: str) -> bool:
+    """Let the 5-minute scheduler retry durable research without getUpdates.
+
+    Edge webhook ingress and fallback Telegram polling are mutually exclusive. A
+    provider timeout must not strand a durable research action merely because the
+    webhook remains active, so a scheduled ``poll`` pass may claim already-saved
+    research work while still refusing to poll Telegram for new updates.
+    """
+    if mode != "poll":
+        return False
+    state_path = _state_arg()
+    if not _durable_pending_research_exists(state_path):
+        return False
+    from scripts import telegram_webhook_replay_core as webhook_core
+
+    if not webhook_core.webhook_active():
+        return False
+    core.panel._github_output("needs_engine", "true")
+    core.panel._github_output("needs_production", "false")
+    print(
+        "Telegram webhook remains active; claiming durable pending topic research "
+        "for automatic retry without calling getUpdates"
+    )
+    return True
+
+
+def _install_live_topic_provider_reliability(mode: str) -> None:
+    if mode != "research":
+        return
+    import isco_video_agent.research as engine_research
+    from scripts.research_provider_reliability import gemini_research_call_with_fallback
+
+    # Topic Research V2 owns candidate-generation policy; provider transport
+    # reliability stays in the existing Runner adapter. Inject the already-certified
+    # bounded Gemini retry -> OpenRouter free failover into Engine select_topic()
+    # without changing the Engine's generic fallback semantics or Production paths.
+    engine_research.json_text = gemini_research_call_with_fallback
+
+
 def main() -> None:
     core.memory_ui._install_policy()
     from scripts import telegram_canonical_status_bridge as canonical_status_bridge
@@ -34,6 +99,9 @@ def main() -> None:
     creator_v5.install(core)
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     core.memory_ui._require_poll_identity(mode)
+    if _claim_pending_scheduler_retry_without_polling(mode):
+        return
+    _install_live_topic_provider_reliability(mode)
     core.panel.main()
 
 
