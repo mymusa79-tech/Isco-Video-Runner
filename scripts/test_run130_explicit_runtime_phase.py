@@ -44,7 +44,7 @@ class Run130ExplicitRuntimePhaseTests(unittest.TestCase):
             "install_audio_semantic_integrity_binding",
             "install_audio_mastering_live_binding",
             "install_cinematic_runtime_port",
-            "install_render_durable_cache",
+            "install_render_runtime_port",
             "install_narrative_music_dynamics",
             "install_canonical_v4_bundle_post_manifest",
             "install_release_transaction_guard",
