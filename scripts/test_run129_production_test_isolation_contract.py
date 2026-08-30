@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import unittest
 from pathlib import Path
 
@@ -13,32 +12,30 @@ M11_WORKFLOW = ROOT / ".github" / "workflows" / "verify-m11-live-integration.yml
 
 
 class Run129ProductionTestIsolationContractTests(unittest.TestCase):
-    def test_production_engine_suite_uses_test_owned_history(self) -> None:
+    def test_production_does_not_reintroduce_test_owned_full_engine_state(self) -> None:
         text = PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("production-engine-suite/history.json", text)
-        self.assertRegex(
-            text,
-            re.compile(
-                r'ISCO_HISTORY_PATH="\$engine_test_history"\s+python -m unittest discover -s tests -q'
-            ),
-        )
-        self.assertIn('certify_engine_source_hermeticity("production_after_engine_suite")', text)
+        self.assertNotIn("production-engine-suite/history.json", text)
+        self.assertNotIn("python -m unittest discover -s tests -q", text)
+        self.assertNotIn('certify_engine_source_hermeticity("production_after_engine_suite")', text)
+        self.assertIn("Require protected exact-SHA production certification", text)
 
-    def test_production_runner_suite_uses_separate_test_owned_history(self) -> None:
+    def test_production_does_not_reintroduce_test_owned_full_runner_state(self) -> None:
         text = PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn(
-            "ISCO_HISTORY_PATH: ${{ runner.temp }}/isco-test-state/production-runner-suite/history.json",
-            text,
-        )
-        self.assertIn('certify_engine_source_hermeticity("production_after_runner_suite")', text)
+        self.assertNotIn("production-runner-suite/history.json", text)
+        self.assertNotIn("find scripts -maxdepth 1 -type f -name 'test_*.py'", text)
+        self.assertNotIn('certify_engine_source_hermeticity("production_after_runner_suite")', text)
+        self.assertIn("python scripts/production_certification_gate.py", text)
 
     def test_production_fails_closed_before_provider_work(self) -> None:
         text = PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
-        gate = 'certify_engine_source_hermeticity("production_before_provider_work")'
+        certification_gate = "      - name: Require protected exact-SHA production certification"
+        hermeticity_gate = 'certify_engine_source_hermeticity("production_before_provider_work")'
         provider_step = "      - name: Materialize approved production secrets"
-        self.assertIn(gate, text)
+        self.assertIn(certification_gate, text)
+        self.assertIn(hermeticity_gate, text)
         self.assertIn(provider_step, text)
-        self.assertLess(text.index(gate), text.index(provider_step))
+        self.assertLess(text.index(certification_gate), text.index(provider_step))
+        self.assertLess(text.index(hermeticity_gate), text.index(provider_step))
 
     def test_verify_workflow_keeps_phase_specific_test_state(self) -> None:
         text = VERIFY_WORKFLOW.read_text(encoding="utf-8")
