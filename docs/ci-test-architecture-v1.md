@@ -26,11 +26,26 @@ The following workflows are specialized evidence owners and must not rerun the g
 
 `verify-production-stage-ladder.yml` remains the end-to-end P0-P6 certification owner and is not weakened by T2.
 
-## Production status during T2
+## T3 exact-SHA certification
 
-`produce-resilient-v4.yml` is intentionally unchanged in T2. It still executes Full Engine, Full Runner, and dependency audit before provider work.
+The canonical Full Regression owner now binds certification to an exact Runner identity:
 
-Production may use a fast path only after a later isolated stage provides a fail-closed exact-SHA certification receipt and P0 main protection is active.
+- Pull requests certify the exact PR head SHA.
+- Pushes to `main` certify the exact resulting `main` SHA.
+- Full Regression runs on every push to `main`; path filters may not leave a merge SHA uncertified.
+- The receipt binds Runner SHA, Engine SHA, Engine `requirements-lock.txt` SHA-256, and the canonical Full Regression workflow SHA-256.
+- A successful `main` certification publishes `full-regression-green-<runner_sha>` and verifies that any pre-existing tag points to that exact commit.
+- The machine-readable receipt records Full Engine, Full Runner, dependency audit, and Approved-Brief CLI matrix as Green and explicitly records that no Production dispatch was performed.
+
+Stage Ladder remains independent evidence and continues to publish `stage-ladder-green-<runner_sha>` on successful `main` certification.
+
+T3 deliberately does not make Production consume these refs yet. The two independent exact-SHA evidences must exist first, and P0 `main` protection must be active before Production Fast Path can be enabled.
+
+## Production status during T3
+
+`produce-resilient-v4.yml` is intentionally unchanged through T3. It still executes Full Engine, Full Runner, and dependency audit before provider work.
+
+Production may use a fast path only after the later isolated stage verifies both exact-SHA certification refs and retains all mutable/live preflights.
 
 ## P0 blocker
 
@@ -38,7 +53,7 @@ Before enabling the production fast path, `main` must require pull requests and 
 
 ## Non-goals
 
-T2 does not:
+T3 does not:
 
 - delete semantic, security, historical-regression, QC, Shorts, or Stage Ladder tests;
 - change any Quality Gate threshold;
