@@ -433,9 +433,9 @@ def certified_non_planning_contracts() -> tuple[StageContract, ...]:
             reserve_class="compute",
             side_effect_policy="none",
             evidence_schema="CinematicEvidenceV1",
-            adapter_id="m7-cinematic-live-binding",
-            source_path="scripts/m7_live_binding.py",
-            source_sha="0f00dfb316c5fc1eeea0f7ccca577d9bc0a5dd94",
+            adapter_id="cinematic-runtime-port-v1",
+            source_path="scripts/orchestration_cinematic_port.py",
+            source_sha="717e997a79e4bc89b4ccbd977ddeee6788f82a80",
         ),
         _contract(
             stage_id="render",
