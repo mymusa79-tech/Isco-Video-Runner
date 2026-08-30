@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -31,6 +32,38 @@ def _install_v5_after_active() -> None:
     core.active._isco_v5_replay_hooked = True
 
 
+def _durable_pending_research_exists() -> bool:
+    """Return whether the restored control state still owns pending research work.
+
+    With Edge webhook ingress enabled, scheduled Actions must never fall back to
+    Telegram getUpdates polling. They still need to service durable research work
+    that a prior webhook run queued but could not finish because a live provider
+    timed out. The workflow uses ``webhook-active`` as its ingress-suppression gate,
+    so this wrapper deliberately returns a non-zero gate result only for that
+    pending-work case; the poll entrypoint then claims the pending work without
+    polling Telegram.
+    """
+    raw = str(os.environ.get("CONTROL_STATE_PATH") or "").strip()
+    if not raw:
+        return False
+    path = Path(raw)
+    if not path.is_file():
+        return False
+    try:
+        state = core.panel.load_state(path)
+    except Exception:
+        return False
+    actions = state.get("pending_actions")
+    if not isinstance(actions, list):
+        return False
+    return any(
+        isinstance(item, dict)
+        and str(item.get("status") or "") == "pending"
+        and str(item.get("kind") or "long") in {"long", "short"}
+        for item in actions
+    )
+
+
 def replay_update(state_path, update):
     _install_v5_after_active()
     from scripts import telegram_creator_control_center_v5 as creator_v5
@@ -49,6 +82,16 @@ def replay_update(state_path, update):
 
 def main() -> None:
     _install_v5_after_active()
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
+    if mode == "webhook-active":
+        active_now = core.webhook_active()
+        if active_now and _durable_pending_research_exists():
+            print(
+                "Telegram webhook is active, but durable pending research requires "
+                "a scheduler service pass; live Telegram polling remains suppressed"
+            )
+            raise SystemExit(1)
+        raise SystemExit(0 if active_now else 1)
     core.main()
 
 

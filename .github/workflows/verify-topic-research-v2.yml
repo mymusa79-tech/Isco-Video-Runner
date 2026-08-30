@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "scripts/telegram_topic_research_v2.py"
+      - "scripts/telegram_webhook_replay.py"
+      - "scripts/research_provider_reliability.py"
+      - "scripts/test_topic_research_runtime_recovery.py"
       - "scripts/test_telegram_topic_research_v2.py"
       - "scripts/test_telegram_editorial_control_workflow.py"
       - ".github/workflows/telegram-editorial-control.yml"
@@ -60,7 +63,9 @@ jobs:
             engine/src/isco_video_agent/models.py \
             engine/src/isco_video_agent/providers/youtube.py \
             engine/src/isco_video_agent/research.py \
-            scripts/telegram_topic_research_v2.py
+            scripts/telegram_topic_research_v2.py \
+            scripts/telegram_webhook_replay.py \
+            scripts/test_topic_research_runtime_recovery.py
 
       - name: Agent research contract tests
         env:
@@ -76,7 +81,9 @@ jobs:
       - name: Runner Telegram research contract tests
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
-        run: python scripts/test_telegram_topic_research_v2.py
+        run: |
+          python scripts/test_telegram_topic_research_v2.py
+          python -m unittest scripts.test_topic_research_runtime_recovery -v
 
       - name: Updated Telegram workflow contract test
         env:
