@@ -19,14 +19,10 @@ from scripts.groq_audio_audit import DEFAULT_AUDIO_MODEL, run_groq_audio_audit
 from scripts.m8_live_binding import install_m8_live_binding
 from scripts.m9_live_binding import install_m9_live_binding
 from scripts.m10_live_binding import install_m10_live_binding
-from scripts.media_durable_cache import install_media_durable_cache
-from scripts.media_prepared_live_cache import install_media_prepared_live_cache
-from scripts.media_search_durable_cache import install_media_search_durable_cache
-from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
+from scripts.orchestration_media_port import install_media_runtime_port
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
 from scripts.planning_runtime_contract import install_runtime_planning_contracts
-from scripts.provider_capacity_v2 import install_provider_capacity_v2
 from scripts.render_durable_cache import install_render_durable_cache
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.runtime_reliability import (
@@ -103,15 +99,11 @@ def install_runtime_closure() -> None:
     # while keeping media/audio/release code outside the durable planning contract hash.
     install_runtime_planning_contracts()
 
-    # Pixabay Provider Capacity V2 owns its provider-required 24h metadata cache. Media
-    # Trust then establishes exact-byte/security authority. Media durability may reuse
-    # only decisions/derivatives bound to those bytes, and every durable Vision hit
-    # re-runs current local trust/security. The live prepared bridge is installed before
-    # M8's produce wrapper so its inner scope executes only after M8 has replaced the
-    # prepare seam; this keeps the durable wrapper outside the real M8 renderer instead
-    # of leaving a tested-but-bypassed static wrapper. Pexels metadata remains last in
-    # the media group so both providers can resume search work without changing provider
-    # order, AI budgets, or retry ownership.
+    # L7.2 moves only the Media installation topology behind one stable seam. The port
+    # preserves the certified historical order: Provider Capacity V2 -> Media Trust V2
+    # -> durable asset/decision cache -> M8-composed prepared cache -> Pexels search
+    # cache. Provider selection, retry ownership, trust/security decisions, cache
+    # semantics, hit revalidation, and write policy remain in their existing owners.
     # Render durability is deliberately installed only after the live M9/M10/CTA produce
     # wrappers have been registered, but immediately before Narrative Music Dynamics
     # wraps the global mux. It patches only M9's expensive xfade-pair renderer,
@@ -122,11 +114,7 @@ def install_runtime_closure() -> None:
     # Canonical bundle is bound on every live run_v3_voice module before the release
     # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
-    install_provider_capacity_v2()
-    install_media_trust_boundary_v2()
-    install_media_durable_cache()
-    install_media_prepared_live_cache()
-    install_media_search_durable_cache()
+    install_media_runtime_port()
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
