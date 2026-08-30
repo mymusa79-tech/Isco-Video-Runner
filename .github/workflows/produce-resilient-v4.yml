@@ -29,6 +29,15 @@ jobs:
       - name: Verify exact Runner checkout
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
+      - name: Require protected exact-SHA production certification
+        id: certification_gate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python scripts/production_certification_gate.py \
+            --output "$RUNNER_TEMP/production-certification-gate.json"
+
       - name: Checkout private engine
         id: checkout_engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -116,34 +125,6 @@ jobs:
           PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py voice \
             --voice-dir "$RUNNER_TEMP/piper-voices" \
             --manifest security/piper_voice_hashes.json
-
-          engine_test_history="$RUNNER_TEMP/isco-test-state/production-engine-suite/history.json"
-          mkdir -p "$(dirname "$engine_test_history")"
-          ISCO_HISTORY_PATH="$engine_test_history" python -m unittest discover -s tests -q
-
-      - name: Certify Engine source after production Engine suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("production_after_engine_suite")'
-
-      - name: Full Runner pre-production regression
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
-          ISCO_HISTORY_PATH: ${{ runner.temp }}/isco-test-state/production-runner-suite/history.json
-        run: |
-          set -euo pipefail
-          mkdir -p "$(dirname "$ISCO_HISTORY_PATH")"
-          mapfile -t test_modules < <(
-            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
-              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
-          )
-          test "${#test_modules[@]}" -gt 0
-          python -m unittest "${test_modules[@]}" -q
-
-      - name: Certify Engine source after production Runner suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("production_after_runner_suite")'
 
       - name: Isolated dependency vulnerability audit
         working-directory: engine
@@ -412,6 +393,7 @@ jobs:
             engine/output/*/capability-manifest.json
             ${{ runner.temp }}/provider-preflight.json
             ${{ runner.temp }}/preproduction-environment.json
+            ${{ runner.temp }}/production-certification-gate.json
           if-no-files-found: warn
           retention-days: 7
 
