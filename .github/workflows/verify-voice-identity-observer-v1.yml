@@ -3,18 +3,8 @@ name: Verify Voice Identity Observer V1
 on:
   pull_request:
     branches: ["main"]
-    paths:
-      - "scripts/voice_identity_observer.py"
-      - "scripts/test_voice_identity_observer.py"
-      - "scripts/voice_mesh.py"
-      - "scripts/test_voice_mesh.py"
-      - "scripts/run_v3_voice.py"
-      - "scripts/test_run_v3_voice.py"
-      - "scripts/gold_shadow_phase2a.py"
-      - "scripts/test_gold_shadow_phase2a.py"
-      - "voice-profiles/voice-reference-profile-v1.json"
-      - ".github/workflows/produce-resilient-v4.yml"
-      - ".github/workflows/verify-voice-identity-observer-v1.yml"
+    # CI/Test Fault Matrix V1 requires exact-final-SHA Voice evidence for every
+    # merge candidate. Keep this gate specialized, but do not path-filter it.
   workflow_dispatch:
 
 permissions:
