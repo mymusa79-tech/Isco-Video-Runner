@@ -76,17 +76,35 @@ def viable_planning_providers(required_tokens: int, *, preflight_path: Path | No
     return viable
 
 
+def provider_family(provider: str) -> str:
+    """Collapse model-qualified routes into independent provider failure domains."""
+    return str(provider or "").strip().lower().split(":", 1)[0]
+
+
+def viable_provider_families(providers: list[str]) -> list[str]:
+    return sorted({family for item in providers if (family := provider_family(item))})
+
+
 def require_viable_planning_capacity(
     required_tokens: int,
     *,
     phase: str,
     preflight_path: Path | None = None,
+    min_provider_families: int = 1,
 ) -> list[str]:
+    required_families = max(1, int(min_provider_families))
     viable = viable_planning_providers(required_tokens, preflight_path=preflight_path)
-    if not viable:
+    families = viable_provider_families(viable)
+    if len(families) < required_families:
+        marker = (
+            "NO_VIABLE_PLANNING_CAPACITY"
+            if required_families == 1
+            else "PLANNING_CAPACITY_REDUNDANCY_REQUIRED"
+        )
         raise RuntimeError(
-            "NO_VIABLE_PLANNING_CAPACITY "
-            f"phase={phase} required_tokens={int(required_tokens)}"
+            f"{marker} phase={phase} required_tokens={int(required_tokens)} "
+            f"viable_families={','.join(families) if families else 'none'} "
+            f"required_families={required_families}"
         )
     return viable
 
@@ -98,10 +116,15 @@ def effective_request_capacity(prompt: str) -> dict:
     return estimate
 
 
-def certify_general_planning_envelope(required_tokens: int) -> list[str]:
+def certify_general_planning_envelope(
+    required_tokens: int,
+    *,
+    min_provider_families: int = 1,
+) -> list[str]:
     return require_viable_planning_capacity(
         required_tokens,
         phase="preproduction_general_envelope",
+        min_provider_families=min_provider_families,
     )
 
 
