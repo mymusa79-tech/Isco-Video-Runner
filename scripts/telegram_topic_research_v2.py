@@ -72,12 +72,26 @@ def _install_live_topic_provider_reliability(mode: str) -> None:
         return
     import isco_video_agent.research as engine_research
     from scripts.research_provider_reliability import gemini_research_call_with_fallback
+    from scripts.topic_research_market_reliability import (
+        MAX_MARKET_PROBE_CANDIDATES,
+        install_market_probe_reliability,
+        install_shortfall_reason,
+    )
 
     # Topic Research V2 owns candidate-generation policy; provider transport
     # reliability stays in the existing Runner adapter. Inject the already-certified
     # bounded Gemini retry -> OpenRouter free failover into Engine select_topic()
     # without changing the Engine's generic fallback semantics or Production paths.
     engine_research.json_text = gemini_research_call_with_fallback
+
+    # Keep the three-live-candidate gate unchanged, but stop treating the first five
+    # candidates as the entire evidence universe. The Engine produces up to ten
+    # distinct candidates; expose that bounded pool to the adaptive market probe,
+    # which checks five first and expands only when the live contract still lacks
+    # evidence. This preserves YouTube quota when the first batch is sufficient.
+    core.MAX_YOUTUBE_MARKET_PROBES = MAX_MARKET_PROBE_CANDIDATES
+    install_market_probe_reliability(engine_research)
+    install_shortfall_reason(core)
 
 
 def main() -> None:
