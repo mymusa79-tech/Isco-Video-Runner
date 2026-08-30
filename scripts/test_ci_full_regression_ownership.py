@@ -22,14 +22,9 @@ DEPENDENCY_AUDIT_ARGS = "--no-deps -r requirements-lock.txt"
 
 
 class CIFullRegressionOwnershipTests(unittest.TestCase):
-    """Freeze T2 ownership without weakening the still-live Production path.
+    """Freeze canonical Full Regression ownership and the T4 Production split."""
 
-    T2 centralizes immutable-code regression in verify-private-engine.yml for CI.
-    Production deliberately remains unchanged until the later exact-SHA receipt
-    fast-path stage is independently certified.
-    """
-
-    def test_private_engine_is_the_only_ci_full_regression_owner(self) -> None:
+    def test_private_engine_is_the_only_full_regression_owner(self) -> None:
         owner = CANONICAL_OWNER.read_text(encoding="utf-8")
         self.assertIn(ENGINE_FULL, owner)
         self.assertIn(RUNNER_DISCOVERY, owner)
@@ -41,6 +36,10 @@ class CIFullRegressionOwnershipTests(unittest.TestCase):
                 self.assertNotIn(ENGINE_FULL, text)
                 self.assertNotIn(RUNNER_DISCOVERY, text)
                 self.assertNotIn(DEPENDENCY_AUDIT_PACKAGE, text)
+
+        production = PRODUCTION.read_text(encoding="utf-8")
+        self.assertNotIn(ENGINE_FULL, production)
+        self.assertNotIn(RUNNER_DISCOVERY, production)
 
     def test_specialized_workflows_keep_their_unique_evidence(self) -> None:
         m7 = SPECIALIZED[0].read_text(encoding="utf-8")
@@ -57,15 +56,21 @@ class CIFullRegressionOwnershipTests(unittest.TestCase):
         self.assertIn("Assert immutable approved voice-reference provenance", voice)
         self.assertIn("ECAPA real-model smoke", voice)
 
-    def test_production_full_regression_is_intentionally_unchanged_in_t2(self) -> None:
+    def test_production_keeps_live_dependency_audit_and_mutable_preflights(self) -> None:
         production = PRODUCTION.read_text(encoding="utf-8")
-        self.assertIn(ENGINE_FULL, production)
-        self.assertIn(RUNNER_DISCOVERY, production)
-        # Production intentionally installs pip-audit in an isolated venv and
-        # invokes it by an absolute quoted path, so freeze semantics rather than
-        # one shell spelling.
         self.assertIn(DEPENDENCY_AUDIT_PACKAGE, production)
         self.assertIn(DEPENDENCY_AUDIT_ARGS, production)
+        for needle in (
+            "Require protected exact-SHA production certification",
+            "Restore encrypted cross-run memory",
+            "Require healthy restored cross-run memory",
+            "Verify local voice fallback before cloud production",
+            "Verify production environment and release namespace",
+            "Verify complete provider readiness",
+            "Certify provider-portable planning envelope",
+        ):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, production)
 
 
 if __name__ == "__main__":

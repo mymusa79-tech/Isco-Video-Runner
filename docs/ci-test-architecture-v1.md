@@ -24,11 +24,11 @@ The following workflows are specialized evidence owners and must not rerun the g
 - `verify-m11-live-integration.yml`: M11 focused contracts plus real FFmpeg renderer smoke.
 - `verify-voice-identity-observer-v1.yml`: Voice/Gold contracts, immutable reference provenance, and real ECAPA smoke.
 
-`verify-production-stage-ladder.yml` remains the end-to-end P0-P6 certification owner and is not weakened by T2.
+`verify-production-stage-ladder.yml` remains the end-to-end P0-P6 certification owner.
 
 ## T3 exact-SHA certification
 
-The canonical Full Regression owner now binds certification to an exact Runner identity:
+The canonical Full Regression owner binds certification to an exact Runner identity:
 
 - Pull requests certify the exact PR head SHA.
 - Pushes to `main` certify the exact resulting `main` SHA.
@@ -39,24 +39,37 @@ The canonical Full Regression owner now binds certification to an exact Runner i
 
 Stage Ladder remains independent evidence and continues to publish `stage-ladder-green-<runner_sha>` on successful `main` certification.
 
-T3 deliberately does not make Production consume these refs yet. The two independent exact-SHA evidences must exist first, and P0 `main` protection must be active before Production Fast Path can be enabled.
+## T4 Production certification fast path
 
-## Production status during T3
+`produce-resilient-v4.yml` consumes immutable-code certification instead of rerunning the full immutable regression suites on every video.
 
-`produce-resilient-v4.yml` is intentionally unchanged through T3. It still executes Full Engine, Full Runner, and dependency audit before provider work.
+Before any private Engine checkout or provider work, `scripts/production_certification_gate.py` fails closed unless all of the following are true:
 
-Production may use a fast path only after the later isolated stage verifies both exact-SHA certification refs and retains all mutable/live preflights.
+- the dispatch is from `refs/heads/main`;
+- the dispatched SHA is the current `main` SHA;
+- GitHub reports `main` as protected;
+- `full-regression-green-<runner_sha>` exists and points directly to that exact Runner commit;
+- `stage-ladder-green-<runner_sha>` exists and points directly to that exact Runner commit.
+
+Only after this gate is Green may Production continue.
+
+T4 removes the duplicate Full Engine and Full Runner executions from the Production critical path. It intentionally keeps the live dependency vulnerability audit and all mutable/runtime checks, including locked dependency installation, supply-chain/voice validation, memory restore health, Piper preflight, release namespace checks, provider readiness, planning envelope validation, runtime Quality Gates, Final Master QC, Gold, packaging, release transaction, and state persistence.
+
+The certification gate writes `production-certification-gate.json`, which is included in failure diagnostics.
 
 ## P0 blocker
 
-Before enabling the production fast path, `main` must require pull requests and the canonical certification checks, block force pushes/deletion, and avoid ordinary bypass of those checks.
+T4 is deliberately fail-closed while `main` is unprotected. Production Fast Path cannot be used until repository configuration requires pull requests and canonical certification checks, blocks force pushes/deletion, and avoids ordinary bypass of required checks.
+
+Issue #415 tracks this configuration prerequisite.
 
 ## Non-goals
 
-T3 does not:
+T4 does not:
 
 - delete semantic, security, historical-regression, QC, Shorts, or Stage Ladder tests;
 - change any Quality Gate threshold;
+- remove the live dependency vulnerability audit;
 - change provider/retry/cache semantics;
 - launch a Production Run;
-- enable production reuse of CI results.
+- bypass an uncertified or unprotected `main` SHA.
