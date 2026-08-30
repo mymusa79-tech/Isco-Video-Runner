@@ -2,9 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+# This file is executed directly by the Telegram control workflow. Direct script
+# execution puts ``scripts/`` rather than the repository root on sys.path, so restore
+# the root before importing package-owned helpers.
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.telegram_release_approval import approval_projection
 

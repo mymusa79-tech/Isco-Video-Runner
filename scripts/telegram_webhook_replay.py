@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# GitHub Actions executes this wrapper as ``python scripts/telegram_webhook_replay.py``.
+# Direct script execution puts ``scripts/`` rather than the repository root on
+# sys.path. Restore the root before importing the package-owned replay core.
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from scripts import telegram_webhook_replay_core as core
 
 
