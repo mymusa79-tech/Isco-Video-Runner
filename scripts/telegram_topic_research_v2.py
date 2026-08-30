@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+
+# GitHub Actions executes this wrapper directly as ``python scripts/...``.
+# Restore the repository root before importing package-owned modules.
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import telegram_topic_research_v2_core as core
 
