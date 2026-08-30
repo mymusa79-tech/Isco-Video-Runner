@@ -21,6 +21,7 @@ concurrency:
 
 env:
   ENGINE_SHA: f3c9357098947882882ca3010b46a565c2d90460
+  RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309
   CONTROL_PLANE_PRODUCTION_ENABLED: "true"
 
 jobs:
@@ -157,14 +158,14 @@ jobs:
           fi
 
           echo "Telegram webhook is inactive; certified fallback polling owns ingress for this serialized run"
-          python scripts/telegram_topic_memory_ui.py poll --state "$CONTROL_STATE_PATH"
+          python scripts/telegram_topic_research_v2.py poll --state "$CONTROL_STATE_PATH"
 
       - name: Checkout exact private Engine for research only
         if: steps.poll.outputs.needs_engine == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: ${{ env.ENGINE_SHA }}
+          ref: ${{ env.RESEARCH_ENGINE_SHA }}
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -202,7 +203,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python scripts/telegram_topic_memory_ui.py research --state "$CONTROL_STATE_PATH"
+          python scripts/telegram_topic_research_v2.py research --state "$CONTROL_STATE_PATH"
 
       - name: Reserve explicit production dispatch
         id: reserve

@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 ENGINE_SHA = "f3c9357098947882882ca3010b46a565c2d90460"
+RESEARCH_ENGINE_SHA = "bf85607f6e34dcedc199abad7e610b12c4685309"
 OLD_ENGINE_SHA = "39d4a0ea613cf266c7b4c561acb4a01216909cd9"
 
 
@@ -70,9 +71,11 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertNotIn("secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN", self.text)
         self.assertIn('"production_queue":[]', self.text)
 
-    def test_engine_is_only_checked_out_for_research_in_control_workflow(self):
-        self.assertIn("if: steps.poll.outputs.needs_engine == 'true'", self.text)
-        self.assertIn(ENGINE_SHA, self.text)
+    def test_research_engine_is_isolated_from_production_engine_pin(self):
+        self.assertIn(f"ENGINE_SHA: {ENGINE_SHA}", self.text)
+        self.assertIn(f"RESEARCH_ENGINE_SHA: {RESEARCH_ENGINE_SHA}", self.text)
+        self.assertIn("ref: ${{ env.RESEARCH_ENGINE_SHA }}", self.text)
+        self.assertIn('-f engine_sha="$ENGINE_SHA"', self.text)
         self.assertNotIn(OLD_ENGINE_SHA, self.text)
 
     def test_research_step_carries_an_openrouter_fallback_key(self):
@@ -82,10 +85,12 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn("OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}", segment)
         self.assertIn("GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}", segment)
 
-    def test_schedule_runs_topic_memory_policy_entrypoint(self):
+    def test_schedule_runs_topic_research_v2_policy_entrypoint(self):
         self.assertIn('cron: "*/5 * * * *"', self.text)
-        self.assertIn("python scripts/telegram_topic_memory_ui.py poll", self.text)
-        self.assertIn("python scripts/telegram_topic_memory_ui.py research", self.text)
+        self.assertIn("python scripts/telegram_topic_research_v2.py poll", self.text)
+        self.assertIn("python scripts/telegram_topic_research_v2.py research", self.text)
+        self.assertNotIn("python scripts/telegram_topic_memory_ui.py poll", self.text)
+        self.assertNotIn("python scripts/telegram_topic_memory_ui.py research", self.text)
         self.assertNotIn("python scripts/telegram_control_active_ui.py poll", self.text)
         self.assertNotIn("python scripts/telegram_control_active_ui.py research", self.text)
         self.assertNotIn("python scripts/telegram_control_panel.py poll", self.text)
