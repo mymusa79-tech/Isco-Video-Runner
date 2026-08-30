@@ -1,4 +1,5 @@
 import priorWorker from "./observability-worker-v4-core.js";
+import { STATUS_CONTRACT } from "./status-contract.generated.js";
 
 const DEFAULT_REPO = "mymusa79-tech/Isco-Video-Runner";
 const DEFAULT_CHANNEL_ID = "UC_fmWGRen6QUQNd4Dj80MgA";
@@ -66,15 +67,6 @@ function searchText() {
     "اختر النوع. سأبحث عن 3 فرص حية مرتبة وأعرض سبب قوة كل واحدة.",
     "",
     "هذا بحث فقط؛ لا يبدأ Production.",
-  ].join("\n");
-}
-
-function statsText() {
-  return [
-    "📈 أداء القناة",
-    "",
-    "ابدأ بالنظرة العامة، أو افتح أحدث فيديو/Short، أو حركة اليوم والأسبوع.",
-    "CTR والاحتفاظ ومدة المشاهدة التفصيلية تبقى في YouTube Studio.",
   ].join("\n");
 }
 
@@ -158,22 +150,26 @@ async function updatePanel(env, target, text, rows) {
   });
 }
 
-function githubHeaders(env) {
+function githubHeaders(env, authenticated = true) {
   const headers = {
     accept: "application/vnd.github+json",
     "user-agent": "isco-telegram-control-v5",
     "x-github-api-version": "2022-11-28",
   };
-  const token = String(env.GITHUB_CONTROL_TOKEN || "").trim();
-  if (token) headers.authorization = `Bearer ${token}`;
+  if (authenticated) {
+    const token = String(env.GITHUB_CONTROL_TOKEN || "").trim();
+    if (token) headers.authorization = `Bearer ${token}`;
+  }
   return headers;
 }
 
 async function githubJson(env, suffix) {
   const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
-  const response = await fetch(`https://api.github.com/repos/${repo}/${String(suffix).replace(/^\/+/, "")}`, {
-    headers: githubHeaders(env),
-  });
+  const url = `https://api.github.com/repos/${repo}/${String(suffix).replace(/^\/+/, "")}`;
+  let response = await fetch(url, { headers: githubHeaders(env, true) });
+  if (!response.ok && [401, 403, 404].includes(response.status)) {
+    response = await fetch(url, { headers: githubHeaders(env, false) });
+  }
   if (!response.ok) throw new Error(`GitHub read failed: ${response.status}`);
   return response.json();
 }
@@ -209,12 +205,13 @@ function failedLocation(jobs) {
 
 function productionStage(run, jobs) {
   if (!run) return { label: "غير نشط", detail: "لا يوجد Production Run معروف.", progress: null };
-  const conclusion = String(run.conclusion || "");
-  if (conclusion === "success") return { label: "مكتمل", detail: "اكتمل Workflow بنجاح.", progress: 100 };
-  if (["failure", "timed_out", "cancelled"].includes(conclusion)) {
+  const conclusion = String(run.conclusion || "").toLowerCase();
+  const terminal = (STATUS_CONTRACT.run_terminal || {})[conclusion];
+  if (terminal) {
+    if (conclusion === "success") return { label: terminal.label, detail: "اكتمل Workflow بنجاح.", progress: 100 };
     const [job, step] = failedLocation(jobs);
     return {
-      label: conclusion === "cancelled" ? "متوقف" : "فشل",
+      label: String(terminal.label || conclusion),
       detail: step ? `توقف عند: ${step}` : job ? `توقف عند: ${job}` : `الحالة: ${conclusion}`,
       progress: null,
     };
@@ -224,11 +221,18 @@ function productionStage(run, jobs) {
   const progress = steps.length
     ? Math.round((100 * steps.filter((step) => String(step.status || "") === "completed").length) / steps.length)
     : null;
-  return {
-    label: current ? String(current.name || "الإنتاج الجاري") : String(run.status || "الإنتاج الجاري"),
-    detail: current ? `الخطوة الحالية في GitHub Actions: ${String(current.name || "")}` : "Workflow قيد التنفيذ.",
-    progress,
-  };
+  if (current) {
+    const folded = String(current.name || "").toLowerCase();
+    const rule = (STATUS_CONTRACT.stage_rules || []).find((item) =>
+      (item.contains || []).some((needle) => folded.includes(String(needle).toLowerCase())),
+    );
+    return {
+      label: String((rule && rule.label) || current.name || "الإنتاج الجاري"),
+      detail: `الخطوة الحالية: ${String(current.name || "")}`,
+      progress,
+    };
+  }
+  return { label: String(run.status || "الإنتاج الجاري"), detail: "Workflow قيد التنفيذ.", progress };
 }
 
 async function decryptState(bytes, passphrase) {
@@ -257,6 +261,41 @@ async function controlState(env) {
   stateCache = await decryptState(new Uint8Array(await response.arrayBuffer()), secret);
   stateCacheAt = Date.now();
   return stateCache;
+}
+
+function savedItems(state) {
+  return (Array.isArray(state && state.saved_suggestions) ? state.saved_suggestions : [])
+    .filter((item) => item && item.status === "available" && item.candidate && String(item.candidate.title || "").trim());
+}
+
+function usedItems(state) {
+  return (Array.isArray(state && state.used_topics) ? state.used_topics : [])
+    .filter((item) => item && ["long", "short"].includes(String(item.kind || "")) && String(item.topic || "").trim());
+}
+
+async function showLibraryOverview(env, target) {
+  const state = await controlState(env);
+  const saved = savedItems(state);
+  const used = usedItems(state);
+  const savedLong = saved.filter((item) => String(item.kind || "") === "long").length;
+  const savedShort = saved.filter((item) => String(item.kind || "") === "short").length;
+  const usedLong = used.filter((item) => String(item.kind || "") === "long").length;
+  const usedShort = used.filter((item) => String(item.kind || "") === "short").length;
+  const text = [
+    "📚 مكتبة المواضيع",
+    "",
+    `📥 محفوظة: ${saved.length} · 🎬 ${savedLong} حلقات · ⚡ ${savedShort} Shorts`,
+    `✅ مستعملة: ${used.length} · 🎬 ${usedLong} حلقات · ⚡ ${usedShort} Shorts`,
+    "",
+    "كل نوع يبقى في قائمته المستقلة.",
+  ].join("\n");
+  await updatePanel(env, target, text, [
+    [
+      { text: `📥 المحفوظة (${saved.length})`, callback_data: "cmd:saved" },
+      { text: `✅ المستعملة (${used.length})`, callback_data: "cmd:used" },
+    ],
+    [{ text: "↩️ الرئيسية", callback_data: "cmd:menu" }],
+  ]);
 }
 
 function currentTarget(state) {
@@ -296,6 +335,9 @@ async function showOperatorStatus(env, target) {
       now = `✅ لديك موضوع معتمد ينتظر قرار التشغيل.${topic ? `\n🎯 ${topic.slice(0, 140)}` : ""}`;
       action = `إذا كان القرار نهائيًا، أرسل حرفيًا: ${CONFIRM_TEXT}`;
     }
+  } else {
+    now = "⚠️ لا يوجد Production Run نشط، لكن تعذر قراءة حالة الاختيار الحالية.";
+    action = "لا ترسل تأكيد Production اعتمادًا على هذه الشاشة؛ حدّث الحالة بعد قليل أو افتح التفاصيل.";
   }
 
   const latest = production.run ? productionStage(production.run, production.jobs) : null;
@@ -538,6 +580,7 @@ async function showStats(env, target, kind) {
 function callbackRoute(data) {
   if (data === "cmd:menu") return { kind: "menu" };
   if (data === "cmd:search_menu") return { kind: "search" };
+  if (data === "cmd:library_menu") return { kind: "library" };
   if (data === "cmd:stats_menu" || ["cmd:stats_overview", "cmd:stats_last_long", "cmd:stats_last_short", "cmd:stats_today", "cmd:stats_week"].includes(data)) {
     return { kind: "stats", data: data.slice(4) };
   }
@@ -551,6 +594,7 @@ function textRoute(text) {
   const value = String(text || "").trim();
   if (["🏠 ابدأ", "🎛 ابدأ", "/start", "/menu", "ابدأ", "القائمة"].includes(value)) return { kind: "menu" };
   if (["بحث", "1", "١"].includes(value)) return { kind: "search" };
+  if (["المواضيع", "2", "٢"].includes(value)) return { kind: "library" };
   if (["آخر إنتاج", "اخر انتاج", "3", "٣"].includes(value)) return { kind: "delivery" };
   if (["الحالة", "حالة", "status", "4", "٤"].includes(value)) return { kind: "status" };
   if (["الإحصائيات", "الاحصائيات", "5", "٥"].includes(value)) return { kind: "stats", data: "stats_menu" };
@@ -560,6 +604,7 @@ function textRoute(text) {
 async function handleRoute(env, target, route) {
   if (route.kind === "menu") return updatePanel(env, target, rootText(), ROOT_ROWS);
   if (route.kind === "search") return updatePanel(env, target, searchText(), SEARCH_ROWS);
+  if (route.kind === "library") return showLibraryOverview(env, target);
   if (route.kind === "stats") return showStats(env, target, route.data);
   if (route.kind === "status") return showOperatorStatus(env, target);
   if (route.kind === "system_status") return showSystemStatus(env, target);
@@ -585,7 +630,8 @@ export default {
     const route = update.callback_query ? callbackRoute(target.data) : textRoute(update.message && update.message.text);
     if (!route) return priorWorker.fetch(request, env, ctx);
     ctx.waitUntil((async () => {
-      await ack(env, target.callbackId, route.kind === "stats" ? "أحدّث الأرقام الآن…" : "أحدّث اللوحة الآن…");
+      const toast = route.kind === "stats" ? "أحدّث الأرقام الآن…" : route.kind === "library" ? "أفتح المكتبة الآن…" : "أحدّث اللوحة الآن…";
+      await ack(env, target.callbackId, toast);
       try {
         await handleRoute(env, target, route);
       } catch (error) {
