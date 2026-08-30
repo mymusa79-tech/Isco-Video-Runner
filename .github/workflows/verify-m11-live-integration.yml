@@ -9,8 +9,9 @@ permissions:
 
 jobs:
   combined-regression:
+    name: M11 Focused Integration Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       ENGINE_SHA: f3c9357098947882882ca3010b46a565c2d90460
     steps:
@@ -19,6 +20,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+
       - name: Checkout exact private Engine M11 candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -28,15 +30,19 @@ jobs:
           path: engine
           persist-credentials: false
           fetch-depth: 1
+
       - name: Verify exact Engine checkout
         working-directory: engine
         run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
+
       - name: Install media dependencies
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
       - name: Install locked Engine runtime
         working-directory: engine
         run: |
@@ -44,12 +50,10 @@ jobs:
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
-      - name: Dependency audit
-        working-directory: engine
-        run: |
-          set -euo pipefail
-          python -m pip install pip-audit==2.10.1
-          pip-audit --no-deps -r requirements-lock.txt
+
+      # Generic dependency audit, Full Engine and Full Runner ownership lives only
+      # in verify-private-engine.yml (Canonical Full Regression). This workflow
+      # owns M11-specific contracts and the real FFmpeg smoke only.
       - name: Focused M11 Engine tests
         working-directory: engine
         env:
@@ -63,10 +67,12 @@ jobs:
           python -m unittest tests.test_m11_archive_policy_contract -v
           python -m unittest tests.test_human_editorial_intent -v
           python -m unittest tests.test_editorial_room_director_m7_binding_current_main -v
+
       - name: Certify Engine source after focused M11 Engine tests
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m11_after_focused_engine")'
+
       - name: Real M11 FFmpeg renderer smoke
         working-directory: engine
         env:
@@ -91,21 +97,12 @@ jobs:
           assert video[0]["width"] == 1920 and video[0]["height"] == 1080
           assert 4.0 <= duration <= 4.4, duration
           PY
+
       - name: Certify Engine source after M11 renderer smoke
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m11_after_renderer_smoke")'
-      - name: Full Engine suite
-        working-directory: engine
-        env:
-          ISCO_HISTORY_PATH: ${{ runner.temp }}/m11-full-engine-history.json
-        run: |
-          set -o pipefail
-          python -m unittest discover -s tests -q 2>&1 | tee "$RUNNER_TEMP/m11-engine-unittest.log"
-      - name: Certify Engine source after M11 Full Engine suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m11_after_full_engine")'
+
       - name: Focused Runner M11 HEI M7 Security tests
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
@@ -115,23 +112,12 @@ jobs:
           python -m unittest scripts.test_m11_live_binding -v
           python -m unittest scripts.test_human_editorial_intent_binding -v
           python -m unittest scripts.test_m7_live_binding -v
+
       - name: Certify Engine source after focused M11 Runner tests
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m11_after_focused_runner")'
-      - name: Full Runner regression suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
-          ISCO_HISTORY_PATH: ${{ runner.temp }}/m11-full-runner-history.json
-        run: |
-          set -euo pipefail
-          mapfile -t test_modules < <(find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' | sort | sed -e 's#/#.#g' -e 's#\.py$##')
-          test "${#test_modules[@]}" -gt 0
-          python -m unittest "${test_modules[@]}" -q
-      - name: Certify Engine source after M11 Full Runner suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m11_after_full_runner")'
+
       - name: M11 contract sanity
         run: |
           set -euo pipefail
@@ -149,11 +135,3 @@ jobs:
           grep -F 'visual_review_required' engine/src/isco_video_agent/cinematic_m11_runtime.py >/dev/null
           grep -F 'CC0-1.0-EXPLICIT' engine/src/isco_video_agent/rights.py >/dev/null
           grep -F 'archive_and_public_domain_art:' engine/config/visual_bible.yaml >/dev/null
-      - name: Upload Engine unittest diagnostics
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: m11-live-engine-unittest
-          path: ${{ runner.temp }}/m11-engine-unittest.log
-          if-no-files-found: warn
-          retention-days: 1
