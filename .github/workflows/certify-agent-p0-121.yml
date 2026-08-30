@@ -1,0 +1,74 @@
+name: Certify Agent P0 Authority Lock
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/certify-agent-p0-121.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AGENT_CANDIDATE_SHA: 369d83592b0bbe19607167ad865e9ba714c8e48f
+
+jobs:
+  certify-agent-p0:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Runner authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: runner
+          persist-credentials: false
+
+      - name: Checkout exact Agent P0 candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.AGENT_CANDIDATE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: agent
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact candidate identities
+        run: |
+          set -euo pipefail
+          test "$(git -C agent rev-parse HEAD)" = "$AGENT_CANDIDATE_SHA"
+          test -f runner/.github/workflows/produce-resilient-v4.yml
+          test -f runner/.github/workflows/telegram-production-request.yml
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Agent locked runtime
+        working-directory: agent
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-core
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: agent
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Full Agent regression suite
+        working-directory: agent
+        run: python -m unittest discover -s tests -v
+
+      - name: Agent production-authority regression
+        working-directory: agent
+        run: python -m unittest tests.test_agent_production_authority -v
+
+      - name: Cross-repo production-authority boundary
+        working-directory: agent
+        run: python scripts/verify_production_authority_boundary.py --runner-root ../runner
