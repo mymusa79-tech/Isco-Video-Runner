@@ -9,31 +9,28 @@ on:
         type: string
   push:
     branches: ["main"]
-    paths:
-      - "scripts/native_short_planner_router.py"
-      - "scripts/shorts_production_binding.py"
-      - "scripts/short_voice_v2.py"
-      - "scripts/run_control_production.py"
-      - "scripts/test_native_short_planner_router.py"
-      - "scripts/test_shorts_production_binding.py"
-      - "scripts/test_short_voice_v2.py"
-      - ".github/workflows/verify-private-engine.yml"
   pull_request:
     branches: ["main"]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   combined-regression:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout exact Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.CANDIDATE_SHA }}
           persist-credentials: false
           fetch-depth: 1
+
+      - name: Verify exact Runner candidate
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
 
       - name: Resolve and verify canonical V4 Engine contract
         id: contract
@@ -84,7 +81,7 @@ jobs:
           output = Path(os.environ["GITHUB_OUTPUT"])
           with output.open("a", encoding="utf-8") as fh:
               fh.write(f"engine_sha={sha}\n")
-          print(f"Canonical V4 contract PASS: runner={os.environ.get('GITHUB_SHA')} engine={sha}")
+          print(f"Canonical V4 contract PASS: runner={os.environ.get('CANDIDATE_SHA')} engine={sha}")
           PY
 
       - name: Checkout exact private Engine
@@ -234,3 +231,72 @@ jobs:
           git diff --check origin/main...HEAD || git diff --check
           test -f .github/workflows/produce-resilient-v4.yml
           test -f .github/workflows/verify-private-engine.yml
+
+      - name: Write exact-SHA Full Regression certification receipt
+        env:
+          ENGINE_SHA: ${{ steps.contract.outputs.engine_sha }}
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/canonical-full-regression-certification.json"
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          candidate = os.environ["CANDIDATE_SHA"]
+          checked_out = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          if checked_out != candidate:
+              raise SystemExit(f"Runner identity drift before certification: {checked_out} != {candidate}")
+
+          def sha256(path: str) -> str:
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          payload = {
+              "schema": "isco-canonical-full-regression-v1",
+              "runner_sha": candidate,
+              "engine_sha": os.environ["ENGINE_SHA"],
+              "requirements_lock_sha256": sha256("engine/requirements-lock.txt"),
+              "workflow_sha256": sha256(".github/workflows/verify-private-engine.yml"),
+              "full_engine": "green",
+              "full_runner": "green",
+              "dependency_audit": "green",
+              "approved_brief_cli_matrix": "green",
+              "status": "green",
+              "production_dispatch_performed": False,
+          }
+          path = Path(os.environ["RUNNER_TEMP"]) / "canonical-full-regression-certification.json"
+          path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(payload, sort_keys=True))
+          PY
+          test "$(jq -r .runner_sha "$receipt")" = "$CANDIDATE_SHA"
+          test "$(jq -r .engine_sha "$receipt")" = "$ENGINE_SHA"
+          test "$(jq -r .status "$receipt")" = "green"
+          test "$(jq -r .production_dispatch_performed "$receipt")" = "false"
+
+      - name: Publish exact-SHA Full Regression certification ref
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="full-regression-green-$CANDIDATE_SHA"
+          endpoint="repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"
+          if payload="$(gh api "$endpoint" 2>/dev/null)"; then
+            test "$(jq -r .object.type <<<"$payload")" = "commit"
+            test "$(jq -r .object.sha <<<"$payload")" = "$CANDIDATE_SHA"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$tag" \
+              -f sha="$CANDIDATE_SHA" >/dev/null
+          fi
+          echo "Published exact-SHA Full Regression certification: $tag"
+
+      - name: Upload exact-SHA Full Regression receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: canonical-full-regression-${{ github.run_number }}
+          path: ${{ runner.temp }}/canonical-full-regression-certification.json
+          if-no-files-found: error
+          retention-days: 30
