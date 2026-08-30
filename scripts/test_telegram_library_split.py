@@ -7,6 +7,7 @@ from pathlib import Path
 from scripts import telegram_control_active_ui as ui
 from scripts import telegram_topic_memory_ui as memory
 from scripts import telegram_webhook_replay as replay
+from scripts import telegram_webhook_replay_core as replay_core
 
 
 def _saved(archive_id: str, kind: str, title: str) -> dict:
@@ -148,7 +149,9 @@ class TelegramLibrarySplitTests(unittest.TestCase):
         self.assertIsNone(memory._library_page_request("saved-long", "used"))
 
     def test_webhook_replay_installs_exact_library_stack(self):
-        source = inspect.getsource(replay.replay_update)
+        # V5 wraps the replay entrypoint, but the certified replay core still owns
+        # the exact policy/persistent/library/clarity order before active UI install.
+        source = inspect.getsource(replay_core.replay_update)
         policy_at = source.index("memory_ui._install_policy()")
         persistent_at = source.index("persistent_ui.install()")
         split_at = source.index("memory_ui._install_library_split()")
@@ -156,18 +159,22 @@ class TelegramLibrarySplitTests(unittest.TestCase):
         self.assertLess(policy_at, persistent_at)
         self.assertLess(persistent_at, split_at)
         self.assertLess(split_at, clarity_at)
+        wrapper = inspect.getsource(replay.replay_update)
+        self.assertIn("_install_v5_after_active()", wrapper)
 
     def test_every_visible_button_family_has_a_route_and_handler(self):
         root = Path(__file__).resolve().parents[1]
-        edge = (root / "cloudflare/telegram-control-worker/observability-worker.js").read_text(encoding="utf-8")
+        edge_entry = (root / "cloudflare/telegram-control-worker/observability-worker.js").read_text(encoding="utf-8")
+        edge_core = (root / "cloudflare/telegram-control-worker/observability-worker-v4-core.js").read_text(encoding="utf-8")
+        edge = edge_entry + "\n" + edge_core
         base = (root / "cloudflare/telegram-control-worker/index.js").read_text(encoding="utf-8")
         panel = (root / "scripts/telegram_control_panel.py").read_text(encoding="utf-8")
         active = (root / "scripts/telegram_control_active_ui.py").read_text(encoding="utf-8")
         persistent = (root / "scripts/telegram_persistent_control_ui.py").read_text(encoding="utf-8")
         memory_source = (root / "scripts/telegram_topic_memory_ui.py").read_text(encoding="utf-8")
-        replay_source = (root / "scripts/telegram_webhook_replay.py").read_text(encoding="utf-8")
+        replay_core_source = (root / "scripts/telegram_webhook_replay_core.py").read_text(encoding="utf-8")
 
-        # Edge-local navigation/read surfaces with literal callback names.
+        # V5 entry + preserved read-only core jointly own fast navigation/library routes.
         for callback in (
             "cmd:menu",
             "cmd:search_menu",
@@ -178,14 +185,14 @@ class TelegramLibrarySplitTests(unittest.TestCase):
             "cmd:used",
         ):
             self.assertIn(callback, edge, callback)
-        # The four Long/Short library buttons are generated from one canonical bucket template.
         self.assertIn('callback_data: `cmd:${bucket}-long`', edge)
         self.assertIn('callback_data: `cmd:${bucket}-short`', edge)
         self.assertIn('/^cmd:(saved|used)-(long|short)', edge)
         self.assertIn("pageSpec(data)", edge)
-        self.assertIn("return baseWorker.fetch(request, env, ctx)", edge)
+        self.assertIn("return baseWorker.fetch(request, env, ctx)", edge_core)
+        self.assertIn("return priorWorker.fetch(request, env, ctx)", edge_entry)
 
-        # Read-only leaves handled by the base Worker.
+        # Read-only leaves exist in the base contract and V5 may intercept them earlier.
         for callback in (
             "cmd:last_delivery",
             "cmd:stats_menu",
@@ -195,11 +202,11 @@ class TelegramLibrarySplitTests(unittest.TestCase):
             "cmd:stats_week",
             "cmd:stats_overview",
         ):
-            self.assertIn(callback, base, callback)
+            self.assertTrue(callback in base or callback in edge_entry, callback)
 
         # Stateful callbacks are forwarded to GitHub and consumed by Python.
         self.assertIn("dispatchToGitHub(env, update)", base)
-        self.assertIn('callback_data: `cmd:savedpick-${String(item.archive_id || "")}`', edge)
+        self.assertIn('callback_data: `cmd:savedpick-${String(item.archive_id || "")}`', edge_core)
         self.assertIn('kind.startswith("savedpick-")', active)
         self.assertIn('parts[0] == "detail"', panel)
         self.assertIn('parts[0] == "pickshort"', panel)
@@ -212,11 +219,11 @@ class TelegramLibrarySplitTests(unittest.TestCase):
         self.assertIn('"callback_data": f"scope:{parts[1]}:{index}:bundle"', panel)
         self.assertIn('"callback_data": f"scope:{parts[1]}:{index}:long"', panel)
 
-        # Search callbacks reach the Python research queue; saved split is installed in replay.
+        # Search callbacks reach the Python research queue; saved split remains core-owned.
         self.assertIn('callback_data: "cmd:topic"', base)
         self.assertIn('callback_data: "cmd:short"', base)
         self.assertIn('if kind in {"topic", "short"}', active)
-        self.assertIn("memory_ui._install_library_split()", replay_source)
+        self.assertIn("memory_ui._install_library_split()", replay_core_source)
         self.assertIn('base = f"{bucket}-{kind}"', memory_source)
 
         # Production remains an explicit text confirmation, never a read-button side effect.
