@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import isco_video_agent.resilient_planner as staged
+from scripts import planning_stage_contract as stage_contract
 from scripts import provider_capacity_hardening as capacity
 
 # Three sections remains the largest continuity-preserving transport shard. Run #121
@@ -79,6 +80,27 @@ def _admission_limit_label(estimate: dict) -> str:
 
 
 def _call_capacity_aware_shard(
+    api_key: str,
+    model: str,
+    ids: list[str],
+    *,
+    prompt_builder,
+    label: str,
+) -> dict[str, dict]:
+    # Capacity admission happens before staged._call_with_schema_repair(), so the
+    # exact Writer/Doctor StageSpec must already be active here.  Otherwise a capacity
+    # helper would have to rediscover request identity from prompt prose.
+    with stage_contract.script_batch_scope(label, ids):
+        return _call_capacity_aware_shard_scoped(
+            api_key,
+            model,
+            ids,
+            prompt_builder=prompt_builder,
+            label=label,
+        )
+
+
+def _call_capacity_aware_shard_scoped(
     api_key: str,
     model: str,
     ids: list[str],

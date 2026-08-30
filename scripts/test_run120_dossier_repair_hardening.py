@@ -209,6 +209,12 @@ class Run120DossierRepairHardeningTests(unittest.TestCase):
         def fake_schema_owner(api_key, prompt, model, *, expected_ids):
             captured["prompt"] = prompt
             captured["ids"] = list(expected_ids)
+            captured["provider_schema"] = bridge.stage_contract._explicit_schema_adapter(
+                "prompt text is not authority"
+            )[0]
+            captured["completion_tokens"] = (
+                bridge.stage_contract.active_planning_completion_tokens()
+            )
             return {"S1": {"narration": "نص", "key_point": "فكرة"}}
 
         prompt = (
@@ -237,6 +243,8 @@ class Run120DossierRepairHardeningTests(unittest.TestCase):
         )
         self.assertIn("SECTIONS:", captured["prompt"])
         self.assertEqual(captured["ids"], ["S1"])
+        self.assertEqual(captured["provider_schema"], "dossier_repair_1")
+        self.assertEqual(captured["completion_tokens"], 850)
 
     def test_schema_bridge_routes_only_length_capacity_to_adaptive_split(self):
         def length_failure(*args, **kwargs):

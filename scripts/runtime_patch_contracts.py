@@ -24,6 +24,21 @@ _FORBIDDEN_RUNTIME_CAPACITY_SYMBOLS = frozenset(
 )
 _LEGACY_CAPACITY_OWNER = "provider_capacity_hardening.py"
 
+# Canonical production keeps historical helper functions import-compatible, but only
+# these explicit owners may assign the authority-bearing router seams.  A new runtime
+# patch cannot regain schema/checkpoint ownership without failing the repository-wide
+# audit before any provider call.
+_PLANNING_AUTHORITY_ASSIGNMENT_OWNERS = {
+    "_structured_schema_for_prompt": frozenset({"planning_stage_contract.py"}),
+    "_load_checkpoint": frozenset(
+        {"checkpoint_namespace_guard.py", "planning_legacy_authority_guard.py"}
+    ),
+    "_save_checkpoint": frozenset(
+        {"checkpoint_namespace_guard.py", "planning_legacy_authority_guard.py"}
+    ),
+}
+_QUARANTINED_PROMPT_SCHEMA_DEFINITION_OWNER = "task_level_planner_router.py"
+
 # These three files contain historical `min(...RETRY_AFTER...)` source expressions.
 # They are not allowed to multiply: final production composition makes the value a
 # WAIT BUDGET (fail over when provider evidence exceeds it), and the live contract below
@@ -166,6 +181,52 @@ def _patch_assignment_violations(path: Path, tree: ast.AST) -> list[str]:
     return violations
 
 
+def _planning_authority_assignment_violations(path: Path, tree: ast.AST) -> list[str]:
+    violations: list[str] = []
+    sites: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets.extend(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets.append(node.target)
+        for target in targets:
+            if isinstance(target, ast.Attribute):
+                sites.append((target.attr, getattr(target, "lineno", 0)))
+
+        # Catch dynamic setattr-based replacement as well as ordinary assignments.
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "setattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        ):
+            sites.append((node.args[1].value, getattr(node, "lineno", 0)))
+
+    for attribute, line in sites:
+        owners = _PLANNING_AUTHORITY_ASSIGNMENT_OWNERS.get(attribute)
+        if owners is not None and path.name not in owners:
+            violations.append(f"{path.name}:{line}:{attribute}")
+    return violations
+
+
+def _legacy_prompt_contract_inference_violations(path: Path, tree: ast.AST) -> list[str]:
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name == "_contract_name_for_prompt":
+            violations.append(f"{path.name}:{node.lineno}:{node.name}")
+        if (
+            node.name == "_structured_schema_for_prompt"
+            and path.name != _QUARANTINED_PROMPT_SCHEMA_DEFINITION_OWNER
+        ):
+            violations.append(f"{path.name}:{node.lineno}:{node.name}")
+    return violations
+
+
 def _retry_after_min_sites(path: Path, tree: ast.AST) -> list[str]:
     """Find source expressions that can turn a provider minimum delay into a cap."""
     sites: list[str] = []
@@ -193,6 +254,8 @@ def repository_runtime_patch_audit() -> dict[str, object]:
     """
     legacy: dict[str, list[str]] = {}
     patch_contracts: list[str] = []
+    planning_authority_assignments: list[str] = []
+    legacy_prompt_contract_inference: list[str] = []
     retry_after_min_sites: list[str] = []
     files = _runtime_python_files()
     for path in files:
@@ -201,6 +264,12 @@ def repository_runtime_patch_audit() -> dict[str, object]:
         if found_legacy:
             legacy[path.name] = found_legacy
         patch_contracts.extend(_patch_assignment_violations(path, tree))
+        planning_authority_assignments.extend(
+            _planning_authority_assignment_violations(path, tree)
+        )
+        legacy_prompt_contract_inference.extend(
+            _legacy_prompt_contract_inference_violations(path, tree)
+        )
         retry_after_min_sites.extend(_retry_after_min_sites(path, tree))
 
     if legacy:
@@ -215,6 +284,16 @@ def repository_runtime_patch_audit() -> dict[str, object]:
         raise RuntimeError(
             "RUNTIME_STATIC_PATCH_CONTRACT_MISMATCH "
             + " | ".join(sorted(patch_contracts))
+        )
+    if planning_authority_assignments:
+        raise RuntimeError(
+            "RUNTIME_PLANNING_AUTHORITY_ASSIGNMENT_DRIFT "
+            + " | ".join(sorted(planning_authority_assignments))
+        )
+    if legacy_prompt_contract_inference:
+        raise RuntimeError(
+            "RUNTIME_PROMPT_CONTRACT_INFERENCE_DRIFT "
+            + " | ".join(sorted(legacy_prompt_contract_inference))
         )
 
     unexpected_retry_sites = sorted(
@@ -232,6 +311,8 @@ def repository_runtime_patch_audit() -> dict[str, object]:
         "runtime_python_files_scanned": len(files),
         "legacy_capacity_violations": 0,
         "static_patch_contract_violations": 0,
+        "planning_authority_assignment_violations": 0,
+        "legacy_prompt_contract_inference_violations": 0,
         "retry_after_min_sites": len(retry_after_min_sites),
         "unexpected_retry_after_min_sites": 0,
     }
@@ -348,6 +429,8 @@ def certify_runtime_patch_contracts() -> dict[str, object]:
         "legacy_capacity_authority": False,
         "partial_retry_after": False,
         "static_patch_contract_violations": 0,
+        "planning_authority_assignment_violations": 0,
+        "legacy_prompt_contract_inference_violations": 0,
     }
     print(
         "Runtime patch contracts certified: "
@@ -357,5 +440,7 @@ def certify_runtime_patch_contracts() -> dict[str, object]:
         f"known_retry_after_min_sites={result['known_neutralized_retry_after_min_sites']} "
         "model_scoped_capacity=true legacy_capacity_authority=false "
         "partial_retry_after=false static_patch_contract_violations=0"
+        " planning_authority_assignment_violations=0"
+        " legacy_prompt_contract_inference_violations=0"
     )
     return result

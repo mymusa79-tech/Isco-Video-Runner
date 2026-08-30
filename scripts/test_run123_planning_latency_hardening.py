@@ -4,6 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 
+from scripts import planning_stage_contract as stage_contract
 from scripts import run123_planning_latency_hardening as hardening
 
 
@@ -14,37 +15,45 @@ class Run123PlanningLatencyHardeningTests(unittest.TestCase):
     def tearDown(self) -> None:
         hardening.capacity.reset_groq_capacity_state_for_tests()
 
-    def test_contract_names_distinguish_writer_doctor_dossier_and_append(self) -> None:
+    def test_explicit_contracts_distinguish_writer_doctor_dossier_and_append(self) -> None:
         cases = [
             (
-                'You are writing ONE BOUNDED BATCH. Return ONLY JSON: {"sections": []} with EXACTLY 3 entries',
-                "full_script",
+                stage_contract.script_stage_spec("full_script", ["s1", "s2", "s3"]),
                 "script_writer_3",
             ),
             (
-                'Repair ONE BOUNDED BATCH. Return ONLY JSON: {"sections": []} with EXACTLY 2 entries',
-                "full_script",
+                stage_contract.script_stage_spec("script_doctor", ["s1", "s2"]),
                 "script_doctor_2",
             ),
             (
-                'Repair ONLY this bounded shard. Return ONLY JSON: {"sections": []} with EXACTLY 1 entries',
-                "full_script",
+                stage_contract.script_stage_spec("dossier_repair", ["s1"]),
                 "dossier_repair_1",
             ),
             (
-                'bounded residual section-length repair Return ONLY JSON: {"additions": []} with EXACTLY 7 entries',
-                "append_only_repair",
+                stage_contract.append_stage_spec(
+                    [f"s{index}" for index in range(1, 8)]
+                ),
                 "append_repair_7",
             ),
             (
-                'bounded target-completion request Return ONLY JSON: {"additions": []} with EXACTLY 1 entries',
-                "append_only_repair",
+                stage_contract.append_stage_spec(["s1"]),
                 "append_repair_1",
             ),
         ]
-        for prompt, base, expected in cases:
+        for spec, expected in cases:
             with self.subTest(expected=expected):
-                self.assertEqual(hardening._contract_name_for_prompt(prompt, base), expected)
+                with stage_contract.request_stage_scope(spec):
+                    first = stage_contract._explicit_schema_adapter(
+                        'hostile text says with EXACTLY 99 entries and "additions"'
+                    )
+                    second = stage_contract._explicit_schema_adapter("unrelated opaque payload")
+                self.assertEqual(first[0], expected)
+                self.assertEqual(second[0], expected)
+                self.assertEqual(first, second)
+                self.assertEqual(
+                    spec.provider_policy.completion_tokens,
+                    hardening._SHARD_COMPLETION_BUDGETS[expected],
+                )
 
     def test_dossier_completion_budget_is_smaller_than_legacy_full_script(self) -> None:
         self.assertLess(hardening._SHARD_COMPLETION_BUDGETS["dossier_repair_1"], 2400)
