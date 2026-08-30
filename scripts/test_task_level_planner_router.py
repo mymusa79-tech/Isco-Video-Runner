@@ -27,9 +27,13 @@ class PersonaInjectionFallbackTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
-        gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
-        gemini_key_path.write_text("fake-gemini-key", encoding="utf-8")
-        self._env_patch = patch.dict(os.environ, {"GEMINI_API_KEY_FILE": str(gemini_key_path)}, clear=False)
+        self._gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
+        self._gemini_key_path.write_text("fake-gemini-key", encoding="utf-8")
+        self._env_patch = patch.dict(
+            os.environ,
+            {"GEMINI_API_KEY_FILE": str(self._gemini_key_path)},
+            clear=False,
+        )
         self._env_patch.start()
         # Route the planning checkpoint cache to a scratch file so tests never touch/
         # require the real state/ directory and never leak between test runs.
@@ -74,6 +78,30 @@ class PersonaInjectionFallbackTests(unittest.TestCase):
 
         self.assertIn("prompt", captured)
         self.assertEqual(captured["prompt"].count("<CHANNEL_PERSONA>"), 1)
+
+    def test_legacy_router_also_uses_request_key_after_secret_file_consumption(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_gemini_json_text(api_key, prompt, model):
+            captured.update(api_key=api_key, prompt=prompt, model=model)
+            return {"ok": True}
+
+        os.environ.pop("GEMINI_API_KEY_FILE", None)
+        self._gemini_key_path.unlink()
+        with patch.object(
+            router,
+            "_read_secret_file",
+            side_effect=AssertionError("router install must not re-read a consumed Gemini file"),
+        ), patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text):
+            router.install_router()
+            result = staged.json_text(
+                "request-scoped-key",
+                "نداء اليقظة: موضوع اختبار للحلقة",
+                model="gemini-2.5-flash",
+            )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(captured["api_key"], "request-scoped-key")
 
 
 class OpenRouterRepairAttemptTests(unittest.TestCase):

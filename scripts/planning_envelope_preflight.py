@@ -21,8 +21,11 @@ from isco_video_agent.resilient_planner import build_outline_prompt
 from scripts.dynamic_planning_capacity import certify_general_planning_envelope
 from scripts.immutable_planning_snapshot import bind_runtime_approved_brief_path
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
+from scripts.planning_stage_contract import (
+    outline_stage_spec_for_format,
+    script_stage_spec,
+)
 from scripts.provider_capacity_hardening import (
-    completion_token_budget,
     groq_capacity_estimate,
 )
 
@@ -62,8 +65,6 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
 
     brief = load_approved_brief(required=True)
     fmt = str(brief["format"]).strip().lower()
-    outline_contract = ("editorial_outline", {})
-    full_script_contract = ("full_script", {})
 
     if fmt not in {"film", "story"}:
         return PlanningEnvelopeCertification(
@@ -77,11 +78,19 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
             outline_estimated_request_tokens=0,
             groq_tpm_limit=None,
             outline_groq_tpm_headroom=None,
-            outline_completion_reserve=completion_token_budget(outline_contract),
-            full_script_completion_reserve=completion_token_budget(full_script_contract),
+            outline_completion_reserve=0,
+            full_script_completion_reserve=0,
             max_script_batch_sections=MAX_SCRIPT_BATCH_SECTIONS,
             runtime_token_admission="provider_set_dynamic+exact_writer",
         )
+
+    outline_spec = outline_stage_spec_for_format(fmt)
+    writer_spec = script_stage_spec(
+        "full_script",
+        [f"preflight-section-{index}" for index in range(1, MAX_SCRIPT_BATCH_SECTIONS + 1)],
+    )
+    outline_reserve = outline_spec.provider_policy.completion_tokens
+    writer_reserve = writer_spec.provider_policy.completion_tokens
 
     research = planning_research_context(brief, {})
     prompt = build_outline_prompt(
@@ -103,7 +112,14 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
     if MAX_SCRIPT_BATCH_SECTIONS > 3:
         raise RuntimeError("long-form writer batch certification exceeds three sections")
 
-    request_capacity = groq_capacity_estimate(enriched)
+    # The standalone workflow process has no active runtime StageSpec. Pass the exact
+    # canonical Stage Contract budget explicitly so preflight cannot silently fall back
+    # to provider_capacity_hardening's historical prompt-inferred 2400-token table.
+    request_capacity = groq_capacity_estimate(
+        enriched,
+        reserved_completion_tokens=outline_reserve,
+        contract_name=str(outline_spec.semantic_rules["transport_profile"]),
+    )
     # This is no longer "Groq <= 8000 therefore production is safe". It asks the
     # provider set whether one path is currently not known incapable of the P0 envelope.
     certify_general_planning_envelope(request_capacity["estimated_request_tokens"])
@@ -126,8 +142,8 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
         outline_estimated_request_tokens=request_capacity["estimated_request_tokens"],
         groq_tpm_limit=groq_limit,
         outline_groq_tpm_headroom=headroom,
-        outline_completion_reserve=completion_token_budget(outline_contract),
-        full_script_completion_reserve=completion_token_budget(full_script_contract),
+        outline_completion_reserve=outline_reserve,
+        full_script_completion_reserve=writer_reserve,
         max_script_batch_sections=MAX_SCRIPT_BATCH_SECTIONS,
         runtime_token_admission="provider_set_dynamic+exact_writer",
     )

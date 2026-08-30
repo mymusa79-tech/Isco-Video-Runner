@@ -192,10 +192,34 @@ def estimate_prompt_tokens(prompt: str) -> int:
     return max(1, math.ceil(prompt_bytes / GROQ_ESTIMATED_UTF8_BYTES_PER_TOKEN))
 
 
-def groq_capacity_estimate(prompt: str, model_name: str = _DEFAULT_GROQ_MODEL) -> dict:
-    contract = router._structured_schema_for_prompt(prompt)
+def groq_capacity_estimate(
+    prompt: str,
+    model_name: str = _DEFAULT_GROQ_MODEL,
+    *,
+    reserved_completion_tokens: int | None = None,
+    contract_name: str | None = None,
+) -> dict:
+    explicit_contract = reserved_completion_tokens is not None or contract_name is not None
+    if explicit_contract and (
+        reserved_completion_tokens is None or not str(contract_name or "").strip()
+    ):
+        raise ValueError(
+            "reserved_completion_tokens and contract_name must be supplied together"
+        )
+    # Canonical callers provide both explicit fields and must never invoke the legacy
+    # prompt-derived schema adapter. Compatibility callers retain the historical path.
+    contract = None if explicit_contract else router._structured_schema_for_prompt(prompt)
     prompt_tokens = estimate_prompt_tokens(prompt)
-    reserved_completion = completion_token_budget(contract)
+    if reserved_completion_tokens is None:
+        reserved_completion = completion_token_budget(contract)
+    else:
+        if (
+            isinstance(reserved_completion_tokens, bool)
+            or not isinstance(reserved_completion_tokens, int)
+            or reserved_completion_tokens <= 0
+        ):
+            raise ValueError("reserved_completion_tokens must be a positive integer")
+        reserved_completion = int(reserved_completion_tokens)
     estimated_total = prompt_tokens + reserved_completion + GROQ_TOKEN_SAFETY_RESERVE
     return {
         "estimated_prompt_tokens": prompt_tokens,
@@ -204,7 +228,7 @@ def groq_capacity_estimate(prompt: str, model_name: str = _DEFAULT_GROQ_MODEL) -
         "estimated_request_tokens": estimated_total,
         "provider_tpm_limit": groq_effective_tpm_limit(model_name),
         "provider_model": model_name,
-        "contract": contract[0] if contract else "json_object",
+        "contract": str(contract_name or (contract[0] if contract else "json_object")),
     }
 
 
