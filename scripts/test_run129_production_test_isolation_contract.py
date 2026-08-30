@@ -54,36 +54,57 @@ class Run129ProductionTestIsolationContractTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
 
-    def test_m7_workflow_isolates_engine_and_runner_state(self) -> None:
+    def test_m7_workflow_isolates_focused_engine_and_runner_state(self) -> None:
         text = M7_WORKFLOW.read_text(encoding="utf-8")
         required = (
             "m7-focused-engine-history.json",
-            "m7-full-engine-history.json",
-            "m7-approved-brief-cli-history.json",
             "m7-focused-runner-history.json",
-            "m7-full-runner-history.json",
-            'certify_engine_source_hermeticity("m7_after_full_engine")',
-            'certify_engine_source_hermeticity("m7_after_approved_brief_cli")',
-            'certify_engine_source_hermeticity("m7_after_full_runner")',
+            'certify_engine_source_hermeticity("m7_after_focused_engine")',
+            'certify_engine_source_hermeticity("m7_after_focused_runner")',
         )
         for marker in required:
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
 
-    def test_m11_workflow_isolates_engine_and_runner_state(self) -> None:
+        # T2 ownership: M7 remains a focused evidence owner and must not grow
+        # generic full-suite state back into this specialized workflow.
+        forbidden = (
+            "m7-full-engine-history.json",
+            "m7-full-runner-history.json",
+            "m7-approved-brief-cli-history.json",
+            'certify_engine_source_hermeticity("m7_after_full_engine")',
+            'certify_engine_source_hermeticity("m7_after_full_runner")',
+            'certify_engine_source_hermeticity("m7_after_approved_brief_cli")',
+        )
+        for marker in forbidden:
+            with self.subTest(forbidden=marker):
+                self.assertNotIn(marker, text)
+
+    def test_m11_workflow_isolates_focused_engine_and_runner_state(self) -> None:
         text = M11_WORKFLOW.read_text(encoding="utf-8")
         required = (
             "m11-focused-engine-history.json",
             "m11-renderer-smoke-history.json",
-            "m11-full-engine-history.json",
             "m11-focused-runner-history.json",
-            "m11-full-runner-history.json",
-            'certify_engine_source_hermeticity("m11_after_full_engine")',
-            'certify_engine_source_hermeticity("m11_after_full_runner")',
+            'certify_engine_source_hermeticity("m11_after_focused_engine")',
+            'certify_engine_source_hermeticity("m11_after_renderer_smoke")',
+            'certify_engine_source_hermeticity("m11_after_focused_runner")',
         )
         for marker in required:
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
+
+        # T2 ownership: M11 owns its focused contracts and real renderer smoke;
+        # generic Full Engine/Runner verification belongs to the canonical owner.
+        forbidden = (
+            "m11-full-engine-history.json",
+            "m11-full-runner-history.json",
+            'certify_engine_source_hermeticity("m11_after_full_engine")',
+            'certify_engine_source_hermeticity("m11_after_full_runner")',
+        )
+        for marker in forbidden:
+            with self.subTest(forbidden=marker):
+                self.assertNotIn(marker, text)
 
     def test_no_cleanup_based_escape_hatch_is_introduced(self) -> None:
         forbidden = (
