@@ -48,6 +48,7 @@ class SanitizedProjectionTests(unittest.TestCase):
             "saved_suggestions": [
                 {"status": "available", "kind": "long", "candidate": {"title": "سري جدًا"}},
                 {"status": "available", "kind": "short", "candidate": {"title": "شورت سري"}},
+                {"status": "expired", "kind": "long", "candidate": {"title": "قديم"}},
             ],
             "used_topics": [
                 {"topic": "موضوع حساس", "kind": "long"},
@@ -63,6 +64,8 @@ class SanitizedProjectionTests(unittest.TestCase):
         self.assertEqual(editorial["saved_long_count"], 1)
         self.assertEqual(editorial["saved_short_count"], 1)
         self.assertEqual(editorial["used_count"], 2)
+        self.assertEqual(editorial["used_long_count"], 1)
+        self.assertEqual(editorial["used_short_count"], 1)
         encoded = json.dumps(value, ensure_ascii=False)
         for secret in ("secret-session-id", "request-secret", "secret-sha", "سري جدًا", "شورت سري", "موضوع حساس", "عنوان خاص", "do-not-export"):
             self.assertNotIn(secret, encoded)
