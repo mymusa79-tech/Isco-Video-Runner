@@ -4,6 +4,7 @@ import unittest
 from unittest import mock
 
 from scripts import telegram_creator_control_center_v5 as v5
+from scripts import telegram_webhook_replay as replay
 
 
 class _Client:
@@ -113,6 +114,28 @@ class CreatorControlCenterV5Tests(unittest.TestCase):
         rows = [[{"text": "↩️ الخيارات", "callback_data": "cmd:menu"}]]
         fixed = v5._detail_back_rows(rows, {"data": "detail:session-7:1"})
         self.assertEqual(fixed[0][0]["callback_data"], "cmd:choices-session-7")
+
+    def test_webhook_replay_preserves_callback_card_context_for_v5(self):
+        update = {
+            "callback_query": {
+                "data": "detail:session-7:1",
+                "message": {"message_id": 55, "chat": {"id": 77}},
+            }
+        }
+        seen = {}
+
+        def fake_replay(state_path, replayed_update):
+            seen["context"] = getattr(replay.core.panel.TelegramClient, "_isco_v5_surface_context", None)
+            self.assertEqual(replayed_update, update)
+            return "ok"
+
+        with mock.patch.object(replay, "_install_v5_after_active"), \
+             mock.patch.object(replay.core, "replay_update", side_effect=fake_replay):
+            result = replay.replay_update("state.json", update)
+        self.assertEqual(result, "ok")
+        self.assertEqual(seen["context"]["message_id"], 55)
+        self.assertEqual(seen["context"]["data"], "detail:session-7:1")
+        self.assertIsNone(getattr(replay.core.panel.TelegramClient, "_isco_v5_surface_context", None))
 
     def test_operator_status_prioritizes_user_action_over_system_noise(self):
         state = {
