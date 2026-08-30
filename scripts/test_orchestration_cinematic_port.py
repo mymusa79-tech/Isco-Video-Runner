@@ -137,8 +137,11 @@ class CinematicStablePortTests(unittest.TestCase):
     def test_runtime_closure_uses_only_inner_stable_seam_before_render(self) -> None:
         source = Path("scripts/runtime_closure.py").read_text(encoding="utf-8")
         marker = "install_cinematic_runtime_port(CinematicInstallPhase.INNER)"
+        render_marker = "install_render_runtime_port()"
         self.assertEqual(source.count(marker), 1)
-        self.assertLess(source.index(marker), source.index("install_render_durable_cache()"))
+        self.assertEqual(source.count(render_marker), 1)
+        self.assertLess(source.index(marker), source.index(render_marker))
+        self.assertNotIn("install_render_durable_cache()", source)
         for direct in (
             "install_sfx_live_binding()",
             "install_m8_live_binding()",
