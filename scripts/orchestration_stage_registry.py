@@ -455,9 +455,9 @@ def certified_non_planning_contracts() -> tuple[StageContract, ...]:
             reserve_class="compute",
             side_effect_policy="idempotent",
             evidence_schema="RenderEvidenceV1",
-            adapter_id="render-durable-cache",
-            source_path="scripts/render_durable_cache.py",
-            source_sha="abc92b472373cada7b92a7a53007ae943de98b27",
+            adapter_id="render-runtime-port-v1",
+            source_path="scripts/orchestration_render_port.py",
+            source_sha="18d853d379e90a0165b7476f11b3c8d2b529c527",
         ),
         _contract(
             stage_id="qc",
