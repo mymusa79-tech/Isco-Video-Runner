@@ -12,7 +12,7 @@ PRODUCTION = WORKFLOWS / "produce-resilient-v4.yml"
 
 
 class CIExactSHACertificationTests(unittest.TestCase):
-    """Freeze T3 exact-identity certification before Production Fast Path exists."""
+    """Freeze exact-identity certification and the T4 Production consumer contract."""
 
     def test_full_regression_certifies_exact_pr_head_or_main_sha(self) -> None:
         text = FULL_REGRESSION.read_text(encoding="utf-8")
@@ -52,11 +52,13 @@ class CIExactSHACertificationTests(unittest.TestCase):
         self.assertIn("CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}", text)
         self.assertIn('tag="stage-ladder-green-$CANDIDATE_SHA"', text)
 
-    def test_production_fast_path_is_not_enabled_in_t3(self) -> None:
+    def test_production_consumes_certification_without_rerunning_full_suites(self) -> None:
         text = PRODUCTION.read_text(encoding="utf-8")
-        self.assertIn("python -m unittest discover -s tests -q", text)
-        self.assertIn("find scripts -maxdepth 1 -type f -name 'test_*.py'", text)
-        self.assertNotIn("full-regression-green-$GITHUB_SHA", text)
+        self.assertIn("Require protected exact-SHA production certification", text)
+        self.assertIn("python scripts/production_certification_gate.py", text)
+        self.assertNotIn("python -m unittest discover -s tests -q", text)
+        self.assertNotIn("find scripts -maxdepth 1 -type f -name 'test_*.py'", text)
+        self.assertIn("pip-audit==2.10.1", text)
 
 
 if __name__ == "__main__":
