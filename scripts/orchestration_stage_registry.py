@@ -501,9 +501,9 @@ def certified_non_planning_contracts() -> tuple[StageContract, ...]:
             reserve_class="compute",
             side_effect_policy="idempotent",
             evidence_schema="ShortsEvidenceV1",
-            adapter_id="shorts-production-binding",
-            source_path="scripts/shorts_production_binding.py",
-            source_sha="48043498da00b320b41f255cde544253db2ccb77",
+            adapter_id="shorts-runtime-port-v1",
+            source_path="scripts/orchestration_shorts_port.py",
+            source_sha="f1991b78a994ed141a390568ecf0cd5582e05725",
         ),
     )
 
