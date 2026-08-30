@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+import io
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from scripts import research_provider_reliability as rpr
+
+
+class _Response:
+    def __init__(self, status_code: int, retry_after: str | None = None) -> None:
+        self.status_code = status_code
+        self.headers = {} if retry_after is None else {"Retry-After": retry_after}
+
+
+class _HttpError(RuntimeError):
+    def __init__(self, message: str, status_code: int, retry_after: str | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.response = _Response(status_code, retry_after)
 
 
 class DailyQuotaDetectionTests(unittest.TestCase):
@@ -17,11 +32,21 @@ class DailyQuotaDetectionTests(unittest.TestCase):
         self.assertTrue(rpr._is_daily_quota_failure(error))
 
     def test_plain_short_window_rate_limit_is_not_a_quota_failure(self) -> None:
-        error = RuntimeError("HTTP 429 rate_limit_exceeded, try again shortly")
-        self.assertFalse(rpr._is_daily_quota_failure(error))
+        self.assertFalse(rpr._is_daily_quota_failure(RuntimeError("HTTP 429 rate_limit_exceeded")))
 
     def test_unrelated_error_is_not_a_quota_failure(self) -> None:
         self.assertFalse(rpr._is_daily_quota_failure(RuntimeError("network reset by peer")))
+
+
+class SafeTelemetryExtractionTests(unittest.TestCase):
+    def test_structured_http_status_and_retry_after_are_extracted_without_message(self) -> None:
+        error = _HttpError("SECRET_PROMPT api-key-xyz", 429, "12.5")
+        self.assertEqual(rpr._http_status(error), 429)
+        self.assertEqual(rpr._parsed_retry_after_seconds(error), 12.5)
+
+    def test_invalid_status_metadata_is_not_reported(self) -> None:
+        error = _HttpError("opaque", 999)
+        self.assertIsNone(rpr._http_status(error))
 
 
 class BackoffCalculationTests(unittest.TestCase):
@@ -73,9 +98,9 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
         transient_error = RuntimeError("HTTP 429 rate_limit_exceeded")
         with patch.object(
             rpr, "gemini_json_text", side_effect=[transient_error, {"items": ["ok"]}]
-        ) as gemini, \
-                patch.object(rpr, "openrouter_json_text") as openrouter, \
-                patch.object(rpr.time, "sleep") as sleep:
+        ) as gemini, patch.object(rpr, "openrouter_json_text") as openrouter, patch.object(
+            rpr.time, "sleep"
+        ) as sleep:
             result = rpr.gemini_research_call_with_fallback("key", "prompt", "model")
         self.assertEqual(result, {"items": ["ok"]})
         self.assertEqual(gemini.call_count, 2)
@@ -116,7 +141,7 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
         openrouter.assert_not_called()
         sleep.assert_not_called()
 
-    def test_non_retryable_non_safety_failure_falls_back_without_a_same_provider_retry(self) -> None:
+    def test_non_retryable_non_safety_failure_falls_back_without_same_provider_retry(self) -> None:
         schema_error = RuntimeError("invalid json: schema mismatch")
         with patch.object(rpr, "gemini_json_text", side_effect=schema_error) as gemini, \
                 patch.object(rpr, "openrouter_json_text", return_value={"items": ["fallback"]}) as openrouter, \
@@ -127,20 +152,63 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
         openrouter.assert_called_once()
         sleep.assert_not_called()
 
-    def test_both_providers_failing_raises_research_provider_exhausted_with_both_reasons(self) -> None:
-        quota_error = RuntimeError("Quota exceeded for metric: generate_content_free_tier_requests")
-        openrouter_error = RuntimeError("OpenRouter key unavailable")
-        with patch.object(rpr, "gemini_json_text", side_effect=quota_error), \
-                patch.object(rpr, "openrouter_json_text", side_effect=openrouter_error), \
-                patch.object(rpr.time, "sleep"):
+    def test_both_providers_failure_is_sanitized_and_reports_normalized_classes(self) -> None:
+        secret_prompt = "TOP_SECRET_PROMPT_SENTINEL"
+        secret_key = "sk-secret-sentinel"
+        gemini_error = _HttpError(
+            f"Quota exceeded request={secret_prompt} key={secret_key}", 429, "1.4"
+        )
+        openrouter_error = _HttpError(
+            f"Unauthorized request={secret_prompt} key={secret_key}", 401
+        )
+        output = io.StringIO()
+        with patch.object(rpr, "gemini_json_text", side_effect=gemini_error), patch.object(
+            rpr, "openrouter_json_text", side_effect=openrouter_error
+        ), patch.object(rpr.time, "sleep"), redirect_stdout(output):
             with self.assertRaises(rpr.ResearchProviderExhausted) as ctx:
-                rpr.gemini_research_call_with_fallback("key", "prompt", "model")
+                rpr.gemini_research_call_with_fallback(secret_key, secret_prompt, "model")
+
+        telemetry = output.getvalue()
         message = str(ctx.exception)
-        self.assertIn("Quota exceeded", message)
-        self.assertIn("OpenRouter key unavailable", message)
+        combined = telemetry + message
+        self.assertIn("provider=gemini", telemetry)
+        self.assertIn("failure_class=429", telemetry)
+        self.assertIn("http_status=429", telemetry)
+        self.assertIn("retry_after_s=1.4", telemetry)
+        self.assertIn("provider=openrouter", telemetry)
+        self.assertIn("failure_class=auth_error", telemetry)
+        self.assertIn("http_status=401", telemetry)
+        self.assertIn("action=exhausted", telemetry)
+        self.assertIn("gemini_failure_class=429", message)
+        self.assertIn("openrouter_failure_class=auth_error", message)
+        self.assertNotIn(secret_prompt, combined)
+        self.assertNotIn(secret_key, combined)
+        self.assertNotIn("Unauthorized request", combined)
+        self.assertNotIn("Quota exceeded request", combined)
         self.assertIs(ctx.exception.__cause__, openrouter_error)
 
-    def test_all_providers_failing_never_touches_the_ai_budget_or_planning_modules(self) -> None:
+    def test_retry_telemetry_contains_only_safe_decision_metadata(self) -> None:
+        secret = "DO_NOT_LOG_THIS_SECRET"
+        transient_error = _HttpError(f"timeout {secret}", 504, "2")
+        output = io.StringIO()
+        with patch.object(
+            rpr, "gemini_json_text", side_effect=[transient_error, {"items": ["ok"]}]
+        ), patch.object(rpr, "openrouter_json_text"), patch.object(
+            rpr.time, "sleep"
+        ), redirect_stdout(output):
+            result = rpr.gemini_research_call_with_fallback("secret-key", secret, "model")
+        self.assertEqual(result, {"items": ["ok"]})
+        telemetry = output.getvalue()
+        self.assertIn("RESEARCH_PROVIDER_TELEMETRY", telemetry)
+        self.assertIn("provider=gemini", telemetry)
+        self.assertIn("failure_class=timeout", telemetry)
+        self.assertIn("http_status=504", telemetry)
+        self.assertIn("retry_after_s=2", telemetry)
+        self.assertIn("action=retry", telemetry)
+        self.assertNotIn(secret, telemetry)
+        self.assertNotIn("secret-key", telemetry)
+
+    def test_all_providers_failing_never_touches_ai_budget_or_planning_modules(self) -> None:
         import sys
 
         planning_markers = (
