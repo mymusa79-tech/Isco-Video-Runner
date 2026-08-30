@@ -14,7 +14,7 @@ from isco_video_agent.short_planner import DEFAULT_SIBLING_SPACING_HOURS, select
 import scripts.run_v3_voice as production
 from scripts.native_short_planner_router import install_native_short_router
 from scripts.short_voice_v2 import apply_short_voice_v2
-from scripts.shorts_production_binding import finalize_short_quality, prepare_short_render
+from scripts.orchestration_shorts_port import finalize_short_quality, prepare_short_render
 from scripts.sibling_short_orchestration import orchestrate_sibling_shorts, stage_sibling_assets
 from scripts.source_derived_short_planner import install_source_derived_short_planner
 from scripts.unified_delivery import write_delivery_manifest

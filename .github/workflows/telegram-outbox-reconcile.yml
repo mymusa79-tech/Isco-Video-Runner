@@ -1,0 +1,118 @@
+name: Telegram Outbox Reconcile
+
+on:
+  workflow_dispatch:
+    inputs:
+      outbox_message_id:
+        description: "Durable outbox message id in RECONCILIATION_REQUIRED"
+        required: true
+        type: string
+      outcome:
+        description: "Independent reconciliation evidence outcome"
+        required: true
+        type: choice
+        options:
+          - sent
+          - absent
+      telegram_message_id:
+        description: "Required only when outcome=sent"
+        required: false
+        type: string
+      next_retry_at:
+        description: "Optional UTC ISO-8601 retry time when outcome=absent"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: telegram-editorial-control
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Restore encrypted control-plane state
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          mkdir -p "$RUNNER_TEMP/isco-outbox-reconcile"
+          state="$RUNNER_TEMP/isco-outbox-reconcile/control-panel.json"
+          encrypted="$RUNNER_TEMP/isco-outbox-reconcile/control-panel.json.enc"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          git show origin/control-plane-state:state/control-panel.json.enc > "$encrypted"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+          chmod 600 "$state"
+          echo "CONTROL_STATE_PATH=$state" >> "$GITHUB_ENV"
+
+      - name: Apply explicit reconciliation evidence
+        id: reconcile
+        env:
+          OUTBOX_MESSAGE_ID: ${{ inputs.outbox_message_id }}
+          RECONCILE_OUTCOME: ${{ inputs.outcome }}
+          TELEGRAM_MESSAGE_ID: ${{ inputs.telegram_message_id }}
+          NEXT_RETRY_AT: ${{ inputs.next_retry_at }}
+        run: |
+          set -euo pipefail
+          test -n "$OUTBOX_MESSAGE_ID"
+          case "$RECONCILE_OUTCOME" in
+            sent)
+              test -n "$TELEGRAM_MESSAGE_ID"
+              python scripts/telegram_outbox_runtime.py reconcile-sent \
+                --state "$CONTROL_STATE_PATH" \
+                --outbox-message-id "$OUTBOX_MESSAGE_ID" \
+                --telegram-message-id "$TELEGRAM_MESSAGE_ID"
+              ;;
+            absent)
+              args=(
+                python scripts/telegram_outbox_runtime.py reconcile-absent
+                --state "$CONTROL_STATE_PATH"
+                --outbox-message-id "$OUTBOX_MESSAGE_ID"
+              )
+              if [ -n "$NEXT_RETRY_AT" ]; then
+                args+=(--next-retry-at "$NEXT_RETRY_AT")
+              fi
+              "${args[@]}"
+              ;;
+            *)
+              echo "Unsupported reconciliation outcome" >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Persist reconciled state
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          encrypted="$RUNNER_TEMP/isco-outbox-reconcile/control-panel.reconciled.json.enc"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$CONTROL_STATE_PATH" -out "$encrypted"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/isco-outbox-reconcile-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$encrypted" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          git diff --cached --quiet && { echo "Reconciliation produced no durable state change" >&2; exit 1; }
+          git commit -m "state: reconcile Telegram outbox message"
+          git push origin HEAD:control-plane-state
+
+      - name: Remove plaintext state
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/isco-outbox-reconcile" || true

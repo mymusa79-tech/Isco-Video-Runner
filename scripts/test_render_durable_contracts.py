@@ -37,21 +37,24 @@ class RenderDurableContractTests(unittest.TestCase):
         source = Path("scripts/runtime_closure.py").read_text(encoding="utf-8")
         audio = source.index("    install_audio_semantic_integrity_binding()")
         mastering = source.index("    install_audio_mastering_live_binding()")
-        sfx = source.index("    install_sfx_live_binding()")
-        m8 = source.index("    install_m8_live_binding()")
-        m9 = source.index("    install_m9_live_binding()")
-        m10 = source.index("    install_m10_live_binding()")
-        cta = source.index("    install_cta_live_binding()")
-        render = source.index("    install_render_durable_cache()")
+        cinematic = source.index(
+            "    install_cinematic_runtime_port(CinematicInstallPhase.INNER)"
+        )
+        render = source.index("    install_render_runtime_port()")
         narrative = source.index("    install_narrative_music_dynamics()")
         self.assertLess(audio, mastering)
-        self.assertLess(mastering, sfx)
-        self.assertLess(sfx, m8)
-        self.assertLess(m8, m9)
-        self.assertLess(m9, m10)
-        self.assertLess(m10, cta)
-        self.assertLess(cta, render)
+        self.assertLess(mastering, cinematic)
+        self.assertLess(cinematic, render)
         self.assertLess(render, narrative)
+        self.assertNotIn("    install_render_durable_cache()", source)
+        for direct in (
+            "    install_sfx_live_binding()",
+            "    install_m8_live_binding()",
+            "    install_m9_live_binding()",
+            "    install_m10_live_binding()",
+            "    install_cta_live_binding()",
+        ):
+            self.assertNotIn(direct, source)
 
     def test_render_never_replays_cinematic_reports_or_caches_copy_concat(self) -> None:
         source = Path("scripts/render_durable_cache.py").read_text(encoding="utf-8")

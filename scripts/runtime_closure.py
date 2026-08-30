@@ -9,25 +9,21 @@ from scripts.audio_semantic_integrity import (
     install_audio_semantic_final_gate,
     install_audio_semantic_integrity_binding,
 )
-from scripts.cta_live_binding import install_cta_live_binding
 from scripts.final_qc_observer_cache_trust import sanitize_final_observer_cache_before_runtime
 from scripts.final_qc_observer_durability import (
     install_final_qc_observer_durability,
     run_groq_audio_audit_durable,
 )
 from scripts.groq_audio_audit import DEFAULT_AUDIO_MODEL, run_groq_audio_audit
-from scripts.m8_live_binding import install_m8_live_binding
-from scripts.m9_live_binding import install_m9_live_binding
-from scripts.m10_live_binding import install_m10_live_binding
-from scripts.media_durable_cache import install_media_durable_cache
-from scripts.media_prepared_live_cache import install_media_prepared_live_cache
-from scripts.media_search_durable_cache import install_media_search_durable_cache
-from scripts.media_trust_boundary_v2 import install_media_trust_boundary_v2
 from scripts.narrative_music_dynamics import install_narrative_music_dynamics
+from scripts.orchestration_cinematic_port import (
+    CinematicInstallPhase,
+    install_cinematic_runtime_port,
+)
+from scripts.orchestration_media_port import install_media_runtime_port
+from scripts.orchestration_render_port import install_render_runtime_port
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
 from scripts.planning_runtime_contract import install_runtime_planning_contracts
-from scripts.provider_capacity_v2 import install_provider_capacity_v2
-from scripts.render_durable_cache import install_render_durable_cache
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
@@ -36,7 +32,6 @@ from scripts.runtime_reliability import (
     manifest_wrapper_chain_has_marker,
     production_entrypoint_modules,
 )
-from scripts.sfx_live_binding import install_sfx_live_binding
 
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -103,16 +98,19 @@ def install_runtime_closure() -> None:
     # while keeping media/audio/release code outside the durable planning contract hash.
     install_runtime_planning_contracts()
 
-    # Pixabay Provider Capacity V2 owns its provider-required 24h metadata cache. Media
-    # Trust then establishes exact-byte/security authority. Media durability may reuse
-    # only decisions/derivatives bound to those bytes, and every durable Vision hit
-    # re-runs current local trust/security. The live prepared bridge is installed before
-    # M8's produce wrapper so its inner scope executes only after M8 has replaced the
-    # prepare seam; this keeps the durable wrapper outside the real M8 renderer instead
-    # of leaving a tested-but-bypassed static wrapper. Pexels metadata remains last in
-    # the media group so both providers can resume search work without changing provider
-    # order, AI budgets, or retry ownership.
-    # Render durability is deliberately installed only after the live M9/M10/CTA produce
+    # L7.2 moves only the Media installation topology behind one stable seam. The port
+    # preserves the certified historical order: Provider Capacity V2 -> Media Trust V2
+    # -> durable asset/decision cache -> M8-composed prepared cache -> Pexels search
+    # cache. Provider selection, retry ownership, trust/security decisions, cache
+    # semantics, hit revalidation, and write policy remain in their existing owners.
+    # L7.3 moves only the inner Cinematic composition behind one phase-explicit stable
+    # seam. INNER preserves the exact historical SFX -> M8 -> M9 -> M10 -> CTA order.
+    # The OUTER M7/M11 phase remains intentionally later in run_v3_voice after TTS, so
+    # wrapper nesting and the opening-feasibility guard boundary do not change.
+    # L7.4 moves only Render installation behind one stable seam. Durable cache
+    # semantics, fingerprints, promotion/eviction, and current Engine QC revalidation
+    # remain byte-for-byte owned by render_durable_cache.py.
+    # Render durability is deliberately installed only after those inner cinematic
     # wrappers have been registered, but immediately before Narrative Music Dynamics
     # wraps the global mux. It patches only M9's expensive xfade-pair renderer,
     # orchestrator.burn_srt, and the underlying Engine mux. Consequently every SFX/M10/
@@ -122,20 +120,12 @@ def install_runtime_closure() -> None:
     # Canonical bundle is bound on every live run_v3_voice module before the release
     # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
-    install_provider_capacity_v2()
-    install_media_trust_boundary_v2()
-    install_media_durable_cache()
-    install_media_prepared_live_cache()
-    install_media_search_durable_cache()
+    install_media_runtime_port()
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
-    install_sfx_live_binding()
-    install_m8_live_binding()
-    install_m9_live_binding()
-    install_m10_live_binding()
-    install_cta_live_binding()
-    install_render_durable_cache()
+    install_cinematic_runtime_port(CinematicInstallPhase.INNER)
+    install_render_runtime_port()
     install_narrative_music_dynamics()
     install_canonical_v4_bundle_post_manifest()
     install_release_transaction_guard()

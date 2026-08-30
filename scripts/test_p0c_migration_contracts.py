@@ -66,9 +66,8 @@ class RunnerMigrationContractFreezeTests(unittest.TestCase):
             "install_entrypoint_planning_contracts()",
             "install_runtime_closure()",
             "install_post_runtime_planning_contracts()",
-            "install_voice_mesh()",
-            "install_voice_identity_observer()",
-            "install_m7_live_binding()",
+            "install_tts_runtime_port()",
+            "install_cinematic_runtime_port(CinematicInstallPhase.OUTER)",
             "install_opening_feasibility_guard()",
             "install_progress_hooks()",
         )

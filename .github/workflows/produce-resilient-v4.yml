@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
+      actions: write
       contents: write
     steps:
       - name: Record job start time
@@ -408,6 +409,7 @@ jobs:
             engine/output/*/sibling-short-plan.json
             engine/output/*/sibling-short-results.json
             engine/output/*/delivery-manifest.json
+            engine/output/*/capability-manifest.json
             ${{ runner.temp }}/provider-preflight.json
             ${{ runner.temp }}/preproduction-environment.json
           if-no-files-found: warn
@@ -556,6 +558,7 @@ jobs:
             ${{ steps.final_review.outputs.output_root }}/thumbnail-*.jpg
             ${{ steps.final_review.outputs.output_root }}/rights-manifest.json
             ${{ steps.final_review.outputs.output_root }}/gold-enforce-report.json
+            ${{ steps.final_review.outputs.output_root }}/capability-manifest.json
             ${{ steps.final_review.outputs.output_root }}/canonical-bundle-request.json
             ${{ steps.final_review.outputs.output_root }}/sibling-short-plan.json
             ${{ steps.final_review.outputs.output_root }}/sibling-short-results.json
@@ -577,10 +580,8 @@ jobs:
         working-directory: engine
         env:
           REQUIRE_PUBLISH_APPROVAL: ${{ vars.REQUIRE_PUBLISH_APPROVAL || 'false' }}
-          PUBLISH_APPROVAL_TIMEOUT_ACTION: ${{ vars.PUBLISH_APPROVAL_TIMEOUT_ACTION || 'hold' }}
-          TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token
-          TELEGRAM_CHAT_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-chat-id
-          TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_OUTBOX_REF: ${{ github.ref_name }}
           PYTHONPATH: ${{ github.workspace }}
         run: |
           python ../scripts/telegram_publish_gate.py
@@ -634,6 +635,7 @@ jobs:
           opening_value = os.environ.get('FINAL_OPENING_AUDIT_PATH', '').strip()
           opening = Path(opening_value) if opening_value else None
           final_master_qc = Path(os.environ['FINAL_MASTER_QC_PATH'])
+          capability_manifest = root / 'capability-manifest.json'
           packaging = validate_packaging_delivery(root)
           if video != root / 'final.mp4':
               raise SystemExit(f'Release video escaped reviewed output root: {video}')
@@ -655,7 +657,7 @@ jobs:
               raise SystemExit(f'Release telemetry escaped reviewed output root: {telemetry}')
           if opening is not None and opening != root / 'opening-visual-audit.json':
               raise SystemExit(f'Release opening audit escaped reviewed output root: {opening}')
-          for required in (video, quality, plan, critic, budget, manifest, final_master_qc):
+          for required in (video, quality, plan, critic, budget, manifest, final_master_qc, capability_manifest):
               if not required.is_file():
                   raise SystemExit(f'Missing reviewed release asset: {required}')
           qc = json.loads(final_master_qc.read_text(encoding='utf-8'))
@@ -704,7 +706,7 @@ jobs:
           )
           PY
           fi
-          release_assets=("$FINAL_VIDEO_PATH" "$FINAL_QUALITY_PATH" "$FINAL_PLAN_PATH" "$FINAL_CRITIC_PATH" "$FINAL_BUDGET_PATH" "$FINAL_MANIFEST_PATH" "$FINAL_MASTER_QC_PATH" "$FINAL_OUTPUT_ROOT/thumbnail-plan.json" "$FINAL_OUTPUT_ROOT/thumbnail-1.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-2.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-3.jpg" "$FINAL_OUTPUT_ROOT/rights-manifest.json" "$FINAL_OUTPUT_ROOT/gold-enforce-report.json")
+          release_assets=("$FINAL_VIDEO_PATH" "$FINAL_QUALITY_PATH" "$FINAL_PLAN_PATH" "$FINAL_CRITIC_PATH" "$FINAL_BUDGET_PATH" "$FINAL_MANIFEST_PATH" "$FINAL_MASTER_QC_PATH" "$FINAL_OUTPUT_ROOT/thumbnail-plan.json" "$FINAL_OUTPUT_ROOT/thumbnail-1.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-2.jpg" "$FINAL_OUTPUT_ROOT/thumbnail-3.jpg" "$FINAL_OUTPUT_ROOT/rights-manifest.json" "$FINAL_OUTPUT_ROOT/gold-enforce-report.json" "$FINAL_OUTPUT_ROOT/capability-manifest.json")
           if [ -n "$FINAL_TELEMETRY_PATH" ]; then
             release_assets+=("$FINAL_TELEMETRY_PATH")
           fi

@@ -39,16 +39,12 @@ class Run130ExplicitRuntimePhaseTests(unittest.TestCase):
     @staticmethod
     def _nonplanning_runtime_installers() -> tuple[str, ...]:
         return (
-            "install_provider_capacity_v2",
-            "install_media_trust_boundary_v2",
+            "install_media_runtime_port",
             "install_core_reliability_guard",
             "install_audio_semantic_integrity_binding",
             "install_audio_mastering_live_binding",
-            "install_sfx_live_binding",
-            "install_m8_live_binding",
-            "install_m9_live_binding",
-            "install_m10_live_binding",
-            "install_cta_live_binding",
+            "install_cinematic_runtime_port",
+            "install_render_runtime_port",
             "install_narrative_music_dynamics",
             "install_canonical_v4_bundle_post_manifest",
             "install_release_transaction_guard",

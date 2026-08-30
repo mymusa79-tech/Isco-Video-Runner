@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from scripts import orchestration_media_port as media_port
 from scripts import provider_capacity_v2 as capacity
-from scripts import runtime_closure
 
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "produce-resilient-v4.yml"
@@ -163,13 +163,13 @@ class Pixabay24hCacheTests(unittest.TestCase):
             document = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(set(document["entries"]), {"fresh"})
 
-    def test_runtime_closure_installs_cache_before_media_trust(self):
-        source = Path(runtime_closure.__file__).read_text(encoding="utf-8")
+    def test_media_port_installs_capacity_before_media_trust(self):
+        source = Path(media_port.__file__).read_text(encoding="utf-8")
         tree = ast.parse(source)
         install = next(
             node
             for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "install_runtime_closure"
+            if isinstance(node, ast.FunctionDef) and node.name == "install_media_runtime_port"
         )
         calls = _call_names(install)
         self.assertIn("install_provider_capacity_v2", calls)

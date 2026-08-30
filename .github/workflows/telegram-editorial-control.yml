@@ -109,8 +109,32 @@ jobs:
           active_telegram="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/telegram-production-request.yml/runs?per_page=20" \
             --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
           active=$((active_v4 + active_telegram))
+          echo "release_approval_consumed=false" >> "$GITHUB_OUTPUT"
+
           if [ "$active" -gt 0 ]; then
-            echo "A production workflow is active; stateful Telegram control remains read-only"
+            if [ -n "$WEBHOOK_UPDATE_B64" ]; then
+              set +e
+              python scripts/telegram_webhook_replay.py release-approval-only \
+                --state "$CONTROL_STATE_PATH" \
+                --update-b64 "$WEBHOOK_UPDATE_B64"
+              approval_rc=$?
+              set -e
+              case "$approval_rc" in
+                0)
+                  echo "Production is active; exact release approval callback was accepted through the webhook-only seam"
+                  echo "release_approval_consumed=true" >> "$GITHUB_OUTPUT"
+                  ;;
+                3)
+                  echo "Production is active; non-release stateful Telegram command remains read-only"
+                  ;;
+                *)
+                  echo "Release approval webhook validation failed while production is active" >&2
+                  exit "$approval_rc"
+                  ;;
+              esac
+            else
+              echo "A production workflow is active; stateful Telegram control remains read-only"
+            fi
             echo "production_active=true" >> "$GITHUB_OUTPUT"
             echo "needs_engine=false" >> "$GITHUB_OUTPUT"
             echo "needs_production=false" >> "$GITHUB_OUTPUT"
@@ -125,13 +149,14 @@ jobs:
             exit 0
           fi
 
-          if [ "$GITHUB_EVENT_NAME" = "schedule" ] && python scripts/telegram_webhook_replay.py webhook-active; then
-            echo "Telegram webhook is active; scheduled getUpdates polling is automatically suppressed"
+          if python scripts/telegram_webhook_replay.py webhook-active; then
+            echo "Telegram webhook is active; getUpdates polling is suppressed for every trigger mode"
             echo "needs_engine=false" >> "$GITHUB_OUTPUT"
             echo "needs_production=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          echo "Telegram webhook is inactive; certified fallback polling owns ingress for this serialized run"
           python scripts/telegram_topic_memory_ui.py poll --state "$CONTROL_STATE_PATH"
 
       - name: Checkout exact private Engine for research only
@@ -244,7 +269,13 @@ jobs:
 
       - name: Persist encrypted control-panel state
         id: persist_control_state
-        if: always() && steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true'
+        if: >-
+          always() &&
+          steps.poll.outputs.needs_production != 'true' &&
+          (
+            steps.poll.outputs.production_active != 'true' ||
+            steps.poll.outputs.release_approval_consumed == 'true'
+          )
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
@@ -274,7 +305,7 @@ jobs:
         if: >-
           always() &&
           (
-            steps.poll.outputs.production_active == 'true' ||
+            (steps.poll.outputs.release_approval_consumed == 'true' && steps.persist_control_state.outcome == 'success') ||
             (steps.poll.outputs.needs_production == 'true' && steps.persist_reservation.outcome == 'success') ||
             (steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true' && steps.persist_control_state.outcome == 'success')
           )
