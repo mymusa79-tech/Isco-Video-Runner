@@ -18,6 +18,7 @@ class CreatorControlCenterV5EdgeTests(unittest.TestCase):
 
     def test_v5_is_live_wrapper_over_previous_read_only_core(self):
         self.assertIn('import priorWorker from "./observability-worker-v4-core.js"', self.text)
+        self.assertIn('import { STATUS_CONTRACT } from "./status-contract.generated.js"', self.text)
         self.assertIn("return priorWorker.fetch(request, env, ctx)", self.text)
         self.assertIn('import baseWorker from "./index.js"', self.core)
 
@@ -29,6 +30,15 @@ class CreatorControlCenterV5EdgeTests(unittest.TestCase):
         self.assertIn('callback_data: "cmd:stats_menu"', self.text)
         self.assertIn('telegram(env, "editMessageText"', self.text)
         self.assertIn("message is not modified", self.text)
+
+    def test_live_library_overview_counts_long_short_and_preserves_split_routes(self):
+        self.assertIn("function savedItems(state)", self.text)
+        self.assertIn("function usedItems(state)", self.text)
+        self.assertIn("async function showLibraryOverview(env, target)", self.text)
+        self.assertIn("📚 مكتبة المواضيع", self.text)
+        self.assertIn('callback_data: "cmd:saved"', self.text)
+        self.assertIn('callback_data: "cmd:used"', self.text)
+        self.assertIn('if (data === "cmd:library_menu") return { kind: "library" }', self.text)
 
     def test_stats_are_dashboard_first_and_honest_about_unavailable_analytics(self):
         for marker in (
@@ -43,12 +53,21 @@ class CreatorControlCenterV5EdgeTests(unittest.TestCase):
             self.assertIn(marker, self.text)
         self.assertIn("Number(video.duration) <= 180", self.text)
 
-    def test_status_is_operator_first_with_technical_details_separated(self):
+    def test_status_is_operator_first_canonical_and_fail_closed_on_state_read(self):
         self.assertIn("الحالة — ماذا يحدث الآن؟", self.text)
         self.assertIn("مطلوب منك", self.text)
         self.assertIn("تأكيد الإنتاج", self.text)
         self.assertIn('callback_data: "cmd:system_status"', self.text)
+        self.assertIn("STATUS_CONTRACT.stage_rules", self.text)
+        self.assertIn("STATUS_CONTRACT.run_terminal", self.text)
+        self.assertIn("تعذر قراءة حالة الاختيار الحالية", self.text)
+        self.assertIn("لا ترسل تأكيد Production اعتمادًا على هذه الشاشة", self.text)
         self.assertIn("هذه شاشة تشخيص فقط", self.text)
+
+    def test_github_read_preserves_public_fallback(self):
+        self.assertIn("githubHeaders(env, authenticated = true)", self.text)
+        self.assertIn("[401, 403, 404].includes(response.status)", self.text)
+        self.assertIn("githubHeaders(env, false)", self.text)
 
     def test_delivery_shows_latest_long_and_short_separately(self):
         self.assertIn('latestByPrefix(items, "video-")', self.text)
