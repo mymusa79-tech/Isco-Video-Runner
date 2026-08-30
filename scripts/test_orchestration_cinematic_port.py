@@ -8,6 +8,8 @@ from unittest.mock import patch
 from scripts import orchestration_cinematic_port as port
 from scripts.orchestration_stage_registry import build_l4_registry
 
+# Certification sync marker: test-only change to trigger main-filtered PR workflows.
+
 
 class CinematicStablePortTests(unittest.TestCase):
     def setUp(self) -> None:
