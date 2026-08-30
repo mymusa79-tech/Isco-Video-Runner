@@ -16,6 +16,10 @@ _REQUIRED_TAG_PREFIXES = (
     "full-regression-green-",
     "stage-ladder-green-",
 )
+_REQUIRED_WORKFLOWS = (
+    ("Verify Private Engine", ".github/workflows/verify-private-engine.yml"),
+    ("Verify Production Stage Ladder", ".github/workflows/verify-production-stage-ladder.yml"),
+)
 
 
 def _github_json(
@@ -41,6 +45,67 @@ def _github_json(
     if not isinstance(payload, dict):
         raise RuntimeError(f"GitHub certification lookup returned a non-object for {url}")
     return payload
+
+
+def _require_exact_successful_workflow_runs(
+    *,
+    base: str,
+    repo_path: str,
+    runner_sha: str,
+    token: str,
+    opener: Callable[..., Any],
+) -> list[dict[str, Any]]:
+    query = urllib.parse.urlencode(
+        {
+            "head_sha": runner_sha,
+            "branch": "main",
+            "event": "push",
+            "status": "success",
+            "per_page": "100",
+        }
+    )
+    payload = _github_json(
+        f"{base}/repos/{repo_path}/actions/runs?{query}",
+        token,
+        opener=opener,
+    )
+    runs = payload.get("workflow_runs")
+    if not isinstance(runs, list):
+        raise RuntimeError("Production Fast Path blocked: Actions certification lookup has no workflow_runs list")
+
+    verified: list[dict[str, Any]] = []
+    for required_name, required_path in _REQUIRED_WORKFLOWS:
+        match = next(
+            (
+                run
+                for run in runs
+                if isinstance(run, dict)
+                and run.get("name") == required_name
+                and run.get("path") == required_path
+                and run.get("head_sha") == runner_sha
+                and run.get("head_branch") == "main"
+                and run.get("event") == "push"
+                and run.get("status") == "completed"
+                and run.get("conclusion") == "success"
+            ),
+            None,
+        )
+        if match is None:
+            raise RuntimeError(
+                "Production Fast Path blocked: missing exact successful main-push certification run "
+                f"for {required_name} ({required_path}) at {runner_sha}"
+            )
+        verified.append(
+            {
+                "name": required_name,
+                "path": required_path,
+                "run_id": match.get("id"),
+                "head_sha": runner_sha,
+                "event": "push",
+                "conclusion": "success",
+            }
+        )
+    return verified
 
 
 def verify_certified_production_source(
@@ -93,12 +158,21 @@ def verify_certified_production_source(
             )
         verified_tags.append(tag)
 
+    verified_runs = _require_exact_successful_workflow_runs(
+        base=base,
+        repo_path=repo_path,
+        runner_sha=runner_sha,
+        token=token,
+        opener=opener,
+    )
+
     return {
-        "schema": "isco-production-certification-gate-v1",
+        "schema": "isco-production-certification-gate-v2",
         "repository": repository,
         "runner_sha": runner_sha,
         "main_protected": True,
         "certification_refs": verified_tags,
+        "certification_runs": verified_runs,
         "status": "green",
         "production_dispatch_performed": False,
     }
