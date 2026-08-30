@@ -29,6 +29,15 @@ jobs:
       - name: Verify exact Runner checkout
         run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
+      - name: Require protected exact-SHA production certification
+        id: certification_gate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python scripts/production_certification_gate.py \
+            --output "$RUNNER_TEMP/production-certification-gate.json"
+
       - name: Checkout private engine
         id: checkout_engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -78,6 +87,24 @@ jobs:
           print(f"Approved production brief validated before secret materialization: format={fmt}")
           PY
 
+      - name: Restore untrusted Piper wheel cache
+        id: restore_piper_wheel
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/piper-wheel
+          key: piper-wheel-v2-${{ runner.os }}-py312-b17184a664bd9431ce95c138f4bfb3025e1280cf26075a703dbfdcab989b8ee3-${{ github.run_id }}
+          restore-keys: |
+            piper-wheel-v2-${{ runner.os }}-py312-b17184a664bd9431ce95c138f4bfb3025e1280cf26075a703dbfdcab989b8ee3-
+
+      - name: Restore untrusted Piper voice cache
+        id: restore_piper_voice
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/piper-voices
+          key: piper-voice-v2-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}-${{ github.run_id }}
+          restore-keys: |
+            piper-voice-v2-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}-
+
       - name: Install locked engine and verified local voice fallback
         id: install_engine
         run: |
@@ -89,61 +116,70 @@ jobs:
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-deps -e .
           python -m pip check
+          echo "piper_wheel_save=false" >> "$GITHUB_OUTPUT"
+          echo "piper_voice_save=false" >> "$GITHUB_OUTPUT"
 
           piper_wheel_dir="$RUNNER_TEMP/piper-wheel"
           mkdir -p "$piper_wheel_dir"
-          python -m pip download --disable-pip-version-check --no-deps --only-binary=:all: \
-            --dest "$piper_wheel_dir" 'piper-tts==1.4.2'
+          if PYTHONPATH=src python ../scripts/piper_bootstrap_cache.py wheel \
+            --directory "$piper_wheel_dir" \
+            --sha256 b17184a664bd9431ce95c138f4bfb3025e1280cf26075a703dbfdcab989b8ee3; then
+            echo "Verified Piper wheel cache hit"
+          else
+            echo "Piper wheel cache miss or invalid; rebuilding from authoritative artifact"
+            rm -rf "$piper_wheel_dir"
+            mkdir -p "$piper_wheel_dir"
+            python -m pip download --disable-pip-version-check --no-deps --only-binary=:all: \
+              --dest "$piper_wheel_dir" 'piper-tts==1.4.2'
+            PYTHONPATH=src python ../scripts/piper_bootstrap_cache.py wheel \
+              --directory "$piper_wheel_dir" \
+              --sha256 b17184a664bd9431ce95c138f4bfb3025e1280cf26075a703dbfdcab989b8ee3
+            echo "piper_wheel_save=true" >> "$GITHUB_OUTPUT"
+          fi
           piper_wheel="$(find "$piper_wheel_dir" -maxdepth 1 -type f -name 'piper_tts-1.4.2-*.whl' -print -quit)"
           test -n "$piper_wheel"
-          echo "b17184a664bd9431ce95c138f4bfb3025e1280cf26075a703dbfdcab989b8ee3  $piper_wheel" | sha256sum -c -
           python -m pip install "$piper_wheel"
           python -m pip check # post-piper-certification
 
-          mkdir -p "$RUNNER_TEMP/piper-voices"
-          for attempt in 1 2; do
-            if python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium; then
-              break
-            fi
-            if [ "$attempt" -eq 2 ]; then
-              echo "Piper voice download failed after bounded setup retry" >&2
-              exit 1
-            fi
-            sleep 4
-          done
-          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx"
-          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"
-          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py voice \
-            --voice-dir "$RUNNER_TEMP/piper-voices" \
-            --manifest security/piper_voice_hashes.json
+          piper_voice_dir="$RUNNER_TEMP/piper-voices"
+          mkdir -p "$piper_voice_dir"
+          if PYTHONPATH=src python ../scripts/piper_bootstrap_cache.py voice \
+            --directory "$piper_voice_dir" \
+            --manifest security/piper_voice_hashes.json; then
+            echo "Verified Piper voice cache hit"
+          else
+            echo "Piper voice cache miss or invalid; rebuilding from authoritative source"
+            rm -rf "$piper_voice_dir"
+            mkdir -p "$piper_voice_dir"
+            for attempt in 1 2; do
+              if python -m piper.download_voices --data-dir "$piper_voice_dir" ar_JO-kareem-medium; then
+                break
+              fi
+              if [ "$attempt" -eq 2 ]; then
+                echo "Piper voice download failed after bounded setup retry" >&2
+                exit 1
+              fi
+              sleep 4
+            done
+            PYTHONPATH=src python ../scripts/piper_bootstrap_cache.py voice \
+              --directory "$piper_voice_dir" \
+              --manifest security/piper_voice_hashes.json
+            echo "piper_voice_save=true" >> "$GITHUB_OUTPUT"
+          fi
 
-          engine_test_history="$RUNNER_TEMP/isco-test-state/production-engine-suite/history.json"
-          mkdir -p "$(dirname "$engine_test_history")"
-          ISCO_HISTORY_PATH="$engine_test_history" python -m unittest discover -s tests -q
+      - name: Save verified Piper wheel cache
+        if: steps.install_engine.outputs.piper_wheel_save == 'true'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/piper-wheel
+          key: piper-wheel-v2-${{ runner.os }}-py312-b17184a664bd9431ce95c138f4bfb3025e1280cf26075a703dbfdcab989b8ee3-${{ github.run_id }}
 
-      - name: Certify Engine source after production Engine suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("production_after_engine_suite")'
-
-      - name: Full Runner pre-production regression
-        env:
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
-          ISCO_HISTORY_PATH: ${{ runner.temp }}/isco-test-state/production-runner-suite/history.json
-        run: |
-          set -euo pipefail
-          mkdir -p "$(dirname "$ISCO_HISTORY_PATH")"
-          mapfile -t test_modules < <(
-            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
-              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
-          )
-          test "${#test_modules[@]}" -gt 0
-          python -m unittest "${test_modules[@]}" -q
-
-      - name: Certify Engine source after production Runner suite
-        env:
-          PYTHONPATH: ${{ github.workspace }}
-        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("production_after_runner_suite")'
+      - name: Save verified Piper voice cache
+        if: steps.install_engine.outputs.piper_voice_save == 'true'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/piper-voices
+          key: piper-voice-v2-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}-${{ github.run_id }}
 
       - name: Isolated dependency vulnerability audit
         working-directory: engine
@@ -412,6 +448,7 @@ jobs:
             engine/output/*/capability-manifest.json
             ${{ runner.temp }}/provider-preflight.json
             ${{ runner.temp }}/preproduction-environment.json
+            ${{ runner.temp }}/production-certification-gate.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -835,6 +872,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/isco-test-state" || true
           rm -rf "$RUNNER_TEMP/pip-audit-venv" || true
           rm -rf "$RUNNER_TEMP/piper-wheel" || true
+          rm -rf "$RUNNER_TEMP/piper-voices" || true
           rm -rf "$RUNNER_TEMP/isco-tts-cache" || true
           rm -f "$RUNNER_TEMP/isco-request.json" || true
           rm -f "$RUNNER_TEMP/piper-preflight.wav" || true
