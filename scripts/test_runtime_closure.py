@@ -59,7 +59,7 @@ class RuntimeClosureTests(unittest.TestCase):
             audit.assert_called_once_with(Path("output/example"),api_key="secret-token")
             self.assertEqual(result["decision"],"pass"); self.assertTrue(key_path.exists())
 
-    def test_runtime_closure_installs_planning_media_audio_cinematic_and_final_gate_in_order(self) -> None:
+    def test_runtime_closure_installs_owned_stages_in_behavioral_order(self) -> None:
         calls=[]
         with patch.object(runtime_closure,"install_runtime_planning_contracts",side_effect=lambda:calls.append("planning")) as planning, \
              patch.object(runtime_closure,"install_media_runtime_port",side_effect=lambda:calls.append("media-port")) as media_port, \
@@ -83,35 +83,23 @@ class RuntimeClosureTests(unittest.TestCase):
         render_port.assert_called_once_with(); music.assert_called_once_with(); bundle.assert_called_once_with(); release.assert_called_once_with(); telemetry.assert_called_once_with()
         observer_cache_trust.assert_called_once_with(); observer_durability.assert_called_once_with()
         modules.assert_called(); semantic_final.assert_called_once()
-        self.assertLess(calls.index("planning"), calls.index("media-port"))
-        self.assertLess(calls.index("media-port"), calls.index("core"))
-        self.assertLess(calls.index("core"), calls.index("audio-semantic-binding"))
-        self.assertLess(calls.index("audio-semantic-binding"), calls.index("audio"))
-        self.assertLess(calls.index("audio"), calls.index("cinematic-inner"))
-        self.assertLess(calls.index("cinematic-inner"), calls.index("render-port"))
-        self.assertEqual(calls[-1], "observer-durability")
-
-    def test_stable_ports_and_audio_semantic_order_around_render(self) -> None:
-        source = Path(runtime_closure.__file__).read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        install = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "install_runtime_closure")
-        calls=[(node.lineno,_call_name(node)) for node in ast.walk(install) if isinstance(node,ast.Call)]
-        planning_line=next(line for line,name in calls if name=="install_runtime_planning_contracts")
-        media_line=next(line for line,name in calls if name=="install_media_runtime_port")
-        core_line=next(line for line,name in calls if name=="install_core_reliability_guard")
-        semantic_line=next(line for line,name in calls if name=="install_audio_semantic_integrity_binding")
-        audio_line=next(line for line,name in calls if name=="install_audio_mastering_live_binding")
-        cinematic_line=next(line for line,name in calls if name=="install_cinematic_runtime_port")
-        render_line=next(line for line,name in calls if name=="install_render_runtime_port")
-        final_line=next(line for line,name in calls if name=="install_audio_semantic_final_gate")
-        telemetry_line=next(line for line,name in calls if name=="install_telemetry_reliability_binding")
-        self.assertLess(planning_line,media_line)
-        self.assertLess(media_line,core_line)
-        self.assertLess(core_line,semantic_line)
-        self.assertLess(semantic_line,audio_line)
-        self.assertLess(audio_line,cinematic_line)
-        self.assertLess(cinematic_line,render_line)
-        self.assertLess(telemetry_line,final_line)
+        expected = [
+            "planning",
+            "media-port",
+            "core",
+            "audio-semantic-binding",
+            "audio",
+            "cinematic-inner",
+            "render-port",
+            "music",
+            "bundle",
+            "release",
+            "telemetry",
+            "audio-semantic-final",
+            "observer-cache-trust",
+            "observer-durability",
+        ]
+        self.assertEqual(calls, expected)
 
     def test_bundle_activation_requires_live_runtime_or_explicit_test_opt_in(self) -> None:
         with patch.dict(os.environ,{},clear=True):
