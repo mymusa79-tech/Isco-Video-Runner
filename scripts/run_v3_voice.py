@@ -11,7 +11,7 @@ from isco_video_agent.config import secret
 from isco_video_agent.text_audit_router import text_audit_circuit_scope
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.analytics_observer_status import observe_post_acceptance_analytics
-from scripts.final_master_qc import run_final_master_qc
+from scripts.orchestration_qc_port import run_final_master_qc
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.opening_feasibility_guard import install_opening_feasibility_guard
 from scripts.orchestration_cinematic_port import (
