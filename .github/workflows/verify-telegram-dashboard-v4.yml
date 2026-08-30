@@ -1,0 +1,59 @@
+name: Verify Telegram Dashboard V4
+
+on:
+  pull_request:
+    paths:
+      - "scripts/telegram_youtube_stats.py"
+      - "scripts/test_telegram_youtube_stats.py"
+      - "scripts/telegram_persistent_control_ui.py"
+      - "scripts/test_telegram_persistent_control_ui.py"
+      - "scripts/telegram_topic_research_v2.py"
+      - "scripts/test_telegram_topic_research_v2.py"
+      - ".github/workflows/telegram-editorial-control.yml"
+      - ".github/workflows/verify-telegram-dashboard-v4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  presentation-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Compile dashboard surfaces
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            scripts/telegram_youtube_stats.py \
+            scripts/telegram_persistent_control_ui.py \
+            scripts/telegram_topic_research_v2.py
+
+      - name: Dashboard and navigation regressions
+        run: |
+          set -euo pipefail
+          python -m unittest -v \
+            scripts.test_telegram_youtube_stats \
+            scripts.test_telegram_persistent_control_ui \
+            scripts.test_telegram_topic_research_v2
+
+      - name: Preserve production authority boundary
+        run: |
+          set -euo pipefail
+          grep -F 'ENGINE_SHA: f3c9357098947882882ca3010b46a565c2d90460' .github/workflows/telegram-editorial-control.yml
+          grep -F 'RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309' .github/workflows/telegram-editorial-control.yml
+          grep -F '"production_dispatch_authorized": False' scripts/telegram_control_panel.py >/dev/null
+          ! grep -E 'workflow run|gh workflow|production_queue|dispatch' scripts/telegram_youtube_stats.py
+
+      - name: Exact delta sanity
+        run: git diff --check
