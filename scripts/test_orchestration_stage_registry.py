@@ -306,17 +306,18 @@ def test_deadline_policy_rejects_untyped_free_text_reference():
 
 def test_builtins_preserve_existing_core_bindings_until_each_stage_migrates():
     contracts = {c.stage_id: c for c in certified_non_planning_contracts()}
-    # L7.1 migrates TTS only. Its StageContract must follow the new stable port while
-    # every later L7 stage remains pinned to its existing certified core until its own
-    # isolated migration layer is implemented and fully certified.
+    # L7.1 and L7.2 migrate only TTS and Media. Their StageContracts follow the
+    # certified stable ports while every later L7 stage remains pinned to its existing
+    # core until its own isolated migration layer is implemented and fully certified.
     assert contracts["tts"].implementation_binding.adapter_id == "tts-runtime-port-v1"
     assert contracts["tts"].implementation_binding.source_path == "scripts/orchestration_tts_port.py"
-    assert contracts["media"].implementation_binding.source_path == "scripts/media_trust_boundary_v2.py"
+    assert contracts["media"].implementation_binding.adapter_id == "media-runtime-port-v1"
+    assert contracts["media"].implementation_binding.source_path == "scripts/orchestration_media_port.py"
     assert contracts["cinematic"].implementation_binding.source_path == "scripts/m7_live_binding.py"
     assert contracts["render"].implementation_binding.source_path == "scripts/render_durable_cache.py"
     assert contracts["qc"].implementation_binding.source_path == "scripts/final_master_qc.py"
     assert contracts["shorts"].implementation_binding.source_path == "scripts/shorts_production_binding.py"
-    for stage_id in ("media", "cinematic", "render", "qc", "shorts"):
+    for stage_id in ("cinematic", "render", "qc", "shorts"):
         assert "orchestration" not in contracts[stage_id].implementation_binding.adapter_id
 
 
