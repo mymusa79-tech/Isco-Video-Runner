@@ -410,9 +410,9 @@ def certified_non_planning_contracts() -> tuple[StageContract, ...]:
             reserve_class="compute",
             side_effect_policy="idempotent",
             evidence_schema="MediaEvidenceV1",
-            adapter_id="media-trust-boundary-v2",
-            source_path="scripts/media_trust_boundary_v2.py",
-            source_sha="c4a50233dbda9b0b1e920d3db1a1eb3ff58cb32d",
+            adapter_id="media-runtime-port-v1",
+            source_path="scripts/orchestration_media_port.py",
+            source_sha="4388c54cb372c36707840090d8a35ca5b9f454c5",
         ),
         _contract(
             stage_id="cinematic",
