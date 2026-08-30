@@ -306,9 +306,8 @@ def test_deadline_policy_rejects_untyped_free_text_reference():
 
 def test_builtins_preserve_existing_core_bindings_until_each_stage_migrates():
     contracts = {c.stage_id: c for c in certified_non_planning_contracts()}
-    # L7.1-L7.4 migrate TTS, Media, Cinematic, and Render to certified stable ports.
-    # QC/Shorts remain pinned to existing cores until their isolated migration layers
-    # are implemented and fully certified.
+    # L7.1-L7.5 migrate TTS, Media, Cinematic, Render, and QC to certified stable ports.
+    # Shorts remains pinned to its existing core until its isolated L7.6 migration.
     assert contracts["tts"].implementation_binding.adapter_id == "tts-runtime-port-v1"
     assert contracts["tts"].implementation_binding.source_path == "scripts/orchestration_tts_port.py"
     assert contracts["media"].implementation_binding.adapter_id == "media-runtime-port-v1"
@@ -317,10 +316,10 @@ def test_builtins_preserve_existing_core_bindings_until_each_stage_migrates():
     assert contracts["cinematic"].implementation_binding.source_path == "scripts/orchestration_cinematic_port.py"
     assert contracts["render"].implementation_binding.adapter_id == "render-runtime-port-v1"
     assert contracts["render"].implementation_binding.source_path == "scripts/orchestration_render_port.py"
-    assert contracts["qc"].implementation_binding.source_path == "scripts/final_master_qc.py"
+    assert contracts["qc"].implementation_binding.adapter_id == "qc-runtime-port-v1"
+    assert contracts["qc"].implementation_binding.source_path == "scripts/orchestration_qc_port.py"
     assert contracts["shorts"].implementation_binding.source_path == "scripts/shorts_production_binding.py"
-    for stage_id in ("qc", "shorts"):
-        assert "orchestration" not in contracts[stage_id].implementation_binding.adapter_id
+    assert "orchestration" not in contracts["shorts"].implementation_binding.adapter_id
 
 
 def load_tests(loader, tests, pattern):
