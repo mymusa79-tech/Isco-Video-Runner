@@ -13,8 +13,11 @@ from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from
 from scripts.analytics_observer_status import observe_post_acceptance_analytics
 from scripts.final_master_qc import run_final_master_qc
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
-from scripts.m7_live_binding import install_m7_live_binding
 from scripts.opening_feasibility_guard import install_opening_feasibility_guard
+from scripts.orchestration_cinematic_port import (
+    CinematicInstallPhase,
+    install_cinematic_runtime_port,
+)
 from scripts.orchestration_tts_port import install_tts_runtime_port
 from scripts.planning_runtime_contract import (
     install_entrypoint_planning_contracts,
@@ -208,18 +211,17 @@ def main() -> None:
     install_runtime_closure()
     install_post_runtime_planning_contracts()
 
-    # L7.1 stable port owns only the installation topology. Provider choice, retries,
-    # durable cache semantics, Voice QA, and observe-only identity behavior remain in
-    # their existing certified implementation owners and retain the historical order.
+    # L7.1 stable port owns only the TTS installation topology. L7.3 now does the same
+    # for the outer Cinematic M7/M11 authority while keeping its historical position:
+    # after TTS, before Opening Feasibility. Provider choice, retries, quality semantics,
+    # and the M7-owned M11 composition remain in their existing certified owners.
     install_tts_runtime_port()
-    install_m7_live_binding()
-    # Run #93: install_m7_live_binding() installs Security V1 (its length-validating
-    # stock-search wrapper) as a side effect. The opening feasibility guard must wrap
-    # AROUND that validator - not be wrapped BY it - so its query-shortening logic runs
-    # before Security V1 sees the query, not after. Explicit, ordered installation here
-    # (matching every other guard in this sequence) guarantees that regardless of
-    # module import order; the previous implicit install-on-package-import in
-    # scripts/__init__.py raced Security V1's later install and sometimes lost.
+    install_cinematic_runtime_port(CinematicInstallPhase.OUTER)
+    # Run #93: the OUTER Cinematic phase installs M7, which installs Security V1 (its
+    # length-validating stock-search wrapper) as a side effect. The opening feasibility
+    # guard must wrap AROUND that validator - not be wrapped BY it - so query-shortening
+    # logic runs before Security V1 sees the query. Explicit ordered installation here
+    # guarantees that regardless of module import order.
     install_opening_feasibility_guard()
     start_progress()
     install_progress_hooks()
