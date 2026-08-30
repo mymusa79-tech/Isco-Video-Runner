@@ -17,6 +17,8 @@ class Run127RuntimeCompositionTests(unittest.TestCase):
         self.assertGreater(result["runtime_python_files_scanned"], 50)
         self.assertEqual(result["legacy_capacity_violations"], 0)
         self.assertEqual(result["static_patch_contract_violations"], 0)
+        self.assertEqual(result["planning_authority_assignment_violations"], 0)
+        self.assertEqual(result["legacy_prompt_contract_inference_violations"], 0)
 
     def test_exact_run127_stale_wrapper_shape_is_detected(self) -> None:
         def stale_cache_aware_pacing(request_capacity: dict) -> float:

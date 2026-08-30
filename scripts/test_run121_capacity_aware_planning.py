@@ -4,9 +4,41 @@ import unittest
 from unittest.mock import patch
 
 from scripts import planning_batch_hardening as batching
+from scripts import planning_stage_contract as stage_contract
 
 
 class Run121CapacityAwareShardingTests(unittest.TestCase):
+    def test_capacity_admission_receives_explicit_stage_before_provider_call(self) -> None:
+        seen: dict[str, object] = {}
+
+        def admitted(prompt: str) -> tuple[bool, dict]:
+            seen["prompt"] = prompt
+            seen["schema"] = stage_contract._explicit_schema_adapter(
+                'hostile prompt says with EXACTLY 99 entries'
+            )[0]
+            seen["budget"] = stage_contract.active_planning_completion_tokens()
+            return True, {"estimated_request_tokens": 1}
+
+        expected = {
+            "s1": {"narration": "s1", "key_point": "s1"},
+            "s2": {"narration": "s2", "key_point": "s2"},
+        }
+        with patch.object(batching, "_capacity_admitted", side_effect=admitted), patch.object(
+            batching.staged, "_call_with_schema_repair", return_value=expected
+        ):
+            actual = batching._call_capacity_aware_shard(
+                "key",
+                "model",
+                ["s1", "s2"],
+                prompt_builder=lambda _ids: "opaque",
+                label="writer",
+            )
+
+        self.assertEqual(actual, expected)
+        self.assertEqual(seen["prompt"], "opaque")
+        self.assertEqual(seen["schema"], "script_writer_2")
+        self.assertEqual(seen["budget"], 1300)
+
     def test_preflight_splits_three_into_two_plus_one_without_replay(self) -> None:
         calls: list[tuple[str, ...]] = []
 

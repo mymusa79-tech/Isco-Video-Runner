@@ -111,6 +111,44 @@ _PROVIDER_ORDER = ("gemini", "groq", "openrouter")
 _STAGE_WRAPPER_MARKER = "_isco_explicit_planning_stage_contract"
 _ROUTER_MARKER = "_isco_explicit_planning_contract_router"
 
+# One explicit provider-output budget per bounded Planning transport contract.  These
+# names are produced from stage identity + expected ids below; prompt text has no role
+# in selecting either the name or the budget.  Run123 consumes this same table for its
+# latency/provider adapters, so the Stage Contract remains the single policy owner.
+SHARD_COMPLETION_TOKEN_BUDGETS = {
+    "script_writer_1": 900,
+    "script_writer_2": 1300,
+    "script_writer_3": 1800,
+    "script_doctor_1": 900,
+    "script_doctor_2": 1400,
+    "script_doctor_3": 1800,
+    "dossier_repair_1": 850,
+    "dossier_repair_2": 1400,
+    "append_repair_1": 600,
+    "append_repair_2": 800,
+    "append_repair_3": 1000,
+    "append_repair_4": 1200,
+    "append_repair_5": 1400,
+    "append_repair_6": 1600,
+    "append_repair_7": 1800,
+    "append_repair_8": 2000,
+}
+
+
+def _transport_completion_tokens(profile: str, expected_items: int) -> int:
+    if profile == "editorial_outline":
+        return 3200
+    if profile == "section_repair":
+        return 2200
+    name = f"{profile}_{expected_items}"
+    try:
+        return SHARD_COMPLETION_TOKEN_BUDGETS[name]
+    except KeyError as exc:
+        raise PlanningStageError(
+            PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"unsupported bounded Planning transport contract={name}",
+        ) from exc
+
 
 def _strict_object(properties: dict, required: list[str]) -> dict:
     return {
@@ -267,14 +305,29 @@ def outline_stage_spec(expected_count: int) -> PlanningStageSpec:
         output_schema=_outline_schema(expected_count),
         semantic_rules={
             "kind": "editorial_outline",
+            "transport_profile": "editorial_outline",
             "expected_count": expected_count,
             "unique_nonempty_ids": True,
             "nonempty_purpose": True,
             "narrative_identity_gates": True,
         },
-        provider_policy=_provider_policy(3200),
+        provider_policy=_provider_policy(
+            _transport_completion_tokens("editorial_outline", expected_count)
+        ),
         cache_policy=CachePolicy(),
     )
+
+
+def outline_stage_spec_for_format(fmt: str) -> PlanningStageSpec:
+    """Resolve the Engine-owned outline size into the canonical transport policy."""
+    expected = staged._SECTION_COUNTS.get(str(fmt or "").strip().lower())
+    if not isinstance(expected, int):
+        raise PlanningStageError(
+            PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"outline unknown fmt={fmt}",
+            stage_id="planning.editorial_outline",
+        )
+    return outline_stage_spec(expected)
 
 
 def script_stage_spec(stage_kind: str, expected_ids: list[str]) -> PlanningStageSpec:
@@ -285,17 +338,30 @@ def script_stage_spec(stage_kind: str, expected_ids: list[str]) -> PlanningStage
             "script contract requires unique nonempty expected ids",
             stage_id=f"planning.{stage_kind}",
         )
-    if stage_kind not in {"full_script", "script_doctor"}:
+    profiles = {
+        "full_script": "script_writer",
+        "script_doctor": "script_doctor",
+        "dossier_repair": "dossier_repair",
+    }
+    if stage_kind not in profiles:
         raise PlanningStageError(
             PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
             f"unsupported script stage kind={stage_kind}",
         )
+    profile = profiles[stage_kind]
     return PlanningStageSpec(
         stage_id=f"planning.{stage_kind}",
         contract_id=f"planning.{stage_kind}.v1",
         output_schema=_script_schema(len(ids)),
-        semantic_rules={"kind": "script", "expected_ids": ids, "exact_order": True},
-        provider_policy=_provider_policy(4800),
+        semantic_rules={
+            "kind": "script",
+            "transport_profile": profile,
+            "expected_ids": ids,
+            "exact_order": True,
+        },
+        provider_policy=_provider_policy(
+            _transport_completion_tokens(profile, len(ids))
+        ),
         cache_policy=CachePolicy(),
     )
 
@@ -323,12 +389,15 @@ def append_stage_spec(
         output_schema=_append_schema(len(ids), ordered_subset=allow_ordered_subset),
         semantic_rules={
             "kind": "append",
+            "transport_profile": "append_repair",
             "expected_ids": ids,
             "exact_order": not allow_ordered_subset,
             "ordered_subset_allowed": allow_ordered_subset,
             "nonempty_append_text": True,
         },
-        provider_policy=_provider_policy(3200),
+        provider_policy=_provider_policy(
+            _transport_completion_tokens("append_repair", len(ids))
+        ),
         cache_policy=no_fragment_cache,
     )
 
@@ -345,8 +414,15 @@ def section_repair_stage_spec(section_id: str) -> PlanningStageSpec:
         stage_id="planning.section_repair",
         contract_id="planning.section_repair.v1",
         output_schema=_strict_object({"narration": {"type": "string"}}, ["narration"]),
-        semantic_rules={"kind": "section_repair", "section_id": section_id, "nonempty": True},
-        provider_policy=_provider_policy(2200),
+        semantic_rules={
+            "kind": "section_repair",
+            "transport_profile": "section_repair",
+            "section_id": section_id,
+            "nonempty": True,
+        },
+        provider_policy=_provider_policy(
+            _transport_completion_tokens("section_repair", 1)
+        ),
         cache_policy=CachePolicy(),
     )
 
@@ -755,20 +831,51 @@ def _cache_commit(
     _save_checkpoint(checkpoint)
 
 
-def _schema_tuple(contract: PlanningStageContract) -> tuple[str, dict]:
-    safe_name = contract.contract_id.replace(".", "_").replace("-", "_")[:60]
-    return safe_name, contract.output_schema
+def _schema_tuple(
+    contract: PlanningStageContract | PlanningStageSpec,
+) -> tuple[str, dict]:
+    """Return the provider schema name from explicit contract fields only."""
+    profile = str(contract.semantic_rules.get("transport_profile") or "").strip()
+    if profile in {"editorial_outline", "section_repair"}:
+        return profile, contract.output_schema
+    if profile in {"script_writer", "script_doctor", "dossier_repair", "append_repair"}:
+        expected_ids = list(contract.semantic_rules.get("expected_ids") or [])
+        if not expected_ids:
+            raise PlanningStageError(
+                PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+                f"explicit provider schema has no expected ids profile={profile}",
+                stage_id=contract.stage_id,
+            )
+        return f"{profile}_{len(expected_ids)}", contract.output_schema
+    raise PlanningStageError(
+        PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+        f"unsupported explicit provider transport profile={profile or 'missing'}",
+        stage_id=contract.stage_id,
+    )
 
 
 def _explicit_schema_adapter(_prompt: str) -> tuple[str, dict]:
     """Compatibility seam for old provider helpers; prompt content is ignored."""
-    contract = _ACTIVE_REQUEST_CONTRACT.get()
-    if contract is None:
+    owner: PlanningStageContract | PlanningStageSpec | None = _ACTIVE_REQUEST_CONTRACT.get()
+    if owner is None:
+        # Capacity admission legitimately runs before the provider router binds the
+        # effective prompt/input hash.  Its caller must still have installed an exact
+        # request StageSpec; that spec owns the same schema and provider policy.
+        owner = _ACTIVE_STAGE_SPEC.get()
+    if owner is None:
         raise PlanningStageError(
             PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
             "prompt schema inference is disabled; no active explicit request contract",
         )
-    return _schema_tuple(contract)
+    return _schema_tuple(owner)
+
+
+def active_planning_completion_tokens() -> int | None:
+    """Expose only the active explicit provider policy to compatibility adapters."""
+    owner: PlanningStageContract | PlanningStageSpec | None = _ACTIVE_REQUEST_CONTRACT.get()
+    if owner is None:
+        owner = _ACTIVE_STAGE_SPEC.get()
+    return None if owner is None else owner.provider_policy.completion_tokens
 
 
 def _admission_metadata(contract: PlanningStageContract, prompt: str) -> dict:
@@ -864,9 +971,22 @@ def _provider_result(
     prompt: str,
     model: str,
     contract: PlanningStageContract,
+    primary_api_key: str,
 ):
     if provider == "gemini":
-        gemini_key = router._read_secret_file("GEMINI_API_KEY_FILE")
+        # Engine config.secret() deliberately consumes and deletes the one-time file
+        # before build_plan().  Its api_key argument is therefore the only canonical
+        # request-scoped credential at this boundary; re-reading *_FILE here breaks the
+        # secure one-time lifecycle and caused the uploaded Production run to fail
+        # before any provider request was made.
+        gemini_key = str(primary_api_key or "").strip()
+        if not gemini_key:
+            raise PlanningStageError(
+                PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+                "Gemini request credential unavailable after one-time secret consumption",
+                stage_id=contract.stage_id,
+                provider=provider,
+            )
         return router._budgeted_provider_call(
             "gemini",
             model,
@@ -894,6 +1014,10 @@ def _provider_result(
 def install_planning_contract_router() -> None:
     """Replace prompt-inferred routing with one explicit-contract request owner."""
     if _contains_marker(staged.json_text, _ROUTER_MARKER):
+        # Idempotent lifecycle reassertion must also restore the one schema authority;
+        # a historical installer is not allowed to survive merely because the routed
+        # json_text wrapper was already present.
+        router._structured_schema_for_prompt = _explicit_schema_adapter
         return
 
     checkpoint = _load_checkpoint_strict()
@@ -906,7 +1030,7 @@ def install_planning_contract_router() -> None:
     # from the active request contract. The prompt argument is deliberately ignored.
     router._structured_schema_for_prompt = _explicit_schema_adapter
 
-    def contract_router(_api_key, prompt, model="gemini-2.5-flash"):
+    def contract_router(api_key, prompt, model="gemini-2.5-flash"):
         nonlocal sequence
         spec = _ACTIVE_STAGE_SPEC.get()
         if spec is None:
@@ -970,7 +1094,13 @@ def install_planning_contract_router() -> None:
                         started = time.monotonic()
                         last_call_at[provider] = started
                         try:
-                            raw = _provider_result(provider, effective_prompt, model, contract)
+                            raw = _provider_result(
+                                provider,
+                                effective_prompt,
+                                model,
+                                contract,
+                                api_key,
+                            )
                             try:
                                 parsed = raw if isinstance(raw, dict) else router._parse_json(raw)
                             except Exception as exc:
@@ -1144,10 +1274,40 @@ def request_stage_scope(spec: PlanningStageSpec) -> Iterator[None]:
 @contextmanager
 def script_repair_subrequest_scope(expected_ids: list[str]) -> Iterator[None]:
     kind = _ACTIVE_STAGE_KIND.get()
-    if kind not in {"full_script", "script_doctor"}:
+    if kind not in {"full_script", "script_doctor", "dossier_repair"}:
         kind = "script_doctor"
     with request_stage_scope(script_stage_spec(kind, expected_ids)):
         yield
+
+
+@contextmanager
+def script_batch_scope(label: str, expected_ids: list[str]) -> Iterator[None]:
+    """Bind Writer/Doctor identity before pre-provider capacity admission."""
+    kinds = {"writer": "full_script", "doctor": "script_doctor"}
+    try:
+        kind = kinds[label]
+    except KeyError as exc:
+        raise PlanningStageError(
+            PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"unsupported bounded script transport label={label}",
+        ) from exc
+    token = _ACTIVE_STAGE_KIND.set(kind)
+    try:
+        with request_stage_scope(script_stage_spec(kind, expected_ids)):
+            yield
+    finally:
+        _ACTIVE_STAGE_KIND.reset(token)
+
+
+@contextmanager
+def dossier_repair_subrequest_scope(expected_ids: list[str]) -> Iterator[None]:
+    """Bind the orchestrator-level RepairDossier transport explicitly."""
+    token = _ACTIVE_STAGE_KIND.set("dossier_repair")
+    try:
+        with request_stage_scope(script_stage_spec("dossier_repair", expected_ids)):
+            yield
+    finally:
+        _ACTIVE_STAGE_KIND.reset(token)
 
 
 @contextmanager
@@ -1189,14 +1349,7 @@ def _wrap_outline() -> None:
     @functools.wraps(current)
     def wrapped(*args, **kwargs):
         fmt = kwargs.get("fmt", args[2] if len(args) > 2 else None)
-        expected = staged._SECTION_COUNTS.get(fmt)
-        if not isinstance(expected, int):
-            raise PlanningStageError(
-                PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-                f"outline unknown fmt={fmt}",
-                stage_id="planning.editorial_outline",
-            )
-        with request_stage_scope(outline_stage_spec(expected)):
+        with request_stage_scope(outline_stage_spec_for_format(fmt)):
             return current(*args, **kwargs)
 
     setattr(wrapped, _STAGE_WRAPPER_MARKER, "editorial_outline")
@@ -1211,7 +1364,7 @@ def _wrap_schema_call() -> None:
     @functools.wraps(current)
     def wrapped(api_key, prompt, model, *, expected_ids):
         kind = _ACTIVE_STAGE_KIND.get()
-        if kind not in {"full_script", "script_doctor"}:
+        if kind not in {"full_script", "script_doctor", "dossier_repair"}:
             raise PlanningStageError(
                 PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
                 f"schema call has no explicit parent stage kind={kind}",
@@ -1299,6 +1452,11 @@ def assert_planning_stage_contract_installed() -> None:
         raise PlanningStageError(
             PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
             "explicit contract router is not reachable from resilient_planner.json_text",
+        )
+    if router._structured_schema_for_prompt is not _explicit_schema_adapter:
+        raise PlanningStageError(
+            PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            "explicit Planning schema adapter lost authority",
         )
     required = (
         "_outline",
