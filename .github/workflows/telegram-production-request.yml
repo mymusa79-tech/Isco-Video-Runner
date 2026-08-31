@@ -320,7 +320,7 @@ jobs:
           TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
           ISCO_ENGINE_SHA: ${{ inputs.engine_sha }}
           PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
-          GEMINI_CONTENT_MODEL: gemini-2.5-flash
+          GEMINI_CONTENT_MODEL: gemini-3.7-flash
           GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
           TRENDS_GEO: SA
           YOUTUBE_REGION: SA
