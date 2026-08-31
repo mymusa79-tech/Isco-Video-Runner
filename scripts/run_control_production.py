@@ -11,6 +11,7 @@ from typing import Any
 from isco_video_agent.brief_approval_binding import attach_approval_binding
 from isco_video_agent.short_planner import DEFAULT_SIBLING_SPACING_HOURS, select_sibling_jobs
 
+import scripts.planning_runtime_contract as planning_runtime_contract
 import scripts.run_v3_voice as production
 from scripts.native_short_planner_router import install_native_short_router
 from scripts.short_voice_v2 import apply_short_voice_v2
@@ -203,7 +204,13 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
     runtime_request = dict(request)
     runtime_request["production_dispatch_authorized"] = True
     original_gold = production.run_gold_enforce_phase4
-    original_install_router = production.install_router
+    # production.main() no longer calls a bare install_router() itself - since the
+    # planning seam consolidation it calls install_entrypoint_planning_contracts(),
+    # which resolves install_router from scripts.planning_runtime_contract's own module
+    # globals. Patching scripts.run_v3_voice.install_router (removed by that same
+    # consolidation) is a dead no-op that used to crash outright; patch the name that is
+    # actually looked up at call time instead.
+    original_install_router = planning_runtime_contract.install_router
     original_resolve_plan_source = production._resolve_plan_source
     original_budget_factory = production._production_budget_ledger
     short_pre: dict[str, Any] | None = None
@@ -243,14 +250,14 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
     production._production_budget_ledger = captured_budget_factory
     if request["kind"] == "short":
         short_install, plan_source = _short_router_for_request(request)
-        production.install_router = short_install
+        planning_runtime_contract.install_router = short_install
         production._resolve_plan_source = lambda: plan_source
     try:
         production.main()
         output = _new_output_dir(before)
     finally:
         production.run_gold_enforce_phase4 = original_gold
-        production.install_router = original_install_router
+        planning_runtime_contract.install_router = original_install_router
         production._resolve_plan_source = original_resolve_plan_source
         production._production_budget_ledger = original_budget_factory
         _restore_runtime_env(previous_env)

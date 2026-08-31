@@ -84,6 +84,7 @@ def execute(request: dict[str, Any], *, runtime_dir: Path) -> Path:
     # Import the full production graph only when an actual child execution begins.
     # Request validation and unit-contract imports must remain side-effect free and
     # must not depend on script-mode sys.path behavior used by the production entrypoint.
+    import scripts.planning_runtime_contract as planning_runtime_contract
     import scripts.run_v3_voice as production
 
     validate_request(request, str(request.get("request_sha256") or ""))
@@ -106,7 +107,11 @@ def execute(request: dict[str, Any], *, runtime_dir: Path) -> Path:
     os.environ["ISCO_CONTROL_REQUEST_ID"] = str(request.get("request_id") or "")
 
     original_gold = production.run_gold_enforce_phase4
-    original_install_router = production.install_router
+    # production.main() resolves install_router from scripts.planning_runtime_contract's
+    # own module globals (via install_entrypoint_planning_contracts()), not from a
+    # scripts.run_v3_voice.install_router attribute - that name no longer exists there
+    # since the planning seam consolidation. Patch the name actually looked up.
+    original_install_router = planning_runtime_contract.install_router
     original_resolve_plan_source = production._resolve_plan_source
     runtime_request = dict(request)
     runtime_request["production_dispatch_authorized"] = True
@@ -122,14 +127,14 @@ def execute(request: dict[str, Any], *, runtime_dir: Path) -> Path:
         return result
 
     production.run_gold_enforce_phase4 = controlled_gold
-    production.install_router = lambda: install_source_derived_short_planner(request)
+    planning_runtime_contract.install_router = lambda: install_source_derived_short_planner(request)
     production._resolve_plan_source = lambda: "source_derived_long_episode_short"
     try:
         production.main()
         return _new_output_dir(before)
     finally:
         production.run_gold_enforce_phase4 = original_gold
-        production.install_router = original_install_router
+        planning_runtime_contract.install_router = original_install_router
         production._resolve_plan_source = original_resolve_plan_source
         for key, value in previous_env.items():
             if value is None:
