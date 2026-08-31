@@ -359,7 +359,14 @@ jobs:
           (
             steps.poll.outputs.production_active == 'true' ||
             (steps.poll.outputs.release_approval_consumed == 'true' && steps.persist_control_state.outcome == 'success') ||
-            (steps.poll.outputs.needs_production == 'true' && steps.persist_reservation.outcome == 'success') ||
+            (
+              steps.poll.outputs.needs_production == 'true' &&
+              steps.persist_reservation.outcome == 'success' &&
+              (
+                steps.dispatch_gateway.outcome == 'success' ||
+                steps.compensate_gateway_dispatch.outcome == 'success'
+              )
+            ) ||
             (steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true' && steps.persist_control_state.outcome == 'success')
           )
         run: |
