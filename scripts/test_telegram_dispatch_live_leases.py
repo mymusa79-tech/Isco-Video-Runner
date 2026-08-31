@@ -42,6 +42,33 @@ class TelegramDispatchLiveLeaseTests(unittest.TestCase):
         self.assertEqual(queue.live_dispatch_count(state), 0)
         self.assertEqual(queue.live_production_dispatches(state), [recent])
 
+    def test_reservation_skips_stale_pending_attempt_for_same_request(self) -> None:
+        old = {
+            "request_id": "req-1",
+            "request_sha256": "a" * 64,
+            "authorization_id": "1" * 32,
+            "status": "pending_dispatch",
+            "requested_at": OLD,
+        }
+        recent = {
+            "request_id": "req-1",
+            "request_sha256": "a" * 64,
+            "authorization_id": "2" * 32,
+            "status": "pending_dispatch",
+            "requested_at": _recent(),
+        }
+        state = {"production_queue": [old, recent]}
+        reserved = queue.reserve_dispatch(
+            state,
+            "req-1",
+            "a" * 64,
+            runner_sha="b" * 40,
+        )
+        self.assertIs(reserved, recent)
+        self.assertEqual(recent["status"], "dispatch_reserved")
+        self.assertEqual(old["status"], "pending_dispatch")
+        self.assertFalse(queue.dispatch_entry_is_live(old))
+
     def test_public_projection_does_not_report_expired_ledger_entries_as_live(self) -> None:
         state = {
             "production_queue": [
