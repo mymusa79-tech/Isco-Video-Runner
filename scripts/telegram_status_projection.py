@@ -52,6 +52,15 @@ def _kind_count(items: list[dict[str, Any]], kind: str) -> int:
     return sum(1 for item in items if str(item.get("kind") or "") == kind)
 
 
+def _production_status_count(state: dict[str, Any], status: str) -> int:
+    """Count one exact live production-ledger phase without exposing identities."""
+    return sum(
+        1
+        for item in _list(state.get("production_queue"))
+        if isinstance(item, dict) and str(item.get("status") or "") == status
+    )
+
+
 def _event_time(value: Any) -> datetime | None:
     text = str(value or "").strip()
     if not text:
@@ -95,7 +104,13 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
             "used_short_count": _kind_count(used, "short"),
             "request_count": len(requests),
             "pending_actions_count": live_pending_count(state),
+            # Backward-compatible live handoff depth: pending + reserved only.
             "production_queue_count": live_dispatch_count(state),
+            "production_waiting_count": _production_status_count(state, "pending_dispatch"),
+            "production_reserved_count": _production_status_count(state, "dispatch_reserved"),
+            # Consumed means V4 owns the request until terminal reconciliation records
+            # completed/failed. It is intentionally distinct from queue depth.
+            "production_inflight_count": _production_status_count(state, "dispatch_consumed"),
             "approved_target": bool(target),
             "approved_request_hash": _hash_id(target.get("request_id")),
         },
