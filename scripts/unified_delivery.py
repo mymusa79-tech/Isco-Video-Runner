@@ -46,6 +46,29 @@ def _passing_master_qc(document: dict[str, Any]) -> bool:
     )
 
 
+def _release_identity(production: dict[str, Any]) -> str | None:
+    value = str(production.get("release_tag") or "").strip()
+    return value or None
+
+
+def _assert_release_identity(production: dict[str, Any], release_tag: str | None) -> None:
+    """Require one release identity across production and delivery provenance.
+
+    production-manifest.json is written against the exact final bytes before release.
+    Once it carries a release tag, delivery staging/finalization may only use that same
+    tag. A missing production tag remains allowed for local/legacy staged fixtures, but
+    a conflicting non-empty tag is never silently rewritten.
+    """
+    if not release_tag:
+        return
+    production_tag = _release_identity(production)
+    if production_tag and production_tag != release_tag:
+        raise RuntimeError(
+            "Release identity mismatch between production-manifest.json and delivery: "
+            f"production={production_tag} delivery={release_tag}"
+        )
+
+
 def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if short_assets and not 2 <= len(short_assets) <= 3:
         raise RuntimeError("Unified long-form delivery must contain 2–3 sibling Shorts")
@@ -116,6 +139,7 @@ def build_delivery_manifest(
     final_master_qc = _read_object(root / "final-master-qc.json")
     if not _passing_master_qc(final_master_qc):
         raise RuntimeError("Unified delivery requires a passing Final Master QC report")
+    _assert_release_identity(production, release_tag)
 
     fmt = str(plan.get("format") or quality.get("format") or production.get("format") or "")
     kind = "short" if fmt == "moment" or str(release_tag or "").startswith("short-") else "long"
@@ -205,15 +229,24 @@ def write_delivery_manifest(
 
 
 def finalize_release_manifest(path: Path, *, repository: str, release_tag: str) -> Path:
+    path = Path(path)
     manifest = _read_object(path)
     if manifest.get("release_state") not in {"staged", "released"}:
         raise RuntimeError("Unsupported delivery release state")
+    production = _read_object(path.parent / "production-manifest.json")
+    _assert_release_identity(production, release_tag)
+    existing_tag = str(manifest.get("release_tag") or "").strip()
+    if existing_tag and existing_tag != release_tag:
+        raise RuntimeError(
+            "Delivery manifest release tag changed during finalization: "
+            f"existing={existing_tag} requested={release_tag}"
+        )
     manifest["release_state"] = "released"
     manifest["release_tag"] = release_tag
     manifest["delivery_url"] = f"https://github.com/{repository}/releases/tag/{release_tag}"
     manifest["publication_performed"] = False
-    Path(path).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    return Path(path)
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
 
 
 def main() -> None:

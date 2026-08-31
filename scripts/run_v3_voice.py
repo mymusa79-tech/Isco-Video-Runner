@@ -129,6 +129,20 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _resolved_release_tag(run_number: str) -> str | None:
+    """Resolve one release identity for every manifest producer.
+
+    Manual V4 runs keep the historical ``video-<run_number>`` tag. Telegram ingress
+    already materializes a deterministic request-bound tag into
+    ISCO_RELEASE_TAG_OVERRIDE; production-manifest must use that same identity instead
+    of inventing a parallel manual tag for the same bytes.
+    """
+    override = (os.environ.get("ISCO_RELEASE_TAG_OVERRIDE") or "").strip()
+    if override:
+        return override
+    return f"video-{run_number}" if run_number else None
+
+
 def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> dict:
     final_path = out / "final.mp4"
     if not final_path.is_file():
@@ -145,7 +159,7 @@ def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> di
         "github_run_attempt": (os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip() or None,
         "runner_sha": (os.environ.get("GITHUB_SHA") or "").strip() or None,
         "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "").strip() or None,
-        "release_tag": f"video-{run_number}" if run_number else None,
+        "release_tag": _resolved_release_tag(run_number),
         "format": fmt,
         "final_sha256": _sha256_file(final_path),
         "release_authority": "gold_enforced",
