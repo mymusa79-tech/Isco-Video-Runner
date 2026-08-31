@@ -250,6 +250,7 @@ jobs:
           fi
 
       - name: Dispatch one explicitly reserved production request
+        id: dispatch_gateway
         if: steps.poll.outputs.needs_production == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -268,6 +269,55 @@ jobs:
             -f request_sha256="$REQUEST_SHA256" \
             -f authorization_id="$AUTHORIZATION_ID" \
             -f engine_sha="$ENGINE_SHA"
+
+      - name: Compensate durable reservation if gateway dispatch failed
+        id: compensate_gateway_dispatch
+        if: >-
+          always() &&
+          steps.poll.outputs.needs_production == 'true' &&
+          steps.persist_reservation.outcome == 'success' &&
+          steps.dispatch_gateway.outcome == 'failure'
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ steps.reserve.outputs.production_request_id }}
+          REQUEST_SHA256: ${{ steps.reserve.outputs.production_request_sha256 }}
+          AUTHORIZATION_ID: ${{ steps.reserve.outputs.production_authorization_id }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          test -n "$REQUEST_ID"
+          test -n "$REQUEST_SHA256"
+          test -n "$AUTHORIZATION_ID"
+          fresh_enc="$RUNNER_TEMP/isco-control/gateway-dispatch-failed-latest.json.enc"
+          fresh_state="$RUNNER_TEMP/isco-control/gateway-dispatch-failed-latest.json"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          git show origin/control-plane-state:state/control-panel.json.enc > "$fresh_enc"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_enc" -out "$fresh_state"
+          chmod 600 "$fresh_state"
+          python scripts/telegram_v4_ingress.py fail \
+            --state "$fresh_state" \
+            --request-id "$REQUEST_ID" \
+            --sha256 "$REQUEST_SHA256" \
+            --authorization-id "$AUTHORIZATION_ID" \
+            --reason workflow_dispatch_failed
+          cp "$fresh_state" "$CONTROL_STATE_PATH"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_state" -out "$fresh_enc"
+          worktree="$RUNNER_TEMP/isco-control-gateway-dispatch-failed-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$fresh_enc" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "Gateway dispatch compensation produced no state delta" >&2
+            exit 1
+          fi
+          git commit -m "state: compensate failed Telegram gateway dispatch"
+          git push origin HEAD:control-plane-state
 
       - name: Persist encrypted control-panel state
         id: persist_control_state
