@@ -15,6 +15,7 @@ if __package__ in {None, ""}:
 
 from scripts.telegram_production_queue import live_dispatch_count
 from scripts.telegram_release_approval import approval_projection
+from scripts.telegram_research_status import live_pending_count
 
 SCHEMA_VERSION = 1
 _BOOTSTRAP_TIME = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -75,7 +76,6 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
     active_session = str(state.get("active_research_session_id") or "").strip()
     target = _dict(state.get("production_target"))
     requests = _dict(state.get("requests"))
-    pending_actions = _list(state.get("pending_actions"))
     saved = _available_saved_items(state)
     used = _used_items(state)
 
@@ -94,7 +94,7 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
             "used_long_count": _kind_count(used, "long"),
             "used_short_count": _kind_count(used, "short"),
             "request_count": len(requests),
-            "pending_actions_count": len(pending_actions),
+            "pending_actions_count": live_pending_count(state),
             "production_queue_count": live_dispatch_count(state),
             "approved_target": bool(target),
             "approved_request_hash": _hash_id(target.get("request_id")),
