@@ -139,7 +139,7 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
 
     def test_workflow_separates_research_engine_from_production_engine(self):
         workflow = (ROOT / ".github/workflows/telegram-editorial-control.yml").read_text(encoding="utf-8")
-        self.assertIn("ENGINE_SHA: f3c9357098947882882ca3010b46a565c2d90460", workflow)
+        self.assertIn("ENGINE_SHA: fe576d91f604412a010fa6cd61ff66f839e67550", workflow)
         self.assertIn("RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309", workflow)
         self.assertIn("ref: ${{ env.RESEARCH_ENGINE_SHA }}", workflow)
         self.assertIn('python scripts/telegram_topic_research_v2.py research --state "$CONTROL_STATE_PATH"', workflow)

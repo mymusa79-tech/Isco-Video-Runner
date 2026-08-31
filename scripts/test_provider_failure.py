@@ -17,10 +17,29 @@ class ProviderFailureTaxonomyTests(unittest.TestCase):
         self.assertEqual(failure.budget_outcome, AttemptOutcome.RATE_LIMITED)
         self.assertTrue(failure.open_circuit)
 
-    def test_openrouter_capacity_404_is_distinct_and_session_permanent(self) -> None:
+    def test_openrouter_local_circuit_marker_is_distinct_and_session_permanent(self) -> None:
+        """run125_capacity_routing_closure.py's own preflight/structural block marker."""
         failure = classify_provider_failure(
             "openrouter",
-            RuntimeError("OPENROUTER_NO_PROVIDER_AVAILABLE status=404 message=No endpoints found"),
+            RuntimeError(
+                "OPENROUTER_UNAVAILABLE_THIS_RUN reason=preflight_blocked: "
+                "openrouter readiness blocked: key spend capacity exhausted"
+            ),
+        )
+        self.assertEqual(failure.telemetry_result, "capacity_unavailable")
+        self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
+        self.assertTrue(failure.open_circuit)
+
+    def test_openrouter_real_api_no_provider_response_is_also_capacity_unavailable(self) -> None:
+        """A genuine OpenRouter completions-endpoint error, formatted the way
+        _safe_api_error() actually formats real HTTP failures - this must be
+        recognized on its own wording, not only via the Runner's local marker above."""
+        failure = classify_provider_failure(
+            "openrouter",
+            RuntimeError(
+                "OPENROUTER_HTTP_404 status=404 code=no_endpoints_found "
+                "message=No endpoints found matching your data policy"
+            ),
         )
         self.assertEqual(failure.telemetry_result, "capacity_unavailable")
         self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)

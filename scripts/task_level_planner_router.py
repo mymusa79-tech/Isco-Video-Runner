@@ -53,6 +53,21 @@ _last_call_rate_limit_headers: dict = {}
 _last_call_response_meta: dict = {}
 _CURRENT_REQUEST_META: dict = {}
 
+# Shared with scripts/planning_stage_contract.py's own `_ROUTER_MARKER` constant -
+# duplicated here as a bare string literal rather than imported, because that module
+# already imports this one (`from scripts import task_level_planner_router as router`),
+# so importing it back would be circular. planning_stage_contract.py is the newer,
+# more complete Planning provider-loop owner (PlanningStageError taxonomy, explicit
+# per-stage admission, structural+semantic validation before the single cache write -
+# see its own module docstring). Two full independent "try Gemini, then Groq, then
+# OpenRouter" implementations used to both install themselves onto
+# isco_video_agent.resilient_planner.json_text, so live behavior depended on which one
+# happened to run last. install_router() below checks this marker so that, regardless
+# of install order, once the explicit Stage Contract router is live it can never be
+# silently replaced by this module's own older provider loop reinstalling itself; see
+# test_task_level_planner_router.py's ExplicitStageContractOwnershipTests.
+_EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER = "_isco_explicit_planning_contract_router"
+
 _OPENROUTER_FALLBACK_MODELS = ("openai/gpt-oss-20b:free",)
 _OPENROUTER_MODELS = ("openrouter/free",) + _OPENROUTER_FALLBACK_MODELS
 _OPENROUTER_REPAIR_SUFFIX = "\n\nأعد الرد بصيغة JSON صالحة فقط، بدون أي نص إضافي قبله أو بعده."
@@ -771,7 +786,14 @@ def install_router() -> None:
         return plan
 
     routed_build_plan._is_resilient_router = True
-    staged.json_text = task_router
+    # Never clobber the newer, more complete explicit Stage Contract router if it is
+    # already the live isco_video_agent.resilient_planner.json_text owner - see the
+    # _EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER comment above. Every other install_router()
+    # side effect (checkpoint bootstrap, telemetry reset, the routed_build_plan
+    # dialogue_qa wrapper) still runs unconditionally; only this module's own provider
+    # loop is skipped when it would not be reachable anyway.
+    if not getattr(staged.json_text, _EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER, False):
+        staged.json_text = task_router
     orchestrator.build_plan = routed_build_plan
 
 

@@ -27,8 +27,27 @@ def classify_provider_failure(provider_name: str, error: Exception | str) -> Pro
     lower = detail.lower()
     normalized_provider = "openrouter" if provider_name.startswith("openrouter") else provider_name
 
-    # Capacity/model routing markers from the OpenRouter adapter are already normalized.
-    if "openrouter_no_provider_available" in lower:
+    # Capacity/model routing markers the Runner's own local circuit-breakers already
+    # normalize (run125_capacity_routing_closure.py's preflight/structural OpenRouter
+    # block - see its comment for why the two are distinct reasons under one marker).
+    if "openrouter_unavailable_this_run" in lower:
+        return ProviderFailure("capacity_unavailable", AttemptOutcome.OTHER, True)
+    # A genuine OpenRouter API response saying no upstream provider/endpoint can serve
+    # the requested model - distinct from the Runner-local marker above, and previously
+    # unrecognized here: _safe_api_error() formats a real OpenRouter error as
+    # "OPENROUTER_HTTP_<status> status=<n> code=<c> ... message=<m>", which never
+    # contained the old literal "openrouter_no_provider_available" substring that only
+    # the Runner's own local marker ever produced, so a real occurrence of this error
+    # fell through to the generic "other" bucket below with open_circuit=False and was
+    # silently retried instead of failed over.
+    openrouter_no_provider_markers = (
+        "no endpoints found",
+        "no allowed providers",
+        "no providers available",
+        "no_endpoints_found",
+        "no_providers_available",
+    )
+    if normalized_provider == "openrouter" and any(marker in lower for marker in openrouter_no_provider_markers):
         return ProviderFailure("capacity_unavailable", AttemptOutcome.OTHER, True)
     if "openrouter_model_not_found" in lower or "model_not_found" in lower:
         return ProviderFailure("model_not_found", AttemptOutcome.OTHER, True)

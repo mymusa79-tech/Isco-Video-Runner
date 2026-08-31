@@ -39,8 +39,18 @@ class PersonaInjectionFallbackTests(unittest.TestCase):
         # require the real state/ directory and never leak between test runs.
         self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
         self._cache_patch.start()
+        # In the full test-suite process, another module's test may have left
+        # isco_video_agent.resilient_planner.json_text pointed at
+        # planning_stage_contract.py's contract_router. install_router() now
+        # deliberately never overwrites an already-live explicit Stage Contract router
+        # (see ExplicitStageContractOwnershipTests) - correct in production, but it
+        # means these task_router-focused tests must force a clean, unmarked baseline
+        # of their own so install_router() actually installs task_router as they expect.
+        self._json_text_patch = patch.object(staged, "json_text", lambda *a, **k: {})
+        self._json_text_patch.start()
 
     def tearDown(self) -> None:
+        self._json_text_patch.stop()
         self._cache_patch.stop()
         self._env_patch.stop()
         self._tmpdir.cleanup()
@@ -118,8 +128,18 @@ class OpenRouterRepairAttemptTests(unittest.TestCase):
         self._env_patch.start()
         self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
         self._cache_patch.start()
+        # In the full test-suite process, another module's test may have left
+        # isco_video_agent.resilient_planner.json_text pointed at
+        # planning_stage_contract.py's contract_router. install_router() now
+        # deliberately never overwrites an already-live explicit Stage Contract
+        # router (see ExplicitStageContractOwnershipTests) - correct in production,
+        # but it means these task_router-focused tests must force a clean, unmarked
+        # baseline of their own so install_router() actually installs task_router.
+        self._json_text_patch = patch.object(staged, "json_text", lambda *a, **k: {})
+        self._json_text_patch.start()
 
     def tearDown(self) -> None:
+        self._json_text_patch.stop()
         self._cache_patch.stop()
         self._env_patch.stop()
         self._tmpdir.cleanup()
@@ -223,8 +243,18 @@ class CooldownAwareRoutingTests(unittest.TestCase):
         self._cache_patch.start()
         self._sleep_patch = patch.object(router.time, "sleep")
         self._sleep_patch.start()
+        # In the full test-suite process, another module's test may have left
+        # isco_video_agent.resilient_planner.json_text pointed at
+        # planning_stage_contract.py's contract_router. install_router() now
+        # deliberately never overwrites an already-live explicit Stage Contract router
+        # (see ExplicitStageContractOwnershipTests) - correct in production, but it
+        # means these task_router-focused tests must force a clean, unmarked baseline
+        # of their own so install_router() actually installs task_router as they expect.
+        self._json_text_patch = patch.object(staged, "json_text", lambda *a, **k: {})
+        self._json_text_patch.start()
 
     def tearDown(self) -> None:
+        self._json_text_patch.stop()
         self._sleep_patch.stop()
         self._cache_patch.stop()
         self._env_patch.stop()
@@ -272,8 +302,18 @@ class UsedProvidersTrackingTests(unittest.TestCase):
         self._env_patch.start()
         self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
         self._cache_patch.start()
+        # In the full test-suite process, another module's test may have left
+        # isco_video_agent.resilient_planner.json_text pointed at
+        # planning_stage_contract.py's contract_router. install_router() now
+        # deliberately never overwrites an already-live explicit Stage Contract
+        # router (see ExplicitStageContractOwnershipTests) - correct in production,
+        # but it means these task_router-focused tests must force a clean, unmarked
+        # baseline of their own so install_router() actually installs task_router.
+        self._json_text_patch = patch.object(staged, "json_text", lambda *a, **k: {})
+        self._json_text_patch.start()
 
     def tearDown(self) -> None:
+        self._json_text_patch.stop()
         self._cache_patch.stop()
         self._env_patch.stop()
         self._tmpdir.cleanup()
@@ -367,8 +407,18 @@ class ProviderRateLimitSpacingTests(unittest.TestCase):
         self._env_patch.start()
         self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
         self._cache_patch.start()
+        # In the full test-suite process, another module's test may have left
+        # isco_video_agent.resilient_planner.json_text pointed at
+        # planning_stage_contract.py's contract_router. install_router() now
+        # deliberately never overwrites an already-live explicit Stage Contract
+        # router (see ExplicitStageContractOwnershipTests) - correct in production,
+        # but it means these task_router-focused tests must force a clean, unmarked
+        # baseline of their own so install_router() actually installs task_router.
+        self._json_text_patch = patch.object(staged, "json_text", lambda *a, **k: {})
+        self._json_text_patch.start()
 
     def tearDown(self) -> None:
+        self._json_text_patch.stop()
         self._cache_patch.stop()
         self._env_patch.stop()
         self._tmpdir.cleanup()
@@ -425,8 +475,18 @@ class RouterInstalledMarkerTests(unittest.TestCase):
         self._env_patch.start()
         self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
         self._cache_patch.start()
+        # In the full test-suite process, another module's test may have left
+        # isco_video_agent.resilient_planner.json_text pointed at
+        # planning_stage_contract.py's contract_router. install_router() now
+        # deliberately never overwrites an already-live explicit Stage Contract
+        # router (see ExplicitStageContractOwnershipTests) - correct in production,
+        # but it means these task_router-focused tests must force a clean, unmarked
+        # baseline of their own so install_router() actually installs task_router.
+        self._json_text_patch = patch.object(staged, "json_text", lambda *a, **k: {})
+        self._json_text_patch.start()
 
     def tearDown(self) -> None:
+        self._json_text_patch.stop()
         self._cache_patch.stop()
         self._env_patch.stop()
         self._tmpdir.cleanup()
@@ -555,8 +615,18 @@ class TelemetryRouterIntegrationTests(unittest.TestCase):
         self._cache_patch.start()
         self._sleep_patch = patch.object(router.time, "sleep")
         self._sleep_patch.start()
+        # In the full test-suite process, another module's test may have left
+        # isco_video_agent.resilient_planner.json_text pointed at
+        # planning_stage_contract.py's contract_router. install_router() now
+        # deliberately never overwrites an already-live explicit Stage Contract router
+        # (see ExplicitStageContractOwnershipTests) - correct in production, but it
+        # means these task_router-focused tests must force a clean, unmarked baseline
+        # of their own so install_router() actually installs task_router as they expect.
+        self._json_text_patch = patch.object(staged, "json_text", lambda *a, **k: {})
+        self._json_text_patch.start()
 
     def tearDown(self) -> None:
+        self._json_text_patch.stop()
         self._sleep_patch.stop()
         self._cache_patch.stop()
         self._env_patch.stop()
@@ -665,6 +735,86 @@ class TelemetryRouterIntegrationTests(unittest.TestCase):
         self.assertEqual(groq_entry["retry_after"], "12")
         self.assertEqual(groq_entry["remaining_requests"], "0")
         self.assertEqual(groq_entry["remaining_tokens"], "0")
+
+
+class ExplicitStageContractOwnershipTests(unittest.TestCase):
+    """Two independent 'try Gemini, then Groq, then OpenRouter' provider loops used to
+    both install themselves onto isco_video_agent.resilient_planner.json_text - this
+    module's own task_router (below) and planning_stage_contract.py's contract_router -
+    so live behavior depended on whichever installer happened to run last (real
+    production evidence: Runs #127-137 executed through this module's loop, Runs
+    #139-141 through planning_stage_contract.py's loop). These tests prove that no
+    longer matters: once the newer, more complete explicit Stage Contract router
+    (PlanningStageError taxonomy, explicit per-stage admission, structural+semantic
+    validation before the single durable cache write) is live, install_router() here
+    can never silently replace it - regardless of which module installs second."""
+
+    def setUp(self) -> None:
+        from scripts import planning_stage_contract as contract
+
+        self._contract = contract
+        self._tmpdir = tempfile.TemporaryDirectory()
+        gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
+        gemini_key_path.write_text("fake-gemini-key", encoding="utf-8")
+        self._env_patch = patch.dict(os.environ, {"GEMINI_API_KEY_FILE": str(gemini_key_path)}, clear=False)
+        self._env_patch.start()
+        self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
+        self._cache_patch.start()
+        self._contract_cache_patch = patch.object(
+            contract.router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json"
+        )
+        self._contract_cache_patch.start()
+        self._old_json_text = staged.json_text
+        self._old_schema_adapter = contract.router._structured_schema_for_prompt
+        # Force a fresh contract-router closure so its checkpoint/cooldown state is
+        # isolated from any earlier test that already installed it in this interpreter.
+        staged.json_text = lambda *_args, **_kwargs: {}
+
+    def tearDown(self) -> None:
+        staged.json_text = self._old_json_text
+        self._contract.router._structured_schema_for_prompt = self._old_schema_adapter
+        self._contract_cache_patch.stop()
+        self._cache_patch.stop()
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_stage_contract_installed_first_survives_install_router_running_after(self) -> None:
+        self._contract.install_planning_contract_router()
+        contract_router = staged.json_text
+        self.assertTrue(getattr(contract_router, router._EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER, False))
+
+        router.install_router()
+
+        self.assertIs(
+            staged.json_text,
+            contract_router,
+            "install_router() must not replace an already-live explicit Stage Contract router",
+        )
+
+    def test_stage_contract_installed_first_still_gets_install_routers_other_side_effects(self) -> None:
+        """Only the json_text assignment is skipped - checkpoint bootstrap, telemetry
+        reset, and the routed_build_plan dialogue_qa wrapper still run unconditionally."""
+        self._contract.install_planning_contract_router()
+
+        router._TELEMETRY.append({"provider": "stale", "result": "success"})
+        router.install_router()
+
+        self.assertEqual(router.get_telemetry(), [])
+        self.assertTrue(getattr(orchestrator.build_plan, "_is_resilient_router", False))
+
+    def test_install_router_first_then_stage_contract_still_gives_stage_contract_ownership(self) -> None:
+        """The normal/documented canonical order (install_router() before
+        install_planning_contract_router(), matching planning_runtime_contract.py's
+        install_entrypoint_planning_contracts()) already gives the Stage Contract
+        ownership; this is the same guarantee from the other direction."""
+        router.install_router()
+        self.assertFalse(
+            getattr(staged.json_text, router._EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER, False)
+        )
+
+        self._contract.install_planning_contract_router()
+
+        self.assertTrue(getattr(staged.json_text, router._EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER, False))
 
 
 if __name__ == "__main__":

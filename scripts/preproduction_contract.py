@@ -9,7 +9,7 @@ PRODUCTION_WORKFLOW = Path(".github/workflows/produce-resilient-v4.yml")
 RELEASE_TRANSACTION = Path("scripts/release_transaction.py")
 ENVIRONMENT_PREFLIGHT = Path("scripts/environment_preflight.py")
 ENVIRONMENT_PREFLIGHT_CORE = Path("scripts/environment_preflight_core.py")
-EXPECTED_ENGINE_SHA = "f3c9357098947882882ca3010b46a565c2d90460"
+EXPECTED_ENGINE_SHA = "fe576d91f604412a010fa6cd61ff66f839e67550"
 EXPECTED_RUNNER_IMAGE = "ubuntu-24.04"
 PROVIDERS = ("gemini", "groq", "openrouter", "pexels", "pixabay")
 
