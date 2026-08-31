@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import tempfile
 import unittest
@@ -117,6 +118,19 @@ class ControlRequestProductionTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "enough independent jobs"):
                 control.write_sibling_short_plan(root, request)
+
+    def test_execute_control_request_patches_the_live_install_router_seam(self):
+        # Regression for the 2026-08-31 Telegram outage: production.install_router
+        # (scripts.run_v3_voice.install_router) no longer exists since the planning
+        # seam consolidation - production.main() resolves install_router from
+        # scripts.planning_runtime_contract's own module globals instead. Patching
+        # production.install_router is a dead reference that crashes with
+        # AttributeError before any planning logic runs; see
+        # test_short_control_router_seam_fresh_process.py for the real end-to-end proof.
+        source = inspect.getsource(control.execute_control_request)
+        self.assertNotIn("production.install_router", source)
+        self.assertIn("planning_runtime_contract.install_router", source)
+        self.assertFalse(hasattr(control.production, "install_router"))
 
     def test_sibling_quota_cannot_escape_two_to_three(self):
         request = self._request(kind="long", scope="long_plus_sibling_shorts")
