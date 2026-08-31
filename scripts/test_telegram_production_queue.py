@@ -83,6 +83,18 @@ class TelegramProductionQueueTests(unittest.TestCase):
         self.assertEqual(same["request_sha256"], action["request_sha256"])
         self.assertEqual(len(state["production_queue"]), 1)
 
+    def test_live_queue_depth_excludes_terminal_ledger_history(self):
+        state = {"requests": {"req-1": _request()}, "production_queue": []}
+        _, action = queue.enqueue_latest_request(state, chat_id=77)
+        self.assertEqual(queue.live_dispatch_count(state), 1)
+        queue.reserve_dispatch(state, action["request_id"], action["request_sha256"])
+        self.assertEqual(queue.live_dispatch_count(state), 1)
+        queue.consume_dispatch_authorization(
+            state, action["request_id"], action["request_sha256"], action["authorization_id"]
+        )
+        self.assertEqual(queue.live_dispatch_count(state), 0)
+        self.assertEqual(len(state["production_queue"]), 1)
+
     def test_reservation_is_durable_gate_before_dispatch(self):
         request = _request()
         state = {"requests": {"req-1": request}, "production_queue": []}
@@ -129,6 +141,42 @@ class TelegramProductionQueueTests(unittest.TestCase):
             )
         status, _ = queue.enqueue_latest_request(state, chat_id=77)
         self.assertEqual(status, "already_dispatched_recent")
+
+    def test_failed_dispatch_is_terminal_and_retryable_with_new_authorization(self):
+        state = {"requests": {"req-1": _request()}, "production_queue": []}
+        _, first = queue.enqueue_latest_request(state, chat_id=77)
+        queue.reserve_dispatch(state, first["request_id"], first["request_sha256"])
+        failed = queue.mark_dispatch_failed(
+            state,
+            first["request_id"],
+            first["request_sha256"],
+            first["authorization_id"],
+            reason="workflow_dispatch_failed",
+        )
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["failure_reason"], "workflow_dispatch_failed")
+        self.assertEqual(queue.live_dispatch_count(state), 0)
+        status, second = queue.enqueue_latest_request(state, chat_id=77)
+        self.assertEqual(status, "retry_queued")
+        self.assertNotEqual(first["authorization_id"], second["authorization_id"])
+
+    def test_consumed_production_can_transition_to_failed_and_retry_immediately(self):
+        state = {"requests": {"req-1": _request()}, "production_queue": []}
+        _, first = queue.enqueue_latest_request(state, chat_id=77)
+        queue.reserve_dispatch(state, first["request_id"], first["request_sha256"])
+        queue.consume_dispatch_authorization(
+            state, first["request_id"], first["request_sha256"], first["authorization_id"], workflow_run_id="456"
+        )
+        queue.mark_dispatch_failed(
+            state,
+            first["request_id"],
+            first["request_sha256"],
+            first["authorization_id"],
+            reason="production_failed",
+        )
+        status, second = queue.enqueue_latest_request(state, chat_id=77)
+        self.assertEqual(status, "retry_queued")
+        self.assertEqual(second["attempt"], 2)
 
     def test_wrong_authorization_cannot_consume_reserved_action(self):
         state = {"requests": {"req-1": _request()}, "production_queue": []}
