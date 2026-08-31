@@ -12,6 +12,7 @@ from isco_video_agent.text_audit_router import text_audit_circuit_scope
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.analytics_observer_status import observe_post_acceptance_analytics
 from scripts.orchestration_qc_port import run_final_master_qc
+from scripts.director_phase_a_resilience import install_director_phase_a_resilience
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
 from scripts.opening_feasibility_guard import install_opening_feasibility_guard
 from scripts.orchestration_cinematic_port import (
@@ -220,6 +221,11 @@ def main() -> None:
     # and the M7-owned M11 composition remain in their existing certified owners.
     install_tts_runtime_port()
     install_cinematic_runtime_port(CinematicInstallPhase.OUTER)
+    # Director Phase A is documented as a non-blocking P2 observer, but its own
+    # diagnostics-only fallback path was not itself failure-safe. Install after the
+    # OUTER Cinematic phase (which pulls in Director Brain via M7) and before any
+    # production call that could reach it.
+    install_director_phase_a_resilience()
     # Run #93: the OUTER Cinematic phase installs M7, which installs Security V1 (its
     # length-validating stock-search wrapper) as a side effect. The opening feasibility
     # guard must wrap AROUND that validator - not be wrapped BY it - so query-shortening
