@@ -3,7 +3,7 @@
     "approved_request_hash": "d6313093c780",
     "approved_target": true,
     "pending_actions_count": 0,
-    "production_queue_count": 1,
+    "production_queue_count": 2,
     "request_count": 7,
     "research_active": true,
     "research_session_hash": "a41ecafb1446",
@@ -14,8 +14,8 @@
     "used_long_count": 0,
     "used_short_count": 0
   },
-  "generated_at": "2026-08-31T16:05:02.193856Z",
+  "generated_at": "2026-08-31T16:05:54.339285Z",
   "release_approvals": [],
   "schema_version": 1,
-  "source_last_event_at": "2026-08-31T16:05:02.193856+00:00"
+  "source_last_event_at": "2026-08-31T16:05:54.339285+00:00"
 }
