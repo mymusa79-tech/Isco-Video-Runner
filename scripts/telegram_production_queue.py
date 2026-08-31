@@ -68,7 +68,7 @@ def live_dispatches(state: dict[str, Any]) -> list[dict[str, Any]]:
     """Return only dispatches that still require orchestration work.
 
     production_queue is a durable dispatch ledger for backward-compatible replay
-    evidence; consumed and failed entries are history, not live queue depth.
+    evidence; consumed, completed, and failed entries are history, not live queue depth.
     """
     return [
         item
@@ -140,6 +140,8 @@ def _enqueue_ready_request(
         and item.get("request_sha256") == request_sha256
     ]
     for item in reversed(matches):
+        if item.get("status") == "completed":
+            return "already_completed", item
         if item.get("status") == "pending_dispatch":
             return "already_queued", item
         if item.get("status") == "dispatch_reserved" and _age_seconds(str(item.get("reserved_at") or "")) < RECENT_DISPATCH_SECONDS:
@@ -150,7 +152,7 @@ def _enqueue_ready_request(
     attempt = 1 + sum(
         1
         for item in matches
-        if item.get("status") in {"dispatch_reserved", "dispatch_consumed", "failed"}
+        if item.get("status") in {"dispatch_reserved", "dispatch_consumed", "completed", "failed"}
     )
     requested_at = _now()
     action = {
@@ -258,6 +260,40 @@ def consume_dispatch_authorization(
     return item
 
 
+def mark_dispatch_completed(
+    state: dict[str, Any],
+    request_id: str,
+    request_sha256: str,
+    authorization_id: str,
+    *,
+    release_tag: str,
+) -> dict[str, Any]:
+    release_tag = str(release_tag or "").strip()
+    if not release_tag:
+        raise RuntimeError("Completed Telegram dispatch requires a release tag")
+    for item in _queue(state):
+        if not isinstance(item, dict):
+            continue
+        if (
+            item.get("request_id") == request_id
+            and item.get("request_sha256") == request_sha256
+            and item.get("authorization_id") == str(authorization_id or "").strip()
+        ):
+            if item.get("status") == "completed":
+                if item.get("completed_release_tag") != release_tag:
+                    raise RuntimeError("Completed Telegram dispatch release identity changed")
+                return item
+            if item.get("status") != "dispatch_consumed":
+                raise RuntimeError("Telegram dispatch is not consumed and cannot become completed")
+            completed_at = _now()
+            item["status"] = "completed"
+            item["completed_at"] = completed_at
+            item["completed_release_tag"] = release_tag
+            state["last_event_at"] = completed_at
+            return item
+    raise RuntimeError("Exact Telegram dispatch authorization was not found for completion transition")
+
+
 def mark_dispatch_failed(
     state: dict[str, Any],
     request_id: str,
@@ -279,6 +315,8 @@ def mark_dispatch_failed(
         ):
             if item.get("status") == "failed":
                 return item
+            if item.get("status") == "completed":
+                raise RuntimeError("Completed Telegram dispatch cannot transition back to failed")
             if item.get("status") not in FAILABLE_DISPATCH_STATUSES:
                 raise RuntimeError("Telegram dispatch is not in a fail-able state")
             failed_at = _now()
@@ -326,6 +364,13 @@ def main() -> None:
     consume.add_argument("--authorization-id", required=True)
     consume.add_argument("--workflow-run-id", default="")
 
+    complete = sub.add_parser("complete")
+    complete.add_argument("--state", required=True, type=Path)
+    complete.add_argument("--request-id", required=True)
+    complete.add_argument("--sha256", required=True)
+    complete.add_argument("--authorization-id", required=True)
+    complete.add_argument("--release-tag", required=True)
+
     fail = sub.add_parser("fail")
     fail.add_argument("--state", required=True, type=Path)
     fail.add_argument("--request-id", required=True)
@@ -352,6 +397,16 @@ def main() -> None:
             args.sha256,
             args.authorization_id,
             workflow_run_id=args.workflow_run_id,
+        )
+        _save(args.state, state)
+        print(json.dumps(item, ensure_ascii=False, sort_keys=True))
+    elif args.command == "complete":
+        item = mark_dispatch_completed(
+            state,
+            args.request_id,
+            args.sha256,
+            args.authorization_id,
+            release_tag=args.release_tag,
         )
         _save(args.state, state)
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))
