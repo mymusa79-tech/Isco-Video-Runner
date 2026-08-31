@@ -193,8 +193,13 @@ class Pixabay24hCacheTests(unittest.TestCase):
         self.assertIn(f"actions/cache/save@{CACHE_ACTION_SHA}", text)
         self.assertIn("${{ runner.temp }}/isco-pixabay-api-cache", text)
         self.assertIn("pixabay-search-v2-${{ runner.os }}-${{ github.run_id }}", text)
-        self.assertIn("TTL is enforced by scripts/provider_capacity_v2.py", text)
-        self.assertIn("prepare_cache_for_persistence", text)
+        prepare_section = text[text.index(prepare_name):text.index(save_name)]
+        self.assertIn(
+            "from scripts.provider_capacity_v2 import prepare_cache_for_persistence",
+            prepare_section,
+        )
+        self.assertIn("allowed = prepare_cache_for_persistence(path)", prepare_section)
+        self.assertEqual(capacity.PIXABAY_CACHE_TTL_SECONDS, 24 * 60 * 60)
         restore_section = text[text.index(restore_name):text.index(produce_marker)]
         save_section = text[text.index(save_name):]
         self.assertNotIn("secrets.", restore_section)
