@@ -64,7 +64,7 @@ jobs:
       - name: Preserve production and research authority boundaries
         run: |
           set -euo pipefail
-          grep -F 'ENGINE_SHA: f3c9357098947882882ca3010b46a565c2d90460' .github/workflows/telegram-editorial-control.yml
+          grep -F 'ENGINE_SHA: fe576d91f604412a010fa6cd61ff66f839e67550' .github/workflows/telegram-editorial-control.yml
           grep -F 'RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309' .github/workflows/telegram-editorial-control.yml
           grep -F '"production_dispatch_authorized": False' scripts/telegram_control_panel.py >/dev/null
           ! grep -E 'dispatchToGitHub|workflow_dispatch|telegram-production-request.yml|produce-resilient-v4.yml|cmd:produce_latest|cmd:retry' \
