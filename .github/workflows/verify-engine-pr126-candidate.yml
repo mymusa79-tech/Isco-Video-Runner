@@ -1,7 +1,8 @@
 name: TEMPORARY Verify Engine PR126 Candidate
 
 on:
-  workflow_dispatch: {}
+  push:
+    branches: ["verify/engine-pr126-candidate"]
 
 permissions:
   contents: write
