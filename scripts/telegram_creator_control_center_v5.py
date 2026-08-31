@@ -7,9 +7,9 @@ from scripts import telegram_control_panel as panel
 from scripts import telegram_persistent_control_ui as persistent_ui
 from scripts import telegram_research_status as research_status
 from scripts import telegram_topic_memory_ui as memory_ui
+from scripts.telegram_production_queue import live_production_dispatches
 
 CONFIRM_TEXT = persistent_ui.PRODUCTION_CONFIRMATION_TEXT
-_ACTIVE_PRODUCTION_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved", "dispatch_consumed"})
 
 
 def _clip(value: object, limit: int = 72) -> str:
@@ -191,14 +191,7 @@ def _last_delivery(state: dict[str, Any], releases) -> tuple[str, list[list[dict
 
 
 def _latest_active_production(state: dict[str, Any]) -> dict[str, Any] | None:
-    queue = state.get("production_queue")
-    if not isinstance(queue, list):
-        return None
-    live = [
-        item
-        for item in queue
-        if isinstance(item, dict) and str(item.get("status") or "") in _ACTIVE_PRODUCTION_STATUSES
-    ]
+    live = live_production_dispatches(state)
     if not live:
         return None
     return max(

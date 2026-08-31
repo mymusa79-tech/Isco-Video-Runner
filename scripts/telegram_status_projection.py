@@ -13,7 +13,7 @@ from typing import Any
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.telegram_production_queue import live_dispatch_count
+from scripts.telegram_production_queue import dispatch_entry_is_live, live_dispatch_count
 from scripts.telegram_release_approval import approval_projection
 from scripts.telegram_research_status import live_pending_count
 
@@ -57,7 +57,9 @@ def _production_status_count(state: dict[str, Any], status: str) -> int:
     return sum(
         1
         for item in _list(state.get("production_queue"))
-        if isinstance(item, dict) and str(item.get("status") or "") == status
+        if isinstance(item, dict)
+        and str(item.get("status") or "") == status
+        and dispatch_entry_is_live(item)
     )
 
 
@@ -109,7 +111,8 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
             "production_waiting_count": _production_status_count(state, "pending_dispatch"),
             "production_reserved_count": _production_status_count(state, "dispatch_reserved"),
             # Consumed means V4 owns the request until terminal reconciliation records
-            # completed/failed. It is intentionally distinct from queue depth.
+            # completed/failed. The public projection keeps this phase live only through
+            # the bounded canonical V4 execution lease, never forever as ledger history.
             "production_inflight_count": _production_status_count(state, "dispatch_consumed"),
             "approved_target": bool(target),
             "approved_request_hash": _hash_id(target.get("request_id")),
