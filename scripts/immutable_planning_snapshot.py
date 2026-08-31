@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 from pathlib import Path
 
@@ -17,6 +18,8 @@ _SNAPSHOT_SHA_ENV = "ISCO_APPROVED_BRIEF_SNAPSHOT_SHA256"
 _RUNTIME_BRIEF_ENV = "ISCO_APPROVED_BRIEF_PATH"
 _SNAPSHOT_FILENAME = "approved-brief.snapshot.json"
 _COMMITTED_BRIEF_PATH = "production/approved_brief.json"
+_CONTROL_REQUEST_PATH_ENV = "ISCO_CONTROL_REQUEST_PATH"
+_CONTROL_REQUEST_SHA_ENV = "ISCO_CONTROL_REQUEST_SHA256"
 _INSTALLED = False
 
 
@@ -93,6 +96,72 @@ def _committed_approved_brief_bytes(engine_root: Path) -> bytes:
     return bytes(shown.stdout)
 
 
+def _telegram_runtime_approved_brief_bytes(engine_root: Path) -> bytes | None:
+    """Return the exact Telegram-approved brief before the compatibility worktree is reset.
+
+    PR #455 originally materialized the Telegram brief into the tracked Engine fixture so
+    the existing validation step could consume it. Canonical runtime must not keep that
+    mutation as production source. When Telegram ingress is active, validate the dynamic
+    brief against the exact durable request identity, then snapshot those bytes outside
+    the Engine checkout. Any partial/mismatched ingress fails closed.
+    """
+    request_value = str(os.environ.get(_CONTROL_REQUEST_PATH_ENV) or "").strip()
+    request_sha = str(os.environ.get(_CONTROL_REQUEST_SHA_ENV) or "").strip().lower()
+    if not request_value and not request_sha:
+        return None
+    if not request_value or not request_sha:
+        raise RuntimeError("Telegram approved-brief snapshot requires request path and SHA together")
+    _validate_expected_sha256(request_sha)
+
+    request_path = Path(request_value).resolve()
+    if not request_path.is_file():
+        raise RuntimeError("Telegram approved request copy is missing before immutable snapshot")
+    try:
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError("Telegram approved request copy is invalid JSON") from exc
+    if not isinstance(request, dict):
+        raise RuntimeError("Telegram approved request copy must be an object")
+    if str(request.get("request_sha256") or "").strip().lower() != request_sha:
+        raise RuntimeError("Telegram approved request copy no longer matches dispatch SHA")
+
+    brief_path = engine_root.resolve() / _COMMITTED_BRIEF_PATH
+    if not brief_path.is_file():
+        raise RuntimeError("Telegram materialized approved brief is missing from compatibility path")
+    payload = brief_path.read_bytes()
+    try:
+        brief = json.loads(payload.decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError("Telegram materialized approved brief is invalid JSON") from exc
+    if not isinstance(brief, dict) or brief.get("approved_by_user") is not True:
+        raise RuntimeError("Telegram materialized approved brief lacks explicit approval")
+    if str(brief.get("control_request_sha256") or "").strip().lower() != request_sha:
+        raise RuntimeError("Telegram materialized approved brief is bound to a different request SHA")
+    if str(brief.get("control_request_id") or "").strip() != str(request.get("request_id") or "").strip():
+        raise RuntimeError("Telegram materialized approved brief is bound to a different request id")
+
+    semantic_hash = str(brief.get("approved_hash") or "").strip().lower()
+    _validate_expected_sha256(semantic_hash)
+    from isco_video_agent.brief_approval_binding import verify_brief_approval
+
+    verify_brief_approval(brief, semantic_hash)
+    return payload
+
+
+def _restore_committed_approved_brief_worktree(engine_root: Path, committed: bytes) -> None:
+    """Restore the tracked compatibility fixture exactly to Engine HEAD before providers."""
+    engine = engine_root.resolve()
+    restored = checkpoint._run(
+        ["git", "checkout", "--", _COMMITTED_BRIEF_PATH],
+        cwd=engine,
+    )
+    if restored.returncode != 0:
+        raise RuntimeError("could not restore tracked Engine approved brief after Telegram snapshot")
+    path = engine / _COMMITTED_BRIEF_PATH
+    if not path.is_file() or path.read_bytes() != committed:
+        raise RuntimeError("tracked Engine approved brief was not restored exactly to pinned commit")
+
+
 def _persist_snapshot_env(
     path: Path,
     snapshot_sha256: str,
@@ -103,7 +172,8 @@ def _persist_snapshot_env(
 
     ISCO_APPROVED_BRIEF_SHA256 belongs to Engine brief approval and is computed from
     canonical JSON with hash metadata excluded. Snapshot/checkpoint integrity instead
-    binds the exact bytes from the pinned Engine commit, so it has its own raw-byte SHA.
+    binds the exact bytes from the pinned Engine commit or the exact Telegram-approved
+    runtime brief, so it has its own raw-byte SHA.
 
     Low-level materialization is intentionally process-local by default. Only the
     application-owned bootstrap may publish snapshot fixture state through GITHUB_ENV;
@@ -136,16 +206,15 @@ def materialize_runtime_snapshot(
     *,
     persist_workflow_env: bool = False,
 ) -> Path:
-    """Create the run snapshot from the pinned Engine commit, not the mutable worktree.
+    """Create the run snapshot from the authoritative approved bytes for this ingress.
 
-    GitHub Actions steps share one workspace. Test suites may therefore accidentally
-    mutate tracked files before production. The approved production input must remain
-    attached to source identity, so canonical V4 reads the committed blob at Engine
-    HEAD and only uses the worktree for drift diagnostics.
-
-    The raw snapshot hash is intentionally derived from those committed bytes. It must
-    never reuse ISCO_APPROVED_BRIEF_SHA256, which is the Engine's canonical semantic
-    approval fingerprint and can legitimately differ from the file-byte SHA256.
+    Manual V4 keeps the original contract: snapshot the approved brief from pinned
+    Engine HEAD, never a mutable worktree. Telegram V4 has a different authoritative
+    input: the one-time request materialized and semantically bound immediately after
+    authorization consumption. That brief is first validated against the exact request
+    id/SHA, copied to the read-only runtime snapshot, and the tracked Engine fixture is
+    then restored to HEAD before any provider work. The hermeticity gate remains strict;
+    no tracked-source exception is introduced.
     """
     del repo_root
     if not canonical_runtime_enabled():
@@ -157,7 +226,9 @@ def materialize_runtime_snapshot(
     destination = Path(temp).resolve() / "isco-state" / _SNAPSHOT_FILENAME
 
     committed = _committed_approved_brief_bytes(engine_root)
-    expected = _validate_expected_sha256(_sha256_bytes(committed))
+    telegram_payload = _telegram_runtime_approved_brief_bytes(engine_root)
+    source = telegram_payload if telegram_payload is not None else committed
+    expected = _validate_expected_sha256(_sha256_bytes(source))
 
     if destination.is_file():
         # One-copy rule: never refresh a snapshot after the run has started.
@@ -165,26 +236,31 @@ def materialize_runtime_snapshot(
             raise RuntimeError("existing approved brief snapshot is writable")
         actual = _sha256_file(destination)
         if not hmac.compare_digest(actual, expected):
-            raise RuntimeError("existing approved brief snapshot no longer matches pinned Engine bytes")
-        _persist_snapshot_env(
+            raise RuntimeError("existing approved brief snapshot no longer matches authoritative approved bytes")
+        snapshot = destination
+    else:
+        snapshot = snapshot_approved_brief_bytes(
+            source,
             destination,
-            expected,
-            persist_workflow_env=persist_workflow_env,
+            expected_sha256=expected,
         )
-        return destination
 
-    snapshot = snapshot_approved_brief_bytes(
-        committed,
-        destination,
-        expected_sha256=expected,
-    )
     _persist_snapshot_env(
         snapshot,
         expected,
         persist_workflow_env=persist_workflow_env,
     )
 
-    if _worktree_brief_drift(engine_root, expected):
+    committed_expected = _validate_expected_sha256(_sha256_bytes(committed))
+    if telegram_payload is not None:
+        _restore_committed_approved_brief_worktree(engine_root, committed)
+        if _worktree_brief_drift(engine_root, committed_expected):
+            raise RuntimeError("Engine approved brief remained non-hermetic after Telegram runtime snapshot")
+        print(
+            "TELEGRAM_APPROVED_BRIEF_RUNTIME_SNAPSHOT source=authorized_request "
+            "engine_worktree_restored=true production_source=runtime_snapshot"
+        )
+    elif _worktree_brief_drift(engine_root, committed_expected):
         print(
             "APPROVED_BRIEF_WORKTREE_DRIFT detected=true "
             "production_source=git_head_snapshot action=ignore_mutable_worktree"
@@ -212,11 +288,11 @@ def _snapshot_expected_sha256() -> str:
 
 
 def bind_runtime_approved_brief_path() -> Path:
-    """Make every in-process Engine reader consume the immutable approved snapshot."""
+    """Make every in-process Engine reader consume the immutable run snapshot."""
     path = _snapshot_path()
     expected = _snapshot_expected_sha256()
     if not hmac.compare_digest(_sha256_file(path), expected):
-        raise RuntimeError("immutable approved brief snapshot does not match pinned Engine bytes")
+        raise RuntimeError("immutable approved brief snapshot does not match pinned approved bytes")
     os.environ[_RUNTIME_BRIEF_ENV] = str(path)
     return path
 

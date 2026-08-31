@@ -164,7 +164,9 @@ class Run129HermeticApprovedBriefTests(unittest.TestCase):
                 path.chmod(0o644)
                 path.write_bytes(b"tampered\n")
                 path.chmod(0o444)
-                with self.assertRaisesRegex(RuntimeError, "pinned Engine bytes"):
+                # The immutable source can now be pinned Engine bytes (manual ingress)
+                # or exact authorized Telegram bytes; raw-byte drift remains fatal.
+                with self.assertRaisesRegex(RuntimeError, "authoritative approved bytes"):
                     snapshot.materialize_runtime_snapshot(RUNNER_ROOT, engine)
 
     def test_direct_materialization_does_not_publish_test_fixture_to_later_actions_steps(self) -> None:
