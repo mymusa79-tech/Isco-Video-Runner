@@ -2,20 +2,20 @@
   "editorial": {
     "approved_request_hash": "",
     "approved_target": false,
-    "pending_actions_count": 1,
+    "pending_actions_count": 0,
     "production_queue_count": 1,
     "request_count": 5,
     "research_active": true,
-    "research_session_hash": "3837ab1b3171",
-    "saved_count": 18,
+    "research_session_hash": "f3cf30bc2a3f",
+    "saved_count": 21,
     "saved_long_count": 9,
-    "saved_short_count": 9,
+    "saved_short_count": 12,
     "used_count": 0,
     "used_long_count": 0,
     "used_short_count": 0
   },
-  "generated_at": "2026-08-31T15:52:27.974518Z",
+  "generated_at": "2026-08-31T15:55:26.602846Z",
   "release_approvals": [],
   "schema_version": 1,
-  "source_last_event_at": "2026-08-31T15:52:27.974518+00:00"
+  "source_last_event_at": "2026-08-31T15:55:26.602846+00:00"
 }
