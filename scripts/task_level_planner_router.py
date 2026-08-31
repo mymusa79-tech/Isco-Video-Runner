@@ -121,8 +121,26 @@ def _extract_response_meta(body: dict, choice: dict) -> dict:
     }
 
 
+def _legacy_schema_hint(prompt: str) -> tuple[str, dict] | None:
+    """Best-effort schema hint for callers carrying no explicit stage contract.
+
+    The Explicit Planning Stage Contract (planning_stage_contract.py) replaces
+    _structured_schema_for_prompt process-wide with a resolver that hard-fails outside
+    an active request contract - correct for contract-bound long-form callers (every
+    resilient_planner call binds one). task_router itself remains the legacy/
+    compatibility provider mesh for callers with no stage contract (the native Short
+    planner, via native_short_planner_router.py). A best-effort capacity/telemetry hint
+    must never abort their real, successful call - it only ever affects logging and
+    local capacity estimates, never the actual request sent to a provider.
+    """
+    try:
+        return _structured_schema_for_prompt(prompt)
+    except Exception:
+        return None
+
+
 def _request_metadata(prompt: str) -> dict:
-    contract = _structured_schema_for_prompt(prompt)
+    contract = _legacy_schema_hint(prompt)
     return {
         "prompt_utf8_bytes": len(prompt.encode("utf-8")),
         "response_contract": contract[0] if contract else "json_object",
@@ -462,7 +480,7 @@ def _groq_call(prompt: str) -> dict:
         )
 
     token = _read_secret_file("GROQ_API_KEY_FILE")
-    contract = _structured_schema_for_prompt(prompt)
+    contract = _legacy_schema_hint(prompt)
 
     def do_request() -> dict:
         response_format: dict
@@ -664,7 +682,7 @@ def install_router() -> None:
                 prompt,
                 "openrouter/free",
                 "openrouter",
-                response_contract=_structured_schema_for_prompt(prompt),
+                response_contract=_legacy_schema_hint(prompt),
             ),
         ),
     ]
@@ -704,7 +722,17 @@ def install_router() -> None:
                         data = _normalize_outline(_parse_json(raw), prompt)
                         responses[cache_key] = data
                         checkpoint["last_provider"] = name
-                        _save_checkpoint(checkpoint)
+                        try:
+                            _save_checkpoint(checkpoint)
+                        except Exception as save_exc:
+                            # Cross-run checkpoint persistence is a caching optimization,
+                            # not a correctness gate - planning_legacy_authority_guard
+                            # deliberately seals it once the Explicit Planning Stage
+                            # Contract owns checkpointing, for callers still on this
+                            # legacy/compatibility provider mesh (the native Short
+                            # planner). A sealed persistence path must never discard an
+                            # already-successful provider result.
+                            print(f"Planning checkpoint persistence skipped: {save_exc}")
                         _record_provider_used(name)
                         _record_attempt(
                             name,

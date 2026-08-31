@@ -39,7 +39,7 @@ def _guarded_gemini_json_text(
     """Planning-only Gemini adapter with task-specific structured output and status checks."""
     client = gemini_provider._client(api_key)
     enriched = gemini_provider.with_channel_persona(prompt)
-    contract = planner_router._structured_schema_for_prompt(enriched)
+    contract = planner_router._legacy_schema_hint(enriched)
     schema_name = contract[0] if contract is not None else "generic_json_object"
     response_schema = contract[1] if contract is not None else _JSON_OBJECT_SCHEMA
     kwargs: dict = {
