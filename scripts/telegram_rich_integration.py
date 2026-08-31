@@ -9,6 +9,7 @@ from scripts import telegram_production_rich_ui as rich
 
 
 _INSTALLED = False
+_ACTIVE_DISPATCH_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved", "dispatch_consumed"})
 
 
 def _release_to_delivery(releases: Any) -> dict[str, Any]:
@@ -41,11 +42,28 @@ def _release_to_delivery(releases: Any) -> dict[str, Any]:
     )
 
 
-def _latest_queue_action(state: dict[str, Any]) -> dict[str, Any] | None:
+def _queue_actions(state: dict[str, Any]) -> list[dict[str, Any]]:
     queue = state.get("production_queue")
     if not isinstance(queue, list):
+        return []
+    return [item for item in queue if isinstance(item, dict) and str(item.get("request_id") or "").strip()]
+
+
+def _latest_queue_action(state: dict[str, Any]) -> dict[str, Any] | None:
+    items = _queue_actions(state)
+    if not items:
         return None
-    items = [item for item in queue if isinstance(item, dict) and str(item.get("request_id") or "").strip()]
+    return max(
+        items,
+        key=lambda item: (
+            str(item.get("completed_at") or item.get("failed_at") or item.get("consumed_at") or item.get("reserved_at") or item.get("requested_at") or ""),
+            int(item.get("attempt", 0) or 0),
+        ),
+    )
+
+
+def _latest_active_queue_action(state: dict[str, Any]) -> dict[str, Any] | None:
+    items = [item for item in _queue_actions(state) if str(item.get("status") or "") in _ACTIVE_DISPATCH_STATUSES]
     if not items:
         return None
     return max(
@@ -94,7 +112,7 @@ def _step_stage(step_name: str) -> str:
         return "التحقق من التفويض"
     if "checkout" in value or "install" in value or "provider authentication" in value or "voice fallback" in value:
         return "تهيئة الإنتاج"
-    if "run exact approved telegram production" in value:
+    if "produce with canonical v4 runtime" in value or "run exact approved telegram production" in value:
         return "الإنتاج: التخطيط → الكتابة → الصوت → المونتاج"
     if "quality" in value or "master qc" in value or "verify deterministic" in value or "validate" in value:
         return "فحص الجودة"
@@ -134,7 +152,9 @@ def _status_payload(state: dict[str, Any], releases: Any) -> dict[str, Any]:
         if key in state:
             payload[key] = state.get(key)
 
-    action = _latest_queue_action(state)
+    # Status is a live projection, not a history viewer. A completed/failed ledger
+    # entry must never hide a newly approved target that still awaits user action.
+    action = _latest_active_queue_action(state)
     if action:
         request_id = str(action.get("request_id") or "").strip()
         payload["request_id"] = request_id
@@ -157,9 +177,9 @@ def _status_payload(state: dict[str, Any], releases: Any) -> dict[str, Any]:
                 if number:
                     payload["run_id"] = f"Run #{number}"
         elif action_status == "pending_dispatch":
-            payload["note"] = "تم اعتماد التشغيل ووضعه في طابور الإرسال؛ منع التكرار ما زال فعالًا."
+            payload["note"] = "تم اعتماد التشغيل ويجري تسليمه فورًا؛ لا يوجد طابور انتظار للمستخدم."
         elif action_status == "dispatch_reserved":
-            payload["note"] = "حُجز التفويض لمرة واحدة ويجري تسليمه إلى Workflow المحمي."
+            payload["note"] = "حُجز التفويض لمرة واحدة ويجري تسليمه إلى V4 الموحد."
     else:
         target = state.get(getattr(active, "PRODUCTION_TARGET_KEY", "production_target"))
         if isinstance(target, dict):
@@ -315,6 +335,7 @@ def _send_last_delivery_rich(client, state: dict[str, Any], releases: Any, chat_
 
 
 def _send_quality_rich_if_present(client, state: dict[str, Any], releases: Any, chat_id: int | str) -> bool:
+    """Explicit diagnostic surface only; status refresh never calls this helper."""
     report = _quality_payload(state, releases)
     if not report:
         return False
@@ -325,8 +346,9 @@ def _send_quality_rich_if_present(client, state: dict[str, Any], releases: Any, 
 
 def _handle_command(kind, client, state, releases, chat_id) -> None:
     if kind == "status":
+        # One user action -> one status surface. Quality details remain available to
+        # explicit diagnostic callers instead of generating a second message on every refresh.
         _send_status_rich(client, state, releases, chat_id)
-        _send_quality_rich_if_present(client, state, releases, chat_id)
         return
     if kind == "last_delivery":
         _send_last_delivery_rich(client, state, releases, chat_id)
