@@ -14,10 +14,14 @@ def materialize_approved_brief(request: dict[str, Any], output: Path) -> tuple[P
     or state mutation. Production orchestration remains owned by the canonical V4 path.
     """
     fmt = "moment" if request.get("kind") == "short" else str(request.get("format") or "film")
-    pack = request.get("approved_research_pack")
+    # The Telegram request schema owns this field as ``research_pack``. The previous
+    # production adapter read a non-existent ``approved_research_pack`` field, causing
+    # valid long-form requests to fail immediately before Planning. Keep one canonical
+    # name at the boundary instead of supporting two drifting aliases.
+    pack = request.get("research_pack")
     if fmt in {"film", "story"}:
         if not isinstance(pack, list) or len(pack) < 2:
-            raise RuntimeError("Long control production requires a completed approved research pack before dispatch")
+            raise RuntimeError("Long control production requires a completed research_pack before dispatch")
     elif not isinstance(pack, list):
         pack = []
     brief = {
