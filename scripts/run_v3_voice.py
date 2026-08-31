@@ -136,6 +136,9 @@ def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> di
     video_id = (os.environ.get("ISCO_PRODUCTION_VIDEO_ID") or "").strip()
     binding_source = (os.environ.get("ISCO_PRODUCTION_BINDING_SOURCE") or "").strip()
     run_number = (os.environ.get("GITHUB_RUN_NUMBER") or "").strip()
+    release_tag = (os.environ.get("ISCO_RELEASE_TAG_OVERRIDE") or "").strip()
+    if not release_tag and run_number:
+        release_tag = f"video-{run_number}"
     verified = bool(video_id and binding_source)
     manifest = {
         "schema_version": 1,
@@ -145,7 +148,7 @@ def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> di
         "github_run_attempt": (os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip() or None,
         "runner_sha": (os.environ.get("GITHUB_SHA") or "").strip() or None,
         "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "").strip() or None,
-        "release_tag": f"video-{run_number}" if run_number else None,
+        "release_tag": release_tag or None,
         "format": fmt,
         "final_sha256": _sha256_file(final_path),
         "release_authority": "gold_enforced",
