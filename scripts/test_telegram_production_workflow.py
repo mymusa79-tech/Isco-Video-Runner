@@ -49,13 +49,21 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         for needle in forbidden:
             self.assertNotIn(needle, self.text)
 
-    def test_only_canonical_v4_receives_the_reserved_request(self):
-        self.assertIn("gh workflow run produce-resilient-v4.yml", self.text)
-        self.assertIn('--ref main', self.text)
-        self.assertIn('-f request_id="$REQUEST_ID"', self.text)
-        self.assertIn('-f request_sha256="$REQUEST_SHA256"', self.text)
-        self.assertIn('-f authorization_id="$AUTHORIZATION_ID"', self.text)
-        self.assertIn('-f engine_sha="$ENGINE_SHA"', self.text)
+    def test_only_canonical_v4_receives_the_reserved_request_with_tracked_dispatch(self):
+        dispatch = self.text.index("Dispatch exact reservation to the single V4 owner")
+        race = self.text.index("Reject post-dispatch concurrency race instead of waiting")
+        block = self.text[dispatch:race]
+        self.assertIn("actions/workflows/produce-resilient-v4.yml/dispatches", block)
+        self.assertIn("X-GitHub-Api-Version: 2026-03-10", block)
+        self.assertIn("return_run_details:true", block)
+        self.assertIn('ref:"main"', block)
+        self.assertIn("request_id:$request_id", block)
+        self.assertIn("request_sha256:$request_sha256", block)
+        self.assertIn("authorization_id:$authorization_id", block)
+        self.assertIn("engine_sha:$engine_sha", block)
+        self.assertIn(".workflow_run_id // empty", block)
+        self.assertIn("workflow_run_id=$child_run_id", block)
+        self.assertIn("workflow_run_url=$child_run_url", block)
         self.assertNotIn("gh workflow run telegram-production-request.yml", self.text)
 
     def test_admission_never_queues_behind_active_v4(self):
@@ -67,6 +75,28 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         self.assertIn('echo "available=false"', block)
         self.assertIn("will not be queued behind it", block)
         self.assertIn("steps.capacity.outputs.available == 'true'", self.text)
+
+    def test_post_dispatch_race_cancels_only_our_pending_child_and_releases_reservation(self):
+        start = self.text.index("Reject post-dispatch concurrency race instead of waiting")
+        end = self.text.index("Release reservation when admission or dispatch cannot start V4")
+        block = self.text[start:end]
+        self.assertIn("CHILD_RUN_ID: ${{ steps.dispatch.outputs.workflow_run_id }}", block)
+        self.assertIn("for attempt in 1 2 3", block)
+        self.assertIn("actions/runs/${CHILD_RUN_ID}", block)
+        self.assertIn("produce-resilient-v4.yml/runs?per_page=20", block)
+        self.assertIn(".id != $child", block)
+        self.assertIn("actions/runs/${CHILD_RUN_ID}/cancel", block)
+        self.assertIn('echo "accepted=false"', block)
+        self.assertIn('echo "reason=concurrency_race"', block)
+        self.assertNotIn("cancel-in-progress: true", block)
+
+        release_start = end
+        release_end = self.text.index("Notify only when the request could not start")
+        release = self.text[release_start:release_end]
+        self.assertIn("steps.race_guard.outcome == 'failure'", release)
+        self.assertIn("steps.race_guard.outputs.accepted == 'false'", release)
+        self.assertIn("telegram_v4_ingress.py fail", release)
+        self.assertIn("state: release failed Telegram V4 admission", release)
 
     def test_verified_existing_release_is_reconciled_without_new_production(self):
         duplicate = self.text.index("Reject duplicate completed release without starting Production")
@@ -93,8 +123,12 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         self.assertIn("state: release failed Telegram V4 admission", block)
         self.assertIn("steps.capacity.outputs.available == 'false'", block)
         self.assertIn("steps.dispatch.outcome == 'failure'", block)
+        self.assertIn("steps.race_guard.outcome == 'failure'", block)
+        self.assertIn("steps.race_guard.outputs.accepted == 'false'", block)
 
     def test_gateway_notification_never_claims_a_queued_wait(self):
+        self.assertIn("RACE_ACCEPTED: ${{ steps.race_guard.outputs.accepted }}", self.text)
+        self.assertIn("RACE_ACCEPTED", self.text)
         self.assertIn("لم أضع اختيارك في طابور انتظار", self.text)
         self.assertIn("لم يُترك في انتظار أو حجز صامت", self.text)
 
