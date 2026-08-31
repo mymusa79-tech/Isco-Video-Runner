@@ -152,13 +152,14 @@ class CreatorControlCenterV5Tests(unittest.TestCase):
         self.assertIn("مطلوب منك", text)
         self.assertIn("موضوع معتمد", text)
         self.assertIn("تأكيد الإنتاج", text)
-        self.assertEqual(rows[0][0]["callback_data"], "cmd:system_status")
+        self.assertEqual(rows[0][0]["callback_data"], "cmd:status")
+        self.assertEqual(rows[1][0]["callback_data"], "cmd:system_status")
 
     def test_pending_research_status_does_not_ask_for_production(self):
         state = {"pending_actions": [{"kind": "short", "status": "pending"}], "production_queue": []}
         text, _ = v5._operator_status(state, _Releases())
         self.assertIn("بحث الشورت", text)
-        self.assertIn("انتظر ظهور 3 الخيارات", text)
+        self.assertIn("نفس بطاقة البحث ستتحدث", text)
         self.assertNotIn("إذا كان القرار نهائيًا", text)
 
     def test_last_delivery_surfaces_long_and_short_names_not_tags(self):
@@ -172,11 +173,25 @@ class CreatorControlCenterV5Tests(unittest.TestCase):
     def test_research_queue_is_single_and_clears_stale_selection(self):
         client = _Client()
         state = {"production_target": {"request_id": "old"}, "active_research_session_id": "old", "pending_actions": []}
-        with mock.patch.object(v5.panel, "_queue_research", return_value=True) as queue, \
+
+        def durable_queue(target_state, kind, chat_id):
+            target_state["pending_actions"].append(
+                {
+                    "kind": kind,
+                    "status": "pending",
+                    "chat_id": chat_id,
+                    "attempts": 0,
+                }
+            )
+            return True
+
+        with mock.patch.object(v5.panel, "_queue_research", side_effect=durable_queue) as queue, \
              mock.patch.object(v5.active, "_clear_current_selection") as clear:
             v5._queue_research("topic", client, state, 77)
         clear.assert_called_once_with(state)
         queue.assert_called_once_with(state, "long", 77)
+        self.assertEqual(len(state["pending_actions"]), 1)
+        self.assertEqual(state["pending_actions"][0]["status"], "pending")
         self.assertIn("لا يبدأ Production", client.messages[-1][1])
 
 
