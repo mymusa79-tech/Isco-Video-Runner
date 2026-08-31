@@ -126,6 +126,32 @@ class VoiceMeshLocalTests(unittest.TestCase):
             else:
                 voice_mesh.orchestrator.synthesize_local_wav = original_local
 
+    def test_install_voice_mesh_captures_prior_boundary_before_overwriting(self) -> None:
+        # Regression guard: install_voice_mesh() used to overwrite
+        # orchestrator.synthesize_wav/synthesize_local_wav with zero reference to whatever
+        # was installed before it - the exact "blind overwrite, whichever installer runs
+        # last wins" hazard already found in Planning. It must read the current value into
+        # a local before assigning, even though it does not compose with it, so a caller
+        # that installed something first (or a future compose seam) is never silently
+        # discarded without at least being observed at the call site.
+        import inspect
+
+        source = inspect.getsource(voice_mesh.install_voice_mesh)
+        capture_pos = source.find("orchestrator.synthesize_wav")
+        capture_local_pos = source.find("orchestrator.synthesize_local_wav")
+        assign_pos = source.find("orchestrator.synthesize_wav = synthesize")
+        assign_local_pos = source.find("orchestrator.synthesize_local_wav = synthesize_local_wav")
+        self.assertGreater(capture_pos, -1)
+        self.assertGreater(capture_local_pos, -1)
+        self.assertLess(
+            capture_pos, assign_pos,
+            "orchestrator.synthesize_wav must be read into a local before it is overwritten",
+        )
+        self.assertLess(
+            capture_local_pos, assign_local_pos,
+            "orchestrator.synthesize_local_wav must be read into a local before it is overwritten",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

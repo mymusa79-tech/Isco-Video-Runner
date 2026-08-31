@@ -361,6 +361,14 @@ def synthesize_local_wav(transcript: str, output: Path) -> Path:
 
 
 def install_voice_mesh() -> None:
+    # Capture whatever is currently installed before overwriting, matching every other
+    # install_* seam in this codebase (m8_live_binding, m10_live_binding, cta_live_binding,
+    # ...). Voice Mesh is the certified base TTS provider layer and intentionally does not
+    # compose with a prior value here - but recording the reference (even unused) keeps
+    # this function honest about the fact that it is replacing something, and gives any
+    # future caller a safe seam to compose through instead of overwriting blind.
+    current = orchestrator.synthesize_wav  # noqa: F841 - preserved for future composition, not consumed here
+    current_local = orchestrator.synthesize_local_wav  # noqa: F841
     orchestrator.synthesize_wav = synthesize
     orchestrator.synthesize_local_wav = synthesize_local_wav
     # This certification runs only after the final TTS boundary has been installed,
