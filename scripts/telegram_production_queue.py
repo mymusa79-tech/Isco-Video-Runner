@@ -10,7 +10,13 @@ from typing import Any
 
 QUEUE_KEY = "production_queue"
 RECENT_DISPATCH_SECONDS = 90 * 60
+# Canonical V4 has a 120-minute job timeout. Keep consumed handoffs visible a little
+# beyond that bound so an active production never disappears from status solely due
+# to clock drift, while still preventing orphaned ledger history from looking live
+# forever after infrastructure-level terminal reconciliation loss.
+CONSUMED_ACTIVE_SECONDS = 125 * 60
 LIVE_DISPATCH_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved"})
+ACTIVE_PRODUCTION_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved", "dispatch_consumed"})
 FAILABLE_DISPATCH_STATUSES = frozenset({"dispatch_reserved", "dispatch_consumed"})
 DISPATCH_FAILURE_REASONS = frozenset({"workflow_dispatch_failed", "production_failed", "production_cancelled"})
 
@@ -72,21 +78,61 @@ def _queue(state: dict[str, Any]) -> list[dict[str, Any]]:
     return value
 
 
-def live_dispatches(state: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return only dispatches that still require orchestration work.
+def _age_seconds(timestamp: str) -> float:
+    try:
+        value = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - value.astimezone(timezone.utc)).total_seconds())
+    except Exception:
+        return float("inf")
 
-    production_queue is a durable dispatch ledger for backward-compatible replay
-    evidence; consumed, completed, and failed entries are history, not live queue depth.
+
+def dispatch_entry_is_live(item: dict[str, Any]) -> bool:
+    """Project durable ledger history into a bounded live orchestration lease.
+
+    The ledger intentionally keeps old attempts for replay/idempotency evidence. A
+    pre-handoff request/reservation is live only during the same 90-minute window
+    used by retry protection. A consumed authorization may remain live through the
+    canonical V4 120-minute timeout (+5 minutes clock/teardown margin). Terminal or
+    malformed entries are never live.
     """
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("status") or "")
+    if status == "pending_dispatch":
+        return _age_seconds(str(item.get("requested_at") or "")) < RECENT_DISPATCH_SECONDS
+    if status == "dispatch_reserved":
+        return _age_seconds(str(item.get("reserved_at") or "")) < RECENT_DISPATCH_SECONDS
+    if status == "dispatch_consumed":
+        return _age_seconds(str(item.get("consumed_at") or "")) < CONSUMED_ACTIVE_SECONDS
+    return False
+
+
+def live_dispatches(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return live pre-V4 handoffs only (pending + reserved), never ledger history."""
     return [
         item
         for item in _queue(state)
-        if isinstance(item, dict) and item.get("status") in LIVE_DISPATCH_STATUSES
+        if isinstance(item, dict)
+        and item.get("status") in LIVE_DISPATCH_STATUSES
+        and dispatch_entry_is_live(item)
     ]
 
 
 def live_dispatch_count(state: dict[str, Any]) -> int:
     return len(live_dispatches(state))
+
+
+def live_production_dispatches(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return bounded live pending/reserved/consumed entries for operator status."""
+    return [
+        item
+        for item in _queue(state)
+        if isinstance(item, dict)
+        and item.get("status") in ACTIVE_PRODUCTION_STATUSES
+        and dispatch_entry_is_live(item)
+    ]
 
 
 def latest_ready_request(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -123,16 +169,6 @@ def ready_request_by_id(state: dict[str, Any], request_id: str, request_sha256: 
     return request
 
 
-def _age_seconds(timestamp: str) -> float:
-    try:
-        value = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return max(0.0, (datetime.now(timezone.utc) - value.astimezone(timezone.utc)).total_seconds())
-    except Exception:
-        return float("inf")
-
-
 def _enqueue_ready_request(
     state: dict[str, Any], request: dict[str, Any], *, chat_id: int | str
 ) -> tuple[str, dict[str, Any] | None]:
@@ -150,7 +186,7 @@ def _enqueue_ready_request(
     for item in reversed(matches):
         if item.get("status") == "completed":
             return "already_completed", item
-        if item.get("status") == "pending_dispatch":
+        if item.get("status") == "pending_dispatch" and dispatch_entry_is_live(item):
             return "already_queued", item
         if item.get("status") == "dispatch_reserved" and _age_seconds(str(item.get("reserved_at") or "")) < RECENT_DISPATCH_SECONDS:
             return "already_reserved_recent", item
@@ -207,7 +243,9 @@ def pending_dispatch(state: dict[str, Any]) -> dict[str, Any] | None:
     pending = [
         item
         for item in _queue(state)
-        if isinstance(item, dict) and item.get("status") == "pending_dispatch"
+        if isinstance(item, dict)
+        and item.get("status") == "pending_dispatch"
+        and dispatch_entry_is_live(item)
     ]
     if not pending:
         return None
