@@ -140,12 +140,35 @@ class L7IntegratedGateTests(unittest.TestCase):
                 "install_tts_runtime_port()",
                 "install_cinematic_runtime_port(CinematicInstallPhase.OUTER)",
                 "install_opening_feasibility_guard()",
+                "install_progress_hooks()",
                 "orchestrator.produce(",
                 "run_final_master_qc(out)",
                 "run_gold_enforce_phase4(",
                 "run_post_gold_observers(out)",
                 "_write_production_manifest(out, production_id=production_id, fmt=plan.format)",
             ),
+        )
+
+    def test_progress_hooks_install_after_tts_port_so_it_wraps_voice_mesh_not_the_other_way(self) -> None:
+        # scripts/voice_mesh.py::install_voice_mesh() overwrites orchestrator.synthesize_wav
+        # unconditionally (it does not compose with whatever was installed before it) while
+        # scripts/telegram_progress.py::install_progress_hooks() captures the current
+        # orchestrator.synthesize_wav and wraps it. If install_progress_hooks() ever ran
+        # before install_tts_runtime_port() (which installs Voice Mesh), Voice Mesh's blind
+        # overwrite would silently erase the progress wrapper with no error - exactly the
+        # "whichever installs last wins" hazard already found in Planning. This test fails
+        # loudly the moment that relative order is ever changed in main().
+        source = inspect.getsource(run_v3_voice.main)
+        tts_port_pos = source.find("install_tts_runtime_port()")
+        progress_hooks_pos = source.find("install_progress_hooks()")
+        self.assertGreater(tts_port_pos, -1, "install_tts_runtime_port() call not found")
+        self.assertGreater(progress_hooks_pos, -1, "install_progress_hooks() call not found")
+        self.assertLess(
+            tts_port_pos,
+            progress_hooks_pos,
+            "install_tts_runtime_port() (which installs Voice Mesh) must run before "
+            "install_progress_hooks(), or Voice Mesh's blind overwrite of "
+            "orchestrator.synthesize_wav silently discards the progress wrapper",
         )
 
     def test_short_control_path_preserves_prepare_voice_qc_gold_finalize_order(self) -> None:
