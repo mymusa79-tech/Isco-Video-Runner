@@ -9,6 +9,9 @@ from typing import Any
 
 QUEUE_KEY = "production_queue"
 RECENT_DISPATCH_SECONDS = 90 * 60
+LIVE_DISPATCH_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved"})
+FAILABLE_DISPATCH_STATUSES = frozenset({"dispatch_reserved", "dispatch_consumed"})
+DISPATCH_FAILURE_REASONS = frozenset({"workflow_dispatch_failed", "production_failed", "production_cancelled"})
 
 
 def _now() -> str:
@@ -59,6 +62,23 @@ def _queue(state: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         raise RuntimeError("Telegram production queue is malformed")
     return value
+
+
+def live_dispatches(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return only dispatches that still require orchestration work.
+
+    production_queue is a durable dispatch ledger for backward-compatible replay
+    evidence; consumed and failed entries are history, not live queue depth.
+    """
+    return [
+        item
+        for item in _queue(state)
+        if isinstance(item, dict) and item.get("status") in LIVE_DISPATCH_STATUSES
+    ]
+
+
+def live_dispatch_count(state: dict[str, Any]) -> int:
+    return len(live_dispatches(state))
 
 
 def latest_ready_request(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -238,6 +258,38 @@ def consume_dispatch_authorization(
     return item
 
 
+def mark_dispatch_failed(
+    state: dict[str, Any],
+    request_id: str,
+    request_sha256: str,
+    authorization_id: str,
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    reason = str(reason or "").strip()
+    if reason not in DISPATCH_FAILURE_REASONS:
+        raise RuntimeError("Unsupported Telegram dispatch failure reason")
+    for item in _queue(state):
+        if not isinstance(item, dict):
+            continue
+        if (
+            item.get("request_id") == request_id
+            and item.get("request_sha256") == request_sha256
+            and item.get("authorization_id") == str(authorization_id or "").strip()
+        ):
+            if item.get("status") == "failed":
+                return item
+            if item.get("status") not in FAILABLE_DISPATCH_STATUSES:
+                raise RuntimeError("Telegram dispatch is not in a fail-able state")
+            failed_at = _now()
+            item["status"] = "failed"
+            item["failed_at"] = failed_at
+            item["failure_reason"] = reason
+            state["last_event_at"] = failed_at
+            return item
+    raise RuntimeError("Exact Telegram dispatch authorization was not found for failure transition")
+
+
 def _load(path: Path) -> dict[str, Any]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
@@ -274,6 +326,13 @@ def main() -> None:
     consume.add_argument("--authorization-id", required=True)
     consume.add_argument("--workflow-run-id", default="")
 
+    fail = sub.add_parser("fail")
+    fail.add_argument("--state", required=True, type=Path)
+    fail.add_argument("--request-id", required=True)
+    fail.add_argument("--sha256", required=True)
+    fail.add_argument("--authorization-id", required=True)
+    fail.add_argument("--reason", required=True, choices=sorted(DISPATCH_FAILURE_REASONS))
+
     args = parser.parse_args()
     state = _load(args.state)
     if args.command == "reserve":
@@ -293,6 +352,16 @@ def main() -> None:
             args.sha256,
             args.authorization_id,
             workflow_run_id=args.workflow_run_id,
+        )
+        _save(args.state, state)
+        print(json.dumps(item, ensure_ascii=False, sort_keys=True))
+    elif args.command == "fail":
+        item = mark_dispatch_failed(
+            state,
+            args.request_id,
+            args.sha256,
+            args.authorization_id,
+            reason=args.reason,
         )
         _save(args.state, state)
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))
