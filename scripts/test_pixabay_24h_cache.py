@@ -179,14 +179,15 @@ class Pixabay24hCacheTests(unittest.TestCase):
     def test_production_workflow_restores_and_saves_only_the_pixabay_cache(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         restore_name = "Restore Pixabay 24h search cache"
-        produce_name = "Produce with task-level brain and voice meshes"
+        produce_marker = "id: produce_video"
         prepare_name = "Prepare Pixabay cache for cross-run save"
         save_name = "Save Pixabay 24h search cache"
         self.assertIn(restore_name, text)
+        self.assertIn(produce_marker, text)
         self.assertIn(prepare_name, text)
         self.assertIn(save_name, text)
-        self.assertLess(text.index(restore_name), text.index(produce_name))
-        self.assertLess(text.index(produce_name), text.index(prepare_name))
+        self.assertLess(text.index(restore_name), text.index(produce_marker))
+        self.assertLess(text.index(produce_marker), text.index(prepare_name))
         self.assertLess(text.index(prepare_name), text.index(save_name))
         self.assertIn(f"actions/cache/restore@{CACHE_ACTION_SHA}", text)
         self.assertIn(f"actions/cache/save@{CACHE_ACTION_SHA}", text)
@@ -194,7 +195,7 @@ class Pixabay24hCacheTests(unittest.TestCase):
         self.assertIn("pixabay-search-v2-${{ runner.os }}-${{ github.run_id }}", text)
         self.assertIn("TTL is enforced by scripts/provider_capacity_v2.py", text)
         self.assertIn("prepare_cache_for_persistence", text)
-        restore_section = text[text.index(restore_name):text.index(produce_name)]
+        restore_section = text[text.index(restore_name):text.index(produce_marker)]
         save_section = text[text.index(save_name):]
         self.assertNotIn("secrets.", restore_section)
         self.assertNotIn("PIXABAY_API_KEY", restore_section)
