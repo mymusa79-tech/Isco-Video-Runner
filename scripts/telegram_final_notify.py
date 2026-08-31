@@ -80,6 +80,22 @@ def detect_failure_stage(env: dict[str, str] | None = None) -> str:
     return "مرحلة غير محددة"
 
 
+def terminal_delivery_status(env: dict[str, str] | None = None) -> str:
+    """Classify the user-visible terminal state by the durable delivery boundary.
+
+    Once GitHub Release creation succeeded, a later state/notification housekeeping
+    failure must never be presented as if production itself failed. The Release is the
+    durable delivery boundary; later failures are degraded-success evidence that should
+    be repaired without re-running production.
+    """
+    values = env if env is not None else os.environ
+    job_status = str(values.get("JOB_STATUS") or "failure").strip().lower()
+    release_outcome = str(values.get("CREATE_RELEASE_OUTCOME") or "").strip().lower()
+    if release_outcome == "success":
+        return "success" if job_status == "success" else "released_degraded"
+    return "success" if job_status == "success" else "failure"
+
+
 def compact_failure_reason(raw: str) -> str:
     """Remove exception-class noise without guessing a new root cause."""
     value = " ".join(str(raw or "").replace("\r", " ").replace("\n", " ").split())
@@ -123,8 +139,10 @@ def failure_impact(stage: str) -> str:
         return "توقفت المحاولة قبل اكتمال إنتاج الفيديو."
     if stage in {"الإنتاج", "Final Review", "Upload Final Bundle"}:
         return "لم تُعتمد حزمة نهائية لهذا التشغيل."
-    if stage in {"Publish Approval", "Create Release", "Persist Accepted State"}:
+    if stage in {"Publish Approval", "Create Release"}:
         return "توقف مسار التسليم بعد الإنتاج؛ راجع GitHub قبل اعتبار الحزمة مكتملة."
+    if stage == "Persist Accepted State":
+        return "تم إنشاء الإصدار، لكن حفظ الذاكرة عبر التشغيلات لم يكتمل. لا تعِد الإنتاج."
     return "توقفت المحاولة ولم تُسجّل كنتيجة ناجحة."
 
 
@@ -165,22 +183,38 @@ def build_success_message(
     delivery_path: Path | None = None,
     output_root: Path | None = None,
     request_path: Path | None = None,
+    additional_warning: str = "",
 ) -> str:
     plan = _read_json_optional(plan_path)
     delivery = _read_json_optional(delivery_path)
     request = _read_json_optional(request_path)
     topic = str(request.get("topic") or plan.get("topic") or "").strip()
     plan_source = str(plan.get("plan_source") or "").strip()
-    warning = ""
+    warnings: list[str] = []
     if plan_source == "product_proof_fallback":
-        warning = "استُخدم المحتوى الاحتياطي المعتمد (fallback) بدل تخطيط سحابي جديد لهذا الموضوع."
+        warnings.append("استُخدم المحتوى الاحتياطي المعتمد (fallback) بدل تخطيط سحابي جديد لهذا الموضوع.")
+    if str(additional_warning or "").strip():
+        warnings.append(str(additional_warning).strip())
     return ops_ui.render_success_text(
         run_number=run_number,
         topic=topic,
         bundle_summary=_bundle_summary(delivery, output_root),
         duration=format_duration(elapsed_seconds),
-        warning=warning,
+        warning=" ".join(warnings),
         quality_passed=True,
+    )
+
+
+def released_degraded_warning(env: dict[str, str]) -> str:
+    stage = detect_failure_stage(env)
+    if stage == "Persist Accepted State":
+        return (
+            "تم إنشاء GitHub Release بنجاح، لكن حفظ الذاكرة المقبولة عبر التشغيلات فشل. "
+            "لا تعِد الإنتاج؛ راجع GitHub لإصلاح حفظ الحالة فقط."
+        )
+    return (
+        "تم إنشاء GitHub Release بنجاح، لكن خطوة لاحقة فشلت. "
+        "لا تعِد الإنتاج؛ راجع GitHub لمعالجة الحالة اللاحقة فقط."
     )
 
 
@@ -197,6 +231,7 @@ def terminal_keyboard(
     results_value = str(results_url or "").strip()
     run_id_value = str(run_id or "").strip()
     message_id_value = str(progress_message_id or "").strip()
+    release_ready = job_status in {"success", "released_degraded"}
     if run_id_value and message_id_value:
         try:
             details_data = ops_ui.operations_callback_data(ops_ui.ACTION_DETAILS, run_id_value, message_id_value)
@@ -204,10 +239,10 @@ def terminal_keyboard(
             details_data = ""
         if details_data:
             rows.append([ops_ui.callback_button("📋 التفاصيل", details_data)])
-    if job_status == "success" and results_value:
+    if release_ready and results_value:
         rows.append([ops_ui.url_button("📦 عرض النتائج", results_value)])
     if run_value:
-        label = "🔗 GitHub" if job_status == "success" else "📋 GitHub Logs"
+        label = "🔗 GitHub" if release_ready else "📋 GitHub Logs"
         rows.append([ops_ui.url_button(label, run_value)])
     return ops_ui.inline_keyboard(rows)
 
@@ -298,8 +333,8 @@ def main() -> int:
     run_number = str(env.get("GITHUB_RUN_NUMBER") or "").strip()
     runner_temp = Path(str(env.get("RUNNER_TEMP") or "."))
     elapsed = _elapsed_seconds(env)
-    job_status = str(env.get("JOB_STATUS") or "failure").strip().lower()
-    if job_status == "success":
+    terminal_status = terminal_delivery_status(env)
+    if terminal_status in {"success", "released_degraded"}:
         text = build_success_message(
             run_number=run_number,
             elapsed_seconds=elapsed,
@@ -307,6 +342,7 @@ def main() -> int:
             delivery_path=_path_optional(str(env.get("FINAL_DELIVERY_PATH") or "")),
             output_root=_path_optional(str(env.get("FINAL_OUTPUT_ROOT") or "")),
             request_path=runner_temp / "isco-request.json",
+            additional_warning=released_degraded_warning(env) if terminal_status == "released_degraded" else "",
         )
     else:
         text = build_failure_message(
@@ -325,7 +361,7 @@ def main() -> int:
             progress_message_id = ""
 
     keyboard = terminal_keyboard(
-        job_status=job_status,
+        job_status=terminal_status,
         run_url=_run_url(env),
         results_url=_results_url(env),
         run_id=str(env.get("GITHUB_RUN_ID") or "").strip(),
