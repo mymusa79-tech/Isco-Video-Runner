@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from scripts.control_approved_brief import materialize_approved_brief
 from scripts.telegram_production_queue import (
     consume_dispatch_authorization,
     mark_dispatch_completed,
@@ -73,6 +72,11 @@ def prepare(
     approved_request_output.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
     approved_request_output.chmod(0o600)
 
+    # Only V4 preparation needs Engine code. Admission/rejection/completion state
+    # transitions remain dependency-light so the Telegram gateway never installs or
+    # imports the production Engine merely to release a reservation.
+    from scripts.control_approved_brief import materialize_approved_brief
+
     brief_path, brief_sha256 = materialize_approved_brief(request, Path(brief_output))
     brief_path.chmod(0o600)
     fmt = "moment" if request.get("kind") == "short" else str(request.get("format") or "film")
@@ -97,6 +101,7 @@ def prepare(
         "brief_sha256": brief_sha256,
         "release_tag": release_tag,
         "kind": str(request.get("kind") or ""),
+        "approval_scope": str(request.get("approval_scope") or ""),
     }
     _github_output(github_output, **values)
     return values
@@ -119,8 +124,6 @@ def complete(
         authorization_id,
         release_tag=release_tag,
     )
-    # Keep the existing Channel OS used-topic policy as part of the same durable
-    # completion transaction. Import lazily so preparation stays dependency-light.
     from scripts.telegram_control_active_ui import _mark_request_used
 
     _mark_request_used(state, request, release_tag=release_tag)
