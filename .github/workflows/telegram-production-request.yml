@@ -64,6 +64,8 @@ jobs:
           encrypted="$RUNNER_TEMP/isco-control/control-panel.json.enc"
           state="$RUNNER_TEMP/isco-control/control-panel.json"
           request="$RUNNER_TEMP/isco-control/approved-request.json"
+          echo "CONTROL_STATE_PATH=$state" >> "$GITHUB_ENV"
+          echo "CONTROL_REQUEST_PATH=$request" >> "$GITHUB_ENV"
           git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
           git show origin/control-plane-state:state/control-panel.json.enc > "$encrypted"
           openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
@@ -84,18 +86,23 @@ jobs:
           validate_ready_request(request)
           if request.get("request_sha256") != expected:
               raise SystemExit("Approved Telegram request hash does not match workflow dispatch")
-          validate_dispatch_authorization(state, request_id, expected, authorization_id)
+          validate_dispatch_authorization(
+              state,
+              request_id,
+              expected,
+              authorization_id,
+              runner_sha=os.environ["GITHUB_SHA"],
+          )
           output = Path(os.environ["CONTROL_REQUEST_PATH"])
           output.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
           output.chmod(0o600)
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
               fh.write(f"release_tag={release_tag_for(request)}\n")
           PY
-          echo "CONTROL_STATE_PATH=$state" >> "$GITHUB_ENV"
-          echo "CONTROL_REQUEST_PATH=$request" >> "$GITHUB_ENV"
 
       - name: Reject duplicate completed release without starting Production
         id: duplicate
+        if: steps.admission.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.admission.outputs.release_tag }}
@@ -112,9 +119,56 @@ jobs:
             echo "already_released=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Reconcile an already completed release into the latest durable state
+        id: duplicate_reconcile
+        if: steps.duplicate.outputs.already_released == 'true'
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+          RELEASE_TAG: ${{ steps.admission.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          worktree="$RUNNER_TEMP/isco-control-completed-worktree"
+          fresh_enc="$RUNNER_TEMP/isco-control/completed-latest.json.enc"
+          fresh_state="$RUNNER_TEMP/isco-control/completed-latest.json"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          git show origin/control-plane-state:state/control-panel.json.enc > "$fresh_enc"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_enc" -out "$fresh_state"
+          python scripts/telegram_production_queue.py consume \
+            --state "$fresh_state" \
+            --request-id "$REQUEST_ID" \
+            --sha256 "$REQUEST_SHA256" \
+            --authorization-id "$AUTHORIZATION_ID" \
+            --runner-sha "$GITHUB_SHA" \
+            --workflow-run-id "release-reconcile-${GITHUB_RUN_ID}"
+          python scripts/telegram_v4_ingress.py complete \
+            --state "$fresh_state" \
+            --request-id "$REQUEST_ID" \
+            --sha256 "$REQUEST_SHA256" \
+            --authorization-id "$AUTHORIZATION_ID" \
+            --release-tag "$RELEASE_TAG"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_state" -out "$fresh_enc"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$fresh_enc" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "Duplicate release reconciliation produced no state delta" >&2
+            exit 1
+          fi
+          git commit -m "state: reconcile completed Telegram release"
+          git push origin HEAD:control-plane-state
+
       - name: Admission gate — never queue behind an active V4 run
         id: capacity
-        if: steps.duplicate.outputs.already_released != 'true'
+        if: steps.duplicate.outputs.already_released == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -130,7 +184,7 @@ jobs:
 
       - name: Dispatch exact reservation to the single V4 owner
         id: dispatch
-        if: steps.duplicate.outputs.already_released != 'true' && steps.capacity.outputs.available == 'true'
+        if: steps.duplicate.outputs.already_released == 'false' && steps.capacity.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REQUEST_ID: ${{ inputs.request_id }}
@@ -147,11 +201,15 @@ jobs:
             -f authorization_id="$AUTHORIZATION_ID" \
             -f engine_sha="$ENGINE_SHA"
 
-      - name: Release reservation when admission or dispatch fails
+      - name: Release reservation when admission or dispatch cannot start V4
+        id: release_failed_admission
         if: >-
           always() &&
-          steps.duplicate.outputs.already_released != 'true' &&
+          steps.duplicate_reconcile.outcome != 'success' &&
           (
+            steps.admission.outcome == 'failure' ||
+            steps.duplicate.outcome == 'failure' ||
+            steps.duplicate_reconcile.outcome == 'failure' ||
             steps.capacity.outputs.available == 'false' ||
             steps.dispatch.outcome == 'failure'
           )
@@ -162,38 +220,37 @@ jobs:
           AUTHORIZATION_ID: ${{ inputs.authorization_id }}
         run: |
           set -euo pipefail
-          reason="workflow_dispatch_failed"
+          fresh_enc="$RUNNER_TEMP/isco-control/failed-latest.json.enc"
+          fresh_state="$RUNNER_TEMP/isco-control/failed-latest.json"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          git show origin/control-plane-state:state/control-panel.json.enc > "$fresh_enc"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_enc" -out "$fresh_state"
           python scripts/telegram_v4_ingress.py fail \
-            --state "$CONTROL_STATE_PATH" \
+            --state "$fresh_state" \
             --request-id "$REQUEST_ID" \
             --sha256 "$REQUEST_SHA256" \
             --authorization-id "$AUTHORIZATION_ID" \
-            --reason "$reason"
-          encrypted="$RUNNER_TEMP/isco-control/control-panel.failed.json.enc"
+            --reason workflow_dispatch_failed
           openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
-            -pass env:STATE_ENCRYPTION_KEY -in "$CONTROL_STATE_PATH" -out "$encrypted"
-          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_state" -out "$fresh_enc"
           worktree="$RUNNER_TEMP/isco-control-failed-worktree"
           git worktree add --detach "$worktree" origin/control-plane-state
           mkdir -p "$worktree/state"
-          cp "$encrypted" "$worktree/state/control-panel.json.enc"
+          cp "$fresh_enc" "$worktree/state/control-panel.json.enc"
           cd "$worktree"
           git config user.name "isco-control-bot"
           git config user.email "actions@users.noreply.github.com"
           git add state/control-panel.json.enc
-          if ! git diff --cached --quiet; then
-            git commit -m "state: release failed Telegram V4 admission"
-            git push origin HEAD:control-plane-state
+          if git diff --cached --quiet; then
+            echo "Failed admission reconciliation produced no state delta" >&2
+            exit 1
           fi
+          git commit -m "state: release failed Telegram V4 admission"
+          git push origin HEAD:control-plane-state
 
       - name: Notify only when the request could not start
-        if: >-
-          always() &&
-          steps.duplicate.outputs.already_released != 'true' &&
-          (
-            steps.capacity.outputs.available == 'false' ||
-            steps.dispatch.outcome == 'failure'
-          )
+        if: always() && steps.release_failed_admission.outcome == 'success'
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -207,7 +264,7 @@ jobs:
           if os.environ.get("V4_AVAILABLE") == "false":
               text = "⏸️ يوجد إنتاج يعمل الآن، لذلك لم أضع اختيارك في طابور انتظار. أبقيت الموضوع معتمدًا؛ أرسل «تأكيد الإنتاج» عندما يصبح الخط فارغًا."
           else:
-              text = f"⚠️ لم يبدأ Production للطلب {os.environ['REQUEST_ID']} بسبب فشل تسليم التفويض إلى V4. لم يتم وضعه في طابور، ويمكن إعادة التأكيد."
+              text = f"⚠️ لم يبدأ Production للطلب {os.environ['REQUEST_ID']}. لم يُترك في انتظار أو حجز صامت، ويمكن إعادة التأكيد بعد مراجعة الحالة."
           payload = urllib.parse.urlencode({"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": text}).encode()
           url = "https://api.telegram.org/bot" + os.environ["TELEGRAM_BOT_TOKEN"] + "/sendMessage"
           with urllib.request.urlopen(urllib.request.Request(url, data=payload), timeout=25) as response:
