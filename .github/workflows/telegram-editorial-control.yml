@@ -219,6 +219,7 @@ jobs:
             --state "$CONTROL_STATE_PATH" \
             --request-id "$REQUEST_ID" \
             --sha256 "$REQUEST_SHA256" \
+            --runner-sha "$GITHUB_SHA" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Persist dispatch reservation before workflow dispatch
@@ -306,6 +307,7 @@ jobs:
         if: >-
           always() &&
           (
+            steps.poll.outputs.production_active == 'true' ||
             (steps.poll.outputs.release_approval_consumed == 'true' && steps.persist_control_state.outcome == 'success') ||
             (steps.poll.outputs.needs_production == 'true' && steps.persist_reservation.outcome == 'success') ||
             (steps.poll.outputs.needs_production != 'true' && steps.poll.outputs.production_active != 'true' && steps.persist_control_state.outcome == 'success')
