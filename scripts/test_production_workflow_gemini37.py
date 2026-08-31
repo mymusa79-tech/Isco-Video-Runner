@@ -5,17 +5,9 @@ from pathlib import Path
 
 
 WORKFLOW = Path(".github/workflows/produce-resilient-v4.yml")
+TELEGRAM_GATEWAY = Path(".github/workflows/telegram-production-request.yml")
 CANONICAL = "GEMINI_CONTENT_MODEL: gemini-3.7-flash"
 LEGACY = "GEMINI_CONTENT_MODEL: gemini-2.5-flash"
-
-# 2026-08-31: this file only ever checked produce-resilient-v4.yml (the direct/manual
-# dispatch path). telegram-production-request.yml - the workflow every real
-# Telegram-triggered Short/Long production actually runs through - still shipped the
-# legacy gemini-2.5-flash value two days after the canonical model moved to
-# gemini-3.7-flash, and production_model_contract.py's drift guard failed closed on the
-# very first real Telegram production attempt after that bump. Cover every production
-# workflow that installs the model contract, not just the one exercised manually.
-TELEGRAM_PRODUCTION_WORKFLOW = Path(".github/workflows/telegram-production-request.yml")
 
 
 class ProductionWorkflowGemini37Tests(unittest.TestCase):
@@ -24,10 +16,17 @@ class ProductionWorkflowGemini37Tests(unittest.TestCase):
         self.assertEqual(text.count(CANONICAL), 2)
         self.assertNotIn(LEGACY, text)
 
-    def test_telegram_production_request_uses_explicit_gemini37(self) -> None:
-        text = TELEGRAM_PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(text.count(CANONICAL), 1)
+    def test_telegram_gateway_does_not_own_content_model_runtime(self) -> None:
+        text = TELEGRAM_GATEWAY.read_text(encoding="utf-8")
+        self.assertNotIn("GEMINI_CONTENT_MODEL", text)
         self.assertNotIn(LEGACY, text)
+        self.assertIn("actions/workflows/produce-resilient-v4.yml/dispatches", text)
+        self.assertIn("return_run_details:true", text)
+        self.assertIn("workflow_run_id", text)
+        self.assertNotIn("repository: mymusa79-tech/Isco-Video-Agent", text)
+        self.assertNotIn("GEMINI_API_KEY", text)
+        self.assertNotIn("GROQ_API_KEY", text)
+        self.assertNotIn("OPENROUTER_API_KEY", text)
 
 
 if __name__ == "__main__":

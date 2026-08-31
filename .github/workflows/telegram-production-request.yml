@@ -21,24 +21,17 @@ on:
         type: string
 
 permissions:
+  actions: write
   contents: write
-
-concurrency:
-  group: isco-video-resilient-v4
-  cancel-in-progress: false
 
 env:
   EXPECTED_ENGINE_SHA: fe576d91f604412a010fa6cd61ff66f839e67550
-  CONTROL_PLANE_PRODUCTION_ENABLED: "true"
 
 jobs:
-  produce:
+  admit:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 10
     steps:
-      - name: Record job start time
-        run: echo "JOB_START_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
-
       - name: Checkout exact Runner main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -54,8 +47,8 @@ jobs:
           test "${GITHUB_REF_NAME}" = "main"
           test "$REQUESTED_ENGINE_SHA" = "$EXPECTED_ENGINE_SHA"
 
-      - name: Restore exact encrypted Telegram approval and dispatch authorization
-        id: request
+      - name: Restore exact durable Telegram reservation
+        id: admission
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
           REQUEST_ID: ${{ inputs.request_id }}
@@ -71,6 +64,8 @@ jobs:
           encrypted="$RUNNER_TEMP/isco-control/control-panel.json.enc"
           state="$RUNNER_TEMP/isco-control/control-panel.json"
           request="$RUNNER_TEMP/isco-control/approved-request.json"
+          echo "CONTROL_STATE_PATH=$state" >> "$GITHUB_ENV"
+          echo "CONTROL_REQUEST_PATH=$request" >> "$GITHUB_ENV"
           git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
           git show origin/control-plane-state:state/control-panel.json.enc > "$encrypted"
           openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
@@ -79,11 +74,7 @@ jobs:
           CONTROL_STATE_PATH="$state" CONTROL_REQUEST_PATH="$request" python - <<'PY'
           import json, os
           from pathlib import Path
-          from scripts.telegram_production_queue import (
-              release_tag_for,
-              validate_dispatch_authorization,
-              validate_ready_request,
-          )
+          from scripts.telegram_production_queue import release_tag_for, validate_dispatch_authorization, validate_ready_request
 
           state = json.loads(Path(os.environ["CONTROL_STATE_PATH"]).read_text(encoding="utf-8"))
           request_id = os.environ["REQUEST_ID"]
@@ -95,59 +86,26 @@ jobs:
           validate_ready_request(request)
           if request.get("request_sha256") != expected:
               raise SystemExit("Approved Telegram request hash does not match workflow dispatch")
-          validate_dispatch_authorization(state, request_id, expected, authorization_id)
+          validate_dispatch_authorization(
+              state,
+              request_id,
+              expected,
+              authorization_id,
+              runner_sha=os.environ["GITHUB_SHA"],
+          )
           output = Path(os.environ["CONTROL_REQUEST_PATH"])
           output.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
           output.chmod(0o600)
-          tag = release_tag_for(request)
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
-              fh.write(f"release_tag={tag}\n")
-              fh.write(f"kind={request['kind']}\n")
-          print(f"Exact Telegram approval and explicit dispatch authorization validated: request={request_id} tag={tag}")
+              fh.write(f"release_tag={release_tag_for(request)}\n")
           PY
-          echo "ISCO_CONTROL_REQUEST_PATH=$request" >> "$GITHUB_ENV"
-          echo "ISCO_CONTROL_REQUEST_SHA256=$REQUEST_SHA256" >> "$GITHUB_ENV"
 
-      - name: Consume and persist one-time dispatch authorization
-        env:
-          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
-          REQUEST_ID: ${{ inputs.request_id }}
-          REQUEST_SHA256: ${{ inputs.request_sha256 }}
-          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
-        run: |
-          set -euo pipefail
-          state="$RUNNER_TEMP/isco-control/control-panel.json"
-          test -f "$state"
-          python scripts/telegram_production_queue.py consume \
-            --state "$state" \
-            --request-id "$REQUEST_ID" \
-            --sha256 "$REQUEST_SHA256" \
-            --authorization-id "$AUTHORIZATION_ID" \
-            --workflow-run-id "$GITHUB_RUN_ID"
-          encrypted="$RUNNER_TEMP/isco-control/control-panel.consumed.json.enc"
-          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
-            -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
-          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
-          worktree="$RUNNER_TEMP/isco-control-consumed-worktree"
-          git worktree add --detach "$worktree" origin/control-plane-state
-          mkdir -p "$worktree/state"
-          cp "$encrypted" "$worktree/state/control-panel.json.enc"
-          cd "$worktree"
-          git config user.name "isco-control-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add state/control-panel.json.enc
-          if git diff --cached --quiet; then
-            echo "One-time Telegram authorization consumption produced no durable state delta" >&2
-            exit 1
-          fi
-          git commit -m "state: consume Telegram production authorization"
-          git push origin HEAD:control-plane-state
-
-      - name: Idempotency guard
-        id: release_guard
+      - name: Reject duplicate completed release without starting Production
+        id: duplicate
+        if: steps.admission.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
+          RELEASE_TAG: ${{ steps.admission.outputs.release_tag }}
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -155,454 +113,224 @@ jobs:
               --repository "$GITHUB_REPOSITORY" \
               --tag "$RELEASE_TAG" \
               --target-sha "$GITHUB_SHA" \
-              --request "$ISCO_CONTROL_REQUEST_PATH"
+              --request "$CONTROL_REQUEST_PATH"
             echo "already_released=true" >> "$GITHUB_OUTPUT"
-            echo "Request already has a verified completed delivery release: $RELEASE_TAG"
           else
             echo "already_released=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Checkout exact private Engine
-        if: steps.release_guard.outputs.already_released != 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: mymusa79-tech/Isco-Video-Agent
-          ref: ${{ inputs.engine_sha }}
-          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
-          path: engine
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Verify exact Engine checkout
-        if: steps.release_guard.outputs.already_released != 'true'
-        working-directory: engine
-        env:
-          REQUESTED_ENGINE_SHA: ${{ inputs.engine_sha }}
-        run: test "$(git rev-parse HEAD)" = "$REQUESTED_ENGINE_SHA"
-
-      - name: Set up Python
-        if: steps.release_guard.outputs.already_released != 'true'
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
-        with:
-          python-version: "3.12"
-
-      - name: Install locked Engine and local voice fallback
-        if: steps.release_guard.outputs.already_released != 'true'
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-core openssl tesseract-ocr tesseract-ocr-ara
-          cd engine
-          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py lock --lock requirements-lock.txt
-          python -m pip install -r requirements-lock.txt
-          python -m pip install --no-build-isolation --no-deps -e .
-          python -m pip check
-          python -m unittest discover -s tests -q
-          python -m pip install 'piper-tts==1.4.2'
-          mkdir -p "$RUNNER_TEMP/piper-voices"
-          python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium
-          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx"
-          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"
-          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py voice \
-            --voice-dir "$RUNNER_TEMP/piper-voices" \
-            --manifest security/piper_voice_hashes.json
-
-      - name: Restore encrypted cross-run memory
-        id: restore_state
-        if: steps.release_guard.outputs.already_released != 'true'
+      - name: Reconcile an already completed release into the latest durable state
+        id: duplicate_reconcile
+        if: steps.duplicate.outputs.already_released == 'true'
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+          RELEASE_TAG: ${{ steps.admission.outputs.release_tag }}
         run: |
           set -euo pipefail
-          state_dir="$RUNNER_TEMP/isco-state"
-          mkdir -p "$state_dir"
-          python scripts/persistent_memory.py restore \
-            --repo . \
-            --plain "$state_dir/history.json" \
-            --branch agent-state \
-            --legacy-state state/history.json.enc \
-            --github-output "$GITHUB_OUTPUT"
-          test -f "$state_dir/history.json"
-          chmod 600 "$state_dir/history.json"
-          echo "ISCO_HISTORY_PATH=$state_dir/history.json" >> "$GITHUB_ENV"
-
-      - name: Verify local voice fallback
-        if: steps.release_guard.outputs.already_released != 'true'
-        env:
-          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import os, wave
-          from pathlib import Path
-          from piper import PiperVoice
-          model = Path(os.environ["PIPER_MODEL_PATH"])
-          voice = PiperVoice.load(str(model), config_path=str(model) + ".json")
-          out = Path(os.environ["RUNNER_TEMP"]) / "piper-preflight.wav"
-          with wave.open(str(out), "wb") as wav:
-              voice.synthesize_wav("هذا اختبار صوت محلي.", wav)
-          if out.stat().st_size < 1024:
-              raise SystemExit("Piper preflight produced empty audio")
-          PY
-
-      - name: Materialize approved production secrets
-        if: steps.release_guard.outputs.already_released != 'true'
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_ALLOWED_USER_ID: ${{ secrets.TELEGRAM_ALLOWED_USER_ID }}
-        run: |
-          set -euo pipefail
-          test -n "$GEMINI_API_KEY"
-          test -n "$GROQ_API_KEY"
-          test -n "$OPENROUTER_API_KEY"
-          test -n "$PEXELS_API_KEY"
-          test -n "$PIXABAY_API_KEY"
-          umask 077
-          mkdir -p "$RUNNER_TEMP/isco-secrets"
-          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/isco-secrets/gemini"
-          printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/isco-secrets/groq"
-          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/isco-secrets/openrouter"
-          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
-          printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/isco-secrets/pixabay"
-          printf '%s' "$YOUTUBE_API_KEY" > "$RUNNER_TEMP/isco-secrets/youtube"
-          printf '%s' "$YOUTUBE_CLIENT_ID" > "$RUNNER_TEMP/isco-secrets/youtube-client-id"
-          printf '%s' "$YOUTUBE_CLIENT_SECRET" > "$RUNNER_TEMP/isco-secrets/youtube-client-secret"
-          printf '%s' "$YOUTUBE_REFRESH_TOKEN" > "$RUNNER_TEMP/isco-secrets/youtube-refresh-token"
-          printf '%s' "$TELEGRAM_BOT_TOKEN" > "$RUNNER_TEMP/isco-secrets/telegram-bot-token"
-          printf '%s' "$TELEGRAM_CHAT_ID" > "$RUNNER_TEMP/isco-secrets/telegram-chat-id"
-          printf '%s' "$TELEGRAM_ALLOWED_USER_ID" > "$RUNNER_TEMP/isco-secrets/telegram-allowed-user-id"
-
-      - name: Verify free provider authentication
-        if: steps.release_guard.outputs.already_released != 'true'
-        env:
-          GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
-          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
-        run: |
-          python - <<'PY'
-          import os, requests
-          from pathlib import Path
-          groq = Path(os.environ["GROQ_API_KEY_FILE"]).read_text().strip()
-          pixabay = Path(os.environ["PIXABAY_API_KEY_FILE"]).read_text().strip()
-          a = requests.get("https://api.groq.com/openai/v1/models", headers={"Authorization": "Bearer " + groq}, timeout=30)
-          if not a.ok: raise SystemExit(f"Groq auth failed: HTTP {a.status_code}")
-          b = requests.get("https://pixabay.com/api/videos/", params={"key": pixabay, "q": "nature", "per_page": 3, "safesearch": "true"}, timeout=30)
-          if not b.ok: raise SystemExit(f"Pixabay auth failed: HTTP {b.status_code}")
-          PY
-
-      - name: Run exact approved Telegram production
-        id: production
-        if: steps.release_guard.outputs.already_released != 'true'
-        working-directory: engine
-        env:
-          CONTROL_PLANE_PRODUCTION_ENABLED: "true"
-          ISCO_CONTROL_RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
-          GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
-          GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
-          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
-          PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
-          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
-          YOUTUBE_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/youtube
-          YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
-          YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
-          YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
-          TELEGRAM_BOT_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/telegram-bot-token
-          TELEGRAM_CHAT_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-chat-id
-          TELEGRAM_ALLOWED_USER_ID_FILE: ${{ runner.temp }}/isco-secrets/telegram-allowed-user-id
-          ISCO_ENGINE_SHA: ${{ inputs.engine_sha }}
-          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
-          GEMINI_CONTENT_MODEL: gemini-3.7-flash
-          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
-          TRENDS_GEO: SA
-          YOUTUBE_REGION: SA
-          YOUTUBE_LANGUAGE: ar
-          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          python ../scripts/run_telegram_control_production.py
-
-      - name: Upload Telegram production diagnostics on failure
-        if: failure() && steps.release_guard.outputs.already_released != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: telegram-production-diagnostics-${{ github.run_number }}
-          path: |
-            engine/output/*/final-master-qc.json
-            engine/output/*/quality-final.json
-            engine/output/*/quality-precheck.json
-            engine/output/*/plan.json
-            engine/output/*/planning-telemetry.json
-            engine/output/*/visual-audit.json
-            engine/output/*/final-critic.json
-            engine/output/*/ai-budget.json
-            engine/output/*/production-manifest.json
-            engine/output/*/rights-manifest.json
-            engine/output/*/gold-enforce-report.json
-            engine/output/*/delivery-manifest.json
-            engine/output/*/sibling-short-plan.json
-            engine/output/*/sibling-short-results.json
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Validate exact staged delivery package
-        if: steps.release_guard.outputs.already_released != 'true'
-        env:
-          OUTPUT_DIR: ${{ steps.production.outputs.output_dir }}
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          root = Path(os.environ["OUTPUT_DIR"]).resolve()
-          video = root / "final.mp4"
-          manifest = root / "delivery-manifest.json"
-          quality = root / "quality-final.json"
-          production = root / "production-manifest.json"
-          master_qc = root / "final-master-qc.json"
-          for path in (video, manifest, quality, production, master_qc):
-              if not path.is_file():
-                  raise SystemExit(f"Missing Telegram delivery asset: {path.name}")
-          if video.stat().st_size <= 1024 * 1024:
-              raise SystemExit("Telegram delivery final.mp4 is not >1MB")
-          data = json.loads(manifest.read_text(encoding="utf-8"))
-          if data.get("release_state") != "staged" or data.get("release_tag") is not None or data.get("delivery_url") is not None:
-              raise SystemExit("Telegram delivery claimed release before GitHub Release creation")
-          if data.get("publication_performed") is not False or data.get("youtube_publish_mode") != "manual_in_youtube_studio":
-              raise SystemExit("Telegram delivery attempted to claim automatic YouTube publication")
-          qc = json.loads(master_qc.read_text(encoding="utf-8"))
-          if not (
-              qc.get("status") == "pass"
-              and qc.get("production_stage") == "post_render_pre_gold_acceptance"
-              and qc.get("full_decode_ok") is True
-              and qc.get("final_media_mutated") is False
-              and not list(qc.get("blocking_findings") or [])
-          ):
-              raise SystemExit("Telegram delivery failed Final Master QC")
-          embedded = data.get("final_master_qc") or {}
-          if embedded.get("file") != "final-master-qc.json" or (embedded.get("evidence") or {}).get("status") != "pass":
-              raise SystemExit("Telegram delivery manifest is missing passing Final Master QC evidence")
-          q = json.loads(quality.read_text(encoding="utf-8"))
-          if q.get("duration_ok") is not True:
-              raise SystemExit("Telegram delivery blocked: duration_ok is not true")
-          PY
-
-      - name: Create one deterministic delivery release
-        id: release
-        if: steps.release_guard.outputs.already_released != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OUTPUT_DIR: ${{ steps.production.outputs.output_dir }}
-          RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
-        run: |
-          set -euo pipefail
-          RELEASE_TAG="$RELEASE_TAG" OUTPUT_DIR="$OUTPUT_DIR" python - <<'PY'
-          import os
-          from pathlib import Path
-          from scripts.unified_delivery import finalize_release_manifest
-          finalize_release_manifest(
-              Path(os.environ["OUTPUT_DIR"]) / "delivery-manifest.json",
-              repository=os.environ["GITHUB_REPOSITORY"],
-              release_tag=os.environ["RELEASE_TAG"],
-          )
-          PY
-          mapfile -t assets < <(OUTPUT_DIR="$OUTPUT_DIR" python - <<'PY'
-          import os
-          from pathlib import Path
-          root = Path(os.environ["OUTPUT_DIR"])
-          names = [
-              "final.mp4", "delivery-manifest.json", "plan.json", "quality-final.json",
-              "final-master-qc.json", "final-critic.json", "ai-budget.json", "production-manifest.json",
-              "rights-manifest.json", "gold-enforce-report.json", "thumbnail-plan.json",
-              "canonical-bundle-request.json", "sibling-short-plan.json", "sibling-short-results.json",
-              "semantic-visual-aids.json", "visual-timeline.json", "audio-mastering.json",
-              "sfx-plan.json", "sfx-report.json", "m9-transitions.json", "m10-cards.json",
-              "m11-report.json", "cta-plan.json", "narrative-music-dynamics.json",
-          ]
-          paths = [root / name for name in names if (root / name).is_file()]
-          paths += sorted(root.glob("thumbnail-*.jpg"))
-          paths += sorted(path for path in root.glob("short-*") if path.is_file())
-          paths += sorted(path for path in root.glob("*.m8.json") if path.is_file())
-          seen = set()
-          for path in paths:
-              value = str(path)
-              if value not in seen:
-                  seen.add(value)
-                  print(value)
-          PY
-          )
-          test "${#assets[@]}" -ge 5
-          journal="$RUNNER_TEMP/telegram-release-transaction.json"
-          release_cmd=(
-            python scripts/release_transaction.py
-            --repository "$GITHUB_REPOSITORY"
-            --tag "$RELEASE_TAG"
-            --target-sha "$GITHUB_SHA"
-            --title "Telegram Production — ${{ inputs.request_id }}"
-            --notes "Explicitly started from an immutable Telegram-approved request with one-time durable second-action authorization. YouTube publication is manual."
-            --journal "$journal"
-          )
-          for asset in "${assets[@]}"; do
-            release_cmd+=(--asset "$asset")
-          done
-          "${release_cmd[@]}"
-          python scripts/telegram_release_identity.py \
-            --repository "$GITHUB_REPOSITORY" \
-            --tag "$RELEASE_TAG" \
-            --target-sha "$GITHUB_SHA" \
-            --request "$ISCO_CONTROL_REQUEST_PATH"
-          echo "release_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload Telegram release transaction evidence
-        if: always() && steps.release.outcome != 'skipped'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: telegram-release-transaction-${{ github.run_number }}
-          path: ${{ runner.temp }}/telegram-release-transaction.json
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Record successful topic in encrypted used-topic history
-        id: used_topic
-        if: success() && steps.request.outcome == 'success'
-        env:
-          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
-          RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
-        run: |
-          set -euo pipefail
-          test -n "$STATE_ENCRYPTION_KEY"
-          state="$RUNNER_TEMP/isco-control/control-panel.json"
-          request="$ISCO_CONTROL_REQUEST_PATH"
-          test -f "$state"
-          test -f "$request"
-          marker="$RUNNER_TEMP/isco-control/used-topic-changed"
-          CONTROL_STATE_PATH="$state" CONTROL_REQUEST_PATH="$request" RELEASE_TAG="$RELEASE_TAG" CHANGE_MARKER="$marker" python - <<'PY'
-          import json, os
-          from pathlib import Path
-          from scripts import telegram_control_active_ui as ui
-          from scripts import telegram_control_panel as panel
-
-          state_path = Path(os.environ["CONTROL_STATE_PATH"])
-          request_path = Path(os.environ["CONTROL_REQUEST_PATH"])
-          state = panel.load_state(state_path)
-          request = json.loads(request_path.read_text(encoding="utf-8"))
-          before = json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-          previous = next(
-              (
-                  item for item in state.get(ui.USED_TOPICS_KEY, [])
-                  if isinstance(item, dict) and str(item.get("request_id") or "") == str(request.get("request_id") or "")
-              ),
-              None,
-          )
-          prior_used_at = str((previous or {}).get("used_at") or "").strip() or None
-          record = ui._mark_request_used(
-              state,
-              request,
-              release_tag=os.environ["RELEASE_TAG"],
-              used_at=prior_used_at,
-          )
-          after = json.dumps(state, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-          changed = before != after
-          if changed:
-              panel.save_state(state_path, state)
-          Path(os.environ["CHANGE_MARKER"]).write_text("true" if changed else "false", encoding="utf-8")
-          print(f"Used-topic history {'updated' if changed else 'already current'}: {record['topic']}")
-          PY
-          if [ "$(cat "$marker")" != "true" ]; then
-            echo "Used-topic history already contains this completed request"
-            exit 0
-          fi
-          encrypted="$RUNNER_TEMP/isco-control/control-panel.used.json.enc"
-          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
-            -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
+          worktree="$RUNNER_TEMP/isco-control-completed-worktree"
+          fresh_enc="$RUNNER_TEMP/isco-control/completed-latest.json.enc"
+          fresh_state="$RUNNER_TEMP/isco-control/completed-latest.json"
           git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
-          worktree="$RUNNER_TEMP/isco-control-used-worktree"
+          git show origin/control-plane-state:state/control-panel.json.enc > "$fresh_enc"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_enc" -out "$fresh_state"
+          python scripts/telegram_production_queue.py consume \
+            --state "$fresh_state" \
+            --request-id "$REQUEST_ID" \
+            --sha256 "$REQUEST_SHA256" \
+            --authorization-id "$AUTHORIZATION_ID" \
+            --runner-sha "$GITHUB_SHA" \
+            --workflow-run-id "release-reconcile-${GITHUB_RUN_ID}"
+          python scripts/telegram_v4_ingress.py complete \
+            --state "$fresh_state" \
+            --request-id "$REQUEST_ID" \
+            --sha256 "$REQUEST_SHA256" \
+            --authorization-id "$AUTHORIZATION_ID" \
+            --release-tag "$RELEASE_TAG"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_state" -out "$fresh_enc"
           git worktree add --detach "$worktree" origin/control-plane-state
           mkdir -p "$worktree/state"
-          cp "$encrypted" "$worktree/state/control-panel.json.enc"
+          cp "$fresh_enc" "$worktree/state/control-panel.json.enc"
           cd "$worktree"
           git config user.name "isco-control-bot"
           git config user.email "actions@users.noreply.github.com"
           git add state/control-panel.json.enc
           if git diff --cached --quiet; then
-            echo "Successful topic history changed locally but produced no durable encrypted delta" >&2
+            echo "Duplicate release reconciliation produced no state delta" >&2
             exit 1
           fi
-          git commit -m "state: record successful Telegram topic"
+          git commit -m "state: reconcile completed Telegram release"
           git push origin HEAD:control-plane-state
 
-      - name: Checkout agent-state writer
-        if: success() && steps.release_guard.outputs.already_released != 'true' && steps.restore_state.outputs.save_allowed == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          path: state-writer
-          persist-credentials: true
-          fetch-depth: 1
-
-      - name: Persist approved encrypted cross-run memory
-        if: success() && steps.release_guard.outputs.already_released != 'true' && steps.restore_state.outputs.save_allowed == 'true'
-        continue-on-error: true
+      - name: Admission gate — never queue behind an active V4 run
+        id: capacity
+        if: steps.duplicate.outputs.already_released == 'false'
         env:
-          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test -n "$STATE_ENCRYPTION_KEY"
-          test -n "${ISCO_HISTORY_PATH:-}"
-          test -f "$ISCO_HISTORY_PATH"
-          encrypted="$RUNNER_TEMP/isco-state/history.json.enc"
-          python scripts/persistent_memory.py encrypt --plain "$ISCO_HISTORY_PATH" --encrypted "$encrypted"
-          python scripts/persistent_memory.py persist \
-            --repo state-writer --encrypted "$encrypted" --branch agent-state --run-number "$GITHUB_RUN_NUMBER"
+          active="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/runs?per_page=20" \
+            --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+          if [ "$active" -gt 0 ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "V4 is active; Telegram request will not be queued behind it"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Notify Telegram final status
-        if: always() && steps.request.outcome == 'success'
+      - name: Dispatch exact reservation to the single V4 owner
+        id: dispatch
+        if: steps.duplicate.outputs.already_released == 'false' && steps.capacity.outputs.available == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+          ENGINE_SHA: ${{ inputs.engine_sha }}
+        run: |
+          set -euo pipefail
+          payload="$(jq -cn \
+            --arg request_id "$REQUEST_ID" \
+            --arg request_sha256 "$REQUEST_SHA256" \
+            --arg authorization_id "$AUTHORIZATION_ID" \
+            --arg engine_sha "$ENGINE_SHA" \
+            '{ref:"main",return_run_details:true,inputs:{request_id:$request_id,request_sha256:$request_sha256,authorization_id:$authorization_id,engine_sha:$engine_sha}}')"
+          response="$(gh api --method POST \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/dispatches" \
+            --input - <<<"$payload")"
+          child_run_id="$(jq -r '.workflow_run_id // empty' <<<"$response")"
+          child_run_url="$(jq -r '.html_url // empty' <<<"$response")"
+          [[ "$child_run_id" =~ ^[0-9]+$ ]]
+          test -n "$child_run_url"
+          echo "workflow_run_id=$child_run_id" >> "$GITHUB_OUTPUT"
+          echo "workflow_run_url=$child_run_url" >> "$GITHUB_OUTPUT"
+
+      - name: Reject post-dispatch concurrency race instead of waiting
+        id: race_guard
+        if: steps.dispatch.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_RUN_ID: ${{ steps.dispatch.outputs.workflow_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$CHILD_RUN_ID" =~ ^[0-9]+$ ]]
+          for attempt in 1 2 3; do
+            child_status="$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${CHILD_RUN_ID}" --jq '.status')"
+            if [ "$child_status" = "in_progress" ] || [ "$child_status" = "completed" ]; then
+              echo "accepted=true" >> "$GITHUB_OUTPUT"
+              echo "Dispatched V4 owns execution; it is not waiting behind another production"
+              exit 0
+            fi
+
+            active_payload="$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/runs?per_page=20")"
+            rivals="$(jq --argjson child "$CHILD_RUN_ID" \
+              '[.workflow_runs[] | select(.id != $child and .status != "completed")] | length' \
+              <<<"$active_payload")"
+            if [ "$rivals" -gt 0 ]; then
+              if gh api --method POST -H 'X-GitHub-Api-Version: 2026-03-10' \
+                "repos/${GITHUB_REPOSITORY}/actions/runs/${CHILD_RUN_ID}/cancel" >/dev/null 2>&1; then
+                echo "accepted=false" >> "$GITHUB_OUTPUT"
+                echo "reason=concurrency_race" >> "$GITHUB_OUTPUT"
+                echo "Canceled Telegram V4 child instead of leaving it pending behind another production"
+                exit 0
+              fi
+              child_status="$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+                "repos/${GITHUB_REPOSITORY}/actions/runs/${CHILD_RUN_ID}" --jq '.status')"
+              if [ "$child_status" = "in_progress" ] || [ "$child_status" = "completed" ]; then
+                echo "accepted=true" >> "$GITHUB_OUTPUT"
+                echo "Concurrency changed before cancellation; child already owns execution"
+                exit 0
+              fi
+              echo "Unable to cancel a non-running Telegram V4 child safely" >&2
+              exit 1
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep 2; fi
+          done
+          echo "accepted=true" >> "$GITHUB_OUTPUT"
+          echo "No competing V4 run appeared during bounded post-dispatch admission verification"
+
+      - name: Release reservation when admission or dispatch cannot start V4
+        id: release_failed_admission
+        if: >-
+          always() &&
+          steps.duplicate_reconcile.outcome != 'success' &&
+          (
+            steps.admission.outcome == 'failure' ||
+            steps.duplicate.outcome == 'failure' ||
+            steps.duplicate_reconcile.outcome == 'failure' ||
+            steps.capacity.outputs.available == 'false' ||
+            steps.dispatch.outcome == 'failure' ||
+            steps.race_guard.outcome == 'failure' ||
+            steps.race_guard.outputs.accepted == 'false'
+          )
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+        run: |
+          set -euo pipefail
+          fresh_enc="$RUNNER_TEMP/isco-control/failed-latest.json.enc"
+          fresh_state="$RUNNER_TEMP/isco-control/failed-latest.json"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          git show origin/control-plane-state:state/control-panel.json.enc > "$fresh_enc"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_enc" -out "$fresh_state"
+          python scripts/telegram_v4_ingress.py fail \
+            --state "$fresh_state" \
+            --request-id "$REQUEST_ID" \
+            --sha256 "$REQUEST_SHA256" \
+            --authorization-id "$AUTHORIZATION_ID" \
+            --reason workflow_dispatch_failed
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_state" -out "$fresh_enc"
+          worktree="$RUNNER_TEMP/isco-control-failed-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$fresh_enc" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "Failed admission reconciliation produced no state delta" >&2
+            exit 1
+          fi
+          git commit -m "state: release failed Telegram V4 admission"
+          git push origin HEAD:control-plane-state
+
+      - name: Notify only when the request could not start
+        if: always() && steps.release_failed_admission.outcome == 'success'
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          RELEASE_TAG: ${{ steps.request.outputs.release_tag }}
-          ALREADY_RELEASED: ${{ steps.release_guard.outputs.already_released }}
-          JOB_STATUS: ${{ job.status }}
           REQUEST_ID: ${{ inputs.request_id }}
+          V4_AVAILABLE: ${{ steps.capacity.outputs.available }}
+          RACE_ACCEPTED: ${{ steps.race_guard.outputs.accepted }}
         run: |
           set -euo pipefail
-          test -n "$TELEGRAM_BOT_TOKEN"
-          test -n "$TELEGRAM_CHAT_ID"
           python - <<'PY'
           import json, os, urllib.parse, urllib.request
-          server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
-          repo = os.environ["GITHUB_REPOSITORY"]
-          tag = os.environ["RELEASE_TAG"]
-          run_url = f"{server}/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
-          release_url = f"{server}/{repo}/releases/tag/{tag}"
-          if os.environ["JOB_STATUS"] == "success":
-              if os.environ.get("ALREADY_RELEASED") == "true":
-                  text = f"✅ هذا الطلب كان منتجًا بالفعل\n🔗 {release_url}"
-              else:
-                  text = f"✅ الإنتاج جاهز\n🎁 الحزمة: {release_url}\n🔒 نشر YouTube يدوي فقط"
+          if os.environ.get("V4_AVAILABLE") == "false" or os.environ.get("RACE_ACCEPTED") == "false":
+              text = "⏸️ يوجد إنتاج يعمل الآن، لذلك لم أضع اختيارك في طابور انتظار. أبقيت الموضوع معتمدًا؛ أرسل «تأكيد الإنتاج» عندما يصبح الخط فارغًا."
           else:
-              text = f"❌ فشل إنتاج Telegram المعتمد\nرقم الطلب: {os.environ['REQUEST_ID']}\n🔗 {run_url}\nلم يتم نشر شيء على YouTube."
+              text = f"⚠️ لم يبدأ Production للطلب {os.environ['REQUEST_ID']}. لم يُترك في انتظار أو حجز صامت، ويمكن إعادة التأكيد بعد مراجعة الحالة."
           payload = urllib.parse.urlencode({"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": text}).encode()
           url = "https://api.telegram.org/bot" + os.environ["TELEGRAM_BOT_TOKEN"] + "/sendMessage"
           with urllib.request.urlopen(urllib.request.Request(url, data=payload), timeout=25) as response:
               body = json.loads(response.read().decode("utf-8"))
           if not body.get("ok"):
-              raise SystemExit("Telegram final notification failed")
+              raise SystemExit("Telegram admission notification failed")
           PY
 
-      - name: Remove plaintext control secrets and state
+      - name: Remove plaintext admission state
         if: always()
-        run: |
-          rm -rf "$RUNNER_TEMP/isco-secrets" || true
-          rm -rf "$RUNNER_TEMP/isco-control" || true
-          rm -rf "$RUNNER_TEMP/isco-state" || true
-          rm -f "$RUNNER_TEMP/piper-preflight.wav" || true
+        run: rm -rf "$RUNNER_TEMP/isco-control" || true

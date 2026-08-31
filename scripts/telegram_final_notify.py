@@ -279,8 +279,11 @@ def _results_url(env: dict[str, str]) -> str:
     server = str(env.get("GITHUB_SERVER_URL") or "https://github.com").rstrip("/")
     repository = str(env.get("GITHUB_REPOSITORY") or "").strip()
     run_number = str(env.get("GITHUB_RUN_NUMBER") or "").strip()
-    if repository and run_number:
-        return f"{server}/{repository}/releases/tag/video-{run_number}"
+    release_tag = str(env.get("ISCO_RELEASE_TAG_OVERRIDE") or "").strip()
+    if not release_tag and run_number:
+        release_tag = f"video-{run_number}"
+    if repository and release_tag:
+        return f"{server}/{repository}/releases/tag/{release_tag}"
     return ""
 
 

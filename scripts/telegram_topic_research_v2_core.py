@@ -13,6 +13,7 @@ if __package__ in {None, ""}:
 from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
 from scripts import telegram_control_simple_ui as simple
+from scripts import telegram_research_status as research_status
 from scripts import telegram_topic_memory_ui as memory_ui
 
 RESEARCH_CONTRACT_VERSION = "topic-research-v2"
@@ -247,12 +248,34 @@ def _research_failure_reason(exc: Exception) -> str:
     return ""
 
 
+def _research_retry_text(kind: str, attempts: int, reason: str) -> str:
+    label = "الحلقة" if kind == "long" else "الشورت"
+    text = (
+        f"⏳ بحث {label} ينتظر إعادة المحاولة\n\n"
+        f"المحاولة {attempts}/3 لم تكمل عقد البحث الحي. سأعيد المحاولة تلقائيًا خلال دقائق.\n"
+        "لن أرسل رسالة فشل جديدة مع كل محاولة؛ هذه البطاقة نفسها هي الحالة الوحيدة للبحث.\n"
+        "لم يبدأ أي Production."
+    )
+    if reason:
+        text += "\n\n" + reason
+    return text
+
+
+def _research_failed_text(kind: str, reason: str) -> str:
+    label = "الحلقة" if kind == "long" else "الشورت"
+    text = (
+        f"⚠️ لم يكتمل بحث {label}\n\n"
+        "استُنفدت 3 محاولات البحث الحي. لم يبدأ أي Production، ولم أعرض FallBack ثابتًا كأنه نتيجة جديدة.\n"
+        "يمكنك بدء بحث جديد عندما تريد."
+    )
+    if reason:
+        text += "\n\n" + reason
+    return text
+
+
 def _research_current_v2(state_path: Path) -> None:
     state = panel.load_state(state_path)
-    pending = next(
-        (item for item in state["pending_actions"] if isinstance(item, dict) and item.get("status") == "pending"),
-        None,
-    )
+    pending = research_status.pending_research(state)
     if pending is None:
         print("No pending research action")
         return
@@ -261,6 +284,7 @@ def _research_current_v2(state_path: Path) -> None:
     chat_id = pending.get("chat_id")
     kind = str(pending.get("kind") or "long")
     pending["attempts"] = int(pending.get("attempts", 0) or 0) + 1
+    attempts = int(pending["attempts"])
     try:
         from isco_video_agent.research import gather_signals, measure_market_timing, select_topic
 
@@ -270,10 +294,6 @@ def _research_current_v2(state_path: Path) -> None:
         region = (os.environ.get("YOUTUBE_REGION") or "SA").strip()
         language = (os.environ.get("YOUTUBE_LANGUAGE") or "ar").strip()
         exclusions = _recent_seen_topics(state, kind)
-        # Topic Research V2 deliberately does not spend search.list quota on the
-        # legacy five broad YouTube discovery seeds. Gemini grounded research +
-        # Google Trends generate the pool; only the strongest five candidates are
-        # then measured against YouTube recent-search evidence below.
         signals = gather_signals(
             gemini,
             None,
@@ -325,44 +345,64 @@ def _research_current_v2(state_path: Path) -> None:
         state.pop(active.PRODUCTION_TARGET_KEY, None)
         pending["status"] = "completed"
         pending["completed_at"] = panel._now()
+        state["last_research_result"] = {
+            "status": "completed",
+            "kind": kind,
+            "session_id": session_id,
+            "completed_at": pending["completed_at"],
+            "attempts": attempts,
+        }
+        state["last_event_at"] = pending["completed_at"]
+        panel.save_state(state_path, state)
     except Exception as exc:
         active._clear_current_selection(state)
         reason = _research_failure_reason(exc)
-        if pending["attempts"] >= 3:
+        final_failure = attempts >= 3
+        if final_failure:
             pending["status"] = "failed"
             pending["failed_at"] = panel._now()
-            text = (
-                "تعذر إكمال البحث الحي بعد عدة محاولات. لم يبدأ أي إنتاج، ولم أعرض مخزون Evergreen ثابتًا كأنه نتيجة جديدة. "
-                "يمكنك طلب البحث مرة أخرى من اللوحة."
-            )
-            if reason:
-                text += "\n" + reason
-            client.send(chat_id, text, keyboard=panel._main_keyboard())
+            state["last_research_result"] = {
+                "status": "failed",
+                "kind": kind,
+                "failed_at": pending["failed_at"],
+                "attempts": attempts,
+                "reason": reason,
+            }
+            text = _research_failed_text(kind, reason)
+            keyboard = [
+                [{"text": "🔎 بحث جديد", "callback_data": "cmd:search_menu"}],
+                [{"text": "🔄 تحديث الحالة", "callback_data": "cmd:status"}],
+                [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}],
+            ]
         else:
-            text = (
-                "لم يكتمل البحث الحي في هذه الدورة وسأبقي الطلب قيد المحاولة تلقائيًا خلال دقائق. "
-                "لن أعرض FallBack ثابتًا أو رقم اهتمام حالي غير موثق. لم يبدأ أي إنتاج."
-            )
-            if reason:
-                text += "\n" + reason
-            client.send(
-                chat_id,
-                text,
-                keyboard=[[{"text": "🧭 الحالة", "callback_data": "cmd:status"}]],
-            )
+            text = _research_retry_text(kind, attempts, reason)
+            keyboard = [
+                [{"text": "🔄 تحديث الحالة", "callback_data": "cmd:status"}],
+                [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}],
+            ]
+        state["last_event_at"] = panel._now()
         panel.save_state(state_path, state)
+        try:
+            research_status.update_message(client, pending, text, keyboard=keyboard, chat_id=chat_id)
+        except Exception as notify_exc:
+            print(f"Research status card update failed without duplicate send: {type(notify_exc).__name__}: {notify_exc}")
+        if final_failure:
+            research_status.prune_terminal_actions(state)
+            panel.save_state(state_path, state)
         raise
 
-    state["pending_actions"] = [
-        item for item in state["pending_actions"]
-        if not (isinstance(item, dict) and item.get("status") in {"completed", "failed"})
-    ]
-    state["last_event_at"] = panel._now()
-    panel.save_state(state_path, state)
     try:
-        client.send(chat_id, _candidate_panel_text(kind, chosen), keyboard=panel._candidate_keyboard(session_id, kind))
+        research_status.update_message(
+            client,
+            pending,
+            _candidate_panel_text(kind, chosen),
+            keyboard=panel._candidate_keyboard(session_id, kind),
+            chat_id=chat_id,
+        )
     except Exception as exc:
-        print(f"Research V2 completed and saved, but notifying chat {chat_id} failed: {exc}")
+        print(f"Research V2 completed and saved, but final card update failed without re-running research: {exc}")
+    research_status.prune_terminal_actions(state)
+    panel.save_state(state_path, state)
 
 
 def install_v2() -> None:

@@ -8,11 +8,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from isco_video_agent.brief_approval_binding import attach_approval_binding
 from isco_video_agent.short_planner import DEFAULT_SIBLING_SPACING_HOURS, select_sibling_jobs
 
 import scripts.planning_runtime_contract as planning_runtime_contract
 import scripts.run_v3_voice as production
+from scripts.control_approved_brief import materialize_approved_brief
 from scripts.native_short_planner_router import install_native_short_router
 from scripts.short_voice_v2 import apply_short_voice_v2
 from scripts.orchestration_shorts_port import finalize_short_quality, prepare_short_render
@@ -65,33 +65,6 @@ def load_control_request(path: Path, expected_sha256: str) -> dict[str, Any]:
     except Exception as exc:
         raise RuntimeError("Control request is missing or invalid JSON") from exc
     return validate_control_request(request, expected_sha256)
-
-
-def materialize_approved_brief(request: dict[str, Any], output: Path) -> tuple[Path, str]:
-    fmt = "moment" if request.get("kind") == "short" else str(request.get("format") or "film")
-    pack = request.get("approved_research_pack")
-    if fmt in {"film", "story"}:
-        if not isinstance(pack, list) or len(pack) < 2:
-            raise RuntimeError("Long control production requires a completed approved research pack before dispatch")
-    elif not isinstance(pack, list):
-        pack = []
-    brief = {
-        "approved_by_user": True,
-        "approved_topic": str(request.get("approved_topic") or "").strip(),
-        "format": fmt,
-        "approved_at": request.get("approved_at"),
-        "weekly_option_id": request.get("weekly_option_id"),
-        "research_pack": pack,
-        "content_boundaries": request.get("content_boundaries") or [],
-        "control_request_id": request.get("request_id"),
-        "control_request_sha256": request.get("request_sha256"),
-    }
-    if not brief["approved_topic"]:
-        raise RuntimeError("Control request has no approved topic")
-    bound = attach_approval_binding(brief)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(bound, ensure_ascii=False, indent=2), encoding="utf-8")
-    return output, str(bound["approved_hash"])
 
 
 def _output_dirs() -> set[Path]:

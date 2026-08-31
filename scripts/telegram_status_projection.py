@@ -13,7 +13,9 @@ from typing import Any
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts.telegram_production_queue import live_dispatch_count
 from scripts.telegram_release_approval import approval_projection
+from scripts.telegram_research_status import live_pending_count
 
 SCHEMA_VERSION = 1
 _BOOTSTRAP_TIME = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -50,6 +52,15 @@ def _kind_count(items: list[dict[str, Any]], kind: str) -> int:
     return sum(1 for item in items if str(item.get("kind") or "") == kind)
 
 
+def _production_status_count(state: dict[str, Any], status: str) -> int:
+    """Count one exact live production-ledger phase without exposing identities."""
+    return sum(
+        1
+        for item in _list(state.get("production_queue"))
+        if isinstance(item, dict) and str(item.get("status") or "") == status
+    )
+
+
 def _event_time(value: Any) -> datetime | None:
     text = str(value or "").strip()
     if not text:
@@ -74,8 +85,6 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
     active_session = str(state.get("active_research_session_id") or "").strip()
     target = _dict(state.get("production_target"))
     requests = _dict(state.get("requests"))
-    queue = _list(state.get("production_queue"))
-    pending_actions = _list(state.get("pending_actions"))
     saved = _available_saved_items(state)
     used = _used_items(state)
 
@@ -94,8 +103,14 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
             "used_long_count": _kind_count(used, "long"),
             "used_short_count": _kind_count(used, "short"),
             "request_count": len(requests),
-            "pending_actions_count": len(pending_actions),
-            "production_queue_count": len(queue),
+            "pending_actions_count": live_pending_count(state),
+            # Backward-compatible live handoff depth: pending + reserved only.
+            "production_queue_count": live_dispatch_count(state),
+            "production_waiting_count": _production_status_count(state, "pending_dispatch"),
+            "production_reserved_count": _production_status_count(state, "dispatch_reserved"),
+            # Consumed means V4 owns the request until terminal reconciliation records
+            # completed/failed. It is intentionally distinct from queue depth.
+            "production_inflight_count": _production_status_count(state, "dispatch_consumed"),
             "approved_target": bool(target),
             "approved_request_hash": _hash_id(target.get("request_id")),
         },

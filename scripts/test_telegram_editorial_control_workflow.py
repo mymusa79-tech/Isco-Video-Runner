@@ -13,7 +13,7 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.text = Path(".github/workflows/telegram-editorial-control.yml").read_text(encoding="utf-8")
 
-    def test_production_capability_is_enabled_but_only_explicitly_dispatched(self):
+    def test_production_capability_is_enabled_but_only_explicitly_handed_to_gateway(self):
         self.assertIn('CONTROL_PLANE_PRODUCTION_ENABLED: "true"', self.text)
         self.assertIn("actions: write", self.text)
         self.assertIn("if: steps.poll.outputs.needs_production == 'true'", self.text)
@@ -22,35 +22,37 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn('-f request_sha256="$REQUEST_SHA256"', self.text)
         self.assertIn('-f authorization_id="$AUTHORIZATION_ID"', self.text)
         self.assertIn('-f engine_sha="$ENGINE_SHA"', self.text)
-        self.assertNotIn("python scripts/run_control_production.py", self.text)
+        self.assertNotIn("gh workflow run produce-resilient-v4.yml", self.text)
 
-    def test_dispatch_is_durably_reserved_before_workflow_launch(self):
+    def test_dispatch_is_runner_bound_and_durably_reserved_before_gateway_launch(self):
         reserve = self.text.index("telegram_production_queue.py reserve")
         durable = self.text.index("Persist dispatch reservation before workflow dispatch")
         dispatch = self.text.index("gh workflow run telegram-production-request.yml")
         self.assertLess(reserve, durable)
         self.assertLess(durable, dispatch)
+        self.assertIn('--runner-sha "$GITHUB_SHA"', self.text)
         self.assertIn('control-panel.reserved.json.enc', self.text)
         self.assertIn('state: reserve explicit Telegram production dispatch', self.text)
         self.assertIn('--github-output "$GITHUB_OUTPUT"', self.text)
         self.assertIn('AUTHORIZATION_ID: ${{ steps.reserve.outputs.production_authorization_id }}', self.text)
-        self.assertNotIn("telegram_production_queue.py mark-dispatched", self.text)
 
-    def test_dedicated_production_workflow_owns_authorization_consumption(self):
-        self.assertIn('-f authorization_id="$AUTHORIZATION_ID"', self.text)
-        persist_start = self.text.index("- name: Persist encrypted control-panel state")
-        persist_end = self.text.index("\n\n      - name: Build sanitized Telegram read projection", persist_start)
-        persist_block = self.text[persist_start:persist_end]
-        self.assertIn("steps.poll.outputs.needs_production != 'true'", persist_block)
-        self.assertIn("steps.poll.outputs.production_active != 'true' ||", persist_block)
-        self.assertIn("steps.poll.outputs.release_approval_consumed == 'true'", persist_block)
+    def test_editorial_never_consumes_authorization_or_owns_production_runtime(self):
+        forbidden = (
+            "telegram_production_queue.py consume",
+            "run_control_production.py",
+            "run_telegram_control_production.py",
+            "run_v3_voice.py",
+            "release_transaction.py",
+        )
+        for needle in forbidden:
+            self.assertNotIn(needle, self.text)
         reservation = self.text.index("Persist dispatch reservation before workflow dispatch")
         dispatch = self.text.index("gh workflow run telegram-production-request.yml")
         generic_persist = self.text.index("Persist encrypted control-panel state")
         self.assertLess(reservation, dispatch)
         self.assertLess(dispatch, generic_persist)
 
-    def test_polling_is_read_only_while_any_production_path_is_active(self):
+    def test_polling_is_read_only_while_gateway_or_v4_is_active(self):
         self.assertIn("produce-resilient-v4.yml/runs?per_page=20", self.text)
         self.assertIn("telegram-production-request.yml/runs?per_page=20", self.text)
         self.assertIn('active=$((active_v4 + active_telegram))', self.text)
@@ -59,6 +61,13 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn('echo "production_active=true"', self.text)
         self.assertIn('echo "production_active=false"', self.text)
         self.assertIn('echo "needs_production=false"', self.text)
+
+    def test_sanitized_projection_is_refreshed_while_production_is_active(self):
+        start = self.text.index("Build sanitized Telegram read projection")
+        end = self.text.index("Persist sanitized Telegram read projection")
+        block = self.text[start:end]
+        self.assertIn("steps.poll.outputs.production_active == 'true'", block)
+        self.assertIn("python scripts/telegram_status_projection.py", block)
 
     def test_first_activation_ignores_historical_telegram_updates(self):
         self.assertIn("Prime Telegram offset on first activation", self.text)
@@ -78,7 +87,7 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn('-f engine_sha="$ENGINE_SHA"', self.text)
         self.assertNotIn(OLD_ENGINE_SHA, self.text)
 
-    def test_research_step_carries_an_openrouter_fallback_key(self):
+    def test_research_step_carries_openrouter_fallback_key(self):
         research_step = self.text.index("Execute one pending editorial research request")
         next_step = self.text.index("Reserve explicit production dispatch")
         segment = self.text[research_step:next_step]

@@ -65,9 +65,9 @@ class ControlRequestProductionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "approved research pack"):
                 control.materialize_approved_brief(request, Path(temp) / "brief.json")
 
-    def test_long_brief_accepts_two_structured_sources(self):
+    def test_long_brief_accepts_two_structured_sources_from_canonical_research_pack(self):
         request = self._request(kind="long", scope="long_only")
-        request["approved_research_pack"] = [
+        request["research_pack"] = [
             {"source_title": "Source A", "source_url": "https://example.com/a", "claim_scope": "background"},
             {"source_title": "Source B", "source_url": "https://example.com/b", "claim_scope": "background"},
         ]
@@ -76,6 +76,17 @@ class ControlRequestProductionTests(unittest.TestCase):
             path, _ = control.materialize_approved_brief(request, Path(temp) / "brief.json")
             brief = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(len(brief["research_pack"]), 2)
+
+    def test_legacy_approved_research_pack_is_not_silently_accepted(self):
+        request = self._request(kind="long", scope="long_only")
+        request["approved_research_pack"] = [
+            {"source_title": "Old field", "source_url": "https://example.com/old", "claim_scope": "background"},
+            {"source_title": "Old field 2", "source_url": "https://example.com/old2", "claim_scope": "background"},
+        ]
+        request["request_sha256"] = control._canonical_request_hash(request)
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(RuntimeError, "approved research pack"):
+                control.materialize_approved_brief(request, Path(temp) / "brief.json")
 
     def test_sibling_plan_selects_distinct_jobs_without_dispatch_and_hashes_exact_long_plan(self):
         request = self._request(kind="long", scope="long_plus_sibling_shorts")
@@ -120,13 +131,6 @@ class ControlRequestProductionTests(unittest.TestCase):
                 control.write_sibling_short_plan(root, request)
 
     def test_execute_control_request_patches_the_live_install_router_seam(self):
-        # Regression for the 2026-08-31 Telegram outage: production.install_router
-        # (scripts.run_v3_voice.install_router) no longer exists since the planning
-        # seam consolidation - production.main() resolves install_router from
-        # scripts.planning_runtime_contract's own module globals instead. Patching
-        # production.install_router is a dead reference that crashes with
-        # AttributeError before any planning logic runs; see
-        # test_short_control_router_seam_fresh_process.py for the real end-to-end proof.
         source = inspect.getsource(control.execute_control_request)
         self.assertNotIn("production.install_router", source)
         self.assertIn("planning_runtime_contract.install_router", source)

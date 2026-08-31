@@ -3,12 +3,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 QUEUE_KEY = "production_queue"
 RECENT_DISPATCH_SECONDS = 90 * 60
+LIVE_DISPATCH_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved"})
+FAILABLE_DISPATCH_STATUSES = frozenset({"dispatch_reserved", "dispatch_consumed"})
+DISPATCH_FAILURE_REASONS = frozenset({"workflow_dispatch_failed", "production_failed", "production_cancelled"})
 
 
 def _now() -> str:
@@ -24,6 +28,13 @@ def _request_hash(request: dict[str, Any]) -> str:
 def _authorization_id(*, request_id: str, request_sha256: str, requested_at: str, attempt: int, chat_id: int | str) -> str:
     payload = f"{request_id}|{request_sha256}|{requested_at}|{attempt}|{chat_id}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:32]
+
+
+def _runner_sha(value: str) -> str:
+    value = str(value or "").strip().lower()
+    if len(value) != 40 or any(ch not in "0123456789abcdef" for ch in value):
+        raise RuntimeError("Telegram dispatch reservation requires an exact 40-hex Runner SHA")
+    return value
 
 
 def validate_ready_request(request: dict[str, Any]) -> dict[str, Any]:
@@ -59,6 +70,23 @@ def _queue(state: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         raise RuntimeError("Telegram production queue is malformed")
     return value
+
+
+def live_dispatches(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return only dispatches that still require orchestration work.
+
+    production_queue is a durable dispatch ledger for backward-compatible replay
+    evidence; consumed, completed, and failed entries are history, not live queue depth.
+    """
+    return [
+        item
+        for item in _queue(state)
+        if isinstance(item, dict) and item.get("status") in LIVE_DISPATCH_STATUSES
+    ]
+
+
+def live_dispatch_count(state: dict[str, Any]) -> int:
+    return len(live_dispatches(state))
 
 
 def latest_ready_request(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -120,6 +148,8 @@ def _enqueue_ready_request(
         and item.get("request_sha256") == request_sha256
     ]
     for item in reversed(matches):
+        if item.get("status") == "completed":
+            return "already_completed", item
         if item.get("status") == "pending_dispatch":
             return "already_queued", item
         if item.get("status") == "dispatch_reserved" and _age_seconds(str(item.get("reserved_at") or "")) < RECENT_DISPATCH_SECONDS:
@@ -130,7 +160,7 @@ def _enqueue_ready_request(
     attempt = 1 + sum(
         1
         for item in matches
-        if item.get("status") in {"dispatch_reserved", "dispatch_consumed", "failed"}
+        if item.get("status") in {"dispatch_reserved", "dispatch_consumed", "completed", "failed"}
     )
     requested_at = _now()
     action = {
@@ -184,7 +214,10 @@ def pending_dispatch(state: dict[str, Any]) -> dict[str, Any] | None:
     return min(pending, key=lambda item: (str(item.get("requested_at") or ""), int(item.get("attempt", 1) or 1)))
 
 
-def reserve_dispatch(state: dict[str, Any], request_id: str, request_sha256: str) -> dict[str, Any]:
+def reserve_dispatch(
+    state: dict[str, Any], request_id: str, request_sha256: str, *, runner_sha: str
+) -> dict[str, Any]:
+    bound_runner_sha = _runner_sha(runner_sha)
     for item in _queue(state):
         if not isinstance(item, dict):
             continue
@@ -194,6 +227,7 @@ def reserve_dispatch(state: dict[str, Any], request_id: str, request_sha256: str
                 raise RuntimeError("Pending Telegram dispatch has no explicit authorization id")
             item["status"] = "dispatch_reserved"
             item["reserved_at"] = _now()
+            item["runner_sha"] = bound_runner_sha
             state["last_event_at"] = item["reserved_at"]
             return item
     raise RuntimeError("Pending Telegram production dispatch was not found for reservation")
@@ -204,10 +238,13 @@ def validate_dispatch_authorization(
     request_id: str,
     request_sha256: str,
     authorization_id: str,
+    *,
+    runner_sha: str = "",
 ) -> dict[str, Any]:
     authorization_id = str(authorization_id or "").strip()
     if not authorization_id:
         raise RuntimeError("Telegram dispatch authorization id is required")
+    expected_runner_sha = _runner_sha(runner_sha) if str(runner_sha or "").strip() else ""
     for item in _queue(state):
         if not isinstance(item, dict):
             continue
@@ -217,6 +254,11 @@ def validate_dispatch_authorization(
             and item.get("authorization_id") == authorization_id
             and item.get("status") == "dispatch_reserved"
         ):
+            bound = str(item.get("runner_sha") or "").strip().lower()
+            if expected_runner_sha and bound != expected_runner_sha:
+                raise RuntimeError("Telegram dispatch authorization is bound to a different Runner SHA")
+            if expected_runner_sha and not bound:
+                raise RuntimeError("Telegram dispatch authorization lacks Runner SHA binding")
             return item
     raise RuntimeError("Exact explicit Telegram dispatch authorization was not found")
 
@@ -228,14 +270,89 @@ def consume_dispatch_authorization(
     authorization_id: str,
     *,
     workflow_run_id: str = "",
+    runner_sha: str = "",
 ) -> dict[str, Any]:
-    item = validate_dispatch_authorization(state, request_id, request_sha256, authorization_id)
+    item = validate_dispatch_authorization(
+        state,
+        request_id,
+        request_sha256,
+        authorization_id,
+        runner_sha=runner_sha,
+    )
     item["status"] = "dispatch_consumed"
     item["consumed_at"] = _now()
     if workflow_run_id:
         item["workflow_run_id"] = str(workflow_run_id)
     state["last_event_at"] = item["consumed_at"]
     return item
+
+
+def mark_dispatch_completed(
+    state: dict[str, Any],
+    request_id: str,
+    request_sha256: str,
+    authorization_id: str,
+    *,
+    release_tag: str,
+) -> dict[str, Any]:
+    release_tag = str(release_tag or "").strip()
+    if not release_tag:
+        raise RuntimeError("Completed Telegram dispatch requires a release tag")
+    for item in _queue(state):
+        if not isinstance(item, dict):
+            continue
+        if (
+            item.get("request_id") == request_id
+            and item.get("request_sha256") == request_sha256
+            and item.get("authorization_id") == str(authorization_id or "").strip()
+        ):
+            if item.get("status") == "completed":
+                if item.get("completed_release_tag") != release_tag:
+                    raise RuntimeError("Completed Telegram dispatch release identity changed")
+                return item
+            if item.get("status") != "dispatch_consumed":
+                raise RuntimeError("Telegram dispatch is not consumed and cannot become completed")
+            completed_at = _now()
+            item["status"] = "completed"
+            item["completed_at"] = completed_at
+            item["completed_release_tag"] = release_tag
+            state["last_event_at"] = completed_at
+            return item
+    raise RuntimeError("Exact Telegram dispatch authorization was not found for completion transition")
+
+
+def mark_dispatch_failed(
+    state: dict[str, Any],
+    request_id: str,
+    request_sha256: str,
+    authorization_id: str,
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    reason = str(reason or "").strip()
+    if reason not in DISPATCH_FAILURE_REASONS:
+        raise RuntimeError("Unsupported Telegram dispatch failure reason")
+    for item in _queue(state):
+        if not isinstance(item, dict):
+            continue
+        if (
+            item.get("request_id") == request_id
+            and item.get("request_sha256") == request_sha256
+            and item.get("authorization_id") == str(authorization_id or "").strip()
+        ):
+            if item.get("status") == "failed":
+                return item
+            if item.get("status") == "completed":
+                raise RuntimeError("Completed Telegram dispatch cannot transition back to failed")
+            if item.get("status") not in FAILABLE_DISPATCH_STATUSES:
+                raise RuntimeError("Telegram dispatch is not in a fail-able state")
+            failed_at = _now()
+            item["status"] = "failed"
+            item["failed_at"] = failed_at
+            item["failure_reason"] = reason
+            state["last_event_at"] = failed_at
+            return item
+    raise RuntimeError("Exact Telegram dispatch authorization was not found for failure transition")
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -265,6 +382,7 @@ def main() -> None:
     reserve.add_argument("--state", required=True, type=Path)
     reserve.add_argument("--request-id", required=True)
     reserve.add_argument("--sha256", required=True)
+    reserve.add_argument("--runner-sha", default="")
     reserve.add_argument("--github-output", default="")
 
     consume = sub.add_parser("consume")
@@ -273,17 +391,34 @@ def main() -> None:
     consume.add_argument("--sha256", required=True)
     consume.add_argument("--authorization-id", required=True)
     consume.add_argument("--workflow-run-id", default="")
+    consume.add_argument("--runner-sha", default="")
+
+    complete = sub.add_parser("complete")
+    complete.add_argument("--state", required=True, type=Path)
+    complete.add_argument("--request-id", required=True)
+    complete.add_argument("--sha256", required=True)
+    complete.add_argument("--authorization-id", required=True)
+    complete.add_argument("--release-tag", required=True)
+
+    fail = sub.add_parser("fail")
+    fail.add_argument("--state", required=True, type=Path)
+    fail.add_argument("--request-id", required=True)
+    fail.add_argument("--sha256", required=True)
+    fail.add_argument("--authorization-id", required=True)
+    fail.add_argument("--reason", required=True, choices=sorted(DISPATCH_FAILURE_REASONS))
 
     args = parser.parse_args()
     state = _load(args.state)
     if args.command == "reserve":
-        item = reserve_dispatch(state, args.request_id, args.sha256)
+        runner_sha = str(args.runner_sha or os.environ.get("GITHUB_SHA") or "").strip()
+        item = reserve_dispatch(state, args.request_id, args.sha256, runner_sha=runner_sha)
         _save(args.state, state)
         _github_output(
             args.github_output,
             production_authorization_id=item["authorization_id"],
             production_request_id=item["request_id"],
             production_request_sha256=item["request_sha256"],
+            production_runner_sha=item["runner_sha"],
         )
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))
     elif args.command == "consume":
@@ -293,6 +428,27 @@ def main() -> None:
             args.sha256,
             args.authorization_id,
             workflow_run_id=args.workflow_run_id,
+            runner_sha=args.runner_sha,
+        )
+        _save(args.state, state)
+        print(json.dumps(item, ensure_ascii=False, sort_keys=True))
+    elif args.command == "complete":
+        item = mark_dispatch_completed(
+            state,
+            args.request_id,
+            args.sha256,
+            args.authorization_id,
+            release_tag=args.release_tag,
+        )
+        _save(args.state, state)
+        print(json.dumps(item, ensure_ascii=False, sort_keys=True))
+    elif args.command == "fail":
+        item = mark_dispatch_failed(
+            state,
+            args.request_id,
+            args.sha256,
+            args.authorization_id,
+            reason=args.reason,
         )
         _save(args.state, state)
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))

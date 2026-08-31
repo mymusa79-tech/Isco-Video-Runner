@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from scripts import telegram_rich_integration as integration
 
@@ -46,6 +47,14 @@ class TelegramRichIntegrationTests(unittest.TestCase):
         payload = integration._status_payload(state, FakeReleases())
         self.assertEqual(payload["stage"], "pending_dispatch")
         self.assertNotIn("progress", payload)
+
+    def test_status_command_sends_one_card_and_does_not_push_quality_as_second_message(self):
+        with mock.patch.object(integration, "_send_status_rich") as status, mock.patch.object(
+            integration, "_send_quality_rich_if_present"
+        ) as quality:
+            integration._handle_command("status", object(), {}, FakeReleases(), 77)
+        status.assert_called_once()
+        quality.assert_not_called()
 
     def test_quality_payload_reads_list_from_state(self):
         payload = integration._quality_payload({"quality_gates": [{"name": "A", "passed": True}]}, FakeReleases())

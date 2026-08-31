@@ -4,6 +4,9 @@ import unittest
 
 from scripts import telegram_production_queue as queue
 
+RUNNER_SHA = "a" * 40
+OTHER_RUNNER_SHA = "b" * 40
+
 
 def _request(
     request_id: str = "req-1",
@@ -25,6 +28,15 @@ def _request(
     }
     item["request_sha256"] = queue._request_hash(item)
     return item
+
+
+def _reserve(state: dict, action: dict, *, runner_sha: str = RUNNER_SHA):
+    return queue.reserve_dispatch(
+        state,
+        action["request_id"],
+        action["request_sha256"],
+        runner_sha=runner_sha,
+    )
 
 
 class TelegramProductionQueueTests(unittest.TestCase):
@@ -83,12 +95,57 @@ class TelegramProductionQueueTests(unittest.TestCase):
         self.assertEqual(same["request_sha256"], action["request_sha256"])
         self.assertEqual(len(state["production_queue"]), 1)
 
+    def test_live_queue_depth_excludes_terminal_ledger_history(self):
+        state = {"requests": {"req-1": _request()}, "production_queue": []}
+        _, action = queue.enqueue_latest_request(state, chat_id=77)
+        self.assertEqual(queue.live_dispatch_count(state), 1)
+        _reserve(state, action)
+        self.assertEqual(queue.live_dispatch_count(state), 1)
+        queue.consume_dispatch_authorization(
+            state,
+            action["request_id"],
+            action["request_sha256"],
+            action["authorization_id"],
+            runner_sha=RUNNER_SHA,
+        )
+        self.assertEqual(queue.live_dispatch_count(state), 0)
+        self.assertEqual(len(state["production_queue"]), 1)
+
+    def test_reservation_is_bound_to_exact_runner_sha(self):
+        request = _request()
+        state = {"requests": {"req-1": request}, "production_queue": []}
+        _, action = queue.enqueue_latest_request(state, chat_id=77)
+        reserved = _reserve(state, action)
+        self.assertEqual(reserved["status"], "dispatch_reserved")
+        self.assertEqual(reserved["runner_sha"], RUNNER_SHA)
+        queue.validate_dispatch_authorization(
+            state,
+            action["request_id"],
+            action["request_sha256"],
+            action["authorization_id"],
+            runner_sha=RUNNER_SHA,
+        )
+        with self.assertRaisesRegex(RuntimeError, "different Runner SHA"):
+            queue.validate_dispatch_authorization(
+                state,
+                action["request_id"],
+                action["request_sha256"],
+                action["authorization_id"],
+                runner_sha=OTHER_RUNNER_SHA,
+            )
+
+    def test_invalid_runner_sha_fails_before_reservation(self):
+        state = {"requests": {"req-1": _request()}, "production_queue": []}
+        _, action = queue.enqueue_latest_request(state, chat_id=77)
+        with self.assertRaisesRegex(RuntimeError, "40-hex Runner SHA"):
+            queue.reserve_dispatch(state, action["request_id"], action["request_sha256"], runner_sha="main")
+        self.assertEqual(action["status"], "pending_dispatch")
+
     def test_reservation_is_durable_gate_before_dispatch(self):
         request = _request()
         state = {"requests": {"req-1": request}, "production_queue": []}
         _, action = queue.enqueue_latest_request(state, chat_id=77)
-        reserved = queue.reserve_dispatch(state, action["request_id"], action["request_sha256"])
-        self.assertEqual(reserved["status"], "dispatch_reserved")
+        reserved = _reserve(state, action)
         self.assertTrue(reserved["reserved_at"])
         self.assertEqual(reserved["authorization_id"], action["authorization_id"])
         self.assertIsNone(queue.pending_dispatch(state))
@@ -104,9 +161,13 @@ class TelegramProductionQueueTests(unittest.TestCase):
             queue.validate_dispatch_authorization(
                 state, action["request_id"], action["request_sha256"], action["authorization_id"]
             )
-        queue.reserve_dispatch(state, action["request_id"], action["request_sha256"])
+        _reserve(state, action)
         authorized = queue.validate_dispatch_authorization(
-            state, action["request_id"], action["request_sha256"], action["authorization_id"]
+            state,
+            action["request_id"],
+            action["request_sha256"],
+            action["authorization_id"],
+            runner_sha=RUNNER_SHA,
         )
         self.assertEqual(authorized["status"], "dispatch_reserved")
         consumed = queue.consume_dispatch_authorization(
@@ -115,6 +176,7 @@ class TelegramProductionQueueTests(unittest.TestCase):
             action["request_sha256"],
             action["authorization_id"],
             workflow_run_id="123",
+            runner_sha=RUNNER_SHA,
         )
         self.assertEqual(consumed["status"], "dispatch_consumed")
         self.assertEqual(consumed["workflow_run_id"], "123")
@@ -123,41 +185,112 @@ class TelegramProductionQueueTests(unittest.TestCase):
             queue.validate_dispatch_authorization(
                 state, action["request_id"], action["request_sha256"], action["authorization_id"]
             )
-        with self.assertRaisesRegex(RuntimeError, "explicit Telegram dispatch authorization"):
-            queue.consume_dispatch_authorization(
-                state, action["request_id"], action["request_sha256"], action["authorization_id"]
-            )
         status, _ = queue.enqueue_latest_request(state, chat_id=77)
         self.assertEqual(status, "already_dispatched_recent")
+
+    def test_failed_dispatch_is_terminal_and_retryable_with_new_authorization(self):
+        state = {"requests": {"req-1": _request()}, "production_queue": []}
+        _, first = queue.enqueue_latest_request(state, chat_id=77)
+        _reserve(state, first)
+        failed = queue.mark_dispatch_failed(
+            state,
+            first["request_id"],
+            first["request_sha256"],
+            first["authorization_id"],
+            reason="workflow_dispatch_failed",
+        )
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(queue.live_dispatch_count(state), 0)
+        status, second = queue.enqueue_latest_request(state, chat_id=77)
+        self.assertEqual(status, "retry_queued")
+        self.assertNotEqual(first["authorization_id"], second["authorization_id"])
+
+    def test_consumed_production_can_transition_to_failed_and_retry_immediately(self):
+        state = {"requests": {"req-1": _request()}, "production_queue": []}
+        _, first = queue.enqueue_latest_request(state, chat_id=77)
+        _reserve(state, first)
+        queue.consume_dispatch_authorization(
+            state,
+            first["request_id"],
+            first["request_sha256"],
+            first["authorization_id"],
+            workflow_run_id="456",
+            runner_sha=RUNNER_SHA,
+        )
+        queue.mark_dispatch_failed(
+            state,
+            first["request_id"],
+            first["request_sha256"],
+            first["authorization_id"],
+            reason="production_failed",
+        )
+        status, second = queue.enqueue_latest_request(state, chat_id=77)
+        self.assertEqual(status, "retry_queued")
+        self.assertEqual(second["attempt"], 2)
 
     def test_wrong_authorization_cannot_consume_reserved_action(self):
         state = {"requests": {"req-1": _request()}, "production_queue": []}
         _, action = queue.enqueue_latest_request(state, chat_id=77)
-        queue.reserve_dispatch(state, action["request_id"], action["request_sha256"])
+        _reserve(state, action)
         with self.assertRaisesRegex(RuntimeError, "explicit Telegram dispatch authorization"):
             queue.consume_dispatch_authorization(
-                state, action["request_id"], action["request_sha256"], "wrong-auth"
+                state, action["request_id"], action["request_sha256"], "wrong-auth", runner_sha=RUNNER_SHA
             )
         self.assertEqual(state["production_queue"][0]["status"], "dispatch_reserved")
+
+    def test_completed_dispatch_is_permanently_idempotent(self):
+        state = {"requests": {"req-1": _request()}, "production_queue": []}
+        _, action = queue.enqueue_latest_request(state, chat_id=77)
+        _reserve(state, action)
+        queue.consume_dispatch_authorization(
+            state,
+            action["request_id"],
+            action["request_sha256"],
+            action["authorization_id"],
+            runner_sha=RUNNER_SHA,
+        )
+        queue.mark_dispatch_completed(
+            state,
+            action["request_id"],
+            action["request_sha256"],
+            action["authorization_id"],
+            release_tag="video-telegram-req-1",
+        )
+        status, same = queue.enqueue_latest_request(state, chat_id=77)
+        self.assertEqual(status, "already_completed")
+        self.assertEqual(same["completed_release_tag"], "video-telegram-req-1")
+        with self.assertRaisesRegex(RuntimeError, "cannot transition back"):
+            queue.mark_dispatch_failed(
+                state,
+                action["request_id"],
+                action["request_sha256"],
+                action["authorization_id"],
+                reason="production_failed",
+            )
 
     def test_retry_gets_distinct_authorization_and_never_reuses_consumed_attempt(self):
         request = _request()
         state = {"requests": {"req-1": request}, "production_queue": []}
         _, first = queue.enqueue_latest_request(state, chat_id=77)
-        queue.reserve_dispatch(state, first["request_id"], first["request_sha256"])
+        _reserve(state, first)
         queue.consume_dispatch_authorization(
-            state, first["request_id"], first["request_sha256"], first["authorization_id"]
+            state,
+            first["request_id"],
+            first["request_sha256"],
+            first["authorization_id"],
+            runner_sha=RUNNER_SHA,
         )
         state["production_queue"][0]["consumed_at"] = "2026-08-20T00:00:00+00:00"
         status, second = queue.enqueue_latest_request(state, chat_id=77)
         self.assertEqual(status, "retry_queued")
         self.assertNotEqual(first["authorization_id"], second["authorization_id"])
-        queue.reserve_dispatch(state, second["request_id"], second["request_sha256"])
+        _reserve(state, second)
         queue.consume_dispatch_authorization(
             state,
             second["request_id"],
             second["request_sha256"],
             second["authorization_id"],
+            runner_sha=RUNNER_SHA,
         )
         self.assertEqual(state["production_queue"][0]["status"], "dispatch_consumed")
         self.assertEqual(state["production_queue"][1]["status"], "dispatch_consumed")

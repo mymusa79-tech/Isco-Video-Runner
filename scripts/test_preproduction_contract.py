@@ -43,6 +43,51 @@ class PreProductionContractTests(unittest.TestCase):
             tmp.cleanup()
         self.assertIn("release_namespace_guard", codes)
 
+    def test_release_namespace_guard_may_live_in_wrapped_core(self) -> None:
+        tmp, root = self._repo("on:\n  workflow_dispatch:\nconcurrency:\njobs:\n  x:\n    runs-on: ubuntu-24.04\n")
+        try:
+            scripts = root / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "environment_preflight.py").write_text(
+                "from scripts import environment_preflight_core as _core\n",
+                encoding="utf-8",
+            )
+            (scripts / "environment_preflight_core.py").write_text(
+                "def _release_namespace_status(repository, release_tag):\n    return 'available'\n",
+                encoding="utf-8",
+            )
+            codes = {item.code for item in audit_preproduction_contract(root)}
+        finally:
+            tmp.cleanup()
+        self.assertNotIn("release_namespace_guard", codes)
+
+    def test_release_collision_reconciliation_requires_exact_target_receipt_media_and_draft_guards(self) -> None:
+        tmp, root = self._repo("on:\n  workflow_dispatch:\nconcurrency:\njobs:\n  x:\n    runs-on: ubuntu-24.04\n")
+        try:
+            scripts = root / "scripts"
+            scripts.mkdir(parents=True)
+            (scripts / "environment_preflight.py").write_text(
+                "from scripts import environment_preflight_core as _core\n",
+                encoding="utf-8",
+            )
+            (scripts / "environment_preflight_core.py").write_text(
+                "def _release_namespace_status(repository, release_tag):\n"
+                "    raise RuntimeError('existing release tag belongs to a different Runner SHA')\n",
+                encoding="utf-8",
+            )
+            (scripts / "release_transaction.py").write_text(
+                "def publish():\n"
+                "    _assert_release_identity(existing, tag=tag, target_sha=target_sha)\n"
+                "    _download_and_verify_receipt(existing)\n"
+                "    # media-byte and exact-draft guards are intentionally absent\n",
+                encoding="utf-8",
+            )
+            codes = {item.code for item in audit_preproduction_contract(root)}
+        finally:
+            tmp.cleanup()
+        self.assertIn("release_collision_fail_closed", codes)
+        self.assertNotIn("release_collision_target_guard", codes)
+
     def test_release_target_sha_binding_is_required(self) -> None:
         tmp, root = self._repo("on:\n  workflow_dispatch:\nconcurrency:\njobs:\n  x:\n    runs-on: ubuntu-24.04\n")
         try:

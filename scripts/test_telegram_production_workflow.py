@@ -11,150 +11,142 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.text = Path(".github/workflows/telegram-production-request.yml").read_text(encoding="utf-8")
 
-    def test_workflow_is_dispatch_only_and_serialized_with_canonical_production(self):
+    def test_workflow_is_explicit_admission_only(self):
         self.assertIn("workflow_dispatch:", self.text)
         self.assertNotIn("schedule:", self.text)
         self.assertNotIn("pull_request:", self.text)
         self.assertNotIn("push:", self.text)
-        self.assertIn("group: isco-video-resilient-v4", self.text)
-        self.assertIn("cancel-in-progress: false", self.text)
+        self.assertIn("actions: write", self.text)
+        self.assertIn("contents: write", self.text)
+        self.assertIn("timeout-minutes: 10", self.text)
 
-    def test_exact_immutable_approval_and_second_action_authorization_are_required(self):
-        self.assertIn("request_id:", self.text)
-        self.assertIn("request_sha256:", self.text)
-        self.assertIn("authorization_id:", self.text)
-        self.assertIn("Restore exact encrypted Telegram approval and dispatch authorization", self.text)
-        self.assertIn("state/control-panel.json.enc", self.text)
-        self.assertIn("validate_ready_request(request)", self.text)
-        self.assertIn("validate_dispatch_authorization(state, request_id, expected, authorization_id)", self.text)
-        self.assertIn('request.get("request_sha256") != expected', self.text)
-        self.assertIn("approved-request.json", self.text)
-
-    def test_authorization_is_consumed_and_persisted_once_before_any_production(self):
-        restore = self.text.index("Restore exact encrypted Telegram approval and dispatch authorization")
-        consume = self.text.index("Consume and persist one-time dispatch authorization")
-        idempotency = self.text.index("Idempotency guard")
-        engine = self.text.index("Checkout exact private Engine")
-        production = self.text.index("Run exact approved Telegram production")
-        self.assertLess(restore, consume)
-        self.assertLess(consume, idempotency)
-        self.assertLess(consume, engine)
-        self.assertLess(consume, production)
-        self.assertIn("telegram_production_queue.py consume", self.text)
-        self.assertIn('--authorization-id "$AUTHORIZATION_ID"', self.text)
-        self.assertIn('--workflow-run-id "$GITHUB_RUN_ID"', self.text)
-        self.assertIn("state: consume Telegram production authorization", self.text)
-        self.assertIn("control-panel.consumed.json.enc", self.text)
-        self.assertIn("One-time Telegram authorization consumption produced no durable state delta", self.text)
-        self.assertIn("persist-credentials: true", self.text)
-
-    def test_runner_and_engine_are_exactly_bound(self):
+    def test_exact_request_authorization_engine_and_runner_are_bound(self):
+        for field in ("request_id:", "request_sha256:", "authorization_id:", "engine_sha:"):
+            self.assertIn(field, self.text)
         self.assertIn(f"EXPECTED_ENGINE_SHA: {ENGINE_SHA}", self.text)
         self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', self.text)
         self.assertIn('test "${GITHUB_REF_NAME}" = "main"', self.text)
         self.assertIn('test "$REQUESTED_ENGINE_SHA" = "$EXPECTED_ENGINE_SHA"', self.text)
-        self.assertIn("ref: ${{ inputs.engine_sha }}", self.text)
-        self.assertIn('test "$(git rev-parse HEAD)" = "$REQUESTED_ENGINE_SHA"', self.text)
+        self.assertIn("Restore exact durable Telegram reservation", self.text)
+        self.assertIn("validate_ready_request(request)", self.text)
+        self.assertIn("validate_dispatch_authorization(", self.text)
+        self.assertIn('runner_sha=os.environ["GITHUB_SHA"]', self.text)
+        self.assertIn('request.get("request_sha256") != expected', self.text)
 
-    def test_production_enablement_exists_only_inside_explicit_target(self):
-        self.assertIn('CONTROL_PLANE_PRODUCTION_ENABLED: "true"', self.text)
-        self.assertIn("python ../scripts/run_telegram_control_production.py", self.text)
-        self.assertNotIn("python ../scripts/run_v3_voice.py", self.text)
+    def test_gateway_does_not_own_engine_runtime_or_release(self):
+        forbidden = (
+            "repository: mymusa79-tech/Isco-Video-Agent",
+            "run_v3_voice.py",
+            "run_telegram_control_production.py",
+            "run_control_production.py",
+            "release_transaction.py",
+            "piper-tts",
+            "GROQ_API_KEY",
+            "PEXELS_API_KEY",
+            "PIXABAY_API_KEY",
+            "Create GitHub Release",
+        )
+        for needle in forbidden:
+            self.assertNotIn(needle, self.text)
 
-    def test_idempotency_requires_verified_release_identity_not_tag_existence_only(self):
-        block_start = self.text.index("Idempotency guard")
-        block_end = self.text.index("Checkout exact private Engine")
-        block = self.text[block_start:block_end]
+    def test_only_canonical_v4_receives_the_reserved_request_with_tracked_dispatch(self):
+        dispatch = self.text.index("Dispatch exact reservation to the single V4 owner")
+        race = self.text.index("Reject post-dispatch concurrency race instead of waiting")
+        block = self.text[dispatch:race]
+        self.assertIn("actions/workflows/produce-resilient-v4.yml/dispatches", block)
+        self.assertIn("X-GitHub-Api-Version: 2026-03-10", block)
+        self.assertIn("return_run_details:true", block)
+        self.assertIn('ref:"main"', block)
+        self.assertIn("request_id:$request_id", block)
+        self.assertIn("request_sha256:$request_sha256", block)
+        self.assertIn("authorization_id:$authorization_id", block)
+        self.assertIn("engine_sha:$engine_sha", block)
+        self.assertIn(".workflow_run_id // empty", block)
+        self.assertIn("workflow_run_id=$child_run_id", block)
+        self.assertIn("workflow_run_url=$child_run_url", block)
+        self.assertNotIn("gh workflow run telegram-production-request.yml", self.text)
+
+    def test_admission_never_queues_behind_active_v4(self):
+        capacity = self.text.index("Admission gate — never queue behind an active V4 run")
+        dispatch = self.text.index("Dispatch exact reservation to the single V4 owner")
+        block = self.text[capacity:dispatch]
+        self.assertIn("produce-resilient-v4.yml/runs?per_page=20", block)
+        self.assertIn('select(.status != "completed")', block)
+        self.assertIn('echo "available=false"', block)
+        self.assertIn("will not be queued behind it", block)
+        self.assertIn("steps.capacity.outputs.available == 'true'", self.text)
+
+    def test_post_dispatch_race_cancels_only_our_pending_child_and_releases_reservation(self):
+        start = self.text.index("Reject post-dispatch concurrency race instead of waiting")
+        end = self.text.index("Release reservation when admission or dispatch cannot start V4")
+        block = self.text[start:end]
+        self.assertIn("CHILD_RUN_ID: ${{ steps.dispatch.outputs.workflow_run_id }}", block)
+        self.assertIn("for attempt in 1 2 3", block)
+        self.assertIn("actions/runs/${CHILD_RUN_ID}", block)
+        self.assertIn("produce-resilient-v4.yml/runs?per_page=20", block)
+        self.assertIn(".id != $child", block)
+        self.assertIn("actions/runs/${CHILD_RUN_ID}/cancel", block)
+        self.assertIn('echo "accepted=false"', block)
+        self.assertIn('echo "reason=concurrency_race"', block)
+        self.assertNotIn("cancel-in-progress: true", block)
+
+        release_start = end
+        release_end = self.text.index("Notify only when the request could not start")
+        release = self.text[release_start:release_end]
+        self.assertIn("steps.race_guard.outcome == 'failure'", release)
+        self.assertIn("steps.race_guard.outputs.accepted == 'false'", release)
+        self.assertIn("telegram_v4_ingress.py fail", release)
+        self.assertIn("state: release failed Telegram V4 admission", release)
+
+    def test_verified_existing_release_is_reconciled_without_new_production(self):
+        duplicate = self.text.index("Reject duplicate completed release without starting Production")
+        reconcile = self.text.index("Reconcile an already completed release into the latest durable state")
+        capacity = self.text.index("Admission gate — never queue behind an active V4 run")
+        block = self.text[duplicate:capacity]
+        self.assertLess(duplicate, reconcile)
         self.assertIn('gh release view "$RELEASE_TAG"', block)
-        self.assertIn("python scripts/telegram_release_identity.py", block)
+        self.assertIn("telegram_release_identity.py", block)
         self.assertIn('--target-sha "$GITHUB_SHA"', block)
-        self.assertIn('--request "$ISCO_CONTROL_REQUEST_PATH"', block)
-        self.assertIn('already_released=true', block)
-        self.assertIn("verified completed delivery release", block)
+        self.assertIn("git fetch --no-tags origin control-plane-state", block)
+        self.assertIn("telegram_production_queue.py consume", block)
+        self.assertIn('--runner-sha "$GITHUB_SHA"', block)
+        self.assertIn("telegram_v4_ingress.py complete", block)
 
-    def test_release_uses_same_transactional_publisher_as_canonical_v4(self):
-        release_start = self.text.index("Create one deterministic delivery release")
-        release_end = self.text.index("Upload Telegram release transaction evidence")
-        block = self.text[release_start:release_end]
-        self.assertIn("python scripts/release_transaction.py", block)
-        self.assertIn('--target-sha "$GITHUB_SHA"', block)
-        self.assertIn('--journal "$journal"', block)
-        self.assertIn('release_cmd+=(--asset "$asset")', block)
-        self.assertIn('"${release_cmd[@]}"', block)
-        self.assertIn("python scripts/telegram_release_identity.py", block)
-        self.assertNotIn('gh release create "$RELEASE_TAG"', block)
+    def test_failed_admission_reloads_latest_state_and_releases_reservation(self):
+        start = self.text.index("Release reservation when admission or dispatch cannot start V4")
+        end = self.text.index("Notify only when the request could not start")
+        block = self.text[start:end]
+        fetch = block.index("git fetch --no-tags origin control-plane-state")
+        fail = block.index("telegram_v4_ingress.py fail")
+        self.assertLess(fetch, fail)
+        self.assertIn("workflow_dispatch_failed", block)
+        self.assertIn("state: release failed Telegram V4 admission", block)
+        self.assertIn("steps.capacity.outputs.available == 'false'", block)
+        self.assertIn("steps.dispatch.outcome == 'failure'", block)
+        self.assertIn("steps.race_guard.outcome == 'failure'", block)
+        self.assertIn("steps.race_guard.outputs.accepted == 'false'", block)
 
-    def test_delivery_stays_staged_until_transactional_release_step(self):
-        validate = self.text.index("Validate exact staged delivery package")
-        finalize = self.text.index("finalize_release_manifest(")
-        release = self.text.index("python scripts/release_transaction.py")
-        verify = self.text.index("python scripts/telegram_release_identity.py", release)
-        self.assertLess(validate, finalize)
-        self.assertLess(finalize, release)
-        self.assertLess(release, verify)
-        self.assertIn('data.get("release_state") != "staged"', self.text)
-        self.assertIn('data.get("release_tag") is not None', self.text)
-        self.assertIn('data.get("delivery_url") is not None', self.text)
+    def test_gateway_notification_never_claims_a_queued_wait(self):
+        self.assertIn("RACE_ACCEPTED: ${{ steps.race_guard.outputs.accepted }}", self.text)
+        self.assertIn("RACE_ACCEPTED", self.text)
+        self.assertIn("لم أضع اختيارك في طابور انتظار", self.text)
+        self.assertIn("لم يُترك في انتظار أو حجز صامت", self.text)
 
-    def test_release_transaction_evidence_is_durable_diagnostic(self):
-        self.assertIn("Upload Telegram release transaction evidence", self.text)
-        self.assertIn("telegram-release-transaction-${{ github.run_number }}", self.text)
-        self.assertIn("telegram-release-transaction.json", self.text)
-        self.assertIn("continue-on-error: true", self.text)
-
-    def test_successful_topic_is_recorded_only_after_verified_delivery_release_and_before_notification(self):
-        release = self.text.index("python scripts/release_transaction.py")
-        verify = self.text.index("python scripts/telegram_release_identity.py", release)
-        used = self.text.index("Record successful topic in encrypted used-topic history")
-        notify = self.text.index("Notify Telegram final status")
-        self.assertLess(release, verify)
-        self.assertLess(verify, used)
-        self.assertLess(used, notify)
-        self.assertIn("if: success() && steps.request.outcome == 'success'", self.text)
-        self.assertIn("ui._mark_request_used(", self.text)
-        self.assertIn("control-panel.used.json.enc", self.text)
-        self.assertIn("state: record successful Telegram topic", self.text)
-        self.assertIn("git push origin HEAD:control-plane-state", self.text)
-        self.assertNotIn("continue-on-error: true\n        env:\n          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}\n          RELEASE_TAG", self.text)
-
-    def test_used_topic_persistence_is_idempotent_for_an_existing_verified_release(self):
-        used_block_start = self.text.index("Record successful topic in encrypted used-topic history")
-        used_block_end = self.text.index("Checkout agent-state writer")
-        block = self.text[used_block_start:used_block_end]
-        self.assertNotIn("already_released != 'true'", block)
-        self.assertIn("prior_used_at", block)
-        self.assertIn("Used-topic history already contains this completed request", block)
-
-    def test_final_master_qc_is_required_for_validation_diagnostics_and_release(self):
-        self.assertIn('master_qc = root / "final-master-qc.json"', self.text)
-        self.assertIn('qc.get("status") == "pass"', self.text)
-        self.assertIn('qc.get("full_decode_ok") is True', self.text)
-        self.assertIn('qc.get("final_media_mutated") is False', self.text)
-        self.assertIn('not list(qc.get("blocking_findings") or [])', self.text)
-        self.assertIn('embedded.get("file") != "final-master-qc.json"', self.text)
-        self.assertIn("Upload Telegram production diagnostics on failure", self.text)
-        self.assertGreaterEqual(self.text.count("engine/output/*/final-master-qc.json"), 1)
-        self.assertIn('"final-master-qc.json", "final-critic.json"', self.text)
-
-    def test_delivery_is_manual_youtube_only(self):
-        self.assertIn('youtube_publish_mode") != "manual_in_youtube_studio"', self.text)
-        self.assertIn('publication_performed") is not False', self.text)
-        self.assertIn("YouTube publication is manual", self.text)
+    def test_gateway_never_publishes_to_youtube(self):
         forbidden = (
             "youtube.videos().insert",
             "videos.insert",
             "upload_to_youtube",
             "youtube-upload",
             "publish_to_youtube",
+            "YOUTUBE_REFRESH_TOKEN",
         )
         for needle in forbidden:
             self.assertNotIn(needle, self.text)
 
-    def test_plaintext_control_and_runtime_material_are_removed(self):
-        self.assertIn("Remove plaintext control secrets and state", self.text)
-        self.assertIn('rm -rf "$RUNNER_TEMP/isco-secrets"', self.text)
+    def test_plaintext_admission_state_is_removed(self):
+        self.assertIn("Remove plaintext admission state", self.text)
         self.assertIn('rm -rf "$RUNNER_TEMP/isco-control"', self.text)
-        self.assertIn('rm -rf "$RUNNER_TEMP/isco-state"', self.text)
 
 
 if __name__ == "__main__":
