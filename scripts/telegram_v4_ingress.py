@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,13 @@ def _github_output(path: Path | None, **values: object) -> None:
             handle.write(f"{key}={value}\n")
 
 
+def _current_runner_sha() -> str:
+    value = str(os.environ.get("GITHUB_SHA") or "").strip().lower()
+    if len(value) != 40 or any(ch not in "0123456789abcdef" for ch in value):
+        raise RuntimeError("V4 Telegram ingress requires exact current GITHUB_SHA")
+    return value
+
+
 def prepare(
     *,
     state_path: Path,
@@ -63,9 +71,16 @@ def prepare(
 ) -> dict[str, str]:
     if str(engine_sha or "").strip() != str(expected_engine_sha or "").strip():
         raise RuntimeError("Telegram dispatch Engine SHA does not match certified V4 Engine pin")
+    runner_sha = _current_runner_sha()
     state = _load(state_path)
     request = _request(state, request_id, request_sha256)
-    validate_dispatch_authorization(state, request_id, request_sha256, authorization_id)
+    validate_dispatch_authorization(
+        state,
+        request_id,
+        request_sha256,
+        authorization_id,
+        runner_sha=runner_sha,
+    )
 
     approved_request_output = Path(approved_request_output)
     approved_request_output.parent.mkdir(parents=True, exist_ok=True)
@@ -95,6 +110,7 @@ def prepare(
         request_sha256,
         authorization_id,
         workflow_run_id=workflow_run_id,
+        runner_sha=runner_sha,
     )
     _save(state_path, state)
     values = {
@@ -102,6 +118,7 @@ def prepare(
         "release_tag": release_tag,
         "kind": str(request.get("kind") or ""),
         "approval_scope": str(request.get("approval_scope") or ""),
+        "runner_sha": runner_sha,
     }
     _github_output(github_output, **values)
     return values
