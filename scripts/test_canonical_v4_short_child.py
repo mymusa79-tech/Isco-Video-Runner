@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import unittest
 
 from scripts import canonical_v4_short_child as child
@@ -65,6 +66,17 @@ class CanonicalV4ShortChildTests(unittest.TestCase):
         request["request_sha256"] = child._canonical_hash(request)
         with self.assertRaisesRegex(RuntimeError, "manual YouTube publication"):
             child.validate_request(request, request["request_sha256"])
+
+    def test_execute_patches_the_live_install_router_seam(self) -> None:
+        # Regression for the 2026-08-31 Telegram outage: scripts.run_v3_voice no longer
+        # exposes install_router since the planning seam consolidation - production.
+        # main() resolves it from scripts.planning_runtime_contract's own module
+        # globals. Patching production.install_router is a dead reference that used to
+        # crash with AttributeError before any planning logic ran; see
+        # test_short_control_router_seam_fresh_process.py for the real end-to-end proof.
+        source = inspect.getsource(child.execute)
+        self.assertNotIn("production.install_router", source)
+        self.assertIn("planning_runtime_contract.install_router", source)
 
     def test_short_scope_and_moment_format_are_immutable(self) -> None:
         for field, value in (("format", "film"), ("approval_scope", "short_only"), ("kind", "long")):
