@@ -5,9 +5,11 @@ from typing import Any, Iterable
 from scripts import telegram_control_active_ui as active
 from scripts import telegram_control_panel as panel
 from scripts import telegram_persistent_control_ui as persistent_ui
+from scripts import telegram_research_status as research_status
 from scripts import telegram_topic_memory_ui as memory_ui
 
 CONFIRM_TEXT = persistent_ui.PRODUCTION_CONFIRMATION_TEXT
+_ACTIVE_PRODUCTION_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved", "dispatch_consumed"})
 
 
 def _clip(value: object, limit: int = 72) -> str:
@@ -188,30 +190,89 @@ def _last_delivery(state: dict[str, Any], releases) -> tuple[str, list[list[dict
     return "\n".join(lines), rows
 
 
-def _operator_status(state: dict[str, Any], releases) -> tuple[str, list[list[dict[str, Any]]]]:
-    pending = next(
-        (item for item in state.get("pending_actions", []) if isinstance(item, dict) and item.get("status") == "pending"),
-        None,
+def _latest_active_production(state: dict[str, Any]) -> dict[str, Any] | None:
+    queue = state.get("production_queue")
+    if not isinstance(queue, list):
+        return None
+    live = [
+        item
+        for item in queue
+        if isinstance(item, dict) and str(item.get("status") or "") in _ACTIVE_PRODUCTION_STATUSES
+    ]
+    if not live:
+        return None
+    return max(
+        live,
+        key=lambda item: (
+            str(item.get("consumed_at") or item.get("reserved_at") or item.get("requested_at") or ""),
+            int(item.get("attempt", 0) or 0),
+        ),
     )
+
+
+def _ready_research_session(state: dict[str, Any]) -> dict[str, Any] | None:
+    session_id = str(state.get(active.ACTIVE_RESEARCH_SESSION_KEY) or "").strip()
+    if not session_id:
+        return None
+    sessions = state.get("sessions")
+    if not isinstance(sessions, dict):
+        return None
+    session = sessions.get(session_id)
+    if not isinstance(session, dict):
+        return None
+    candidates = session.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        return None
+    return session
+
+
+def _operator_status(state: dict[str, Any], releases) -> tuple[str, list[list[dict[str, Any]]]]:
+    pending = research_status.pending_research(state)
     target = active._current_target(state)
-    queue = [item for item in state.get("production_queue", []) if isinstance(item, dict)]
-    pending_queue = next((item for item in queue if str(item.get("status") or "") in {"queued", "reserved"}), None)
+    active_production = _latest_active_production(state)
+    ready_session = _ready_research_session(state) if target is None else None
+    extra_rows: list[list[dict[str, Any]]] = []
 
     if pending is not None:
         kind = "الحلقة" if str(pending.get("kind") or "") == "long" else "الشورت"
+        attempts = int(pending.get("attempts", 0) or 0)
         now = f"🔎 بحث {kind} قيد التنفيذ أو الانتظار."
-        action = "لا شيء الآن — انتظر ظهور 3 الخيارات."
-    elif pending_queue is not None:
-        now = "🚀 طلب Production مؤكد وموجود في مسار الإرسال المحمي."
-        action = "لا شيء الآن — لا تكرر التأكيد."
+        if attempts:
+            now += f"\nالمحاولة المنفذة: {attempts}/3."
+        action = "لا شيء الآن — نفس بطاقة البحث ستتحدث عند النجاح أو إعادة المحاولة."
+    elif active_production is not None:
+        status = str(active_production.get("status") or "")
+        if status == "pending_dispatch":
+            now = "🚀 تم تأكيد Production وهو ينتظر الحجز داخل مسار V4 المحمي."
+        elif status == "dispatch_reserved":
+            now = "🔐 حُجز تفويض Production لمرة واحدة ويجري تسليمه إلى V4."
+        else:
+            now = "🎬 Production يعمل الآن داخل V4 الموحد."
+            run_id = str(active_production.get("workflow_run_id") or "").strip()
+            if run_id:
+                now += f"\nRun ID: {run_id}"
+        action = "لا شيء الآن — لا تكرر «تأكيد الإنتاج»."
     elif target is not None and active._production_enabled():
         request = state.get("requests", {}).get(target["request_id"], {}) if isinstance(state.get("requests"), dict) else {}
         topic = _clip(request.get("approved_topic"), 90)
         now = "✅ لديك موضوع معتمد ينتظر قرار التشغيل." + (f"\n🎯 {topic}" if topic else "")
         action = f"إذا كان القرار نهائيًا، أرسل حرفيًا: {CONFIRM_TEXT}"
+    elif ready_session is not None:
+        session_id = str(ready_session.get("session_id") or "").strip()
+        kind = "الحلقة" if str(ready_session.get("kind") or "") == "long" else "الشورت"
+        now = f"✅ بحث {kind} مكتمل و3 خيارات جاهزة للمراجعة."
+        action = "افتح الخيارات واختر ما تريد؛ الاختيار لا يبدأ Production."
+        if session_id:
+            extra_rows.append([{"text": "📋 فتح الخيارات الجاهزة", "callback_data": f"cmd:choices-{session_id}"}])
     else:
-        now = "🟢 لا توجد مهمة معلقة تحتاج تدخلك الآن."
-        action = "لا يوجد إجراء مطلوب."
+        last_research = state.get("last_research_result")
+        if isinstance(last_research, dict) and last_research.get("status") == "failed":
+            kind = "الحلقة" if str(last_research.get("kind") or "") == "long" else "الشورت"
+            now = f"⚠️ آخر بحث {kind} لم يكتمل بعد استنفاد المحاولات."
+            action = "يمكنك بدء بحث جديد عندما تريد."
+        else:
+            now = "🟢 لا توجد مهمة معلقة تحتاج تدخلك الآن."
+            action = "لا يوجد إجراء مطلوب."
 
     long_release, short_release = _production_releases(releases)
     lines = [
@@ -228,6 +289,8 @@ def _operator_status(state: dict[str, Any], releases) -> tuple[str, list[list[di
         f"⚡ {_release_name(short_release, 'لا يوجد Short جاهز')}",
     ]
     rows = [
+        *extra_rows,
+        [{"text": "🔄 تحديث الحالة", "callback_data": "cmd:status"}],
         [{"text": "📋 تفاصيل النظام", "callback_data": "cmd:system_status"}],
         [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}],
     ]
@@ -245,6 +308,7 @@ def _system_status(state: dict[str, Any], releases) -> tuple[str, list[list[dict
         text = "📋 تفاصيل النظام\n\nلا توجد تفاصيل تقنية متاحة في هذه الطبقة."
     text += "\n\nهذه شاشة تشخيص فقط؛ لا تغيّر Production أو Quality Gates."
     return text, [
+        [{"text": "🔄 تحديث الحالة", "callback_data": "cmd:status"}],
         [{"text": "↩️ الحالة", "callback_data": "cmd:status"}],
         [{"text": "🏠 الرئيسية", "callback_data": "cmd:menu"}],
     ]
@@ -300,23 +364,42 @@ def _research_started_text(kind: str) -> str:
     return (
         f"🔎 بدأ بحث {label}\n\n"
         "أبحث عن 3 فرص حية جديدة وأقارن ملاءمة القناة بتوقيت السوق.\n"
-        "عند اكتماله ستظهر الخيارات هنا؛ لا يحتاج أي إجراء منك الآن.\n\n"
+        "هذه البطاقة نفسها ستتحدث عند إعادة المحاولة أو اكتمال البحث.\n\n"
         "🔐 البحث لا يبدأ Production."
     )
 
 
+def _research_waiting_text(kind: str, attempts: int) -> str:
+    label = "الحلقة" if kind == "topic" else "الشورت"
+    return (
+        f"⏳ بحث {label} ما زال قيد التنفيذ\n\n"
+        f"المحاولات المنفذة: {max(0, attempts)}/3.\n"
+        "لن أنشئ طلبًا أو رسالة بحث مكررة؛ هذه البطاقة هي الحالة الوحيدة للبحث الجاري.\n\n"
+        "🔐 لم يبدأ Production."
+    )
+
+
 def _queue_research(kind: str, client, state: dict[str, Any], chat_id) -> None:
-    active._clear_current_selection(state)
     research_kind = "long" if kind == "topic" else "short"
     queued = panel._queue_research(state, research_kind, chat_id)
+    action = research_status.pending_research(state, research_kind)
+    if action is None:
+        raise RuntimeError("Telegram research queue accepted no durable pending action")
     if queued:
-        client.send(chat_id, _research_started_text(kind), keyboard=[[{"text": "🧭 الحالة", "callback_data": "cmd:status"}], [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}]])
+        active._clear_current_selection(state)
+        text = _research_started_text(kind)
     else:
-        client.send(
-            chat_id,
-            f"⏳ بحث {'الحلقة' if kind == 'topic' else 'الشورت'} موجود بالفعل. لن أنشئ طلبًا مكررًا.",
-            keyboard=[[{"text": "🧭 الحالة", "callback_data": "cmd:status"}], [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}]],
-        )
+        text = _research_waiting_text(kind, int(action.get("attempts", 0) or 0))
+    research_status.update_message(
+        client,
+        action,
+        text,
+        chat_id=chat_id,
+        keyboard=[
+            [{"text": "🔄 تحديث الحالة", "callback_data": "cmd:status"}],
+            [{"text": "↩️ الرئيسية", "callback_data": "cmd:menu"}],
+        ],
+    )
 
 
 def _handle_command(kind, client, state, releases, chat_id) -> None:
