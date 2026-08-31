@@ -21,7 +21,10 @@ def materialize_approved_brief(request: dict[str, Any], output: Path) -> tuple[P
     pack = request.get("research_pack")
     if fmt in {"film", "story"}:
         if not isinstance(pack, list) or len(pack) < 2:
-            raise RuntimeError("Long control production requires a completed research_pack before dispatch")
+            raise RuntimeError(
+                "Long control production requires a completed approved research pack "
+                "(research_pack) before dispatch"
+            )
     elif not isinstance(pack, list):
         pack = []
     brief = {
