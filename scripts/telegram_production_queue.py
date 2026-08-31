@@ -259,7 +259,12 @@ def reserve_dispatch(
     for item in _queue(state):
         if not isinstance(item, dict):
             continue
-        if item.get("request_id") == request_id and item.get("request_sha256") == request_sha256 and item.get("status") == "pending_dispatch":
+        if (
+            item.get("request_id") == request_id
+            and item.get("request_sha256") == request_sha256
+            and item.get("status") == "pending_dispatch"
+            and dispatch_entry_is_live(item)
+        ):
             authorization_id = str(item.get("authorization_id") or "").strip()
             if not authorization_id:
                 raise RuntimeError("Pending Telegram dispatch has no explicit authorization id")
