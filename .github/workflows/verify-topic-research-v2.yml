@@ -7,9 +7,11 @@ on:
       - "scripts/telegram_webhook_replay.py"
       - "scripts/research_provider_reliability.py"
       - "scripts/topic_research_market_reliability.py"
+      - "scripts/telegram_session_continuity.py"
       - "scripts/test_research_provider_reliability.py"
       - "scripts/test_topic_research_market_reliability.py"
       - "scripts/test_topic_research_runtime_recovery.py"
+      - "scripts/test_telegram_session_continuity.py"
       - "scripts/test_telegram_topic_research_v2.py"
       - "scripts/test_telegram_editorial_control_workflow.py"
       - ".github/workflows/telegram-editorial-control.yml"
@@ -68,8 +70,10 @@ jobs:
             engine/src/isco_video_agent/research.py \
             scripts/research_provider_reliability.py \
             scripts/topic_research_market_reliability.py \
+            scripts/telegram_session_continuity.py \
             scripts/test_research_provider_reliability.py \
             scripts/test_topic_research_market_reliability.py \
+            scripts/test_telegram_session_continuity.py \
             scripts/telegram_topic_research_v2.py \
             scripts/telegram_webhook_replay.py \
             scripts/test_topic_research_runtime_recovery.py
@@ -93,6 +97,7 @@ jobs:
           python -m unittest scripts.test_research_provider_reliability -v
           python -m unittest scripts.test_topic_research_market_reliability -v
           python -m unittest scripts.test_topic_research_runtime_recovery -v
+          python -m unittest scripts.test_telegram_session_continuity -v
 
       - name: Updated Telegram workflow contract test
         env:
