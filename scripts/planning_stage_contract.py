@@ -62,6 +62,15 @@ class ProviderPolicy:
     completion_tokens: int
     max_prompt_utf8_bytes: tuple[tuple[str, int], ...]
     openrouter_compact_repair_max_attempts: int = 1
+    # Run #142: a fast, one-attempt-per-provider sweep (see outline_stage_spec) can
+    # still lose the whole stage to an unlucky simultaneous transient collision across
+    # every provider (real production evidence: Gemini client timeout + Groq
+    # json_validate_failed + OpenRouter spend-cap block, all in one pass). When set,
+    # run_provider_loop() is allowed exactly one additional full round-robin sweep
+    # after a first pass whose failures were *all* PROVIDER_TRANSIENT - never after a
+    # CAPACITY/STRUCTURAL_INVALID/SEMANTIC_INVALID/INTERNAL_CONTRACT_ERROR failure,
+    # which stays single-shot exactly as before.
+    second_pass_after_full_exhaustion: bool = False
 
     def prompt_limit(self, provider: str) -> int | None:
         return dict(self.max_prompt_utf8_bytes).get(provider)
@@ -118,7 +127,10 @@ _ROUTER_MARKER = "_isco_explicit_planning_contract_router"
 # restoring Groq portability (7506 estimated tokens for the Run #140 envelope).
 OUTLINE_COMPLETION_TOKEN_BUDGET = 2400
 OUTLINE_MAX_ATTEMPTS_PER_PROVIDER = 1
-OUTLINE_MAX_TOTAL_ATTEMPTS = len(_PROVIDER_ORDER)
+# Run #142: budget for exactly two full one-attempt-per-provider sweeps (see
+# second_pass_after_full_exhaustion), not just one. The per-provider cap above stays 1,
+# so no single provider is ever retried back-to-back within a sweep.
+OUTLINE_MAX_TOTAL_ATTEMPTS = len(_PROVIDER_ORDER) * 2
 
 # One explicit provider-output budget per bounded Planning transport contract.  These
 # names are produced from stage identity + expected ids below; prompt text has no role
@@ -293,6 +305,7 @@ def _provider_policy(
     *,
     max_attempts_per_provider: int | None = None,
     max_total_attempts: int | None = None,
+    second_pass_after_full_exhaustion: bool = False,
 ) -> ProviderPolicy:
     attempts_per_provider = (
         router.TRANSIENT_PROVIDER_MAX_ATTEMPTS
@@ -318,6 +331,7 @@ def _provider_policy(
         # invented; their own preflight owners may reject before HTTP contact.
         max_prompt_utf8_bytes=(("groq", router.GROQ_MAX_PROMPT_UTF8_BYTES),),
         openrouter_compact_repair_max_attempts=1,
+        second_pass_after_full_exhaustion=second_pass_after_full_exhaustion,
     )
 
 
@@ -344,10 +358,16 @@ def outline_stage_spec(expected_count: int) -> PlanningStageSpec:
         # on one transiently slow provider. Run #140 spent ~181 s on two Gemini timeouts
         # while Groq/OpenRouter had not yet been tried. One bounded attempt per family
         # moves directly Gemini -> Groq -> OpenRouter without weakening validation.
+        # Run #142: that single fast sweep can still lose the whole stage to an unlucky
+        # simultaneous transient collision across all three providers in one pass, with
+        # zero margin left to retry. second_pass_after_full_exhaustion allows exactly one
+        # extra full round-robin sweep, but only when every failure in the first sweep
+        # was PROVIDER_TRANSIENT (never after a capacity/structural/semantic failure).
         provider_policy=_provider_policy(
             _transport_completion_tokens("editorial_outline", expected_count),
             max_attempts_per_provider=OUTLINE_MAX_ATTEMPTS_PER_PROVIDER,
             max_total_attempts=OUTLINE_MAX_TOTAL_ATTEMPTS,
+            second_pass_after_full_exhaustion=True,
         ),
         cache_policy=CachePolicy(),
     )
@@ -1110,120 +1130,146 @@ def install_planning_contract_router() -> None:
             failures: list[PlanningStageError] = []
             request_token = _ACTIVE_REQUEST_CONTRACT.set(contract)
             try:
-                for provider in admitted:
-                    if provider in cooldown:
-                        router._record_attempt(provider, "circuit-open")
-                        continue
-                    until = transient_cooldown_until.get(provider)
-                    if until is not None and until > time.monotonic():
-                        router._record_attempt(provider, "transient-cooldown")
-                        continue
+                round_index = 0
+                while True:
+                    round_index += 1
+                    round_failures: list[PlanningStageError] = []
+                    for provider in admitted:
+                        if provider in cooldown:
+                            router._record_attempt(provider, "circuit-open")
+                            continue
+                        until = transient_cooldown_until.get(provider)
+                        if until is not None and until > time.monotonic():
+                            router._record_attempt(provider, "transient-cooldown")
+                            continue
 
-                    for provider_attempt in range(contract.provider_policy.max_attempts_per_provider):
-                        if total_attempts >= contract.provider_policy.max_total_attempts:
-                            break
-                        total_attempts += 1
-                        since = time.monotonic() - last_call_at.get(provider, 0.0)
-                        if since < router.MIN_PROVIDER_CALL_INTERVAL_SECONDS:
-                            time.sleep(router.MIN_PROVIDER_CALL_INTERVAL_SECONDS - since)
-                        started = time.monotonic()
-                        last_call_at[provider] = started
-                        try:
-                            raw = _provider_result(
-                                provider,
-                                effective_prompt,
-                                model,
-                                contract,
-                                api_key,
-                            )
-                            try:
-                                parsed = raw if isinstance(raw, dict) else router._parse_json(raw)
-                            except Exception as exc:
-                                raise PlanningStageError(
-                                    PlanningErrorCode.STRUCTURAL_INVALID,
-                                    str(exc)[:300],
-                                    stage_id=contract.stage_id,
-                                    provider=provider,
-                                ) from exc
-                            validate_response(contract, parsed)
-                        except PlanningStageError as exc:
-                            failures.append(exc)
-                            router._record_attempt(
-                                provider,
-                                exc.code.value.lower(),
-                                error_detail=str(exc)[:220],
-                                duration_seconds=time.monotonic() - started,
-                                provider_attempt=provider_attempt + 1,
-                            )
-                            # Invalid output, capacity, and contract failures never hit
-                            # the same provider again for this request.
-                            if exc.code in {
-                                PlanningErrorCode.STRUCTURAL_INVALID,
-                                PlanningErrorCode.SEMANTIC_INVALID,
-                                PlanningErrorCode.CAPACITY,
-                                PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-                            }:
+                        for provider_attempt in range(contract.provider_policy.max_attempts_per_provider):
+                            if total_attempts >= contract.provider_policy.max_total_attempts:
                                 break
-                            has_retry = provider_attempt + 1 < contract.provider_policy.max_attempts_per_provider
-                            if (
-                                exc.code == PlanningErrorCode.PROVIDER_TRANSIENT
-                                and has_retry
-                                and total_attempts < contract.provider_policy.max_total_attempts
-                            ):
-                                time.sleep(router._retry_delay_seconds(provider, provider_attempt))
-                                continue
-                            transient_cooldown_until[provider] = (
-                                time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
-                            )
-                            break
-                        except Exception as exc:
-                            classified, retryable, retry_after, failure = _provider_failure(
-                                contract,
-                                provider,
-                                exc,
-                            )
-                            failures.append(classified)
-                            router._record_attempt(
-                                provider,
-                                failure.telemetry_result,
-                                error_detail=str(classified)[:220],
-                                duration_seconds=time.monotonic() - started,
-                                provider_attempt=provider_attempt + 1,
-                            )
-                            if failure.open_circuit:
-                                cooldown.add(provider)
-                            has_retry = provider_attempt + 1 < contract.provider_policy.max_attempts_per_provider
-                            if (
-                                retryable
-                                and has_retry
-                                and total_attempts < contract.provider_policy.max_total_attempts
-                            ):
-                                time.sleep(
-                                    router._retry_delay_seconds(
-                                        provider,
-                                        provider_attempt,
-                                        retry_after,
-                                    )
+                            total_attempts += 1
+                            since = time.monotonic() - last_call_at.get(provider, 0.0)
+                            if since < router.MIN_PROVIDER_CALL_INTERVAL_SECONDS:
+                                time.sleep(router.MIN_PROVIDER_CALL_INTERVAL_SECONDS - since)
+                            started = time.monotonic()
+                            last_call_at[provider] = started
+                            try:
+                                raw = _provider_result(
+                                    provider,
+                                    effective_prompt,
+                                    model,
+                                    contract,
+                                    api_key,
                                 )
-                                continue
-                            if retryable:
+                                try:
+                                    parsed = raw if isinstance(raw, dict) else router._parse_json(raw)
+                                except Exception as exc:
+                                    raise PlanningStageError(
+                                        PlanningErrorCode.STRUCTURAL_INVALID,
+                                        str(exc)[:300],
+                                        stage_id=contract.stage_id,
+                                        provider=provider,
+                                    ) from exc
+                                validate_response(contract, parsed)
+                            except PlanningStageError as exc:
+                                failures.append(exc)
+                                round_failures.append(exc)
+                                router._record_attempt(
+                                    provider,
+                                    exc.code.value.lower(),
+                                    error_detail=str(exc)[:220],
+                                    duration_seconds=time.monotonic() - started,
+                                    provider_attempt=provider_attempt + 1,
+                                )
+                                # Invalid output, capacity, and contract failures never hit
+                                # the same provider again for this request.
+                                if exc.code in {
+                                    PlanningErrorCode.STRUCTURAL_INVALID,
+                                    PlanningErrorCode.SEMANTIC_INVALID,
+                                    PlanningErrorCode.CAPACITY,
+                                    PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+                                }:
+                                    break
+                                has_retry = provider_attempt + 1 < contract.provider_policy.max_attempts_per_provider
+                                if (
+                                    exc.code == PlanningErrorCode.PROVIDER_TRANSIENT
+                                    and has_retry
+                                    and total_attempts < contract.provider_policy.max_total_attempts
+                                ):
+                                    time.sleep(router._retry_delay_seconds(provider, provider_attempt))
+                                    continue
                                 transient_cooldown_until[provider] = (
                                     time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
                                 )
-                            break
-                        else:
-                            router._record_provider_used(provider)
-                            router._record_attempt(
-                                provider,
-                                "success",
-                                duration_seconds=time.monotonic() - started,
-                                provider_attempt=provider_attempt + 1,
-                            )
-                            print(
-                                "Planning subtask provider selected: "
-                                f"{provider} stage={contract.stage_id} contract={contract.contract_id}"
-                            )
-                            return parsed, provider
+                                break
+                            except Exception as exc:
+                                classified, retryable, retry_after, failure = _provider_failure(
+                                    contract,
+                                    provider,
+                                    exc,
+                                )
+                                failures.append(classified)
+                                round_failures.append(classified)
+                                router._record_attempt(
+                                    provider,
+                                    failure.telemetry_result,
+                                    error_detail=str(classified)[:220],
+                                    duration_seconds=time.monotonic() - started,
+                                    provider_attempt=provider_attempt + 1,
+                                )
+                                if failure.open_circuit:
+                                    cooldown.add(provider)
+                                has_retry = provider_attempt + 1 < contract.provider_policy.max_attempts_per_provider
+                                if (
+                                    retryable
+                                    and has_retry
+                                    and total_attempts < contract.provider_policy.max_total_attempts
+                                ):
+                                    time.sleep(
+                                        router._retry_delay_seconds(
+                                            provider,
+                                            provider_attempt,
+                                            retry_after,
+                                        )
+                                    )
+                                    continue
+                                if retryable:
+                                    transient_cooldown_until[provider] = (
+                                        time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
+                                    )
+                                break
+                            else:
+                                router._record_provider_used(provider)
+                                router._record_attempt(
+                                    provider,
+                                    "success",
+                                    duration_seconds=time.monotonic() - started,
+                                    provider_attempt=provider_attempt + 1,
+                                )
+                                print(
+                                    "Planning subtask provider selected: "
+                                    f"{provider} stage={contract.stage_id} contract={contract.contract_id}"
+                                )
+                                return parsed, provider
+
+                    # A full round-robin sweep across every admitted provider finished
+                    # with no success. Run #142: allow exactly one additional sweep when
+                    # the whole first sweep failed only on PROVIDER_TRANSIENT errors and
+                    # the contract explicitly opts in - never after a capacity/structural/
+                    # semantic/internal failure, and never more than this one extra sweep.
+                    # Sleeping the full transient cooldown first guarantees every provider
+                    # that entered cooldown during the first sweep is eligible again.
+                    all_transient_this_round = bool(round_failures) and all(
+                        item.code == PlanningErrorCode.PROVIDER_TRANSIENT for item in round_failures
+                    )
+                    if (
+                        contract.provider_policy.second_pass_after_full_exhaustion
+                        and round_index == 1
+                        and all_transient_this_round
+                        and total_attempts < contract.provider_policy.max_total_attempts
+                    ):
+                        time.sleep(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
+                        continue
+                    break
 
                 if not failures:
                     raise PlanningStageError(

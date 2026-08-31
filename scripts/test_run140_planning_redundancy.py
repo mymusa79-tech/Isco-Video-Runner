@@ -36,7 +36,10 @@ class Run140PlanningRedundancyTests(unittest.TestCase):
         spec = contract.outline_stage_spec(6)
         self.assertEqual(spec.provider_policy.completion_tokens, 2400)
         self.assertEqual(spec.provider_policy.max_attempts_per_provider, 1)
-        self.assertEqual(spec.provider_policy.max_total_attempts, 3)
+        # Run #142: budget for exactly two full one-attempt-per-provider sweeps, not one -
+        # see test_run142_outline_second_pass_retry.py for the second-pass contract itself.
+        self.assertEqual(spec.provider_policy.max_total_attempts, 6)
+        self.assertTrue(spec.provider_policy.second_pass_after_full_exhaustion)
         self.assertEqual(spec.provider_policy.providers, ("gemini", "groq", "openrouter"))
 
     def test_exact_run140_envelope_is_below_initial_8k_with_restored_budget(self) -> None:
