@@ -32,7 +32,6 @@ _GROQ_MODEL_POOL = (
 )
 _ACTIVE_GROQ_INDEX = 0
 _WARM_CACHE_GROUPS: set[tuple[str, str]] = set()
-_OPENROUTER_STRUCTURAL_BLOCKED = False
 _INSTALLED = False
 
 
@@ -296,21 +295,39 @@ def _provider_preflight_path() -> Path | None:
     return Path(temp) / "provider-preflight.json" if temp else None
 
 
-def openrouter_preflight_blocked(path: Path | None = None) -> bool:
+def _openrouter_preflight_check(path: Path | None = None) -> dict | None:
     target = path or _provider_preflight_path()
     if target is None or not target.is_file():
-        return False
+        return None
     try:
         data = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
-        return False
+        return None
     for check in data.get("checks") or []:
         if not isinstance(check, dict):
             continue
         if str(check.get("provider") or "").strip().lower() != "openrouter":
             continue
-        return str(check.get("status") or "").strip().lower() == "block"
-    return False
+        return check
+    return None
+
+
+def openrouter_preflight_blocked(path: Path | None = None) -> bool:
+    check = _openrouter_preflight_check(path)
+    if check is None:
+        return False
+    return str(check.get("status") or "").strip().lower() == "block"
+
+
+def openrouter_preflight_block_detail(path: Path | None = None) -> str:
+    """The real preflight failure reason (e.g. provider_preflight.check_openrouter's
+    RuntimeError text), so a run that never even attempts OpenRouter still logs WHY -
+    instead of the opaque, undifferentiated marker this closure used before."""
+    check = _openrouter_preflight_check(path)
+    if check is None:
+        return "preflight_check_result_unavailable"
+    detail = str(check.get("detail") or "").strip()
+    return detail[:200] if detail else "preflight_marked_block_without_detail"
 
 
 def _assert_pacing_contract(callable_obj, *, label: str) -> None:
@@ -327,7 +344,7 @@ def _assert_pacing_contract(callable_obj, *, label: str) -> None:
 
 
 def install_run125_capacity_routing_closure() -> None:
-    global _INSTALLED, _OPENROUTER_STRUCTURAL_BLOCKED
+    global _INSTALLED
     if _INSTALLED:
         return
 
@@ -431,19 +448,39 @@ def install_run125_capacity_routing_closure() -> None:
     # circuit-opening signal with zero HTTP calls. If it is nominally available but one
     # output-heavy request truncates, block subsequent requests for this run rather than
     # repeating the same structural failure on every shard.
-    _OPENROUTER_STRUCTURAL_BLOCKED = openrouter_preflight_blocked()
+    #
+    # The two conditions are kept as DISTINCT, honestly-labeled reasons rather than one
+    # opaque "OPENROUTER_NO_PROVIDER_AVAILABLE" string. That marker previously collapsed
+    # three different things into one label with no way to tell them apart after the
+    # fact: (a) preflight found a real account/model problem before any call this run,
+    # (b) this run's own first output-heavy OpenRouter call truncated (an output-shape
+    # issue, not a "no provider" issue) and the closure is deliberately not repeating
+    # that failure on every later shard, and (c) OpenRouter's live API genuinely
+    # returning "no providers/endpoints available" for the requested model (handled by
+    # classify_provider_failure's own OpenRouter-error-text matching, not this closure).
+    # Real production telemetry showing this label on most failed runs was almost always
+    # case (a) or (b), which are Runner-local decisions, not an external outage - and
+    # case (a) already carries the real preflight failure detail (see
+    # openrouter_preflight_block_detail), so it is no longer silently discarded.
+    _OPENROUTER_BLOCK_REASON: str | None = (
+        "preflight_blocked: " + openrouter_preflight_block_detail() if openrouter_preflight_blocked() else None
+    )
     original_openrouter = router._openrouter_structured_request
 
     def bounded_openrouter(prompt: str, contract: tuple[str, dict]) -> dict:
-        global _OPENROUTER_STRUCTURAL_BLOCKED
-        if _OPENROUTER_STRUCTURAL_BLOCKED:
-            raise RuntimeError("OPENROUTER_NO_PROVIDER_AVAILABLE run125_preflight_or_structural_block")
+        nonlocal _OPENROUTER_BLOCK_REASON
+        if _OPENROUTER_BLOCK_REASON is not None:
+            raise RuntimeError(f"OPENROUTER_UNAVAILABLE_THIS_RUN reason={_OPENROUTER_BLOCK_REASON}")
         try:
             return original_openrouter(prompt, contract)
         except Exception as exc:
             lower = str(exc).lower()
             if "premature_response" in lower or "finish_reason=length" in lower:
-                _OPENROUTER_STRUCTURAL_BLOCKED = True
+                _OPENROUTER_BLOCK_REASON = (
+                    "structural_truncation_circuit: first output-heavy call this run truncated "
+                    "(finish_reason=length/premature_response) - not a provider-availability failure, "
+                    "blocking further OpenRouter attempts this run to avoid repeating it on every shard"
+                )
                 print("Run125 OpenRouter structural circuit armed after first truncated output")
             raise
 
@@ -455,5 +492,5 @@ def install_run125_capacity_routing_closure() -> None:
         "writer_doctor_prefix_cache_layout=true groq_cache_authoritative_after_proven_hit=true "
         "groq_model_scoped_contract=true "
         "groq_model_pool=gpt-oss-20b->gpt-oss-120b->qwen3.8-27b "
-        f"openrouter_preflight_blocked={str(_OPENROUTER_STRUCTURAL_BLOCKED).lower()}"
+        f"openrouter_blocked_this_run={str(_OPENROUTER_BLOCK_REASON is not None).lower()}"
     )

@@ -205,6 +205,34 @@ class Run125CapacityRoutingClosureTests(unittest.TestCase):
             path.write_text(json.dumps(payload), encoding="utf-8")
             self.assertFalse(closure.openrouter_preflight_blocked(path))
 
+    def test_openrouter_preflight_block_detail_surfaces_the_real_reason(self) -> None:
+        """The real preflight failure reason must reach a production run's error log
+        instead of being discarded behind an opaque marker (see the comment in
+        install_run125_capacity_routing_closure's step 4)."""
+        payload = {
+            "checks": [
+                {
+                    "provider": "openrouter",
+                    "status": "block",
+                    "detail": "openrouter configured model(s) not found in live catalog: openai/gpt-oss-20b:free",
+                },
+            ]
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "provider-preflight.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertIn(
+                "not found in live catalog: openai/gpt-oss-20b:free",
+                closure.openrouter_preflight_block_detail(path),
+            )
+
+    def test_openrouter_preflight_block_detail_has_a_safe_fallback_without_a_check_file(self) -> None:
+        missing_path = Path(tempfile.mkdtemp()) / "does-not-exist.json"
+        self.assertEqual(
+            closure.openrouter_preflight_block_detail(missing_path),
+            "preflight_check_result_unavailable",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

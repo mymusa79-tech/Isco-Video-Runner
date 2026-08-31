@@ -14,6 +14,7 @@ DEFAULT_TIMEOUT_SECONDS = 20
 GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/v1/videos/search"
 PIXABAY_VIDEO_SEARCH_URL = "https://pixabay.com/api/videos/"
 USER_AGENT = "isco-video-preflight/4"
@@ -300,7 +301,40 @@ def _parse_expiry(provider: str, value: object) -> None:
         raise RuntimeError(f"{provider} key is expired")
 
 
-def check_openrouter(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
+def _openrouter_model_ids(payload: dict) -> set[str]:
+    data = payload.get("data")
+    if not isinstance(data, list):
+        raise RuntimeError("openrouter models response has invalid data field")
+    return {
+        str(item.get("id") or "").strip()
+        for item in data
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    }
+
+
+def _default_openrouter_runtime_models() -> tuple[str, ...]:
+    """The exact model slugs a live production run will actually request.
+
+    Imported lazily (not at module import time) so this stays a light dependency for
+    other callers of this module, and so a test can override via `configured_models`
+    without needing to patch the Runner's provider-router modules.
+    """
+    from scripts.provider_capacity_hardening import OPENROUTER_OUTPUT_HEAVY_MODELS
+    from scripts.task_level_planner_router import _OPENROUTER_MODELS
+
+    seen: list[str] = []
+    for model in (*_OPENROUTER_MODELS, *OPENROUTER_OUTPUT_HEAVY_MODELS):
+        if model not in seen:
+            seen.append(model)
+    return tuple(seen)
+
+
+def check_openrouter(
+    api_key: str,
+    *,
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+    configured_models: tuple[str, ...] | None = None,
+) -> ProviderCheck:
     response = requests.get(
         OPENROUTER_KEY_URL,
         headers={"Authorization": "Bearer " + api_key, "User-Agent": USER_AGENT},
@@ -320,7 +354,7 @@ def check_openrouter(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) ->
     if limit is None:
         capacity_status = "unbounded_key_limit"
         capacity_remaining = None
-        detail = "credential accepted; no key-level spend cap is configured"
+        capacity_detail = "no key-level spend cap is configured"
     else:
         try:
             numeric_limit = float(limit)
@@ -331,7 +365,40 @@ def check_openrouter(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) ->
             raise RuntimeError("openrouter readiness blocked: key spend capacity exhausted")
         capacity_status = "positive"
         capacity_remaining = numeric_remaining
-        detail = f"credential accepted; positive key spend headroom ({numeric_remaining:g} credits remaining)"
+        capacity_detail = f"positive key spend headroom ({numeric_remaining:g} credits remaining)"
+
+    # Gemini/Groq preflight (check_gemini/check_groq above) both certify the exact
+    # runtime model exists in that provider's own live catalog before production can
+    # depend on it. OpenRouter preflight had no equivalent check - it only certified the
+    # KEY (spend cap/admin/expiry), never that the actual model slug(s) Runner requests
+    # (task_level_planner_router._OPENROUTER_MODELS /
+    # provider_capacity_hardening.OPENROUTER_OUTPUT_HEAVY_MODELS) are still listed. A
+    # renamed/delisted/never-valid slug then only surfaced deep inside a real
+    # production run's completions request - and, worse, under the same generic
+    # OPENROUTER_NO_PROVIDER_AVAILABLE label the run125 circuit-breaker also uses for
+    # its own local preflight/structural blocks (see run125_capacity_routing_closure.py
+    # and its accompanying comment), so a real catalog problem was never distinguishable
+    # from a real OpenRouter outage or a same-run truncated-output circuit trip. This
+    # closes that gap the same way Gemini/Groq already close it: certify at least the
+    # exact configured models before any production request depends on them. Checked
+    # last (after the cheaper account-level checks above) so an exhausted/administrative/
+    # expired key still fails on the key check alone, without spending a second request.
+    models = configured_models if configured_models is not None else _default_openrouter_runtime_models()
+    catalog_response = requests.get(
+        OPENROUTER_MODELS_URL,
+        headers={"User-Agent": USER_AGENT},
+        timeout=timeout,
+    )
+    _require_ok("openrouter", catalog_response)
+    listed_models = _openrouter_model_ids(_json_object("openrouter", catalog_response))
+    missing_models = [model for model in models if model not in listed_models]
+    if missing_models:
+        raise RuntimeError(
+            "openrouter configured model(s) not found in live catalog "
+            "(renamed, delisted, or never a valid slug): " + ", ".join(missing_models)
+        )
+
+    detail = f"credential accepted; configured model(s) verified in live catalog ({', '.join(models)}); {capacity_detail}"
     return ProviderCheck(
         "openrouter",
         "pass",
