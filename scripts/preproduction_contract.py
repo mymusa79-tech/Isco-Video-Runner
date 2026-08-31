@@ -29,11 +29,8 @@ def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
     release_text = _read_if_file(repo / RELEASE_TRANSACTION)
     environment_wrapper_text = _read_if_file(repo / ENVIRONMENT_PREFLIGHT)
     environment_core_text = _read_if_file(repo / ENVIRONMENT_PREFLIGHT_CORE)
-    # The durable planning checkpoint bootstrap intentionally wraps the established
-    # environment preflight implementation. Audit the executable composition rather
-    # than only the facade so moving unchanged fail-closed guards into a core module
-    # cannot create a false contract failure. The guard marker itself is still
-    # mandatory: removing it from both files continues to fail closed.
+    # The environment facade may delegate to a core module. Audit the executable
+    # composition rather than requiring safety markers to remain as YAML comments.
     environment_text = environment_wrapper_text + "\n" + environment_core_text
     issues: list[ContractIssue] = []
 
@@ -51,9 +48,40 @@ def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
     require("provider_preflight", "python scripts/provider_preflight.py", "all configured providers must be preflighted before production")
     for provider in PROVIDERS:
         require(f"provider_{provider}", f"--{provider}-key-file", f"provider preflight is missing {provider}")
-    require("release_namespace_guard", "Release namespace preflight", "non-idempotent GitHub Release tag must be checked before production")
-    require("release_collision_fail_closed", "existing release tag blocks this run before production", "existing release tag must fail closed rather than overwrite/retry")
+
+    # Release namespace ownership moved into environment_preflight_core so manual and
+    # Telegram ingress use the same pre-provider guard and the exact resolved tag.
+    # Same-SHA reconciliation is allowed only as an idempotent recovery path; different
+    # targets, orphan tags, unverifiable published receipts, or media drift remain hard
+    # failures and are never overwritten.
+    require(
+        "release_namespace_guard",
+        "_release_namespace_status(",
+        "GitHub Release namespace must be checked before production",
+        source=environment_text,
+    )
+    require(
+        "release_collision_target_guard",
+        "existing release tag belongs to a different Runner SHA",
+        "existing release on a different Runner SHA must fail closed",
+        source=environment_text,
+    )
     require("release_orphan_tag_guard", "/git/ref/tags/", "orphan Git tags must block before production because they bypass --target", source=environment_text)
+
+    release_reconciliation_markers = (
+        '_assert_release_identity(existing, tag=tag, target_sha=target_sha)',
+        '_download_and_verify_receipt(',
+        '_assert_current_media_matches_receipt(assets, receipt_assets)',
+        '_remove_exact_existing_draft(',
+    )
+    if not release_text or any(marker not in release_text for marker in release_reconciliation_markers):
+        issues.append(
+            ContractIssue(
+                "release_collision_fail_closed",
+                "same-SHA Release reconciliation must verify identity, durable receipt/media bytes, and strictly replace only an exact draft",
+            )
+        )
+
     require("production_entrypoint", "python ../scripts/run_v3_voice.py", "canonical production entrypoint changed unexpectedly")
     require("state_persist_strict", "python scripts/state_persistence_strict.py", "accepted production state must not fail silently")
     require("release_transaction_call", "python scripts/release_transaction.py", "GitHub Release must use transactional draft/upload/verify/publish flow")
