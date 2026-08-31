@@ -16,9 +16,6 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
 
     def test_approved_brief_gate_precedes_install_state_and_provider_secrets(self) -> None:
-        # Anchor ordering to stable step IDs / executable contracts rather than
-        # human-readable step names, which can legitimately evolve as a gate is
-        # strengthened (for example, provider auth -> complete readiness).
         gate = self.text.index("id: validate_brief")
         install = self.text.index("id: install_engine")
         restore = self.text.index("id: restore_state")
@@ -89,13 +86,8 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
         self.assertRegex(header, r"on:\s*\n\s+workflow_dispatch:\s*\n")
         for automatic_trigger in ("push:", "pull_request:", "schedule:", "repository_dispatch:", "workflow_call:"):
             self.assertNotIn(automatic_trigger, header)
-        dispatch_inputs = set(
-            re.findall(r"^      ([A-Za-z0-9_]+):\s*$", header, flags=re.MULTILINE)
-        )
-        self.assertEqual(
-            dispatch_inputs,
-            {"request_id", "request_sha256", "authorization_id", "engine_sha"},
-        )
+        dispatch_inputs = set(re.findall(r"^      ([A-Za-z0-9_]+):\s*$", header, flags=re.MULTILINE))
+        self.assertEqual(dispatch_inputs, {"request_id", "request_sha256", "authorization_id", "engine_sha"})
         self.assertEqual(header.count("required: false"), 4)
         self.assertEqual(header.count('default: ""'), 4)
         self.assertEqual(header.count("type: string"), 4)
@@ -130,9 +122,13 @@ class TelegramControlSecurityTests(unittest.TestCase):
     def test_state_encryption_requires_dedicated_key_without_bot_token_fallback(self) -> None:
         dedicated = "STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}"
         self.assertNotIn("secrets.STATE_ENCRYPTION_KEY || secrets.TELEGRAM_BOT_TOKEN", self.text)
-        dedicated_count = self.text.count(dedicated)
-        self.assertGreaterEqual(dedicated_count, 3)
-        self.assertEqual(self.text.count("-pass env:STATE_ENCRYPTION_KEY"), dedicated_count)
+        blocks = self.text.split("\n      - name:")
+        encryption_blocks = [block for block in blocks if "openssl enc " in block]
+        self.assertGreaterEqual(len(encryption_blocks), 3)
+        for block in encryption_blocks:
+            with self.subTest(step=block.splitlines()[0][:80] if block.splitlines() else "unknown"):
+                self.assertIn(dedicated, block)
+                self.assertEqual(block.count("openssl enc "), block.count("-pass env:STATE_ENCRYPTION_KEY"))
 
     def test_research_runtime_verifies_supply_chain_before_pip_install(self) -> None:
         preflight = self.text.index("security_v1_supply_chain_preflight.py lock")
