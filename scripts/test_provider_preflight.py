@@ -211,16 +211,26 @@ class ProviderPreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "configured fallback model unavailable"):
                 preflight.check_groq("secret")
 
+    def _openrouter_catalog(self, *, model_ids: list[str]) -> Mock:
+        return self._response(200, {"data": [{"id": model_id} for model_id in model_ids]})
+
     def test_openrouter_capacity_expiry_and_key_type_stay_fail_closed(self) -> None:
-        healthy = self._response(
+        healthy_key = self._response(
             200,
             {"data": {"limit": 100, "limit_remaining": 74.5, "limit_reset": "monthly"}},
         )
-        with patch.object(preflight.requests, "get", return_value=healthy):
-            result = preflight.check_openrouter("secret")
+        with patch.object(
+            preflight.requests,
+            "get",
+            side_effect=[healthy_key, self._openrouter_catalog(model_ids=["a/model:free"])],
+        ):
+            result = preflight.check_openrouter("secret", configured_models=("a/model:free",))
         self.assertEqual(result.capacity_status, "positive")
         self.assertEqual(result.capacity_remaining, 74.5)
 
+        # These three fail on the (cheaper, first) key check alone - the exhausted case
+        # in particular must never reach the catalog request, so a bare return_value
+        # (never consumed a second time) still proves that ordering.
         cases = [
             ({"data": {"limit": 10, "limit_remaining": 0}}, "exhausted"),
             ({"data": {"limit": None, "is_management_key": True}}, "administrative"),
@@ -231,7 +241,44 @@ class ProviderPreflightTests(unittest.TestCase):
                 preflight.requests, "get", return_value=self._response(200, payload)
             ):
                 with self.assertRaisesRegex(RuntimeError, pattern):
-                    preflight.check_openrouter("secret")
+                    preflight.check_openrouter("secret", configured_models=("a/model:free",))
+
+    def test_openrouter_certifies_configured_models_are_in_the_live_catalog(self) -> None:
+        healthy_key = self._response(
+            200, {"data": {"limit": None}}
+        )
+        with patch.object(
+            preflight.requests,
+            "get",
+            side_effect=[
+                healthy_key,
+                self._openrouter_catalog(model_ids=["a/model:free", "b/model:free"]),
+            ],
+        ):
+            result = preflight.check_openrouter(
+                "secret", configured_models=("a/model:free", "b/model:free")
+            )
+        self.assertEqual(result.status, "pass")
+        self.assertIn("verified in live catalog", result.detail)
+
+    def test_openrouter_blocks_with_an_accurate_reason_when_a_configured_model_is_missing(
+        self,
+    ) -> None:
+        healthy_key = self._response(200, {"data": {"limit": None}})
+        with patch.object(
+            preflight.requests,
+            "get",
+            side_effect=[
+                healthy_key,
+                self._openrouter_catalog(model_ids=["a/model:free"]),
+            ],
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "not found in live catalog.*missing/model:free"
+            ):
+                preflight.check_openrouter(
+                    "secret", configured_models=("a/model:free", "missing/model:free")
+                )
 
     def test_pexels_requires_positive_monthly_headroom(self) -> None:
         with patch.object(
