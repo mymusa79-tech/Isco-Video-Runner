@@ -13,6 +13,7 @@ from typing import Any
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts.telegram_production_queue import live_dispatch_count
 from scripts.telegram_release_approval import approval_projection
 
 SCHEMA_VERSION = 1
@@ -74,7 +75,6 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
     active_session = str(state.get("active_research_session_id") or "").strip()
     target = _dict(state.get("production_target"))
     requests = _dict(state.get("requests"))
-    queue = _list(state.get("production_queue"))
     pending_actions = _list(state.get("pending_actions"))
     saved = _available_saved_items(state)
     used = _used_items(state)
@@ -95,7 +95,7 @@ def build_projection(state: dict[str, Any], *, generated_at: datetime | None = N
             "used_short_count": _kind_count(used, "short"),
             "request_count": len(requests),
             "pending_actions_count": len(pending_actions),
-            "production_queue_count": len(queue),
+            "production_queue_count": live_dispatch_count(state),
             "approved_target": bool(target),
             "approved_request_hash": _hash_id(target.get("request_id")),
         },
