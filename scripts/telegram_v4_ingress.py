@@ -3,8 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
+
+# This file is invoked both as a module and directly by GitHub Actions. Direct
+# execution sets sys.path[0] to scripts/, which otherwise makes `import scripts.*`
+# fail during terminal reconciliation. Anchor imports to the checked-out Runner.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from scripts.telegram_production_queue import (
     consume_dispatch_authorization,
