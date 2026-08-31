@@ -51,7 +51,7 @@
     {
       "key": "production",
       "label": "الإنتاج: التخطيط → الكتابة → الصوت → المونتاج",
-      "contains": ["run exact approved telegram production"]
+      "contains": ["produce with canonical v4 runtime", "run exact approved telegram production"]
     },
     {
       "key": "planning",
