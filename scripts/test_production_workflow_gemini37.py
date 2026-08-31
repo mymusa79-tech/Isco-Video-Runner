@@ -20,7 +20,13 @@ class ProductionWorkflowGemini37Tests(unittest.TestCase):
         text = TELEGRAM_GATEWAY.read_text(encoding="utf-8")
         self.assertNotIn("GEMINI_CONTENT_MODEL", text)
         self.assertNotIn(LEGACY, text)
-        self.assertIn("gh workflow run produce-resilient-v4.yml", text)
+        self.assertIn("actions/workflows/produce-resilient-v4.yml/dispatches", text)
+        self.assertIn("return_run_details:true", text)
+        self.assertIn("workflow_run_id", text)
+        self.assertNotIn("repository: mymusa79-tech/Isco-Video-Agent", text)
+        self.assertNotIn("GEMINI_API_KEY", text)
+        self.assertNotIn("GROQ_API_KEY", text)
+        self.assertNotIn("OPENROUTER_API_KEY", text)
 
 
 if __name__ == "__main__":
