@@ -84,10 +84,21 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
         self.assertIn('rm -f "$RUNNER_TEMP/piper-preflight.wav"', block)
         self.assertNotIn("\n      - name:", block[len("- name: Remove plaintext production secrets and state"):])
 
-    def test_workflow_dispatch_has_no_topic_or_format_inputs(self) -> None:
+    def test_workflow_dispatch_exposes_only_immutable_telegram_ingress_inputs(self) -> None:
         header = self.text[: self.text.index("jobs:")]
         self.assertRegex(header, r"on:\s*\n\s+workflow_dispatch:\s*\n")
-        self.assertNotIn("inputs:", header)
+        for automatic_trigger in ("push:", "pull_request:", "schedule:", "repository_dispatch:", "workflow_call:"):
+            self.assertNotIn(automatic_trigger, header)
+        dispatch_inputs = set(
+            re.findall(r"^      ([A-Za-z0-9_]+):\s*$", header, flags=re.MULTILINE)
+        )
+        self.assertEqual(
+            dispatch_inputs,
+            {"request_id", "request_sha256", "authorization_id", "engine_sha"},
+        )
+        self.assertEqual(header.count("required: false"), 4)
+        self.assertEqual(header.count('default: ""'), 4)
+        self.assertEqual(header.count("type: string"), 4)
         self.assertNotRegex(self.text, r"inputs\.(?:topic|format)")
 
     def test_private_engine_checkout_does_not_persist_credentials(self) -> None:
