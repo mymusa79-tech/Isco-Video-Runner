@@ -16,6 +16,9 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
 
     def test_approved_brief_gate_precedes_install_state_and_provider_secrets(self) -> None:
+        # Anchor ordering to stable step IDs / executable contracts rather than
+        # human-readable step names, which can legitimately evolve as a gate is
+        # strengthened (for example, provider auth -> complete readiness).
         gate = self.text.index("id: validate_brief")
         install = self.text.index("id: install_engine")
         restore = self.text.index("id: restore_state")
@@ -86,8 +89,13 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
         self.assertRegex(header, r"on:\s*\n\s+workflow_dispatch:\s*\n")
         for automatic_trigger in ("push:", "pull_request:", "schedule:", "repository_dispatch:", "workflow_call:"):
             self.assertNotIn(automatic_trigger, header)
-        dispatch_inputs = set(re.findall(r"^      ([A-Za-z0-9_]+):\s*$", header, flags=re.MULTILINE))
-        self.assertEqual(dispatch_inputs, {"request_id", "request_sha256", "authorization_id", "engine_sha"})
+        dispatch_inputs = set(
+            re.findall(r"^      ([A-Za-z0-9_]+):\s*$", header, flags=re.MULTILINE)
+        )
+        self.assertEqual(
+            dispatch_inputs,
+            {"request_id", "request_sha256", "authorization_id", "engine_sha"},
+        )
         self.assertEqual(header.count("required: false"), 4)
         self.assertEqual(header.count('default: ""'), 4)
         self.assertEqual(header.count("type: string"), 4)
