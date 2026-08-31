@@ -1,4 +1,4 @@
-name: Verify Engine PR128 Candidate
+name: Verify Merged Engine Production Authority
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      ENGINE_SHA: d61279a2654ac93de4b282daa80e3df4e7e45182
+      ENGINE_SHA: c9d7f5a5d63629e11eaaabaee8d2ca01dd184dc8
     steps:
       - name: Checkout exact Runner verifier
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -20,7 +20,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Checkout exact Engine PR128 candidate
+      - name: Checkout exact merged Engine main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
@@ -88,4 +88,4 @@ jobs:
           set -euo pipefail
           git diff --check origin/main...HEAD || git diff --check
           test -f .github/workflows/verify-engine-pr128-candidate.yml
-          echo "Engine PR128 candidate verification PASS; production_dispatch_performed=false"
+          echo "Merged Engine production-authority verification PASS; production_dispatch_performed=false"
