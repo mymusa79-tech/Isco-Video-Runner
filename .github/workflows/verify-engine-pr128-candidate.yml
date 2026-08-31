@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      ENGINE_SHA: 18e366e88f0db183d2a9cdd3b24d52201db514f4
+      ENGINE_SHA: d61279a2654ac93de4b282daa80e3df4e7e45182
     steps:
       - name: Checkout exact Runner verifier
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
