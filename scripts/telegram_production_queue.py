@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,13 @@ def _request_hash(request: dict[str, Any]) -> str:
 def _authorization_id(*, request_id: str, request_sha256: str, requested_at: str, attempt: int, chat_id: int | str) -> str:
     payload = f"{request_id}|{request_sha256}|{requested_at}|{attempt}|{chat_id}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:32]
+
+
+def _runner_sha(value: str) -> str:
+    value = str(value or "").strip().lower()
+    if len(value) != 40 or any(ch not in "0123456789abcdef" for ch in value):
+        raise RuntimeError("Telegram dispatch reservation requires an exact 40-hex Runner SHA")
+    return value
 
 
 def validate_ready_request(request: dict[str, Any]) -> dict[str, Any]:
@@ -206,7 +214,10 @@ def pending_dispatch(state: dict[str, Any]) -> dict[str, Any] | None:
     return min(pending, key=lambda item: (str(item.get("requested_at") or ""), int(item.get("attempt", 1) or 1)))
 
 
-def reserve_dispatch(state: dict[str, Any], request_id: str, request_sha256: str) -> dict[str, Any]:
+def reserve_dispatch(
+    state: dict[str, Any], request_id: str, request_sha256: str, *, runner_sha: str
+) -> dict[str, Any]:
+    bound_runner_sha = _runner_sha(runner_sha)
     for item in _queue(state):
         if not isinstance(item, dict):
             continue
@@ -216,6 +227,7 @@ def reserve_dispatch(state: dict[str, Any], request_id: str, request_sha256: str
                 raise RuntimeError("Pending Telegram dispatch has no explicit authorization id")
             item["status"] = "dispatch_reserved"
             item["reserved_at"] = _now()
+            item["runner_sha"] = bound_runner_sha
             state["last_event_at"] = item["reserved_at"]
             return item
     raise RuntimeError("Pending Telegram production dispatch was not found for reservation")
@@ -226,10 +238,13 @@ def validate_dispatch_authorization(
     request_id: str,
     request_sha256: str,
     authorization_id: str,
+    *,
+    runner_sha: str = "",
 ) -> dict[str, Any]:
     authorization_id = str(authorization_id or "").strip()
     if not authorization_id:
         raise RuntimeError("Telegram dispatch authorization id is required")
+    expected_runner_sha = _runner_sha(runner_sha) if str(runner_sha or "").strip() else ""
     for item in _queue(state):
         if not isinstance(item, dict):
             continue
@@ -239,6 +254,11 @@ def validate_dispatch_authorization(
             and item.get("authorization_id") == authorization_id
             and item.get("status") == "dispatch_reserved"
         ):
+            bound = str(item.get("runner_sha") or "").strip().lower()
+            if expected_runner_sha and bound != expected_runner_sha:
+                raise RuntimeError("Telegram dispatch authorization is bound to a different Runner SHA")
+            if expected_runner_sha and not bound:
+                raise RuntimeError("Telegram dispatch authorization lacks Runner SHA binding")
             return item
     raise RuntimeError("Exact explicit Telegram dispatch authorization was not found")
 
@@ -250,8 +270,15 @@ def consume_dispatch_authorization(
     authorization_id: str,
     *,
     workflow_run_id: str = "",
+    runner_sha: str = "",
 ) -> dict[str, Any]:
-    item = validate_dispatch_authorization(state, request_id, request_sha256, authorization_id)
+    item = validate_dispatch_authorization(
+        state,
+        request_id,
+        request_sha256,
+        authorization_id,
+        runner_sha=runner_sha,
+    )
     item["status"] = "dispatch_consumed"
     item["consumed_at"] = _now()
     if workflow_run_id:
@@ -355,6 +382,7 @@ def main() -> None:
     reserve.add_argument("--state", required=True, type=Path)
     reserve.add_argument("--request-id", required=True)
     reserve.add_argument("--sha256", required=True)
+    reserve.add_argument("--runner-sha", default="")
     reserve.add_argument("--github-output", default="")
 
     consume = sub.add_parser("consume")
@@ -363,6 +391,7 @@ def main() -> None:
     consume.add_argument("--sha256", required=True)
     consume.add_argument("--authorization-id", required=True)
     consume.add_argument("--workflow-run-id", default="")
+    consume.add_argument("--runner-sha", default="")
 
     complete = sub.add_parser("complete")
     complete.add_argument("--state", required=True, type=Path)
@@ -381,13 +410,15 @@ def main() -> None:
     args = parser.parse_args()
     state = _load(args.state)
     if args.command == "reserve":
-        item = reserve_dispatch(state, args.request_id, args.sha256)
+        runner_sha = str(args.runner_sha or os.environ.get("GITHUB_SHA") or "").strip()
+        item = reserve_dispatch(state, args.request_id, args.sha256, runner_sha=runner_sha)
         _save(args.state, state)
         _github_output(
             args.github_output,
             production_authorization_id=item["authorization_id"],
             production_request_id=item["request_id"],
             production_request_sha256=item["request_sha256"],
+            production_runner_sha=item["runner_sha"],
         )
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))
     elif args.command == "consume":
@@ -397,6 +428,7 @@ def main() -> None:
             args.sha256,
             args.authorization_id,
             workflow_run_id=args.workflow_run_id,
+            runner_sha=args.runner_sha,
         )
         _save(args.state, state)
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))
