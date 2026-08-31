@@ -75,9 +75,10 @@ class PlanningEnvelopePreflightTests(unittest.TestCase):
             encoding="utf-8"
         )
         certification = workflow.index("Certify provider-portable planning envelope")
-        production = workflow.index("Produce with task-level brain and voice meshes")
+        production = workflow.index("id: produce_video")
         self.assertLess(certification, production)
         self.assertIn("scripts/planning_envelope_preflight.py", workflow)
+        self.assertIn("Produce with canonical V4 runtime", workflow)
 
 
 if __name__ == "__main__":
