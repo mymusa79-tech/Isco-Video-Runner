@@ -193,13 +193,68 @@ jobs:
           ENGINE_SHA: ${{ inputs.engine_sha }}
         run: |
           set -euo pipefail
-          gh workflow run produce-resilient-v4.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref main \
-            -f request_id="$REQUEST_ID" \
-            -f request_sha256="$REQUEST_SHA256" \
-            -f authorization_id="$AUTHORIZATION_ID" \
-            -f engine_sha="$ENGINE_SHA"
+          payload="$(jq -cn \
+            --arg request_id "$REQUEST_ID" \
+            --arg request_sha256 "$REQUEST_SHA256" \
+            --arg authorization_id "$AUTHORIZATION_ID" \
+            --arg engine_sha "$ENGINE_SHA" \
+            '{ref:"main",return_run_details:true,inputs:{request_id:$request_id,request_sha256:$request_sha256,authorization_id:$authorization_id,engine_sha:$engine_sha}}')"
+          response="$(gh api --method POST \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/dispatches" \
+            --input - <<<"$payload")"
+          child_run_id="$(jq -r '.workflow_run_id // empty' <<<"$response")"
+          child_run_url="$(jq -r '.html_url // empty' <<<"$response")"
+          [[ "$child_run_id" =~ ^[0-9]+$ ]]
+          test -n "$child_run_url"
+          echo "workflow_run_id=$child_run_id" >> "$GITHUB_OUTPUT"
+          echo "workflow_run_url=$child_run_url" >> "$GITHUB_OUTPUT"
+
+      - name: Reject post-dispatch concurrency race instead of waiting
+        id: race_guard
+        if: steps.dispatch.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHILD_RUN_ID: ${{ steps.dispatch.outputs.workflow_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$CHILD_RUN_ID" =~ ^[0-9]+$ ]]
+          for attempt in 1 2 3; do
+            child_status="$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${CHILD_RUN_ID}" --jq '.status')"
+            if [ "$child_status" = "in_progress" ] || [ "$child_status" = "completed" ]; then
+              echo "accepted=true" >> "$GITHUB_OUTPUT"
+              echo "Dispatched V4 owns execution; it is not waiting behind another production"
+              exit 0
+            fi
+
+            active_payload="$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/produce-resilient-v4.yml/runs?per_page=20")"
+            rivals="$(jq --argjson child "$CHILD_RUN_ID" \
+              '[.workflow_runs[] | select(.id != $child and .status != "completed")] | length' \
+              <<<"$active_payload")"
+            if [ "$rivals" -gt 0 ]; then
+              if gh api --method POST -H 'X-GitHub-Api-Version: 2026-03-10' \
+                "repos/${GITHUB_REPOSITORY}/actions/runs/${CHILD_RUN_ID}/cancel" >/dev/null 2>&1; then
+                echo "accepted=false" >> "$GITHUB_OUTPUT"
+                echo "reason=concurrency_race" >> "$GITHUB_OUTPUT"
+                echo "Canceled Telegram V4 child instead of leaving it pending behind another production"
+                exit 0
+              fi
+              child_status="$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+                "repos/${GITHUB_REPOSITORY}/actions/runs/${CHILD_RUN_ID}" --jq '.status')"
+              if [ "$child_status" = "in_progress" ] || [ "$child_status" = "completed" ]; then
+                echo "accepted=true" >> "$GITHUB_OUTPUT"
+                echo "Concurrency changed before cancellation; child already owns execution"
+                exit 0
+              fi
+              echo "Unable to cancel a non-running Telegram V4 child safely" >&2
+              exit 1
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep 2; fi
+          done
+          echo "accepted=true" >> "$GITHUB_OUTPUT"
+          echo "No competing V4 run appeared during bounded post-dispatch admission verification"
 
       - name: Release reservation when admission or dispatch cannot start V4
         id: release_failed_admission
@@ -211,7 +266,9 @@ jobs:
             steps.duplicate.outcome == 'failure' ||
             steps.duplicate_reconcile.outcome == 'failure' ||
             steps.capacity.outputs.available == 'false' ||
-            steps.dispatch.outcome == 'failure'
+            steps.dispatch.outcome == 'failure' ||
+            steps.race_guard.outcome == 'failure' ||
+            steps.race_guard.outputs.accepted == 'false'
           )
         env:
           STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
@@ -257,11 +314,12 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           REQUEST_ID: ${{ inputs.request_id }}
           V4_AVAILABLE: ${{ steps.capacity.outputs.available }}
+          RACE_ACCEPTED: ${{ steps.race_guard.outputs.accepted }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os, urllib.parse, urllib.request
-          if os.environ.get("V4_AVAILABLE") == "false":
+          if os.environ.get("V4_AVAILABLE") == "false" or os.environ.get("RACE_ACCEPTED") == "false":
               text = "⏸️ يوجد إنتاج يعمل الآن، لذلك لم أضع اختيارك في طابور انتظار. أبقيت الموضوع معتمدًا؛ أرسل «تأكيد الإنتاج» عندما يصبح الخط فارغًا."
           else:
               text = f"⚠️ لم يبدأ Production للطلب {os.environ['REQUEST_ID']}. لم يُترك في انتظار أو حجز صامت، ويمكن إعادة التأكيد بعد مراجعة الحالة."
