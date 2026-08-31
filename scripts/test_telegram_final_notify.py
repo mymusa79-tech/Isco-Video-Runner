@@ -182,6 +182,19 @@ class UrlActionTests(unittest.TestCase):
             "https://github.com/o/r/releases/tag/video-22",
         )
 
+    def test_telegram_release_url_uses_exact_release_tag_override(self) -> None:
+        env = {
+            "GITHUB_SERVER_URL": "https://github.com",
+            "GITHUB_REPOSITORY": "o/r",
+            "GITHUB_RUN_NUMBER": "22",
+            "CREATE_RELEASE_OUTCOME": "success",
+            "ISCO_RELEASE_TAG_OVERRIDE": "video-telegram-req-abc",
+        }
+        self.assertEqual(
+            notify._results_url(env),
+            "https://github.com/o/r/releases/tag/video-telegram-req-abc",
+        )
+
 
 class DeliveryTests(unittest.TestCase):
     def test_delivery_edits_saved_lifecycle_message_with_keyboard(self) -> None:
