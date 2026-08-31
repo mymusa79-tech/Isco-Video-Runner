@@ -177,7 +177,7 @@ def groq_effective_tpm_limit(model_name: str = _DEFAULT_GROQ_MODEL) -> int | Non
 
 
 def _contract_name(prompt: str) -> str:
-    contract = router._structured_schema_for_prompt(prompt)
+    contract = router._legacy_schema_hint(prompt)
     return contract[0] if contract else "json_object"
 
 
@@ -208,7 +208,7 @@ def groq_capacity_estimate(
         )
     # Canonical callers provide both explicit fields and must never invoke the legacy
     # prompt-derived schema adapter. Compatibility callers retain the historical path.
-    contract = None if explicit_contract else router._structured_schema_for_prompt(prompt)
+    contract = None if explicit_contract else router._legacy_schema_hint(prompt)
     prompt_tokens = estimate_prompt_tokens(prompt)
     if reserved_completion_tokens is None:
         reserved_completion = completion_token_budget(contract)
@@ -506,7 +506,7 @@ def _hardened_groq_call(prompt: str) -> dict:
 
     _proactive_groq_pacing(request_capacity, model_name=model_name)
     token = router._read_secret_file("GROQ_API_KEY_FILE")
-    contract = router._structured_schema_for_prompt(prompt)
+    contract = router._legacy_schema_hint(prompt)
     contract_name = contract[0] if contract else "json_object"
 
     def do_request() -> dict:

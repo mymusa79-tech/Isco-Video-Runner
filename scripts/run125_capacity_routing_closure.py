@@ -227,7 +227,7 @@ def _groq_model_call(prompt: str, model_name: str) -> dict:
 
     capacity._proactive_groq_pacing(request_capacity, model_name=model_name)
     token = router._read_secret_file("GROQ_API_KEY_FILE")
-    contract = router._structured_schema_for_prompt(prompt)
+    contract = router._legacy_schema_hint(prompt)
     contract_name = contract[0] if contract else "json_object"
 
     def do_request() -> dict:
