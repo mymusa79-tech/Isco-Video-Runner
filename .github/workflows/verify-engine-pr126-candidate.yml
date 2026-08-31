@@ -1,0 +1,253 @@
+name: TEMPORARY Verify Engine PR126 Candidate
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  combined-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Runner candidate
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+
+      - name: Pin exact candidate Engine PR#126 SHA (TEMPORARY, not the canonical V4 pin)
+        id: contract
+        run: |
+          set -euo pipefail
+          sha="e3082ab1bb4e3850277a1137ba4a4404393dfaed"
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Candidate Engine SHA must be an exact lowercase 40-character SHA" >&2
+            exit 1
+          fi
+          echo "engine_sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "TEMPORARY candidate verification: engine=$sha (isco-video-agent PR #126, branch fix/planning-outline-split-and-provider-unification) - NOT the canonical produce-resilient-v4.yml pin"
+
+      - name: Checkout exact private Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ steps.contract.outputs.engine_sha }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        env:
+          ENGINE_SHA: ${{ steps.contract.outputs.engine_sha }}
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Focused Run126 dynamic capacity and immutable snapshot regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-run126-history.json
+        run: python -m unittest scripts.test_run126_capacity_snapshot_closure -v
+
+      - name: Certify Engine source after Run126 regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_run126")'
+
+      - name: Focused Run 104 targeted structural repair regression
+        working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-run104-history.json
+        run: python -m unittest discover -s tests -p 'test_run104_targeted_structural_repair.py' -q
+
+      - name: Certify Engine source after Run104 regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_run104")'
+
+      - name: Full Engine suite
+        working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-full-engine-history.json
+        run: python -m unittest discover -s tests -q
+
+      - name: Certify Engine source after Full Engine suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_full_engine_suite")'
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-approved-brief-cli-history.json
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Certify Engine source after Approved-Brief CLI matrix
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_approved_brief_cli")'
+
+      - name: Standalone Short V2 focused regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-short-v2-history.json
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            scripts.test_native_short_planner_router \
+            scripts.test_shorts_production_binding \
+            scripts.test_short_voice_v2 -v
+
+      - name: Certify Engine source after Standalone Short V2
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("after_short_v2")'
+
+      - name: Full Runner regression suite
+        id: runner_regression
+        continue-on-error: true
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/verify-full-runner-history.json
+        run: |
+          set -uo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -v 2>&1 | tee "$RUNNER_TEMP/runner-regression.log"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Upload Runner regression diagnostics
+        if: steps.runner_regression.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: runner-regression-${{ github.run_number }}
+          path: ${{ runner.temp }}/runner-regression.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce Runner regression result
+        if: steps.runner_regression.outcome == 'failure'
+        run: exit 1
+
+      - name: Exact closure delta sanity
+        run: |
+          set -euo pipefail
+          git diff --check origin/main...HEAD || git diff --check
+          test -f .github/workflows/produce-resilient-v4.yml
+          test -f .github/workflows/verify-private-engine.yml
+
+      - name: Write exact-SHA Full Regression certification receipt
+        env:
+          ENGINE_SHA: ${{ steps.contract.outputs.engine_sha }}
+        run: |
+          set -euo pipefail
+          receipt="$RUNNER_TEMP/canonical-full-regression-certification.json"
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          candidate = os.environ["CANDIDATE_SHA"]
+          checked_out = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          if checked_out != candidate:
+              raise SystemExit(f"Runner identity drift before certification: {checked_out} != {candidate}")
+
+          def sha256(path: str) -> str:
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          payload = {
+              "schema": "isco-canonical-full-regression-v1",
+              "runner_sha": candidate,
+              "engine_sha": os.environ["ENGINE_SHA"],
+              "requirements_lock_sha256": sha256("engine/requirements-lock.txt"),
+              "workflow_sha256": sha256(".github/workflows/verify-private-engine.yml"),
+              "full_engine": "green",
+              "full_runner": "green",
+              "dependency_audit": "green",
+              "approved_brief_cli_matrix": "green",
+              "status": "green",
+              "production_dispatch_performed": False,
+          }
+          path = Path(os.environ["RUNNER_TEMP"]) / "canonical-full-regression-certification.json"
+          path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(payload, sort_keys=True))
+          PY
+          test "$(jq -r .runner_sha "$receipt")" = "$CANDIDATE_SHA"
+          test "$(jq -r .engine_sha "$receipt")" = "$ENGINE_SHA"
+          test "$(jq -r .status "$receipt")" = "green"
+          test "$(jq -r .production_dispatch_performed "$receipt")" = "false"
+
+      - name: Publish exact-SHA Full Regression certification ref
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="full-regression-green-$CANDIDATE_SHA"
+          endpoint="repos/$GITHUB_REPOSITORY/git/ref/tags/$tag"
+          if payload="$(gh api "$endpoint" 2>/dev/null)"; then
+            test "$(jq -r .object.type <<<"$payload")" = "commit"
+            test "$(jq -r .object.sha <<<"$payload")" = "$CANDIDATE_SHA"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$tag" \
+              -f sha="$CANDIDATE_SHA" >/dev/null
+          fi
+          echo "Published exact-SHA Full Regression certification: $tag"
+
+      - name: Upload exact-SHA Full Regression receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: canonical-full-regression-${{ github.run_number }}
+          path: ${{ runner.temp }}/canonical-full-regression-certification.json
+          if-no-files-found: error
+          retention-days: 30
