@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -154,8 +155,19 @@ class PackagingArtifactDeliveryP0ETests(unittest.TestCase):
         workflow = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
         trigger_contract = workflow.split("concurrency:", 1)[0]
         self.assertIn("workflow_dispatch:", trigger_contract)
-        self.assertNotIn("push:", trigger_contract)
-        self.assertNotIn("inputs:", trigger_contract)
+        for automatic_trigger in ("push:", "pull_request:", "schedule:", "repository_dispatch:", "workflow_call:"):
+            self.assertNotIn(automatic_trigger, trigger_contract)
+
+        dispatch_inputs = set(
+            re.findall(r"^      ([A-Za-z0-9_]+):\s*$", trigger_contract, flags=re.MULTILINE)
+        )
+        self.assertEqual(
+            dispatch_inputs,
+            {"request_id", "request_sha256", "authorization_id", "engine_sha"},
+        )
+        self.assertEqual(trigger_contract.count("required: false"), 4)
+        self.assertEqual(trigger_contract.count('default: ""'), 4)
+        self.assertEqual(trigger_contract.count("type: string"), 4)
         self.assertNotIn('".github/workflows/produce-resilient-v4.yml"', trigger_contract)
         self.assertIn("engine/output/*/thumbnail-plan.json", workflow)
         self.assertIn("${{ steps.final_review.outputs.output_root }}/thumbnail-*.jpg", workflow)
