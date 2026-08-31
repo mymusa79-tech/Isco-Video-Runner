@@ -147,9 +147,6 @@ def _release_namespace_status(
     release_url = f"https://api.github.com/repos/{repository}/releases/tags/{encoded_tag}"
     release = requests.get(release_url, headers=headers, timeout=timeout)
     if release.ok:
-        # Backward-compatible fail-closed behavior for callers that do not supply the
-        # exact current SHA. Canonical production supplies GITHUB_SHA and may proceed
-        # only far enough for release_transaction.py to verify the complete asset set.
         if not target_sha:
             raise RuntimeError(f"existing release tag blocks this run before production: {release_tag}")
         return _same_target_release_state(
@@ -164,10 +161,6 @@ def _release_namespace_status(
             raise RuntimeError(f"release namespace preflight unavailable: HTTP {release.status_code}")
         raise RuntimeError(f"release namespace preflight failed: HTTP {release.status_code}")
 
-    # A lightweight/annotated Git tag can exist without a Release. GitHub ignores
-    # --target when that happens, so it remains blocking even during reconciliation.
-    # Future transaction rollback uses --cleanup-tag so it does not manufacture this
-    # dead-end state itself.
     ref_url = f"https://api.github.com/repos/{repository}/git/ref/tags/{encoded_tag}"
     ref = requests.get(ref_url, headers=headers, timeout=timeout)
     if ref.status_code == 404:
@@ -188,6 +181,7 @@ def run_environment_preflight(
     run_number: str,
     github_token: str = "",
     target_sha: str = "",
+    release_tag: str = "",
 ) -> EnvironmentEvidence:
     os_release = platform.freedesktop_os_release()
     os_version = str(os_release.get("VERSION_ID") or "")
@@ -224,7 +218,7 @@ def run_environment_preflight(
     _require_command(["openssl", "version"], description="OpenSSL")
     _require_command(["gh", "--version"], description="GitHub CLI")
 
-    release_tag = f"video-{run_number}"
+    release_tag = str(release_tag or "").strip() or f"video-{run_number}"
     release_namespace = _release_namespace_status(
         repository,
         release_tag,
@@ -271,6 +265,7 @@ def main() -> None:
         run_number=run_number,
         github_token=(os.environ.get("GITHUB_TOKEN") or "").strip(),
         target_sha=target_sha,
+        release_tag=(os.environ.get("ISCO_RELEASE_TAG_OVERRIDE") or "").strip(),
     )
     print(
         "Environment preflight PASS: "
