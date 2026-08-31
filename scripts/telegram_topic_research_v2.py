@@ -100,6 +100,7 @@ def main() -> None:
     from scripts import telegram_creator_control_center_v5 as creator_v5
     from scripts import telegram_persistent_control_ui as persistent_ui
     from scripts import telegram_rich_integration as rich_integration
+    from scripts import telegram_session_continuity as session_continuity
 
     persistent_ui.install()
     core.memory_ui._install_library_split()
@@ -111,6 +112,10 @@ def main() -> None:
     # Install last so V5 is a presentation/navigation layer over the fully
     # certified Topic Research V2 + Production authority stack.
     creator_v5.install(core)
+    # Bind session continuity after every approval/UI wrapper is final. This keeps
+    # latest Long and latest Short cards independently actionable without bypassing
+    # the existing approval or Production activation gates.
+    session_continuity.install(active=core.active, panel=core.panel)
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     core.memory_ui._require_poll_identity(mode)
     if _claim_pending_scheduler_retry_without_polling(mode):
