@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from scripts.telegram_production_queue import live_dispatch_count, mark_dispatch_failed
@@ -43,6 +44,7 @@ class TelegramGatewayDispatchCompensationTests(unittest.TestCase):
                     "request_sha256": "a" * 64,
                     "authorization_id": "b" * 32,
                     "status": "dispatch_reserved",
+                    "reserved_at": datetime.now(timezone.utc).isoformat(),
                 }
             ]
         }
