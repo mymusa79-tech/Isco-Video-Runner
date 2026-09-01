@@ -137,6 +137,8 @@ def install_runtime_closure() -> None:
     install_canonical_v4_bundle_post_manifest()
     install_release_transaction_guard()
     install_telemetry_reliability_binding()
+    # Post-Gold analytics remains intentionally live; durability is restricted to
+    # Final QC and non-authoritative observer evidence, never channel analytics.
     # Final QC/Observer durability is optimization-only. Install it inside the two
     # mandatory final acceptance wrappers so a durable QC hit can skip only Final QC
     # itself, never current-run Producer Handoff or Audio Semantic Integrity.
