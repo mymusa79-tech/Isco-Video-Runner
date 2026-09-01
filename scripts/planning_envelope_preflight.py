@@ -29,7 +29,14 @@ from scripts.native_short_planner_router import (
     select_native_short_template,
 )
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
-from scripts.planning_capacity_headroom import (
+from scripts.planning_capacity_profile import install_planning_capacity_profile
+
+# Standalone preflight runs in a different Python process from production runtime.
+# Apply the exact same format-native caps before importing the headroom module's public
+# constants/builders so certification and live execution cannot drift.
+install_planning_capacity_profile()
+
+from scripts.planning_capacity_headroom import (  # noqa: E402
     SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES,
     build_short_initial_prompt,
     groq_operational_headroom_tokens,
