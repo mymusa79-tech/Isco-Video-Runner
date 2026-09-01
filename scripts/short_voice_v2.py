@@ -12,6 +12,7 @@ from isco_video_agent.config import env, load_channel_config, secret
 from isco_video_agent.media.ffmpeg import duration, measure_audio_loudness, probe
 from isco_video_agent.tts_budget import TtsBudget, TtsCircuit
 
+from scripts.short_cinematic_director import apply_short_sfx, upgrade_short_cinematic
 from scripts.voice_mesh import consume_voice_provenance
 
 
@@ -127,7 +128,7 @@ def _mix_voice(final_path: Path, voice_path: Path, output: Path) -> Path:
 
 
 def _refresh_quality_final(root: Path, final_path: Path) -> dict[str, Any]:
-    """Re-measure the exact voiced Short bytes that Final Critic and Gold will inspect."""
+    """Re-measure the exact finished Short bytes that Final Critic and Gold inspect."""
     quality_path = root / "quality-final.json"
     try:
         previous = json.loads(quality_path.read_text(encoding="utf-8"))
@@ -174,7 +175,9 @@ def _refresh_quality_final(root: Path, final_path: Path) -> dict[str, Any]:
         "video_streams": len(video_streams),
         "audio_streams": len(audio_streams),
         "short_voice_v2_refresh": True,
-        "quality_measurement_stage": "post_short_voice_pre_gold",
+        "short_cinematic_final_refresh": (root / "short-visual-timeline.json").is_file(),
+        "short_sfx_final_refresh": (root / "short-sfx-plan.json").is_file(),
+        "quality_measurement_stage": "post_short_finishing_pre_gold",
         "audio_target_lufs": target_lufs,
     }
     quality_path.write_text(json.dumps(refreshed, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -221,7 +224,7 @@ def apply_short_voice_v2(
     *,
     ledger: BudgetLedger,
 ) -> dict[str, Any]:
-    """Generate template-driven voice for standalone and source-derived Shorts before authoritative Final Master QC."""
+    """Generate voice, Short-native cinematic finishing and SFX before authoritative QC/Gold."""
     root = Path(output_dir)
     scope = str(control_request.get("approval_scope") or "").strip()
     if scope not in {"short_only", "short_sibling"}:
@@ -264,6 +267,17 @@ def apply_short_voice_v2(
 
     provider = str(provenance.get("provider") or "unknown")
     fallback_used = provenance.get("fallback_used")
+
+    # Only the immutable Telegram/control request with kind=short activates the new
+    # finishing layer. Unit callers and non-control compatibility paths retain the
+    # historical Voice V2 behavior rather than accidentally issuing media/provider work.
+    updated = dict(pre_gold)
+    if control_request.get("kind") == "short":
+        updated = upgrade_short_cinematic(root, control_request, updated, ledger=ledger)
+        updated = apply_short_sfx(root, updated)
+
+    # All byte mutations are complete before this authoritative measurement. Gold and
+    # Final Critic therefore inspect exactly the multi-shot/SFX/voice master that ships.
     quality = _refresh_quality_final(root, final_path)
     _record_voice_rights(
         root,
@@ -273,7 +287,6 @@ def apply_short_voice_v2(
         voice=voice,
     )
 
-    updated = dict(pre_gold)
     compensation = dict(updated.get("compensation") or {})
     compensation.update(
         {
@@ -287,9 +300,9 @@ def apply_short_voice_v2(
             "gemini_provider_attempt_cap": 1,
             "piper_local_fallback": True,
             "extra_text_ai_calls": 0,
-            "extra_ai_calls": 1,
             "existing_audio_preserved": True,
             "quality_final_refreshed_after_voice": True,
+            "quality_final_refreshed_after_short_finishing": True,
         }
     )
     updated["compensation"] = compensation

@@ -41,10 +41,11 @@ from scripts.run125_capacity_routing_closure import install_run125_capacity_rout
 from scripts.runtime_patch_contracts import certify_runtime_patch_contracts
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.schema_repair_policy import install_schema_repair_policy
+from scripts.short_planning_repair import install_short_planning_repair
 from scripts.task_level_planner_router import install_router
 
 
-# runtime_closure is intentionally unit-testable in isolation.  Such a test must not
+# runtime_closure is intentionally unit-testable in isolation. Such a test must not
 # fabricate an entrypoint contract that production would normally install earlier.
 # Once the canonical entrypoint has bootstrapped the explicit Stage Contract, however,
 # every later lifecycle phase is fail-closed: any patch that loses the router/boundaries
@@ -53,7 +54,7 @@ _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED = False
 
 
 def _reassert_after_lifecycle_patch() -> None:
-    # Reassert both halves of the contract.  json_text may still contain the routed
+    # Reassert both halves of the contract. json_text may still contain the routed
     # wrapper while a later installer has replaced only the compatibility schema seam.
     install_planning_contract_router()
     install_planning_stage_boundaries()
@@ -76,6 +77,11 @@ def install_entrypoint_planning_contracts() -> None:
     install_planning_batch_hardening()
     install_schema_repair_policy()
     install_run120_dossier_repair_hardening()
+    # Moment uses Engine's native one-section schema instead of the long-form resilient
+    # planner. Install its in-place Dossier transport immediately after the long-form
+    # repair owner so both formats share the same explicit repair lifecycle without
+    # prompt inference or full-plan regeneration.
+    install_short_planning_repair()
     install_run120_schema_policy_bridge()
     install_planner_quality_guard()
     install_attempt9_schema_normalizer()
