@@ -112,6 +112,7 @@ class L7IntegratedGateTests(unittest.TestCase):
             source,
             (
                 "install_runtime_planning_contracts()",
+                "install_text_audit_provider_mesh()",
                 "install_media_runtime_port()",
                 "install_core_reliability_guard()",
                 "install_audio_semantic_integrity_binding()",
@@ -122,9 +123,10 @@ class L7IntegratedGateTests(unittest.TestCase):
                 "install_canonical_v4_bundle_post_manifest()",
                 "install_release_transaction_guard()",
                 "install_telemetry_reliability_binding()",
-                "install_audio_semantic_final_gate(production_entrypoint_modules())",
                 "sanitize_final_observer_cache_before_runtime()",
                 "install_final_qc_observer_durability()",
+                "install_audio_semantic_final_gate(production_entrypoint_modules())",
+                "install_producer_handoff_contract(production_entrypoint_modules())",
             ),
         )
 
@@ -176,9 +178,8 @@ class L7IntegratedGateTests(unittest.TestCase):
         self._assert_order(
             source,
             (
-                "prepare_short_render(output_dir, runtime_request)",
-                "apply_short_voice_v2(",
-                "production.run_final_master_qc(output_dir)",
+                "prepare_authoritative_short_for_gold(",
+                "run_final_master_qc=production.run_final_master_qc",
                 "result = original_gold(**kwargs)",
                 "finalize_short_quality(Path(kwargs[\"output_dir\"]), runtime_request, short_pre)",
             ),

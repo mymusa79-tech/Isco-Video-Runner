@@ -32,6 +32,58 @@ class ShortsStablePortTests(unittest.TestCase):
         self.assertIs(raised.exception, error)
         prepare.assert_called_once_with(out, request)
 
+    def test_authoritative_pre_gold_seam_orders_prepare_voice_then_re_qc(self) -> None:
+        out = Path("output/run")
+        request = {"kind": "short", "request_id": "req-1"}
+        ledger = object()
+        prepared = {"stage": "pre_gold"}
+        voiced = {"stage": "pre_gold", "voice": {"generated": True}}
+        order: list[str] = []
+
+        def prepare(_out, _request):
+            order.append("prepare")
+            return prepared
+
+        def voice(_out, _request, pre_gold, *, ledger):
+            self.assertIs(pre_gold, prepared)
+            self.assertIsNotNone(ledger)
+            order.append("voice")
+            return voiced
+
+        def qc(_out):
+            order.append("qc")
+            return {"status": "pass", "final_media_mutated": False}
+
+        with patch.object(core, "prepare_short_render", side_effect=prepare) as prepare_mock, patch.object(
+            port, "apply_short_voice_v2", side_effect=voice
+        ) as voice_mock:
+            result = port.prepare_authoritative_short_for_gold(
+                out,
+                request,
+                ledger=ledger,
+                run_final_master_qc=qc,
+            )
+
+        self.assertIs(result, voiced)
+        self.assertTrue(result["authoritative_final_master_qc_rerun"])
+        self.assertEqual(order, ["prepare", "voice", "qc"])
+        prepare_mock.assert_called_once()
+        voice_mock.assert_called_once()
+
+    def test_authoritative_pre_gold_seam_blocks_failed_re_qc(self) -> None:
+        out = Path("output/run")
+        request = {"kind": "short", "request_id": "req-1"}
+        with patch.object(core, "prepare_short_render", return_value={"stage": "pre_gold"}), patch.object(
+            port, "apply_short_voice_v2", return_value={"stage": "pre_gold"}
+        ):
+            with self.assertRaisesRegex(RuntimeError, "authoritative Final Master QC did not pass"):
+                port.prepare_authoritative_short_for_gold(
+                    out,
+                    request,
+                    ledger=object(),
+                    run_final_master_qc=lambda _out: {"status": "block", "final_media_mutated": False},
+                )
+
     def test_finalize_delegates_exactly_once_and_returns_core_report_unchanged(self) -> None:
         out = Path("output/run")
         request = {"kind": "short", "request_id": "req-1"}
@@ -70,22 +122,21 @@ class ShortsStablePortTests(unittest.TestCase):
         self.assertFalse(contract.cache_policy.write)
         self.assertEqual(contract.side_effect_policy, "idempotent")
 
-    def test_live_control_caller_uses_only_stable_shorts_seam_and_preserves_two_phase_order(self) -> None:
-        source = Path("scripts/run_control_production.py").read_text(encoding="utf-8")
-        stable_import = (
-            "from scripts.orchestration_shorts_port import "
-            "finalize_short_quality, prepare_short_render"
-        )
-        prepare_call = "short_pre = prepare_short_render(output_dir, runtime_request)"
-        gold_call = "result = original_gold(**kwargs)"
-        finalize_call = "finalize_short_quality(Path(kwargs[\"output_dir\"]), runtime_request, short_pre)"
+    def test_live_short_callers_use_shared_authoritative_pre_gold_seam(self) -> None:
+        control = Path("scripts/run_control_production.py").read_text(encoding="utf-8")
+        canonical = Path("scripts/canonical_v4_short_child.py").read_text(encoding="utf-8")
+        seam = "prepare_authoritative_short_for_gold("
 
-        self.assertEqual(source.count(stable_import), 1)
-        self.assertNotIn("from scripts.shorts_production_binding import", source)
-        self.assertEqual(source.count(prepare_call), 1)
-        self.assertEqual(source.count(finalize_call), 1)
-        self.assertLess(source.index(prepare_call), source.index(gold_call))
-        self.assertLess(source.index(gold_call), source.index(finalize_call))
+        for source in (control, canonical):
+            self.assertEqual(source.count(seam), 1)
+            self.assertNotIn("from scripts.shorts_production_binding import", source)
+            self.assertNotIn("from scripts.short_voice_v2 import apply_short_voice_v2", source)
+            self.assertIn("run_final_master_qc=production.run_final_master_qc", source)
+            seam_index = source.index(seam)
+            gold_index = source.index("result = original_gold(**kwargs)")
+            finalize_index = source.index("finalize_short_quality(")
+            self.assertLess(seam_index, gold_index)
+            self.assertLess(gold_index, finalize_index)
 
     def test_certified_shorts_core_remains_byte_identical(self) -> None:
         data = Path("scripts/shorts_production_binding.py").read_bytes()
@@ -109,10 +160,12 @@ class ShortsStablePortTests(unittest.TestCase):
             "except ",
         ):
             self.assertNotIn(forbidden, source)
-        self.assertEqual(source.count("core.prepare_short_render(output_dir, control_request)"), 1)
+        self.assertEqual(source.count("core.prepare_short_render(output_dir, control_request)"), 2)
         self.assertEqual(
             source.count("core.finalize_short_quality(output_dir, control_request, pre_gold)"), 1
         )
+        self.assertIn("apply_short_voice_v2(", source)
+        self.assertIn("run_final_master_qc(output_dir)", source)
         self.assertIn('PROVIDER_OWNER = "canonical-short-child-core"', source)
         self.assertIn('RETRY_OWNER = "canonical-short-child-core"', source)
 

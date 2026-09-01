@@ -24,6 +24,7 @@ from scripts.orchestration_media_port import install_media_runtime_port
 from scripts.orchestration_render_port import install_render_runtime_port
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
 from scripts.planning_runtime_contract import install_runtime_planning_contracts
+from scripts.producer_quality_contract import install_producer_handoff_contract
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
@@ -136,15 +137,18 @@ def install_runtime_closure() -> None:
     install_canonical_v4_bundle_post_manifest()
     install_release_transaction_guard()
     install_telemetry_reliability_binding()
-    install_audio_semantic_final_gate(production_entrypoint_modules())
-    # Final QC/Observer durability is optimization-only and is installed after all
-    # media/release authorities are already composed. Its restored cache parent is
-    # sanitized first so a symlinked Actions-cache namespace becomes a clean miss.
-    # It then patches only the imported run_v3_voice Final Master QC call and Voice
-    # Identity observe_output boundary. Groq uses an explicit durable wrapper below;
-    # analytics remains intentionally live.
+    # Post-Gold analytics remains intentionally live; durability is restricted to
+    # Final QC and non-authoritative observer evidence, never channel analytics.
+    # Final QC/Observer durability is optimization-only. Install it inside the two
+    # mandatory final acceptance wrappers so a durable QC hit can skip only Final QC
+    # itself, never current-run Producer Handoff or Audio Semantic Integrity.
     sanitize_final_observer_cache_before_runtime()
     install_final_qc_observer_durability()
+    install_audio_semantic_final_gate(production_entrypoint_modules())
+    install_producer_handoff_contract(production_entrypoint_modules())
+    # Effective call order:
+    # Producer Handoff -> Audio Semantic Integrity -> Durable Final QC -> Final QC.
+    # Gold remains downstream and is reached only after the entire chain returns.
     # Durable resume is deliberately outermost: every existing production/quality/safety
     # wrapper remains untouched and authoritative. This layer only persists the local
     # planner checkpoint after a failure, or writes a completion marker after success.
