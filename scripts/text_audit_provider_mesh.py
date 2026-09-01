@@ -9,6 +9,7 @@ import isco_video_agent.factuality as factuality
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.text_audit_router as engine_audit_router
 import isco_video_agent.tone_quality as tone_quality
+from isco_video_agent.ai_budget import get_active_budget_task
 
 from scripts import provider_capacity_hardening as capacity
 from scripts import run125_capacity_routing_closure as run125
@@ -26,6 +27,8 @@ from scripts import task_level_planner_router as planner_router
 # - Groq reuses the current model-scoped capacity/pacing evidence without double-counting
 #   BudgetLedger (Engine's text_audit_router remains the sole attempt-accounting owner);
 # - OpenRouter is omitted when the already-run provider preflight marked it blocked;
+# - provider responses are contract-validated at the provider boundary using the active
+#   TaskSpec.kind, never prompt-text inference, so malformed JSON can fall through;
 # - a real semantic status=block remains final (Approval Shopping is unchanged);
 # - technical audit exhaustion fails closed BEFORE RepairDossier, so no pointless rewrite
 #   can masquerade as a quality repair.
@@ -34,6 +37,23 @@ from scripts import task_level_planner_router as planner_router
 _INSTALLED = False
 _GROQ_PROVIDER_NAME = "groq"
 _GROQ_COMPLETION_RESERVE_TOKENS = 2_200
+_REQUIRED_ARRAYS_BY_TASK_KIND = {
+    "FACTUALITY_AUDIT": (
+        "unsupported_claims",
+        "professional_advice_flags",
+        "expert_persona_flags",
+        "notes",
+    ),
+    "CONTENT_QUALITY_AUDIT": ("duplicate_groups",),
+    "TONE_QUALITY_AUDIT": (
+        "preachiness_flags",
+        "cultural_dignity_flags",
+        "naturalness_flags",
+        "narrative_format_flags",
+        "unverified_religious_quote_flags",
+        "notes",
+    ),
+}
 
 
 class TextAuditUnavailableError(RuntimeError):
@@ -55,6 +75,39 @@ def _groq_token() -> str:
     return planner_router._read_secret_file("GROQ_API_KEY_FILE")
 
 
+def _groq_request_capacity(prompt: str) -> tuple[str, dict, dict]:
+    model_name = run125._active_groq_model()
+    estimate = capacity.groq_capacity_estimate(
+        prompt,
+        model_name=model_name,
+        reserved_completion_tokens=_GROQ_COMPLETION_RESERVE_TOKENS,
+        contract_name="text_audit_json",
+    )
+    decision = capacity.groq_admission_decision(
+        model_name, int(estimate["estimated_request_tokens"])
+    )
+    return model_name, estimate, decision
+
+
+def _groq_route_eligible(prompt: str) -> bool:
+    """Do not manufacture a ProviderAttempt when admission already proves no call can run."""
+    if not _groq_secret_available():
+        return False
+    try:
+        model_name, _estimate, decision = _groq_request_capacity(prompt)
+    except Exception:
+        return False
+    action = str(decision.get("action") or "")
+    if action in {"impossible", "unavailable"}:
+        return False
+    if action != "wait":
+        return True
+    # Waiting is allowed only when the existing capacity owner has provider-observed
+    # reset evidence. Without it, omission/fallback is more honest than a fake attempt.
+    state = capacity._model_state(model_name)
+    return isinstance(state.get("reset_at_epoch"), (int, float))
+
+
 def _groq_audit_json(prompt: str) -> dict:
     """One Groq wire attempt, with the existing model-aware capacity contract.
 
@@ -62,15 +115,8 @@ def _groq_audit_json(prompt: str) -> dict:
     text_audit_router._call_provider() authorizes and records this exact wire call.
     Calling planner_router._groq_call() here would double-authorize the same attempt.
     """
-    model_name = run125._active_groq_model()
-    request_capacity = capacity.groq_capacity_estimate(
-        prompt,
-        model_name=model_name,
-        reserved_completion_tokens=_GROQ_COMPLETION_RESERVE_TOKENS,
-        contract_name="text_audit_json",
-    )
+    model_name, request_capacity, decision = _groq_request_capacity(prompt)
     required = int(request_capacity["estimated_request_tokens"])
-    decision = capacity.groq_admission_decision(model_name, required)
     if decision.get("action") == "impossible":
         raise RuntimeError(
             "GROQ_AUDIT_TPM_HEADROOM_UNAVAILABLE "
@@ -137,6 +183,29 @@ def _groq_audit_json(prompt: str) -> dict:
     return planner_router._parse_json(content)
 
 
+def _active_required_arrays() -> tuple[str, ...] | None:
+    active = get_active_budget_task()
+    if active is None:
+        return None
+    return _REQUIRED_ARRAYS_BY_TASK_KIND.get(str(active.spec.kind))
+
+
+def _contract_validated(call: Callable[[str], dict]) -> Callable[[str], dict]:
+    """Make schema-invalid provider replies retryable before Approval Shopping decides."""
+    def validated(prompt: str) -> dict:
+        result = call(prompt)
+        required = _active_required_arrays()
+        if required is None:
+            return result
+        try:
+            engine_audit_router.validate_audit_payload(result, required_arrays=required)
+        except Exception as exc:
+            raise RuntimeError(f"invalid JSON text audit contract: {exc}") from exc
+        return result
+
+    return validated
+
+
 def _mesh_route(
     providers: list[tuple[str, Callable[[str], dict]]],
     prompt: str,
@@ -154,15 +223,15 @@ def _mesh_route(
     groq_present = "groq" in names
     for name, call in providers:
         if name == "gemini":
-            routed.append((name, call))
-            if not groq_present and _groq_secret_available():
-                routed.append((_GROQ_PROVIDER_NAME, _groq_audit_json))
+            routed.append((name, _contract_validated(call)))
+            if not groq_present and _groq_route_eligible(prompt):
+                routed.append((_GROQ_PROVIDER_NAME, _contract_validated(_groq_audit_json)))
             continue
         if name == "openrouter" and run125.openrouter_preflight_blocked():
             # A preflight-blocked provider is not a fallback. No wire call, no budget
             # attempt, and no fake semantic verdict are created.
             continue
-        routed.append((name, call))
+        routed.append((name, _contract_validated(call)))
 
     return engine_audit_router.route_text_audit(routed, prompt, cooldown=cooldown)
 
@@ -252,6 +321,7 @@ def install_text_audit_provider_mesh() -> None:
     print(
         "Text Audit Provider Mesh V1 installed: "
         "route=gemini->groq->openrouter one_attempt_each "
+        "audit_contract_validation=task_kind_bound "
         "openrouter_preflight_respected=true "
         "semantic_block_final=true technical_exhaustion_repair=false"
     )
