@@ -409,6 +409,54 @@ def _structured_schema_for_prompt(prompt: str) -> tuple[str, dict] | None:
     return None
 
 
+_PLAN_SHAPE_MARKER_KEYS = ("hook", "cta", "pillar", "title_options", "closing_payoff")
+
+
+def _looks_like_plan_shaped_response(data: dict) -> bool:
+    """True when a response is clearly a whole-ProductionPlan payload.
+
+    Detecting this from the *response's own key composition* - not from matching
+    Engine's prompt wording, which this Runner does not own and cannot keep in sync -
+    means the check stays valid even if isco_video_agent/planner.py's prompt text
+    changes. Two or more of these keys together are specific to
+    ProductionPlan.to_dict()'s field set; no unrelated caller/test fixture (e.g. the
+    many `{"ok": True}` mocks in this test suite) coincidentally matches it.
+    """
+    return sum(1 for key in _PLAN_SHAPE_MARKER_KEYS if key in data) >= 2
+
+
+def _validate_plan_shaped_sections(data: dict) -> dict:
+    """Reject a plan-shaped response whose "sections" cannot survive Engine's own
+    parsing, before task_router accepts it as a success.
+
+    Regression for a real 2026-09-01 production failure: the native Short planner (the
+    only live caller of task_router - see _legacy_schema_hint's docstring) got a
+    syntactically valid JSON object back from a provider (observed: OpenRouter) that was
+    missing "sections" entirely, or had a section missing "id". task_router's only
+    existing response check, _normalize_outline(), validates just the long-form
+    "section_briefs" shape and silently passes this shape through untouched. The
+    response was then cached and handed to isco_video_agent/planner.py::_plan_from_dict,
+    which does unguarded `d["sections"]` / `s["id"]` access with no schema in front of
+    it (unlike the long-form path's strict planning_stage_contract.py validation) and
+    raised an uncaught KeyError deep inside plan construction - security.safe_error()
+    then scrubbed it down to the unhelpful `{'type': 'KeyError'}` seen in logs, and the
+    request was never retried against another provider even though two others were
+    still available. A malformed response must be treated exactly like any other
+    provider failure: reject it here, inside the retry loop's own try block, so the
+    existing fallback logic naturally tries the next provider instead of caching a plan
+    Engine cannot actually build.
+    """
+    if not _looks_like_plan_shaped_response(data):
+        return data
+    sections = data.get("sections")
+    if not isinstance(sections, list) or not sections:
+        raise RuntimeError("NATIVE_SHORT_PLAN_SECTIONS_MISSING: response has no usable sections list")
+    valid = [s for s in sections if isinstance(s, dict) and str(s.get("id", "")).strip()]
+    if not valid:
+        raise RuntimeError("NATIVE_SHORT_PLAN_SECTIONS_MALFORMED: sections are missing required id fields")
+    return data
+
+
 def _normalize_outline(data: dict, prompt: str) -> dict:
     expected = _expected_sections(prompt)
     if expected is None or "section_briefs" not in data:
@@ -733,7 +781,7 @@ def install_router() -> None:
                     last_call_at[name] = time.monotonic()
                     try:
                         raw = provider(api_key, prompt, model)
-                        data = _normalize_outline(_parse_json(raw), prompt)
+                        data = _validate_plan_shaped_sections(_normalize_outline(_parse_json(raw), prompt))
                         responses[cache_key] = data
                         checkpoint["last_provider"] = name
                         try:
