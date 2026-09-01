@@ -25,12 +25,16 @@ def _install_v5_after_active() -> None:
     def install_with_v5() -> None:
         original_install()
         from scripts import telegram_creator_control_center_v5 as creator_v5
+        from scripts import telegram_operator_mission_control as operator_mission_control
         from scripts import telegram_session_continuity as session_continuity
 
         creator_v5.install()
         # Webhook replay is the live path for Telegram button presses. Install
         # continuity only after active UI + V5 have finalized the approval stack.
         session_continuity.install(active=core.active, panel=core.panel)
+        # Final operator projection: state wording and confirmation receipts only.
+        # Production authority remains the existing exact typed-confirmation seam.
+        operator_mission_control.install()
 
     core.active._install = install_with_v5
     core.active._isco_v5_replay_hooked = True

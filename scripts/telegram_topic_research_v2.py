@@ -98,6 +98,7 @@ def main() -> None:
     core.memory_ui._install_policy()
     from scripts import telegram_canonical_status_bridge as canonical_status_bridge
     from scripts import telegram_creator_control_center_v5 as creator_v5
+    from scripts import telegram_operator_mission_control as operator_mission_control
     from scripts import telegram_persistent_control_ui as persistent_ui
     from scripts import telegram_rich_integration as rich_integration
     from scripts import telegram_session_continuity as session_continuity
@@ -116,6 +117,9 @@ def main() -> None:
     # latest Long and latest Short cards independently actionable without bypassing
     # the existing approval or Production activation gates.
     session_continuity.install(active=core.active, panel=core.panel)
+    # Mission Control is the final operator projection: it normalizes state labels
+    # and receipts only, while the exact typed-confirmation authority remains intact.
+    operator_mission_control.install()
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     core.memory_ui._require_poll_identity(mode)
     if _claim_pending_scheduler_retry_without_polling(mode):
