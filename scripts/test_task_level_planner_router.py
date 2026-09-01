@@ -344,6 +344,119 @@ class ProviderFailureBookkeepingResilienceTests(unittest.TestCase):
                 staged.json_text("unused-api-key", "نداء اليقظة: طلب اختبار", model="gemini-2.5-flash")
 
 
+class NativeShortPlanShapeValidationTests(unittest.TestCase):
+    """Regression for a real 2026-09-01 production failure: a native Short subtask got a
+    syntactically valid but structurally incomplete plan back from a provider (observed:
+    OpenRouter, after "Planning subtask provider selected: openrouter" printed as a
+    success) and the run still crashed later with
+    RuntimeError("...{'type': 'KeyError'}") from isco_video_agent/planner.py's unguarded
+    d["sections"]/s["id"] access, instead of falling back to another provider like every
+    other malformed-response case already does. task_router must now reject a
+    plan-shaped response missing/malformed "sections" *inside* the retry loop's own try
+    block, so it is treated exactly like any other provider failure."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
+        gemini_key_path.write_text("fake-gemini-key", encoding="utf-8")
+        self._env_patch = patch.dict(os.environ, {"GEMINI_API_KEY_FILE": str(gemini_key_path)}, clear=False)
+        self._env_patch.start()
+        self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
+        self._cache_patch.start()
+        self._sleep_patch = patch.object(router.time, "sleep")
+        self._sleep_patch.start()
+        self._json_text_patch = patch.object(staged, "json_text", lambda *a, **k: {})
+        self._json_text_patch.start()
+
+    def tearDown(self) -> None:
+        self._json_text_patch.stop()
+        self._sleep_patch.stop()
+        self._cache_patch.stop()
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    _VALID_PLAN = {
+        "pillar": "understand",
+        "hook": "hook text",
+        "title_options": ["a"],
+        "thumbnail_concepts": ["b"],
+        "sections": [{"id": "s1", "narration": "n"}],
+        "cta": "cta text",
+        "closing_payoff": "payoff text",
+    }
+
+    def test_response_missing_sections_key_falls_back_to_next_provider(self) -> None:
+        malformed = {k: v for k, v in self._VALID_PLAN.items() if k != "sections"}
+
+        def fake_gemini_json_text(api_key, prompt, model):
+            return malformed
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router, "_groq_call", return_value=dict(self._VALID_PLAN)):
+            router.install_router()
+            result = staged.json_text("unused-api-key", "نداء اليقظة: طلب اختبار", model="gemini-2.5-flash")
+            self.assertEqual(result["sections"], self._VALID_PLAN["sections"])
+
+    def test_section_missing_id_falls_back_to_next_provider(self) -> None:
+        malformed = dict(self._VALID_PLAN)
+        malformed["sections"] = [{"narration": "no id here"}]
+
+        def fake_gemini_json_text(api_key, prompt, model):
+            return malformed
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router, "_groq_call", return_value=dict(self._VALID_PLAN)):
+            router.install_router()
+            result = staged.json_text("unused-api-key", "نداء اليقظة: طلب اختبار", model="gemini-2.5-flash")
+            self.assertEqual(result["sections"], self._VALID_PLAN["sections"])
+
+    def test_all_providers_returning_malformed_plans_raises_all_providers_failed(self) -> None:
+        malformed = {k: v for k, v in self._VALID_PLAN.items() if k != "sections"}
+
+        def fake_gemini_json_text(api_key, prompt, model):
+            return malformed
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router, "_groq_call", return_value=dict(malformed)), \
+                patch.object(router, "_openrouter_call_with_repair", return_value=dict(malformed)):
+            router.install_router()
+            with self.assertRaisesRegex(RuntimeError, "All free providers failed"):
+                staged.json_text("unused-api-key", "نداء اليقظة: طلب اختبار", model="gemini-2.5-flash")
+
+    def test_non_plan_shaped_response_is_unaffected(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            return {"ok": True}
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text):
+            router.install_router()
+            result = staged.json_text("unused-api-key", "نداء اليقظة: طلب اختبار", model="gemini-2.5-flash")
+            self.assertEqual(result, {"ok": True})
+
+
+class NativeShortPlanShapeUnitTests(unittest.TestCase):
+    def test_looks_like_plan_shaped_response_requires_at_least_two_marker_keys(self) -> None:
+        self.assertFalse(router._looks_like_plan_shaped_response({"hook": "x"}))
+        self.assertTrue(router._looks_like_plan_shaped_response({"hook": "x", "cta": "y"}))
+
+    def test_validate_plan_shaped_sections_passes_through_non_plan_data(self) -> None:
+        data = {"ok": True}
+        self.assertEqual(router._validate_plan_shaped_sections(data), data)
+
+    def test_validate_plan_shaped_sections_rejects_missing_sections(self) -> None:
+        data = {"hook": "x", "cta": "y", "pillar": "understand"}
+        with self.assertRaisesRegex(RuntimeError, "NATIVE_SHORT_PLAN_SECTIONS_MISSING"):
+            router._validate_plan_shaped_sections(data)
+
+    def test_validate_plan_shaped_sections_rejects_sections_without_id(self) -> None:
+        data = {"hook": "x", "cta": "y", "pillar": "understand", "sections": [{"narration": "n"}]}
+        with self.assertRaisesRegex(RuntimeError, "NATIVE_SHORT_PLAN_SECTIONS_MALFORMED"):
+            router._validate_plan_shaped_sections(data)
+
+    def test_validate_plan_shaped_sections_accepts_a_well_formed_plan(self) -> None:
+        data = dict(NativeShortPlanShapeValidationTests._VALID_PLAN)
+        self.assertEqual(router._validate_plan_shaped_sections(data), data)
+
+
 class UsedProvidersTrackingTests(unittest.TestCase):
     """Covers item 1 of the plan_source request: get_used_providers() must reflect
     exactly which provider(s) actually produced planning output for the current run,
