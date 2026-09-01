@@ -21,6 +21,7 @@ from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.dynamic_planning_capacity import install_dynamic_planning_capacity
 from scripts.gemini_planning_output_guard import install_gemini_planning_output_guard
 from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
+from scripts.operational_headroom_contract import install_operational_headroom_contract
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.planning_batch_hardening import install_planning_batch_hardening
@@ -41,6 +42,7 @@ from scripts.run125_capacity_routing_closure import install_run125_capacity_rout
 from scripts.runtime_patch_contracts import certify_runtime_patch_contracts
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.schema_repair_policy import install_schema_repair_policy
+from scripts.short_initial_planning import install_short_initial_planning
 from scripts.short_planning_repair import install_short_planning_repair
 from scripts.task_level_planner_router import install_router
 
@@ -72,15 +74,18 @@ def install_entrypoint_planning_contracts() -> None:
     install_run123_budget_closure()
     install_schema_guard()
     install_provider_capacity_hardening()
+    # Provider hard limits remain authoritative. Add operational reserve before any
+    # later router/admission owner captures the live decision callable.
+    install_operational_headroom_contract()
     install_router()
     install_planning_contract_router()
     install_planning_batch_hardening()
     install_schema_repair_policy()
     install_run120_dossier_repair_hardening()
-    # Moment uses Engine's native one-section schema instead of the long-form resilient
-    # planner. Install its in-place Dossier transport immediately after the long-form
-    # repair owner so both formats share the same explicit repair lifecycle without
-    # prompt inference or full-plan regeneration.
+    # Native Moment uses a dedicated bounded Draft+Review envelope. Install it first;
+    # the Dossier repair wrapper is deliberately outermost so a repair stays one
+    # surgical call and never re-enters initial planning.
+    install_short_initial_planning()
     install_short_planning_repair()
     install_run120_schema_policy_bridge()
     install_planner_quality_guard()
