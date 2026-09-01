@@ -1,13 +1,13 @@
 {
   "editorial": {
-    "approved_request_hash": "",
-    "approved_target": false,
+    "approved_request_hash": "10e61f8f52d9",
+    "approved_target": true,
     "pending_actions_count": 0,
     "production_inflight_count": 0,
     "production_queue_count": 0,
     "production_reserved_count": 0,
     "production_waiting_count": 0,
-    "request_count": 11,
+    "request_count": 12,
     "research_active": true,
     "research_session_hash": "6f0752b17204",
     "saved_count": 30,
@@ -17,8 +17,8 @@
     "used_long_count": 0,
     "used_short_count": 0
   },
-  "generated_at": "2026-09-01T09:07:47.133075Z",
+  "generated_at": "2026-09-01T09:08:09.446611Z",
   "release_approvals": [],
   "schema_version": 1,
-  "source_last_event_at": "2026-09-01T09:07:47.133075+00:00"
+  "source_last_event_at": "2026-09-01T09:08:09.446611+00:00"
 }
