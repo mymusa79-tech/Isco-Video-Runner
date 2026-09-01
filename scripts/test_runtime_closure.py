@@ -75,6 +75,7 @@ class RuntimeClosureTests(unittest.TestCase):
              patch.object(runtime_closure,"sanitize_final_observer_cache_before_runtime",side_effect=lambda:calls.append("observer-cache-trust")) as observer_cache_trust, \
              patch.object(runtime_closure,"install_final_qc_observer_durability",side_effect=lambda:calls.append("observer-durability")) as observer_durability, \
              patch.object(runtime_closure,"install_audio_semantic_final_gate",side_effect=lambda modules:calls.append("audio-semantic-final")) as semantic_final, \
+             patch.object(runtime_closure,"install_producer_handoff_contract",side_effect=lambda modules:calls.append("producer-handoff")) as producer_handoff, \
              patch.object(runtime_closure,"production_entrypoint_modules",return_value=[object()]) as modules, \
              patch.object(runtime_closure,"canonical_runtime_enabled",return_value=False):
             runtime_closure.install_runtime_closure()
@@ -82,7 +83,7 @@ class RuntimeClosureTests(unittest.TestCase):
         audio.assert_called_once_with(); cinematic.assert_called_once_with(runtime_closure.CinematicInstallPhase.INNER)
         render_port.assert_called_once_with(); music.assert_called_once_with(); bundle.assert_called_once_with(); release.assert_called_once_with(); telemetry.assert_called_once_with()
         observer_cache_trust.assert_called_once_with(); observer_durability.assert_called_once_with()
-        modules.assert_called(); semantic_final.assert_called_once()
+        modules.assert_called(); semantic_final.assert_called_once(); producer_handoff.assert_called_once()
         expected = [
             "planning",
             "media-port",
@@ -95,9 +96,10 @@ class RuntimeClosureTests(unittest.TestCase):
             "bundle",
             "release",
             "telemetry",
-            "audio-semantic-final",
             "observer-cache-trust",
             "observer-durability",
+            "audio-semantic-final",
+            "producer-handoff",
         ]
         self.assertEqual(calls, expected)
 
