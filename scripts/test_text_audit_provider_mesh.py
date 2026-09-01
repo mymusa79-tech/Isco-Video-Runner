@@ -6,10 +6,18 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import isco_video_agent.text_audit_router as engine_router
 from isco_video_agent.ai_budget import BudgetLedger, Capability, Priority, TaskSpec, budget_task_scope
 
 from scripts import text_audit_provider_mesh as mesh
+
+
+_FACT_PASS = {
+    "status": "pass",
+    "unsupported_claims": [],
+    "professional_advice_flags": [],
+    "expert_persona_flags": [],
+    "notes": [],
+}
 
 
 class TextAuditProviderMeshTests(unittest.TestCase):
@@ -21,7 +29,7 @@ class TextAuditProviderMeshTests(unittest.TestCase):
             captured["prompt"] = prompt
             return "routed"
 
-        with mock.patch.object(mesh, "_groq_secret_available", return_value=True), mock.patch.object(
+        with mock.patch.object(mesh, "_groq_route_eligible", return_value=True), mock.patch.object(
             mesh.run125, "openrouter_preflight_blocked", return_value=False
         ), mock.patch.object(mesh.engine_audit_router, "route_text_audit", side_effect=fake_engine_route):
             result = mesh._mesh_route(
@@ -40,7 +48,7 @@ class TextAuditProviderMeshTests(unittest.TestCase):
             captured["names"] = [name for name, _call in providers]
             return "routed"
 
-        with mock.patch.object(mesh, "_groq_secret_available", return_value=True), mock.patch.object(
+        with mock.patch.object(mesh, "_groq_route_eligible", return_value=True), mock.patch.object(
             mesh.run125, "openrouter_preflight_blocked", return_value=True
         ), mock.patch.object(mesh.engine_audit_router, "route_text_audit", side_effect=fake_engine_route):
             mesh._mesh_route(
@@ -63,7 +71,7 @@ class TextAuditProviderMeshTests(unittest.TestCase):
             openrouter_calls.append(True)
             raise AssertionError("OpenRouter must not run after a real Groq block")
 
-        with mock.patch.object(mesh, "_groq_secret_available", return_value=True), mock.patch.object(
+        with mock.patch.object(mesh, "_groq_route_eligible", return_value=True), mock.patch.object(
             mesh, "_groq_audit_json", side_effect=groq
         ), mock.patch.object(mesh.run125, "openrouter_preflight_blocked", return_value=False):
             result = mesh._mesh_route(
@@ -89,7 +97,7 @@ class TextAuditProviderMeshTests(unittest.TestCase):
             openrouter_calls.append(True)
             return {"status": "pass", "flags": []}
 
-        with mock.patch.object(mesh, "_groq_secret_available", return_value=True), mock.patch.object(
+        with mock.patch.object(mesh, "_groq_route_eligible", return_value=True), mock.patch.object(
             mesh, "_groq_audit_json", side_effect=groq
         ), mock.patch.object(mesh.run125, "openrouter_preflight_blocked", return_value=False):
             result = mesh._mesh_route(
@@ -101,6 +109,36 @@ class TextAuditProviderMeshTests(unittest.TestCase):
         self.assertEqual(result.provider, "groq")
         self.assertEqual(result.result["status"], "pass")
         self.assertEqual(openrouter_calls, [])
+
+    def test_task_bound_validation_falls_through_malformed_gemini_to_groq(self):
+        ledger = BudgetLedger("moment", enforce=True)
+        spec = TaskSpec(
+            task_id="FACTUALITY_AUDIT",
+            kind="FACTUALITY_AUDIT",
+            priority=Priority.P0,
+            capability=Capability.TEXT,
+            max_provider_attempts=3,
+            schema_repair_allowed=False,
+            local_fallback=False,
+            semantic_block_is_final=True,
+        )
+
+        def malformed_gemini(_prompt):
+            return {"status": "pass"}
+
+        with mock.patch.object(mesh, "_groq_route_eligible", return_value=True), mock.patch.object(
+            mesh, "_groq_audit_json", return_value=dict(_FACT_PASS)
+        ), mock.patch.object(mesh.run125, "openrouter_preflight_blocked", return_value=False):
+            with budget_task_scope(ledger, spec, requested_model="gemini-2.5-flash"):
+                result = mesh._mesh_route(
+                    [("gemini", malformed_gemini), ("openrouter", lambda _p: dict(_FACT_PASS))],
+                    "audit-prompt",
+                )
+
+        self.assertEqual(result.provider, "groq")
+        outcomes = ledger.to_summary()["provider_attempts"]["by_outcome"]
+        self.assertEqual(outcomes.get("SCHEMA_INVALID"), 1)
+        self.assertEqual(outcomes.get("SUCCESS"), 1)
 
     def test_three_provider_budget_counts_one_attempt_per_wire_provider(self):
         ledger = BudgetLedger("moment", enforce=True)
@@ -118,15 +156,12 @@ class TextAuditProviderMeshTests(unittest.TestCase):
         def gemini(_prompt):
             raise RuntimeError("timeout")
 
-        def groq(_prompt):
-            return {"status": "pass"}
-
-        with mock.patch.object(mesh, "_groq_secret_available", return_value=True), mock.patch.object(
-            mesh, "_groq_audit_json", side_effect=groq
+        with mock.patch.object(mesh, "_groq_route_eligible", return_value=True), mock.patch.object(
+            mesh, "_groq_audit_json", return_value=dict(_FACT_PASS)
         ), mock.patch.object(mesh.run125, "openrouter_preflight_blocked", return_value=False):
             with budget_task_scope(ledger, spec, requested_model="gemini-2.5-flash"):
                 result = mesh._mesh_route(
-                    [("gemini", gemini), ("openrouter", lambda _p: {"status": "pass"})],
+                    [("gemini", gemini), ("openrouter", lambda _p: dict(_FACT_PASS))],
                     "audit-prompt",
                 )
 
@@ -206,9 +241,11 @@ class TextAuditProviderMeshTests(unittest.TestCase):
             with mock.patch.dict(os.environ, env, clear=False), mock.patch.object(
                 mesh.run125, "_active_groq_model", return_value="openai/gpt-oss-20b"
             ), mock.patch.object(
-                mesh.capacity, "groq_capacity_estimate", return_value={"estimated_request_tokens": 100}
-            ), mock.patch.object(
-                mesh.capacity, "groq_admission_decision", return_value={"action": "admit", "actual_limit": 8000}
+                mesh, "_groq_request_capacity", return_value=(
+                    "openai/gpt-oss-20b",
+                    {"estimated_request_tokens": 100},
+                    {"action": "admit", "actual_limit": 8000},
+                )
             ), mock.patch.object(
                 mesh.capacity, "_proactive_groq_pacing", return_value=0.0
             ), mock.patch.object(
