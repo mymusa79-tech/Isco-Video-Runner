@@ -9,7 +9,7 @@ from typing import Any
 
 from isco_video_agent.brief_approval_binding import attach_approval_binding
 
-from scripts.shorts_production_binding import finalize_short_quality, prepare_short_render
+from scripts.orchestration_shorts_port import finalize_short_quality, prepare_authoritative_short_for_gold
 from scripts.source_derived_short_planner import install_source_derived_short_planner
 
 
@@ -113,20 +113,37 @@ def execute(request: dict[str, Any], *, runtime_dir: Path) -> Path:
     # since the planning seam consolidation. Patch the name actually looked up.
     original_install_router = planning_runtime_contract.install_router
     original_resolve_plan_source = production._resolve_plan_source
+    original_budget_factory = production._production_budget_ledger
     runtime_request = dict(request)
     runtime_request["production_dispatch_authorized"] = True
     short_pre: dict[str, Any] | None = None
+    ledger_box: dict[str, Any] = {}
     before = _output_dirs()
+
+    def captured_budget_factory(fmt: str):
+        ledger = original_budget_factory(fmt)
+        ledger_box["ledger"] = ledger
+        return ledger
 
     def controlled_gold(**kwargs):
         nonlocal short_pre
-        short_pre = prepare_short_render(Path(kwargs["output_dir"]), runtime_request)
+        output_dir = Path(kwargs["output_dir"])
+        ledger = ledger_box.get("ledger")
+        if ledger is None:
+            raise RuntimeError("Canonical sibling Short lost the production AI budget ledger before finishing")
+        short_pre = prepare_authoritative_short_for_gold(
+            output_dir,
+            runtime_request,
+            ledger=ledger,
+            run_final_master_qc=production.run_final_master_qc,
+        )
         result = original_gold(**kwargs)
         assert short_pre is not None
-        finalize_short_quality(Path(kwargs["output_dir"]), runtime_request, short_pre)
+        finalize_short_quality(output_dir, runtime_request, short_pre)
         return result
 
     production.run_gold_enforce_phase4 = controlled_gold
+    production._production_budget_ledger = captured_budget_factory
     planning_runtime_contract.install_router = lambda: install_source_derived_short_planner(request)
     production._resolve_plan_source = lambda: "source_derived_long_episode_short"
     try:
@@ -134,6 +151,7 @@ def execute(request: dict[str, Any], *, runtime_dir: Path) -> Path:
         return _new_output_dir(before)
     finally:
         production.run_gold_enforce_phase4 = original_gold
+        production._production_budget_ledger = original_budget_factory
         planning_runtime_contract.install_router = original_install_router
         production._resolve_plan_source = original_resolve_plan_source
         for key, value in previous_env.items():
