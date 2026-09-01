@@ -24,6 +24,7 @@ from scripts.orchestration_media_port import install_media_runtime_port
 from scripts.orchestration_render_port import install_render_runtime_port
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
 from scripts.planning_runtime_contract import install_runtime_planning_contracts
+from scripts.producer_quality_contract import install_producer_handoff_contract
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
@@ -137,6 +138,11 @@ def install_runtime_closure() -> None:
     install_release_transaction_guard()
     install_telemetry_reliability_binding()
     install_audio_semantic_final_gate(production_entrypoint_modules())
+    # Producer handoff is installed after the independent Audio Semantic wrapper so it
+    # becomes the outermost pre-Final-QC acceptance step:
+    # Producer stage evidence -> Audio Semantic Integrity -> Final Master QC -> Gold.
+    # It makes no AI calls and does not replace or weaken any downstream gate.
+    install_producer_handoff_contract(production_entrypoint_modules())
     # Final QC/Observer durability is optimization-only and is installed after all
     # media/release authorities are already composed. Its restored cache parent is
     # sanitized first so a symlinked Actions-cache namespace becomes a clean miss.
