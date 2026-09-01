@@ -32,8 +32,13 @@ from scripts.opening_feasibility_guard import _stable_intent_audit
 PROFILE = "short_cinematic_director_v1"
 MAX_SHORT_SHOTS = 4
 MIN_SHORT_SHOTS = 2
+# One cloud Vision verdict on the primary retrieval and at most one on the deterministic
+# alternate retrieval. This keeps a four-beat Short to <=6 *additional* Vision calls in
+# the absolute worst case (three added beats x two reviews), while local preflight may
+# reject more media cheaply without consuming the semantic review allowance.
+MAX_VISION_REVIEWS_PER_ATTEMPT = 1
 MAX_VISION_REVIEWS_PER_BEAT = 2
-MAX_TOTAL_INSPECTIONS_PER_BEAT = 4
+MAX_TOTAL_INSPECTIONS_PER_BEAT = 6
 
 _TEMPLATE_QUERY_MODIFIERS: dict[str, tuple[str, ...]] = {
     "why_reframe": (
@@ -314,7 +319,10 @@ def upgrade_short_cinematic(
         raise ShortCinematicError("Short cinematic director requires Pexels or Pixabay")
     content_model = env("GEMINI_CONTENT_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
 
-    cache = VisualCandidateCache(excluded_assets={})
+    # Preserve the same cross-run visual freshness exclusion used by the canonical
+    # selector. The already-selected core Moment asset is then marked in-run so no
+    # later beat can silently reuse it even under a different retrieval query.
+    cache = VisualCandidateCache()
     original_provider, original_asset_id = _provider_asset_id(original_credit)
     if not original_provider or original_asset_id in (None, ""):
         raise ShortCinematicError("Short cinematic core credit lacks provider-qualified asset identity")
@@ -345,6 +353,7 @@ def upgrade_short_cinematic(
             "provider": original_provider,
             "asset_id": original_asset_id,
             "query": original_credit.get("query") or base_query,
+            "intended_visual": base_query,
             "source": "core_moment_audited_asset",
             "transition_in": "start",
         }
@@ -411,6 +420,8 @@ def upgrade_short_cinematic(
             result["candidate_inspection_index"] = inspection_index
             return result
 
+        # Alternate search text is retrieval-only. Keep the semantic Vision intent
+        # stable on the beat's primary editorial visual, matching the long-form guard.
         stable_audit = _stable_intent_audit(audit_fn, primary_query)
         primary = _search_assets(primary_query, pexels_key=pexels_key, pixabay_key=pixabay_key)
         result = select_with_recovery(
@@ -425,7 +436,7 @@ def upgrade_short_cinematic(
             alternate_search_fn=lambda query: _search_assets(
                 query, pexels_key=pexels_key, pixabay_key=pixabay_key
             ),
-            max_candidates_per_attempt=MAX_VISION_REVIEWS_PER_BEAT,
+            max_candidates_per_attempt=MAX_VISION_REVIEWS_PER_ATTEMPT,
             max_total_inspections=MAX_TOTAL_INSPECTIONS_PER_BEAT,
         )
         for review in result.reviewed:
@@ -436,7 +447,8 @@ def upgrade_short_cinematic(
                     "provider": review.provider,
                     "candidate_id": review.candidate.get("id"),
                     "from_cache": review.from_cache,
-                    "intended_visual": result.alternate_query if result.used_alternate_query else primary_query,
+                    "intended_visual": primary_query,
+                    "alternate_retrieval_used": result.used_alternate_query,
                     **review.audit,
                 }
             )
@@ -491,6 +503,7 @@ def upgrade_short_cinematic(
                 "provider": provider,
                 "asset_id": chosen.get("id"),
                 "query": selected_query,
+                "intended_visual": primary_query,
                 "source": "short_cinematic_audited_asset",
                 "transition_in": "hard_cut",
             }
@@ -529,6 +542,8 @@ def upgrade_short_cinematic(
         "multi_asset_broll_generated": len(timeline_shots) >= 2,
         "beat_to_shot_binding": "one_semantic_beat_per_distinct_audited_asset",
         "transition_policy": "hard_cut_default_for_short_retention",
+        "recent_visual_history_exclusion": True,
+        "max_vision_reviews_per_additional_beat": MAX_VISION_REVIEWS_PER_BEAT,
         "zero_text_ai_calls": True,
         "shots": timeline_shots,
     }
@@ -548,6 +563,8 @@ def upgrade_short_cinematic(
         "additional_stock_assets": len(new_credits),
         "all_additional_assets_visual_qa": True,
         "all_additional_assets_m8_normalized": True,
+        "recent_visual_history_exclusion": True,
+        "max_vision_reviews_per_additional_beat": MAX_VISION_REVIEWS_PER_BEAT,
         "transition_policy": timeline["transition_policy"],
     }
     _append_rights(root, credits, new_credits, rights_metadata)
@@ -565,6 +582,8 @@ def upgrade_short_cinematic(
             "short_visual_timeline": "short-visual-timeline.json",
             "additional_visual_ai_calls_bounded": True,
             "max_vision_reviews_per_additional_beat": MAX_VISION_REVIEWS_PER_BEAT,
+            "vision_reviews_per_retrieval_attempt": MAX_VISION_REVIEWS_PER_ATTEMPT,
+            "recent_visual_history_exclusion": True,
             "m8_applied_to_additional_assets": True,
             "rights_refreshed": True,
         }
