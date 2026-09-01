@@ -15,13 +15,11 @@ REPORT_FILENAME = "producer-handoff-quality.json"
 SCHEMA_VERSION = 1
 
 _PRODUCER_DIRECTIVE = (
-    "Producer Quality Contract (prevent-before-gate): write only claims supportable by APPROVED_RESEARCH_PACK. "
-    "If that pack is empty, avoid precise scientific, psychological, medical, statistical, legal, political or religious "
-    "claims/causation and use modest non-technical observation instead. Keep language natural MSA, specific to the approved "
-    "topic, non-diagnostic, non-preachy and free of generic AI motivation. Preserve the selected narrative/template and make "
-    "every section/beat add a distinct useful idea. For Moment Shorts, keep direct commands out of viewer-facing story beats "
-    "(CTA is separate), never serialize a list into on_screen_text, and make the selected template progression visible in the "
-    "actual hook/contrast/reframe/payoff wording."
+    "Producer pre-gate: use precise factual/scientific/psychological/medical/statistical/legal/political/religious claims only "
+    "when supported by APPROVED_RESEARCH_PACK; otherwise use modest non-technical observation. Write natural specific MSA, "
+    "non-diagnostic, non-preachy, without generic AI motivation. Preserve the selected narrative/template and give each "
+    "section/beat a distinct useful job. Moment: no direct commands in story beats, no list-serialized on_screen_text, and make "
+    "the selected template progression visible in actual viewer-facing wording."
 )
 
 _SHORT_TEMPLATE_CONTRACTS = {
@@ -113,7 +111,7 @@ def _research_pack(context: dict | None) -> list[Any]:
 
 def producer_writing_directive(research_context: dict | None = None) -> str:
     evidence = "present" if _research_pack(research_context) else "EMPTY"
-    return f"{_PRODUCER_DIRECTIVE} APPROVED_RESEARCH_PACK state for this request: {evidence}."
+    return f"{_PRODUCER_DIRECTIVE} APPROVED_RESEARCH_PACK={evidence}."
 
 
 def short_template_contract(template: object) -> str:
@@ -258,7 +256,7 @@ def _merge_revision_note(existing: object, research_context: dict | None) -> str
     directive = producer_writing_directive(research_context)
     if directive in prior:
         return prior
-    return f"{directive} Additional revision requirement: {prior}" if prior else directive
+    return f"{prior} Producer pre-gate requirement: {directive}" if prior else directive
 
 
 def install_planning_producer_quality_contract() -> None:
