@@ -18,12 +18,11 @@ from isco_video_agent.model_output_schemas import (
     validate_cross_provider_text,
     validate_visual_query,
 )
-from isco_video_agent.multimodal_firewall import (
-    MultimodalInjectionFirewall,
-    require_normal_vision_safe,
-)
+from isco_video_agent.multimodal_firewall import MultimodalInjectionFirewall
 from isco_video_agent.research_quarantine import ResearchQuarantineExtractor
 from isco_video_agent.stock_media_preflight import install_stock_media_preflight
+
+from scripts.qr_geometry_confirmation import confirm_qr_finder_geometry
 
 
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -145,6 +144,21 @@ def _normalized_stock_query(value: object, *, alternate: bool = False) -> str:
     return normalized
 
 
+def _normalized_optional_alternate_query(value: object) -> str:
+    """Preserve Engine's explicit NO_ALTERNATE sentinel without weakening schemas.
+
+    The shared Engine selector documents an empty string as the bounded recovery
+    sentinel meaning "there is no safe/useful alternate query". Only an actual string
+    that is empty after trimming receives this treatment. None, mappings, malformed
+    text, prompt injection, non-English text and every non-empty model output still pass
+    through the exact existing alternate-query schema/security boundary and fail closed
+    when invalid.
+    """
+    if isinstance(value, str) and not value.strip():
+        return ""
+    return _normalized_stock_query(value, alternate=True)
+
+
 def _production_ocr(path: Path) -> str:
     tesseract = shutil.which("tesseract")
     if not tesseract:
@@ -160,6 +174,25 @@ def _production_ocr(path: Path) -> str:
     if completed.returncode != 0:
         raise RuntimeError("local_ocr_failed")
     return completed.stdout
+
+
+def _effective_firewall_block_codes(scan_result: object, frame: Path) -> tuple[str, ...]:
+    """Apply QR confirmation while preserving every non-QR firewall finding.
+
+    Engine's QR detector remains the cheap suspicion stage. A QR suspicion gets
+    blocking authority only after independent two-axis/geometric confirmation. This is
+    not a media approval path: barcode/text/prompt/URL/OCR and future detections are
+    unchanged, and confirmation errors themselves retain the QR block (fail closed).
+    """
+    detections = tuple(getattr(scan_result, "detections", ()) or ())
+    codes = tuple(str(getattr(detection, "code", "")).strip() for detection in detections)
+    codes = tuple(code for code in codes if code)
+    if "qr_code_detected" not in codes:
+        return codes
+    if confirm_qr_finder_geometry(frame):
+        return codes
+    print("Security V1 QR suspicion not geometrically confirmed; retaining all other findings")
+    return tuple(code for code in codes if code != "qr_code_detected")
 
 
 def _scan_media_before_vision(media: str | Path) -> None:
@@ -218,7 +251,15 @@ def _scan_media_before_vision(media: str | Path) -> None:
             raise RuntimeError(f"{_FIREWALL_BLOCK_PREFIX}frame_extract_failed")
         firewall = MultimodalInjectionFirewall(ocr_backend=_production_ocr)
         for frame in frames:
-            require_normal_vision_safe(firewall.scan_frame(frame))
+            scan_result = firewall.scan_frame(frame)
+            if getattr(scan_result, "safe_for_normal_vision", False):
+                continue
+            codes = _effective_firewall_block_codes(scan_result, frame)
+            if codes:
+                raise RuntimeError(f"{_FIREWALL_BLOCK_PREFIX}{','.join(codes)}")
+            # The only possible path here is an unconfirmed QR-only suspicion. No
+            # positive safety claim is manufactured; this frame simply has no retained
+            # Security V1 finding after the independent QR confirmation stage.
 
 
 def _wrap_search(original: Callable[..., Any]) -> Callable[..., Any]:
@@ -374,7 +415,7 @@ def install_security_v1_live_binding() -> None:
     current_alt = orchestrator.suggest_alternate_visual_query
     if not getattr(current_alt, "_isco_security_v1_alt_query", False):
         def secured_alt_query(*args, **kwargs):
-            return _normalized_stock_query(current_alt(*args, **kwargs), alternate=True)
+            return _normalized_optional_alternate_query(current_alt(*args, **kwargs))
 
         secured_alt_query._isco_security_v1_alt_query = True
         secured_alt_query._isco_security_v1_original = current_alt
