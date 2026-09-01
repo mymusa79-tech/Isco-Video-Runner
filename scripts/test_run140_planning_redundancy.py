@@ -6,11 +6,21 @@ import unittest
 from pathlib import Path
 
 from scripts import dynamic_planning_capacity as dynamic
+from scripts import planning_capacity_headroom as headroom
+from scripts import planning_capacity_profile as profile
 from scripts import planning_stage_contract as contract
 from scripts import provider_capacity_hardening as capacity
 
 
 class Run140PlanningRedundancyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Exercise the same production admission policy regardless of unittest module
+        # ordering. The 10% operational headroom intentionally makes the old 7,506/8K
+        # Run140 envelope no longer Groq-redundant when OpenRouter is unavailable.
+        profile.install_planning_capacity_profile()
+        headroom.install_planning_capacity_headroom()
+
     def setUp(self) -> None:
         capacity.reset_groq_capacity_state_for_tests()
         self.tmp = tempfile.TemporaryDirectory()
@@ -42,9 +52,11 @@ class Run140PlanningRedundancyTests(unittest.TestCase):
         self.assertTrue(spec.provider_policy.second_pass_after_full_exhaustion)
         self.assertEqual(spec.provider_policy.providers, ("gemini", "groq", "openrouter"))
 
-    def test_exact_run140_envelope_is_below_initial_8k_with_restored_budget(self) -> None:
-        # Run #140 telemetry: 20,635 UTF-8 prompt bytes. Using an ASCII string keeps the
-        # byte count exact while exercising the same conservative byte/token estimator.
+    def test_exact_run140_envelope_is_below_raw_8k_but_not_operationally_safe(self) -> None:
+        # Run #140 telemetry: 20,635 UTF-8 prompt bytes. The historical fix brought the
+        # raw request below 8K, but Run #154 proved that raw-fit is not enough. The new
+        # admission contract reserves 10% operational room, so 7,506 must not be treated
+        # as a safe Groq redundancy path anymore.
         prompt = "x" * 20635
         estimate = capacity.groq_capacity_estimate(
             prompt,
@@ -56,11 +68,25 @@ class Run140PlanningRedundancyTests(unittest.TestCase):
         self.assertEqual(estimate["estimated_request_tokens"], 7506)
         self.assertEqual(estimate["provider_tpm_limit"], 8000)
         self.assertGreater(8000 - estimate["estimated_request_tokens"], 0)
+        self.assertGreater(
+            estimate["estimated_request_tokens"]
+            + headroom.groq_operational_headroom_tokens(8000),
+            8000,
+        )
 
-    def test_p0_gate_accepts_gemini_plus_groq_when_openrouter_is_blocked(self) -> None:
+    def test_p0_gate_rejects_run140_raw_margin_when_openrouter_is_blocked(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "PLANNING_CAPACITY_REDUNDANCY_REQUIRED"):
+            dynamic.require_viable_planning_capacity(
+                7506,
+                phase="run140_regression",
+                preflight_path=self.preflight,
+                min_provider_families=2,
+            )
+
+    def test_p0_gate_accepts_gemini_plus_groq_inside_operational_headroom(self) -> None:
         viable = dynamic.require_viable_planning_capacity(
-            7506,
-            phase="run140_regression",
+            7000,
+            phase="run140_safe_headroom_regression",
             preflight_path=self.preflight,
             min_provider_families=2,
         )
