@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -176,6 +177,48 @@ class ProducerMediaHandoffTests(unittest.TestCase):
         self._write_json(root, "audio-mastering.json", {"status": "applied"})
         (root / "final.mp4").write_bytes(b"0" * 2048)
 
+    def _finished_short_fixture(self, root: Path, *, voice_rights: bool = True) -> None:
+        self._write_json(
+            root,
+            "plan.json",
+            {
+                "format": "moment",
+                "sections": [
+                    {"id": "s1", "narration": "", "visual_query": "quiet room portrait", "key_point": "زاوية"}
+                ],
+            },
+        )
+        self._write_json(
+            root,
+            "quality-final.json",
+            {
+                "format": "moment",
+                "duration_ok": True,
+                "audio_ok": True,
+                "av_sync_ok": True,
+                "video_streams": 1,
+                "audio_streams": 1,
+                "visual_sections_reviewed": 1,
+                "short_voice_v2_refresh": True,
+            },
+        )
+        rights = {
+            "visuals": [{"provider": "pexels", "asset_id": 22}],
+            "short_cinematic_v1": {"recorded": True},
+        }
+        if voice_rights:
+            rights["short_voice_v2"] = {"generated": True, "provider": "gemini"}
+        self._write_json(root, "rights-manifest.json", rights)
+        self._write_json(root, "monetization-check.json", {"status": "PASS_WITH_UPLOAD_ACTIONS"})
+        self._write_json(root, "visual-audit.json", [{"section": "s1"}])
+        self._write_json(
+            root,
+            "short-intelligence-pre-gold.json",
+            {"stage": "pre_gold", "compensation": {"beat_driven_multi_shot_applied": True}},
+        )
+        self._write_json(root, "short-visual-timeline.json", {"shot_count": 3, "distinct_asset_count": 3})
+        (root / "final.mp4").write_bytes(b"short-final-v2" * 256)
+
     def test_long_audio_video_rights_handoff_passes_before_final_qc(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -187,6 +230,28 @@ class ProducerMediaHandoffTests(unittest.TestCase):
             self.assertEqual(receipt["extra_ai_calls"], 0)
             report = json.loads((root / "producer-handoff-quality.json").read_text(encoding="utf-8"))
             self.assertEqual(report["decision"], "pass")
+
+    def test_finished_short_handoff_binds_voice_cinematic_and_exact_final_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._finished_short_fixture(root)
+            receipt = certify_producer_handoff(root)
+            expected_sha = hashlib.sha256((root / "final.mp4").read_bytes()).hexdigest()
+            self.assertEqual(receipt["phase"], "short_finished")
+            self.assertEqual(receipt["final_sha256"], expected_sha)
+            self.assertTrue(receipt["checks"]["short_voice_quality_refresh"])
+            self.assertTrue(receipt["checks"]["short_voice_rights"])
+            self.assertTrue(receipt["checks"]["short_multi_shot_present"])
+            self.assertTrue(receipt["checks"]["short_final_assets_distinct"])
+            self.assertTrue(receipt["checks"]["short_cinematic_rights"])
+            self.assertEqual(receipt["extra_ai_calls"], 0)
+
+    def test_finished_short_missing_voice_provenance_cannot_reach_final_qc(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._finished_short_fixture(root, voice_rights=False)
+            with self.assertRaisesRegex(ProducerQualityContractError, "short_voice_rights"):
+                certify_producer_handoff(root)
 
     def test_incomplete_visual_stage_cannot_be_handed_to_final_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
