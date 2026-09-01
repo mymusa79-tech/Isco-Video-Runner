@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from scripts import planning_capacity_headroom as headroom
+from scripts import run125_capacity_routing_closure as run125
 
 
 # Format-native payload caps. These are content-shape bounds, not provider quota
@@ -134,6 +135,26 @@ def compact_plan_payload(plan: object) -> dict[str, Any]:
     }
 
 
+def _install_headroom_model_failover_semantics() -> None:
+    """Keep model-pool failover model-scoped when a request misses safety headroom.
+
+    The two GPT-OSS models happen to share an 8K Free TPM ceiling today, but that is
+    provider policy, not an architectural invariant. If one model's observed ceiling
+    later differs, a local GROQ_TPM_CAPACITY_PREFLIGHT rejection must advance the model
+    pool exactly like any other model-specific unavailability instead of silently
+    assuming the next model has the same capacity.
+    """
+    if getattr(run125, "_ISCO_HEADROOM_MODEL_FAILOVER_V1", False):
+        return
+    original = run125._is_model_unavailable
+
+    def model_unavailable(error) -> bool:
+        return original(error) or "groq_tpm_capacity_preflight" in str(error).lower()
+
+    run125._is_model_unavailable = model_unavailable
+    run125._ISCO_HEADROOM_MODEL_FAILOVER_V1 = True
+
+
 def install_planning_capacity_profile() -> None:
     global _INSTALLED
     if _INSTALLED:
@@ -146,4 +167,5 @@ def install_planning_capacity_profile() -> None:
     headroom._compact_research_payload = compact_research_payload
     headroom._compact_avoid_payload = compact_avoid_payload
     headroom._plan_payload = compact_plan_payload
+    _install_headroom_model_failover_semantics()
     _INSTALLED = True
