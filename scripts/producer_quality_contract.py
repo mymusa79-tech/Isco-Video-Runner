@@ -329,7 +329,11 @@ def certify_producer_handoff(output_dir: Path) -> dict[str, Any]:
     reviewed = int(quality.get("visual_sections_reviewed") or 0)
     _require(checks, "visual_section_coverage", reviewed >= len(sections))
     _require(checks, "rights_manifest_present", isinstance(rights.get("visuals"), list) and bool(rights.get("visuals")))
-    _require(checks, "monetization_precheck_not_blocked", str(monetization.get("status") or "").upper() != "BLOCK")
+    _require(
+        checks,
+        "monetization_precheck_passed",
+        str(monetization.get("status") or "").upper() == "PASS_WITH_UPLOAD_ACTIONS",
+    )
 
     fmt = str(plan.get("format") or quality.get("format") or "").strip().lower()
     short_finished = (root / "short-intelligence-pre-gold.json").is_file()
@@ -341,7 +345,7 @@ def certify_producer_handoff(output_dir: Path) -> dict[str, Any]:
         _require(checks, "av_sync_stage_certified", quality.get("av_sync_ok") is True)
 
     if fmt != "moment":
-        mastering = _read_json(root / "audio" / "audio-mastering.json", dict)
+        mastering = _read_json(root / "audio-mastering.json", dict)
         _require(checks, "long_audio_mastering_applied", mastering.get("status") == "applied")
 
     if fmt == "moment" and short_finished:
