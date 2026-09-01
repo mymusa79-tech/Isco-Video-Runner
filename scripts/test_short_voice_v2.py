@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scripts import run_control_production, short_voice_v2
+from scripts import orchestration_shorts_port, run_control_production, short_voice_v2
 from scripts.short_voice_v2 import _voice_script, apply_short_voice_v2, decide_voice_mode
 
 
@@ -91,14 +91,17 @@ class ShortVoiceV2Tests(unittest.TestCase):
         self.assertIn('"quality_final_refreshed_after_voice": True', source)
 
     def test_final_mutation_happens_before_authoritative_qc_and_gold(self):
-        source = inspect.getsource(run_control_production.execute_control_request)
-        prepare_at = source.index("prepare_short_render(output_dir, runtime_request)")
-        voice_at = source.index("apply_short_voice_v2(")
-        qc_at = source.index("production.run_final_master_qc(output_dir)")
-        gold_at = source.index("result = original_gold(**kwargs)")
+        seam = inspect.getsource(orchestration_shorts_port.prepare_authoritative_short_for_gold)
+        prepare_at = seam.index("core.prepare_short_render(")
+        voice_at = seam.index("apply_short_voice_v2(")
+        qc_at = seam.index("run_final_master_qc(output_dir)")
         self.assertLess(prepare_at, voice_at)
         self.assertLess(voice_at, qc_at)
-        self.assertLess(qc_at, gold_at)
+
+        source = inspect.getsource(run_control_production.execute_control_request)
+        seam_at = source.index("prepare_authoritative_short_for_gold(")
+        gold_at = source.index("result = original_gold(**kwargs)")
+        self.assertLess(seam_at, gold_at)
 
 
 if __name__ == "__main__":
