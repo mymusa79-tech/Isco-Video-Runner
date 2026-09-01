@@ -56,6 +56,9 @@ def _canonical_v4_bundle_enabled() -> bool:
     explicit = str(os.environ.get("ISCO_CANONICAL_V4_BUNDLE_ENABLED") or "").strip().lower()
     if explicit in _TRUE_VALUES:
         return True
+    # Run130 closure: bundle activation shares the same application-owned phase source
+    # as durable runtime state. Merely executing a test inside Production V4 is not
+    # enough to make it a live production process.
     return canonical_runtime_enabled()
 
 
@@ -91,9 +94,39 @@ def install_runtime_closure() -> None:
     """Install bounded production recovery plus cinematic and delivery stages."""
     runtime_active = canonical_runtime_enabled()
 
+    # Retry/recovery ownership first; core preflight is evaluated lazily at produce().
+    # Planning-affecting composition now has one canonical seam, including immutable
+    # approved-input rebinding. This call preserves the exact historical V4 ordering
+    # while keeping media/audio/release code outside the durable planning contract hash.
     install_runtime_planning_contracts()
+
+    # Text audits are post-planning mandatory gates. Install their provider-portable
+    # mesh only after planning capacity state is live, so Groq reuses the same model-
+    # scoped headroom/reset evidence without entering the planning checkpoint contract.
     install_text_audit_provider_mesh()
 
+    # L7.2 moves only the Media installation topology behind one stable seam. The port
+    # preserves the certified historical order: Provider Capacity V2 -> Media Trust V2
+    # -> durable asset/decision cache -> M8-composed prepared cache -> Pexels search
+    # cache. Provider selection, retry ownership, trust/security decisions, cache
+    # semantics, hit revalidation, and write policy remain in their existing owners.
+    # L7.3 moves only the inner Cinematic composition behind one phase-explicit stable
+    # seam. INNER preserves the exact historical SFX -> M8 -> M9 -> M10 -> CTA order.
+    # The OUTER M7/M11 phase remains intentionally later in run_v3_voice after TTS, so
+    # wrapper nesting and the opening-feasibility guard boundary do not change.
+    # L7.4 moves only Render installation behind one stable seam. Durable cache
+    # semantics, fingerprints, promotion/eviction, and current Engine QC revalidation
+    # remain byte-for-byte owned by render_durable_cache.py.
+    # Render durability is deliberately installed only after those inner cinematic
+    # wrappers have been registered, but immediately before Narrative Music Dynamics
+    # wraps the global mux. It patches only M9's expensive xfade-pair renderer,
+    # orchestrator.burn_srt, and the underlying Engine mux. Consequently every SFX/M10/
+    # CTA/Narrative wrapper still executes on a durable final hit and writes fresh reports.
+    # Audio Semantic Integrity was registered earlier and remains the outer runtime mux
+    # authority; current Engine QC probes every restored final before it stays durable.
+    # Canonical bundle is bound on every live run_v3_voice module before the release
+    # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
+    # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
     install_media_runtime_port()
     install_core_reliability_guard()
     install_audio_semantic_integrity_binding()
@@ -104,18 +137,19 @@ def install_runtime_closure() -> None:
     install_canonical_v4_bundle_post_manifest()
     install_release_transaction_guard()
     install_telemetry_reliability_binding()
-
-    # Optimization must be INNER to every mandatory final acceptance authority. A
-    # durable Final-QC PASS may skip the expensive deterministic QC implementation,
-    # but it must never skip current-run producer evidence or Audio Semantic Integrity.
+    # Final QC/Observer durability is optimization-only. Install it inside the two
+    # mandatory final acceptance wrappers so a durable QC hit can skip only Final QC
+    # itself, never current-run Producer Handoff or Audio Semantic Integrity.
     sanitize_final_observer_cache_before_runtime()
     install_final_qc_observer_durability()
     install_audio_semantic_final_gate(production_entrypoint_modules())
     install_producer_handoff_contract(production_entrypoint_modules())
-    # Effective call order is now:
+    # Effective call order:
     # Producer Handoff -> Audio Semantic Integrity -> Durable Final QC -> Final QC.
-    # Gold remains outside this call and is reached only after the entire chain returns.
-
+    # Gold remains downstream and is reached only after the entire chain returns.
+    # Durable resume is deliberately outermost: every existing production/quality/safety
+    # wrapper remains untouched and authoritative. This layer only persists the local
+    # planner checkpoint after a failure, or writes a completion marker after success.
     if runtime_active:
         install_runtime_persistence_wrapper(orchestrator)
 
