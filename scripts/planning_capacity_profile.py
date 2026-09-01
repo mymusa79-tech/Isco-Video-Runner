@@ -9,12 +9,15 @@ from scripts import run125_capacity_routing_closure as run125
 # Format-native payload caps. These are content-shape bounds, not provider quota
 # overrides: they keep a 7-20s Moment from carrying Film-sized policy/research/output
 # fields into a provider request while preserving every hard cultural/factuality rule.
+# The caps include room for the channel persona that is injected after these payloads
+# are built; the certified worst-case review must remain inside the 16KB routed prompt
+# envelope instead of merely keeping the pre-persona JSON small.
 SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES = 16_000
-SHORT_MAX_REVISION_CHARS = 1_200
-SHORT_MAX_RESEARCH_ITEMS = 3
-SHORT_MAX_RESEARCH_VALUE_CHARS = 240
-SHORT_MAX_BOUNDARY_ITEMS = 4
-SHORT_MAX_BOUNDARY_CHARS = 220
+SHORT_MAX_REVISION_CHARS = 800
+SHORT_MAX_RESEARCH_ITEMS = 2
+SHORT_MAX_RESEARCH_VALUE_CHARS = 160
+SHORT_MAX_BOUNDARY_ITEMS = 3
+SHORT_MAX_BOUNDARY_CHARS = 160
 SHORT_MAX_AVOID_ITEMS = 6
 SHORT_MAX_AVOID_VALUE_CHARS = 180
 
@@ -104,34 +107,34 @@ def compact_plan_payload(plan: object) -> dict[str, Any]:
         )
     section = sections[0]
     return {
-        "topic": _text(getattr(plan, "topic", ""), 360),
+        "topic": _text(getattr(plan, "topic", ""), 320),
         "pillar": _text(getattr(plan, "pillar", "understand"), 30),
         "format": "moment",
-        "hook": _text(getattr(plan, "hook", ""), 300),
+        "hook": _text(getattr(plan, "hook", ""), 220),
         "title_options": [
-            _text(item, 140)
+            _text(item, 100)
             for item in list(getattr(plan, "title_options", []) or [])[:3]
         ],
         "thumbnail_concepts": [
-            _text(item, 200)
+            _text(item, 140)
             for item in list(getattr(plan, "thumbnail_concepts", []) or [])[:3]
         ],
         "sections": [
             {
                 "id": _text(getattr(section, "id", "s1"), 40) or "s1",
                 "narration": "",
-                "visual_query": _text(getattr(section, "visual_query", ""), 240),
-                "on_screen_text": _text(getattr(section, "on_screen_text", ""), 200),
+                "visual_query": _text(getattr(section, "visual_query", ""), 220),
+                "on_screen_text": _text(getattr(section, "on_screen_text", ""), 160),
                 "emotion": _text(getattr(section, "emotion", "reflective"), 40),
                 "expected_seconds": max(
                     7.0,
                     min(20.0, float(getattr(section, "expected_seconds", 15.0) or 15.0)),
                 ),
-                "key_point": _text(getattr(section, "key_point", ""), 180),
+                "key_point": _text(getattr(section, "key_point", ""), 140),
             }
         ],
-        "cta": _text(getattr(plan, "cta", ""), 260),
-        "closing_payoff": _text(getattr(plan, "closing_payoff", ""), 300),
+        "cta": _text(getattr(plan, "cta", ""), 180),
+        "closing_payoff": _text(getattr(plan, "closing_payoff", ""), 220),
     }
 
 
