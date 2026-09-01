@@ -32,6 +32,7 @@ from scripts.runtime_reliability import (
     manifest_wrapper_chain_has_marker,
     production_entrypoint_modules,
 )
+from scripts.text_audit_provider_mesh import install_text_audit_provider_mesh
 
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -97,6 +98,11 @@ def install_runtime_closure() -> None:
     # approved-input rebinding. This call preserves the exact historical V4 ordering
     # while keeping media/audio/release code outside the durable planning contract hash.
     install_runtime_planning_contracts()
+
+    # Text audits are post-planning mandatory gates. Install their provider-portable
+    # mesh only after planning capacity state is live, so Groq reuses the same model-
+    # scoped headroom/reset evidence without entering the planning checkpoint contract.
+    install_text_audit_provider_mesh()
 
     # L7.2 moves only the Media installation topology behind one stable seam. The port
     # preserves the certified historical order: Provider Capacity V2 -> Media Trust V2
