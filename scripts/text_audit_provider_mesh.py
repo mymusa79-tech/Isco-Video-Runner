@@ -37,6 +37,20 @@ _GROQ_COMPLETION_RESERVE_TOKENS = 2_200
 _GROQ_ROUTE_PREFIX = "groq:"
 _AUDIT_ROUTE_TELEMETRY: list[dict] = []
 
+# Audit capability is deliberately separate from the mutable Planning production
+# policy. Run125 cache-prefix ownership intentionally narrows Planning to GPT-OSS
+# 20b->120b because Qwen is a preview model and must not become a Planning dependency.
+# Text Audits have a different bounded policy: when OpenRouter is unavailable, Qwen is
+# an allowed third provider-route candidate inside the existing three-attempt logical
+# audit budget. Do not derive this pool from run125._GROQ_MODEL_POOL: that global is a
+# mutable Planning policy surface and Run #157 proved that sharing it silently removed
+# the audit fallback after install_run125_cache_prefix_contract().
+_AUDIT_GROQ_MODEL_POOL = (
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+)
+
 _REQUIRED_ARRAYS_BY_TASK_KIND = {
     "FACTUALITY_AUDIT": (
         "unsupported_claims",
@@ -76,14 +90,14 @@ def _groq_token() -> str:
 
 
 def _active_groq_pool_tail() -> tuple[str, ...]:
-    """Return the current model and only models not already abandoned before it."""
-    pool = tuple(getattr(run125, "_GROQ_MODEL_POOL", ()))
-    if not pool:
-        return (str(run125._active_groq_model()),)
+    """Return the active Planning model plus later audit-capable models."""
+    pool = tuple(_AUDIT_GROQ_MODEL_POOL)
     active = str(run125._active_groq_model())
     try:
         index = pool.index(active)
     except ValueError:
+        # Unknown active model is still the authoritative current model. Do not invent
+        # earlier candidates that Planning has already abandoned.
         return (active,)
     return tuple(str(model) for model in pool[index:])
 
@@ -454,6 +468,7 @@ def install_text_audit_provider_mesh() -> None:
         "route=gemini->groq_model_pool->openrouter "
         "max_attempts_per_audit=3 "
         "openrouter_blocked_allows_two_groq_models=true "
+        "audit_groq_pool_isolated_from_planning_policy=true "
         "audit_contract_validation=task_kind_bound "
         "semantic_block_final=true technical_exhaustion_repair=false "
         "audit_attempt_detail_durable=true"
