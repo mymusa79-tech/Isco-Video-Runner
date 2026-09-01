@@ -62,6 +62,7 @@ class TelegramOperatorMissionControlTests(unittest.TestCase):
         self.assertIn("Production Run: لم يبدأ بعد", text)
         self.assertIn("req-1", text)
         self.assertIn("الانضباط الهادئ", text)
+        self.assertIn("آخر تحديث: 2026-09-01T10:00:00+00:00", text)
 
     def test_live_dispatch_wins_over_durable_approval_target(self) -> None:
         state = _target_state()
@@ -102,16 +103,43 @@ class TelegramOperatorMissionControlTests(unittest.TestCase):
         self.assertIn("Production Run ID: 123456789", text)
         self.assertNotIn("تشغيل تشخيصي", text)
 
-    def test_retry_receipt_separates_idempotency_from_operator_queueing(self) -> None:
-        text = mission._receipt_text(
-            "retry_queued",
-            {"request_id": "req-1", "attempt": 2, "status": "pending_dispatch"},
+    def test_terminal_attempt_wins_over_still_durable_target(self) -> None:
+        state = _target_state()
+        state["production_queue"] = [
+            {
+                "request_id": "req-1",
+                "request_sha256": "hash-1",
+                "status": "completed",
+                "attempt": 1,
+                "completed_at": queue._now(),
+                "workflow_run_id": "777",
+            }
+        ]
+        snapshot = mission.current_production_state(state)
+        self.assertIsNotNone(snapshot)
+        assert snapshot is not None
+        self.assertEqual(snapshot.lifecycle, "completed")
+        text = mission.render_operator_status(snapshot)
+        self.assertIn("الحالة: ✅ مكتمل", text)
+        self.assertIn("Production Run ID: 777", text)
+        self.assertNotIn("ينتظر التأكيد", text)
+
+    def test_idempotency_receipts_never_expose_queue_or_retry_window_as_lifecycle(self) -> None:
+        cases = (
+            ("already_queued", {"request_id": "req-1", "status": "pending_dispatch"}),
+            ("already_reserved_recent", {"request_id": "req-1", "status": "dispatch_reserved"}),
+            ("already_dispatched_recent", {"request_id": "req-1", "status": "dispatch_consumed", "workflow_run_id": "9"}),
+            ("retry_queued", {"request_id": "req-1", "attempt": 2, "status": "pending_dispatch"}),
         )
-        self.assertIn("الحالة: 🔵 بدء التشغيل", text)
-        self.assertIn("حماية التكرار تمنع النسخ المتزامنة فقط", text)
-        self.assertNotIn("طابور", text)
-        self.assertNotIn("نافذة الحماية", text)
-        self.assertIn("YouTube: النشر يبقى يدويًا فقط", text)
+        for status, action in cases:
+            with self.subTest(status=status):
+                text = mission._receipt_text(status, action)
+                self.assertNotIn("طابور", text)
+                self.assertNotIn("نافذة الحماية", text)
+                self.assertIn("YouTube: النشر يبقى يدويًا فقط", text)
+        retry = mission._receipt_text("retry_queued", cases[-1][1])
+        self.assertIn("الحالة: 🔵 بدء التشغيل", retry)
+        self.assertIn("حماية التكرار تمنع النسخ المتزامنة فقط", retry)
 
     def test_completed_request_never_claims_that_a_new_run_started(self) -> None:
         text = mission._receipt_text(
@@ -136,7 +164,7 @@ class TelegramOperatorMissionControlTests(unittest.TestCase):
         self.assertIn("هذه ليست حالة Production الحالية", text)
         self.assertNotIn("تفاصيل النظام · Run #14", text)
 
-    def test_confirmation_receipt_uses_existing_exact_request_enqueue_contract(self) -> None:
+    def test_confirmation_receipt_delegates_to_existing_certified_handler(self) -> None:
         request = _ready_request()
         state = {
             "requests": {request["request_id"]: request},
@@ -151,7 +179,7 @@ class TelegramOperatorMissionControlTests(unittest.TestCase):
         client = _Client()
         old_base = mission._BASE_PRODUCTION_HANDLE
         try:
-            mission._BASE_PRODUCTION_HANDLE = lambda *args, **kwargs: None
+            mission._BASE_PRODUCTION_HANDLE = active._handle_command
             with mock.patch.object(active, "_production_enabled", return_value=True):
                 mission._production_handle("produce_latest", client, state, [], 77)
         finally:
@@ -164,6 +192,16 @@ class TelegramOperatorMissionControlTests(unittest.TestCase):
         self.assertIn("الحالة: 🔵 بدء التشغيل", text)
         self.assertNotIn("طابور", text)
         self.assertIn("Production Run: لم يُسجّل بعد", text)
+
+    def test_non_production_commands_delegate_without_receipt_interception(self) -> None:
+        calls: list[str] = []
+        old_base = mission._BASE_PRODUCTION_HANDLE
+        try:
+            mission._BASE_PRODUCTION_HANDLE = lambda kind, *args, **kwargs: calls.append(kind)
+            mission._production_handle("menu", _Client(), {}, [], 77)
+        finally:
+            mission._BASE_PRODUCTION_HANDLE = old_base
+        self.assertEqual(calls, ["menu"])
 
 
 if __name__ == "__main__":
