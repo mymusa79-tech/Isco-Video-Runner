@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import inspect
+import json
 import math
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from scripts import planning_capacity_headroom as headroom
 from scripts import planning_capacity_profile as profile
 from scripts import planning_envelope_preflight as preflight
 from scripts import planning_runtime_contract as runtime_contract
+from scripts import provider_capacity_margin_audit as media_margin
 from scripts import short_planning_repair
 
 
@@ -154,15 +158,92 @@ class PlanningCapacityHeadroomTests(unittest.TestCase):
         source = inspect.getsource(preflight.certify_planning_envelope)
         self.assertIn('if fmt == "moment":', source)
         self.assertIn("_certify_short_envelope", source)
+        self.assertIn("audit_media_capacity_margin()", source)
         short_source = inspect.getsource(preflight._certify_short_envelope)
         self.assertIn("P0_SHORT_MIN_PROVIDER_FAMILIES", short_source)
         self.assertIn("worst_case_short_review_capacity", short_source)
+
+    def test_long_preflight_uses_same_groq_headroom_filter_as_runtime(self):
+        source = inspect.getsource(preflight.certify_planning_envelope)
+        self.assertIn("_require_provider_redundancy", source)
+        self.assertIn("groq_operational_headroom", source)
 
     def test_short_profile_is_format_native_and_bounded(self):
         self.assertLessEqual(profile.SHORT_MAX_RESEARCH_ITEMS, 3)
         self.assertLessEqual(profile.SHORT_MAX_BOUNDARY_ITEMS, 4)
         self.assertLessEqual(profile.SHORT_MAX_AVOID_ITEMS, 6)
         self.assertLessEqual(profile.SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES, 16_000)
+
+    def test_media_request_reserve_is_derived_from_live_topology(self):
+        self.assertEqual(
+            media_margin.LONGFORM_MEDIA_SEARCH_RESERVE,
+            media_margin.MAX_LONGFORM_SECTIONS * 2,
+        )
+        self.assertEqual(
+            media_margin.SHORT_MEDIA_SEARCH_RESERVE,
+            1 + ((media_margin.MAX_SHORT_SHOTS - 1) * 2),
+        )
+        self.assertEqual(
+            media_margin.MEDIA_SEARCH_REQUEST_RESERVE,
+            max(
+                media_margin.LONGFORM_MEDIA_SEARCH_RESERVE,
+                media_margin.SHORT_MEDIA_SEARCH_RESERVE,
+            ),
+        )
+
+    def test_pexels_one_remaining_is_not_called_production_ready(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "provider-preflight.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "checks": [
+                            {
+                                "provider": "pexels",
+                                "status": "pass",
+                                "capacity_remaining": 1,
+                            },
+                            {
+                                "provider": "pixabay",
+                                "status": "pass",
+                                "capacity_remaining": 99,
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "PEXELS_CAPACITY_HEADROOM"):
+                media_margin.audit_media_capacity_margin(path)
+
+    def test_pixabay_low_headroom_is_degraded_but_not_false_hard_dependency(self):
+        reserve = media_margin.MEDIA_SEARCH_REQUEST_RESERVE
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "provider-preflight.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "checks": [
+                            {
+                                "provider": "pexels",
+                                "status": "pass",
+                                "capacity_remaining": reserve + 10,
+                            },
+                            {
+                                "provider": "pixabay",
+                                "status": "pass",
+                                "capacity_remaining": max(0, reserve - 1),
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = media_margin.audit_media_capacity_margin(path)
+        by_provider = {item.provider: item for item in result}
+        self.assertEqual(by_provider["pexels"].status, "pass")
+        self.assertEqual(by_provider["pixabay"].status, "insufficient_headroom")
+        self.assertFalse(by_provider["pixabay"].hard_dependency)
 
 
 if __name__ == "__main__":
