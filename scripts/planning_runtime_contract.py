@@ -44,6 +44,7 @@ from scripts.runtime_patch_contracts import certify_runtime_patch_contracts
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.short_planning_repair import install_short_planning_repair
+from scripts.short_repair_reset_recovery import install_short_repair_reset_recovery
 from scripts.task_level_planner_router import install_router
 
 
@@ -117,6 +118,11 @@ def install_runtime_planning_contracts() -> None:
     # reset owner without replacing the existing long-form shard recovery semantics.
     install_planning_capacity_profile()
     install_planning_capacity_headroom()
+    # Runs #158/#160 reached the compact Moment RepairDossier after Draft/Review, but
+    # that transport sat outside the native-Short reset owner. Reuse the exact same
+    # evidence-backed <=60s wait + one retry for the surgical repair call only; Dossier
+    # max_attempts and all semantic/quality gates remain unchanged.
+    install_short_repair_reset_recovery()
 
     # Certify the historical routing/capacity composition first. No provider call is
     # made by certification. Then rebind explicit stage wrappers around any function
