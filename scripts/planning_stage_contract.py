@@ -1021,6 +1021,51 @@ def _provider_failure(
     )
 
 
+def _safe_provider_failure(
+    contract: PlanningStageContract,
+    provider: str,
+    exc: BaseException,
+) -> tuple[PlanningStageError, bool, object, object]:
+    """_provider_failure calls the same live-patched classify_provider_failure chain
+    task_level_planner_router.py's task_router defends against in its own
+    run_provider_loop (run120/122/123/124/125 each replace it in turn): a defect in
+    that bookkeeping must never be able to crash the request it is classifying instead
+    of the real provider failure. Degrade to a generic, non-retryable classification.
+    """
+    try:
+        return _provider_failure(contract, provider, exc)
+    except Exception as classify_exc:
+        print(
+            "Planning provider failure classification error "
+            f"(treating as generic failure): {provider}:{type(classify_exc).__name__}"
+        )
+        detail = str(exc).replace("\n", " ")[:300]
+        return (
+            PlanningStageError(
+                PlanningErrorCode.PROVIDER_TRANSIENT,
+                detail,
+                stage_id=contract.stage_id,
+                provider=provider,
+            ),
+            False,
+            None,
+            router.ProviderFailure("classification_error", router.AttemptOutcome.OTHER, False),
+        )
+
+
+def _safe_record_attempt(*args, **kwargs) -> None:
+    """Telemetry recording (also live-patched by run123/125) must never crash the
+    request it is only supposed to be observing."""
+    try:
+        router._record_attempt(*args, **kwargs)
+    except Exception as record_exc:
+        provider = args[0] if args else kwargs.get("provider_name", "?")
+        print(
+            "Planning provider attempt-recording error "
+            f"(continuing without telemetry): {provider}:{type(record_exc).__name__}"
+        )
+
+
 def _provider_result(
     provider: str,
     prompt: str,
@@ -1173,7 +1218,7 @@ def install_planning_contract_router() -> None:
                             except PlanningStageError as exc:
                                 failures.append(exc)
                                 round_failures.append(exc)
-                                router._record_attempt(
+                                _safe_record_attempt(
                                     provider,
                                     exc.code.value.lower(),
                                     error_detail=str(exc)[:220],
@@ -1202,14 +1247,14 @@ def install_planning_contract_router() -> None:
                                 )
                                 break
                             except Exception as exc:
-                                classified, retryable, retry_after, failure = _provider_failure(
+                                classified, retryable, retry_after, failure = _safe_provider_failure(
                                     contract,
                                     provider,
                                     exc,
                                 )
                                 failures.append(classified)
                                 round_failures.append(classified)
-                                router._record_attempt(
+                                _safe_record_attempt(
                                     provider,
                                     failure.telemetry_result,
                                     error_detail=str(classified)[:220],

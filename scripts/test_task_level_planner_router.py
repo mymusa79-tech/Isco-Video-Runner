@@ -287,6 +287,63 @@ class CooldownAwareRoutingTests(unittest.TestCase):
         self.assertEqual(groq_calls, 2)
 
 
+class ProviderFailureBookkeepingResilienceTests(unittest.TestCase):
+    """Regression for a real 2026-09-01 production failure: a Short repair subtask
+    exhausted Gemini/Groq/OpenRouter and the run crashed with
+    RuntimeError("... {'type': 'KeyError'}") instead of the expected clean
+    "all providers failed" RuntimeError. classify_provider_failure and _record_attempt
+    are both live-patched by several layered capacity/latency installers
+    (run120/122/123/124/125); a defect in any of those wrappers must never be able to
+    crash the planning subtask it is only supposed to be observing - the same principle
+    every resilient retry/circuit-breaker implementation follows for its own telemetry.
+    This proves task_router degrades to a generic classification/skips telemetry
+    instead of propagating, whichever of those wrappers is the one that misbehaves."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        gemini_key_path = Path(self._tmpdir.name) / "gemini_key"
+        gemini_key_path.write_text("fake-gemini-key", encoding="utf-8")
+        self._env_patch = patch.dict(os.environ, {"GEMINI_API_KEY_FILE": str(gemini_key_path)}, clear=False)
+        self._env_patch.start()
+        self._cache_patch = patch.object(router, "CACHE_PATH", Path(self._tmpdir.name) / "planning-checkpoint.json")
+        self._cache_patch.start()
+        self._sleep_patch = patch.object(router.time, "sleep")
+        self._sleep_patch.start()
+        self._json_text_patch = patch.object(staged, "json_text", lambda *a, **k: {})
+        self._json_text_patch.start()
+
+    def tearDown(self) -> None:
+        self._json_text_patch.stop()
+        self._sleep_patch.stop()
+        self._cache_patch.stop()
+        self._env_patch.stop()
+        self._tmpdir.cleanup()
+
+    def test_broken_classifier_degrades_to_generic_failure_instead_of_crashing(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            raise RuntimeError("some real provider failure")
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router, "_groq_call", side_effect=RuntimeError("groq also failed")), \
+                patch.object(router, "_openrouter_call_with_repair", side_effect=RuntimeError("openrouter also failed")), \
+                patch.object(router, "classify_provider_failure", side_effect=KeyError("some_unexpected_key")):
+            router.install_router()
+            with self.assertRaisesRegex(RuntimeError, "All free providers failed"):
+                staged.json_text("unused-api-key", "نداء اليقظة: طلب اختبار", model="gemini-2.5-flash")
+
+    def test_broken_telemetry_recorder_degrades_instead_of_crashing(self) -> None:
+        def fake_gemini_json_text(api_key, prompt, model):
+            raise RuntimeError("some real provider failure")
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini_json_text), \
+                patch.object(router, "_groq_call", side_effect=RuntimeError("groq also failed")), \
+                patch.object(router, "_openrouter_call_with_repair", side_effect=RuntimeError("openrouter also failed")), \
+                patch.object(router, "_record_attempt", side_effect=KeyError("some_unexpected_key")):
+            router.install_router()
+            with self.assertRaisesRegex(RuntimeError, "All free providers failed"):
+                staged.json_text("unused-api-key", "نداء اليقظة: طلب اختبار", model="gemini-2.5-flash")
+
+
 class UsedProvidersTrackingTests(unittest.TestCase):
     """Covers item 1 of the plan_source request: get_used_providers() must reflect
     exactly which provider(s) actually produced planning output for the current run,
