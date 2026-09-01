@@ -29,7 +29,6 @@ GROQ_OPERATIONAL_HEADROOM_RATIO = 0.10
 SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES = 15_000
 SHORT_TERMINAL_RESET_WAIT_LIMIT_SECONDS = 60.0
 SHORT_RESET_SAFETY_SECONDS = 1.5
-SHORT_MAX_REVISION_CHARS = 1_800
 SHORT_MAX_RESEARCH_ITEMS = 4
 SHORT_MAX_RESEARCH_VALUE_CHARS = 420
 SHORT_MAX_AVOID_ITEMS = 10
@@ -121,10 +120,6 @@ def _compact_avoid_payload(context: dict | None) -> Any:
 
 def _revision_text(value: object) -> str:
     text = " ".join(str(value or "").strip().split())
-    if len(text) > SHORT_MAX_REVISION_CHARS:
-        raise PlanningCapacityHeadroomError(
-            "Short initial revision requirement exceeds the certified envelope"
-        )
     return text or "none"
 
 
@@ -270,7 +265,8 @@ def _effective_prompt_capacity(prompt: str) -> dict[str, Any]:
     return estimate
 
 
-def _assert_short_envelope(prompt: str, *, phase: str) -> dict[str, Any]:
+def certify_short_prompt_envelope(prompt: str, *, phase: str) -> dict[str, Any]:
+    """Fail closed on the final persona-routed Short prompt and Groq headroom."""
     estimate = _effective_prompt_capacity(prompt)
     size = int(estimate["effective_prompt_utf8_bytes"])
     if size > SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES:
@@ -292,6 +288,10 @@ def _assert_short_envelope(prompt: str, *, phase: str) -> dict[str, Any]:
         f"required={required} groq_limit={limit} operational_headroom={headroom}"
     )
     return estimate
+
+
+# Backward-compatible private name for existing tests and installed callers.
+_assert_short_envelope = certify_short_prompt_envelope
 
 
 def _terminal_reset_evidence(error: BaseException) -> tuple[str, float] | None:
@@ -378,7 +378,7 @@ def _build_short_plan(
         avoid_context=avoid_context,
         revision_note=revision_note,
     )
-    _assert_short_envelope(initial_prompt, phase="initial")
+    certify_short_prompt_envelope(initial_prompt, phase="initial")
     draft_data = _short_provider_call_with_terminal_recovery(
         lambda: native_short.json_text(api_key, initial_prompt, model=content_model),
         phase="initial",
@@ -390,7 +390,7 @@ def _build_short_plan(
         research_context=research_context,
         revision_note=revision_note,
     )
-    _assert_short_envelope(review_prompt, phase="review")
+    certify_short_prompt_envelope(review_prompt, phase="review")
     reviewed_data = _short_provider_call_with_terminal_recovery(
         lambda: native_short.json_text(api_key, review_prompt, model=content_model),
         phase="review",
@@ -507,7 +507,17 @@ def _install_short_initial_transport() -> None:
     native_short._ISCO_SHORT_INITIAL_ENVELOPE_V1 = True
 
 
-def worst_case_short_review_capacity(topic: str = "موضوع شورت معتمد") -> dict[str, Any]:
+def worst_case_short_review_capacity(
+    topic: str = "موضوع شورت معتمد",
+    *,
+    revision_note: object,
+) -> dict[str, Any]:
+    """Certify the bounded Review payload with the exact live writing direction.
+
+    The final routed prompt envelope is the single capacity authority. Requiring the
+    caller to provide the already-composed revision prevents preflight from certifying
+    a smaller prompt than runtime after planning wrappers add their directives.
+    """
     class _Section:
         id = "s" * 40
         narration = ""
@@ -547,9 +557,9 @@ def worst_case_short_review_capacity(topic: str = "موضوع شورت معتم�
             ]
             * SHORT_MAX_RESEARCH_ITEMS,
         },
-        revision_note="r" * SHORT_MAX_REVISION_CHARS,
+        revision_note=revision_note,
     )
-    return _assert_short_envelope(prompt, phase="preflight_worst_case_review")
+    return certify_short_prompt_envelope(prompt, phase="preflight_worst_case_review")
 
 
 def install_planning_capacity_headroom() -> None:

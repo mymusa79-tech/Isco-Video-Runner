@@ -241,12 +241,17 @@ def select_native_short_template(topic: object, plan: object | None = None) -> d
     }
 
 
-def _planning_revision_note(template: str, existing: object) -> str:
+def merge_short_template_revision(template: str, existing: object) -> str:
+    """Compose the selected Short template with all earlier writing requirements."""
     directive = _TEMPLATE_WRITING_DIRECTIVES[template]
     previous = _clean(existing)
     if previous:
         return f"{directive} Additional revision requirement: {previous}"
     return directive
+
+
+# Backward-compatible private name for already-installed callers.
+_planning_revision_note = merge_short_template_revision
 
 
 def _attach_compensation_metadata(
@@ -306,7 +311,10 @@ def install_native_short_router() -> None:
             content_model,
             research_context=kwargs.get("research_context"),
             avoid_context=kwargs.get("avoid_context"),
-            revision_note=_planning_revision_note(template, kwargs.get("revision_note", "")),
+            revision_note=merge_short_template_revision(
+                template,
+                kwargs.get("revision_note", ""),
+            ),
             allow_fallback=False,
         )
         if getattr(plan, "format", None) != "moment":

@@ -6,12 +6,15 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from scripts import native_short_planner_router as short_router
 from scripts import planning_capacity_headroom as headroom
 from scripts import planning_capacity_profile as profile
 from scripts import planning_envelope_preflight as preflight
 from scripts import planning_runtime_contract as runtime_contract
+from scripts import producer_quality_contract as producer
 from scripts import provider_capacity_margin_audit as media_margin
 from scripts import short_planning_repair
 
@@ -20,6 +23,30 @@ class PlanningCapacityHeadroomTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         profile.install_planning_capacity_profile()
+
+    @staticmethod
+    def _valid_short_plan(topic: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            topic=topic,
+            pillar="rise",
+            format="moment",
+            hook="حين يغيب الدافع، تبدو البداية أبعد مما هي عليه.",
+            title_options=["قبل أن يعود الدافع", "خطوة تسبق الشعور", "بداية صغيرة"],
+            thumbnail_concepts=["quiet desk", "first step", "window light"],
+            sections=[
+                SimpleNamespace(
+                    id="s1",
+                    narration="",
+                    visual_query="person taking one small step indoors portrait realistic",
+                    on_screen_text="ربما لا يسبق الدافع خطوتك\nبل يلحقها أحيانًا",
+                    emotion="reflective",
+                    expected_seconds=15.0,
+                    key_point="الخطوة الصغيرة قد تسبق شعور الاستعداد.",
+                )
+            ],
+            cta="ما أصغر بداية ممكنة الآن؟",
+            closing_payoff="البداية لا تحتاج دائمًا إلى شعور كامل.",
+        )
 
     def test_groq_free_envelope_reserves_real_operational_headroom(self):
         self.assertEqual(headroom.groq_operational_headroom_tokens(8_000), 800)
@@ -49,7 +76,7 @@ class PlanningCapacityHeadroomTests(unittest.TestCase):
             avoid_context={"recent": ["موضوع سابق " * 40] * 20},
             revision_note="Standalone Short type is inner_dialogue. " + "keep it concrete " * 20,
         )
-        estimate = headroom._assert_short_envelope(prompt, phase="unit_initial")
+        estimate = headroom.certify_short_prompt_envelope(prompt, phase="unit_initial")
         limit = int(estimate["provider_tpm_limit"] or 8_000)
         operational = headroom.groq_operational_headroom_tokens(limit)
         self.assertLessEqual(
@@ -62,8 +89,14 @@ class PlanningCapacityHeadroomTests(unittest.TestCase):
         )
 
     def test_worst_case_short_review_has_safe_8k_envelope(self):
+        topic = "كيف تنهض عندما تفقد الدافع تمامًا؟"
+        _, revision = preflight.compose_short_production_revision(
+            topic,
+            {"approved_research_pack": []},
+        )
         estimate = headroom.worst_case_short_review_capacity(
-            "كيف تنهض عندما تفقد الدافع تمامًا؟"
+            topic,
+            revision_note=revision,
         )
         limit = int(estimate["provider_tpm_limit"] or 8_000)
         operational = headroom.groq_operational_headroom_tokens(limit)
@@ -75,6 +108,111 @@ class PlanningCapacityHeadroomTests(unittest.TestCase):
             int(estimate["effective_prompt_utf8_bytes"]),
             profile.SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES,
         )
+
+    def test_preflight_and_runtime_share_full_revision_for_every_short_template(self):
+        cases = {
+            "why_reframe": "لماذا تظن أن التأخر يعني أنك فشلت؟",
+            "inner_dialogue": "كيف تنهض عندما تفقد الدافع تمامًا؟",
+            "micro_story": "قصة اللحظة التي قررت فيها أن أبدأ من جديد",
+            "quote_reflection": "تأمل في هذه المقولة: «لا تنتظر الطريق، اصنع خطوتك»",
+        }
+        research_cases = (
+            {"approved_research_pack": []},
+            {"approved_research_pack": [{"title": "مصدر معتمد", "claim": "قرينة"}]},
+        )
+
+        for expected_template, topic in cases.items():
+            for research in research_cases:
+                with self.subTest(
+                    template=expected_template,
+                    research=bool(research["approved_research_pack"]),
+                ):
+                    selection, revision = preflight.compose_short_production_revision(
+                        topic,
+                        research,
+                    )
+                    expected_revision = short_router.merge_short_template_revision(
+                        expected_template,
+                        producer.merge_producer_revision_note("", research),
+                    )
+                    self.assertEqual(selection["template"], expected_template)
+                    self.assertEqual(revision, expected_revision)
+                    self.assertIn("Producer pre-gate", revision)
+                    self.assertIn(
+                        "APPROVED_RESEARCH_PACK=present"
+                        if research["approved_research_pack"]
+                        else "APPROVED_RESEARCH_PACK=EMPTY",
+                        revision,
+                    )
+
+                    initial_prompt = headroom.build_short_initial_prompt(
+                        topic=topic,
+                        research_context=research,
+                        avoid_context={},
+                        revision_note=revision,
+                    )
+                    initial = headroom.certify_short_prompt_envelope(
+                        initial_prompt,
+                        phase=f"unit_{expected_template}_initial",
+                    )
+                    review = headroom.worst_case_short_review_capacity(
+                        topic,
+                        revision_note=revision,
+                    )
+                    for estimate in (initial, review):
+                        self.assertLessEqual(
+                            int(estimate["effective_prompt_utf8_bytes"]),
+                            profile.SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES,
+                        )
+
+    def test_run163_full_revision_reaches_both_provider_calls(self):
+        topic = "كيف تنهض عندما تفقد الدافع تمامًا؟"
+        research = {"approved_research_pack": []}
+        selection, revision = preflight.compose_short_production_revision(
+            topic,
+            research,
+        )
+        self.assertEqual(selection["template"], "inner_dialogue")
+        # Run #163 failed at the former 800-character proxy before any provider call.
+        self.assertGreater(len(revision), 800)
+        plan = self._valid_short_plan(topic)
+
+        with patch.object(
+            headroom.native_short,
+            "json_text",
+            side_effect=[{"draft": True}, {"review": True}],
+        ) as provider_call, patch.object(
+            headroom,
+            "_parse_short_plan",
+            side_effect=[plan, plan],
+        ):
+            result = headroom._build_short_plan(
+                "api-key",
+                topic,
+                "content-model",
+                research_context=research,
+                avoid_context={},
+                revision_note=revision,
+            )
+
+        self.assertIs(result, plan)
+        self.assertEqual(provider_call.call_count, 2)
+
+    def test_oversized_full_revision_still_fails_closed_on_routed_prompt(self):
+        prompt = headroom.build_short_initial_prompt(
+            topic="موضوع معتمد",
+            research_context={"approved_research_pack": []},
+            avoid_context={},
+            revision_note="x" * 20_000,
+        )
+        with self.assertRaisesRegex(
+            headroom.PlanningCapacityHeadroomError,
+            "SHORT_PLANNING_PROMPT_ENVELOPE",
+        ):
+            headroom.certify_short_prompt_envelope(
+                prompt,
+                phase="unit_oversized_revision",
+            )
 
     def test_short_terminal_reset_recovery_waits_once_then_retries_once(self):
         calls: list[int] = []
@@ -162,6 +300,8 @@ class PlanningCapacityHeadroomTests(unittest.TestCase):
         short_source = inspect.getsource(preflight._certify_short_envelope)
         self.assertIn("P0_SHORT_MIN_PROVIDER_FAMILIES", short_source)
         self.assertIn("worst_case_short_review_capacity", short_source)
+        self.assertIn("compose_short_production_revision", short_source)
+        self.assertIn("revision_note=revision", short_source)
 
     def test_long_preflight_uses_same_groq_headroom_filter_as_runtime(self):
         source = inspect.getsource(preflight.certify_planning_envelope)
