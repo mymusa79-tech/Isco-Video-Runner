@@ -32,6 +32,7 @@ from scripts.planning_stage_contract import (
     install_planning_contract_router,
     install_planning_stage_boundaries,
 )
+from scripts.producer_planning_lifecycle import install_producer_planning_lifecycle
 from scripts.producer_quality_contract import install_planning_producer_quality_contract
 from scripts.product_proof_plan import install_product_proof_fallback
 from scripts.provider_capacity_hardening import install_provider_capacity_hardening
@@ -135,7 +136,7 @@ def install_runtime_planning_contracts() -> None:
 
 
 def install_post_runtime_planning_contracts() -> None:
-    """Install final plan-level guards, then the producer contract as the last pre-audit owner."""
+    """Install final plan-level guards, then the producer pre-audit lifecycle owner."""
     install_brand_anchor_guard()
     install_product_proof_fallback()
     # Plan-level wrappers may replace build/repair surfaces. Reassert the explicit
@@ -144,7 +145,11 @@ def install_post_runtime_planning_contracts() -> None:
     _reassert_after_lifecycle_patch()
     if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
         install_legacy_planning_authority_guard()
-    # This is intentionally last: it adds the same producer directive to initial
-    # writing and every RepairDossier regeneration, then validates the returned plan
-    # before independent factuality/content/tone audits spend provider budget.
+    # Producer Quality Contract still owns writing constraints and deterministic
+    # acceptance. Run #164 adds a lifecycle owner immediately after it so only the
+    # explicitly repairable Short presentation/template defects can use the existing
+    # one-call surgical transport before final Producer revalidation. Safety/factuality
+    # and structural defects remain fail-closed, and an active RepairDossier cannot nest
+    # a second Producer repair.
     install_planning_producer_quality_contract()
+    install_producer_planning_lifecycle()
