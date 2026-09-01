@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import json
+import re
 from functools import wraps
 from typing import Any, Callable
 
 import isco_video_agent.orchestrator as orchestrator
+from isco_video_agent.ai_budget import (
+    Capability,
+    Priority,
+    TaskSpec,
+    budget_task_scope,
+    get_active_budget_task,
+)
 
+from scripts import run120_dossier_repair_hardening
 from scripts import short_planning_repair
 from scripts.producer_quality_contract import (
     ProducerQualityContractError,
@@ -16,10 +26,10 @@ from scripts.producer_quality_contract import (
 
 # Run #164 proved that Producer Quality Contract detection could fire before the
 # existing Moment RepairDossier transport had a chance to repair an otherwise usable
-# one-section Short. Keep the producer gate authoritative, but let only a tightly
-# bounded family of presentation/template defects use the already-certified one-call
-# surgical Short repair. Safety/factuality and structural contract failures stay
-# fail-closed.
+# one-section Short. The follow-up long-form parity closure applies the same lifecycle
+# principle only where the existing Long RepairDossier actually owns the affected
+# fields. Safety/factuality, structural contract failures, and fields not writable by
+# the selected repair transport remain fail-closed.
 _REPAIRABLE_SHORT_PRODUCER_ISSUES = frozenset(
     {
         "moment_story_beats_not_distinct",
@@ -28,9 +38,14 @@ _REPAIRABLE_SHORT_PRODUCER_ISSUES = frozenset(
         "why_reframe_missing_explicit_contrast_or_reframe",
     }
 )
-_REPAIRABLE_SECTION_SUFFIXES = (
+_REPAIRABLE_SHORT_SECTION_SUFFIXES = (
     "_on_screen_text_serialized_list",
     "_visual_query_empty",
+)
+_REPAIRABLE_LONG_PRODUCER_ISSUES = frozenset(
+    {
+        "long_form_duplicate_key_points",
+    }
 )
 _INSTALLED = False
 
@@ -43,15 +58,42 @@ def _clean(value: object) -> str:
     return " ".join(str(value or "").strip().split())
 
 
-def _issue_is_repairable(issue: str) -> bool:
+def _semantic_key(value: object) -> str:
+    text = _clean(value).lower()
+    return " ".join(re.sub(r"[^\w\u0600-\u06ff]+", " ", text).split())
+
+
+def _short_issue_is_repairable(issue: str) -> bool:
     return issue in _REPAIRABLE_SHORT_PRODUCER_ISSUES or (
         issue.startswith("section_")
-        and issue.endswith(_REPAIRABLE_SECTION_SUFFIXES)
+        and issue.endswith(_REPAIRABLE_SHORT_SECTION_SUFFIXES)
     )
 
 
 def short_producer_issues_are_repairable(issues: list[str]) -> bool:
-    return bool(issues) and all(_issue_is_repairable(issue) for issue in issues)
+    return bool(issues) and all(_short_issue_is_repairable(issue) for issue in issues)
+
+
+def long_producer_issues_are_repairable(issues: list[str]) -> bool:
+    """True only when every issue is writable by the existing Long Dossier transport."""
+    return bool(issues) and all(issue in _REPAIRABLE_LONG_PRODUCER_ISSUES for issue in issues)
+
+
+def _duplicate_long_key_point_target_ids(plan: object) -> list[str]:
+    """Return only later duplicate sections, preserving the first semantic occurrence."""
+    seen: set[str] = set()
+    targets: list[str] = []
+    for section in list(getattr(plan, "sections", []) or []):
+        key = _semantic_key(getattr(section, "key_point", ""))
+        if not key:
+            continue
+        if key in seen:
+            section_id = _clean(getattr(section, "id", ""))
+            if section_id:
+                targets.append(section_id)
+        else:
+            seen.add(key)
+    return targets
 
 
 def resolve_plan_for_producer_handoff(
@@ -59,33 +101,48 @@ def resolve_plan_for_producer_handoff(
     *,
     research_context: dict | None,
     repair_fn: Callable[[object, list[str]], object] | None = None,
+    long_repair_fn: Callable[[object, list[str]], object] | None = None,
 ) -> object:
-    """Validate Producer quality and allow at most one bounded Short repair."""
+    """Validate Producer quality and allow at most one format-capable bounded repair."""
     issues = plan_quality_issues(plan, research_context=research_context)
     if not issues:
         return plan
 
     fmt = _clean(getattr(plan, "format", "")).lower()
+    selected_repair: Callable[[object, list[str]], object] | None = None
+    label = ""
+
     if (
         fmt == "moment"
         and repair_fn is not None
         and short_producer_issues_are_repairable(issues)
     ):
-        repaired = repair_fn(plan, issues)
+        selected_repair = repair_fn
+        label = "Short"
+    elif (
+        fmt in {"film", "story"}
+        and long_repair_fn is not None
+        and long_producer_issues_are_repairable(issues)
+    ):
+        selected_repair = long_repair_fn
+        label = "Long"
+
+    if selected_repair is not None:
+        repaired = selected_repair(plan, issues)
         remaining = plan_quality_issues(
             repaired,
             research_context=research_context,
         )
         if remaining:
             print(
-                "Producer Short repair exhausted: "
+                f"Producer {label} repair exhausted: "
                 f"remaining={','.join(remaining)} action=fail_closed"
             )
             raise ProducerQualityContractError(
                 "producer_plan_handoff_blocked:" + ",".join(remaining)
             )
         print(
-            "Producer Short repair PASS: "
+            f"Producer {label} repair PASS: "
             f"repaired={','.join(issues)} repair_calls=1"
         )
         return repaired
@@ -159,6 +216,109 @@ def _repair_short_plan_once(
     return repaired
 
 
+def _active_long_dossier_repair_context() -> object | None:
+    """Read Run120's canonical repair ContextVar without creating a second owner."""
+    context_var = getattr(run120_dossier_repair_hardening, "_REPAIR_CONTEXT", None)
+    getter = getattr(context_var, "get", None)
+    if not callable(getter):
+        return None
+    return getter()
+
+
+def _producer_long_repair_spec(target_count: int) -> TaskSpec:
+    # One Producer lifecycle repair may internally shard the targeted sections and the
+    # existing provider router may need fallback attempts. Bound this logical P1 task
+    # to the same worst-case 3 attempts per single-section target while leaving the
+    # run-wide hard cap and P1 reserve fully authoritative.
+    bounded_targets = max(1, int(target_count))
+    return TaskSpec(
+        task_id="PRODUCER_LONG_REPAIR_R1",
+        kind="OUTLINE_PLAN",
+        priority=Priority.P1,
+        capability=Capability.TEXT,
+        max_provider_attempts=3 * bounded_targets,
+        schema_repair_allowed=True,
+        local_fallback=False,
+        semantic_block_is_final=False,
+    )
+
+
+def _repair_long_plan_once(
+    plan: object,
+    issues: list[str],
+    *,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    research_context: dict | None,
+) -> object:
+    api_key = _planner_arg(args, kwargs, 0, "api_key")
+    topic = _planner_arg(args, kwargs, 1, "topic")
+    requested_format = _clean(_planner_arg(args, kwargs, 2, "requested_format")).lower()
+    content_model = str(_planner_arg(args, kwargs, 3, "content_model") or "")
+
+    plan_format = _clean(getattr(plan, "format", "")).lower()
+    if requested_format not in {"film", "story"}:
+        raise ProducerPlanningLifecycleError(
+            "producer_long_repair_requires_long_request"
+        )
+    if plan_format != requested_format:
+        raise ProducerPlanningLifecycleError(
+            "producer_long_repair_request_plan_format_mismatch"
+        )
+    if not long_producer_issues_are_repairable(issues):
+        raise ProducerPlanningLifecycleError(
+            "producer_long_repair_received_unsupported_issue_family"
+        )
+
+    target_ids = _duplicate_long_key_point_target_ids(plan)
+    if not target_ids:
+        raise ProducerPlanningLifecycleError(
+            "producer_long_repair_resolved_no_duplicate_targets"
+        )
+
+    issue_notes = (
+        "Producer pre-gate repairable Long issues:\n"
+        + "\n".join(f"- {issue}" for issue in issues)
+        + "\nTARGET_SECTION_IDS="
+        + json.dumps(target_ids, ensure_ascii=False, separators=(",", ":"))
+        + "\nPreserve the first occurrence of each key point. Rewrite only the targeted "
+        "section narration/key_point enough to give it a genuinely distinct useful role; "
+        "do not change the episode thesis, section order, factual boundaries, CTA, payoff, "
+        "visual plan, or host-managed identity."
+    )
+    print(
+        "Producer Long repair: "
+        f"issues={','.join(issues)} targets={','.join(target_ids)} "
+        "mode=existing_bounded_dossier_transport repair_calls=1"
+    )
+
+    def execute() -> object:
+        return run120_dossier_repair_hardening._repair_existing_plan(
+            plan,
+            issue_notes,
+            api_key=api_key,
+            topic=str(topic or ""),
+            requested_format=requested_format,
+            content_model=content_model,
+            research_context=research_context,
+        )
+
+    active = get_active_budget_task()
+    if active is None:
+        # Unit/Engine-only compatibility. Canonical Runner production always invokes
+        # planning inside a routed BudgetLedger task; no synthetic ledger is invented.
+        return execute()
+
+    spec = _producer_long_repair_spec(len(target_ids))
+    requested_model = content_model or str(active.requested_model or "")
+    with budget_task_scope(
+        active.ledger,
+        spec,
+        requested_model=requested_model,
+    ):
+        return execute()
+
+
 def install_producer_planning_lifecycle() -> None:
     """Replace the detector-only Producer wrapper with lifecycle-aware ownership."""
     global _INSTALLED
@@ -187,12 +347,26 @@ def install_producer_planning_lifecycle() -> None:
         )
         plan = original(*args, **updated)
 
-        repair_fn = None
+        fmt = _clean(getattr(plan, "format", "")).lower()
+        short_repair_fn = None
+        long_repair_fn = None
+
         if (
-            _clean(getattr(plan, "format", "")).lower() == "moment"
+            fmt == "moment"
             and short_planning_repair.active_short_repair_context() is None
         ):
-            repair_fn = lambda candidate, issues: _repair_short_plan_once(
+            short_repair_fn = lambda candidate, issues: _repair_short_plan_once(
+                candidate,
+                issues,
+                args=args,
+                kwargs=updated,
+                research_context=research_context,
+            )
+        elif (
+            fmt in {"film", "story"}
+            and _active_long_dossier_repair_context() is None
+        ):
+            long_repair_fn = lambda candidate, issues: _repair_long_plan_once(
                 candidate,
                 issues,
                 args=args,
@@ -203,7 +377,8 @@ def install_producer_planning_lifecycle() -> None:
         return resolve_plan_for_producer_handoff(
             plan,
             research_context=research_context,
-            repair_fn=repair_fn,
+            repair_fn=short_repair_fn,
+            long_repair_fn=long_repair_fn,
         )
 
     wrapped._isco_producer_quality_contract = True
@@ -213,6 +388,6 @@ def install_producer_planning_lifecycle() -> None:
     _INSTALLED = True
     print(
         "Producer planning lifecycle installed: "
-        "repairable Short pre-gate issues -> one surgical repair -> revalidate; "
-        "all non-repairable issues fail closed"
+        "repairable Short/Long pre-gate issues -> one capability-owned repair -> "
+        "revalidate; unsupported issue families fail closed"
     )
