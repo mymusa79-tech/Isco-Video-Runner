@@ -20,20 +20,33 @@ from isco_video_agent.providers.gemini import (
 from isco_video_agent.resilient_planner import build_outline_prompt
 from scripts.dynamic_planning_capacity import (
     certify_general_planning_envelope,
+    viable_planning_providers,
     viable_provider_families,
 )
 from scripts.immutable_planning_snapshot import bind_runtime_approved_brief_path
+from scripts.native_short_planner_router import (
+    _planning_revision_note,
+    select_native_short_template,
+)
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
+from scripts.planning_capacity_headroom import (
+    SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES,
+    build_short_initial_prompt,
+    groq_operational_headroom_tokens,
+    worst_case_short_review_capacity,
+)
 from scripts.planning_stage_contract import (
     outline_stage_spec_for_format,
     script_stage_spec,
 )
 from scripts.provider_capacity_hardening import (
     groq_capacity_estimate,
+    groq_effective_tpm_limit,
 )
 
 
 P0_OUTLINE_MIN_PROVIDER_FAMILIES = 2
+P0_SHORT_MIN_PROVIDER_FAMILIES = 2
 
 
 @dataclass(frozen=True)
@@ -56,18 +69,100 @@ class PlanningEnvelopeCertification:
     runtime_token_admission: str
 
 
+def _headroom_filtered_viable(required_tokens: int) -> list[str]:
+    """Apply the runtime Groq operational margin in the standalone preflight process."""
+    viable = viable_planning_providers(required_tokens)
+    filtered: list[str] = []
+    for provider in viable:
+        if not provider.startswith("groq:"):
+            filtered.append(provider)
+            continue
+        model = provider.split(":", 1)[1]
+        limit = groq_effective_tpm_limit(model)
+        headroom = groq_operational_headroom_tokens(limit)
+        if isinstance(limit, int) and int(required_tokens) + headroom > limit:
+            continue
+        filtered.append(provider)
+    return filtered
+
+
+def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCertification:
+    topic = str(brief["approved_topic"])
+    selection = select_native_short_template(topic)
+    revision = _planning_revision_note(str(selection["template"]), "")
+    prompt = build_short_initial_prompt(
+        topic=topic,
+        research_context=research,
+        avoid_context=novelty_context(),
+        revision_note=revision,
+    )
+    enriched = with_channel_persona(prompt)
+    initial_size = len(enriched.encode("utf-8"))
+    if initial_size > SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES:
+        raise RuntimeError(
+            "short planning envelope exceeds format-native portable limit: "
+            f"bytes={initial_size} limit={SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES}"
+        )
+    initial_capacity = groq_capacity_estimate(enriched)
+    review_capacity = worst_case_short_review_capacity(topic)
+    required_tokens = max(
+        int(initial_capacity["estimated_request_tokens"]),
+        int(review_capacity["estimated_request_tokens"]),
+    )
+    max_size = max(
+        initial_size,
+        int(review_capacity["effective_prompt_utf8_bytes"]),
+    )
+
+    viable = _headroom_filtered_viable(required_tokens)
+    families = tuple(viable_provider_families(viable))
+    if len(families) < P0_SHORT_MIN_PROVIDER_FAMILIES:
+        raise RuntimeError(
+            "PLANNING_CAPACITY_REDUNDANCY_REQUIRED "
+            f"phase=preproduction_short_envelope required_tokens={required_tokens} "
+            f"viable_families={','.join(families) if families else 'none'} "
+            f"required_families={P0_SHORT_MIN_PROVIDER_FAMILIES}"
+        )
+
+    groq_limit = initial_capacity.get("provider_tpm_limit")
+    raw_headroom = (
+        int(groq_limit) - required_tokens
+        if isinstance(groq_limit, int)
+        else None
+    )
+    return PlanningEnvelopeCertification(
+        status="pass",
+        format="moment",
+        prompt_utf8_bytes=max_size,
+        portable_limit_utf8_bytes=SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES,
+        remaining_headroom_utf8_bytes=SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES - max_size,
+        approved_sources=len(research.get("approved_research_pack", [])),
+        approved_boundaries=len(research.get("content_boundaries", [])),
+        outline_estimated_request_tokens=required_tokens,
+        groq_tpm_limit=groq_limit,
+        outline_groq_tpm_headroom=raw_headroom,
+        outline_completion_reserve=max(
+            int(initial_capacity["reserved_completion_tokens"]),
+            int(review_capacity["reserved_completion_tokens"]),
+        ),
+        full_script_completion_reserve=0,
+        max_script_batch_sections=0,
+        viable_provider_families=families,
+        required_provider_families=P0_SHORT_MIN_PROVIDER_FAMILIES,
+        runtime_token_admission=(
+            "p0_two_provider_families+groq_operational_headroom+"
+            "format_native_short_envelope+single_reset_recovery"
+        ),
+    )
+
+
 def certify_planning_envelope() -> PlanningEnvelopeCertification:
     """Certify P0 planning has two independent provider failure domains before run.
 
-    The exact Writer shard does not exist until the outline is produced. This gate is
-    intentionally tier one: it certifies the current approved outline envelope plus the
-    fixed Writer batching contract. Tier two runs on the exact first Writer shard inside
-    dynamic_planning_capacity before that shard can call a provider.
-
-    Run #140 proved that one nominally viable provider is insufficient: Gemini was the
-    only actual P0 route, timed out twice, Groq was 306 tokens over its 8K envelope, and
-    OpenRouter was preflight-blocked. Production now fails before network work unless at
-    least two independent provider families can carry the exact outline request.
+    Long-form certifies the exact current outline plus Writer batching contract. Moment
+    now certifies its own format-native Draft envelope plus a worst-case bounded Review
+    envelope. This closes the historical blind spot where Short returned
+    `not_applicable`, even while its generic Engine prompt sat at 7,993/8,000 Groq TPM.
     """
     # Canonical V4 materializes a read-only approved-brief snapshot during state restore.
     # A workflow step may still export the historical worktree path, so prefer the
@@ -78,6 +173,10 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
 
     brief = load_approved_brief(required=True)
     fmt = str(brief["format"]).strip().lower()
+    research = planning_research_context(brief, {})
+
+    if fmt == "moment":
+        return _certify_short_envelope(brief, research)
 
     if fmt not in {"film", "story"}:
         return PlanningEnvelopeCertification(
@@ -107,7 +206,6 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
     outline_reserve = outline_spec.provider_policy.completion_tokens
     writer_reserve = writer_spec.provider_policy.completion_tokens
 
-    research = planning_research_context(brief, {})
     prompt = build_outline_prompt(
         topic=str(brief["approved_topic"]),
         fmt=fmt,
