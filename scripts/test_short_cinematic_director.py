@@ -35,6 +35,13 @@ class ShortCinematicDirectorTests(unittest.TestCase):
                 self.assertLessEqual(len(primary), 260)
                 self.assertLessEqual(len(alternate), 260)
 
+    def test_visual_review_budget_is_two_semantic_calls_max_per_added_beat(self):
+        self.assertEqual(director.MAX_VISION_REVIEWS_PER_ATTEMPT, 1)
+        self.assertEqual(director.MAX_VISION_REVIEWS_PER_BEAT, 2)
+        source = inspect.getsource(director.upgrade_short_cinematic)
+        self.assertIn("max_candidates_per_attempt=MAX_VISION_REVIEWS_PER_ATTEMPT", source)
+        self.assertIn('"max_vision_reviews_per_additional_beat": MAX_VISION_REVIEWS_PER_BEAT', source)
+
     def test_source_derived_short_is_not_replaced_with_unrelated_stock(self):
         pre = {"short_template": "micro_story", "compensation": {"source": "long"}}
         result = director.upgrade_short_cinematic(
@@ -73,15 +80,23 @@ class ShortCinematicDirectorTests(unittest.TestCase):
         self.assertLess(sfx_at, quality_at)
         self.assertLess(quality_at, rights_at)
 
-    def test_director_source_requires_visual_qa_m8_rights_and_distinct_assets(self):
+    def test_director_source_requires_visual_qa_m8_rights_freshness_and_distinct_assets(self):
         source = inspect.getsource(director.upgrade_short_cinematic)
         self.assertIn("select_with_recovery(", source)
         self.assertIn("_stable_intent_audit", source)
         self.assertIn("_prepare_m8_clip(", source)
         self.assertIn("_append_rights(", source)
+        self.assertIn("cache = VisualCandidateCache()", source)
+        self.assertIn("recent_visual_history_exclusion", source)
         self.assertIn("distinct_asset_count", source)
         self.assertIn("hard_cut_default_for_short_retention", source)
         self.assertIn("SHORT_VISUAL_AUDIT", source)
+
+    def test_visual_audit_provenance_keeps_editorial_intent_separate_from_retrieval_hint(self):
+        source = inspect.getsource(director.upgrade_short_cinematic)
+        self.assertIn('"intended_visual": primary_query', source)
+        self.assertIn("selected_query = result.alternate_query if result.used_alternate_query else primary_query", source)
+        self.assertIn('"query": selected_query', source)
 
 
 if __name__ == "__main__":
