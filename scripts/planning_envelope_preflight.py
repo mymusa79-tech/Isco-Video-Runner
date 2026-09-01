@@ -19,7 +19,6 @@ from isco_video_agent.providers.gemini import (
 )
 from isco_video_agent.resilient_planner import build_outline_prompt
 from scripts.dynamic_planning_capacity import (
-    certify_general_planning_envelope,
     viable_planning_providers,
     viable_provider_families,
 )
@@ -86,11 +85,29 @@ def _headroom_filtered_viable(required_tokens: int) -> list[str]:
             continue
         model = provider.split(":", 1)[1]
         limit = groq_effective_tpm_limit(model)
-        headroom = groq_operational_headroom_tokens(limit)
-        if isinstance(limit, int) and int(required_tokens) + headroom > limit:
+        operational = groq_operational_headroom_tokens(limit)
+        if isinstance(limit, int) and int(required_tokens) + operational > limit:
             continue
         filtered.append(provider)
     return filtered
+
+
+def _require_provider_redundancy(
+    required_tokens: int,
+    *,
+    phase: str,
+    required_families: int,
+) -> tuple[list[str], tuple[str, ...]]:
+    viable = _headroom_filtered_viable(required_tokens)
+    families = tuple(viable_provider_families(viable))
+    if len(families) < required_families:
+        raise RuntimeError(
+            "PLANNING_CAPACITY_REDUNDANCY_REQUIRED "
+            f"phase={phase} required_tokens={int(required_tokens)} "
+            f"viable_families={','.join(families) if families else 'none'} "
+            f"required_families={required_families}"
+        )
+    return viable, families
 
 
 def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCertification:
@@ -121,15 +138,11 @@ def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCert
         int(review_capacity["effective_prompt_utf8_bytes"]),
     )
 
-    viable = _headroom_filtered_viable(required_tokens)
-    families = tuple(viable_provider_families(viable))
-    if len(families) < P0_SHORT_MIN_PROVIDER_FAMILIES:
-        raise RuntimeError(
-            "PLANNING_CAPACITY_REDUNDANCY_REQUIRED "
-            f"phase=preproduction_short_envelope required_tokens={required_tokens} "
-            f"viable_families={','.join(families) if families else 'none'} "
-            f"required_families={P0_SHORT_MIN_PROVIDER_FAMILIES}"
-        )
+    _, families = _require_provider_redundancy(
+        required_tokens,
+        phase="preproduction_short_envelope",
+        required_families=P0_SHORT_MIN_PROVIDER_FAMILIES,
+    )
 
     groq_limit = initial_capacity.get("provider_tpm_limit")
     raw_headroom = (
@@ -167,14 +180,10 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
     """Certify P0 planning has two independent provider failure domains before run.
 
     Long-form certifies the exact current outline plus Writer batching contract. Moment
-    now certifies its own format-native Draft envelope plus a worst-case bounded Review
-    envelope. This closes the historical blind spot where Short returned
-    `not_applicable`, even while its generic Engine prompt sat at 7,993/8,000 Groq TPM.
+    certifies its own format-native Draft envelope plus a worst-case bounded Review
+    envelope. Both paths apply the same Groq operational headroom used by live runtime,
+    so preflight cannot count a near-ceiling Groq request that production will reject.
     """
-    # Canonical V4 materializes a read-only approved-brief snapshot during state restore.
-    # A workflow step may still export the historical worktree path, so prefer the
-    # snapshot explicitly whenever it exists. This keeps preflight and production on the
-    # same immutable bytes even if an earlier test modified the Engine working tree.
     if str(os.environ.get("ISCO_APPROVED_BRIEF_SNAPSHOT_PATH") or "").strip():
         bind_runtime_approved_brief_path()
 
@@ -232,20 +241,16 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
     if MAX_SCRIPT_BATCH_SECTIONS > 3:
         raise RuntimeError("long-form writer batch certification exceeds three sections")
 
-    # The standalone workflow process has no active runtime StageSpec. Pass the exact
-    # canonical Stage Contract budget explicitly so preflight and the live request share
-    # one transport budget. P0 additionally requires two independent provider families;
-    # multiple Groq models count as one failure domain, not fake redundancy.
     request_capacity = groq_capacity_estimate(
         enriched,
         reserved_completion_tokens=outline_reserve,
         contract_name=str(outline_spec.semantic_rules["transport_profile"]),
     )
-    viable = certify_general_planning_envelope(
-        request_capacity["estimated_request_tokens"],
-        min_provider_families=P0_OUTLINE_MIN_PROVIDER_FAMILIES,
+    _, families = _require_provider_redundancy(
+        int(request_capacity["estimated_request_tokens"]),
+        phase="preproduction_general_envelope",
+        required_families=P0_OUTLINE_MIN_PROVIDER_FAMILIES,
     )
-    families = tuple(viable_provider_families(viable))
 
     groq_limit = request_capacity.get("provider_tpm_limit")
     headroom = (
@@ -270,7 +275,10 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
         max_script_batch_sections=MAX_SCRIPT_BATCH_SECTIONS,
         viable_provider_families=families,
         required_provider_families=P0_OUTLINE_MIN_PROVIDER_FAMILIES,
-        runtime_token_admission="p0_two_provider_families+provider_set_dynamic+exact_writer",
+        runtime_token_admission=(
+            "p0_two_provider_families+groq_operational_headroom+"
+            "provider_set_dynamic+exact_writer"
+        ),
     )
 
 
