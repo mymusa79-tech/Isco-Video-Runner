@@ -14,8 +14,7 @@ import scripts.planning_runtime_contract as planning_runtime_contract
 import scripts.run_v3_voice as production
 from scripts.control_approved_brief import materialize_approved_brief
 from scripts.native_short_planner_router import install_native_short_router
-from scripts.short_voice_v2 import apply_short_voice_v2
-from scripts.orchestration_shorts_port import finalize_short_quality, prepare_short_render
+from scripts.orchestration_shorts_port import finalize_short_quality, prepare_authoritative_short_for_gold
 from scripts.sibling_short_orchestration import orchestrate_sibling_shorts, stage_sibling_assets
 from scripts.source_derived_short_planner import install_source_derived_short_planner
 from scripts.unified_delivery import write_delivery_manifest
@@ -199,20 +198,15 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
         nonlocal short_pre
         if request["kind"] == "short":
             output_dir = Path(kwargs["output_dir"])
-            short_pre = prepare_short_render(output_dir, runtime_request)
             ledger = ledger_box.get("ledger")
             if ledger is None:
                 raise RuntimeError("Short V2 lost the production AI budget ledger before voice synthesis")
-            short_pre = apply_short_voice_v2(
+            short_pre = prepare_authoritative_short_for_gold(
                 output_dir,
                 runtime_request,
-                short_pre,
                 ledger=ledger,
+                run_final_master_qc=production.run_final_master_qc,
             )
-            master_qc = production.run_final_master_qc(output_dir)
-            if master_qc.get("status") != "pass" or master_qc.get("final_media_mutated") is not False:
-                raise RuntimeError("Short V2 authoritative Final Master QC did not pass")
-            short_pre["authoritative_final_master_qc_rerun"] = True
         result = original_gold(**kwargs)
         if request["kind"] == "short":
             assert short_pre is not None
