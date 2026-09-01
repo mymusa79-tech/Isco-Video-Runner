@@ -18,7 +18,10 @@ from isco_video_agent.model_output_schemas import (
     validate_cross_provider_text,
     validate_visual_query,
 )
-from isco_video_agent.multimodal_firewall import MultimodalInjectionFirewall
+from isco_video_agent.multimodal_firewall import (
+    MultimodalInjectionFirewall,
+    require_normal_vision_safe,
+)
 from isco_video_agent.research_quarantine import ResearchQuarantineExtractor
 from isco_video_agent.stock_media_preflight import install_stock_media_preflight
 
