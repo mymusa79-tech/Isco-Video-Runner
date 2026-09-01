@@ -21,7 +21,7 @@ from isco_video_agent.ai_budget import (
 from isco_video_agent.providers.gemini import json_text as gemini_json_text
 from isco_video_agent.providers.gemini import with_channel_persona
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
-from provider_failure import classify_provider_failure
+from provider_failure import ProviderFailure, classify_provider_failure
 
 
 CACHE_PATH = Path("state/planning-checkpoint.json")
@@ -174,6 +174,20 @@ def _record_attempt(
     entry.update(_CURRENT_REQUEST_META)
     entry.update(response_meta)
     _TELEMETRY.append(entry)
+
+
+def _safe_record_attempt(*args, **kwargs) -> None:
+    """_record_attempt is live-patched by several layered capacity/latency installers
+    (run120/122/123/124/125). A defect in that telemetry bookkeeping must never be able
+    to crash the planning subtask it is only supposed to be observing."""
+    try:
+        _record_attempt(*args, **kwargs)
+    except Exception as record_exc:
+        provider = args[0] if args else kwargs.get("provider_name", "?")
+        print(
+            "Planning provider attempt-recording error "
+            f"(continuing without telemetry): {provider}:{type(record_exc).__name__}"
+        )
 
 
 def _record_budget_attempt(
@@ -704,12 +718,12 @@ def install_router() -> None:
             failures: list[str] = []
             for name, provider in providers:
                 if name in cooldown:
-                    _record_attempt(name, "circuit-open")
+                    _safe_record_attempt(name, "circuit-open")
                     continue
 
                 cooldown_until = transient_cooldown_until.get(name)
                 if cooldown_until is not None and cooldown_until > time.monotonic():
-                    _record_attempt(name, "transient-cooldown")
+                    _safe_record_attempt(name, "transient-cooldown")
                     continue
 
                 for provider_attempt in range(TRANSIENT_PROVIDER_MAX_ATTEMPTS):
@@ -734,7 +748,7 @@ def install_router() -> None:
                             # already-successful provider result.
                             print(f"Planning checkpoint persistence skipped: {save_exc}")
                         _record_provider_used(name)
-                        _record_attempt(
+                        _safe_record_attempt(
                             name,
                             "success",
                             duration_seconds=time.monotonic() - last_call_at[name],
@@ -744,9 +758,26 @@ def install_router() -> None:
                         return data
                     except Exception as exc:
                         detail = str(exc).replace("\n", " ")[:220]
-                        failure = classify_provider_failure(name, exc)
+                        # This run's own layered capacity/classification patches
+                        # (run120/122/123/124/125, each replacing classify_provider_failure
+                        # and/or _record_attempt with a wrapped version) are bookkeeping:
+                        # telemetry and retry classification for a failure that already
+                        # happened. A defect in that bookkeeping must never be able to
+                        # crash the whole planning subtask in place of the real provider
+                        # failure it was classifying - the same principle every resilient
+                        # retry/circuit-breaker implementation follows. Degrade to a
+                        # generic, non-retryable classification instead.
+                        try:
+                            failure = classify_provider_failure(name, exc)
+                        except Exception as classify_exc:
+                            print(
+                                "Planning provider failure classification error "
+                                f"(treating as generic failure): {name}:"
+                                f"{type(classify_exc).__name__}"
+                            )
+                            failure = ProviderFailure("classification_error", AttemptOutcome.OTHER, False)
                         retry_after = _last_call_rate_limit_headers.get("retry_after")
-                        _record_attempt(
+                        _safe_record_attempt(
                             name,
                             failure.telemetry_result,
                             error_detail=detail,

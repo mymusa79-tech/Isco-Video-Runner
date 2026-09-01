@@ -327,5 +327,37 @@ class PlanningStageContractTests(unittest.TestCase):
         )
 
 
+class ProviderFailureBookkeepingResilienceTests(unittest.TestCase):
+    """Regression for a real 2026-09-01 production failure on the native Short repair
+    path: task_router exhausted Gemini/Groq/OpenRouter and the run crashed with
+    RuntimeError("... {'type': 'KeyError'}") instead of the expected clean "all
+    providers failed" error - a defect in the shared, live-patched
+    classify_provider_failure/_record_attempt bookkeeping (see
+    task_level_planner_router.py's own ProviderFailureBookkeepingResilienceTests)
+    escaped uncaught. contract_router (the long-form path) calls that exact same
+    shared bookkeeping via _provider_failure/router._record_attempt, so it carries the
+    identical risk. This proves the same-shaped guard here."""
+
+    class _FakeContract:
+        stage_id = "planning.editorial_outline"
+
+    def test_safe_provider_failure_degrades_when_classification_itself_raises(self) -> None:
+        with patch.object(router, "classify_provider_failure", side_effect=KeyError("some_unexpected_key")):
+            result = contract._safe_provider_failure(
+                self._FakeContract(), "groq", RuntimeError("real provider failure")
+            )
+        stage_error, retryable, retry_after, failure = result
+        self.assertIsInstance(stage_error, contract.PlanningStageError)
+        self.assertFalse(retryable)
+        self.assertIsNone(retry_after)
+        self.assertEqual(failure.telemetry_result, "classification_error")
+        self.assertFalse(failure.open_circuit)
+
+    def test_safe_record_attempt_swallows_a_broken_recorder(self) -> None:
+        with patch.object(router, "_record_attempt", side_effect=KeyError("some_unexpected_key")):
+            contract._safe_record_attempt("groq", "some_result", error_detail="detail")
+        # No exception means the defect in telemetry recording never reached the caller.
+
+
 if __name__ == "__main__":
     unittest.main()
