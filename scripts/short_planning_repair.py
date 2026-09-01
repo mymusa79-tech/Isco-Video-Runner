@@ -120,9 +120,11 @@ def build_short_repair_prompt(
     research_context: dict | None,
 ) -> str:
     plan_json = json.dumps(_plan_payload(current_plan), ensure_ascii=False, separators=(",", ":"))
-    research_json = json.dumps(_research_payload(research_context), ensure_ascii=False, separators=(",", ":"))
+    full_research_json = json.dumps(_research_payload(research_context), ensure_ascii=False, separators=(",", ":"))
     issues = _compact_issue_notes(issue_notes)
-    prompt = f"""
+
+    def render(research_json: str) -> str:
+        return f"""
 You are the surgical Arabic Short repair editor for نداء اليقظة.
 Repair the EXISTING approved Moment below. This is not a new planning pass.
 Return one complete corrected plan using EXACTLY the same JSON schema as CURRENT_MOMENT.
@@ -150,19 +152,13 @@ CURRENT_MOMENT:
 Return JSON only with keys: topic,pillar,format,hook,title_options,thumbnail_concepts,sections,cta,closing_payoff.
 Each section has: id,narration,visual_query,on_screen_text,emotion,expected_seconds,key_point.
 """.strip()
+
+    prompt = render(full_research_json)
     size = len(prompt.encode("utf-8"))
     if size > SHORT_REPAIR_PROMPT_MAX_BYTES:
-        # Research evidence is the only variable-size context after every plan field and
-        # Dossier issue has already been hard bounded. Keep the hard factuality rule and
-        # content boundaries, but drop descriptive source snippets before failing.
         minimal = _research_payload(research_context)
         minimal.pop("approved_research_pack", None)
-        research_json = json.dumps(minimal, ensure_ascii=False, separators=(",", ":"))
-        prompt = prompt.replace(
-            json.dumps(_research_payload(research_context), ensure_ascii=False, separators=(",", ":")),
-            research_json,
-            1,
-        )
+        prompt = render(json.dumps(minimal, ensure_ascii=False, separators=(",", ":")))
         size = len(prompt.encode("utf-8"))
     if size > SHORT_REPAIR_PROMPT_MAX_BYTES:
         raise ShortRepairEnvelopeError(
@@ -254,7 +250,6 @@ def install_short_planning_repair() -> None:
             revision_note: str = "",
             allow_fallback: bool = True,
         ):
-            del avoid_context, revision_note
             context = _REPAIR_CONTEXT.get()
             if context is not None and str(requested_format or "").strip().lower() == "moment":
                 current_plan, issue_notes = context
@@ -273,8 +268,8 @@ def install_short_planning_repair() -> None:
                 requested_format,
                 content_model,
                 research_context=research_context,
-                avoid_context=None,
-                revision_note="",
+                avoid_context=avoid_context,
+                revision_note=revision_note,
                 allow_fallback=allow_fallback,
             )
 
