@@ -13,7 +13,6 @@ from scripts import run125_capacity_routing_closure as run125
 # are built; the certified worst-case review must remain inside the 16KB routed prompt
 # envelope instead of merely keeping the pre-persona JSON small.
 SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES = 16_000
-SHORT_MAX_REVISION_CHARS = 800
 SHORT_MAX_RESEARCH_ITEMS = 2
 SHORT_MAX_RESEARCH_VALUE_CHARS = 160
 SHORT_MAX_BOUNDARY_ITEMS = 3
@@ -163,7 +162,6 @@ def install_planning_capacity_profile() -> None:
     if _INSTALLED:
         return
     headroom.SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES = SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES
-    headroom.SHORT_MAX_REVISION_CHARS = SHORT_MAX_REVISION_CHARS
     headroom.SHORT_MAX_RESEARCH_ITEMS = SHORT_MAX_RESEARCH_ITEMS
     headroom.SHORT_MAX_RESEARCH_VALUE_CHARS = SHORT_MAX_RESEARCH_VALUE_CHARS
     headroom.SHORT_MAX_AVOID_ITEMS = SHORT_MAX_AVOID_ITEMS

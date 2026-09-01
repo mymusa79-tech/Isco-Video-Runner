@@ -251,12 +251,17 @@ def validate_plan_for_producer_handoff(
     return plan
 
 
-def _merge_revision_note(existing: object, research_context: dict | None) -> str:
+def merge_producer_revision_note(existing: object, research_context: dict | None) -> str:
+    """Compose the Producer pre-gate with any existing planning requirement."""
     prior = _clean(existing)
     directive = producer_writing_directive(research_context)
     if directive in prior:
         return prior
     return f"{prior} Producer pre-gate requirement: {directive}" if prior else directive
+
+
+# Backward-compatible private name for already-installed callers.
+_merge_revision_note = merge_producer_revision_note
 
 
 def install_planning_producer_quality_contract() -> None:
@@ -271,7 +276,10 @@ def install_planning_producer_quality_contract() -> None:
     def wrapped(*args, **kwargs):
         research_context = kwargs.get("research_context")
         updated = dict(kwargs)
-        updated["revision_note"] = _merge_revision_note(updated.get("revision_note", ""), research_context)
+        updated["revision_note"] = merge_producer_revision_note(
+            updated.get("revision_note", ""),
+            research_context,
+        )
         plan = current(*args, **updated)
         return validate_plan_for_producer_handoff(plan, research_context=research_context)
 

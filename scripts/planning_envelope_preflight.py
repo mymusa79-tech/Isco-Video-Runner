@@ -24,11 +24,12 @@ from scripts.dynamic_planning_capacity import (
 )
 from scripts.immutable_planning_snapshot import bind_runtime_approved_brief_path
 from scripts.native_short_planner_router import (
-    _planning_revision_note,
+    merge_short_template_revision,
     select_native_short_template,
 )
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.planning_capacity_profile import install_planning_capacity_profile
+from scripts.producer_quality_contract import merge_producer_revision_note
 from scripts.provider_capacity_margin_audit import audit_media_capacity_margin
 
 # Standalone preflight runs in a different Python process from production runtime.
@@ -39,6 +40,7 @@ install_planning_capacity_profile()
 from scripts.planning_capacity_headroom import (  # noqa: E402
     SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES,
     build_short_initial_prompt,
+    certify_short_prompt_envelope,
     groq_operational_headroom_tokens,
     worst_case_short_review_capacity,
 )
@@ -111,25 +113,38 @@ def _require_provider_redundancy(
     return viable, families
 
 
+def compose_short_production_revision(
+    topic: object,
+    research_context: dict | None,
+) -> tuple[dict[str, object], str]:
+    """Mirror the live Producer -> native Short wrapper composition order."""
+    selection = select_native_short_template(topic)
+    producer_revision = merge_producer_revision_note("", research_context)
+    revision = merge_short_template_revision(
+        str(selection["template"]),
+        producer_revision,
+    )
+    return selection, revision
+
+
 def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCertification:
     topic = str(brief["approved_topic"])
-    selection = select_native_short_template(topic)
-    revision = _planning_revision_note(str(selection["template"]), "")
+    _, revision = compose_short_production_revision(topic, research)
     prompt = build_short_initial_prompt(
         topic=topic,
         research_context=research,
         avoid_context=novelty_context(),
         revision_note=revision,
     )
-    enriched = with_channel_persona(prompt)
-    initial_size = len(enriched.encode("utf-8"))
-    if initial_size > SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES:
-        raise RuntimeError(
-            "short planning envelope exceeds format-native portable limit: "
-            f"bytes={initial_size} limit={SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES}"
-        )
-    initial_capacity = groq_capacity_estimate(enriched)
-    review_capacity = worst_case_short_review_capacity(topic)
+    initial_capacity = certify_short_prompt_envelope(
+        prompt,
+        phase="preflight_initial",
+    )
+    initial_size = int(initial_capacity["effective_prompt_utf8_bytes"])
+    review_capacity = worst_case_short_review_capacity(
+        topic,
+        revision_note=revision,
+    )
     required_tokens = max(
         int(initial_capacity["estimated_request_tokens"]),
         int(review_capacity["estimated_request_tokens"]),
