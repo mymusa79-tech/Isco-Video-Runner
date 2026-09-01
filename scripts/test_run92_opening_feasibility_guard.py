@@ -326,5 +326,95 @@ class Run92OpeningFeasibilityGuardTests(unittest.TestCase):
         self.assertEqual(calls, ["wooden table sunlit room empty notebook"])
 
 
+class VisionProviderFailureResilienceTests(unittest.TestCase):
+    """Regression for a real 2026-09-01 production failure: a Gemini Vision candidate
+    review hit a real 429 quota error (google.genai._gaos.lib.compat_errors.RateLimitError)
+    and it crashed the entire production instead of skipping that one candidate and
+    trying the next, even though visual_selection.review_candidates() already has a
+    bounded multi-candidate recovery loop built for exactly this kind of per-candidate
+    failure. provider_retry_ownership.py deliberately forbids a retry loop *inside*
+    Engine's own Vision boundaries, so the fix belongs in this Runner-owned audit_fn
+    wrapper instead."""
+
+    def test_transient_provider_failure_is_converted_to_a_skippable_block(self) -> None:
+        def raising_audit(**kwargs):
+            raise RuntimeError("Error code: 429 - quota exceeded, please retry in 43s")
+
+        wrapped = _stable_intent_audit(raising_audit, "a calm person at a desk")
+        result = wrapped(provider="pexels", candidate={"id": 1}, narration_context="ctx")
+
+        self.assertEqual(result["status"], "block")
+        self.assertFalse(result["vision_review_performed"])
+        self.assertEqual(result["review_origin"], "runner_vision_provider_call_failure")
+
+    def test_timeout_and_network_failures_are_also_treated_as_transient(self) -> None:
+        for message in ("Connection timed out", "Network error: connection reset"):
+            def raising_audit(**kwargs):
+                raise RuntimeError(message)
+
+            wrapped = _stable_intent_audit(raising_audit, "a calm person at a desk")
+            result = wrapped(provider="pexels", candidate={"id": 1}, narration_context="ctx")
+            self.assertEqual(result["status"], "block")
+            self.assertFalse(result["vision_review_performed"])
+
+    def test_non_transient_failure_still_propagates(self) -> None:
+        def raising_audit(**kwargs):
+            raise RuntimeError("AI budget authorization denied for task X")
+
+        wrapped = _stable_intent_audit(raising_audit, "a calm person at a desk")
+        with self.assertRaisesRegex(RuntimeError, "AI budget authorization denied"):
+            wrapped(provider="pexels", candidate={"id": 1}, narration_context="ctx")
+
+    def test_programming_bug_still_propagates(self) -> None:
+        def raising_audit(**kwargs):
+            raise TypeError("unexpected keyword argument")
+
+        wrapped = _stable_intent_audit(raising_audit, "a calm person at a desk")
+        with self.assertRaises(TypeError):
+            wrapped(provider="pexels", candidate={"id": 1}, narration_context="ctx")
+
+    def test_real_verdict_from_a_successful_call_is_untouched(self) -> None:
+        def passing_audit(**kwargs):
+            return {"status": "pass", "relevance": 0.9, "visual_quality": 0.9}
+
+        wrapped = _stable_intent_audit(passing_audit, "a calm person at a desk")
+        result = wrapped(provider="pexels", candidate={"id": 1}, narration_context="ctx")
+        self.assertEqual(result, {"status": "pass", "relevance": 0.9, "visual_quality": 0.9})
+
+    def test_transient_failure_lets_recovery_loop_select_the_next_candidate(self) -> None:
+        """End-to-end through the real bounded recovery loop, not just the wrapper unit."""
+        attempts: list[int] = []
+
+        def flaky_audit(*, candidate, **kwargs):
+            attempts.append(candidate["id"])
+            if candidate["id"] == 101:
+                raise RuntimeError("Error code: 429 - quota exceeded")
+            return {"status": "pass", "relevance": 0.9, "visual_quality": 0.9}
+
+        stable_audit = _stable_intent_audit(flaky_audit, "a calm person at a desk")
+
+        with patch.object(opening_director, "opening_slot_specs", adaptive_opening_slot_specs):
+            result = opening_director.select_opening_sequence(
+                {
+                    "pexels": [
+                        _candidate(101, 20),
+                        _candidate(102, 15),
+                        _candidate(103, 10),
+                        _candidate(104, 12),
+                    ]
+                },
+                section_seconds=30.0,
+                portrait=False,
+                narration_context="opening narration",
+                intended_visual="a calm person at a desk",
+                audit_fn=stable_audit,
+                cache=VisualCandidateCache(excluded_assets={}),
+                max_reviews=5,
+            )
+
+        self.assertEqual(result.status, "selected")
+        self.assertIn(101, attempts)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,7 @@ import isco_video_agent.opening_director as opening_director
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.section_visual_sequence as section_visual_sequence
 from isco_video_agent.section_visual_sequence import enforce_section_sequence_duration
+from isco_video_agent.security import safe_error
 import scripts.planner_quality_guard as planner_quality_guard
 
 
@@ -150,11 +151,83 @@ def _adaptive_section_review_cap(section_seconds: float) -> int:
     )
 
 
+_VISION_PROVIDER_FAILURE_ORIGIN = "runner_vision_provider_call_failure"
+
+# Mirrors the transient-provider vocabulary already used by provider_failure.py and
+# runtime_reliability.py's own FailurePolicy table - kept as its own bounded list here
+# rather than importing either, so a genuine bug/auth/budget exception still propagates
+# and crashes loudly instead of being silently treated as "just try the next candidate".
+_TRANSIENT_VISION_PROVIDER_MARKERS = (
+    "429",
+    "quota",
+    "rate limit",
+    "rate_limit",
+    "resource_exhausted",
+    "timeout",
+    "timed out",
+    "connection",
+    "network",
+    "http 500",
+    "http 502",
+    "http 503",
+    "http 504",
+    "server error",
+    "service_unavailable",
+)
+
+
+def _is_transient_vision_provider_failure(exc: Exception) -> bool:
+    detail = str(exc).lower()
+    return any(marker in detail for marker in _TRANSIENT_VISION_PROVIDER_MARKERS)
+
+
+def _vision_provider_failure_envelope(exc: Exception) -> dict:
+    """A candidate whose Vision wire call itself failed (rate limit/timeout/network)
+    must not crash the whole bounded review loop the way an uncaught exception does.
+
+    provider_retry_ownership.py deliberately forbids a retry loop *inside* Engine's own
+    Vision boundaries (audit_video_preview/audit_image_preview/judge_candidate_reel) -
+    "one wire request per distinct review" - relying on visual_selection.review_candidates()'s
+    own bounded candidate iteration as the recovery path for a candidate that cannot be
+    used. But nothing before this wrapper ever caught a provider exception and fed it
+    back into that already-bounded loop, so a single transient failure on any one
+    candidate (observed: a real Gemini 429 quota error) crashed the entire production
+    instead of just moving on to the next candidate. A real Vision pass/block verdict
+    from a successful call is completely untouched by this - only the provider call
+    itself failing to complete triggers this envelope, and it is never durably cached
+    across runs (media_durable_cache.py only persists review_origin=cloud_visual_qa).
+    """
+    return {
+        "status": "block",
+        "relevance": 0.0,
+        "visual_quality": 0.0,
+        "identifiable_person": False,
+        "sensitive_trait_implication_risk": False,
+        "prominent_logo_or_brand": False,
+        "cultural_conflict": False,
+        "cultural_islamic_suitability_risk": False,
+        "advertiser_conflict": False,
+        "obvious_synthetic_or_visual_artifact": False,
+        "reason": f"Vision provider call failed technically: {safe_error(exc)}"[:500],
+        "review_origin": _VISION_PROVIDER_FAILURE_ORIGIN,
+        "vision_review_performed": False,
+    }
+
+
 def _stable_intent_audit(audit_fn, intended_visual: str):
     @wraps(audit_fn)
     def wrapped(*args, **kwargs):
         kwargs["intended_visual"] = intended_visual
-        return audit_fn(*args, **kwargs)
+        try:
+            return audit_fn(*args, **kwargs)
+        except Exception as exc:
+            if not _is_transient_vision_provider_failure(exc):
+                raise
+            print(
+                "Vision provider call failed transiently, skipping this candidate: "
+                f"{type(exc).__name__}"
+            )
+            return _vision_provider_failure_envelope(exc)
 
     return wrapped
 
