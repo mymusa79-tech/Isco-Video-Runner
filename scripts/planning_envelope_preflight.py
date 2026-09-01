@@ -29,6 +29,7 @@ from scripts.native_short_planner_router import (
 )
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.planning_capacity_profile import install_planning_capacity_profile
+from scripts.provider_capacity_margin_audit import audit_media_capacity_margin
 
 # Standalone preflight runs in a different Python process from production runtime.
 # Apply the exact same format-native caps before importing the headroom module's public
@@ -177,15 +178,19 @@ def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCert
 
 
 def certify_planning_envelope() -> PlanningEnvelopeCertification:
-    """Certify P0 planning has two independent provider failure domains before run.
+    """Certify provider-portable capacity before a real production inference call.
 
     Long-form certifies the exact current outline plus Writer batching contract. Moment
     certifies its own format-native Draft envelope plus a worst-case bounded Review
-    envelope. Both paths apply the same Groq operational headroom used by live runtime,
-    so preflight cannot count a near-ceiling Groq request that production will reject.
+    envelope. Both paths apply the same Groq operational headroom used by live runtime.
+    The immediately preceding provider-preflight result is also checked for observable
+    media request-count headroom, so `remaining > 0` is never treated as enough for a
+    multi-search production topology.
     """
     if str(os.environ.get("ISCO_APPROVED_BRIEF_SNAPSHOT_PATH") or "").strip():
         bind_runtime_approved_brief_path()
+
+    audit_media_capacity_margin()
 
     brief = load_approved_brief(required=True)
     fmt = str(brief["format"]).strip().lower()
@@ -277,7 +282,7 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
         required_provider_families=P0_OUTLINE_MIN_PROVIDER_FAMILIES,
         runtime_token_admission=(
             "p0_two_provider_families+groq_operational_headroom+"
-            "provider_set_dynamic+exact_writer"
+            "provider_set_dynamic+exact_writer+observable_media_margin"
         ),
     )
 
