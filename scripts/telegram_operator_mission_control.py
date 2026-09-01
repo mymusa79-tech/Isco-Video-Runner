@@ -2,12 +2,12 @@ from __future__ import annotations
 
 """Final Telegram operator-state presentation layer.
 
-This module deliberately owns *presentation only* plus the text-confirmation
-receipt. It does not add a new Production authority path: the exact typed
-confirmation still reaches the existing immutable request + enqueue_request()
-contract. The durable ``production_queue`` remains an internal dispatch ledger;
-its idempotency states are projected to operator lifecycle states so Telegram
-never implies that a retry-protection window is a user-visible queue.
+This module owns presentation and receipt normalization only. It does not create a
+new Production authority path: the exact typed confirmation still delegates to the
+already-certified active control handler, including its immutable request/hash
+validation and durable dispatch ledger. Mission Control only projects that internal
+ledger into operator lifecycle states so retry protection is never presented as a
+user-visible queue.
 """
 
 from dataclasses import dataclass
@@ -16,7 +16,7 @@ from typing import Any, Callable
 from scripts import telegram_control_active_ui as active
 from scripts import telegram_creator_control_center_v5 as creator_v5
 from scripts import telegram_persistent_control_ui as persistent_ui
-from scripts.telegram_production_queue import enqueue_request, live_production_dispatches
+from scripts.telegram_production_queue import live_production_dispatches
 
 
 @dataclass(frozen=True)
@@ -58,50 +58,88 @@ def _action_updated_at(action: dict[str, Any]) -> str:
     return ""
 
 
+def _matching_actions(state: dict[str, Any], request_id: str, request_sha256: str) -> list[dict[str, Any]]:
+    raw = state.get("production_queue")
+    if not isinstance(raw, list):
+        return []
+    return [
+        item
+        for item in raw
+        if isinstance(item, dict)
+        and str(item.get("request_id") or "") == request_id
+        and str(item.get("request_sha256") or "") == request_sha256
+    ]
+
+
+def _snapshot_from_action(state: dict[str, Any], action: dict[str, Any]) -> ProductionOperatorState:
+    status = str(action.get("status") or "")
+    request_id = str(action.get("request_id") or "").strip()
+    if status == "pending_dispatch":
+        lifecycle = "starting"
+        label = "🔵 بدء التشغيل"
+        stage = "تسجيل التفويض وتسليمه إلى V4"
+    elif status == "dispatch_reserved":
+        lifecycle = "starting"
+        label = "🔵 بدء التشغيل"
+        stage = "حُجز التفويض لمرة واحدة ويجري تسليمه إلى V4"
+    elif status == "dispatch_consumed":
+        lifecycle = "running"
+        label = "🎬 قيد التشغيل"
+        stage = "V4 الموحد يعمل الآن"
+    elif status == "completed":
+        lifecycle = "completed"
+        label = "✅ مكتمل"
+        stage = "اكتمل Production لهذا الطلب"
+    elif status == "failed" and str(action.get("failure_reason") or "") == "production_cancelled":
+        lifecycle = "cancelled"
+        label = "⚪ ملغي"
+        stage = "أُلغي Production لهذا الطلب"
+    else:
+        lifecycle = "failed"
+        label = "🔴 فشل"
+        stage = "انتهت محاولة Production بالفشل"
+    try:
+        attempt = int(action.get("attempt") or 1)
+    except (TypeError, ValueError):
+        attempt = 1
+    return ProductionOperatorState(
+        lifecycle=lifecycle,
+        label=label,
+        stage=stage,
+        request_id=request_id,
+        topic=_topic_for(state, request_id),
+        workflow_run_id=str(action.get("workflow_run_id") or "").strip(),
+        updated_at=_action_updated_at(action),
+        attempt=max(1, attempt),
+    )
+
+
 def current_production_state(state: dict[str, Any]) -> ProductionOperatorState | None:
     """Return one canonical operator state for the current Production transaction.
 
     Live dispatch ledger entries always win over an approval target because the
-    target intentionally remains durable after activation. Only when no live
-    Production exists may the target project as ``awaiting_confirmation``.
+    target intentionally remains durable after activation. When no live Production
+    exists, a terminal attempt bound to the same target wins over the approval card;
+    only a target with no terminal attempt projects as awaiting confirmation.
     """
 
     live = live_production_dispatches(state)
     if live:
-        action = live[-1]
-        status = str(action.get("status") or "")
-        request_id = str(action.get("request_id") or "").strip()
-        if status == "pending_dispatch":
-            lifecycle = "starting"
-            label = "🔵 بدء التشغيل"
-            stage = "تسجيل التفويض وتسليمه إلى V4"
-        elif status == "dispatch_reserved":
-            lifecycle = "starting"
-            label = "🔵 بدء التشغيل"
-            stage = "حُجز التفويض لمرة واحدة ويجري تسليمه إلى V4"
-        else:
-            lifecycle = "running"
-            label = "🎬 قيد التشغيل"
-            stage = "V4 الموحد يعمل الآن"
-        try:
-            attempt = int(action.get("attempt") or 1)
-        except (TypeError, ValueError):
-            attempt = 1
-        return ProductionOperatorState(
-            lifecycle=lifecycle,
-            label=label,
-            stage=stage,
-            request_id=request_id,
-            topic=_topic_for(state, request_id),
-            workflow_run_id=str(action.get("workflow_run_id") or "").strip(),
-            updated_at=_action_updated_at(action),
-            attempt=max(1, attempt),
-        )
+        return _snapshot_from_action(state, live[-1])
 
     target = active._current_target(state)
     if target is None:
         return None
     request_id = str(target.get("request_id") or "").strip()
+    request_sha256 = str(target.get("request_sha256") or "").strip()
+    matches = _matching_actions(state, request_id, request_sha256)
+    if matches and str(matches[-1].get("status") or "") in {"completed", "failed"}:
+        return _snapshot_from_action(state, matches[-1])
+
+    raw_target = state.get(active.PRODUCTION_TARGET_KEY)
+    updated_at = ""
+    if isinstance(raw_target, dict):
+        updated_at = str(raw_target.get("selected_at") or "").strip()
     return ProductionOperatorState(
         lifecycle="awaiting_confirmation",
         label="🟡 ينتظر التأكيد",
@@ -109,7 +147,7 @@ def current_production_state(state: dict[str, Any]) -> ProductionOperatorState |
         request_id=request_id,
         topic=_topic_for(state, request_id),
         workflow_run_id="",
-        updated_at=str(target.get("selected_at") or "").strip(),
+        updated_at=updated_at,
         attempt=0,
     )
 
@@ -121,7 +159,13 @@ def _run_line(snapshot: ProductionOperatorState) -> str:
         return "Production Run: لم يبدأ بعد"
     if snapshot.lifecycle == "starting":
         return "Production Run: لم يُسجّل بعد"
-    return "Production Run: أُرسل إلى V4؛ رقم التشغيل غير مسجل بعد"
+    if snapshot.lifecycle == "running":
+        return "Production Run: أُرسل إلى V4؛ رقم التشغيل غير مسجل بعد"
+    if snapshot.lifecycle == "completed":
+        return "Production Run: مكتمل"
+    if snapshot.lifecycle == "cancelled":
+        return "Production Run: أُلغي"
+    return "Production Run: فشل"
 
 
 def render_operator_status(snapshot: ProductionOperatorState) -> str:
@@ -146,6 +190,10 @@ def render_operator_status(snapshot: ProductionOperatorState) -> str:
     lines.extend(["", "مطلوب منك"])
     if snapshot.lifecycle == "awaiting_confirmation":
         lines.append(f"إذا كان القرار نهائيًا، أرسل حرفيًا: {persistent_ui.PRODUCTION_CONFIRMATION_TEXT}")
+    elif snapshot.lifecycle in {"failed", "cancelled"}:
+        lines.append(f"لإعادة المحاولة لنفس الطلب، أرسل حرفيًا: {persistent_ui.PRODUCTION_CONFIRMATION_TEXT}")
+    elif snapshot.lifecycle == "completed":
+        lines.append("لا شيء الآن — افتح «آخر إنتاج» لمراجعة الحزمة.")
     else:
         lines.append(f"لا شيء الآن — لا تكرر «{persistent_ui.PRODUCTION_CONFIRMATION_TEXT}».")
     lines.extend(["", "🔒 YouTube: النشر يبقى يدويًا فقط."])
@@ -190,7 +238,7 @@ def _receipt_text(status: str, action: dict[str, Any] | None) -> str:
     if status == "already_queued":
         text = (
             "🔵 نفس عملية الإنتاج في مرحلة بدء التشغيل بالفعل.\n"
-            "حماية التكرار منعت إنشاء عملية ثانية؛ لا يوجد انتظار سببه نافذة الحماية."
+            "حماية التكرار منعت إنشاء عملية ثانية لنفس التأكيد."
         )
     elif status == "already_reserved_recent":
         text = (
@@ -226,8 +274,74 @@ def _receipt_text(status: str, action: dict[str, Any] | None) -> str:
     return text
 
 
+class _ReceiptCaptureClient:
+    """Capture only the base handler's Telegram sends while delegating everything else."""
+
+    def __init__(self, delegate) -> None:
+        self._delegate = delegate
+        self.sent: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def send(self, *args, **kwargs) -> None:
+        self.sent.append((args, kwargs))
+
+    def __getattr__(self, name: str):
+        return getattr(self._delegate, name)
+
+
+def _classify_confirmation_result(
+    state: dict[str, Any],
+    target: dict[str, str] | None,
+    before_queue_length: int,
+) -> tuple[str, dict[str, Any]] | None:
+    if target is None:
+        return None
+    matches = _matching_actions(
+        state,
+        str(target.get("request_id") or ""),
+        str(target.get("request_sha256") or ""),
+    )
+    if not matches:
+        return None
+    action = matches[-1]
+    status = str(action.get("status") or "")
+    raw_queue = state.get("production_queue")
+    after_queue_length = len(raw_queue) if isinstance(raw_queue, list) else 0
+    if status == "pending_dispatch":
+        if after_queue_length > before_queue_length:
+            try:
+                attempt = int(action.get("attempt") or 1)
+            except (TypeError, ValueError):
+                attempt = 1
+            return ("retry_queued" if attempt > 1 else "queued", action)
+        return "already_queued", action
+    if status == "dispatch_reserved":
+        return "already_reserved_recent", action
+    if status == "dispatch_consumed":
+        return "already_dispatched_recent", action
+    if status == "completed":
+        return "already_completed", action
+    return None
+
+
+def _replay_capture(client, captured: _ReceiptCaptureClient) -> None:
+    for args, kwargs in captured.sent:
+        client.send(*args, **kwargs)
+
+
+def _send_normalized_receipt(client, captured: _ReceiptCaptureClient, fallback_chat_id, text: str) -> None:
+    if not captured.sent:
+        client.send(fallback_chat_id, text, keyboard=creator_v5._main_keyboard())
+        return
+    args, kwargs = captured.sent[-1]
+    out_chat_id = args[0] if args else kwargs.get("chat_id", fallback_chat_id)
+    keyboard = kwargs.get("keyboard")
+    if keyboard is None and len(args) >= 3:
+        keyboard = args[2]
+    client.send(out_chat_id, text, keyboard=keyboard)
+
+
 def _production_handle(kind, client, state: dict[str, Any], releases: Any, chat_id) -> None:
-    """Normalize the certified production-confirmation receipt without new authority."""
+    """Delegate authority unchanged, then normalize only the resulting receipt."""
 
     if _BASE_PRODUCTION_HANDLE is None:
         raise RuntimeError("Telegram operator mission control is not installed")
@@ -235,32 +349,22 @@ def _production_handle(kind, client, state: dict[str, Any], releases: Any, chat_
         _BASE_PRODUCTION_HANDLE(kind, client, state, releases, chat_id)
         return
 
-    if not active._production_enabled():
-        client.send(chat_id, "🔒 إنتاج Telegram مقفول حاليًا.", keyboard=creator_v5._main_keyboard())
-        return
+    target_before = active._current_target(state)
+    raw_queue = state.get("production_queue")
+    before_queue_length = len(raw_queue) if isinstance(raw_queue, list) else 0
+    captured = _ReceiptCaptureClient(client)
 
-    target = active._current_target(state)
-    if target is None:
-        client.send(
-            chat_id,
-            "لا يوجد اختيار صالح من جلسة الاختيار الحالية. اختر موضوعًا ثم اعتمده قبل تأكيد الإنتاج.",
-            keyboard=creator_v5._main_keyboard(),
-        )
-        return
+    # This is the sole authority call. All production-enabled checks, target/hash
+    # validation, enqueue/idempotency behavior and fail-closed mutations stay in the
+    # pre-existing certified active handler.
+    _BASE_PRODUCTION_HANDLE(kind, captured, state, releases, chat_id)
 
-    status, action = enqueue_request(
-        state,
-        target["request_id"],
-        target["request_sha256"],
-        chat_id=chat_id,
-    )
-    if status == "no_ready_request":
-        state.pop(active.PRODUCTION_TARGET_KEY, None)
-        text = "الاختيار الحالي لم يعد صالحًا للإنتاج. اختر موضوعًا من جديد ثم اعتمده."
-        text += "\n\nYouTube: النشر يبقى يدويًا فقط."
-    else:
-        text = _receipt_text(status, action)
-    client.send(chat_id, text, keyboard=creator_v5._main_keyboard())
+    classified = _classify_confirmation_result(state, target_before, before_queue_length)
+    if classified is None:
+        _replay_capture(client, captured)
+        return
+    status, action = classified
+    _send_normalized_receipt(client, captured, chat_id, _receipt_text(status, action))
 
 
 def install() -> None:
@@ -276,6 +380,6 @@ def install() -> None:
     creator_v5._system_status = _system_status
     # persistent_ui._handle_command dereferences this module global at call time.
     # Rebinding it preserves the exact typed-confirmation authority boundary while
-    # replacing only the post-enqueue receipt shown to the operator.
+    # replacing only the post-handler receipt shown to the operator.
     persistent_ui._BASE_HANDLE_COMMAND = _production_handle
     _INSTALLED = True
