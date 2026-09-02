@@ -21,6 +21,7 @@ from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.dynamic_planning_capacity import install_dynamic_planning_capacity
 from scripts.gemini_planning_output_guard import install_gemini_planning_output_guard
 from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
+from scripts.native_short_stage_contract import install_native_short_stage_contract
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.planning_batch_hardening import install_planning_batch_hardening
@@ -95,6 +96,10 @@ def install_entrypoint_planning_contracts() -> None:
     # stage identity is attached to the final live call boundaries, never prompt text.
     install_planning_stage_boundaries()
     assert_planning_stage_contract_installed()
+    # Standalone Moment does not enter resilient_planner's long-form stage functions.
+    # Bind its Draft/Review/Repair model calls explicitly *after* the canonical router
+    # exists, so it can never retain the historical pre-contract compatibility router.
+    install_native_short_stage_contract()
     _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED = True
 
 
