@@ -11,40 +11,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class NativeShortPlanningSeamFreshProcessTests(unittest.TestCase):
-    """Regression for the real 2026-08-31 Telegram Short production failure.
+    """Regression for the real Telegram Short planning seam in a fresh process.
 
-    Once execute_control_request correctly installed native_short_planner_router (the
-    install_router fix in #452) and GEMINI_CONTENT_MODEL matched the canonical model
-    (#454), the very next real Telegram Short run failed with:
+    The historical regression proved that the native Short provider mesh could still
+    complete after the long-form Explicit Planning Stage Contract was installed. With
+    the native Short Stage Contract now authoritative, an unowned direct provider call
+    is intentionally no longer a supported compatibility path: it must fail closed.
+    The same provider call must complete once an explicit native Short stage is active.
 
-        RuntimeError: Gemini planning/editorial review failed: {'type': 'PlanningStageError'}
-
-    Root cause: native_short_planner_router.install_native_short_router() binds Engine's
-    native Short planner (isco_video_agent.planner.build_plan) to task_router - the
-    legacy/compatibility provider mesh in task_level_planner_router.py - because the
-    native Short planner predates, and was never updated for, the Explicit Planning
-    Stage Contract system built for the long-form path. task_router (and several
-    capacity/telemetry helpers it and its installed replacements call:
-    provider_capacity_hardening.py, dynamic_planning_capacity.py,
-    gemini_planning_output_guard.py, run125_capacity_routing_closure.py) ask a shared,
-    module-level _structured_schema_for_prompt()/router._structured_schema_for_prompt()
-    for a best-effort schema hint. install_planning_contract_router() replaces that
-    resolver process-wide with one that hard-fails outside an active explicit request
-    contract - correct for the contract-bound long-form path, but native_short never
-    binds one, so every one of those best-effort lookups blew up instead of degrading to
-    "no hint" like the original resolver did. install_legacy_planning_authority_guard()
-    separately seals task_router's own checkpoint persistence, which used to silently
-    discard an already-successful provider result as if the provider itself had failed.
-
-    This is a real, non-mocked-away, fresh-process reproduction (the install functions
-    perform real global monkeypatching that must not leak into the rest of the test
-    suite) proving the fixed call chain actually completes, with the real (not
-    swallowed) provider mesh in play and only the network call mocked.
+    Keeping this as a subprocess matters because the production installers perform
+    real process-global monkeypatching that must not leak into the rest of the suite.
+    Only the network boundary is mocked.
     """
 
-    def test_native_short_json_text_completes_through_the_real_install_chain(self) -> None:
+    def test_native_short_json_text_requires_and_completes_through_explicit_stage(self) -> None:
         probe = textwrap.dedent(
             """
+            import json
             import tempfile
             from pathlib import Path
             from unittest.mock import patch
@@ -52,12 +35,39 @@ class NativeShortPlanningSeamFreshProcessTests(unittest.TestCase):
             import isco_video_agent.planner as native_short
             from scripts import task_level_planner_router as router
             from scripts.native_short_planner_router import install_native_short_router
+            from scripts.native_short_stage_contract import moment_stage_spec
+            from scripts.planning_stage_contract import (
+                PlanningErrorCode,
+                PlanningStageError,
+                request_stage_scope,
+            )
             from scripts.planning_runtime_contract import (
                 install_entrypoint_planning_contracts,
                 install_runtime_planning_contracts,
                 install_post_runtime_planning_contracts,
             )
             import scripts.planning_runtime_contract as prc
+
+            topic = "كيف تنهض عندما تفقد الدافع تمامًا؟"
+            payload = {
+                "topic": topic,
+                "pillar": "rise",
+                "format": "moment",
+                "hook": "حين يختفي الدافع، ماذا يبقى؟",
+                "title_options": ["العنوان أ", "العنوان ب", "العنوان ج"],
+                "thumbnail_concepts": ["concept a", "concept b", "concept c"],
+                "sections": [{
+                    "id": "s1",
+                    "narration": "",
+                    "visual_query": "person sitting quietly near window morning light",
+                    "on_screen_text": "لا تنتظر عودة الدافع",
+                    "emotion": "reflective",
+                    "expected_seconds": 15.0,
+                    "key_point": "ابدأ بحركة صغيرة قبل عودة الشعور",
+                }],
+                "cta": "",
+                "closing_payoff": "الحركة الصغيرة قد تسبق الشعور.",
+            }
 
             with tempfile.TemporaryDirectory() as tmp:
                 router.CACHE_PATH = Path(tmp) / "planning-checkpoint.json"
@@ -67,11 +77,20 @@ class NativeShortPlanningSeamFreshProcessTests(unittest.TestCase):
                 install_runtime_planning_contracts()
                 install_post_runtime_planning_contracts()
 
-                with patch.object(router, "gemini_json_text", return_value='{"sections": []}') as gemini_mock:
-                    result = native_short.json_text("fake-key", "test prompt", model="gemini-3.7-flash")
+                try:
+                    native_short.json_text("fake-key", "unowned prompt", model="gemini-3.7-flash")
+                except PlanningStageError as exc:
+                    assert exc.code == PlanningErrorCode.INTERNAL_CONTRACT_ERROR, exc
+                else:
+                    raise AssertionError("unowned native Short provider call unexpectedly passed")
 
-                assert result == {"sections": []}, result
+                with patch.object(router, "gemini_json_text", return_value=json.dumps(payload, ensure_ascii=False)) as gemini_mock:
+                    with request_stage_scope(moment_stage_spec("short_draft", topic)):
+                        result = native_short.json_text("fake-key", "test prompt", model="gemini-3.7-flash")
+
+                assert result == payload, result
                 assert gemini_mock.call_count == 1, gemini_mock.call_count
+                assert router.CACHE_PATH.is_file(), "explicit Short stage did not persist durable checkpoint"
             """
         )
         completed = subprocess.run(
