@@ -21,6 +21,7 @@ from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.dynamic_planning_capacity import install_dynamic_planning_capacity
 from scripts.gemini_planning_output_guard import install_gemini_planning_output_guard
 from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
+from scripts.native_short_stage_contract import install_native_short_stage_contract
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.planning_batch_hardening import install_planning_batch_hardening
@@ -50,17 +51,10 @@ from scripts.short_repair_reset_recovery import install_short_repair_reset_recov
 from scripts.task_level_planner_router import install_router
 
 
-# runtime_closure is intentionally unit-testable in isolation. Such a test must not
-# fabricate an entrypoint contract that production would normally install earlier.
-# Once the canonical entrypoint has bootstrapped the explicit Stage Contract, however,
-# every later lifecycle phase is fail-closed: any patch that loses the router/boundaries
-# is an INTERNAL_CONTRACT_ERROR rather than a silent fallback to historical behavior.
 _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED = False
 
 
 def _reassert_after_lifecycle_patch() -> None:
-    # Reassert both halves of the contract. json_text may still contain the routed
-    # wrapper while a later installer has replaced only the compatibility schema seam.
     install_planning_contract_router()
     install_planning_stage_boundaries()
     if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
@@ -71,9 +65,6 @@ def install_entrypoint_planning_contracts() -> None:
     """Install the planning stack that precedes runtime_closure in canonical V4."""
     global _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED
 
-    # Keep the provider/router composition order identical to the historical seam.
-    # The explicit Stage Contract then replaces the legacy prompt-inferred json_text
-    # owner before any Planning call can occur.
     install_run123_budget_closure()
     install_schema_guard()
     install_provider_capacity_hardening()
@@ -82,27 +73,22 @@ def install_entrypoint_planning_contracts() -> None:
     install_planning_batch_hardening()
     install_schema_repair_policy()
     install_run120_dossier_repair_hardening()
-    # Moment uses Engine's native one-section schema instead of the long-form resilient
-    # planner. Install its in-place Dossier transport immediately after the long-form
-    # repair owner so both formats share the same explicit repair lifecycle without
-    # prompt inference or full-plan regeneration.
     install_short_planning_repair()
     install_run120_schema_policy_bridge()
     install_planner_quality_guard()
     install_attempt9_schema_normalizer()
     install_append_retry_guard()
-    # These wrappers are deliberately installed after batch/repair/append owners so
-    # stage identity is attached to the final live call boundaries, never prompt text.
     install_planning_stage_boundaries()
     assert_planning_stage_contract_installed()
+    # Standalone Moment bypasses resilient_planner's long-form stage functions. Bind
+    # Draft/Review/Repair only after the explicit router is authoritative, so Moment
+    # cannot retain the earlier compatibility provider mesh as hidden cache authority.
+    install_native_short_stage_contract()
     _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED = True
 
 
 def install_runtime_planning_contracts() -> None:
     """Install the planning/recovery portion historically owned by runtime_closure."""
-    # Workflow bootstrap materializes the immutable brief snapshot in an earlier
-    # process. Rebind those verified bytes inside the live production process before
-    # any runtime planning patch can build durable checkpoint identity.
     if canonical_runtime_enabled():
         install_runtime_snapshot_binding()
 
@@ -114,23 +100,10 @@ def install_runtime_planning_contracts() -> None:
     install_run125_capacity_routing_closure()
     install_dynamic_planning_capacity()
     install_run125_cache_prefix_contract()
-    # Final planning-capacity layer is intentionally after the historical Run125/128
-    # ownership stack. It adds operational headroom, a format-native Moment envelope,
-    # all-path OpenRouter preflight enforcement, and a bounded native-Short terminal
-    # reset owner without replacing the existing long-form shard recovery semantics.
     install_planning_capacity_profile()
     install_planning_capacity_headroom()
-    # Runs #158/#160 reached the compact Moment RepairDossier after Draft/Review, but
-    # that transport sat outside the native-Short reset owner. Reuse the exact same
-    # evidence-backed <=60s wait + one retry for the surgical repair call only; Dossier
-    # max_attempts and all semantic/quality gates remain unchanged.
     install_short_repair_reset_recovery()
 
-    # Certify the historical routing/capacity composition first. No provider call is
-    # made by certification. Then rebind explicit stage wrappers around any function
-    # a runtime installer replaced. In an isolated runtime_closure unit test there is
-    # deliberately no entrypoint bootstrap to assert. In canonical production there
-    # is, so loss of the explicit router remains fail-closed.
     certify_runtime_patch_contracts()
     _reassert_after_lifecycle_patch()
 
@@ -139,17 +112,8 @@ def install_post_runtime_planning_contracts() -> None:
     """Install final plan-level guards, then the producer pre-audit lifecycle owner."""
     install_brand_anchor_guard()
     install_product_proof_fallback()
-    # Plan-level wrappers may replace build/repair surfaces. Reassert the explicit
-    # Planning contract at the final canonical seam. The final seal then removes the
-    # dormant prompt-hash checkpoint loader/writer from runtime authority entirely.
     _reassert_after_lifecycle_patch()
     if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
         install_legacy_planning_authority_guard()
-    # Producer Quality Contract still owns writing constraints and deterministic
-    # acceptance. Run #164 adds a lifecycle owner immediately after it so only the
-    # explicitly repairable Short presentation/template defects can use the existing
-    # one-call surgical transport before final Producer revalidation. Safety/factuality
-    # and structural defects remain fail-closed, and an active RepairDossier cannot nest
-    # a second Producer repair.
     install_planning_producer_quality_contract()
     install_producer_planning_lifecycle()
