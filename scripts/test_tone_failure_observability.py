@@ -164,7 +164,17 @@ class ToneFailureObservabilityTests(unittest.TestCase):
                     patch.object(run_v3_voice.orchestrator, "produce", side_effect=RuntimeError("visual selection failed"))
                 )
                 stack.enter_context(patch.object(run_v3_voice, "write_planning_telemetry"))
-                stack.enter_context(patch.dict(os.environ, {"REQUEST_FILE": str(request)}, clear=False))
+                stack.enter_context(
+                    patch.dict(
+                        os.environ,
+                        {
+                            "REQUEST_FILE": str(request),
+                            "GEMINI_CONTENT_MODEL": "gemini-3.7-flash",
+                            "GEMINI_TTS_MODEL": "gemini-3.1-flash-tts-preview",
+                        },
+                        clear=False,
+                    )
+                )
                 with self.assertRaisesRegex(RuntimeError, "visual selection failed"):
                     run_v3_voice.main()
 
