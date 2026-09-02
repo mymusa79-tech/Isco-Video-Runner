@@ -37,6 +37,7 @@ from scripts.runtime_reliability import (
 )
 from scripts.text_audit_capacity_ownership import install_text_audit_capacity_ownership
 from scripts.text_audit_provider_mesh import install_text_audit_provider_mesh
+from scripts.vision_provider_reliability import install_vision_provider_reliability
 
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -142,6 +143,12 @@ def install_runtime_closure() -> None:
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
     install_media_runtime_port()
     install_core_reliability_guard()
+    # Shared Long+Short Vision reliability is a provider-boundary owner, not a selector
+    # or Security owner. It wraps the existing direct VISUAL_AUDIT ledger seam after
+    # core reliability is live: Gemini remains primary, one OpenRouter free-video
+    # fallback is admitted only for technical failure, and semantic BLOCK is never
+    # provider-shopped. The global AI hard cap and all visual thresholds stay unchanged.
+    install_vision_provider_reliability()
     install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
     install_cinematic_runtime_port(CinematicInstallPhase.INNER)
