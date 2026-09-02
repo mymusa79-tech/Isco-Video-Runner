@@ -33,6 +33,7 @@ from scripts.runtime_reliability import (
     manifest_wrapper_chain_has_marker,
     production_entrypoint_modules,
 )
+from scripts.text_audit_capacity_ownership import install_text_audit_capacity_ownership
 from scripts.text_audit_provider_mesh import install_text_audit_provider_mesh
 
 
@@ -104,6 +105,12 @@ def install_runtime_closure() -> None:
     # mesh only after planning capacity state is live, so Groq reuses the same model-
     # scoped headroom/reset evidence without entering the planning checkpoint contract.
     install_text_audit_provider_mesh()
+    # Run167 closure: Text Audit Mesh remains the sole owner of audit route order,
+    # provider-result semantics, and fail-closed repair admission. This separate owner
+    # governs only the shared Groq pre-wire pacing boundary: one trustworthy bounded
+    # reset wait per audit task when no already-bounded later route is better. Planning,
+    # provider-attempt budgets, and all Quality Gates remain unchanged.
+    install_text_audit_capacity_ownership()
 
     # L7.2 moves only the Media installation topology behind one stable seam. The port
     # preserves the certified historical order: Provider Capacity V2 -> Media Trust V2
