@@ -25,6 +25,8 @@ STOCK_CANDIDATE_POOL = 40
 # Keep semantic/environment words that help stock retrieval. Only remove terms that
 # force an identifiable staged human subject or add no retrieval value. This fixes
 # Run #92's over-collapsed `table room notebook` query without weakening Vision QA.
+# Run #169 extends the same search-only transform to temporal/directorial filler that
+# describes a mini-scene rather than something a stock index can retrieve reliably.
 _SEARCH_DROP_TERMS = set(planner_quality_guard._HUMAN_QUERY_TERMS) | {
     "a",
     "an",
@@ -53,8 +55,60 @@ _SEARCH_DROP_TERMS = set(planner_quality_guard._HUMAN_QUERY_TERMS) | {
     "focused",
     "focus",
     "alone",
+    "then",
+    "before",
+    "after",
+    "while",
+    "eventually",
+    "finally",
+    "slowly",
+    "suddenly",
+    "starting",
+    "starts",
+    "started",
+    "start",
+    "beginning",
+    "begins",
+    "began",
+    "pick",
+    "picks",
+    "picked",
+    "picking",
+    "up",
+    "down",
+    "smile",
+    "smiles",
+    "smiling",
+    "contemplative",
+    "thoughtful",
+    "expression",
+    "gaze",
+    "turning",
+    "turns",
+    "moving",
+    "moves",
 }
 _SEARCH_FALLBACK = "quiet room natural light"
+_DETAIL_AVOID_TERMS = {
+    "room",
+    "indoors",
+    "indoor",
+    "outside",
+    "outdoors",
+    "outdoor",
+    "home",
+    "office",
+    "light",
+    "natural",
+    "quiet",
+    "calm",
+    "background",
+    "scene",
+}
+
+
+class VisionVerdictUnavailableError(RuntimeError):
+    """No final visual verdict exists because at least one Vision call never completed."""
 
 
 def stock_safe_search_query(query: str) -> str:
@@ -81,6 +135,52 @@ def stock_safe_search_query(query: str) -> str:
     if len(compact) < 2:
         return _SEARCH_FALLBACK
     return " ".join(compact[:8])
+
+
+def stock_query_ladder(query: str) -> tuple[str, ...]:
+    """Return at most two deterministic retrieval syntaxes for one stable intent.
+
+    This is deliberately *not* another retry loop. The first item is the primary stock
+    query already used by Run #92. The optional second item may occupy only the one
+    alternate-query slot the Engine already owns. Vision always receives the original
+    rich intended_visual through ``_stable_intent_audit``.
+    """
+    original = str(query).strip()
+    primary = stock_safe_search_query(original)
+    if not primary:
+        return ()
+
+    variants = [primary]
+    if primary == original:
+        return tuple(variants)
+
+    tokens = re.findall(r"[a-z]+", primary.lower())
+    anchors = [token for token in tokens if token not in _DETAIL_AVOID_TERMS]
+    if anchors:
+        detail = f"{anchors[-1]} closeup"
+        if detail != primary:
+            variants.append(detail)
+    return tuple(variants[:2])
+
+
+def _bounded_alternate_query_fn(alternate_query_fn, intended_visual: str):
+    """Reuse the Engine's single alternate slot; never create a third retrieval phase."""
+    ladder = stock_query_ladder(intended_visual)
+    deterministic = ladder[1] if len(ladder) > 1 else ""
+    primary = ladder[0] if ladder else stock_safe_search_query(intended_visual)
+
+    @wraps(alternate_query_fn)
+    def wrapped():
+        if deterministic:
+            print(f"Visual retrieval ladder alternate query: {deterministic}")
+            return deterministic
+        proposed = alternate_query_fn()
+        normalized = stock_safe_search_query(str(proposed or ""))
+        if normalized == primary:
+            return ""
+        return normalized
+
+    return wrapped
 
 
 def adaptive_opening_slot_specs(section_seconds: float) -> list[opening_director.OpeningSlotSpec]:
@@ -182,20 +282,13 @@ def _is_transient_vision_provider_failure(exc: Exception) -> bool:
 
 
 def _vision_provider_failure_envelope(exc: Exception) -> dict:
-    """A candidate whose Vision wire call itself failed (rate limit/timeout/network)
-    must not crash the whole bounded review loop the way an uncaught exception does.
+    """Transport a failed wire call through the bounded selector without lying about it.
 
-    provider_retry_ownership.py deliberately forbids a retry loop *inside* Engine's own
-    Vision boundaries (audit_video_preview/audit_image_preview/judge_candidate_reel) -
-    "one wire request per distinct review" - relying on visual_selection.review_candidates()'s
-    own bounded candidate iteration as the recovery path for a candidate that cannot be
-    used. But nothing before this wrapper ever caught a provider exception and fed it
-    back into that already-bounded loop, so a single transient failure on any one
-    candidate (observed: a real Gemini 429 quota error) crashed the entire production
-    instead of just moving on to the next candidate. A real Vision pass/block verdict
-    from a successful call is completely untouched by this - only the provider call
-    itself failing to complete triggers this envelope, and it is never durably cached
-    across runs (media_durable_cache.py only persists review_origin=cloud_visual_qa).
+    ``status=block`` is retained only as the Engine selector's legacy transport sentinel:
+    review_candidates() understands pass vs non-pass but has no technical-unavailable
+    enum. The explicit authority fields below are the source of truth, and the enclosing
+    selector raises ``VisionVerdictUnavailableError`` if no later candidate passes.
+    The envelope is never a semantic rejection and never weakens any PASS criterion.
     """
     return {
         "status": "block",
@@ -211,6 +304,8 @@ def _vision_provider_failure_envelope(exc: Exception) -> dict:
         "reason": f"Vision provider call failed technically: {safe_error(exc)}"[:500],
         "review_origin": _VISION_PROVIDER_FAILURE_ORIGIN,
         "vision_review_performed": False,
+        "semantic_verdict": False,
+        "verdict_authority": "technical_unavailable",
     }
 
 
@@ -230,6 +325,47 @@ def _stable_intent_audit(audit_fn, intended_visual: str):
             return _vision_provider_failure_envelope(exc)
 
     return wrapped
+
+
+def _technical_unavailable_reviews(result: object) -> list[object]:
+    reviews = list(getattr(result, "reviewed", ()) or ())
+    return [
+        review
+        for review in reviews
+        if isinstance(getattr(review, "audit", None), dict)
+        and getattr(review, "audit").get("review_origin") == _VISION_PROVIDER_FAILURE_ORIGIN
+        and getattr(review, "audit").get("vision_review_performed") is False
+        and getattr(review, "audit").get("semantic_verdict") is False
+    ]
+
+
+def _enforce_truthful_visual_outcome(result: object, *, scope: str):
+    """Do not collapse an unmade Vision judgment into candidate exhaustion.
+
+    A later PASS still wins normally. Only a final failed selector with one or more
+    technically unjudged candidates is reclassified. Pure local Security quarantines
+    and real semantic BLOCK verdicts retain the Engine's existing failed result, so the
+    caller can truthfully report candidate exhaustion.
+    """
+    if str(getattr(result, "status", "")) != "failed":
+        return result
+
+    technical = _technical_unavailable_reviews(result)
+    if not technical:
+        return result
+
+    reasons = []
+    for review in technical:
+        audit = getattr(review, "audit", {})
+        reason = str(audit.get("reason", "")).strip()
+        if reason and reason not in reasons:
+            reasons.append(reason)
+    detail = " | ".join(reasons[:2]) or "Vision provider call failed technically"
+    raise VisionVerdictUnavailableError(
+        "VISION_UNAVAILABLE "
+        f"scope={scope} technical_candidates={len(technical)} semantic_verdict=false "
+        f"reason={detail}"
+    )
 
 
 def _preserve_outline_visual_intent(outline: object, *, fmt: str) -> object:
@@ -299,11 +435,18 @@ def _install_selection_wrappers() -> None:
             audit_fn = kwargs.get("audit_fn")
             if callable(audit_fn):
                 kwargs["audit_fn"] = _stable_intent_audit(audit_fn, intended_visual)
+            alternate_query_fn = kwargs.get("alternate_query_fn")
+            if callable(alternate_query_fn):
+                kwargs["alternate_query_fn"] = _bounded_alternate_query_fn(
+                    alternate_query_fn, intended_visual
+                )
             if "max_reviews" not in kwargs:
                 kwargs["max_reviews"] = _adaptive_review_cap(section_seconds)
-            return current_opening_select(*args, **kwargs)
+            result = current_opening_select(*args, **kwargs)
+            return _enforce_truthful_visual_outcome(result, scope="opening")
 
         guarded_opening_select._isco_run92_adaptive_opening_guard = True
+        guarded_opening_select._isco_run169_visual_truth = True
         opening_director.select_opening_sequence = guarded_opening_select
         orchestrator.select_opening_sequence = guarded_opening_select
 
@@ -320,11 +463,18 @@ def _install_selection_wrappers() -> None:
             audit_fn = kwargs.get("audit_fn")
             if callable(audit_fn):
                 kwargs["audit_fn"] = _stable_intent_audit(audit_fn, intended_visual)
+            alternate_query_fn = kwargs.get("alternate_query_fn")
+            if callable(alternate_query_fn):
+                kwargs["alternate_query_fn"] = _bounded_alternate_query_fn(
+                    alternate_query_fn, intended_visual
+                )
             if "max_reviews" not in kwargs:
                 kwargs["max_reviews"] = _adaptive_section_review_cap(section_seconds)
-            return current_section_select(*args, **kwargs)
+            result = current_section_select(*args, **kwargs)
+            return _enforce_truthful_visual_outcome(result, scope="section")
 
         guarded_section_select._isco_run92_stable_visual_intent = True
+        guarded_section_select._isco_run169_visual_truth = True
         orchestrator.select_section_sequence = guarded_section_select
 
     current_single_select = orchestrator.select_with_recovery
@@ -335,14 +485,21 @@ def _install_selection_wrappers() -> None:
             audit_fn = kwargs.get("audit_fn")
             if callable(audit_fn):
                 kwargs["audit_fn"] = _stable_intent_audit(audit_fn, intended_visual)
-            return current_single_select(*args, **kwargs)
+            alternate_query_fn = kwargs.get("alternate_query_fn")
+            if callable(alternate_query_fn):
+                kwargs["alternate_query_fn"] = _bounded_alternate_query_fn(
+                    alternate_query_fn, intended_visual
+                )
+            result = current_single_select(*args, **kwargs)
+            return _enforce_truthful_visual_outcome(result, scope="single")
 
         guarded_single_select._isco_run92_stable_visual_intent = True
+        guarded_single_select._isco_run169_visual_truth = True
         orchestrator.select_with_recovery = guarded_single_select
 
 
 def install_opening_feasibility_guard() -> None:
-    """Install the Run #92 retrieval/duration fix without weakening any QA gate."""
+    """Install shared bounded stock retrieval + truthful Vision outcome ownership."""
     # planner_quality_guard's installed outline wrapper resolves this module global at
     # call time, so replacing it here stops the old destructive visual_query rewrite
     # while preserving the rest of that guard unchanged.
@@ -358,5 +515,6 @@ def install_opening_feasibility_guard() -> None:
 
     print(
         "Opening feasibility guard installed: fixed 30s opening; adaptive <=45s tail; "
-        "search/intent separation; 40-result stock pool; bounded Vision QA unchanged"
+        "search/intent separation; bounded retrieval ladder; truthful Vision-unavailable; "
+        "40-result stock pool; existing Vision QA caps preserved"
     )
