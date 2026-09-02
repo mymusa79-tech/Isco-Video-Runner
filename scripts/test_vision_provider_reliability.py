@@ -86,7 +86,7 @@ class VisionProviderReliabilityTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as temp_dir, mesh.vision_provider_circuit_scope(), mock.patch.object(
                     mesh,
                     "_openrouter_visual_audit",
-                    return_value=(dict(_PASS), mesh.OPENROUTER_VISION_MODELS[0]),
+                    return_value=(dict(_PASS), "resolved/free-vision-model"),
                 ) as fallback:
                     result = mesh._route_visual_audit(
                         ledger,
@@ -119,8 +119,8 @@ class VisionProviderReliabilityTests(unittest.TestCase):
             mesh,
             "_openrouter_visual_audit",
             side_effect=[
-                (dict(_PASS), mesh.OPENROUTER_VISION_MODELS[0]),
-                (dict(_PASS), mesh.OPENROUTER_VISION_MODELS[0]),
+                (dict(_PASS), "resolved/free-vision-model"),
+                (dict(_PASS), "resolved/free-vision-model"),
             ],
         ) as fallback:
             preview = _preview(temp_dir)
@@ -324,14 +324,14 @@ class VisionProviderReliabilityTests(unittest.TestCase):
         seek_values = [float(command[command.index("-ss") + 1]) for command in calls[1:]]
         self.assertEqual(seek_values, [1.8, 5.0, 8.2])
 
-    def test_openrouter_request_uses_free_image_chain_and_exact_json_contract(self) -> None:
+    def test_openrouter_request_uses_capability_routed_free_images_and_exact_json_contract(self) -> None:
         class Response:
             ok = True
             status_code = 200
 
             def json(self):
                 return {
-                    "model": mesh.OPENROUTER_VISION_MODELS[0],
+                    "model": "resolved/free-vision-model",
                     "choices": [{"message": {"content": json.dumps(_PASS)}}],
                 }
 
@@ -347,11 +347,11 @@ class VisionProviderReliabilityTests(unittest.TestCase):
                 intended_visual="intent",
             )
         self.assertEqual(audit["status"], "pass")
-        self.assertEqual(model, mesh.OPENROUTER_VISION_MODELS[0])
+        self.assertEqual(model, "resolved/free-vision-model")
         sampled.assert_called_once()
         payload = post.call_args.kwargs["json"]
-        self.assertEqual(tuple(payload["models"]), mesh.OPENROUTER_VISION_MODELS)
-        self.assertTrue(all(item.endswith(":free") for item in payload["models"]))
+        self.assertEqual(payload["model"], "openrouter/free")
+        self.assertNotIn("models", payload)
         self.assertEqual(payload["response_format"], {"type": "json_object"})
         self.assertTrue(payload["provider"]["allow_fallbacks"])
         content = payload["messages"][0]["content"]
@@ -363,6 +363,27 @@ class VisionProviderReliabilityTests(unittest.TestCase):
         )
         self.assertFalse(any(item.get("type") == "video_url" for item in content))
         self.assertEqual(post.call_args.kwargs["timeout"], mesh.OPENROUTER_TIMEOUT_SECONDS)
+
+    def test_openrouter_no_endpoint_404_is_classified_as_technical_mesh_failure(self) -> None:
+        class Response:
+            ok = False
+            status_code = 404
+
+            def json(self):
+                return {"error": {"message": "No endpoints found that support image input"}}
+
+        frames = [b"frame-a", b"frame-b", b"frame-c"]
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=False
+        ), mock.patch.object(mesh, "_sample_preview_frames", return_value=frames), mock.patch.object(
+            mesh.requests, "post", return_value=Response()
+        ):
+            with self.assertRaisesRegex(RuntimeError, "OPENROUTER_VISION_NO_PROVIDER_AVAILABLE"):
+                mesh._openrouter_visual_audit(
+                    _preview(temp_dir),
+                    narration_context="narration",
+                    intended_visual="intent",
+                )
 
     def test_installer_is_idempotent_and_scopes_every_orchestrator_produce(self) -> None:
         states = []
