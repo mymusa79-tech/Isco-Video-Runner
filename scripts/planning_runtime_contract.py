@@ -21,6 +21,7 @@ from scripts.brand_anchor_guard import install_brand_anchor_guard
 from scripts.dynamic_planning_capacity import install_dynamic_planning_capacity
 from scripts.gemini_planning_output_guard import install_gemini_planning_output_guard
 from scripts.immutable_planning_snapshot import install_runtime_snapshot_binding
+from scripts.native_short_stage_contract import install_native_short_stage_contract
 from scripts.planner_quality_guard import install_planner_quality_guard
 from scripts.planner_schema_guard import install_schema_guard
 from scripts.planning_batch_hardening import install_planning_batch_hardening
@@ -48,6 +49,7 @@ from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.short_planning_repair import install_short_planning_repair
 from scripts.short_repair_reset_recovery import install_short_repair_reset_recovery
 from scripts.task_level_planner_router import install_router
+from scripts.text_audit_outcome_contract import install_text_audit_outcome_contract
 
 
 # runtime_closure is intentionally unit-testable in isolation. Such a test must not
@@ -95,6 +97,10 @@ def install_entrypoint_planning_contracts() -> None:
     # stage identity is attached to the final live call boundaries, never prompt text.
     install_planning_stage_boundaries()
     assert_planning_stage_contract_installed()
+    # Standalone Moment does not enter resilient_planner's long-form stage functions.
+    # Bind its Draft/Review/Repair model calls explicitly *after* the canonical router
+    # exists, so it can never retain the historical pre-contract compatibility router.
+    install_native_short_stage_contract()
     _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED = True
 
 
@@ -145,6 +151,11 @@ def install_post_runtime_planning_contracts() -> None:
     _reassert_after_lifecycle_patch()
     if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
         install_legacy_planning_authority_guard()
+    # Engine audit adapters historically collapsed provider exhaustion/malformed
+    # responses into status=block. Restore the router's technical-vs-semantic outcome
+    # contract before Producer/RepairDossier can interpret a synthetic block as a
+    # content defect and spend a rewrite call on otherwise-valid text.
+    install_text_audit_outcome_contract()
     # Producer Quality Contract still owns writing constraints and deterministic
     # acceptance. Run #164 adds a lifecycle owner immediately after it so only the
     # explicitly repairable Short presentation/template defects can use the existing

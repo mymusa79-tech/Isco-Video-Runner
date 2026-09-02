@@ -214,8 +214,11 @@ def select_native_short_template(topic: object, plan: object | None = None) -> d
     if max(topic_scores.values()) <= 0:
         try:
             fallback_pillar = _clean(native_short.choose_pillar(topic_text))
-        except Exception:
-            fallback_pillar = ""
+        except Exception as exc:
+            # A broken routing/pillar dependency is not a creative signal. Turning it
+            # into a plausible why_reframe choice hides an internal failure as an
+            # editorial decision and makes later diagnostics untrustworthy.
+            raise NativeShortPlannerError("native_short_template_fallback_failed") from exc
         fallback = {
             "understand": "why_reframe",
             "rise": "inner_dialogue",
