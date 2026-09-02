@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-"""Secret-free failure-domain diagnostics for canonical V4 production failures."""
+"""Secret-free failure-domain diagnostics for canonical V4 production failures.
+
+This module is observational only. Text-audit provider availability remains owned by
+text_audit_provider_mesh.py; diagnostics consume that owner's typed exception rather
+than installing a second audit-outcome policy.
+"""
 
 import json
 from pathlib import Path
 
-from scripts.text_audit_outcome_contract import TextAuditOutcomeError
+from scripts.text_audit_provider_mesh import TextAuditUnavailableError
 
 
 SCHEMA_VERSION = 1
@@ -13,14 +18,14 @@ _TONE_SEMANTIC_MARKER = "Independent tone/naturalness gate blocked real producti
 
 
 def is_tone_semantic_failure(exc: Exception) -> bool:
-    return not isinstance(exc, TextAuditOutcomeError) and _TONE_SEMANTIC_MARKER in str(exc)
+    return not isinstance(exc, TextAuditUnavailableError) and _TONE_SEMANTIC_MARKER in str(exc)
 
 
 def classify_production_failure(exc: Exception) -> tuple[str, str]:
     """Return stable category/code only; never persist raw exception text."""
 
-    if isinstance(exc, TextAuditOutcomeError):
-        return "text_audit", exc.code
+    if isinstance(exc, TextAuditUnavailableError):
+        return "text_audit", "TEXT_AUDIT_UNAVAILABLE"
 
     name = type(exc).__name__
     detail = str(exc).lower()
@@ -52,8 +57,6 @@ def write_production_failure_diagnostics(output_dir: Path, exc: Exception) -> Pa
         "tone_semantic_gate": is_tone_semantic_failure(exc),
         "raw_exception_persisted": False,
     }
-    if isinstance(exc, TextAuditOutcomeError):
-        payload["audit_dimension"] = exc.dimension
     path = root / "production-failure-diagnostics.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
