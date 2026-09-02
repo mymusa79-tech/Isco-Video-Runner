@@ -37,11 +37,11 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             for module in modules:
                 self.assertTrue(_module_path(module).is_file(), f"{phase} missing {module}")
 
-    def test_register_exactly_covers_every_run_51_through_132(self) -> None:
+    def test_register_exactly_covers_every_run_51_through_170(self) -> None:
         data = json.loads(REGISTER.read_text(encoding="utf-8"))
         window = data["historical_window"]
-        self.assertEqual((window["first_run"], window["last_run"]), (51, 132))
-        expected = set(range(51, 133))
+        self.assertEqual((window["first_run"], window["last_run"]), (51, 170))
+        expected = set(range(51, 171))
         seen: set[int] = set()
         for cohort in data["audit_cohorts"]:
             runs = _expand(cohort["runs"])
@@ -111,7 +111,7 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             production.index("Materialize approved production secrets"),
         )
         preflight = ENVIRONMENT_PREFLIGHT.read_text(encoding="utf-8")
-        self.assertIn("runtime_phase import canonical_runtime_enabled", preflight)
+        self.assertIn("runtime_phase import canonical_runtime_enabled as _canonical_runtime_enabled", preflight)
         self.assertIn("require_exact_sha_stage_ladder(", preflight)
         self.assertIn('sha=os.environ.get("GITHUB_SHA")', preflight)
         self.assertLess(
