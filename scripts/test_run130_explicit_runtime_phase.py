@@ -46,11 +46,15 @@ class Run130ExplicitRuntimePhaseTests(unittest.TestCase):
             "install_cinematic_runtime_port",
             "install_render_runtime_port",
             "install_narrative_music_dynamics",
+            "install_audio_producer_repair_lifecycle",
             "install_canonical_v4_bundle_post_manifest",
             "install_release_transaction_guard",
             "install_telemetry_reliability_binding",
+            "sanitize_final_observer_cache_before_runtime",
+            "install_final_qc_observer_durability",
             "install_audio_semantic_final_gate",
             "install_producer_handoff_contract",
+            "install_audio_producer_final_certificate",
         )
 
     def test_workflow_identity_alone_does_not_activate_runtime(self) -> None:
