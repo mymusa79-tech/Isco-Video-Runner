@@ -200,6 +200,35 @@ class VisionProviderReliabilityTests(unittest.TestCase):
         self.assertEqual(summary["by_provider"], {"gemini": 1, "openrouter": 1})
         self.assertEqual(summary["by_outcome"].get("CIRCUIT_OPEN"), 2)
 
+    def test_run173_paid_balance_402_is_technical_unavailable_not_raw_crash(self) -> None:
+        ledger = BudgetLedger("moment", enforce=True)
+        with tempfile.TemporaryDirectory() as temp_dir, mesh.vision_provider_circuit_scope() as state, mock.patch.object(
+            mesh,
+            "_openrouter_visual_audit",
+            side_effect=RuntimeError(
+                "OPENROUTER_VISION_HTTP_402 status=402 message=This request requires at least $1.00 in balance for video"
+            ),
+        ) as fallback:
+            with self.assertRaises(mesh.VisionProviderMeshUnavailableError) as raised:
+                mesh._route_visual_audit(
+                    ledger,
+                    _spec("VISUAL_AUDIT_S01_C01"),
+                    "gemini",
+                    "gemini-3.7-flash",
+                    lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("Gemini timed out")),
+                    "gem-key",
+                    _preview(temp_dir),
+                    narration_context="context",
+                    intended_visual="intent",
+                )
+        self.assertIn("service_unavailable", str(raised.exception))
+        self.assertIn("OPENROUTER_VISION_HTTP_402", str(raised.exception))
+        self.assertTrue(state.gemini_open)
+        self.assertTrue(state.openrouter_open)
+        fallback.assert_called_once()
+        summary = ledger.to_summary()["provider_attempts"]
+        self.assertEqual(summary["by_provider"], {"gemini": 1, "openrouter": 1})
+
     def test_new_production_scope_does_not_inherit_old_circuit(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             preview = _preview(temp_dir)
@@ -273,7 +302,29 @@ class VisionProviderReliabilityTests(unittest.TestCase):
         normalized = mesh._validate_visual_contract(low)
         self.assertEqual(normalized["status"], "block")
 
-    def test_openrouter_request_uses_free_video_chain_and_exact_json_contract(self) -> None:
+    def test_preview_sampling_uses_local_ffmpeg_and_three_bounded_jpegs(self) -> None:
+        calls = []
+
+        def fake_run(command, **_kwargs):
+            calls.append(command)
+            if command[0] == "ffprobe":
+                return mock.Mock(stdout="10.0\n")
+            frame_path = Path(command[-1])
+            frame_path.write_bytes(b"\xff\xd8sample-jpeg\xff\xd9")
+            return mock.Mock(stdout="")
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            mesh.subprocess, "run", side_effect=fake_run
+        ):
+            frames = mesh._sample_preview_frames(_preview(temp_dir))
+
+        self.assertEqual(len(frames), mesh.OPENROUTER_FRAME_COUNT)
+        self.assertTrue(all(frame.startswith(b"\xff\xd8") for frame in frames))
+        self.assertEqual([command[0] for command in calls], ["ffprobe", "ffmpeg", "ffmpeg", "ffmpeg"])
+        seek_values = [float(command[command.index("-ss") + 1]) for command in calls[1:]]
+        self.assertEqual(seek_values, [1.8, 5.0, 8.2])
+
+    def test_openrouter_request_uses_free_image_chain_and_exact_json_contract(self) -> None:
         class Response:
             ok = True
             status_code = 200
@@ -284,9 +335,12 @@ class VisionProviderReliabilityTests(unittest.TestCase):
                     "choices": [{"message": {"content": json.dumps(_PASS)}}],
                 }
 
+        frames = [b"frame-a", b"frame-b", b"frame-c"]
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
             os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=False
-        ), mock.patch.object(mesh.requests, "post", return_value=Response()) as post:
+        ), mock.patch.object(
+            mesh, "_sample_preview_frames", return_value=frames
+        ) as sampled, mock.patch.object(mesh.requests, "post", return_value=Response()) as post:
             audit, model = mesh._openrouter_visual_audit(
                 _preview(temp_dir),
                 narration_context="narration",
@@ -294,14 +348,20 @@ class VisionProviderReliabilityTests(unittest.TestCase):
             )
         self.assertEqual(audit["status"], "pass")
         self.assertEqual(model, mesh.OPENROUTER_VISION_MODELS[0])
+        sampled.assert_called_once()
         payload = post.call_args.kwargs["json"]
         self.assertEqual(tuple(payload["models"]), mesh.OPENROUTER_VISION_MODELS)
         self.assertTrue(all(item.endswith(":free") for item in payload["models"]))
         self.assertEqual(payload["response_format"], {"type": "json_object"})
         self.assertTrue(payload["provider"]["allow_fallbacks"])
-        video = payload["messages"][0]["content"][1]
-        self.assertEqual(video["type"], "video_url")
-        self.assertTrue(video["video_url"]["url"].startswith("data:video/mp4;base64,"))
+        content = payload["messages"][0]["content"]
+        self.assertEqual(content[0]["type"], "text")
+        self.assertEqual(len(content[1:]), mesh.OPENROUTER_FRAME_COUNT)
+        self.assertTrue(all(item["type"] == "image_url" for item in content[1:]))
+        self.assertTrue(
+            all(item["image_url"]["url"].startswith("data:image/jpeg;base64,") for item in content[1:])
+        )
+        self.assertFalse(any(item.get("type") == "video_url" for item in content))
         self.assertEqual(post.call_args.kwargs["timeout"], mesh.OPENROUTER_TIMEOUT_SECONDS)
 
     def test_installer_is_idempotent_and_scopes_every_orchestrator_produce(self) -> None:
