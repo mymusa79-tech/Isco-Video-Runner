@@ -19,10 +19,11 @@ from isco_video_agent.ai_budget import AttemptOutcome, Capability, TaskSpec
 from isco_video_agent.providers import gemini as gemini_provider
 
 
-OPENROUTER_VISION_MODELS = (
-    "google/gemma-4-26b-a4b-it:free",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-)
+# Do not pin ephemeral free model slugs here. OpenRouter's zero-cost router is the
+# capability owner for the fallback: it filters the live free pool for the request's
+# required image-input + structured-output features. This removes model-churn as a
+# production dependency while preserving the existing Gemini -> OpenRouter boundary.
+OPENROUTER_VISION_MODEL = "openrouter/free"
 OPENROUTER_TIMEOUT_SECONDS = 60
 OPENROUTER_FRAME_COUNT = 3
 OPENROUTER_FRAME_TIMEOUT_SECONDS = 30
@@ -177,8 +178,7 @@ def _attempt_outcome(exc: BaseException) -> AttemptOutcome:
         "invalid json" in detail
         or "empty json response" in detail
         or "complete json object" in detail
-        or "json response must be an object"
-        in detail
+        or "json response must be an object" in detail
         or "schema" in detail
     ):
         return AttemptOutcome.SCHEMA_INVALID
@@ -311,9 +311,9 @@ Use status pass or block. Use numbers 0.0..1.0 for relevance and visual_quality.
 def _sample_preview_frames(preview: Path) -> list[bytes]:
     """Sample bounded JPEG evidence across a preview without uploading the MP4.
 
-    OpenRouter's free models can accept image inputs while the live Run173 request
-    proved that the video-input route can require paid balance. Keep the same clip and
-    same semantic/safety contract, but convert the fallback transport to three local
+    OpenRouter's free router accepts image input while the live Run173 request proved
+    that the video-input route can require paid balance. Keep the same clip and same
+    semantic/safety contract, but convert the fallback transport to three local
     representative frames. Gemini remains the full-video primary provider.
     """
     preview = Path(preview)
@@ -407,7 +407,7 @@ def _openrouter_visual_audit(
         for frame in _sample_preview_frames(Path(preview))
     ]
     request_payload = {
-        "models": list(OPENROUTER_VISION_MODELS),
+        "model": OPENROUTER_VISION_MODEL,
         "messages": [
             {
                 "role": "user",
@@ -440,7 +440,7 @@ def _openrouter_visual_audit(
         message = ""
         if isinstance(body, dict) and isinstance(body.get("error"), dict):
             message = str(body["error"].get("message") or "").strip()[:180]
-        if status == 404 and "provider" in message.casefold():
+        if status == 404 and ("provider" in message.casefold() or "endpoint" in message.casefold()):
             marker = "OPENROUTER_VISION_NO_PROVIDER_AVAILABLE"
         raise RuntimeError(f"{marker} status={status} message={message}")
     body = response.json()
@@ -451,7 +451,7 @@ def _openrouter_visual_audit(
     if not isinstance(message, dict):
         raise VisionFallbackSchemaError("OpenRouter visual response message missing")
     audit = _validate_visual_contract(_parse_json_object(message.get("content")))
-    resolved = str(body.get("model") or OPENROUTER_VISION_MODELS[0]).strip()
+    resolved = str(body.get("model") or OPENROUTER_VISION_MODEL).strip()
     return audit, resolved
 
 
@@ -493,6 +493,7 @@ def _route_visual_audit(
             result = fn(*args, **kwargs)
         except Exception as exc:
             outcome = _attempt_outcome(exc)
+            detail = _safe_exception_detail(exc)
             _record(
                 ledger,
                 routed_spec,
@@ -500,15 +501,15 @@ def _route_visual_audit(
                 requested_model=resolved_model,
                 resolved_model=resolved_model,
                 outcome=outcome,
-                detail=_safe_exception_detail(exc),
+                detail=detail,
             )
             if not _is_retryable_provider_failure(exc):
                 raise
             state.gemini_open = True
-            state.gemini_reason = _safe_exception_detail(exc)
+            state.gemini_reason = detail
             print(
                 "Vision provider circuit opened for Gemini after technical failure; "
-                "subsequent candidates skip Gemini for this production run"
+                f"subsequent candidates skip Gemini for this production run; reason={detail}"
             )
         else:
             outcome = (
@@ -543,7 +544,7 @@ def _route_visual_audit(
             ledger,
             routed_spec,
             provider="openrouter",
-            requested_model="openrouter-vision-free-chain",
+            requested_model=OPENROUTER_VISION_MODEL,
             resolved_model="circuit-open",
             outcome=AttemptOutcome.CIRCUIT_OPEN,
             detail="run-scoped OpenRouter Vision circuit already open",
@@ -564,22 +565,23 @@ def _route_visual_audit(
         )
     except Exception as exc:
         outcome = _attempt_outcome(exc)
+        detail = _safe_exception_detail(exc)
         _record(
             ledger,
             routed_spec,
             provider="openrouter",
-            requested_model="openrouter-vision-free-chain",
-            resolved_model=OPENROUTER_VISION_MODELS[0],
+            requested_model=OPENROUTER_VISION_MODEL,
+            resolved_model=OPENROUTER_VISION_MODEL,
             outcome=outcome,
-            detail=_safe_exception_detail(exc),
+            detail=detail,
         )
         if not _is_retryable_provider_failure(exc):
             raise
         state.openrouter_open = True
-        state.openrouter_reason = _safe_exception_detail(exc)
+        state.openrouter_reason = detail
         print(
             "Vision provider circuit opened for OpenRouter after technical failure; "
-            "no blind provider retry will be attempted in this production run"
+            f"no blind provider retry will be attempted in this production run; reason={detail}"
         )
         raise _mesh_unavailable(state) from exc
 
@@ -588,7 +590,7 @@ def _route_visual_audit(
         ledger,
         routed_spec,
         provider="openrouter",
-        requested_model="openrouter-vision-free-chain",
+        requested_model=OPENROUTER_VISION_MODEL,
         resolved_model=fallback_model,
         outcome=outcome,
     )
@@ -642,6 +644,6 @@ def install_vision_provider_reliability() -> None:
 
     print(
         "Shared Vision provider reliability installed: Long+Short Gemini primary; "
-        "OpenRouter free sampled-frame fallback on technical failure only; run-scoped circuits; "
-        "semantic BLOCK never provider-shopped; global AI hard caps unchanged"
+        "OpenRouter free capability-router sampled-frame fallback on technical failure only; "
+        "run-scoped circuits; semantic BLOCK never provider-shopped; global AI hard caps unchanged"
     )
