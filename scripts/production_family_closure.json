@@ -169,6 +169,12 @@
       "historical_runs":["170"],
       "required_phases":["P0","P1"],
       "contracts":["scripts.test_run170_planning_contract_composition","scripts.test_planning_stage_contract","scripts.test_checkpoint_namespace_guard"]
+    },
+    {
+      "id":"F22","name":"audio_production_contract_semantic_fidelity_and_final_artifact",
+      "historical_runs":["106-110","128","169"],
+      "required_phases":["P2","P4"],
+      "contracts":["scripts.test_voice_mesh","scripts.test_piper_chunking","scripts.test_short_voice_v2","scripts.test_audio_semantic_integrity","scripts.test_audio_mastering_runtime_contract","scripts.test_audio_producer_repair_lifecycle","scripts.test_groq_audio_audit","scripts.test_audio_producer_final_certificate"]
     }
   ]
 }
