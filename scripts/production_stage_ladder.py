@@ -83,6 +83,8 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_run108_stock_candidate_isolation",
         "scripts.test_run169_visual_retrieval_truth",
         "scripts.test_vision_provider_reliability",
+        "scripts.test_vision_stage_contract_v2",
+        "scripts.test_vision_stage_transport_v2",
         "scripts.test_security_v1_live_binding",
         "scripts.test_m7_live_binding",
         "scripts.test_m8_live_binding",
