@@ -154,7 +154,7 @@
     },
     {
       "id":"F19","name":"visual_retrieval_truth_vision_provider_and_stage_contract",
-      "historical_runs":["169","173"],
+      "historical_runs":["169"],
       "required_phases":["P3"],
       "contracts":["scripts.test_run169_visual_retrieval_truth","scripts.test_vision_provider_reliability","scripts.test_vision_stage_contract_v2","scripts.test_vision_stage_transport_v2"]
     },
