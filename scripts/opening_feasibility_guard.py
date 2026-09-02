@@ -425,6 +425,22 @@ def _install_stock_search_wrappers() -> None:
         orchestrator.pixabay_provider.search_videos = guarded_pixabay
 
 
+def _log_candidate_pool_size(candidates_by_provider: object, *, scope: str) -> None:
+    """Observability only - answers a question the current logs cannot: when a section
+    ends in "no safe/relevant candidate", was the bounded local-inspection budget
+    (max_candidates_per_attempt/max_total_inspections in visual_selection.py) actually
+    the limiting factor, or did the stock providers simply return too few raw results
+    for this query to matter? Raising that budget without knowing which one is true
+    would be a guess, not a fix - this makes the next occurrence diagnosable instead."""
+    if not isinstance(candidates_by_provider, dict):
+        return
+    counts = {
+        str(name): len(items) if isinstance(items, list) else 0
+        for name, items in candidates_by_provider.items()
+    }
+    print(f"Visual candidate pool fetched: scope={scope} total={sum(counts.values())} by_provider={counts}")
+
+
 def _install_selection_wrappers() -> None:
     current_opening_select = opening_director.select_opening_sequence
     if not getattr(current_opening_select, "_isco_run92_adaptive_opening_guard", False):
@@ -432,6 +448,8 @@ def _install_selection_wrappers() -> None:
         def guarded_opening_select(*args, **kwargs):
             section_seconds = float(kwargs.get("section_seconds", 0.0) or 0.0)
             intended_visual = str(kwargs.get("intended_visual", ""))
+            candidates_by_provider = args[0] if args else kwargs.get("candidates_by_provider")
+            _log_candidate_pool_size(candidates_by_provider, scope="opening")
             audit_fn = kwargs.get("audit_fn")
             if callable(audit_fn):
                 kwargs["audit_fn"] = _stable_intent_audit(audit_fn, intended_visual)
@@ -460,6 +478,8 @@ def _install_selection_wrappers() -> None:
         def guarded_section_select(*args, **kwargs):
             section_seconds = float(kwargs.get("section_seconds", 0.0) or 0.0)
             intended_visual = str(kwargs.get("intended_visual", ""))
+            candidates_by_provider = args[0] if args else kwargs.get("candidates_by_provider")
+            _log_candidate_pool_size(candidates_by_provider, scope="section")
             audit_fn = kwargs.get("audit_fn")
             if callable(audit_fn):
                 kwargs["audit_fn"] = _stable_intent_audit(audit_fn, intended_visual)
@@ -482,6 +502,8 @@ def _install_selection_wrappers() -> None:
         @wraps(current_single_select)
         def guarded_single_select(*args, **kwargs):
             intended_visual = str(kwargs.get("intended_visual", ""))
+            candidates_by_provider = args[0] if args else kwargs.get("candidates_by_provider")
+            _log_candidate_pool_size(candidates_by_provider, scope="single")
             audit_fn = kwargs.get("audit_fn")
             if callable(audit_fn):
                 kwargs["audit_fn"] = _stable_intent_audit(audit_fn, intended_visual)
