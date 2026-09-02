@@ -5,6 +5,8 @@ from pathlib import Path
 
 import isco_video_agent.orchestrator as orchestrator
 from scripts.audio_mastering_live_binding import install_audio_mastering_live_binding
+from scripts.audio_producer_final_certificate import install_audio_producer_final_certificate
+from scripts.audio_producer_repair_lifecycle import install_audio_producer_repair_lifecycle
 from scripts.audio_semantic_integrity import (
     install_audio_semantic_final_gate,
     install_audio_semantic_integrity_binding,
@@ -129,8 +131,12 @@ def install_runtime_closure() -> None:
     # wraps the global mux. It patches only M9's expensive xfade-pair renderer,
     # orchestrator.burn_srt, and the underlying Engine mux. Consequently every SFX/M10/
     # CTA/Narrative wrapper still executes on a durable final hit and writes fresh reports.
-    # Audio Semantic Integrity was registered earlier and remains the outer runtime mux
-    # authority; current Engine QC probes every restored final before it stays durable.
+    # Audio Producer Repair is installed only after Narrative Music Dynamics so its
+    # pre-gate measurement sees the exact final composed mux bytes. Audio Semantic
+    # Integrity was registered earlier and dynamically wraps that corrected result at
+    # produce() time, therefore provenance hashes are recorded only after any permitted
+    # one-pass loudness correction has finished. A/V sync and semantic/provenance defects
+    # are never repaired here and remain fail-closed at their existing owners.
     # Canonical bundle is bound on every live run_v3_voice module before the release
     # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
@@ -141,21 +147,25 @@ def install_runtime_closure() -> None:
     install_cinematic_runtime_port(CinematicInstallPhase.INNER)
     install_render_runtime_port()
     install_narrative_music_dynamics()
+    install_audio_producer_repair_lifecycle()
     install_canonical_v4_bundle_post_manifest()
     install_release_transaction_guard()
     install_telemetry_reliability_binding()
     # Post-Gold analytics remains intentionally live; durability is restricted to
     # Final QC and non-authoritative observer evidence, never channel analytics.
-    # Final QC/Observer durability is optimization-only. Install it inside the two
-    # mandatory final acceptance wrappers so a durable QC hit can skip only Final QC
-    # itself, never current-run Producer Handoff or Audio Semantic Integrity.
+    # Final QC/Observer durability is optimization-only. Install it inside the mandatory
+    # final acceptance wrappers so a durable QC hit can skip only Final QC itself, never
+    # current-run Producer Handoff, Audio Semantic Integrity, or the Audio Producer
+    # certificate proving the bounded pre-gate lifecycle ran on current final bytes.
     sanitize_final_observer_cache_before_runtime()
     install_final_qc_observer_durability()
     install_audio_semantic_final_gate(production_entrypoint_modules())
     install_producer_handoff_contract(production_entrypoint_modules())
+    install_audio_producer_final_certificate(production_entrypoint_modules())
     # Effective call order:
-    # Producer Handoff -> Audio Semantic Integrity -> Durable Final QC -> Final QC.
-    # Gold remains downstream and is reached only after the entire chain returns.
+    # Audio Producer Certificate -> Producer Handoff -> Audio Semantic Integrity
+    # -> Durable Final QC -> Final QC. Gold remains downstream and is reached only
+    # after the entire chain returns.
     # Durable resume is deliberately outermost: every existing production/quality/safety
     # wrapper remains untouched and authoritative. This layer only persists the local
     # planner checkpoint after a failure, or writes a completion marker after success.
