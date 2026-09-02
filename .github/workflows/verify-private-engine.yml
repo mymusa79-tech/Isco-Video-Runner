@@ -106,7 +106,16 @@ jobs:
           python-version: "3.12"
 
       - name: Install media dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-core
+        run: |
+          set -euo pipefail
+          APT_OPTS=(
+            -o Acquire::Retries=3
+            -o Acquire::http::Timeout=30
+            -o Acquire::https::Timeout=30
+            -o DPkg::Lock::Timeout=60
+          )
+          sudo timeout --signal=TERM --kill-after=15s 180s apt-get "${APT_OPTS[@]}" update
+          sudo timeout --signal=TERM --kill-after=15s 240s apt-get "${APT_OPTS[@]}" install -y ffmpeg fonts-noto-core
 
       - name: Install locked Engine runtime
         working-directory: engine

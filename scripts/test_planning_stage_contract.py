@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import isco_video_agent.resilient_planner as staged
 
+from scripts import checkpoint_namespace_guard as checkpoint_guard
 from scripts import planning_stage_contract as contract
 from scripts import task_level_planner_router as router
 
@@ -62,6 +63,12 @@ class PlanningStageContractTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _install(self) -> None:
+        # Run170 composes the Stage logical-v2 cache inside Run132's durable-v1
+        # checkpoint owner. This suite must install that owner explicitly so it is
+        # self-contained in a fresh Stage-Ladder process rather than depending on a
+        # preceding test module to have mutated process-global checkpoint functions.
+        checkpoint_guard.install_checkpoint_namespace_guard()
+        checkpoint_guard.assert_stage_checkpoint_namespace_guarded()
         contract.install_planning_contract_router()
 
     def test_contract_contains_all_required_request_fields(self) -> None:

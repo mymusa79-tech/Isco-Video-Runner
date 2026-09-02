@@ -1,0 +1,232 @@
+name: Verify Engine Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine_sha:
+        description: "Exact Isco-Video-Agent commit SHA to verify before changing the production pin"
+        required: true
+        type: string
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/verify-engine-candidate.yml"
+      - "scripts/test_engine_candidate_verifier_contract.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-engine-candidate-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.engine_sha || 'canonical-self-test' }}
+  cancel-in-progress: false
+
+jobs:
+  candidate-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      RUNNER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact Runner verifier source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RUNNER_SHA }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Runner checkout
+        run: test "$(git rev-parse HEAD)" = "$RUNNER_SHA"
+
+      - name: Resolve exact Engine candidate
+        id: engine
+        env:
+          REQUESTED_ENGINE_SHA: ${{ inputs.engine_sha }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          requested = (os.environ.get("REQUESTED_ENGINE_SHA") or "").strip()
+          if requested:
+              sha = requested
+              source = "workflow_dispatch"
+          else:
+              # PR self-test: exercise the permanent verifier against the exact
+              # currently certified production Engine without inventing a candidate.
+              text = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
+              checkout = re.findall(r"^\s+ref:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
+              env_pin = re.findall(r"^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
+              if len(checkout) != 1 or len(env_pin) != 1 or checkout[0] != env_pin[0]:
+                  raise SystemExit(f"Canonical V4 Engine pin mismatch: checkout={checkout} env={env_pin}")
+              sha = checkout[0]
+              source = "canonical_pr_self_test"
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("Engine candidate must be an exact lowercase 40-character SHA")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
+              fh.write(f"sha={sha}\n")
+              fh.write(f"source={source}\n")
+          print(f"Engine candidate resolved: sha={sha} source={source}")
+          PY
+
+      - name: Checkout exact private Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ steps.engine.outputs.sha }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine candidate checkout
+        working-directory: engine
+        env:
+          ENGINE_SHA: ${{ steps.engine.outputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: |
+          set -euo pipefail
+          APT_OPTS=(
+            -o Acquire::Retries=3
+            -o Acquire::http::Timeout=30
+            -o Acquire::https::Timeout=30
+            -o DPkg::Lock::Timeout=60
+          )
+          sudo timeout --signal=TERM --kill-after=15s 180s apt-get "${APT_OPTS[@]}" update
+          sudo timeout --signal=TERM --kill-after=15s 240s apt-get "${APT_OPTS[@]}" install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Dependency audit
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install pip-audit==2.10.1
+          pip-audit --no-deps -r requirements-lock.txt
+
+      - name: Full Engine suite
+        working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/engine-candidate-full-engine-history.json
+        run: python -m unittest discover -s tests -q
+
+      - name: Certify Engine source hermeticity after Engine suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("engine_candidate_after_full_engine")'
+
+      - name: Approved-Brief CLI contract matrix
+        working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/engine-candidate-approved-brief-history.json
+        run: |
+          set -euo pipefail
+          missing="$RUNNER_TEMP/isco-no-approved-brief.json"
+          rm -f "$missing"
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --topic "لماذا تشعر أنك متأخر عن الجميع؟" --format auto --dry-run --no-research
+          ISCO_APPROVED_BRIEF_PATH="$missing" isco-video produce \
+            --format auto --dry-run --no-research
+          isco-video produce --format auto --dry-run --no-research
+          if isco-video produce --topic "لماذا تشعر أنك متأخر عن الجميع؟" \
+            --format auto --dry-run --no-research; then
+            echo 'ERROR: approved-brief mismatch unexpectedly passed' >&2
+            exit 1
+          fi
+
+      - name: Certify Engine source hermeticity after Approved-Brief matrix
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("engine_candidate_after_approved_brief")'
+
+      - name: Full Runner regression against candidate Engine
+        id: runner_regression
+        continue-on-error: true
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/engine-candidate-full-runner-history.json
+        run: |
+          set -uo pipefail
+          mapfile -t test_modules < <(
+            find scripts -maxdepth 1 -type f -name 'test_*.py' -printf '%p\n' \
+              | sort | sed -e 's#/#.#g' -e 's#\.py$##'
+          )
+          test "${#test_modules[@]}" -gt 0
+          python -m unittest "${test_modules[@]}" -v 2>&1 | tee "$RUNNER_TEMP/engine-candidate-runner-regression.log"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Upload Runner regression diagnostics
+        if: steps.runner_regression.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: engine-candidate-runner-regression-${{ github.run_number }}
+          path: ${{ runner.temp }}/engine-candidate-runner-regression.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce Runner regression result
+        if: steps.runner_regression.outcome == 'failure'
+        run: exit 1
+
+      - name: Certify Engine source hermeticity after Full Runner regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("engine_candidate_after_full_runner")'
+
+      - name: Write non-production Engine candidate receipt
+        env:
+          ENGINE_SHA: ${{ steps.engine.outputs.sha }}
+          ENGINE_SOURCE: ${{ steps.engine.outputs.source }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          def sha256(path: str) -> str:
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+          payload = {
+              "schema": "isco-engine-candidate-verification-v1",
+              "runner_sha": os.environ["RUNNER_SHA"],
+              "engine_sha": os.environ["ENGINE_SHA"],
+              "engine_source": os.environ["ENGINE_SOURCE"],
+              "requirements_lock_sha256": sha256("engine/requirements-lock.txt"),
+              "full_engine": "green",
+              "full_runner": "green",
+              "dependency_audit": "green",
+              "approved_brief_cli_matrix": "green",
+              "engine_source_hermeticity": "green",
+              "production_authority": False,
+              "certification_ref_published": False,
+              "production_dispatch_performed": False,
+              "status": "green",
+          }
+          path = Path(os.environ["RUNNER_TEMP"]) / "engine-candidate-verification.json"
+          path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(json.dumps(payload, sort_keys=True))
+          PY
+
+      - name: Upload Engine candidate receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: engine-candidate-verification-${{ github.run_number }}
+          path: ${{ runner.temp }}/engine-candidate-verification.json
+          if-no-files-found: error
+          retention-days: 30

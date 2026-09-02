@@ -24,6 +24,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_environment_preflight",
         "scripts.test_provider_preflight",
         "scripts.test_preproduction_contract",
+        "scripts.test_crossref_reliability",
         "scripts.test_persistent_memory",
         "scripts.test_persistent_memory_migration_epoch",
         "scripts.test_checkpoint_namespace_guard",
@@ -41,6 +42,8 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_planning_provider_reliability_v2",
         "scripts.test_bounded_output_recovery",
         "scripts.test_schema_repair_policy",
+        "scripts.test_planning_capacity_headroom",
+        "scripts.test_planning_stage_contract",
         "scripts.test_run117_production_hardening",
         "scripts.test_run118_generation_hardening",
         "scripts.test_run120_dossier_repair_hardening",
@@ -54,6 +57,11 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_run126_capacity_snapshot_closure",
         "scripts.test_run127_runtime_composition",
         "scripts.test_run128_rate_limit_ownership",
+        "scripts.test_run157_text_audit_pool_isolation",
+        "scripts.test_run164_producer_short_repair_lifecycle",
+        "scripts.test_run167_text_audit_capacity_ownership",
+        "scripts.test_run168_provider_visible_semantics",
+        "scripts.test_run170_planning_contract_composition",
         "scripts.test_p0_2_budget_enforcement",
         "scripts.test_budget_wire_attempts",
         "scripts.test_provider_retry_ownership",
@@ -66,12 +74,15 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_short_voice_v2",
         "scripts.test_audio_semantic_integrity",
         "scripts.test_audio_mastering_runtime_contract",
+        "scripts.test_audio_producer_repair_lifecycle",
         "scripts.test_groq_audio_audit",
     ),
     "P3": (
         "scripts.test_media_trust_boundary_v2",
         "scripts.test_run92_opening_feasibility_guard",
         "scripts.test_run108_stock_candidate_isolation",
+        "scripts.test_run169_visual_retrieval_truth",
+        "scripts.test_vision_provider_reliability",
         "scripts.test_security_v1_live_binding",
         "scripts.test_m7_live_binding",
         "scripts.test_m8_live_binding",
@@ -88,6 +99,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_final_master_qc",
         "scripts.test_final_master_qc_ffmpeg",
         "scripts.test_final_master_qc_timeout",
+        "scripts.test_audio_producer_final_certificate",
     ),
     "P5": (
         "scripts.test_gold_enforce_phase4",
@@ -125,15 +137,26 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _run_tests(phase: str) -> None:
-    env = dict(os.environ)
-    env.setdefault("PYTHONPATH", f"{ENGINE_ROOT / 'src'}:{ROOT}")
-    history = Path(env.get("RUNNER_TEMP") or "/tmp") / "isco-stage-ladder" / f"{phase.lower()}-history.json"
-    history.parent.mkdir(parents=True, exist_ok=True)
-    env["ISCO_HISTORY_PATH"] = str(history)
-    subprocess.run(
-        [sys.executable, "-m", "unittest", *PHASE_TESTS[phase], "-v"],
-        cwd=ROOT, env=env, check=True,
-    )
+    base_env = dict(os.environ)
+    base_env.setdefault("PYTHONPATH", f"{ENGINE_ROOT / 'src'}:{ROOT}")
+    phase_root = Path(base_env.get("RUNNER_TEMP") or "/tmp") / "isco-stage-ladder" / phase.lower()
+    phase_root.mkdir(parents=True, exist_ok=True)
+
+    # Contract suites install process-global wrappers around Engine/Runner modules.
+    # A Stage Ladder phase must certify each declared contract, not accidental state
+    # inherited from the suite that ran immediately before it. Give every test module
+    # a fresh interpreter and an isolated history file while keeping the same exact
+    # Runner+Engine checkout pair for the whole phase.
+    for index, test_module in enumerate(PHASE_TESTS[phase], start=1):
+        env = dict(base_env)
+        module_name = test_module.rsplit(".", 1)[-1]
+        env["ISCO_HISTORY_PATH"] = str(
+            phase_root / f"{index:02d}-{module_name}-history.json"
+        )
+        subprocess.run(
+            [sys.executable, "-m", "unittest", test_module, "-v"],
+            cwd=ROOT, env=env, check=True,
+        )
 
 
 def _record(phase: str, evidence_dir: Path, **extra: Any) -> dict[str, Any]:

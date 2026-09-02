@@ -2,7 +2,7 @@
   "schema_version": 1,
   "historical_window": {
     "first_run": 51,
-    "last_run": 132,
+    "last_run": 170,
     "known_good_baseline": {
       "release_tag": "video-50",
       "runner_commit": "a98bc309d52159d65ef6ac65e516beaab344a32e",
@@ -10,6 +10,10 @@
       "size_bytes": 239012306,
       "sha256": "143abdfb7b55f2269cab2c4634b68e7a99a5581ac08eceeccfb8cdda2ffdc742"
     }
+  },
+  "historical_run_identity": {
+    "namespace": "canonical_v4_incident_sequence",
+    "note": "Numeric historical runs are project incident labels for canonical V4 closure, not globally unique GitHub Actions run numbers. Exact current certification is always bound to Runner SHA plus Engine SHA."
   },
   "closure_policy": {
     "status": "blocked_until_same_sha_stage_ladder_green",
@@ -30,7 +34,14 @@
     {"id":"C08","runs":"129","required_phases":["P0","P1","P4","P5","P6"],"purpose":"test/production isolation and immutable-input recertification"},
     {"id":"C09","runs":"130","required_phases":["P0","P1","P4","P5","P6"],"purpose":"explicit runtime phase-boundary recertification"},
     {"id":"C10","runs":"131","required_phases":["P0","P1","P4","P5","P6"],"purpose":"approved-brief semantic-vs-raw hash authority and immutable snapshot recertification"},
-    {"id":"C11","runs":"132","required_phases":["P0","P1","P4","P5","P6"],"purpose":"durable-resume schema, provider-proven cache authority and terminal wait-budget composition recertification"}
+    {"id":"C11","runs":"132","required_phases":["P0","P1","P4","P5","P6"],"purpose":"durable-resume schema, provider-proven cache authority and terminal wait-budget composition recertification"},
+    {"id":"C12","runs":"133-156","required_phases":["P0","P1","P4","P5","P6"],"purpose":"post-Run132 planning/provider/runtime continuity and capacity-architecture recertification"},
+    {"id":"C13","runs":"157-160","required_phases":["P0","P1","P6"],"purpose":"Text Audit provider-pool isolation and bounded external scholarly-research reliability recertification"},
+    {"id":"C14","runs":"161-166","required_phases":["P0","P1","P2","P3","P4","P6"],"purpose":"Short effective-envelope and Producer lifecycle composition continuity recertification"},
+    {"id":"C15","runs":"167","required_phases":["P0","P1"],"purpose":"Text Audit capacity ownership and bounded pre-wire pacing recertification"},
+    {"id":"C16","runs":"168","required_phases":["P0","P1"],"purpose":"provider-visible Planning semantic contract recertification"},
+    {"id":"C17","runs":"169","required_phases":["P2","P3","P4"],"purpose":"truthful visual retrieval/Vision availability plus Audio Producer lifecycle recertification"},
+    {"id":"C18","runs":"170","required_phases":["P0","P1"],"purpose":"Planning Stage Contract terminal-reset composition and durable checkpoint ownership recertification"}
   ],
   "families": [
     {
@@ -116,6 +127,48 @@
       "historical_runs":["125","132"],
       "required_phases":["P0","P1"],
       "contracts":["scripts.test_checkpoint_namespace_guard","scripts.test_run124_terminal_provider_recovery","scripts.test_run125_capacity_routing_closure","scripts.test_run125_terminal_retry_budget"]
+    },
+    {
+      "id":"F15","name":"text_audit_provider_pool_and_capacity_ownership",
+      "historical_runs":["157","167"],
+      "required_phases":["P1"],
+      "contracts":["scripts.test_run157_text_audit_pool_isolation","scripts.test_run167_text_audit_capacity_ownership"]
+    },
+    {
+      "id":"F16","name":"research_external_scholarly_provider_reliability",
+      "historical_runs":["158-160"],
+      "required_phases":["P0"],
+      "contracts":["scripts.test_crossref_reliability"]
+    },
+    {
+      "id":"F17","name":"short_effective_envelope_and_producer_repair_lifecycle",
+      "historical_runs":["163-164"],
+      "required_phases":["P1"],
+      "contracts":["scripts.test_planning_capacity_headroom","scripts.test_run164_producer_short_repair_lifecycle"]
+    },
+    {
+      "id":"F18","name":"planning_provider_visible_semantic_contract",
+      "historical_runs":["168"],
+      "required_phases":["P1"],
+      "contracts":["scripts.test_run168_provider_visible_semantics"]
+    },
+    {
+      "id":"F19","name":"visual_retrieval_truth_and_vision_provider_reliability",
+      "historical_runs":["169"],
+      "required_phases":["P3"],
+      "contracts":["scripts.test_run169_visual_retrieval_truth","scripts.test_vision_provider_reliability"]
+    },
+    {
+      "id":"F20","name":"audio_producer_repair_and_final_certificate",
+      "historical_runs":["169"],
+      "required_phases":["P2","P4"],
+      "contracts":["scripts.test_audio_producer_repair_lifecycle","scripts.test_audio_producer_final_certificate"]
+    },
+    {
+      "id":"F21","name":"planning_stage_contract_checkpoint_and_terminal_reset_composition",
+      "historical_runs":["170"],
+      "required_phases":["P0","P1"],
+      "contracts":["scripts.test_run170_planning_contract_composition","scripts.test_planning_stage_contract","scripts.test_checkpoint_namespace_guard"]
     }
   ]
 }
