@@ -64,6 +64,7 @@ class RuntimeClosureTests(unittest.TestCase):
         with patch.object(runtime_closure,"install_runtime_planning_contracts",side_effect=lambda:calls.append("planning")) as planning, \
              patch.object(runtime_closure,"install_media_runtime_port",side_effect=lambda:calls.append("media-port")) as media_port, \
              patch.object(runtime_closure,"install_core_reliability_guard",side_effect=lambda:calls.append("core")) as core, \
+             patch.object(runtime_closure,"install_vision_provider_reliability",side_effect=lambda:calls.append("vision-provider")) as vision_provider, \
              patch.object(runtime_closure,"install_audio_semantic_integrity_binding",side_effect=lambda:calls.append("audio-semantic-binding")) as semantic_binding, \
              patch.object(runtime_closure,"install_audio_mastering_live_binding",side_effect=lambda:calls.append("audio")) as audio, \
              patch.object(runtime_closure,"install_cinematic_runtime_port",side_effect=lambda phase:calls.append("cinematic-inner")) as cinematic, \
@@ -81,7 +82,7 @@ class RuntimeClosureTests(unittest.TestCase):
              patch.object(runtime_closure,"production_entrypoint_modules",return_value=[object()]) as modules, \
              patch.object(runtime_closure,"canonical_runtime_enabled",return_value=False):
             runtime_closure.install_runtime_closure()
-        planning.assert_called_once_with(); media_port.assert_called_once_with(); core.assert_called_once_with(); semantic_binding.assert_called_once_with()
+        planning.assert_called_once_with(); media_port.assert_called_once_with(); core.assert_called_once_with(); vision_provider.assert_called_once_with(); semantic_binding.assert_called_once_with()
         audio.assert_called_once_with(); cinematic.assert_called_once_with(runtime_closure.CinematicInstallPhase.INNER)
         render_port.assert_called_once_with(); music.assert_called_once_with(); audio_producer_repair.assert_called_once_with(); bundle.assert_called_once_with(); release.assert_called_once_with(); telemetry.assert_called_once_with()
         observer_cache_trust.assert_called_once_with(); observer_durability.assert_called_once_with()
@@ -90,6 +91,7 @@ class RuntimeClosureTests(unittest.TestCase):
             "planning",
             "media-port",
             "core",
+            "vision-provider",
             "audio-semantic-binding",
             "audio",
             "cinematic-inner",
