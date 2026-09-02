@@ -95,21 +95,24 @@ class AudioProducerFinalCertificateTests(unittest.TestCase):
             with self.assertRaisesRegex(certificate.AudioProducerCertificateError, "schema_mismatch"):
                 certificate.require_audio_producer_certificate(root)
 
-    def test_wrapper_certifies_before_existing_final_qc_chain_and_is_idempotent(self) -> None:
+    def test_wrapper_certifies_contract_before_existing_final_qc_chain_and_is_idempotent(self) -> None:
         events: list[str] = []
         production = SimpleNamespace(run_final_master_qc=lambda out: events.append("existing") or {"decision": "pass"})
         original = production.run_final_master_qc
         old_require = certificate.require_audio_producer_certificate
+        old_contract = certificate.require_audio_production_contract_v2
         try:
             certificate.require_audio_producer_certificate = lambda out: events.append("audio-producer") or {}
+            certificate.require_audio_production_contract_v2 = lambda out: events.append("audio-contract-v2") or {}
             certificate.install_audio_producer_final_certificate([production])
             first = production.run_final_master_qc
             certificate.install_audio_producer_final_certificate([production])
             self.assertIs(production.run_final_master_qc, first)
             production.run_final_master_qc(Path("output/x"))
-            self.assertEqual(events, ["audio-producer", "existing"])
+            self.assertEqual(events, ["audio-producer", "audio-contract-v2", "existing"])
         finally:
             certificate.require_audio_producer_certificate = old_require
+            certificate.require_audio_production_contract_v2 = old_contract
             production.run_final_master_qc = original
 
 
