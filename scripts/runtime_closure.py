@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from pathlib import Path
 
@@ -7,6 +9,8 @@ import isco_video_agent.orchestrator as orchestrator
 from scripts.audio_mastering_live_binding import install_audio_mastering_live_binding
 from scripts.audio_producer_final_certificate import install_audio_producer_final_certificate
 from scripts.audio_producer_repair_lifecycle import install_audio_producer_repair_lifecycle
+from scripts.audio_production_contract_v2 import AUDIT_FILENAME as AUDIO_CONTRACT_V2_AUDIT_FILENAME
+from scripts.audio_production_contract_v2 import CONTRACT_ID as AUDIO_CONTRACT_V2_ID
 from scripts.audio_semantic_integrity import (
     install_audio_semantic_final_gate,
     install_audio_semantic_integrity_binding,
@@ -170,9 +174,9 @@ def install_runtime_closure() -> None:
     install_producer_handoff_contract(production_entrypoint_modules())
     install_audio_producer_final_certificate(production_entrypoint_modules())
     # Effective call order:
-    # Audio Producer Certificate -> Producer Handoff -> Audio Semantic Integrity
-    # -> Durable Final QC -> Final QC. Gold remains downstream and is reached only
-    # after the entire chain returns.
+    # Audio Producer Certificate -> Audio Production Contract V2 -> Producer Handoff
+    # -> Audio Semantic Integrity -> Durable Final QC -> Final QC. Gold remains
+    # downstream and is reached only after the entire chain returns.
     # Durable resume is deliberately outermost: every existing production/quality/safety
     # wrapper remains untouched and authoritative. This layer only persists the local
     # planner checkpoint after a failure, or writes a completion marker after success.
@@ -187,8 +191,44 @@ def _run_groq_audio_audit_compat(output_dir: Path, *, api_key: str | None, model
     return run_groq_audio_audit(Path(output_dir), api_key=api_key, model=model)
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _accepted_audio_contract_v2(output_dir: Path) -> dict | None:
+    root = Path(output_dir)
+    audit_path = root / AUDIO_CONTRACT_V2_AUDIT_FILENAME
+    final_path = root / "final.mp4"
+    try:
+        if audit_path.is_symlink() or not audit_path.is_file() or not final_path.is_file():
+            return None
+        document = json.loads(audit_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, TypeError):
+        return None
+    if not isinstance(document, dict):
+        return None
+    if document.get("contract_id") != AUDIO_CONTRACT_V2_ID:
+        return None
+    if document.get("decision") not in {"pass", "not_applicable"}:
+        return None
+    if str(document.get("final_sha256") or "").strip().lower() != _sha256_file(final_path):
+        return None
+    return document
+
+
 def run_post_gold_observers(output_dir: Path) -> dict:
-    """Run G1/G2 only after Gold has accepted the final render."""
+    """Run legacy G1/G2 only when Audio Production V2 did not already audit these bytes."""
+    accepted = _accepted_audio_contract_v2(Path(output_dir))
+    if accepted is not None:
+        print(
+            "Runtime post-Gold Groq observer skipped: exact final bytes already accepted by "
+            f"{AUDIO_CONTRACT_V2_ID}"
+        )
+        return accepted
     try:
         return run_groq_audio_audit_durable(
             Path(output_dir),

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.audio_producer_repair_lifecycle import REPORT_FILENAME, SCHEMA_VERSION
+from scripts.audio_production_contract_v2 import require_audio_production_contract_v2
 
 
 class AudioProducerCertificateError(RuntimeError):
@@ -86,7 +87,7 @@ def require_audio_producer_certificate(output_dir: Path) -> dict[str, Any]:
 
 
 def install_audio_producer_final_certificate(production_modules: list[Any]) -> None:
-    """Place exact-byte Producer audio evidence outside the independent final gates."""
+    """Place exact-byte Producer evidence and Audio Production V2 outside final gates."""
     installed = 0
     already_installed = 0
     for production in production_modules:
@@ -100,7 +101,12 @@ def install_audio_producer_final_certificate(production_modules: list[Any]) -> N
         def make_wrapper(original):
             @wraps(original)
             def wrapped(output_dir: Path, *args, **kwargs):
+                # Order is deliberate: first prove the bounded producer repair receipt
+                # belongs to the exact current bytes, then verify spoken semantic fidelity
+                # on those same bytes, then hand them unchanged to the existing independent
+                # Audio Semantic Integrity / Final Master QC chain.
                 require_audio_producer_certificate(Path(output_dir))
+                require_audio_production_contract_v2(Path(output_dir))
                 return original(output_dir, *args, **kwargs)
 
             wrapped._isco_audio_producer_final_certificate = True
