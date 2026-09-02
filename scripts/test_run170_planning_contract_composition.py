@@ -6,11 +6,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from scripts import checkpoint_namespace_guard as checkpoint_guard
 from scripts import planning_capacity_headroom as short_headroom
 from scripts import planning_checkpoint_state as durable_state
 from scripts import planning_contract_composition_closure as closure
 from scripts import planning_stage_contract as stage_contract
 from scripts import run124_terminal_provider_recovery as long_recovery
+from scripts import runtime_patch_contracts
 from scripts import short_repair_reset_recovery
 
 
@@ -109,22 +111,24 @@ class Run170PlanningContractCompositionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "planning-checkpoint.json"
             with patch.object(stage_contract.router, "CACHE_PATH", path):
-                closure._save_stage_checkpoint(
+                checkpoint_guard._stage_checkpoint_save(
                     {"version": 2, "responses": {key: response}}
                 )
                 disk = json.loads(path.read_text(encoding="utf-8"))
                 self.assertEqual(disk["version"], 1)
-                self.assertEqual(disk[closure.STAGE_CACHE_VERSION_FIELD], 2)
+                self.assertEqual(
+                    disk[checkpoint_guard.STAGE_CACHE_VERSION_FIELD],
+                    2,
+                )
                 self.assertEqual(disk["responses"], {key: response})
 
-                # The exact authenticated durable owner must accept what Stage writes,
-                # through the Run130 public authority wrapper (never the core directly).
+                # The exact authenticated durable owner accepts Stage output through
+                # the Run130 wrapper; no compatibility-core import is allowed here.
                 normalized = durable_state._normalize_checkpoint(disk)
                 self.assertEqual(normalized["version"], 1)
                 self.assertEqual(normalized["responses"], {key: response})
 
-                # Stage authority sees its own logical version after the disk boundary.
-                loaded = closure._load_stage_checkpoint()
+                loaded = checkpoint_guard._stage_checkpoint_load()
                 self.assertEqual(loaded, {"version": 2, "responses": {key: response}})
 
     def test_unmarked_historical_v1_checkpoint_never_gains_stage_v2_authority(self) -> None:
@@ -137,7 +141,7 @@ class Run170PlanningContractCompositionTests(unittest.TestCase):
             )
             with patch.object(stage_contract.router, "CACHE_PATH", path):
                 self.assertEqual(
-                    closure._load_stage_checkpoint(),
+                    checkpoint_guard._stage_checkpoint_load(),
                     {"version": 2, "responses": {}},
                 )
 
@@ -150,14 +154,21 @@ class Run170PlanningContractCompositionTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with patch.object(stage_contract.router, "CACHE_PATH", path):
-                loaded = closure._load_stage_checkpoint()
+                loaded = checkpoint_guard._stage_checkpoint_load()
                 self.assertEqual(loaded["responses"], {key: {"run170": True}})
-                closure._save_stage_checkpoint(loaded)
+                checkpoint_guard._stage_checkpoint_save(loaded)
                 migrated = json.loads(path.read_text(encoding="utf-8"))
                 self.assertEqual(migrated["version"], 1)
-                self.assertEqual(migrated[closure.STAGE_CACHE_VERSION_FIELD], 2)
+                self.assertEqual(
+                    migrated[checkpoint_guard.STAGE_CACHE_VERSION_FIELD],
+                    2,
+                )
 
-    def test_existing_short_installer_always_activates_shared_closure(self) -> None:
+    def test_run127_repository_audit_accepts_checkpoint_assignment_owner(self) -> None:
+        result = runtime_patch_contracts.repository_runtime_patch_audit()
+        self.assertEqual(result["planning_authority_assignment_violations"], 0)
+
+    def test_existing_short_installer_always_activates_shared_reset_closure(self) -> None:
         with patch.object(
             short_repair_reset_recovery,
             "install_planning_contract_composition_closure",
