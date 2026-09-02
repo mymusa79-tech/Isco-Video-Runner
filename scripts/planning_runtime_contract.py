@@ -28,6 +28,7 @@ from scripts.planning_batch_hardening import install_planning_batch_hardening
 from scripts.planning_capacity_headroom import install_planning_capacity_headroom
 from scripts.planning_capacity_profile import install_planning_capacity_profile
 from scripts.planning_legacy_authority_guard import install_legacy_planning_authority_guard
+from scripts.planning_provider_visible_semantics import install_planning_provider_visible_semantics
 from scripts.planning_stage_contract import (
     assert_planning_stage_contract_installed,
     install_planning_contract_router,
@@ -148,6 +149,11 @@ def install_post_runtime_planning_contracts() -> None:
     # Planning contract at the final canonical seam. The final seal then removes the
     # dormant prompt-hash checkpoint loader/writer from runtime authority entirely.
     _reassert_after_lifecycle_patch()
+    # Run168 closure: install only after the final Stage-router reassertion. This owner
+    # does not infer stage identity or route providers; it makes the already-authoritative
+    # finite semantic contract visible to every provider and validates it before cache
+    # authority. Long and Standalone Short therefore share one pillar contract.
+    install_planning_provider_visible_semantics()
     if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
         install_legacy_planning_authority_guard()
     # Producer Quality Contract still owns writing constraints and deterministic
