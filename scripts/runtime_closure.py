@@ -37,7 +37,7 @@ from scripts.runtime_reliability import (
 )
 from scripts.text_audit_capacity_ownership import install_text_audit_capacity_ownership
 from scripts.text_audit_provider_mesh import install_text_audit_provider_mesh
-from scripts.vision_stage_contract_v2 import install_vision_provider_reliability
+from scripts.vision_stage_transport_v2 import install_vision_provider_reliability
 
 
 _TRUE_VALUES = {"1", "true", "yes", "on"}
@@ -146,7 +146,8 @@ def install_runtime_closure() -> None:
     # Shared Long+Short Vision reliability is now owned by an explicit Stage Contract:
     # Gemini remains primary; OpenRouter receives native strict JSON Schema plus
     # require_parameters; one model-diverse schema recovery is allowed and is separately
-    # budget-accounted; semantic BLOCK is final; durable audit reuse is contract-bound.
+    # budget-accounted; the raw HTTP boundary maps transport/capacity failures into the
+    # same taxonomy; semantic BLOCK is final; durable audit reuse is contract-bound.
     install_vision_provider_reliability()
     install_audio_semantic_integrity_binding()
     install_audio_mastering_live_binding()
