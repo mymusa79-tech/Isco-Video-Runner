@@ -139,6 +139,9 @@ def _is_retryable_provider_failure(exc: BaseException) -> bool:
         "no providers available",
         "no endpoint",
         "invalid json",
+        "empty json response",
+        "complete json object",
+        "json response must be an object",
         "schema invalid",
     )
     return (
@@ -160,7 +163,13 @@ def _attempt_outcome(exc: BaseException) -> AttemptOutcome:
         return AttemptOutcome.TIMEOUT
     if "connection" in name or "connection" in detail or "network" in detail:
         return AttemptOutcome.NETWORK_ERROR
-    if "invalid json" in detail or "schema" in detail:
+    if (
+        "invalid json" in detail
+        or "empty json response" in detail
+        or "complete json object" in detail
+        or "json response must be an object" in detail
+        or "schema" in detail
+    ):
         return AttemptOutcome.SCHEMA_INVALID
     return AttemptOutcome.OTHER
 
