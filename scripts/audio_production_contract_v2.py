@@ -23,7 +23,23 @@ SCHEMA_VERSION = 2
 AUDIT_FILENAME = "audio-production-contract-v2.json"
 DEFAULT_GEMINI_AUDIT_MODEL = "gemini-3.7-flash"
 MAX_PROVIDER_ATTEMPTS = 2
-MAX_INLINE_AUDIO_BYTES = 20 * 1024 * 1024
+MAX_INLINE_AUDIO_BYTES = 19_000_000
+
+AUDIO_OWNER_MAP = {
+    "synthesis_provider_retry": "voice_mesh",
+    "synthesis_cache": "tts_durable_cache_semantics",
+    "source_conditioning": "audio_mastering_live_binding",
+    "programme_normalization": "engine_mux_or_short_voice_v2",
+    "final_compliance_repair": "audio_producer_repair_lifecycle",
+    "provenance_gate": "audio_semantic_integrity",
+    "semantic_fidelity": CONTRACT_ID,
+    "final_media_gate": "final_master_qc",
+}
+
+GEMINI_TRANSCRIPTION_PROMPT = (
+    "Transcribe the spoken Arabic exactly as heard. Return transcript text only. "
+    "Do not summarize, correct, translate, explain, or infer missing words."
+)
 
 
 class AudioContractErrorCode(str, Enum):
@@ -152,6 +168,14 @@ def _safe_error(exc: Exception) -> str:
     return f"{type(exc).__name__}:{str(exc)[:200]}"
 
 
+def _require_final_identity(final_path: Path, expected_sha256: str) -> None:
+    if not final_path.is_file() or _sha256_file(final_path) != expected_sha256:
+        raise AudioProductionContractError(
+            AudioContractErrorCode.FINAL_ARTIFACT_INVALID,
+            "final_mp4_changed_during_audio_audit",
+        )
+
+
 def _groq_transcribe(audio_path: Path) -> str:
     key = _secret_from_env("GROQ_API_KEY")
     if not key:
@@ -166,15 +190,48 @@ def _groq_transcribe(audio_path: Path) -> str:
     return text.strip()
 
 
+def _gemini_transcribe_with_client(
+    audio_path: Path,
+    *,
+    client: Any,
+    types_module: Any,
+    model: str,
+) -> str:
+    size = audio_path.stat().st_size
+    if size <= 0:
+        raise RuntimeError("gemini_audio_input_empty")
+
+    uploaded = None
+    try:
+        if size <= MAX_INLINE_AUDIO_BYTES:
+            data = audio_path.read_bytes()
+            contents = [
+                GEMINI_TRANSCRIPTION_PROMPT,
+                types_module.Part.from_bytes(data=data, mime_type="audio/flac"),
+            ]
+        else:
+            uploaded = client.files.upload(file=str(audio_path))
+            contents = [GEMINI_TRANSCRIPTION_PROMPT, uploaded]
+
+        response = client.models.generate_content(model=model, contents=contents)
+        text = getattr(response, "text", None)
+        if not isinstance(text, str) or not text.strip():
+            raise RuntimeError("gemini_transcription_empty")
+        return text.strip()
+    finally:
+        if uploaded is not None:
+            name = str(getattr(uploaded, "name", "") or "").strip()
+            if name:
+                try:
+                    client.files.delete(name=name)
+                except Exception as exc:
+                    print(f"Audio Production V2 Gemini temp-file cleanup skipped ({type(exc).__name__})")
+
+
 def _gemini_transcribe(audio_path: Path) -> str:
     key = _secret_from_env("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("gemini_api_key_missing")
-    data = audio_path.read_bytes()
-    if not data:
-        raise RuntimeError("gemini_audio_input_empty")
-    if len(data) > MAX_INLINE_AUDIO_BYTES:
-        raise RuntimeError(f"gemini_inline_audio_too_large:{len(data)}")
     try:
         from google import genai
         from google.genai import types
@@ -183,20 +240,12 @@ def _gemini_transcribe(audio_path: Path) -> str:
 
     model = (os.environ.get("GEMINI_CONTENT_MODEL") or DEFAULT_GEMINI_AUDIT_MODEL).strip()
     client = genai.Client(api_key=key)
-    response = client.models.generate_content(
+    return _gemini_transcribe_with_client(
+        audio_path,
+        client=client,
+        types_module=types,
         model=model,
-        contents=[
-            (
-                "Transcribe the spoken Arabic exactly as heard. Return transcript text only. "
-                "Do not summarize, correct, translate, explain, or infer missing words."
-            ),
-            types.Part.from_bytes(data=data, mime_type="audio/flac"),
-        ],
     )
-    text = getattr(response, "text", None)
-    if not isinstance(text, str) or not text.strip():
-        raise RuntimeError("gemini_transcription_empty")
-    return text.strip()
 
 
 def _provider_attempt(
@@ -279,6 +328,7 @@ def require_audio_production_contract_v2(
         "contract_id": CONTRACT_ID,
         "decision": "block",
         "max_provider_attempts": MAX_PROVIDER_ATTEMPTS,
+        "ownership": dict(AUDIO_OWNER_MAP),
         "attempts": [],
     }
     try:
@@ -290,7 +340,8 @@ def require_audio_production_contract_v2(
             )
 
         expected = _expected_audio(root)
-        document["final_sha256"] = _sha256_file(final_path)
+        final_sha256 = _sha256_file(final_path)
+        document["final_sha256"] = final_sha256
         if expected is None:
             document.update(
                 {
@@ -335,6 +386,7 @@ def require_audio_production_contract_v2(
                 transcriber=groq_transcriber,
             )
             document["attempts"].append(groq_attempt)
+            _require_final_identity(final_path, final_sha256)
             if groq_pass:
                 document.update(
                     {
@@ -354,6 +406,7 @@ def require_audio_production_contract_v2(
                 transcriber=gemini_transcriber,
             )
             document["attempts"].append(gemini_attempt)
+            _require_final_identity(final_path, final_sha256)
             if gemini_pass:
                 document.update(
                     {
@@ -371,10 +424,19 @@ def require_audio_production_contract_v2(
                 item for item in document["attempts"]
                 if item.get("status") == "semantic_review"
             ]
-            if semantic_reviews:
+            technical_failures = [
+                item for item in document["attempts"]
+                if item.get("status") == "technical_failure"
+            ]
+            if len(semantic_reviews) == 2:
                 raise AudioProductionContractError(
                     AudioContractErrorCode.SEMANTIC_MISMATCH,
-                    "spoken_audio_does_not_match_expected_transcript",
+                    "spoken_audio_mismatch_confirmed_by_two_independent_auditors",
+                )
+            if semantic_reviews and technical_failures:
+                raise AudioProductionContractError(
+                    AudioContractErrorCode.AUDIT_UNAVAILABLE,
+                    "semantic_mismatch_unconfirmed_because_independent_auditor_failed",
                 )
             raise AudioProductionContractError(
                 AudioContractErrorCode.AUDIT_UNAVAILABLE,
