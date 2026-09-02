@@ -4,14 +4,17 @@ import unittest
 from unittest.mock import patch
 
 import isco_video_agent.opening_director as opening_director
+import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.section_visual_sequence as section_visual_sequence
-from isco_video_agent.visual_selection import VisualCandidateCache
+from isco_video_agent.visual_selection import VisualCandidateCache, VisualSelectionResult
 
 from scripts.opening_feasibility_guard import (
     STOCK_CANDIDATE_POOL,
     _adaptive_review_cap,
     _adaptive_section_review_cap,
+    _install_selection_wrappers,
     _install_stock_search_wrappers,
+    _log_candidate_pool_size,
     _preserve_outline_visual_intent,
     _stable_intent_audit,
     adaptive_opening_slot_specs,
@@ -414,6 +417,59 @@ class VisionProviderFailureResilienceTests(unittest.TestCase):
 
         self.assertEqual(result.status, "selected")
         self.assertIn(101, attempts)
+
+
+class CandidatePoolSizeDiagnosticsTests(unittest.TestCase):
+    """A "no safe/relevant candidate" failure gives no way to tell, from the log alone,
+    whether the bounded local-inspection budget (visual_selection.py's
+    max_candidates_per_attempt/max_total_inspections) was actually the limiting factor,
+    or whether Pexels/Pixabay simply returned too few raw results for that query to
+    matter. Raising that budget without knowing which is true would be a guess, not a
+    fix. This is observability only - no selection behavior changes."""
+
+    def test_logs_total_and_per_provider_counts(self) -> None:
+        with patch("builtins.print") as mock_print:
+            _log_candidate_pool_size(
+                {"pexels": [{"id": 1}, {"id": 2}], "pixabay": [{"id": 3}]},
+                scope="single",
+            )
+        printed = " ".join(str(call.args[0]) for call in mock_print.call_args_list)
+        self.assertIn("scope=single", printed)
+        self.assertIn("total=3", printed)
+        self.assertIn("'pexels': 2", printed)
+        self.assertIn("'pixabay': 1", printed)
+
+    def test_non_dict_input_is_ignored_safely(self) -> None:
+        with patch("builtins.print") as mock_print:
+            _log_candidate_pool_size(None, scope="single")
+        mock_print.assert_not_called()
+
+    def test_single_select_path_logs_pool_size_before_selecting(self) -> None:
+        original = orchestrator.select_with_recovery
+
+        def fake_select_with_recovery(candidates_by_provider, **kwargs):
+            return VisualSelectionResult(
+                status="failed", chosen=None, reviewed=[], used_alternate_query=False, alternate_query=None,
+            )
+
+        orchestrator.select_with_recovery = fake_select_with_recovery
+        try:
+            _install_selection_wrappers()
+            with patch("scripts.opening_feasibility_guard.print") as mock_print:
+                orchestrator.select_with_recovery(
+                    {"pexels": [_candidate(101, 15), _candidate(102, 10)]},
+                    portrait=False,
+                    target_seconds=15.0,
+                    narration_context="ctx",
+                    intended_visual="a calm person at a desk",
+                    audit_fn=lambda **kw: {"status": "pass"},
+                    cache=VisualCandidateCache(excluded_assets={}),
+                )
+        finally:
+            orchestrator.select_with_recovery = original
+        printed = " ".join(str(call.args[0]) for call in mock_print.call_args_list)
+        self.assertIn("scope=single", printed)
+        self.assertIn("total=2", printed)
 
 
 if __name__ == "__main__":
