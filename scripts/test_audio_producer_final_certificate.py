@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 from scripts import audio_producer_final_certificate as certificate
 from scripts.audio_producer_repair_lifecycle import REPORT_FILENAME, SCHEMA_VERSION
+from scripts.test_audio_production_contract_v2 import AudioProductionContractV2Tests
+from scripts.test_audio_production_runtime_v2 import AudioProductionRuntimeV2Tests
 
 
 class AudioProducerFinalCertificateTests(unittest.TestCase):
