@@ -91,6 +91,38 @@ class NativeShortStageContractTests(unittest.TestCase):
                     planning.validate_response(bound, data)
                 self.assertEqual(captured.exception.code, planning.PlanningErrorCode.SEMANTIC_INVALID)
 
+    def test_run168_provider_schema_exposes_exact_pillar_enum(self):
+        spec = short_contract.moment_stage_spec("short_draft", self.TOPIC)
+        pillar_schema = spec.output_schema["properties"]["pillar"]
+        self.assertEqual(pillar_schema["type"], "string")
+        self.assertEqual(pillar_schema["enum"], ["understand", "rise", "see"])
+        self.assertEqual(spec.semantic_rules["allowed_pillars"], ["understand", "rise", "see"])
+
+    def test_run168_provider_prompt_mirrors_stage_semantics_for_all_short_stages(self):
+        for stage_kind in ("short_draft", "short_review", "short_repair"):
+            with self.subTest(stage_kind=stage_kind):
+                spec = short_contract.moment_stage_spec(stage_kind, self.TOPIC)
+                provider_prompt = short_contract._provider_contract_prompt("ORIGINAL", spec)
+                self.assertIn("NATIVE_SHORT_STAGE_CONTRACT", provider_prompt)
+                self.assertIn("understand | rise | see", provider_prompt)
+                self.assertIn("format MUST be exactly: moment", provider_prompt)
+                self.assertIn("sections MUST contain exactly one item", provider_prompt)
+                self.assertIn("narration MUST be the empty string", provider_prompt)
+                self.assertIn("between 7 and 20 inclusive", provider_prompt)
+                self.assertIn(self.TOPIC, provider_prompt)
+
+    def test_run168_invalid_pillar_still_fails_closed_if_provider_violates_contract(self):
+        data = self._valid()
+        data["pillar"] = "motivation"
+        bound = planning.bind_request_contract(
+            short_contract.moment_stage_spec("short_draft", self.TOPIC),
+            "effective prompt",
+        )
+        with self.assertRaises(planning.PlanningStageError) as captured:
+            planning.validate_response(bound, data)
+        self.assertEqual(captured.exception.code, planning.PlanningErrorCode.SEMANTIC_INVALID)
+        self.assertIn("unsupported_pillar", str(captured.exception))
+
     def test_normal_call_sequence_is_exactly_draft_then_review(self):
         state = {"topic": self.TOPIC, "calls": 0}
         with mock.patch.object(short_contract, "active_short_repair_context", return_value=None):
