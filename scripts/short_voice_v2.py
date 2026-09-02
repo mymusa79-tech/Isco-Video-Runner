@@ -22,6 +22,7 @@ VOICE_MODE_BY_TEMPLATE = {
     "micro_story": "voice_led",
     "quote_reflection": "hybrid",
 }
+MIX_DURATION_TOLERANCE_SECONDS = 0.15
 
 
 def decide_voice_mode(template: str) -> str:
@@ -99,6 +100,8 @@ def _fit_voice_to_video(voice_path: Path, final_seconds: float) -> Path:
 
 
 def _mix_voice(final_path: Path, voice_path: Path, output: Path) -> Path:
+    """Add Short voice without changing the already-approved visual timeline duration."""
+    source_seconds = _final_duration(final_path)
     if _has_audio(final_path):
         filter_complex = (
             "[0:a:0]volume=0.24[bed];"
@@ -114,16 +117,26 @@ def _mix_voice(final_path: Path, voice_path: Path, output: Path) -> Path:
             "-movflags", "+faststart", str(output),
         ]
     else:
+        # Historical `-shortest` made a shorter narration authoritative over the video
+        # timeline and could truncate a valid 15s visual to an 8s voice. Pad the audio
+        # locally and explicitly stop at the immutable source-video duration instead.
         command = [
             "ffmpeg", "-y", "-i", str(final_path), "-i", str(voice_path),
-            "-filter_complex", "[1:a:0]loudnorm=I=-16:TP=-1.5:LRA=11[aout]",
+            "-filter_complex", "[1:a:0]loudnorm=I=-16:TP=-1.5:LRA=11,apad[aout]",
             "-map", "0:v:0", "-map", "[aout]",
             "-c:v", "copy", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k",
-            "-shortest", "-movflags", "+faststart", str(output),
+            "-t", f"{source_seconds:.3f}", "-movflags", "+faststart", str(output),
         ]
     subprocess.run(command, check=True, capture_output=True)
     if not output.is_file() or output.stat().st_size <= 1024:
         raise RuntimeError("Short Voice V2 did not produce a usable final master")
+    rendered_seconds = _final_duration(output)
+    if abs(rendered_seconds - source_seconds) > MIX_DURATION_TOLERANCE_SECONDS:
+        raise RuntimeError(
+            "Short Voice V2 voice mix changed approved visual duration: "
+            f"source={source_seconds:.3f}s mixed={rendered_seconds:.3f}s "
+            f"tolerance={MIX_DURATION_TOLERANCE_SECONDS:.3f}s"
+        )
     return output
 
 
