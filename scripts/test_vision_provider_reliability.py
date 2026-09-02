@@ -313,7 +313,11 @@ class VisionProviderReliabilityTests(unittest.TestCase):
         def fake_produce(*_args, **_kwargs):
             state = mesh._VISION_CIRCUIT.get()
             self.assertIsNotNone(state)
-            states.append(id(state))
+            states.append(state)
+            if len(states) == 1:
+                state.gemini_open = True
+            else:
+                self.assertFalse(state.gemini_open)
             return Path("output/fake")
 
         with mock.patch.object(orchestrator, "_ledger_call_status", fake_status), mock.patch.object(
@@ -328,7 +332,9 @@ class VisionProviderReliabilityTests(unittest.TestCase):
             orchestrator.produce()
             orchestrator.produce()
         self.assertEqual(len(states), 2)
-        self.assertNotEqual(states[0], states[1])
+        self.assertIsNot(states[0], states[1])
+        self.assertTrue(states[0].gemini_open)
+        self.assertFalse(states[1].gemini_open)
 
 
 if __name__ == "__main__":
