@@ -4,9 +4,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts import checkpoint_namespace_guard as checkpoint_guard
+from scripts import native_short_stage_contract as short_stage
 from scripts import planning_capacity_headroom as short_headroom
 from scripts import planning_checkpoint_state as durable_state
 from scripts import planning_contract_composition_closure as closure
@@ -14,6 +16,7 @@ from scripts import planning_stage_contract as stage_contract
 from scripts import run124_terminal_provider_recovery as long_recovery
 from scripts import runtime_patch_contracts
 from scripts import short_repair_reset_recovery
+from scripts import short_stage_retry_composition as retry_composition
 
 
 _RUN170_DETAIL = (
@@ -172,9 +175,134 @@ class Run170PlanningContractCompositionTests(unittest.TestCase):
         with patch.object(
             short_repair_reset_recovery,
             "install_planning_contract_composition_closure",
-        ) as shared, patch.object(short_repair_reset_recovery, "_INSTALLED", True):
+        ) as shared, patch.object(
+            short_repair_reset_recovery,
+            "install_short_stage_retry_composition",
+        ) as retry_owner, patch.object(short_repair_reset_recovery, "_INSTALLED", True):
             short_repair_reset_recovery.install_short_repair_reset_recovery()
         shared.assert_called_once_with()
+        retry_owner.assert_called_once_with()
+
+
+class Run172ShortStageRetryCompositionTests(unittest.TestCase):
+    TOPIC = "كيف تنهض عندما تفقد الدافع تمامًا؟"
+
+    def test_exact_run172_repair_retry_reuses_one_logical_repair_stage(self) -> None:
+        state = {"topic": self.TOPIC, "calls": 0}
+        current = SimpleNamespace(topic=self.TOPIC)
+        with patch.object(
+            short_stage,
+            "active_short_repair_context",
+            return_value=(current, "repair issue"),
+        ):
+            first = retry_composition._stage_with_retry_identity(
+                short_stage._stage_for_call,
+                state,
+            )
+            token = retry_composition._AUTHORIZED_RETRY.set(True)
+            try:
+                retry = retry_composition._stage_with_retry_identity(
+                    short_stage._stage_for_call,
+                    state,
+                )
+            finally:
+                retry_composition._AUTHORIZED_RETRY.reset(token)
+
+        self.assertEqual(first.stage_id, "planning.short_repair")
+        self.assertEqual(retry.stage_id, "planning.short_repair")
+        self.assertIs(retry, first)
+        self.assertEqual(state["calls"], 1)
+
+    def test_draft_retry_reuses_draft_then_normal_flow_advances_to_review(self) -> None:
+        state = {"topic": self.TOPIC, "calls": 0}
+        with patch.object(short_stage, "active_short_repair_context", return_value=None):
+            draft = retry_composition._stage_with_retry_identity(
+                short_stage._stage_for_call,
+                state,
+            )
+            token = retry_composition._AUTHORIZED_RETRY.set(True)
+            try:
+                draft_retry = retry_composition._stage_with_retry_identity(
+                    short_stage._stage_for_call,
+                    state,
+                )
+            finally:
+                retry_composition._AUTHORIZED_RETRY.reset(token)
+            review = retry_composition._stage_with_retry_identity(
+                short_stage._stage_for_call,
+                state,
+            )
+
+        self.assertEqual(draft.stage_id, "planning.short_draft")
+        self.assertIs(draft_retry, draft)
+        self.assertEqual(review.stage_id, "planning.short_review")
+        self.assertEqual(state["calls"], 2)
+
+    def test_retry_marker_exists_only_for_existing_owner_second_attempt(self) -> None:
+        observed: list[bool] = []
+        calls = 0
+
+        def target():
+            nonlocal calls
+            calls += 1
+            observed.append(retry_composition.authorized_terminal_retry_active())
+            if calls == 1:
+                raise RuntimeError("provider reset evidence")
+            return {"ok": True}
+
+        def bounded_owner(call, *, phase: str):
+            self.assertEqual(phase, "repair")
+            try:
+                return call()
+            except RuntimeError:
+                return call()
+
+        result = retry_composition._recovery_with_retry_identity(
+            bounded_owner,
+            target,
+            phase="repair",
+        )
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(observed, [False, True])
+
+    def test_unmarked_duplicate_repair_call_is_not_collapsed(self) -> None:
+        state = {"topic": self.TOPIC, "calls": 0}
+        current = SimpleNamespace(topic=self.TOPIC)
+        with patch.object(
+            short_stage,
+            "active_short_repair_context",
+            return_value=(current, "repair issue"),
+        ):
+            retry_composition._stage_with_retry_identity(short_stage._stage_for_call, state)
+            retry_composition._stage_with_retry_identity(short_stage._stage_for_call, state)
+        # The parent lifecycle still expects exactly one logical Repair stage and will
+        # fail closed on this unauthorized duplicate. Only the marked terminal retry is
+        # collapsed onto the previous stage identity.
+        self.assertEqual(state["calls"], 2)
+
+    def test_composition_refuses_a_third_transport_attempt(self) -> None:
+        def always_fails():
+            raise RuntimeError("transport failed")
+
+        def broken_owner(call, *, phase: str):
+            self.assertEqual(phase, "repair")
+            for _ in range(2):
+                try:
+                    call()
+                except RuntimeError:
+                    pass
+            return call()
+
+        with self.assertRaises(stage_contract.PlanningStageError) as captured:
+            retry_composition._recovery_with_retry_identity(
+                broken_owner,
+                always_fails,
+                phase="repair",
+            )
+        self.assertEqual(
+            captured.exception.code,
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+        )
 
 
 if __name__ == "__main__":

@@ -7,18 +7,20 @@ from scripts.planning_contract_composition_closure import (
     install_planning_contract_composition_closure,
 )
 from scripts import short_planning_repair
+from scripts.short_stage_retry_composition import install_short_stage_retry_composition
 
 
 # Runs #158 and #160 proved that native Short Draft/Review terminal-reset recovery did
 # not cover the compact RepairDossier transport. Run170 then proved that the newer
 # Explicit Stage Contract changed the outer provider-failure envelope and accidentally
-# made the existing reset owner blind to trustworthy Groq evidence. Activate the shared
-# Long+Short composition closure before wrapping the repair transport, then reuse the
-# exact same bounded Short recovery owner as before.
+# made the existing reset owner blind to trustworthy Groq evidence. Run172 proved the
+# next composition edge: after that bounded retry succeeded, the native-Short Stage
+# Contract counted the retry transport as a second logical lifecycle stage.
 #
-# This layer does not change Dossier max_attempts, provider limits, prompt envelopes,
-# or any semantic/quality gate. It permits exactly the same evidence-backed wait + one
-# retry already certified for native Short Draft/Review.
+# Activate both composition owners at the stable runtime seam, then reuse the exact
+# same bounded Short recovery owner as before. This layer does not change Dossier
+# max_attempts, provider limits, prompt envelopes, retry budgets, or any semantic/
+# quality gate.
 _T = TypeVar("_T")
 _INSTALLED = False
 
@@ -33,10 +35,11 @@ def _with_short_repair_terminal_recovery(call: Callable[[], _T]) -> _T:
 def install_short_repair_reset_recovery() -> None:
     global _INSTALLED
 
-    # The canonical runtime already calls this installer after Long recovery, Short
-    # headroom and Stage Contract exist. Use that stable seam to close their shared
-    # composition contract without introducing a second runtime installer ordering.
+    # Canonical runtime reaches this seam only after the explicit Stage Contract and
+    # Short headroom/reset owner exist, so it is the single place where their retry
+    # semantics can be composed without inventing another installer order.
     install_planning_contract_composition_closure()
+    install_short_stage_retry_composition()
 
     if _INSTALLED:
         return
