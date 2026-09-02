@@ -137,15 +137,26 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _run_tests(phase: str) -> None:
-    env = dict(os.environ)
-    env.setdefault("PYTHONPATH", f"{ENGINE_ROOT / 'src'}:{ROOT}")
-    history = Path(env.get("RUNNER_TEMP") or "/tmp") / "isco-stage-ladder" / f"{phase.lower()}-history.json"
-    history.parent.mkdir(parents=True, exist_ok=True)
-    env["ISCO_HISTORY_PATH"] = str(history)
-    subprocess.run(
-        [sys.executable, "-m", "unittest", *PHASE_TESTS[phase], "-v"],
-        cwd=ROOT, env=env, check=True,
-    )
+    base_env = dict(os.environ)
+    base_env.setdefault("PYTHONPATH", f"{ENGINE_ROOT / 'src'}:{ROOT}")
+    phase_root = Path(base_env.get("RUNNER_TEMP") or "/tmp") / "isco-stage-ladder" / phase.lower()
+    phase_root.mkdir(parents=True, exist_ok=True)
+
+    # Contract suites install process-global wrappers around Engine/Runner modules.
+    # A Stage Ladder phase must certify each declared contract, not accidental state
+    # inherited from the suite that ran immediately before it. Give every test module
+    # a fresh interpreter and an isolated history file while keeping the same exact
+    # Runner+Engine checkout pair for the whole phase.
+    for index, test_module in enumerate(PHASE_TESTS[phase], start=1):
+        env = dict(base_env)
+        module_name = test_module.rsplit(".", 1)[-1]
+        env["ISCO_HISTORY_PATH"] = str(
+            phase_root / f"{index:02d}-{module_name}-history.json"
+        )
+        subprocess.run(
+            [sys.executable, "-m", "unittest", test_module, "-v"],
+            cwd=ROOT, env=env, check=True,
+        )
 
 
 def _record(phase: str, evidence_dir: Path, **extra: Any) -> dict[str, Any]:
