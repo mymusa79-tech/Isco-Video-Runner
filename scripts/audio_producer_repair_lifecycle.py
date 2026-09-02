@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import subprocess
+import tempfile
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable
@@ -37,6 +39,14 @@ def _safe_float(value: object, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _stream_duration(streams: list[dict[str, Any]]) -> float:
@@ -192,17 +202,40 @@ def _read_report(root: Path) -> dict[str, Any]:
     return value
 
 
-def _write_receipt(root: Path, receipt: dict[str, Any]) -> None:
+def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    except Exception:
+        try:
+            os.unlink(temp_name)
+        except OSError:
+            pass
+        raise
+
+
+def _write_receipt(root: Path, receipt: dict[str, Any], *, final_path: Path) -> None:
+    final_path = Path(final_path)
+    if not final_path.is_file():
+        raise AudioProducerRepairError("audio_producer_receipt_final_missing")
+    bound = dict(receipt)
+    bound["final_sha256"] = _sha256_file(final_path)
     path = root / REPORT_FILENAME
     report = _read_report(root)
-    phase = str(receipt.get("phase") or "")
+    phase = str(bound.get("phase") or "")
     receipts = [
         item for item in list(report.get("receipts") or [])
         if isinstance(item, dict) and str(item.get("phase") or "") != phase
     ]
-    receipts.append(receipt)
+    receipts.append(bound)
     report.update({"schema_version": SCHEMA_VERSION, "receipts": receipts})
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_json(path, report)
 
 
 def resolve_audio_producer_handoff(
@@ -215,12 +248,7 @@ def resolve_audio_producer_handoff(
     state_fn: Callable[[Path], dict[str, Any]] = _media_state,
     repair_fn: Callable[[Path, float], tuple[Path, dict[str, Any]]] = _render_corrected_candidate,
 ) -> dict[str, Any]:
-    """Producer pre-gate: certify, repair one owned loudness defect, or fail closed.
-
-    This owner is deliberately narrow. It never repairs A/V timing, transcript/voice
-    semantics, provenance, missing streams, security findings, or video bytes. Those
-    failures remain authoritative at their existing owners.
-    """
+    """Certify, repair one owned loudness defect, or fail closed before final gates."""
     final_path = Path(final_path)
     root = final_path.parent
     if not final_path.is_file():
@@ -235,8 +263,8 @@ def resolve_audio_producer_handoff(
             "repair_attempts": 0,
             "reason": "audio_not_required",
         }
-        _write_receipt(root, receipt)
-        return receipt
+        _write_receipt(root, receipt, final_path=final_path)
+        return {**receipt, "final_sha256": _sha256_file(final_path)}
     if state["audio_streams"] != 1:
         receipt = {
             "phase": phase,
@@ -245,7 +273,7 @@ def resolve_audio_producer_handoff(
             "reason": "audio_stream_shape_unowned",
             "media_state": state,
         }
-        _write_receipt(root, receipt)
+        _write_receipt(root, receipt, final_path=final_path)
         raise AudioProducerRepairError("audio_producer_audio_stream_shape_unowned")
 
     av_limit = float(load_channel_config()["quality"].get("av_sync_max_delta_seconds", 1.0))
@@ -258,7 +286,7 @@ def resolve_audio_producer_handoff(
             "av_sync_limit_seconds": av_limit,
             "media_state": state,
         }
-        _write_receipt(root, receipt)
+        _write_receipt(root, receipt, final_path=final_path)
         raise AudioProducerRepairError("audio_producer_av_sync_unowned_fail_closed")
 
     before = measure_fn(final_path)
@@ -272,8 +300,8 @@ def resolve_audio_producer_handoff(
             "measurement_after": before,
             "media_state": state,
         }
-        _write_receipt(root, receipt)
-        return receipt
+        _write_receipt(root, receipt, final_path=final_path)
+        return {**receipt, "final_sha256": _sha256_file(final_path)}
 
     if not _measurement_repairable(before, target_lufs):
         receipt = {
@@ -285,7 +313,7 @@ def resolve_audio_producer_handoff(
             "measurement_before": before,
             "media_state": state,
         }
-        _write_receipt(root, receipt)
+        _write_receipt(root, receipt, final_path=final_path)
         raise AudioProducerRepairError("audio_producer_loudness_unowned_fail_closed")
 
     try:
@@ -300,7 +328,7 @@ def resolve_audio_producer_handoff(
             "measurement_before": before,
             "error": f"{type(exc).__name__}: {str(exc)[:500]}",
         }
-        _write_receipt(root, receipt)
+        _write_receipt(root, receipt, final_path=final_path)
         if isinstance(exc, AudioProducerRepairError):
             raise
         raise AudioProducerRepairError("audio_producer_owned_repair_failed") from exc
@@ -317,7 +345,7 @@ def resolve_audio_producer_handoff(
             "measurement_before": before,
             "measurement_after": after,
         }
-        _write_receipt(root, receipt)
+        _write_receipt(root, receipt, final_path=final_path)
         raise AudioProducerRepairError("audio_producer_repair_revalidation_failed")
 
     receipt = {
@@ -332,12 +360,13 @@ def resolve_audio_producer_handoff(
         "repair_owner": "audio_producer_repair_lifecycle",
         "independent_gate_still_required": True,
     }
-    _write_receipt(root, receipt)
+    _write_receipt(root, receipt, final_path=final_path)
+    bound = {**receipt, "final_sha256": _sha256_file(final_path)}
     print(
         "Audio Producer repair PASS: "
         f"phase={phase} attempts=1 target_lufs={float(target_lufs):.1f}"
     )
-    return receipt
+    return bound
 
 
 def _install_core_mux_wrapper() -> None:
