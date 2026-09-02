@@ -69,6 +69,7 @@ class RuntimeClosureTests(unittest.TestCase):
              patch.object(runtime_closure,"install_cinematic_runtime_port",side_effect=lambda phase:calls.append("cinematic-inner")) as cinematic, \
              patch.object(runtime_closure,"install_render_runtime_port",side_effect=lambda:calls.append("render-port")) as render_port, \
              patch.object(runtime_closure,"install_narrative_music_dynamics",side_effect=lambda:calls.append("music")) as music, \
+             patch.object(runtime_closure,"install_audio_producer_repair_lifecycle",side_effect=lambda:calls.append("audio-producer-repair")) as audio_producer_repair, \
              patch.object(runtime_closure,"install_canonical_v4_bundle_post_manifest",side_effect=lambda:calls.append("bundle")) as bundle, \
              patch.object(runtime_closure,"install_release_transaction_guard",side_effect=lambda:calls.append("release")) as release, \
              patch.object(runtime_closure,"install_telemetry_reliability_binding",side_effect=lambda:calls.append("telemetry")) as telemetry, \
@@ -76,14 +77,15 @@ class RuntimeClosureTests(unittest.TestCase):
              patch.object(runtime_closure,"install_final_qc_observer_durability",side_effect=lambda:calls.append("observer-durability")) as observer_durability, \
              patch.object(runtime_closure,"install_audio_semantic_final_gate",side_effect=lambda modules:calls.append("audio-semantic-final")) as semantic_final, \
              patch.object(runtime_closure,"install_producer_handoff_contract",side_effect=lambda modules:calls.append("producer-handoff")) as producer_handoff, \
+             patch.object(runtime_closure,"install_audio_producer_final_certificate",side_effect=lambda modules:calls.append("audio-producer-final")) as audio_producer_final, \
              patch.object(runtime_closure,"production_entrypoint_modules",return_value=[object()]) as modules, \
              patch.object(runtime_closure,"canonical_runtime_enabled",return_value=False):
             runtime_closure.install_runtime_closure()
         planning.assert_called_once_with(); media_port.assert_called_once_with(); core.assert_called_once_with(); semantic_binding.assert_called_once_with()
         audio.assert_called_once_with(); cinematic.assert_called_once_with(runtime_closure.CinematicInstallPhase.INNER)
-        render_port.assert_called_once_with(); music.assert_called_once_with(); bundle.assert_called_once_with(); release.assert_called_once_with(); telemetry.assert_called_once_with()
+        render_port.assert_called_once_with(); music.assert_called_once_with(); audio_producer_repair.assert_called_once_with(); bundle.assert_called_once_with(); release.assert_called_once_with(); telemetry.assert_called_once_with()
         observer_cache_trust.assert_called_once_with(); observer_durability.assert_called_once_with()
-        modules.assert_called(); semantic_final.assert_called_once(); producer_handoff.assert_called_once()
+        modules.assert_called(); semantic_final.assert_called_once(); producer_handoff.assert_called_once(); audio_producer_final.assert_called_once()
         expected = [
             "planning",
             "media-port",
@@ -93,6 +95,7 @@ class RuntimeClosureTests(unittest.TestCase):
             "cinematic-inner",
             "render-port",
             "music",
+            "audio-producer-repair",
             "bundle",
             "release",
             "telemetry",
@@ -100,6 +103,7 @@ class RuntimeClosureTests(unittest.TestCase):
             "observer-durability",
             "audio-semantic-final",
             "producer-handoff",
+            "audio-producer-final",
         ]
         self.assertEqual(calls, expected)
 
