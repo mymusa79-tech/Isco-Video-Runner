@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from functools import wraps
 from pathlib import Path
 from typing import Any
 
-from scripts.audio_producer_repair_lifecycle import REPORT_FILENAME
+from scripts.audio_producer_repair_lifecycle import REPORT_FILENAME, SCHEMA_VERSION
 
 
 class AudioProducerCertificateError(RuntimeError):
@@ -22,12 +23,25 @@ def _read_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def require_audio_producer_certificate(output_dir: Path) -> dict[str, Any]:
-    """Prove capability-owned audio pre-gate ran before independent Final Master QC."""
+    """Prove the accepted audio pre-gate receipt belongs to current final.mp4 bytes."""
     root = Path(output_dir)
+    final_path = root / "final.mp4"
+    if not final_path.is_file() or final_path.stat().st_size <= 1024:
+        raise AudioProducerCertificateError("audio_producer_certificate_final_missing")
     plan = _read_json(root / "plan.json")
     quality = _read_json(root / "quality-final.json")
     report = _read_json(root / REPORT_FILENAME)
+    if int(report.get("schema_version") or 0) != SCHEMA_VERSION:
+        raise AudioProducerCertificateError("audio_producer_certificate_schema_mismatch")
     receipts = [item for item in list(report.get("receipts") or []) if isinstance(item, dict)]
     by_phase = {str(item.get("phase") or ""): item for item in receipts}
 
@@ -38,6 +52,13 @@ def require_audio_producer_certificate(output_dir: Path) -> dict[str, Any]:
     if not isinstance(receipt, dict):
         raise AudioProducerCertificateError(
             f"audio_producer_certificate_missing_phase:{required_phase}"
+        )
+
+    receipt_sha = str(receipt.get("final_sha256") or "").strip().lower()
+    current_sha = _sha256_file(final_path)
+    if len(receipt_sha) != 64 or receipt_sha != current_sha:
+        raise AudioProducerCertificateError(
+            "audio_producer_certificate_final_identity_mismatch"
         )
 
     decision = str(receipt.get("decision") or "").strip()
@@ -59,17 +80,21 @@ def require_audio_producer_certificate(output_dir: Path) -> dict[str, Any]:
 
     print(
         "Audio Producer certificate PASS: "
-        f"phase={required_phase} decision={decision} repair_attempts={attempts}"
+        f"phase={required_phase} decision={decision} repair_attempts={attempts} final_sha256={current_sha[:12]}"
     )
     return receipt
 
 
 def install_audio_producer_final_certificate(production_modules: list[Any]) -> None:
-    """Place Producer audio evidence outside Producer Handoff and before Final Master QC."""
+    """Place exact-byte Producer audio evidence outside the independent final gates."""
     installed = 0
+    already_installed = 0
     for production in production_modules:
         current = getattr(production, "run_final_master_qc", None)
-        if not callable(current) or getattr(current, "_isco_audio_producer_final_certificate", False):
+        if not callable(current):
+            continue
+        if getattr(current, "_isco_audio_producer_final_certificate", False):
+            already_installed += 1
             continue
 
         def make_wrapper(original):
@@ -84,5 +109,5 @@ def install_audio_producer_final_certificate(production_modules: list[Any]) -> N
 
         production.run_final_master_qc = make_wrapper(current)
         installed += 1
-    if installed <= 0:
+    if installed <= 0 and already_installed <= 0:
         raise AudioProducerCertificateError("audio_producer_final_qc_binding_missing")
