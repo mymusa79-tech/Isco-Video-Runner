@@ -26,7 +26,9 @@ import re
 from dataclasses import dataclass
 
 from scripts import planning_capacity_headroom as short_headroom
-from scripts import planning_checkpoint_state_core as durable_state
+# Run130 contract: compatibility/storage core is reachable only through this wrapper,
+# which binds the single runtime-phase authority before exporting core functions.
+from scripts import planning_checkpoint_state as durable_state
 from scripts import planning_stage_contract as stage_contract
 from scripts import run124_terminal_provider_recovery as long_recovery
 
@@ -108,16 +110,6 @@ def _fresh_stage_cache() -> dict:
     return {"version": STAGE_CACHE_LOGICAL_VERSION, "responses": {}}
 
 
-def _checkpoint_error(detail: str, exc: BaseException | None = None):
-    error = stage_contract.PlanningStageError(
-        stage_contract.PlanningErrorCode.CHECKPOINT_INVALID,
-        detail,
-    )
-    if exc is None:
-        return error
-    return error.with_traceback(exc.__traceback__)
-
-
 def _load_stage_checkpoint() -> dict:
     """Read durable-v1 bytes and expose Stage-v2 authority only when explicitly marked."""
     path = stage_contract.router.CACHE_PATH
@@ -181,8 +173,9 @@ def _save_stage_checkpoint(checkpoint: dict) -> None:
         "responses": dict(checkpoint["responses"]),
     }
     try:
-        # Compose against the real authenticated durable normalizer before bytes are
-        # written. This makes a future schema drift fail at the writer, not at run-end.
+        # Compose against the real authenticated durable normalizer through the Run130
+        # authority wrapper before bytes are written. A future drift therefore fails at
+        # the writer, not only during run-end persistence.
         durable_state._normalize_checkpoint(payload)
     except (OSError, ValueError) as exc:
         raise stage_contract.PlanningStageError(
