@@ -280,7 +280,10 @@ class PlanningStageContractTests(unittest.TestCase):
         self.assertEqual(result, _script(ids))
         checkpoint = json.loads(self.cache_path.read_text(encoding="utf-8"))
         self.assertIsInstance(checkpoint["responses"][key].get("payload"), dict)
-        self.assertEqual(checkpoint["version"], 2)
+        # Run170 composes Stage logical cache v2 inside Run132's authenticated durable
+        # document v1; the logical Stage version is carried by an explicit marker.
+        self.assertEqual(checkpoint["version"], 1)
+        self.assertEqual(checkpoint["stage_contract_cache_version"], 2)
 
     def test_admission_blocks_known_oversize_before_any_provider_call(self) -> None:
         base = contract.script_stage_spec("full_script", ["s1"])
