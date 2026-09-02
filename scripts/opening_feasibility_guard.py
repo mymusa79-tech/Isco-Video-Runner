@@ -512,6 +512,22 @@ def _install_selection_wrappers() -> None:
                 kwargs["alternate_query_fn"] = _bounded_alternate_query_fn(
                     alternate_query_fn, intended_visual
                 )
+            # PR #506's diagnostic proved this real gap: a real run fetched 80 raw
+            # candidates (Visual candidate pool fetched: total=80) but only 7 ever got a
+            # local preflight look before the section failed as "no safe/relevant
+            # candidate". visual_selection.select_with_recovery()'s own default caps the
+            # *primary* attempt's local-inspection ceiling at
+            # max_candidates_per_attempt + 4 regardless of max_total_inspections, but the
+            # *alternate* attempt's ceiling is max_total_inspections minus whatever the
+            # primary attempt already inspected - uncapped by that same formula. Raising
+            # only max_total_inspections therefore gives the alternate-query recovery
+            # phase far more of an already-fetched, already-paid-for-in-bandwidth pool to
+            # locally check for free, with zero change to max_candidates_per_attempt -
+            # the real, paid Vision-call ceiling for this path stays exactly what it is
+            # today, consistent with this codebase's own conservative convention for that
+            # number (see short_cinematic_director.py's even smaller value).
+            if "max_total_inspections" not in kwargs:
+                kwargs["max_total_inspections"] = STOCK_CANDIDATE_POOL
             result = current_single_select(*args, **kwargs)
             return _enforce_truthful_visual_outcome(result, scope="single")
 

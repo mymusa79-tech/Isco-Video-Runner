@@ -472,5 +472,83 @@ class CandidatePoolSizeDiagnosticsTests(unittest.TestCase):
         self.assertIn("total=2", printed)
 
 
+class SingleSelectAlternatePhaseHeadroomTests(unittest.TestCase):
+    """Regression for the real production gap PR #506's diagnostic exposed: a section
+    fetched 80 raw stock candidates but visual_selection.select_with_recovery()'s own
+    defaults let only 7 of them ever get a local preflight look before giving up. This
+    proves, against the real Engine function (not a stub), that raising only
+    max_total_inspections - never max_candidates_per_attempt, the real paid Vision-call
+    ceiling - lets the bounded alternate-query recovery phase reach a passing candidate
+    deep in an already-fetched pool that the unmodified defaults cannot reach."""
+
+    _QUARANTINE = {
+        "status": "block",
+        "review_origin": "local_stock_media_preflight",
+        "vision_review_performed": False,
+        "local_media_rejection": "qr_code_detected",
+    }
+
+    def _flaky_audit(self, *, candidate, **kwargs):
+        if candidate["id"] == 125:
+            return {"status": "pass", "relevance": 0.9, "visual_quality": 0.9}
+        return dict(self._QUARANTINE)
+
+    def test_unmodified_defaults_cannot_reach_a_deep_passing_alternate_candidate(self) -> None:
+        from isco_video_agent.visual_selection import select_with_recovery as real_select_with_recovery
+
+        primary = {"pexels": [_candidate(i, 15) for i in range(1, 11)]}
+        alternate = {"pexels": [_candidate(100 + i, 15) for i in range(1, 31)]}
+
+        result = real_select_with_recovery(
+            primary,
+            portrait=False, target_seconds=15.0, narration_context="ctx",
+            intended_visual="a calm person at a desk", audit_fn=self._flaky_audit,
+            cache=VisualCandidateCache(excluded_assets={}),
+            alternate_query_fn=lambda: "alt", alternate_search_fn=lambda _q: alternate,
+        )
+        self.assertEqual(result.status, "failed")
+
+    def test_generous_max_total_inspections_reaches_the_same_candidate(self) -> None:
+        from isco_video_agent.visual_selection import select_with_recovery as real_select_with_recovery
+
+        primary = {"pexels": [_candidate(i, 15) for i in range(1, 11)]}
+        alternate = {"pexels": [_candidate(100 + i, 15) for i in range(1, 31)]}
+
+        result = real_select_with_recovery(
+            primary,
+            portrait=False, target_seconds=15.0, narration_context="ctx",
+            intended_visual="a calm person at a desk", audit_fn=self._flaky_audit,
+            cache=VisualCandidateCache(excluded_assets={}),
+            alternate_query_fn=lambda: "alt", alternate_search_fn=lambda _q: alternate,
+            max_total_inspections=STOCK_CANDIDATE_POOL,
+        )
+        self.assertEqual(result.status, "selected")
+
+    def test_single_select_path_installs_the_generous_default(self) -> None:
+        captured: dict = {}
+
+        def fake_select_with_recovery(candidates_by_provider, **kwargs):
+            captured.update(kwargs)
+            return VisualSelectionResult(
+                status="failed", chosen=None, reviewed=[], used_alternate_query=False, alternate_query=None,
+            )
+
+        original = orchestrator.select_with_recovery
+        orchestrator.select_with_recovery = fake_select_with_recovery
+        try:
+            _install_selection_wrappers()
+            orchestrator.select_with_recovery(
+                {"pexels": [_candidate(1, 15)]},
+                portrait=False, target_seconds=15.0, narration_context="ctx",
+                intended_visual="a calm person at a desk",
+                audit_fn=lambda **kw: {"status": "pass"},
+                cache=VisualCandidateCache(excluded_assets={}),
+            )
+        finally:
+            orchestrator.select_with_recovery = original
+        self.assertEqual(captured.get("max_total_inspections"), STOCK_CANDIDATE_POOL)
+        self.assertNotIn("max_candidates_per_attempt", captured)
+
+
 if __name__ == "__main__":
     unittest.main()
