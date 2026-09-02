@@ -25,6 +25,10 @@ from scripts.planning_runtime_contract import (
     install_post_runtime_planning_contracts,
 )
 from scripts.product_proof_plan import was_fallback_used
+from scripts.production_failure_diagnostics import (
+    is_tone_semantic_failure,
+    write_production_failure_diagnostics,
+)
 from scripts.production_model_contract import install_production_model_contract
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
 from scripts.task_level_planner_router import get_used_providers, write_planning_telemetry
@@ -66,12 +70,11 @@ def _latest_output_dir() -> Path | None:
 
 
 def _attach_failure_tone_diagnostics(out_dir: Path) -> None:
-    """Copy the full tone audit into quality-precheck.json on failed production.
+    """Copy the full tone audit only for an actual semantic tone-gate failure.
 
-    The Engine already writes tone-quality-audit.json before enforcing the tone gate,
-    but V4's failure artifact uploads quality-precheck.json and not that sidecar. Keep
-    this observational only: enrich the already-uploaded precheck when both files are
-    valid JSON objects, and never mask the original production exception.
+    Callers must first prove the current exception is the explicit enforcing tone gate.
+    Generic visual/provider/schema failures use production-failure-diagnostics.json and
+    never get mislabeled as tone failures.
     """
     precheck_path = out_dir / "quality-precheck.json"
     tone_path = out_dir / "tone-quality-audit.json"
@@ -84,9 +87,21 @@ def _attach_failure_tone_diagnostics(out_dir: Path) -> None:
             return
         precheck["tone_quality_audit"] = tone
         precheck_path.write_text(json.dumps(precheck, ensure_ascii=False, indent=2), encoding="utf-8")
-        print("Tone failure diagnostics attached to quality-precheck.json")
+        print("Semantic tone-gate diagnostics attached to quality-precheck.json")
     except Exception as exc:
-        print(f"Tone failure diagnostics attachment skipped ({type(exc).__name__})")
+        print(f"Tone-gate diagnostics attachment skipped ({type(exc).__name__})")
+
+
+def _write_failure_diagnostics_safely(out_dir: Path, exc: Exception) -> None:
+    """Diagnostics must never mask the production failure they describe."""
+    try:
+        path = write_production_failure_diagnostics(out_dir, exc)
+        print(f"Production failure diagnostics attached: {path.name}")
+    except Exception as diagnostic_exc:
+        print(
+            "Production failure diagnostics write skipped "
+            f"({type(diagnostic_exc).__name__}); preserving original failure"
+        )
 
 
 def _attach_voice_audit_to_telemetry(telemetry_path: Path, output_dir: Path) -> None:
@@ -267,10 +282,12 @@ def main() -> None:
                 do_research=True,
                 ledger=ledger,
             )
-    except Exception:
+    except Exception as exc:
         out_dir = _latest_output_dir()
         if out_dir is not None:
-            _attach_failure_tone_diagnostics(out_dir)
+            _write_failure_diagnostics_safely(out_dir, exc)
+            if is_tone_semantic_failure(exc):
+                _attach_failure_tone_diagnostics(out_dir)
             ledger.write(out_dir / "ai-budget.json")
             telemetry_path = write_planning_telemetry(out_dir)
             _attach_voice_audit_to_telemetry(telemetry_path, out_dir)
@@ -293,10 +310,11 @@ def main() -> None:
             pixabay=pixabay,
             ledger=ledger,
         )
-    except Exception:
+    except Exception as exc:
         # Preserve the enforcing failure as the workflow result, but flush the exact
         # same-ledger evidence and Voice Observer diagnostics first. No manifest,
         # analytics, release, or accepted publication evidence is written on failure.
+        _write_failure_diagnostics_safely(out, exc)
         ledger.write(out / "ai-budget.json")
         telemetry_path = write_planning_telemetry(out)
         _attach_voice_audit_to_telemetry(telemetry_path, out)
