@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts import planning_capacity_headroom as short_headroom
-from scripts import planning_checkpoint_state_core as durable_state
+from scripts import planning_checkpoint_state as durable_state
 from scripts import planning_contract_composition_closure as closure
 from scripts import planning_stage_contract as stage_contract
 from scripts import run124_terminal_provider_recovery as long_recovery
@@ -117,7 +117,8 @@ class Run170PlanningContractCompositionTests(unittest.TestCase):
                 self.assertEqual(disk[closure.STAGE_CACHE_VERSION_FIELD], 2)
                 self.assertEqual(disk["responses"], {key: response})
 
-                # The exact authenticated durable owner must accept what Stage writes.
+                # The exact authenticated durable owner must accept what Stage writes,
+                # through the Run130 public authority wrapper (never the core directly).
                 normalized = durable_state._normalize_checkpoint(disk)
                 self.assertEqual(normalized["version"], 1)
                 self.assertEqual(normalized["responses"], {key: response})
