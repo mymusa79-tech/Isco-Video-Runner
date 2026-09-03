@@ -2,17 +2,28 @@ from __future__ import annotations
 
 import json
 import os
+import queue
+import subprocess
+import threading
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
 
 import isco_video_agent.orchestrator as orchestrator
 
 from scripts import telegram_operations_ui as ops_ui
 
 # Stage order follows the real pipeline: planning, TTS, visual clip prep, final mux.
-# Best-effort only - a Telegram outage must never fail real production, so every
-# function here swallows its own notification exceptions.
+# Best-effort only - a Telegram/GitHub observability outage must never fail real
+# production, so every external progress operation is isolated from production.
 _STAGES = list(ops_ui.STAGE_LABELS.items())
+_STAGE_KEYS = [key for key, _ in _STAGES]
+_PROGRESS_REF = "control-plane-state"
+_PROGRESS_RELATIVE_PATH = Path("state") / "production-progress.json"
+_PROGRESS_QUEUE: queue.Queue[dict[str, object]] = queue.Queue(maxsize=8)
+_PROGRESS_WORKER_LOCK = threading.Lock()
+_progress_worker_started = False
 
 _state = {
     "token": "",
@@ -80,6 +91,129 @@ def _render() -> str:
     )
 
 
+def _progress_reply_markup() -> str:
+    stage = str(_state.get("current_stage") or "")
+    callback = f"cmd:progress_stage:{stage}" if stage in _STAGE_KEYS else "cmd:status"
+    return json.dumps(
+        {
+            "inline_keyboard": [
+                [{"text": "🔄 تفاصيل المرحلة", "callback_data": callback}],
+            ]
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _sanitized_progress_payload(stage: str) -> dict[str, object]:
+    completed = [key for key in _STAGE_KEYS if key in _state["completed"]]
+    return {
+        "schema_version": 1,
+        "run_id": str(_state.get("run_id") or ""),
+        "run_number": str(_state.get("run_number") or ""),
+        "workflow_path": ".github/workflows/produce-resilient-v4.yml",
+        "status": "running",
+        "stage": stage,
+        "completed_stages": completed,
+        "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
+def _run_git(root: Path, *args: str, timeout: int = 12) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _write_progress_file(root: Path, payload: dict[str, object]) -> Path:
+    target = root / _PROGRESS_RELATIVE_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(target)
+    return target
+
+
+def _commit_progress_payload(payload: dict[str, object]) -> None:
+    workspace = (os.environ.get("GITHUB_WORKSPACE") or "").strip()
+    run_id = str(payload.get("run_id") or "").strip()
+    if not workspace or not run_id.isdigit():
+        return
+    root = Path(workspace) / "control-writer"
+    if not root.is_dir():
+        return
+
+    try:
+        # Fast path: the dedicated state checkout normally remains current throughout
+        # one production run. A bounded repair path handles a concurrent control-plane
+        # state commit without ever making observability authoritative for production.
+        for attempt in range(2):
+            if attempt:
+                fetched = _run_git(root, "fetch", "--quiet", "origin", _PROGRESS_REF)
+                if fetched.returncode != 0:
+                    break
+                reset = _run_git(root, "reset", "--hard", f"origin/{_PROGRESS_REF}")
+                if reset.returncode != 0:
+                    break
+
+            target = _write_progress_file(root, payload)
+            added = _run_git(root, "add", target.relative_to(root).as_posix())
+            if added.returncode != 0:
+                break
+            changed = _run_git(root, "diff", "--cached", "--quiet")
+            if changed.returncode == 0:
+                return
+            stage = str(payload.get("stage") or "unknown")
+            committed = _run_git(root, "commit", "-m", f"state: production progress {stage} run {run_id}")
+            if committed.returncode != 0:
+                break
+            pushed = _run_git(root, "push", "origin", f"HEAD:{_PROGRESS_REF}", timeout=15)
+            if pushed.returncode == 0:
+                print(f"Telegram live progress persisted: stage={stage} run_id={run_id}")
+                return
+        print(f"Telegram live progress persistence skipped: run_id={run_id}")
+    except Exception as exc:
+        print(f"Telegram live progress persistence skipped ({type(exc).__name__})")
+
+
+def _progress_worker() -> None:
+    while True:
+        payload = _PROGRESS_QUEUE.get()
+        try:
+            _commit_progress_payload(payload)
+        finally:
+            _PROGRESS_QUEUE.task_done()
+
+
+def _ensure_progress_worker() -> None:
+    global _progress_worker_started
+    if _progress_worker_started:
+        return
+    with _PROGRESS_WORKER_LOCK:
+        if _progress_worker_started:
+            return
+        thread = threading.Thread(target=_progress_worker, name="telegram-live-progress", daemon=True)
+        thread.start()
+        _progress_worker_started = True
+
+
+def _enqueue_progress_snapshot(stage: str) -> None:
+    workspace = (os.environ.get("GITHUB_WORKSPACE") or "").strip()
+    run_id = str(_state.get("run_id") or "").strip()
+    if not workspace or not run_id.isdigit() or not (Path(workspace) / "control-writer").is_dir():
+        return
+    _ensure_progress_worker()
+    try:
+        _PROGRESS_QUEUE.put_nowait(_sanitized_progress_payload(stage))
+    except queue.Full:
+        print("Telegram live progress queue full; skipping one observability snapshot")
+
+
 def start_progress() -> None:
     """Create the single lifecycle message later edited by stages and terminal notify."""
     token = _read_secret_file_optional("TELEGRAM_BOT_TOKEN_FILE")
@@ -92,11 +226,15 @@ def start_progress() -> None:
     _state["run_id"] = os.environ.get("GITHUB_RUN_ID", "").strip()
     _state["run_number"] = os.environ.get("GITHUB_RUN_NUMBER", "").strip()
     _state["topic"] = _read_request_topic_optional()
+    _enqueue_progress_snapshot("starting")
     if not token or not chat_id:
         print("Telegram progress tracking disabled: bot token or chat id not configured")
         return
     print("Telegram notify: sendMessage (initial lifecycle message)")
-    resp = _telegram_request("sendMessage", {"chat_id": chat_id, "text": _render()})
+    resp = _telegram_request(
+        "sendMessage",
+        {"chat_id": chat_id, "text": _render(), "reply_markup": _progress_reply_markup()},
+    )
     if not resp:
         return
     message_id = resp["result"]["message_id"]
@@ -112,9 +250,12 @@ def start_progress() -> None:
 
 
 def update_stage(stage: str) -> None:
-    if _state["message_id"] is None:
+    if stage not in _STAGE_KEYS:
         return
     _state["current_stage"] = stage
+    _enqueue_progress_snapshot(stage)
+    if _state["message_id"] is None:
+        return
     print(f"Telegram notify: editMessageText (stage={stage})")
     _telegram_request(
         "editMessageText",
@@ -122,12 +263,15 @@ def update_stage(stage: str) -> None:
             "chat_id": _state["chat_id"],
             "message_id": _state["message_id"],
             "text": _render(),
+            "reply_markup": _progress_reply_markup(),
         },
     )
 
 
 def mark_stage_done(stage: str) -> None:
     _state["completed"].add(stage)
+    if stage == "mux" and _state.get("current_stage") == "mux":
+        _enqueue_progress_snapshot("mux")
 
 
 def is_authorized_user(user_id: int) -> bool:
