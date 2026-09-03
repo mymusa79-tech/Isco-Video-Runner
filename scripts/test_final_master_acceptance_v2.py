@@ -4,8 +4,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from scripts import final_master_qc
+from scripts import final_master_acceptance_v2 as acceptance
 from scripts.final_master_acceptance_v2 import (
     FinalMasterAcceptanceError,
     require_certified_final_video,
@@ -27,21 +28,48 @@ def _root(td: str, *, fmt: str = "film") -> Path:
     return root
 
 
-def _seal(root: Path, *, fmt: str = "film") -> dict:
-    return seal_final_master_acceptance(
-        root,
-        {
-            "schema_version": final_master_qc.SCHEMA_VERSION,
-            "status": "pass",
-            "production_stage": "post_render_pre_gold_acceptance",
-            "format": fmt,
-            "full_decode_ok": True,
-            "full_decode_timed_out": False,
-            "final_media_mutated": False,
-            "blocking_findings": [],
-        },
-        policy_fingerprint=final_master_qc.qc_policy_fingerprint(),
-    )
+def _probe(*, profile: str = "High") -> dict:
+    return {
+        "streams": [
+            {
+                "codec_type": "video",
+                "codec_name": "h264",
+                "profile": profile,
+                "field_order": "progressive",
+                "color_transfer": "bt709",
+                "color_primaries": "bt709",
+                "color_space": "bt709",
+            },
+            {
+                "codec_type": "audio",
+                "codec_name": "aac",
+                "profile": "LC",
+                "sample_rate": "48000",
+                "channels": 2,
+            },
+        ]
+    }
+
+
+def _core_pass(fmt: str) -> dict:
+    return {
+        "schema_version": 1,
+        "status": "pass",
+        "production_stage": "post_render_pre_gold_acceptance",
+        "format": fmt,
+        "full_decode_ok": True,
+        "full_decode_timed_out": False,
+        "final_media_mutated": False,
+        "blocking_findings": [],
+        "warnings": [],
+    }
+
+
+def _seal(root: Path, *, fmt: str = "film", profile: str = "High") -> dict:
+    with patch.object(acceptance, "probe", return_value=_probe(profile=profile)), patch.object(
+        acceptance, "_mp4_fast_start", return_value=(True, ["ftyp", "moov", "mdat"])
+    ):
+        return seal_final_master_acceptance(root, _core_pass(fmt))
 
 
 class FinalMasterAcceptanceV2Tests(unittest.TestCase):
@@ -51,10 +79,12 @@ class FinalMasterAcceptanceV2Tests(unittest.TestCase):
             sealed = _seal(root)
             accepted = require_final_master_acceptance(root)
             self.assertEqual(accepted, sealed)
-            self.assertEqual(
-                accepted["acceptance_contract"]["contract_id"],
-                "final.master.acceptance.v2",
-            )
+            contract = accepted["acceptance_contract"]
+            self.assertEqual(contract["contract_id"], "final.master.acceptance.v2")
+            self.assertEqual(contract["decision"], "pass")
+            self.assertEqual(len(contract["qc_policy_fingerprint"]), 64)
+            self.assertEqual(len(contract["implementation_sha256"]), 64)
+            self.assertEqual(accepted["upload_conformance"]["decision"], "pass")
 
     def test_final_byte_mutation_blocks(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -100,6 +130,15 @@ class FinalMasterAcceptanceV2Tests(unittest.TestCase):
                 self.skipTest("symlinks unavailable")
             with self.assertRaisesRegex(FinalMasterAcceptanceError, "invalid_file"):
                 _seal(root)
+
+    def test_explicit_upload_metadata_conflict_blocks_after_core_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = _root(td)
+            with self.assertRaisesRegex(FinalMasterAcceptanceError, "upload_conformance_block"):
+                _seal(root, profile="Main")
+            document = json.loads((root / "final-master-qc.json").read_text(encoding="utf-8"))
+            self.assertEqual(document["status"], "block")
+            self.assertIn("unexpected_h264_profile=Main", document["blocking_findings"])
 
     def test_staged_renamed_short_accepts_same_bytes_and_rejects_tamper(self) -> None:
         with tempfile.TemporaryDirectory() as td:
