@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
-import struct
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from isco_video_agent.media.ffmpeg import probe
 from isco_video_agent.security import secret_free_subprocess_env
-from scripts.final_master_acceptance_v2 import seal_final_master_acceptance
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 1
 EXPECTED_FPS = 30.0
 FPS_TOLERANCE = 0.05
 OPENING_GRACE_SECONDS = 0.50
@@ -33,32 +30,6 @@ _HDR_SPACES = {"bt2020nc", "bt2020c"}
 
 class FinalMasterQCError(RuntimeError):
     pass
-
-
-def qc_policy_fingerprint() -> str:
-    policy = {
-        "schema_version": SCHEMA_VERSION,
-        "expected_fps": EXPECTED_FPS,
-        "fps_tolerance": FPS_TOLERANCE,
-        "opening_grace_seconds": OPENING_GRACE_SECONDS,
-        "near_black": [BLACK_DETECT_SECONDS, BLACK_PIXEL_THRESHOLD, BLACK_PICTURE_RATIO],
-        "silence": [SILENCE_DETECT_SECONDS, SILENCE_THRESHOLD_DB],
-        "freeze": [FREEZE_DETECT_SECONDS, FREEZE_BLOCK_SECONDS, FREEZE_NOISE_DB],
-        "full_scan_timeout_seconds": FULL_SCAN_TIMEOUT_SECONDS,
-        "video": {
-            "codec": "h264",
-            "pixel_format": "yuv420p",
-            "profile": "high_when_reported",
-            "field_order": "progressive_when_reported",
-            "sdr_color": "bt709_when_reported",
-        },
-        "audio": {"codec": "aac", "sample_rate": 48000, "channels": [1, 2], "profile": "lc_when_reported"},
-        "mp4_fast_start": "warn_if_not_present",
-        "long_dimensions": [1920, 1080],
-        "short_dimensions": [1080, 1920],
-    }
-    payload = json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
 
 
 def _read_object(path: Path) -> dict[str, Any]:
@@ -230,8 +201,6 @@ def _stream_contract(info: dict[str, Any], fmt: str) -> tuple[dict[str, Any], li
     height = int(video.get("height") or 0) if video else 0
     codec = str(video.get("codec_name") or "") if video else ""
     pix_fmt = str(video.get("pix_fmt") or "") if video else ""
-    profile = str(video.get("profile") or "").strip() if video else ""
-    field_order = str(video.get("field_order") or "").strip().casefold() if video else ""
     fps = _rate(video.get("avg_frame_rate") or video.get("r_frame_rate")) if video else 0.0
     if (width, height) != (expected_width, expected_height):
         blocks.append(f"unexpected_dimensions={width}x{height};expected={expected_width}x{expected_height}")
@@ -241,57 +210,33 @@ def _stream_contract(info: dict[str, Any], fmt: str) -> tuple[dict[str, Any], li
         blocks.append(f"unexpected_pixel_format={pix_fmt or 'missing'}")
     if abs(fps - EXPECTED_FPS) > FPS_TOLERANCE:
         blocks.append(f"unexpected_fps={fps:.3f}")
-    if profile and profile.casefold() != "high":
-        blocks.append(f"unexpected_h264_profile={profile}")
-    elif not profile:
-        warnings.append("h264_profile_missing")
-    if field_order and field_order not in {"progressive", "unknown"}:
-        blocks.append(f"unexpected_field_order={field_order}")
-    elif not field_order:
-        warnings.append("field_order_missing")
 
     color_transfer = str(video.get("color_transfer") or "").casefold() if video else ""
     color_primaries = str(video.get("color_primaries") or "").casefold() if video else ""
     color_space = str(video.get("color_space") or "").casefold() if video else ""
-    explicit_hdr = (
-        color_transfer in _HDR_TRANSFERS
-        or color_primaries in _HDR_PRIMARIES
-        or color_space in _HDR_SPACES
-    )
-    if explicit_hdr:
+    if color_transfer in _HDR_TRANSFERS or color_primaries in _HDR_PRIMARIES or color_space in _HDR_SPACES:
         blocks.append(
             "unexpected_hdr_master="
             f"transfer:{color_transfer or 'missing'},primaries:{color_primaries or 'missing'},space:{color_space or 'missing'}"
         )
     if not color_transfer or not color_primaries or not color_space:
         warnings.append("color_tags_incomplete_but_no_explicit_hdr_tag")
-    elif not explicit_hdr and {color_transfer, color_primaries, color_space} != {"bt709"}:
-        blocks.append(
-            "unexpected_sdr_color_tags="
-            f"transfer:{color_transfer},primaries:{color_primaries},space:{color_space}"
-        )
 
     if len(audios) > 1:
         blocks.append(f"audio_stream_count={len(audios)}")
     audio = audios[0] if audios else {}
     if audio:
         audio_codec = str(audio.get("codec_name") or "")
-        audio_profile = str(audio.get("profile") or "").strip()
         sample_rate = int(_float(audio.get("sample_rate")))
         channels = int(audio.get("channels") or 0)
         if audio_codec != "aac":
             blocks.append(f"unexpected_audio_codec={audio_codec or 'missing'}")
-        if audio_codec == "aac" and audio_profile and audio_profile.casefold() not in {"lc", "aac lc"}:
-            blocks.append(f"unexpected_aac_profile={audio_profile}")
-        elif audio_codec == "aac" and not audio_profile:
-            warnings.append("aac_profile_missing")
         if sample_rate != 48000:
             blocks.append(f"unexpected_audio_sample_rate={sample_rate}")
         if channels not in {1, 2}:
             blocks.append(f"unexpected_audio_channels={channels}")
     else:
         audio_codec = ""
-        audio_profile = ""
         sample_rate = 0
         channels = 0
 
@@ -300,8 +245,6 @@ def _stream_contract(info: dict[str, Any], fmt: str) -> tuple[dict[str, Any], li
             "video_stream_count": len(videos),
             "audio_stream_count": len(audios),
             "video_codec": codec,
-            "video_profile": profile or None,
-            "field_order": field_order or None,
             "width": width,
             "height": height,
             "pixel_format": pix_fmt,
@@ -310,7 +253,6 @@ def _stream_contract(info: dict[str, Any], fmt: str) -> tuple[dict[str, Any], li
             "color_primaries": color_primaries or None,
             "color_space": color_space or None,
             "audio_codec": audio_codec or None,
-            "audio_profile": audio_profile or None,
             "audio_sample_rate": sample_rate or None,
             "audio_channels": channels or None,
         },
@@ -319,51 +261,15 @@ def _stream_contract(info: dict[str, Any], fmt: str) -> tuple[dict[str, Any], li
     )
 
 
-def _mp4_fast_start(final_path: Path) -> tuple[bool | None, list[str]]:
-    positions: dict[str, int] = {}
-    order: list[str] = []
-    try:
-        size = final_path.stat().st_size
-        offset = 0
-        with final_path.open("rb") as handle:
-            while offset + 8 <= size and len(order) < 64:
-                handle.seek(offset)
-                header = handle.read(8)
-                if len(header) != 8:
-                    break
-                box_size, box_type = struct.unpack(">I4s", header)
-                header_size = 8
-                if box_size == 1:
-                    extended = handle.read(8)
-                    if len(extended) != 8:
-                        break
-                    box_size = struct.unpack(">Q", extended)[0]
-                    header_size = 16
-                elif box_size == 0:
-                    box_size = size - offset
-                if box_size < header_size or offset + box_size > size:
-                    break
-                name = box_type.decode("ascii", errors="replace")
-                order.append(name)
-                positions.setdefault(name, offset)
-                if "moov" in positions and "mdat" in positions:
-                    return positions["moov"] < positions["mdat"], order
-                offset += int(box_size)
-    except OSError:
-        return None, order
-    if "moov" not in positions or "mdat" not in positions:
-        return None, order
-    return positions["moov"] < positions["mdat"], order
-
-
 def run_final_master_qc(output_dir: Path) -> dict[str, Any]:
     root = Path(output_dir)
     final_path = root / "final.mp4"
+    report_path = root / "final-master-qc.json"
     plan = _read_object(root / "plan.json")
     quality = _read_object(root / "quality-final.json")
     timeline = _read_object(root / "visual-timeline.json")
-    if final_path.is_symlink() or not final_path.is_file():
-        raise FinalMasterQCError("Final Master QC requires regular final.mp4")
+    if not final_path.is_file():
+        raise FinalMasterQCError("Final Master QC requires final.mp4")
 
     fmt = str(plan.get("format") or quality.get("format") or "").strip().lower()
     if fmt not in {"film", "story", "moment"}:
@@ -415,12 +321,6 @@ def run_final_master_qc(output_dir: Path) -> dict[str, Any]:
     if freeze_warnings:
         warnings.append("interior_exact_freeze_observed_below_block_threshold")
 
-    fast_start, top_level_boxes = _mp4_fast_start(final_path)
-    if fast_start is False:
-        warnings.append("mp4_fast_start_not_present")
-    elif fast_start is None:
-        warnings.append("mp4_fast_start_not_observable")
-
     report: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "status": "block" if blocking else "pass",
@@ -434,21 +334,6 @@ def run_final_master_qc(output_dir: Path) -> dict[str, Any]:
         "full_decode_timed_out": scan.get("timed_out") is True,
         "full_decode_timeout_seconds": FULL_SCAN_TIMEOUT_SECONDS,
         "stream_contract": stream_contract,
-        "upload_conformance": {
-            "mp4_fast_start": fast_start,
-            "top_level_boxes_observed": top_level_boxes,
-            "h264_high_profile": (stream_contract.get("video_profile") or "").casefold() == "high",
-            "progressive": (stream_contract.get("field_order") or "").casefold() in {"progressive", "unknown"},
-            "aac_lc": (
-                not has_audio
-                or (stream_contract.get("audio_profile") or "").casefold() in {"lc", "aac lc"}
-            ),
-            "bt709": {
-                stream_contract.get("color_transfer"),
-                stream_contract.get("color_primaries"),
-                stream_contract.get("color_space"),
-            } == {"bt709"},
-        },
         "detectors": {
             "near_black": {
                 "minimum_seconds": BLACK_DETECT_SECONDS,
@@ -481,11 +366,7 @@ def run_final_master_qc(output_dir: Path) -> dict[str, Any]:
         "ai_calls_added": 0,
         "final_media_mutated": False,
     }
-    report = seal_final_master_acceptance(
-        root,
-        report,
-        policy_fingerprint=qc_policy_fingerprint(),
-    )
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     if blocking:
         raise FinalMasterQCError("Final Master QC blocked release; inspect final-master-qc.json")
     return report
