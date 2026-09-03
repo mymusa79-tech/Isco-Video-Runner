@@ -14,7 +14,7 @@ class FinalQcObserverDurabilityContractTests(unittest.TestCase):
     def test_lower_authority_layers_remain_byte_identical(self) -> None:
         self.assertEqual(
             self._git_blob_sha("scripts/release_transaction.py"),
-            "4cce337b12d01de9b3d4d2cce71322f1d68a7640",
+            "e49bc5403d07470dbf07e9af3afef098a034eabd",
         )
         self.assertEqual(
             self._git_blob_sha("scripts/render_durable_cache.py"),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,17 @@ def _read_object(path: Path, *, required: bool = True) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise RuntimeError(f"Delivery source must be an object: {path.name}")
     return data
+
+
+def _file_identity(path: Path) -> dict[str, Any]:
+    path = Path(path)
+    if not path.is_file() or path.is_symlink():
+        raise RuntimeError(f"Missing or unsafe delivery evidence: {path.name}")
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {"file": path.name, "size": path.stat().st_size, "sha256": digest.hexdigest()}
 
 
 def _request_summary(request: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -67,8 +79,11 @@ def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> li
         except Exception as exc:
             raise RuntimeError("Unified delivery sibling Short failed exact Final Master acceptance") from exc
         normalized_item = dict(item)
+        qc_identity = _file_identity(qc_path)
         normalized_item["final_master_qc"] = {
             "file": qc_name,
+            "file_size": qc_identity["size"],
+            "file_sha256": qc_identity["sha256"],
             "evidence": qc,
         }
         normalized.append(normalized_item)
@@ -118,6 +133,8 @@ def build_delivery_manifest(
         final_master_qc = require_final_master_acceptance(root)
     except Exception as exc:
         raise RuntimeError("Unified delivery requires exact current Final Master acceptance") from exc
+    final_master_qc_path = root / "final-master-qc.json"
+    final_master_qc_identity = _file_identity(final_master_qc_path)
 
     fmt = str(plan.get("format") or quality.get("format") or production.get("format") or "")
     kind = "short" if fmt == "moment" or str(release_tag or "").startswith("short-") else "long"
@@ -142,14 +159,19 @@ def build_delivery_manifest(
             )
 
     shorts = _validate_short_assets(root, list(short_assets or []))
-    release_url = f"https://github.com/{repository}/releases/tag/{release_tag}" if release_tag else None
+    candidate_tag = str(release_tag or "").strip() or None
+    candidate_url = f"https://github.com/{repository}/releases/tag/{candidate_tag}" if candidate_tag else None
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "delivery_kind": "long_plus_shorts" if kind == "long" and shorts else kind,
         "topic": str(plan.get("topic") or ""),
-        "release_state": "released" if release_tag else "staged",
-        "release_tag": release_tag,
-        "delivery_url": release_url,
+        # Immutable reviewed staging evidence. A tag is only a candidate namespace
+        # until release_transaction proves the published remote bytes.
+        "release_state": "staged",
+        "release_tag": None,
+        "delivery_url": None,
+        "release_candidate_tag": candidate_tag,
+        "release_candidate_url": candidate_url,
         "primary_video": "final.mp4",
         "primary_video_sha256": final_master_qc["acceptance_contract"]["sources"]["final"]["sha256"],
         "title_thumbnail_pairs": title_thumbnail_pairs,
@@ -165,6 +187,8 @@ def build_delivery_manifest(
         "gold_report": "gold-enforce-report.json" if (root / "gold-enforce-report.json").is_file() else None,
         "final_master_qc": {
             "file": "final-master-qc.json",
+            "file_size": final_master_qc_identity["size"],
+            "file_sha256": final_master_qc_identity["sha256"],
             "evidence": final_master_qc,
         },
         "canonical_bundle_request": "canonical-bundle-request.json" if (root / "canonical-bundle-request.json").is_file() else None,
@@ -205,12 +229,25 @@ def write_delivery_manifest(
 
 
 def finalize_release_manifest(path: Path, *, repository: str, release_tag: str) -> Path:
+    """Legacy call seam: bind only the requested Release candidate, never Released truth.
+
+    The V4 workflow historically calls this before ``release_transaction.py``. Keeping
+    that call compatible is useful, but it must not be able to make reviewed local
+    evidence outrun the GitHub Release boundary. Terminal ``released`` truth belongs to
+    the completed Release transaction / durable receipt and delivery.acceptance.v2.
+    """
     manifest = _read_object(path)
-    if manifest.get("release_state") not in {"staged", "released"}:
-        raise RuntimeError("Unsupported delivery release state")
-    manifest["release_state"] = "released"
-    manifest["release_tag"] = release_tag
-    manifest["delivery_url"] = f"https://github.com/{repository}/releases/tag/{release_tag}"
+    if manifest.get("release_state") != "staged":
+        raise RuntimeError("Delivery manifest must remain staged before the Release transaction")
+    tag = str(release_tag or "").strip()
+    repo = str(repository or "").strip()
+    if not tag or not repo:
+        raise RuntimeError("Release candidate identity is incomplete")
+    manifest["release_state"] = "staged"
+    manifest["release_tag"] = None
+    manifest["delivery_url"] = None
+    manifest["release_candidate_tag"] = tag
+    manifest["release_candidate_url"] = f"https://github.com/{repo}/releases/tag/{tag}"
     manifest["publication_performed"] = False
     Path(path).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return Path(path)
