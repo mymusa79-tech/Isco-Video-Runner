@@ -9,6 +9,10 @@ from unittest.mock import patch
 
 from isco_video_agent.brief_approval_binding import attach_approval_binding
 from scripts import canonical_v4_bundle as bundle
+from scripts.packaging_delivery_contract import (
+    gold_packaging_acceptance_sha256,
+    seal_gold_packaging_acceptance,
+)
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -56,32 +60,19 @@ def _make_long_root(root: Path) -> tuple[dict, str]:
     _write_json(root / "quality-final.json", {"format": "film", "duration_ok": True, "audio_ok": True})
     _write_json(root / "factuality-audit.json", {"status": "pass"})
     _write_json(root / "quality-precheck.json", {"research_source_count": 3})
-    _write_json(
-        root / "final-critic.json",
-        {
+    critic = {
+        "status": "pass",
+        "hard_blocks": [],
+        "model_review": {
             "status": "pass",
-            "hard_blocks": [],
-            "model_review": {
-                "status": "pass",
-                "critical_issues": [],
-                "opening_strength": 0.92,
-                "narrative_progression": 0.91,
-                "human_feel": 0.93,
-                "cultural_fit": 0.96,
-            },
+            "critical_issues": [],
+            "opening_strength": 0.92,
+            "narrative_progression": 0.91,
+            "human_feel": 0.93,
+            "cultural_fit": 0.96,
         },
-    )
-    _write_json(
-        root / "gold-enforce-report.json",
-        {
-            "phase": "4",
-            "mode": "enforce",
-            "release_authority": "gold",
-            "single_render": True,
-            "gold": {"accepted": True},
-            "same_render": {"artifact_divergence": False},
-        },
-    )
+    }
+    _write_json(root / "final-critic.json", critic)
     candidates = []
     thumb_rights = []
     for i in range(1, 4):
@@ -108,6 +99,28 @@ def _make_long_root(root: Path) -> tuple[dict, str]:
     _write_json(root / "thumbnail-plan.json", {"status": "ready", "candidates": candidates})
     _write_json(root / "rights-manifest.json", {"thumbnails": thumb_rights, "visuals": [{"provider": "pexels"}]})
     _write_json(root / "production-manifest.json", {"format": "film"})
+    acceptance = seal_gold_packaging_acceptance(root, critic=critic)
+    _write_json(
+        root / "gold-enforce-report.json",
+        {
+            "phase": "4",
+            "mode": "enforce",
+            "release_authority": "gold",
+            "single_render": True,
+            "gold": {"accepted": True},
+            "same_render": {"artifact_divergence": False},
+            "packaging_acceptance": {
+                "required": True,
+                "present": True,
+                "contract_id": acceptance["contract_id"],
+                "profile": acceptance["profile"],
+                "certificate_file": "gold-packaging-acceptance.json",
+                "certificate_sha256": gold_packaging_acceptance_sha256(root),
+                "embedded_certificate": acceptance,
+                "sealed_before_state_acceptance": True,
+            },
+        },
+    )
 
     brief = attach_approval_binding(
         {
