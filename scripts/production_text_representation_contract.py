@@ -80,6 +80,9 @@ _MICRO_STORY_MARKERS = (
     "كانت",
     "كان",
 )
+_MICRO_STORY_NEGATION_RE = re.compile(
+    r"(?:^|[\s،؛:,.!?؟])(?:لا|لم|لن|ليس|بلا|دون|من\s+دون)\s*$"
+)
 
 _REPAIRABLE_SHORT_REPRESENTATION_ISSUES = frozenset(
     {
@@ -120,6 +123,33 @@ class ProductionTextRepresentationContractError(RuntimeError):
 
 def _clean(value: object) -> str:
     return " ".join(str(value or "").strip().split())
+
+
+def _bounded_marker_pattern(marker: str) -> re.Pattern[str]:
+    """Match a semantic marker as Arabic words, never as an arbitrary substring.
+
+    Arabic conjunctions are commonly attached to the following word (``ولكن`` / ``فلكن``),
+    so a leading waw/fa is accepted while the marker itself still has hard word edges.
+    This prevents false positives such as treating ``بل`` inside ``بلا`` as a reframe.
+    """
+    parts = _clean(marker).split()
+    body = r"\s+".join(re.escape(part) for part in parts)
+    return re.compile(r"(?<!\w)(?:[وف])?" + body + r"(?!\w)")
+
+
+def _contains_bounded_marker(text: str, markers: tuple[str, ...]) -> bool:
+    return any(_bounded_marker_pattern(marker).search(text) for marker in markers)
+
+
+def _contains_positive_micro_story_marker(text: str) -> bool:
+    """Require an actual visible story marker, not an explicitly negated mention of one."""
+    for marker in _MICRO_STORY_MARKERS:
+        for match in _bounded_marker_pattern(marker).finditer(text):
+            prefix = text[max(0, match.start() - 24) : match.start()]
+            if _MICRO_STORY_NEGATION_RE.search(prefix):
+                continue
+            return True
+    return False
 
 
 def _format(plan: object) -> str:
@@ -189,10 +219,10 @@ def short_representation_issues(plan: object) -> list[str]:
         if dash_turns < 2 and arabic_quote_turns < 2:
             return ["inner_dialogue_missing_visible_exchange"]
     elif template == "why_reframe":
-        if not any(marker in visible for marker in _WHY_REFRAME_MARKERS):
+        if not _contains_bounded_marker(visible, _WHY_REFRAME_MARKERS):
             return ["why_reframe_missing_explicit_contrast_or_reframe"]
     elif template == "micro_story":
-        if not any(marker in visible for marker in _MICRO_STORY_MARKERS):
+        if not _contains_positive_micro_story_marker(visible):
             return ["micro_story_missing_concrete_event_progression"]
     elif template == "quote_reflection":
         has_arabic_quote = "«" in visible and "»" in visible
