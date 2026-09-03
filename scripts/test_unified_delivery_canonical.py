@@ -110,7 +110,7 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
             })
         return shorts
 
-    def test_long_plus_shorts_manifest_is_one_manual_nonpartial_bundle(self) -> None:
+    def test_long_plus_shorts_manifest_is_one_manual_nonpartial_staged_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = self._root(td)
             shorts = self._shorts(root)
@@ -121,6 +121,9 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
             }
             manifest = build_delivery_manifest(root, repository="mymusa79-tech/Isco-Video-Runner", release_tag=None, request=request, short_assets=shorts)
             self.assertEqual(manifest["delivery_kind"], "long_plus_shorts")
+            self.assertEqual(manifest["release_state"], "staged")
+            self.assertIsNone(manifest["release_tag"])
+            self.assertIsNone(manifest["delivery_url"])
             self.assertEqual(manifest["short_count"], 2)
             self.assertEqual(len(manifest["title_thumbnail_pairs"]), 3)
             self.assertEqual(manifest["youtube_publish_mode"], "manual_in_youtube_studio")
@@ -178,14 +181,24 @@ class UnifiedDeliveryCanonicalTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 build_delivery_manifest(root, repository="r/x", release_tag=None, request=request, short_assets=shorts)
 
-    def test_release_finalization_never_claims_youtube_publication(self) -> None:
+    def test_legacy_release_finalization_is_candidate_binding_only(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "delivery-manifest.json"
-            _json(path, {"release_state": "staged", "youtube_publish_mode": "manual_in_youtube_studio", "publication_performed": False})
+            _json(path, {
+                "schema_version": 2,
+                "release_state": "staged",
+                "release_tag": None,
+                "delivery_url": None,
+                "youtube_publish_mode": "manual_in_youtube_studio",
+                "publication_performed": False,
+            })
             finalize_release_manifest(path, repository="mymusa79-tech/Isco-Video-Runner", release_tag="video-123")
             manifest = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(manifest["release_state"], "released")
-            self.assertEqual(manifest["release_tag"], "video-123")
+            self.assertEqual(manifest["release_state"], "staged")
+            self.assertIsNone(manifest["release_tag"])
+            self.assertIsNone(manifest["delivery_url"])
+            self.assertEqual(manifest["release_candidate_tag"], "video-123")
+            self.assertTrue(manifest["release_candidate_url"].endswith("/releases/tag/video-123"))
             self.assertFalse(manifest["publication_performed"])
             self.assertEqual(manifest["youtube_publish_mode"], "manual_in_youtube_studio")
 

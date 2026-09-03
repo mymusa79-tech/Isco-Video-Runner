@@ -275,9 +275,6 @@ def _delete_draft_best_effort(tag: str, repository: str, *, run: Run) -> None:
     except Exception:
         return
     if payload.get("isDraft") is True:
-        # Deleting only the Release can leave an orphan Git tag. That tag blocks the
-        # next production preflight and can also make a later --target silently lose
-        # authority. Always request release + tag cleanup together.
         _run(
             ["gh", "release", "delete", tag, "--repo", repository, "--yes", "--cleanup-tag"],
             run=run,
@@ -325,6 +322,19 @@ def publish_release_transaction(
     if any(item.name == RECEIPT_NAME for item in assets):
         raise RuntimeError("release assets contain reserved durable receipt basename")
 
+    # P6/F25: if a canonical Delivery manifest is part of the release payload, prove
+    # its staged authority and exact Final Master video+QC identities before the first
+    # GitHub Release probe/create/upload side effect. Terminal publication truth still
+    # belongs to this transaction's durable receipt + complete journal.
+    delivery_assets = [item for item in assets if item.name == "delivery-manifest.json"]
+    if delivery_assets:
+        from scripts.delivery_acceptance_v2 import validate_staged_delivery_assets
+
+        validate_staged_delivery_assets(
+            delivery_manifest=delivery_assets[0],
+            assets=assets,
+        )
+
     payload_expected = _expected_assets(assets)
     receipt_path = _write_release_receipt(
         Path(journal).with_name(RECEIPT_NAME),
@@ -358,13 +368,6 @@ def publish_release_transaction(
 
     record("validated")
 
-    # Re-runs must be idempotent after the release boundary. A published Release is
-    # accepted only when it carries a self-verifying receipt bound to this exact Runner
-    # SHA and its current remote asset set exactly matches that receipt. Current video
-    # bytes must also match, while retry-variant telemetry metadata may differ safely.
-    # Any conflict is immutable evidence and is never overwritten. A same-SHA draft is
-    # non-public partial state, so remove it (including its Git tag) and rebuild from
-    # current reviewed local assets rather than incrementally mutating a partial upload.
     try:
         existing = _view_if_exists(tag, repository, run=run)
     except Exception as exc:
@@ -422,8 +425,6 @@ def publish_release_transaction(
             run=run,
         )
     except subprocess.TimeoutExpired as exc:
-        # The remote side may have created a draft before the client timed out. A later
-        # retry can now reconcile that same-SHA draft instead of deadlocking forever.
         record("create_failed", detail="draft release creation timed out")
         raise RuntimeError("draft GitHub Release creation timed out") from exc
     if create.returncode != 0:

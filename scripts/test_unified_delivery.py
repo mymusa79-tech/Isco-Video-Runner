@@ -110,7 +110,7 @@ class UnifiedDeliveryTests(unittest.TestCase):
             )
         return assets
 
-    def test_long_delivery_exposes_one_release_url_and_three_pairs(self):
+    def test_release_tag_is_candidate_only_before_remote_transaction(self):
         manifest = build_delivery_manifest(
             self._root(), repository="mymusa79-tech/Isco-Video-Runner", release_tag="video-123"
         )
@@ -119,7 +119,11 @@ class UnifiedDeliveryTests(unittest.TestCase):
         self.assertEqual(manifest["title_thumbnail_pairs"][0]["slot"], "A")
         self.assertEqual(manifest["youtube_publish_mode"], "manual_in_youtube_studio")
         self.assertFalse(manifest["publication_performed"])
-        self.assertTrue(manifest["delivery_url"].endswith("/releases/tag/video-123"))
+        self.assertEqual(manifest["release_state"], "staged")
+        self.assertIsNone(manifest["release_tag"])
+        self.assertIsNone(manifest["delivery_url"])
+        self.assertEqual(manifest["release_candidate_tag"], "video-123")
+        self.assertTrue(manifest["release_candidate_url"].endswith("/releases/tag/video-123"))
         self.assertEqual(manifest["final_master_qc"]["evidence"]["status"], "pass")
         self.assertEqual(
             manifest["primary_video_sha256"],
@@ -174,7 +178,7 @@ class UnifiedDeliveryTests(unittest.TestCase):
                 self._root(candidates=2), repository="mymusa79-tech/Isco-Video-Runner", release_tag="video-124"
             )
 
-    def test_short_delivery_allows_its_own_release(self):
+    def test_short_delivery_allows_its_own_release_candidate(self):
         manifest = build_delivery_manifest(
             self._root(fmt="moment", candidates=0),
             repository="mymusa79-tech/Isco-Video-Runner",
@@ -183,8 +187,10 @@ class UnifiedDeliveryTests(unittest.TestCase):
         self.assertEqual(manifest["delivery_kind"], "short")
         self.assertEqual(manifest["title_thumbnail_pairs"], [])
         self.assertFalse(manifest["publication_performed"])
+        self.assertEqual(manifest["release_state"], "staged")
+        self.assertEqual(manifest["release_candidate_tag"], "short-88")
 
-    def test_finalize_release_manifest_only_attaches_release_link_not_youtube_publish(self):
+    def test_legacy_finalize_call_only_binds_candidate_not_released_truth(self):
         root = self._root()
         path = write_delivery_manifest(
             root,
@@ -193,8 +199,11 @@ class UnifiedDeliveryTests(unittest.TestCase):
         )
         finalize_release_manifest(path, repository="mymusa79-tech/Isco-Video-Runner", release_tag="video-999")
         manifest = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["release_state"], "released")
-        self.assertTrue(manifest["delivery_url"].endswith("/video-999"))
+        self.assertEqual(manifest["release_state"], "staged")
+        self.assertIsNone(manifest["release_tag"])
+        self.assertIsNone(manifest["delivery_url"])
+        self.assertEqual(manifest["release_candidate_tag"], "video-999")
+        self.assertTrue(manifest["release_candidate_url"].endswith("/video-999"))
         self.assertFalse(manifest["publication_performed"])
         self.assertEqual(manifest["youtube_publish_mode"], "manual_in_youtube_studio")
 
