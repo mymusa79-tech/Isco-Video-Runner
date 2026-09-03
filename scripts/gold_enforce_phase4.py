@@ -21,6 +21,12 @@ from scripts.final_master_acceptance_v2 import require_final_master_acceptance
 from scripts.gold_final_critic_text_fallback import gold_final_critic_text_fallback
 from scripts.gold_shadow_phase2a import _fingerprint, _provider_attempt_total
 from scripts.gold_thumbnail_budget import build_budgeted_thumbnail_package
+from scripts.packaging_delivery_contract import (
+    ACCEPTANCE_FILENAME,
+    CONTRACT_ID as GOLD_PACKAGING_CONTRACT_ID,
+    gold_packaging_acceptance_sha256,
+    seal_gold_packaging_acceptance,
+)
 from scripts.run123_budget_closure import enforcing_final_critic_as_p0
 
 
@@ -85,7 +91,7 @@ def run_gold_enforce_phase4(
     ledger: BudgetLedger,
     pixabay: str | None = None,
 ) -> tuple[object, dict, dict]:
-    """Enforce Gold over the same exact P4-certified render when P4 evidence is present."""
+    """Enforce Gold over the same exact P4-certified render and seal the reviewed package."""
     output_dir = Path(output_dir)
     final_path = output_dir / "final.mp4"
     if not final_path.is_file():
@@ -109,6 +115,7 @@ def run_gold_enforce_phase4(
         "observation_status": "not_configured",
     }
     critic_box: dict[str, dict] = {}
+    packaging_acceptance_box: dict[str, dict] = {}
 
     def budgeted_builder(**kwargs):
         return build_budgeted_thumbnail_package(**kwargs, ledger=ledger, pixabay_key=pixabay)
@@ -126,6 +133,10 @@ def run_gold_enforce_phase4(
         critic_box["critic"] = critic
         if _sha256_file(final_path) != final_sha_before:
             raise RuntimeError("Gold enforcement detected final.mp4 mutation before state acceptance")
+        packaging_acceptance_box["acceptance"] = seal_gold_packaging_acceptance(
+            output_dir,
+            critic=critic,
+        )
         return critic
 
     error: Exception | None = None
@@ -163,8 +174,15 @@ def run_gold_enforce_phase4(
             thumbnail_plan = raw_thumbnail
     except Exception:
         pass
+    packaging_acceptance = packaging_acceptance_box.get("acceptance")
+    certificate_sha256 = None
+    if isinstance(packaging_acceptance, dict) and (output_dir / ACCEPTANCE_FILENAME).is_file():
+        try:
+            certificate_sha256 = gold_packaging_acceptance_sha256(output_dir)
+        except Exception:
+            certificate_sha256 = None
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "phase": "4",
         "mode": "enforce",
         "release_authority": "gold",
@@ -183,6 +201,24 @@ def run_gold_enforce_phase4(
                 if isinstance(p4_acceptance, dict)
                 else None
             ),
+        },
+        "packaging_acceptance": {
+            "required": True,
+            "present": isinstance(packaging_acceptance, dict),
+            "contract_id": (
+                packaging_acceptance.get("contract_id")
+                if isinstance(packaging_acceptance, dict)
+                else GOLD_PACKAGING_CONTRACT_ID
+            ),
+            "profile": (
+                packaging_acceptance.get("profile")
+                if isinstance(packaging_acceptance, dict)
+                else None
+            ),
+            "certificate_file": ACCEPTANCE_FILENAME,
+            "certificate_sha256": certificate_sha256,
+            "embedded_certificate": packaging_acceptance if isinstance(packaging_acceptance, dict) else None,
+            "sealed_before_state_acceptance": True,
         },
         "same_render": {
             "path": str(final_path),
@@ -228,4 +264,6 @@ def run_gold_enforce_phase4(
         raise error
     if final_sha_after != final_sha_before:
         raise RuntimeError("Gold enforcement final.mp4 invariant failed after acceptance")
+    if certificate_sha256 is None:
+        raise RuntimeError("Gold enforcement packaging acceptance certificate is missing after acceptance")
     return plan, critic, report

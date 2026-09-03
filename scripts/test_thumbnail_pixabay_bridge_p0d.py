@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import inspect
+import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import isco_video_agent.thumbnail as thumbnail
 from isco_video_agent.ai_budget import BudgetLedger
@@ -36,6 +37,11 @@ class GoldPixabayBridgeTests(unittest.TestCase):
             (root / "final.mp4").write_bytes(b"same-render")
             fake_plan = type("Plan", (), {"format": "film"})()
             ledger = BudgetLedger("film", enforce=True)
+            acceptance = {
+                "contract_id": "gold.packaging.acceptance.v2",
+                "profile": "long_title_thumbnail_hypothesis_set",
+                "decision": "pass",
+            }
 
             def fake_finalize(**kwargs):
                 package = kwargs["build_thumbnail_package"](
@@ -46,13 +52,28 @@ class GoldPixabayBridgeTests(unittest.TestCase):
                     model="model",
                 )
                 self.assertEqual(package["status"], "ready")
-                return fake_plan, {"status": "pass", "model_review": {"summary": "ok"}}
+                critic = kwargs["run_final_critic"]()
+                return fake_plan, critic
+
+            def fake_seal(output_dir: Path, **_kwargs):
+                (Path(output_dir) / phase4.ACCEPTANCE_FILENAME).write_text(
+                    json.dumps(acceptance), encoding="utf-8"
+                )
+                return acceptance
 
             with patch.object(phase4, "_output_key", return_value="output/test/final.mp4"), patch.object(
                 phase4, "finalize_gold_output", side_effect=fake_finalize
             ), patch.object(
                 phase4, "build_budgeted_thumbnail_package", return_value={"status": "ready"}
-            ) as builder:
+            ) as builder, patch.object(
+                phase4,
+                "_run_final_critic",
+                return_value={"status": "pass", "hard_blocks": [], "model_review": {"summary": "ok"}},
+            ), patch.object(
+                phase4, "seal_gold_packaging_acceptance", side_effect=fake_seal
+            ), patch.object(
+                phase4, "gold_packaging_acceptance_sha256", return_value="a" * 64
+            ):
                 plan, critic, report = phase4.run_gold_enforce_phase4(
                     output_dir=root,
                     gemini="g",
@@ -64,6 +85,7 @@ class GoldPixabayBridgeTests(unittest.TestCase):
             self.assertIs(plan, fake_plan)
             self.assertEqual(critic["status"], "pass")
             self.assertTrue(report["gold"]["accepted"])
+            self.assertEqual(report["packaging_acceptance"]["certificate_sha256"], "a" * 64)
             self.assertEqual(builder.call_args.kwargs["pixabay_key"], "x")
             self.assertIs(builder.call_args.kwargs["ledger"], ledger)
 

@@ -193,6 +193,12 @@
       "historical_runs":["51-70","81-112","129-132","161-166"],
       "required_phases":["P6"],
       "contracts":["scripts.test_delivery_acceptance_v2","scripts.test_release_transaction","scripts.test_release_terminal_provenance_closure","scripts.test_f25_family_contract"]
+    },
+    {
+      "id":"F26","name":"gold_packaging_exact_artifact_long_short_delivery",
+      "historical_runs":["51-70","81-112","161-166"],
+      "required_phases":["P5","P6"],
+      "contracts":["scripts.test_gold_enforce_phase4","scripts.test_packaging_artifact_delivery_p0e","scripts.test_unified_delivery_canonical"]
     }
   ]
 }
