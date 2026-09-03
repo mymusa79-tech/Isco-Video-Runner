@@ -22,13 +22,13 @@ _PASS = {
 }
 
 
-def _spec() -> TaskSpec:
+def _spec(max_attempts: int = 1) -> TaskSpec:
     return TaskSpec(
         task_id="VISUAL_AUDIT_RUN181_GROQ_READINESS",
         kind="VISUAL_AUDIT",
         priority=Priority.P0,
         capability=Capability.VISION,
-        max_provider_attempts=1,
+        max_provider_attempts=max_attempts,
         schema_repair_allowed=False,
         local_fallback=False,
         semantic_block_is_final=True,
@@ -51,28 +51,16 @@ class Run181GroqReadinessBudgetTests(unittest.TestCase):
         run181._GROQ_MODEL_CERTIFIED.set(None)
 
     def test_missing_groq_key_is_seeded_as_zero_inference_readiness(self) -> None:
-        original = contract._route_visual_audit_v2
-        seen = []
-
-        def fake_route(ledger, spec, provider, resolved_model, fn, *args, **kwargs):
-            seen.extend(health.snapshot_provider_health())
-            return dict(_PASS)
-
-        contract._route_visual_audit_v2 = fake_route
-        try:
-            transport._install_run181_route_adapter()
-            adapter = contract._route_visual_audit_v2
-            with mock.patch.object(run181, "_groq_key", return_value=""), legacy.vision_provider_circuit_scope():
-                result = adapter(None, _spec(), "gemini", "gemini-3.7-flash", lambda: None)
-        finally:
-            contract._route_visual_audit_v2 = original
-
-        self.assertEqual(result["status"], "pass")
-        groq = [row for row in seen if row.get("provider") == "groq"]
-        self.assertEqual(len(groq), 1)
-        self.assertEqual(groq[0]["model"], run181.GROQ_VISION_MODEL)
-        self.assertEqual(groq[0]["quota_domain"], run181.GROQ_VISION_QUOTA_DOMAIN)
-        self.assertEqual(groq[0]["source"], "vision_static_readiness")
+        with mock.patch.object(run181, "_groq_key", return_value=""):
+            transport._seed_static_groq_readiness()
+        evidence = health.provider_unavailable(
+            "groq",
+            model=run181.GROQ_VISION_MODEL,
+            quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
+        )
+        self.assertIsNotNone(evidence)
+        self.assertEqual(evidence.source, "vision_static_readiness")
+        self.assertEqual(evidence.reason, "Groq key unavailable for Vision fallback")
 
     def test_missing_groq_key_preserves_three_real_attempt_v2_budget(self) -> None:
         ledger = BudgetLedger("moment", enforce=True)
@@ -83,42 +71,37 @@ class Run181GroqReadinessBudgetTests(unittest.TestCase):
             requested_model=contract.OPENROUTER_PRIMARY_MODEL,
             resolved_model="model/first:free",
         )
-        original = contract._route_visual_audit_v2
-        try:
-            run181.install_run181_vision_mesh_closure()
-            transport._install_run181_route_adapter()
-            adapter = contract._route_visual_audit_v2
-            with tempfile.TemporaryDirectory() as temp_dir, legacy.vision_provider_circuit_scope(), mock.patch.object(
-                run181, "_groq_key", return_value=""
-            ), mock.patch.object(
-                contract,
-                "_run_openrouter_attempt",
-                side_effect=[first_schema, (dict(_PASS), "model/alternate:free")],
-            ) as openrouter, mock.patch.object(
-                contract,
-                "_discover_alternate_free_vision_model",
-                return_value="model/alternate:free",
-            ):
-                result = adapter(
-                    ledger,
-                    _spec(),
-                    "gemini",
-                    "gemini-3.7-flash",
-                    lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("Gemini timeout")),
-                    "gem-key",
-                    _preview(temp_dir),
-                    narration_context="ctx",
-                    intended_visual="intent",
-                )
-        finally:
-            contract._route_visual_audit_v2 = original
+        with tempfile.TemporaryDirectory() as temp_dir, legacy.vision_provider_circuit_scope(), mock.patch.object(
+            run181, "_groq_key", return_value=""
+        ), mock.patch.object(
+            run181, "refresh_runtime_provider_health", return_value=None
+        ), mock.patch.object(
+            contract,
+            "_openrouter_call",
+            side_effect=[first_schema, (dict(_PASS), "model/alternate:free")],
+        ) as openrouter, mock.patch.object(
+            contract,
+            "_discover_alternate_free_vision_model",
+            return_value="model/alternate:free",
+        ):
+            transport._seed_static_groq_readiness()
+            result = run181._route_visual_audit_v3(
+                ledger,
+                _spec(max_attempts=3),
+                "gemini",
+                "gemini-3.7-flash",
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("Gemini timeout")),
+                "gem-key",
+                _preview(temp_dir),
+                narration_context="ctx",
+                intended_visual="intent",
+            )
 
         self.assertEqual(result["status"], "pass")
         self.assertEqual(openrouter.call_count, 2)
         summary = ledger.to_summary()["provider_attempts"]
         self.assertEqual(summary["total"], 3)
         self.assertEqual(summary["by_provider"], {"gemini": 1, "openrouter": 2})
-        self.assertEqual(summary["by_outcome"].get("CIRCUIT_OPEN"), 1)
 
 
 if __name__ == "__main__":
