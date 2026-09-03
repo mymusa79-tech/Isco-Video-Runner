@@ -5,20 +5,36 @@ from __future__ import annotations
 The Stage Contract remains the semantic/schema/provider-policy owner. This module owns
 only the raw HTTP boundary and the narrow composition adapters required by Run181:
 - bind shared provider-health evidence to the existing run-scoped Vision circuit;
-- preserve V2's TaskSpec provider-attempt budget when the V3 provider order is used.
+- preserve V2's TaskSpec provider-attempt budget when the V3 provider order is used;
+- read Planning/Text-Audit evidence only from the current orchestrator.produce() call.
 
 No visual semantic rule, threshold, Security gate, candidate cap, or total inference
 attempt ceiling is changed here.
 """
 
+from contextvars import ContextVar
 from dataclasses import replace
 from functools import wraps
 
 import requests
 
+import isco_video_agent.orchestrator as orchestrator
 from scripts import provider_health_registry as health
 from scripts import run181_vision_mesh_closure as run181
+from scripts import task_level_planner_router as planner_router
+from scripts import text_audit_provider_mesh as text_mesh
 from scripts import vision_stage_contract_v2 as contract
+
+
+# Planning and Text-Audit telemetry are intentionally append-only diagnostic logs.
+# They may outlive one produce() call in a long-lived Python process. Capture their
+# lengths at the real production-run boundary and import only the tail created by that
+# run; otherwise an old Gemini 429 could poison a later healthy run after Health itself
+# was correctly reset.
+_RUN181_TELEMETRY_BASELINE: ContextVar[tuple[int, int] | None] = ContextVar(
+    "isco_run181_telemetry_baseline",
+    default=None,
+)
 
 
 def _classify_http(status: int, message: str) -> contract.VisionErrorCode:
@@ -88,6 +104,55 @@ def _install_transport_boundary() -> None:
     contract._openrouter_call = guarded_openrouter_call
 
 
+def _current_run_telemetry() -> tuple[list[dict], list[dict]]:
+    planning = list(planner_router.get_telemetry())
+    audit_routes = list(getattr(text_mesh, "_AUDIT_ROUTE_TELEMETRY", ()) or ())
+    baseline = _RUN181_TELEMETRY_BASELINE.get()
+    if baseline is None:
+        # Direct unit/diagnostic calls outside produce() retain the old observability
+        # behavior. Live Production always installs the explicit produce() baseline.
+        return planning, audit_routes
+    planning_start, audit_start = baseline
+    planning_start = min(max(0, int(planning_start)), len(planning))
+    audit_start = min(max(0, int(audit_start)), len(audit_routes))
+    return planning[planning_start:], audit_routes[audit_start:]
+
+
+def _scoped_refresh_runtime_provider_health() -> None:
+    """Import hard evidence from this production run only, without replacing owners."""
+    health.load_preflight_provider_health()
+    planning_attempts, audit_routes = _current_run_telemetry()
+
+    for attempt in planning_attempts:
+        if not isinstance(attempt, dict):
+            continue
+        if str(attempt.get("provider") or "").strip().lower() != "gemini":
+            continue
+        result = str(attempt.get("result") or "").strip().lower()
+        detail = attempt.get("error_detail")
+        if result == "429" or run181._quota_or_rate_failure(detail):
+            run181._publish_gemini_generation_unavailable(
+                detail or result,
+                source="planning_telemetry",
+            )
+
+    for route in audit_routes:
+        if not isinstance(route, dict):
+            continue
+        for attempt in list(route.get("attempts") or ()):
+            if not isinstance(attempt, dict):
+                continue
+            if str(attempt.get("provider") or "").strip().lower() != "gemini":
+                continue
+            outcome = str(attempt.get("outcome") or "").strip().lower()
+            detail = attempt.get("detail")
+            if outcome == "rate_limited" or run181._quota_or_rate_failure(detail):
+                run181._publish_gemini_generation_unavailable(
+                    detail or outcome,
+                    source="text_audit_telemetry",
+                )
+
+
 def _install_run181_route_adapter() -> None:
     """Preserve V2 budget ownership while binding V3 health to the same run scope."""
     current = contract._route_visual_audit_v2
@@ -145,9 +210,40 @@ def _install_run181_route_adapter() -> None:
     contract._route_visual_audit_v2 = run181_route_adapter
 
 
+def _install_run181_produce_telemetry_scope() -> None:
+    """Capture append-only telemetry cursors at the actual production-run boundary."""
+    current = orchestrator.produce
+    if getattr(current, "_isco_run181_telemetry_scope", False):
+        return
+
+    @wraps(current)
+    def scoped_produce(*args, **kwargs):
+        existing = _RUN181_TELEMETRY_BASELINE.get()
+        if existing is not None:
+            return current(*args, **kwargs)
+        baseline = (
+            len(planner_router.get_telemetry()),
+            len(getattr(text_mesh, "_AUDIT_ROUTE_TELEMETRY", ()) or ()),
+        )
+        token = _RUN181_TELEMETRY_BASELINE.set(baseline)
+        try:
+            return current(*args, **kwargs)
+        finally:
+            _RUN181_TELEMETRY_BASELINE.reset(token)
+
+    scoped_produce._isco_run181_telemetry_scope = True
+    scoped_produce._isco_run181_original = current
+    orchestrator.produce = scoped_produce
+
+
 def install_vision_provider_reliability() -> None:
-    """Install HTTP hardening, Run181 mesh, budget adapter, then shared Stage owner."""
+    """Install HTTP hardening, Run181 mesh, budgets, and run-scoped evidence."""
     _install_transport_boundary()
     run181.install_run181_vision_mesh_closure()
     _install_run181_route_adapter()
     contract.install_vision_provider_reliability()
+    # Replace only our newly-added Run181 aggregation function; Planning/Text Audit
+    # recorders remain untouched. The source telemetry view is now cursor-scoped to the
+    # surrounding produce() call.
+    run181.refresh_runtime_provider_health = _scoped_refresh_runtime_provider_health
+    _install_run181_produce_telemetry_scope()
