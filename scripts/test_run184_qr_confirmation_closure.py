@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from scripts import run184_qr_confirmation_closure as qr
+from scripts import run184_qr_confirmation_runtime as qr_runtime
 
 
 class _Firewall:
@@ -67,9 +68,9 @@ class Run184QRConfirmationClosureTests(unittest.TestCase):
     def test_zbar_valid_decode_is_immediate_hard_block(self) -> None:
         frames = (Path("a.pgm"), Path("b.pgm"), Path("c.pgm"))
         firewall = _Firewall({})
-        with patch.object(qr, "_zbar_decodes_qr", side_effect=[False, True, False]), self.assertRaisesRegex(
-            RuntimeError, "qr_code_detected"
-        ):
+        with patch.object(qr, "_zbar_decodes_qr", side_effect=[False, True, False]), patch.object(
+            qr, "_zxing_qr_status", return_value="none"
+        ), self.assertRaisesRegex(RuntimeError, "qr_code_detected"):
             qr._evaluate_frames(
                 frames,
                 video=True,
@@ -161,18 +162,41 @@ class Run184QRConfirmationClosureTests(unittest.TestCase):
             with self.assertRaisesRegex(qr.QRConfirmationInfrastructureError, "qr_confirmation_runtime_unavailable"):
                 qr._required_runtime()
 
-    def test_zxing_cli_contract_uses_supported_2_2_options(self) -> None:
+    def test_zxing_noble_221_cli_contract(self) -> None:
         completed = subprocess.CompletedProcess(
             args=[], returncode=0, stdout='frame.pgm QRCode "payload"\n', stderr=""
         )
-        with patch.object(qr.subprocess, "run", return_value=completed) as run:
-            self.assertEqual(qr._zxing_qr_status(Path("frame.pgm"), "ZXingReader"), "decoded")
+        with patch.object(qr_runtime.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(
+                qr_runtime._zxing_qr_status_221(Path("frame.pgm"), "ZXingReader"),
+                "decoded",
+            )
         argv = run.call_args.args[0]
-        self.assertIn("-formats", argv)
+        self.assertIn("-format", argv)
         self.assertIn("-errors", argv)
-        self.assertIn("-single", argv)
         self.assertIn("-1", argv)
-        self.assertNotIn("-format", argv)
+        self.assertNotIn("-formats", argv)
+        self.assertNotIn("-single", argv)
+
+    def test_zxing_noble_221_nonzero_barcode_error_is_detection_not_infra_failure(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=2, stdout="frame.pgm QRCode ChecksumError\n", stderr=""
+        )
+        with patch.object(qr_runtime.subprocess, "run", return_value=completed):
+            self.assertEqual(
+                qr_runtime._zxing_qr_status_221(Path("frame.pgm"), "ZXingReader"),
+                "detected_error",
+            )
+
+    def test_zxing_noble_221_none_is_clean_scan(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="frame.pgm None\n", stderr=""
+        )
+        with patch.object(qr_runtime.subprocess, "run", return_value=completed):
+            self.assertEqual(
+                qr_runtime._zxing_qr_status_221(Path("frame.pgm"), "ZXingReader"),
+                "none",
+            )
 
     def test_real_zbar_and_zxing_smoke_on_generated_qr_and_blank_frame(self) -> None:
         required = ("ffmpeg", "zbarimg", "ZXingReader", "ZXingWriter")
@@ -216,9 +240,15 @@ class Run184QRConfirmationClosureTests(unittest.TestCase):
             blank_pgm.write_bytes(b"P5\n128 128\n255\n" + bytes([255]) * (128 * 128))
 
             self.assertTrue(qr._zbar_decodes_qr(qr_pgm, resolved["zbarimg"]))
-            self.assertEqual(qr._zxing_qr_status(qr_pgm, resolved["ZXingReader"]), "decoded")
+            self.assertEqual(
+                qr_runtime._zxing_qr_status_221(qr_pgm, resolved["ZXingReader"]),
+                "decoded",
+            )
             self.assertFalse(qr._zbar_decodes_qr(blank_pgm, resolved["zbarimg"]))
-            self.assertEqual(qr._zxing_qr_status(blank_pgm, resolved["ZXingReader"]), "none")
+            self.assertEqual(
+                qr_runtime._zxing_qr_status_221(blank_pgm, resolved["ZXingReader"]),
+                "none",
+            )
 
 
 if __name__ == "__main__":
