@@ -8,7 +8,8 @@ only the raw HTTP boundary and the narrow composition adapters required by Run18
 - preserve V2's TaskSpec provider-attempt budget when the V3 provider order is used;
 - read Planning/Text-Audit evidence only from the current orchestrator.produce() call;
 - canonicalize Gemini aliases through the pinned Engine provider before health matching;
-- reuse Groq rate evidence only when it names the exact Qwen Vision model.
+- reuse Groq rate evidence only when it names the exact Qwen Vision model;
+- classify a statically unavailable Groq credential as zero-inference readiness evidence.
 
 No visual semantic rule, threshold, Security gate, candidate cap, or total inference
 attempt ceiling is changed here.
@@ -90,6 +91,32 @@ def _publish_exact_groq_vision_model_unavailable(
         quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
         reason=str(detail),
         source=source,
+    )
+
+
+def _seed_static_groq_readiness() -> None:
+    """Publish no-key evidence before V3 can spend a logical inference slot.
+
+    A missing credential is known locally and causes no provider inference. V3 already
+    knows how to skip a provider that has shared-health evidence and records that skip as
+    CIRCUIT_OPEN, which the Engine BudgetLedger excludes from provider-attempt totals.
+    Keeping this outside V3's local attempt increment preserves the pre-existing V2
+    invariant: Gemini + two OpenRouter schema attempts remain possible when optional
+    Groq is not configured.
+    """
+    existing = health.provider_unavailable(
+        "groq",
+        model=run181.GROQ_VISION_MODEL,
+        quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
+    )
+    if existing is not None or run181._groq_key():
+        return
+    health.publish_provider_unavailable(
+        "groq",
+        model=run181.GROQ_VISION_MODEL,
+        quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
+        reason="Groq key unavailable for Vision fallback",
+        source="vision_static_readiness",
     )
 
 
@@ -250,6 +277,7 @@ def _install_run181_route_adapter() -> None:
         state = contract.legacy._state()
         if health.bind_provider_health_to_vision_scope(state):
             run181._GROQ_MODEL_CERTIFIED.set(None)
+        _seed_static_groq_readiness()
 
         max_attempts = int(
             contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts
