@@ -11,7 +11,7 @@ from scripts.unified_delivery import finalize_release_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTER = Path(__file__).with_name("production_family_closure.json")
-WORKFLOW = ROOT / ".github" / "workflows" / "produce-resilient-v4.yml"
+RELEASE_TRANSACTION = Path(__file__).with_name("release_transaction.py")
 
 
 class F25DeliveryTerminalAuthorityFamilyTests(unittest.TestCase):
@@ -67,17 +67,18 @@ class F25DeliveryTerminalAuthorityFamilyTests(unittest.TestCase):
             self.assertIsNone(value["delivery_url"])
             self.assertEqual(value["release_candidate_tag"], "video-1")
 
-    def test_production_workflow_seals_terminal_acceptance_after_release_transaction(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        release_marker = '"${release_cmd[@]}"'
-        acceptance_marker = "python scripts/delivery_acceptance_v2.py"
-        self.assertIn(release_marker, text)
-        self.assertIn(acceptance_marker, text)
-        self.assertLess(text.index(release_marker), text.index(acceptance_marker))
-        self.assertIn("--release-receipt \"$RUNNER_TEMP/release-receipt.json\"", text)
-        self.assertIn("--release-journal \"$RUNNER_TEMP/release-transaction.json\"", text)
-        self.assertIn("--target-sha \"$GITHUB_SHA\"", text)
-        self.assertIn("delivery-terminal-receipt.json", text)
+    def test_release_transaction_wires_f25_before_remote_side_effects(self) -> None:
+        text = RELEASE_TRANSACTION.read_text(encoding="utf-8")
+        validation = "validate_staged_delivery_assets("
+        first_remote_probe = "existing = _view_if_exists(tag, repository, run=run)"
+        first_remote_create = '"gh", "release", "create"'
+        self.assertIn(validation, text)
+        self.assertIn(first_remote_probe, text)
+        self.assertIn(first_remote_create, text)
+        self.assertLess(text.index(validation), text.index(first_remote_probe))
+        self.assertLess(text.index(validation), text.index(first_remote_create))
+        self.assertIn("Terminal publication truth still", text)
+        self.assertIn('record("complete"', text)
 
     def test_delivery_contract_identity_is_explicit_v2(self) -> None:
         self.assertEqual(CONTRACT_ID, "delivery.acceptance.v2")
