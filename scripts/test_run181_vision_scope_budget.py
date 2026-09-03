@@ -261,6 +261,87 @@ class Run181VisionScopeBudgetTests(unittest.TestCase):
             )
         )
 
+    def test_current_text_audit_qwen_rate_limit_blocks_same_qwen_vision_model(self) -> None:
+        current_route = {
+            "attempts": [
+                {
+                    "provider": "groq:qwen/qwen3.8-27b",
+                    "outcome": "rate_limited",
+                    "detail": "429 rate limit exceeded",
+                }
+            ]
+        }
+        token = transport._RUN181_TELEMETRY_BASELINE.set((0, 0))
+        try:
+            with mock.patch.object(planner_router, "get_telemetry", return_value=[]), mock.patch.object(
+                text_mesh,
+                "_AUDIT_ROUTE_TELEMETRY",
+                [current_route],
+            ):
+                transport._scoped_refresh_runtime_provider_health()
+        finally:
+            transport._RUN181_TELEMETRY_BASELINE.reset(token)
+        evidence = health.provider_unavailable(
+            "groq",
+            model=run181.GROQ_VISION_MODEL,
+            quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
+        )
+        self.assertIsNotNone(evidence)
+        self.assertEqual(evidence.source, "text_audit_telemetry")
+
+    def test_other_groq_model_rate_limit_does_not_poison_qwen_vision(self) -> None:
+        current_route = {
+            "attempts": [
+                {
+                    "provider": "groq:openai/gpt-oss-120b",
+                    "outcome": "rate_limited",
+                    "detail": "429 rate limit exceeded",
+                }
+            ]
+        }
+        token = transport._RUN181_TELEMETRY_BASELINE.set((0, 0))
+        try:
+            with mock.patch.object(planner_router, "get_telemetry", return_value=[]), mock.patch.object(
+                text_mesh,
+                "_AUDIT_ROUTE_TELEMETRY",
+                [current_route],
+            ):
+                transport._scoped_refresh_runtime_provider_health()
+        finally:
+            transport._RUN181_TELEMETRY_BASELINE.reset(token)
+        self.assertIsNone(
+            health.provider_unavailable(
+                "groq",
+                model=run181.GROQ_VISION_MODEL,
+                quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
+            )
+        )
+
+    def test_current_planning_qwen_rate_limit_blocks_same_qwen_vision_model(self) -> None:
+        current = {
+            "provider": "groq",
+            "result": "429",
+            "error_detail": "429 quota exceeded",
+            "resolved_model": "qwen/qwen3.8-27b",
+        }
+        token = transport._RUN181_TELEMETRY_BASELINE.set((0, 0))
+        try:
+            with mock.patch.object(
+                planner_router,
+                "get_telemetry",
+                return_value=[current],
+            ), mock.patch.object(text_mesh, "_AUDIT_ROUTE_TELEMETRY", []):
+                transport._scoped_refresh_runtime_provider_health()
+        finally:
+            transport._RUN181_TELEMETRY_BASELINE.reset(token)
+        self.assertIsNotNone(
+            health.provider_unavailable(
+                "groq",
+                model=run181.GROQ_VISION_MODEL,
+                quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
