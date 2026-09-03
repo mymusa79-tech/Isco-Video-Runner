@@ -37,6 +37,7 @@ from scripts.planning_stage_contract import (
 )
 from scripts.producer_planning_lifecycle import install_producer_planning_lifecycle
 from scripts.producer_quality_contract import install_planning_producer_quality_contract
+from scripts.production_text_representation_contract import install_production_text_representation_contract
 from scripts.product_proof_plan import install_product_proof_fallback
 from scripts.provider_capacity_hardening import install_provider_capacity_hardening
 from scripts.run120_dossier_repair_hardening import install_run120_dossier_repair_hardening
@@ -165,6 +166,11 @@ def install_post_runtime_planning_contracts() -> None:
     # a second Producer repair.
     install_planning_producer_quality_contract()
     install_producer_planning_lifecycle()
+    # Run179 closure: after Producer has final ownership of the plan, bind generic
+    # Engine audits to the representation that is authoritative for the selected
+    # format. Long remains narration-authoritative; standalone Moment is screen-text
+    # authoritative. This adapter does not weaken substantive Tone/Safety gates.
+    install_production_text_representation_contract()
     # F23 is deliberately last. It records the already-authoritative Stage Contract
     # outputs and Producer lifecycle result, adds deadline/taxonomy ownership, and
     # certifies exact plan.json lineage immediately before P2/P3 can begin. Keeping it
