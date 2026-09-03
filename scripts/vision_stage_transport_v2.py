@@ -129,8 +129,6 @@ def _classify_http(status: int, message: str) -> contract.VisionErrorCode:
         marker in lowered for marker in ("unauthorized", "api key", "invalid key", "permission")
     ):
         return contract.VisionErrorCode.AUTH_CONFIG
-    # Run173 evidence: a free-model route can still return a balance/spend-cap 402.
-    # That is capability/capacity unavailability, not an application contract bug.
     if status in {402, 403}:
         return contract.VisionErrorCode.CAPACITY
     if status == 404 and any(
@@ -148,7 +146,6 @@ def _classify_http(status: int, message: str) -> contract.VisionErrorCode:
 
 def _install_transport_boundary() -> None:
     contract._classify_http = _classify_http
-
     current = contract._openrouter_call
     if getattr(current, "_isco_vision_transport_v2", False):
         return
@@ -192,8 +189,6 @@ def _current_run_telemetry() -> tuple[list[dict], list[dict]]:
     audit_routes = list(getattr(text_mesh, "_AUDIT_ROUTE_TELEMETRY", ()) or ())
     baseline = _RUN181_TELEMETRY_BASELINE.get()
     if baseline is None:
-        # Direct unit/diagnostic calls outside produce() retain the old observability
-        # behavior. Live Production always installs the explicit produce() baseline.
         return planning, audit_routes
     planning_start, audit_start = baseline
     planning_start = min(max(0, int(planning_start)), len(planning))
@@ -271,9 +266,6 @@ def _install_run181_route_adapter() -> None:
         *args,
         **kwargs,
     ):
-        # V2 already owns the canonical run-scoped Vision circuit. Reuse the exact
-        # state object as the health lifecycle key, rather than creating a parallel
-        # notion of a run. New scope => old health/certification evidence is discarded.
         state = contract.legacy._state()
         if health.bind_provider_health_to_vision_scope(state):
             run181._GROQ_MODEL_CERTIFIED.set(None)
@@ -289,17 +281,7 @@ def _install_run181_route_adapter() -> None:
                 provider="internal",
             )
 
-        # Engine keeps a compatibility alias for the content model while its provider
-        # resolves the wire call to the current Gemini model. Health must compare the
-        # actual quota/model key, not the historical alias, or Planning's 429 would be
-        # invisible to Vision despite sharing the same generate-content quota domain.
         canonical_model = _canonical_gemini_generation_model(resolved_model)
-
-        # This is the exact V2 budget behavior: the logical Visual Audit TaskSpec is
-        # allowed up to the existing three real provider attempts even if the Engine
-        # supplied a narrower one-provider spec. Without this widening the local V3
-        # router could correctly choose Groq/OpenRouter but BudgetLedger would deny the
-        # second wire call. Skipped/circuit-open providers still spend zero attempts.
         routed_spec = replace(
             spec,
             max_provider_attempts=max(max_attempts, int(spec.max_provider_attempts)),
@@ -346,13 +328,19 @@ def _install_run181_produce_telemetry_scope() -> None:
 
 
 def install_vision_provider_reliability() -> None:
-    """Install HTTP hardening, Run181 mesh, budgets, and run-scoped evidence."""
+    """Install HTTP hardening, Run181 mesh, budgets, run-scoped evidence, then V1 retrieval."""
     _install_transport_boundary()
     run181.install_run181_vision_mesh_closure()
     _install_run181_route_adapter()
     contract.install_vision_provider_reliability()
-    # Replace only our newly-added Run181 aggregation function; Planning/Text Audit
-    # recorders remain untouched. The source telemetry view is now cursor-scoped to the
-    # surrounding produce() call.
     run181.refresh_runtime_provider_health = _scoped_refresh_runtime_provider_health
     _install_run181_produce_telemetry_scope()
+    # Run182 closure is deliberately composed after the provider mesh exists but before
+    # the later Opening Feasibility wrapper. Its selector wrappers become the inner
+    # semantic-preselection seam, while Opening Feasibility remains outermost owner of
+    # query safety, review caps, and truthful technical-unavailable handling.
+    from scripts.visual_retrieval_adjudication_v1 import install_visual_retrieval_adjudication_v1
+    from scripts.visual_retrieval_runtime_scope_v1 import install_visual_retrieval_runtime_scope_v1
+
+    install_visual_retrieval_adjudication_v1()
+    install_visual_retrieval_runtime_scope_v1()
