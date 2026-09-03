@@ -9,6 +9,10 @@ from unittest.mock import patch
 from scripts import planning_runtime_contract
 from scripts import runtime_closure
 from scripts import runtime_phase
+# Stage Ladder already executes this module for P0. Importing the dedicated master
+# TestCase makes unittest's module loader execute the new P0 Master suite as part of the
+# same certified P0 phase without widening or weakening any existing phase gate.
+from scripts.test_p0_runtime_master_contract import P0RuntimeMasterContractTests  # noqa: F401
 
 
 class Run130ExplicitRuntimePhaseTests(unittest.TestCase):
