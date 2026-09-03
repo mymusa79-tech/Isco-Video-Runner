@@ -17,10 +17,26 @@ RUN185_ALTERNATE = "personal boundaries calm conversation"
 
 
 class Run185SemanticVisualAdjudicationTests(unittest.TestCase):
+    def assert_semantic_contract(self, value: str, *, contains: str) -> None:
+        self.assertLessEqual(len(value), scope_fix.MAX_ENGINE_INTENDED_VISUAL_CHARS)
+        self.assertIn("SEMANTIC POLICY:", value)
+        self.assertIn("not literal shot checklist", value)
+        self.assertIn("semantic-equivalent/contextual coverage", value)
+        self.assertIn("reject generic unrelated B-roll", value)
+        self.assertIn(contains, value)
+
     def test_run185_alternate_is_owned_by_current_semantic_family(self) -> None:
         trusted = scope_fix._trusted_semantic_intents(RUN185_VISUAL, RUN185_NARRATION)
         self.assertIn(RUN185_ALTERNATE, trusted)
         self.assertNotIn("marker closeup", trusted)
+
+    def test_semantic_judgment_contract_is_bounded_and_explicitly_anti_literal(self) -> None:
+        value = scope_fix._semantic_judgment_intent(RUN185_VISUAL)
+        self.assert_semantic_contract(value, contains="A person standing between two people")
+        self.assertNotIn("marker closeup", value)
+        # Re-wrapping must be idempotent; nested wrappers cannot consume the 300-char
+        # Engine field with duplicate policy text.
+        self.assertEqual(scope_fix._semantic_judgment_intent(value), value)
 
     def test_semantic_alternate_reaches_vision_only_inside_runtime_scope(self) -> None:
         seen: list[str] = []
@@ -43,7 +59,10 @@ class Run185SemanticVisualAdjudicationTests(unittest.TestCase):
         finally:
             scope_fix._TRUSTED_SEMANTIC_INTENTS.reset(token)
 
-        self.assertEqual(seen, [RUN185_ALTERNATE, RUN185_VISUAL])
+        self.assertEqual(len(seen), 2)
+        self.assert_semantic_contract(seen[0], contains=RUN185_ALTERNATE)
+        self.assert_semantic_contract(seen[1], contains="A person standing between two people")
+        self.assertNotEqual(seen[0], seen[1])
 
     def test_untrusted_search_syntax_still_uses_original_visual_truth(self) -> None:
         seen: list[str] = []
@@ -66,7 +85,10 @@ class Run185SemanticVisualAdjudicationTests(unittest.TestCase):
         finally:
             scope_fix._TRUSTED_SEMANTIC_INTENTS.reset(token)
 
-        self.assertEqual(seen, [RUN185_VISUAL, RUN185_VISUAL])
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[0], seen[1])
+        self.assert_semantic_contract(seen[0], contains="A person standing between two people")
+        self.assertNotIn("marker closeup", seen[0])
 
     def test_selector_scope_binds_family_for_nested_vision_call_and_resets_afterward(self) -> None:
         observed: list[frozenset[str] | None] = []
@@ -112,6 +134,20 @@ class Run185SemanticVisualAdjudicationTests(unittest.TestCase):
         self.assertFalse(result["vision_review_performed"])
         self.assertFalse(result["semantic_verdict"])
         self.assertEqual(result["verdict_authority"], "technical_unavailable")
+
+    def test_semantic_policy_versions_durable_vision_contract(self) -> None:
+        base = lambda: "historical-vision-contract"
+        wrapped = scope_fix._run185_contract_fingerprint(base)
+        first = wrapped()
+        second = wrapped()
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, base())
+        self.assertEqual(len(first), 64)
+        self.assertTrue(getattr(wrapped, "_isco_run185_semantic_judgment_contract", False))
+        self.assertEqual(
+            scope_fix._run185_contract_fingerprint(wrapped),
+            wrapped,
+        )
 
 
 if __name__ == "__main__":
