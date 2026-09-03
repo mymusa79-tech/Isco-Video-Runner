@@ -99,11 +99,24 @@ class P0RuntimeMasterContractTests(unittest.TestCase):
             "GITHUB_ENV": str(github_env),
         }
 
-    def test_master_promotes_only_after_all_preproduction_evidence_passes(self) -> None:
+    @staticmethod
+    def _durable_evidence() -> dict:
+        return {
+            "source": "planning-state",
+            "state_commit": "2" * 40,
+            "state_sequence": 11,
+            "binding_digest": "3" * 64,
+        }
+
+    def test_master_promotes_only_after_all_preproduction_and_durable_evidence_passes(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             env = self._prepared_env(root)
-            with patch.dict(os.environ, env, clear=True):
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                master,
+                "_certify_durable_planning_state",
+                return_value=self._durable_evidence(),
+            ) as durable:
                 self.assertFalse(runtime_phase.canonical_runtime_enabled())
                 result = master.activate_p0_runtime_master()
                 self.assertTrue(runtime_phase.canonical_runtime_enabled())
@@ -111,6 +124,8 @@ class P0RuntimeMasterContractTests(unittest.TestCase):
                 self.assertEqual(result["runtime_phase"], "canonical_live")
                 self.assertEqual(result["runner_sha"], "a" * 40)
                 self.assertEqual(result["engine_sha"], "b" * 40)
+                self.assertEqual(result["durable_planning_state_commit"], "2" * 40)
+                durable.assert_called_once()
                 exported = Path(env["GITHUB_ENV"]).read_text(encoding="utf-8")
                 self.assertIn("ISCO_CANONICAL_RUNTIME=1", exported)
                 evidence = json.loads(
@@ -133,6 +148,20 @@ class P0RuntimeMasterContractTests(unittest.TestCase):
                 self.assertFalse(runtime_phase.canonical_runtime_enabled())
                 self.assertFalse(Path(env["GITHUB_ENV"]).exists())
 
+    def test_master_fails_closed_before_phase_promotion_on_durable_state_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            env = self._prepared_env(root)
+            with patch.dict(os.environ, env, clear=True), patch.object(
+                master,
+                "_certify_durable_planning_state",
+                side_effect=RuntimeError("durable checkpoint credential missing"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "durable checkpoint credential missing"):
+                    master.activate_p0_runtime_master()
+                self.assertFalse(runtime_phase.canonical_runtime_enabled())
+                self.assertFalse(Path(env["GITHUB_ENV"]).exists())
+
     def test_master_rejects_writable_or_tampered_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -144,16 +173,31 @@ class P0RuntimeMasterContractTests(unittest.TestCase):
                     master.activate_p0_runtime_master()
                 self.assertFalse(runtime_phase.canonical_runtime_enabled())
 
+    def test_secret_file_must_be_private_nonempty_regular_file(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            secret = root / "secret"
+            secret.write_text("token", encoding="utf-8")
+            secret.chmod(0o600)
+            master._require_secret_file(secret, label="test")
+            secret.chmod(0o644)
+            with self.assertRaisesRegex(RuntimeError, "permissions are not private"):
+                master._require_secret_file(secret, label="test")
+
     def test_preproduction_bootstrap_does_not_export_live_runtime(self) -> None:
         source = (ROOT / "scripts/persistent_memory.py").read_text(encoding="utf-8")
+        environment = (ROOT / "scripts/environment_preflight.py").read_text(encoding="utf-8")
         self.assertIn("activate_canonical_runtime(persist_workflow_env=False)", source)
+        self.assertIn("activate_canonical_runtime(persist_workflow_env=False)", environment)
         self.assertNotIn("activate_canonical_runtime()\n", source)
+        self.assertNotIn("activate_canonical_runtime()\n", environment)
 
     def test_final_preflight_is_the_only_cross_step_runtime_promotion_owner(self) -> None:
         planning = (ROOT / "scripts/planning_envelope_preflight.py").read_text(encoding="utf-8")
         phase = (ROOT / "scripts/runtime_phase.py").read_text(encoding="utf-8")
+        master_source = (ROOT / "scripts/p0_runtime_master_contract.py").read_text(encoding="utf-8")
         self.assertIn("activate_p0_runtime_master()", planning)
-        self.assertIn("activate_canonical_runtime(persist_workflow_env=True)", (ROOT / "scripts/p0_runtime_master_contract.py").read_text(encoding="utf-8"))
+        self.assertIn("activate_canonical_runtime(persist_workflow_env=True)", master_source)
         self.assertNotIn("canonical_workflow_identity() and explicit", planning)
         self.assertIn("canonical_workflow_identity() and explicit in _TRUE_VALUES", phase)
 
