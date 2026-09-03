@@ -76,9 +76,6 @@ _MICRO_STORY_MARKERS = (
     "في لحظة",
     "بدأ",
     "بدأت",
-    "حدث",
-    "كانت",
-    "كان",
 )
 _MICRO_STORY_NEGATION_RE = re.compile(
     r"(?:^|[\s،؛:,.!?؟])(?:لا|لم|لن|ليس|بلا|دون|من\s+دون)\s*$"
@@ -142,7 +139,7 @@ def _contains_bounded_marker(text: str, markers: tuple[str, ...]) -> bool:
 
 
 def _contains_positive_micro_story_marker(text: str) -> bool:
-    """Require an actual visible story marker, not an explicitly negated mention of one."""
+    """Require visible temporal/progression evidence, not a generic event/state word."""
     for marker in _MICRO_STORY_MARKERS:
         for match in _bounded_marker_pattern(marker).finditer(text):
             prefix = text[max(0, match.start() - 24) : match.start()]
