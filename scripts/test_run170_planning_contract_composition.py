@@ -17,6 +17,7 @@ from scripts import run124_terminal_provider_recovery as long_recovery
 from scripts import runtime_patch_contracts
 from scripts import short_repair_reset_recovery
 from scripts import short_stage_retry_composition as retry_composition
+from scripts.test_planning_production_contract_v2 import PlanningProductionContractV2Tests
 
 
 _RUN170_DETAIL = (
