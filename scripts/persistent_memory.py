@@ -27,11 +27,14 @@ def main(argv: list[str] | None = None) -> int:
         if not key:
             raise RuntimeError("STATE_ENCRYPTION_KEY is required for durable planning checkpoint restore")
         repo_root = Path(args.repo).resolve()
-        # Run130 closure: workflow identity is only context. The application owns the
-        # exact transition from certified pre-production into live runtime. Activate
-        # here, after the pre-production suites have completed and immediately before
-        # the immutable production snapshot/durable checkpoint bootstrap.
-        activate_canonical_runtime()
+        # P0 Runtime Master V2: this process is still pre-production. We need the
+        # canonical-runtime helper semantics only long enough to freeze the approved
+        # brief, restore the Telegram-mutated Engine fixture to its pinned bytes, and
+        # authenticate the durable planning checkpoint. Do NOT export live-runtime
+        # authority into later workflow steps: environment/provider/planning preflights
+        # must complete before the production entry process performs the real phase
+        # transition.
+        activate_canonical_runtime(persist_workflow_env=False)
         bootstrap_immutable_planning_checkpoint(
             repo_root=repo_root,
             engine_root=repo_root / "engine",
