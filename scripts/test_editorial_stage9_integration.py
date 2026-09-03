@@ -3,22 +3,35 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from scripts.workflow_hygiene import _canonical_engine_pin
 
-# Stage 9 final integration contract: exact current Engine pin + one production provenance id.
-ENGINE_SHA = "fe576d91f604412a010fa6cd61ff66f839e67550"
+
+# Historical pins are rejection sentinels only. The current Engine identity is
+# read from the canonical Production V4 workflow so this integration test cannot
+# become a second source of truth.
 OLD_ENGINE_SHA = "f3c9357098947882882ca3010b46a565c2d90460"
+STALE_ENGINE_SHA = "fe576d91f604412a010fa6cd61ff66f839e67550"
+LIVE_ENGINE_WORKFLOWS = {
+    "produce-resilient-v4.yml": 3,
+    "telegram-editorial-control.yml": 1,
+    "telegram-production-request.yml": 1,
+    "verify-human-editorial-intent-m7.yml": 1,
+    "verify-m11-live-integration.yml": 1,
+}
 
 
 class EditorialStage9IntegrationTests(unittest.TestCase):
-    def test_all_live_engine_pins_match_stage8_main(self) -> None:
-        production = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
-        telegram = Path(".github/workflows/telegram-editorial-control.yml").read_text(encoding="utf-8")
-        hei = Path(".github/workflows/verify-human-editorial-intent-m7.yml").read_text(encoding="utf-8")
-        self.assertEqual(production.count(ENGINE_SHA), 3)
-        self.assertEqual(telegram.count(ENGINE_SHA), 1)
-        self.assertEqual(hei.count(ENGINE_SHA), 1)
-        for text in (production, telegram, hei):
-            self.assertNotIn(OLD_ENGINE_SHA, text)
+    def test_all_live_engine_pins_match_canonical_production(self) -> None:
+        workflow_dir = Path(".github/workflows")
+        engine_sha = _canonical_engine_pin(workflow_dir)
+        self.assertIsNotNone(engine_sha)
+        assert engine_sha is not None
+
+        for name, expected_count in LIVE_ENGINE_WORKFLOWS.items():
+            text = (workflow_dir / name).read_text(encoding="utf-8")
+            self.assertEqual(text.count(engine_sha), expected_count, name)
+            self.assertNotIn(OLD_ENGINE_SHA, text, name)
+            self.assertNotIn(STALE_ENGINE_SHA, text, name)
 
     def test_production_keeps_manual_canonical_dispatch_and_explicit_telegram_start(self) -> None:
         production = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
