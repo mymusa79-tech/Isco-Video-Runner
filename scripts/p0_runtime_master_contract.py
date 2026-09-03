@@ -121,6 +121,16 @@ def activate_p0_runtime_master() -> dict:
             "reason": "non-canonical workflow",
         }
 
+    # Synthetic unit tests intentionally model workflow identity without a real Actions
+    # run id. They are not allowed to manufacture live-runtime evidence. A genuine
+    # Production V4 process always has GITHUB_RUN_ID and is fail-closed below.
+    if not str(os.environ.get("GITHUB_RUN_ID") or "").strip():
+        return {
+            "contract_id": CONTRACT_ID,
+            "decision": "not_applicable",
+            "reason": "synthetic canonical context without GitHub run identity",
+        }
+
     # Child processes in one already-authorized Telegram production bundle inherit the
     # parent's explicit phase authority. Do not create a competing transition owner.
     if canonical_runtime_enabled():
