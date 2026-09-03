@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-"""Transport hardening for Vision Stage Contract V2.
+"""Transport hardening for Vision Stage Contract V2/V3.
 
 The Stage Contract remains the semantic/schema/provider-policy owner. This module owns
 only the raw HTTP boundary so requests-level transport exceptions and provider
-availability responses cannot bypass that taxonomy.
+availability responses cannot bypass that taxonomy. Run181 then composes the bounded
+Groq Vision + shared provider-health closure before the live Long+Short owner installs.
 """
 
 from functools import wraps
@@ -12,6 +13,7 @@ from functools import wraps
 import requests
 
 from scripts import vision_stage_contract_v2 as contract
+from scripts.run181_vision_mesh_closure import install_run181_vision_mesh_closure
 
 
 def _classify_http(status: int, message: str) -> contract.VisionErrorCode:
@@ -82,6 +84,7 @@ def _install_transport_boundary() -> None:
 
 
 def install_vision_provider_reliability() -> None:
-    """Install HTTP hardening, then the shared Long+Short Vision Stage Contract V2."""
+    """Install HTTP hardening, Run181 health/mesh closure, then the shared Stage owner."""
     _install_transport_boundary()
+    install_run181_vision_mesh_closure()
     contract.install_vision_provider_reliability()
