@@ -2,16 +2,21 @@ from __future__ import annotations
 
 """Production-scoped composition for the Run184 QR confirmation closure.
 
-The policy module is intentionally pure. This owner activates it only while the real
-``orchestrator.produce()`` call is executing, so historical diagnostics/unit contracts
-continue to observe the exact scanner installed before this closure. The same scope also
-owns the exact Ubuntu Noble ZXing-C++ 2.2.1 CLI dialect; no process-global compatibility
-patch is allowed to leak into historical tests or another run.
+The existing Media Trust V2 scanner remains authoritative for every non-QR Security
+finding and keeps its certified duration-aware 3..8-frame coverage.  During the real
+``orchestrator.produce()`` scope only, QR-only heuristic findings are prevented from
+terminating that scanner early; after the complete historical scan returns, a separate
+mature ZBar + ZXing-C++ confirmation pass decides QR blocking authority.
+
+This preserves all existing OCR/barcode/URL/prompt/text-density coverage while removing
+the home-grown QR heuristic as a final authority.  Historical diagnostics and tests see
+the exact pre-Run184 behavior outside the production scope.
 """
 
 import re
 import shutil
 import subprocess
+import tempfile
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -28,7 +33,7 @@ from scripts.qr_runtime_bootstrap import (
 
 _RUN184_ACTIVE: ContextVar[bool] = ContextVar("isco_run184_qr_active", default=False)
 _INSTALLED = False
-_ZXING_221_DECODED_RE = re.compile(r"(?:^|\s)QRCode\s+\"", re.IGNORECASE)
+_ZXING_221_DECODED_RE = re.compile(r'(?:^|\s)QRCode\s+"', re.IGNORECASE)
 _ZXING_221_DETECTED_RE = re.compile(r"(?:^|\s)QRCode(?:\s|$)", re.IGNORECASE)
 _ZXING_221_NONE_RE = re.compile(r"(?:^|\s)None(?:\s|$)", re.IGNORECASE)
 
@@ -52,13 +57,7 @@ def _zxing_qr_status_221(
     frame: Path,
     executable: str,
 ) -> Literal["none", "decoded", "detected_error"]:
-    """Parse the exact ZXingReader 2.2.1 one-line contract shipped by Ubuntu Noble.
-
-    v2.2.1 uses ``-format`` (singular) and has no ``-single`` option. With ``-errors``
-    its process return code can legitimately be non-zero when a QR symbol was detected
-    but failed checksum/format decoding, so stdout semantics must be interpreted before
-    treating a non-zero status as an infrastructure failure.
-    """
+    """Parse the exact ZXingReader 2.2.1 one-line contract shipped by Ubuntu Noble."""
     try:
         completed = subprocess.run(
             [
@@ -78,6 +77,9 @@ def _zxing_qr_status_221(
     except subprocess.TimeoutExpired as exc:
         raise qr.QRConfirmationInfrastructureError("qr_confirmation_failed") from exc
 
+    # ZXing-C++ 2.2.1 can return non-zero for a detected symbol with a decode/checksum
+    # error.  Therefore classify its structured stdout before interpreting the process
+    # status as an infrastructure failure.
     output = completed.stdout or ""
     if _ZXING_221_DECODED_RE.search(output):
         return "decoded"
@@ -88,8 +90,8 @@ def _zxing_qr_status_221(
     raise qr.QRConfirmationInfrastructureError("qr_confirmation_failed")
 
 
-def _run184_scan(media: str | Path) -> None:
-    """Execute QR V3 without mutating historical scanner/runtime ownership."""
+def _run184_mature_qr_scan(media: str | Path) -> None:
+    """Run only mature QR confirmation after the complete historical Security scan."""
     source = Path(media)
     if not source.is_file():
         raise qr._firewall_error("media_missing")
@@ -99,9 +101,7 @@ def _run184_scan(media: str | Path) -> None:
         raise qr._firewall_error(str(exc)) from exc
 
     video = source.suffix.lower() in security_binding._VIDEO_SUFFIXES
-    import tempfile
-
-    with tempfile.TemporaryDirectory(prefix="isco-security-v3-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="isco-security-qr-v3-") as tmp:
         root = Path(tmp)
         try:
             frames = qr._extract_security_frames(
@@ -114,46 +114,67 @@ def _run184_scan(media: str | Path) -> None:
         except RuntimeError as exc:
             raise qr._firewall_error(str(exc)) from exc
 
-        firewall = qr.MultimodalInjectionFirewall(ocr_backend=security_binding._production_ocr)
+        mature_error_detections = 0
         try:
-            qr._evaluate_frames(
-                frames,
-                video=video,
-                zbar=zbar,
-                zxing=zxing,
-                firewall=firewall,
-            )
+            for frame in frames:
+                if qr._zbar_decodes_qr(frame, zbar):
+                    raise qr._firewall_error("qr_code_detected")
+                status = _zxing_qr_status_221(frame, zxing)
+                if status == "decoded":
+                    raise qr._firewall_error("qr_code_detected")
+                if status == "detected_error":
+                    mature_error_detections += 1
         except qr.QRConfirmationInfrastructureError as exc:
             raise qr._firewall_error(str(exc)) from exc
 
+        if not video and mature_error_detections:
+            raise qr._firewall_error("qr_code_detected")
+        if video and mature_error_detections >= qr._TEMPORAL_MATURE_DETECTION_QUORUM:
+            raise qr._firewall_error("qr_code_detected")
+
+
+def _qr_only_heuristic_result(scan_result: object) -> bool:
+    codes = qr._scan_codes(scan_result)
+    return bool(codes) and set(codes) == {"qr_code_detected"}
+
 
 def install_run184_qr_confirmation_runtime() -> None:
-    """Install dispatchers + produce scope; outside Production behavior is unchanged."""
+    """Install production-scoped QR authority without replacing certified Security."""
     global _INSTALLED
     if _INSTALLED:
         return
 
+    # Media Trust V2 owns the duration-aware source scanner.  Keep it intact and run it
+    # first.  A scoped require() dispatcher merely prevents QR-only heuristic findings
+    # from terminating that scanner before later frames can expose non-QR findings.
+    prior_require = security_binding.require_normal_vision_safe
+    if not getattr(prior_require, "_isco_run184_qr_require_dispatcher", False):
+        def require_dispatch(scan_result: object) -> None:
+            if _RUN184_ACTIVE.get() and _qr_only_heuristic_result(scan_result):
+                print(
+                    "Security QR V3 deferred QR-only heuristic finding to mature confirmation; "
+                    "all non-QR findings remain under the certified scanner"
+                )
+                return None
+            return prior_require(scan_result)
+
+        require_dispatch._isco_run184_qr_require_dispatcher = True
+        require_dispatch._isco_run184_original = prior_require
+        security_binding.require_normal_vision_safe = require_dispatch
+
     prior_scanner: Callable[[str | Path], None] = security_binding._scan_media_before_vision
     if not getattr(prior_scanner, "_isco_run184_qr_dispatcher", False):
         def dispatch(media: str | Path) -> None:
-            if _RUN184_ACTIVE.get():
-                return _run184_scan(media)
-            return prior_scanner(media)
+            if not _RUN184_ACTIVE.get():
+                return prior_scanner(media)
+            # Preserve every historical non-QR Security check and the full 3..8-frame
+            # Media Trust coverage before spending any mature QR confirmation work.
+            prior_scanner(media)
+            return _run184_mature_qr_scan(media)
 
         dispatch._isco_run184_qr_dispatcher = True
         dispatch._isco_run184_original = prior_scanner
         security_binding._scan_media_before_vision = dispatch
-
-    prior_zxing = qr._zxing_qr_status
-    if not getattr(prior_zxing, "_isco_run184_zxing_dispatcher", False):
-        def zxing_dispatch(frame: Path, executable: str):
-            if _RUN184_ACTIVE.get():
-                return _zxing_qr_status_221(frame, executable)
-            return prior_zxing(frame, executable)
-
-        zxing_dispatch._isco_run184_zxing_dispatcher = True
-        zxing_dispatch._isco_run184_original = prior_zxing
-        qr._zxing_qr_status = zxing_dispatch
 
     current_produce: Callable[..., Any] = orchestrator.produce
     if not getattr(current_produce, "_isco_run184_qr_scope", False):
