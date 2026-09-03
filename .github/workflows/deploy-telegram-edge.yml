@@ -14,6 +14,7 @@ on:
       - "scripts/generate_telegram_status_contract_js.py"
       - "scripts/telegram_final_notify.py"
       - "scripts/telegram_operations_ui.py"
+      - "scripts/telegram_progress.py"
       - "scripts/test_telegram_observability_v1.py"
   pull_request:
     paths:
@@ -25,6 +26,7 @@ on:
       - "scripts/generate_telegram_status_contract_js.py"
       - "scripts/telegram_final_notify.py"
       - "scripts/telegram_operations_ui.py"
+      - "scripts/telegram_progress.py"
       - "scripts/test_telegram_observability_v1.py"
       - "scripts/test_telegram_edge_activation_workflow.py"
 
@@ -53,6 +55,7 @@ jobs:
           set -euo pipefail
           node --check cloudflare/telegram-control-worker/index.js
           node --check cloudflare/telegram-control-worker/observability-worker.js
+          node --check cloudflare/telegram-control-worker/observability-worker-v6.js
           node --check cloudflare/telegram-control-worker/status-contract.generated.js
           python -m unittest -v \
             scripts.test_telegram_edge_worker_contract \
@@ -64,7 +67,7 @@ jobs:
           p = pathlib.Path('cloudflare/telegram-control-worker/wrangler.toml.example')
           data = tomllib.loads(p.read_text(encoding='utf-8'))
           assert data.get('workers_dev') is True
-          assert data.get('main') == 'observability-worker.js'
+          assert data.get('main') == 'observability-worker-v6.js'
           assert 'limits' not in data, 'Cloudflare Free must use provider-native limits; configurable CPU limits require Paid'
           assert data.get('vars', {}).get('ZERO_COST_MODE') == 'true'
           forbidden = {
@@ -106,7 +109,7 @@ jobs:
           import pathlib, tomllib
           data = tomllib.loads(pathlib.Path('cloudflare/telegram-control-worker/wrangler.toml.example').read_text(encoding='utf-8'))
           assert data.get('workers_dev') is True, 'workers.dev only is required in ZERO_COST_MODE'
-          assert data.get('main') == 'observability-worker.js'
+          assert data.get('main') == 'observability-worker-v6.js'
           assert 'limits' not in data, 'Cloudflare Free must use provider-native limits; configurable CPU limits require Paid'
           assert data.get('vars', {}).get('ZERO_COST_MODE') == 'true'
           forbidden = {
@@ -188,6 +191,7 @@ jobs:
           set -euo pipefail
           node --check cloudflare/telegram-control-worker/index.js
           node --check cloudflare/telegram-control-worker/observability-worker.js
+          node --check cloudflare/telegram-control-worker/observability-worker-v6.js
           node --check cloudflare/telegram-control-worker/status-contract.generated.js
           python -m unittest -v \
             scripts.test_telegram_edge_worker_contract \
@@ -278,7 +282,7 @@ jobs:
           import json, os
           print(json.dumps({
               "chat_id": os.environ["TELEGRAM_CHAT_ID"],
-              "text": "⚡ تم تحديث لوحة تشغيل نداء اليقظة.\n\nزر «🔄 تحديث الكل» يقرأ الآن حالة الإنتاج والتحرير وآخر الحزم وYouTube وصحة Telegram في صورة واحدة، من دون بدء أو إعادة أي Production Run.\n\nاضغط «🏠 ابدأ» لفتح اللوحة.",
+              "text": "⚡ تم تحديث لوحة تشغيل نداء اليقظة.\n\nزر «🔄 تحديث الكل» يقرأ Production V4 الحقيقي مباشرة، ويعرض مرحلة الرن الحية عند توفرها، من دون بدء أو إعادة أي Production Run.\n\nاضغط «🏠 ابدأ» لفتح اللوحة.",
               "disable_web_page_preview": True,
               "reply_markup": {
                   "keyboard": [[{"text": "🏠 ابدأ"}]],
@@ -294,6 +298,6 @@ jobs:
         run: |
           echo "Telegram Edge Control is live at $WORKER_URL/telegram"
           echo "Health: $WORKER_URL/health"
-          echo "Observability: v1; canonical status schema: 1"
+          echo "Observability: v1; live production monitor: v6; canonical status schema: 1"
           echo "ZERO_COST_MODE=true; native Workers Free ceilings are authoritative; no paid Cloudflare binding or plan-upgrade operation is present"
           echo "Production authority remains in telegram-editorial-control.yml"
