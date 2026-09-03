@@ -6,6 +6,8 @@ from unittest import mock
 from isco_video_agent.ai_budget import Capability, Priority, TaskSpec
 from scripts import provider_health_registry as health
 from scripts import run181_vision_mesh_closure as run181
+from scripts import task_level_planner_router as planner_router
+from scripts import text_audit_provider_mesh as text_mesh
 from scripts import vision_provider_reliability as legacy
 from scripts import vision_stage_contract_v2 as contract
 from scripts import vision_stage_transport_v2 as transport
@@ -109,6 +111,102 @@ class Run181VisionScopeBudgetTests(unittest.TestCase):
         with legacy.vision_provider_circuit_scope():
             adapter(None, _spec(max_attempts=5), "gemini", "gemini-3.7-flash", lambda: None)
         self.assertEqual(seen, [5])
+
+    def test_stale_planning_429_before_current_run_baseline_is_ignored(self) -> None:
+        old = {
+            "provider": "gemini",
+            "result": "429",
+            "error_detail": "old run quota",
+        }
+        current = {
+            "provider": "groq",
+            "result": "success",
+            "error_detail": None,
+        }
+        token = transport._RUN181_TELEMETRY_BASELINE.set((1, 0))
+        try:
+            with mock.patch.object(
+                planner_router,
+                "get_telemetry",
+                return_value=[old, current],
+            ), mock.patch.object(text_mesh, "_AUDIT_ROUTE_TELEMETRY", []):
+                transport._scoped_refresh_runtime_provider_health()
+        finally:
+            transport._RUN181_TELEMETRY_BASELINE.reset(token)
+        self.assertIsNone(
+            health.provider_unavailable(
+                "gemini",
+                model=run181._gemini_runtime_model(),
+                quota_domain=run181.GEMINI_GENERATION_QUOTA_DOMAIN,
+            )
+        )
+
+    def test_current_run_planning_429_after_baseline_is_imported(self) -> None:
+        old = {
+            "provider": "gemini",
+            "result": "success",
+            "error_detail": None,
+        }
+        current = {
+            "provider": "gemini",
+            "result": "429",
+            "error_detail": "current run quota",
+        }
+        token = transport._RUN181_TELEMETRY_BASELINE.set((1, 0))
+        try:
+            with mock.patch.object(
+                planner_router,
+                "get_telemetry",
+                return_value=[old, current],
+            ), mock.patch.object(text_mesh, "_AUDIT_ROUTE_TELEMETRY", []):
+                transport._scoped_refresh_runtime_provider_health()
+        finally:
+            transport._RUN181_TELEMETRY_BASELINE.reset(token)
+        evidence = health.provider_unavailable(
+            "gemini",
+            model=run181._gemini_runtime_model(),
+            quota_domain=run181.GEMINI_GENERATION_QUOTA_DOMAIN,
+        )
+        self.assertIsNotNone(evidence)
+        self.assertEqual(evidence.source, "planning_telemetry")
+        self.assertIn("current run quota", evidence.reason)
+
+    def test_stale_text_audit_429_before_current_run_baseline_is_ignored(self) -> None:
+        old_route = {
+            "attempts": [
+                {
+                    "provider": "gemini",
+                    "outcome": "rate_limited",
+                    "detail": "old audit quota",
+                }
+            ]
+        }
+        current_route = {
+            "attempts": [
+                {
+                    "provider": "groq:qwen/qwen3.8-27b",
+                    "outcome": "success",
+                    "detail": None,
+                }
+            ]
+        }
+        token = transport._RUN181_TELEMETRY_BASELINE.set((0, 1))
+        try:
+            with mock.patch.object(planner_router, "get_telemetry", return_value=[]), mock.patch.object(
+                text_mesh,
+                "_AUDIT_ROUTE_TELEMETRY",
+                [old_route, current_route],
+            ):
+                transport._scoped_refresh_runtime_provider_health()
+        finally:
+            transport._RUN181_TELEMETRY_BASELINE.reset(token)
+        self.assertIsNone(
+            health.provider_unavailable(
+                "gemini",
+                model=run181._gemini_runtime_model(),
+                quota_domain=run181.GEMINI_GENERATION_QUOTA_DOMAIN,
+            )
+        )
 
 
 if __name__ == "__main__":
