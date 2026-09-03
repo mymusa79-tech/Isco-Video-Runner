@@ -40,7 +40,11 @@ def _load_object(path: Path, *, label: str) -> dict:
 
 def _require_exact_runtime_identity() -> tuple[str, str, str, str]:
     runner_sha = str(os.environ.get("GITHUB_SHA") or "").strip().lower()
-    engine_sha = str(os.environ.get("ISCO_ENGINE_SHA") or "").strip().lower()
+    engine_sha = str(
+        os.environ.get("ISCO_ENGINE_SHA")
+        or os.environ.get("EXPECTED_ENGINE_SHA")
+        or ""
+    ).strip().lower()
     run_id = str(os.environ.get("GITHUB_RUN_ID") or "").strip()
     run_attempt = str(os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip()
     if not _SHA1_RE.fullmatch(runner_sha):
@@ -109,10 +113,11 @@ def activate_p0_runtime_master() -> dict:
     """Perform the one live P0 phase transition after all pre-production gates pass.
 
     Pre-production may freeze immutable inputs and restore authenticated state in earlier
-    workflow processes, but those helpers never export live-runtime authority. The real
-    production process reaches this function only after environment, provider-readiness,
-    exact planning-envelope and memory checks have completed. The resulting evidence is
-    non-secret and binds the phase transition to the exact Runner/Engine/run identity.
+    workflow processes, but those helpers never export live-runtime authority. The final
+    P0 preflight process calls this only after environment, provider-readiness, exact
+    planning-envelope and memory checks have completed. Its explicit phase identity is
+    then exported to subsequent workflow steps; ambient GitHub context alone is never
+    sufficient.
     """
     if not canonical_workflow_identity():
         return {
@@ -163,7 +168,9 @@ def activate_p0_runtime_master() -> dict:
     if _sha256_file(snapshot_path) != snapshot_sha:
         raise RuntimeError("P0 master immutable approved-brief snapshot hash mismatch")
 
-    activate_canonical_runtime(persist_workflow_env=False)
+    # This is the sole cross-step live-runtime promotion. GitHub documents GITHUB_ENV as
+    # applying to subsequent steps, so the final preflight gate is the correct owner.
+    activate_canonical_runtime(persist_workflow_env=True)
     if not canonical_runtime_enabled():
         raise RuntimeError("P0 master failed to enter explicit live runtime")
 
