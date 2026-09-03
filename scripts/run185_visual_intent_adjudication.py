@@ -5,8 +5,8 @@ from __future__ import annotations
 Run #185 proved that Security, provider capacity and semantic retrieval were all working:
 retrieval surfaced a clean man/woman conversation clip, but the final VLM still assigned
 relevance=0.2 because it treated the planner's literal staging suggestion (three people +
-a marker + a drawn line) as mandatory.  The same run correctly rejected prop-only writing
-and drawing clips.  The missing boundary is therefore not a lower relevance threshold;
+a marker + a drawn line) as mandatory. The same run correctly rejected prop-only writing
+and drawing clips. The missing boundary is therefore not a lower relevance threshold;
 it is an explicit distinction between *semantic goal* and one optional literal depiction.
 
 This module changes only the text contract supplied to the existing Visual Audit owner.
@@ -58,7 +58,7 @@ def _semantic_goal(labels: frozenset[str]) -> str | None:
     return None
 
 
-def _compact_strategy(query: str, *, limit: int = 72) -> str:
+def _compact_strategy(query: str, *, limit: int = 52) -> str:
     clean = " ".join(str(query or "").split())
     return clean[:limit].rstrip()
 
@@ -86,12 +86,13 @@ def build_adjudication_visual(
     # semantic equivalence. This is the Run185 distinction that keeps the 0.65 relevance
     # threshold meaningful rather than lowering it.
     text = (
-        f"Semantic goal: {goal}. Accepted equivalent depictions: {strategies}. "
-        "Exact original staging/props are optional. Do not penalize a clear accepted "
-        "strategy for missing literal props. Reject prop-only footage that does not "
-        "convey the semantic goal."
+        f"Semantic goal: {goal}. Accepted: {strategies}. "
+        "Literal staging/props are optional and their absence is not a relevance failure. "
+        "Prop-only drawing/marker footage without the goal is irrelevant."
     )
-    return text[:300].rstrip()
+    if len(text) > 300:
+        raise RuntimeError(f"Run185 adjudication contract exceeds provider prompt cap: {len(text)}")
+    return text
 
 
 def _install_route_contract() -> None:
