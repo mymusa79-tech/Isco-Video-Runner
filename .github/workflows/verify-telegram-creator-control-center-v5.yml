@@ -13,7 +13,9 @@ on:
       - "scripts/test_telegram_creator_control_center_v5_edge.py"
       - "scripts/test_telegram_operator_mission_control.py"
       - "scripts/test_telegram_observability_v1.py"
+      - "scripts/test_telegram_production_run_identity.py"
       - "cloudflare/telegram-control-worker/observability-worker.js"
+      - "cloudflare/telegram-control-worker/observability-worker-v5-core.js"
       - "cloudflare/telegram-control-worker/observability-worker-v4-core.js"
       - ".github/workflows/verify-telegram-creator-control-center-v5.yml"
   workflow_dispatch:
@@ -47,6 +49,7 @@ jobs:
             scripts/telegram_webhook_replay.py \
             scripts/telegram_webhook_replay_core.py
           node --check cloudflare/telegram-control-worker/observability-worker.js
+          node --check cloudflare/telegram-control-worker/observability-worker-v5-core.js
           node --check cloudflare/telegram-control-worker/observability-worker-v4-core.js
           node --check cloudflare/telegram-control-worker/index.js
 
@@ -63,16 +66,38 @@ jobs:
             scripts.test_telegram_youtube_stats \
             scripts.test_telegram_webhook_replay \
             scripts.test_telegram_observability_v1 \
+            scripts.test_telegram_production_run_identity \
             scripts.test_telegram_edge_worker_contract
 
       - name: Preserve production and research authority boundaries
         run: |
           set -euo pipefail
-          grep -F 'ENGINE_SHA: fe576d91f604412a010fa6cd61ff66f839e67550' .github/workflows/telegram-editorial-control.yml
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          control = Path('.github/workflows/telegram-editorial-control.yml').read_text(encoding='utf-8')
+          production = Path('.github/workflows/produce-resilient-v4.yml').read_text(encoding='utf-8')
+
+          def one(text: str, pattern: str, label: str) -> str:
+              matches = re.findall(pattern, text, flags=re.MULTILINE)
+              if len(matches) != 1:
+                  raise SystemExit(f'{label}: expected exactly one binding, found {len(matches)}')
+              return matches[0]
+
+          telegram_engine = one(control, r'^\s*ENGINE_SHA:\s*([0-9a-f]{40})\s*$', 'Telegram ENGINE_SHA')
+          production_engine = one(production, r'^\s*EXPECTED_ENGINE_SHA:\s*([0-9a-f]{40})\s*$', 'Production EXPECTED_ENGINE_SHA')
+          if telegram_engine != production_engine:
+              raise SystemExit(
+                  f'Telegram/Production Engine pin mismatch: telegram={telegram_engine} production={production_engine}'
+              )
+          print(f'Telegram production Engine pin matches canonical Production V4: {telegram_engine}')
+          PY
           grep -F 'RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309' .github/workflows/telegram-editorial-control.yml
           grep -F '"production_dispatch_authorized": False' scripts/telegram_control_panel.py >/dev/null
-          ! grep -E 'dispatchToGitHub|workflow_dispatch|telegram-production-request.yml|produce-resilient-v4.yml|cmd:produce_latest|cmd:retry' \
+          ! grep -E 'dispatchToGitHub|workflow_dispatch|/dispatches|cmd:produce_latest|cmd:retry' \
             cloudflare/telegram-control-worker/observability-worker.js
+          grep -F '.github/workflows/produce-resilient-v4.yml' cloudflare/telegram-control-worker/observability-worker.js >/dev/null
           ! grep -E 'enqueue_request|pending_dispatch|production_queue|production_dispatch_authorized[[:space:]]*=' \
             scripts/telegram_creator_control_center_v5.py
           ! grep -F 'enqueue_request(' scripts/telegram_operator_mission_control.py
