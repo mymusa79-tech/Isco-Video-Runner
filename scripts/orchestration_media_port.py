@@ -14,7 +14,6 @@ from scripts import media_prepared_live_cache
 from scripts import media_search_durable_cache
 from scripts import media_trust_boundary_v2
 from scripts import provider_capacity_v2
-from scripts.run184_qr_confirmation_runtime import install_run184_qr_confirmation_runtime
 
 PORT_ID = "media-runtime-port-v1"
 PORT_VERSION = 1
@@ -55,10 +54,6 @@ def install_media_runtime_port() -> MediaRuntimePortEvidence:
     Existing owners remain unchanged:
     - Provider Capacity V2 owns only the required Pixabay 24h metadata cache.
     - Media Trust Boundary V2 owns exact-byte provenance and Security V1 rechecks.
-    - Run184 QR closure composes a mature local confirmation cascade into Security V1;
-      it does not own stock selection, provider routing, or semantic Vision verdicts.
-    - Its decoder runtime is pinned to Ubuntu Noble packages and lives only on the
-      ephemeral GitHub runner; no binary/model is stored in the repository or artifacts.
     - Media durable caches own their existing semantic namespaces and hit validation.
     - Provider/retry execution remains outside this orchestration port.
     """
@@ -69,11 +64,6 @@ def install_media_runtime_port() -> MediaRuntimePortEvidence:
     media_trust_boundary_v2.install_media_trust_boundary_v2()
     if not media_trust_boundary_v2._INSTALLED:
         raise MediaRuntimePortError("Media Trust Boundary V2 did not install")
-
-    # Security V1 remains the authority. This composition step installs only the
-    # Run184 confirmation policy plus its pinned ephemeral decoder-runtime ownership
-    # before any stock-media preflight can run.
-    install_run184_qr_confirmation_runtime()
 
     cache_configured = _durable_cache_configured()
 
@@ -105,5 +95,5 @@ def install_media_runtime_port() -> MediaRuntimePortEvidence:
         durable_asset_cache_installed=durable_installed,
         prepared_live_cache_installed=prepared_installed,
         search_cache_installed=search_installed,
-        trust_revalidation_owner="media-trust-boundary-v2+security-v1+run184-qr-confirmation-v1",
+        trust_revalidation_owner="media-trust-boundary-v2+security-v1",
     )
