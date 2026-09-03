@@ -8,6 +8,18 @@ plans intentionally keep ``narration`` empty and carry viewer-facing copy in
 were authoritative for every format. Runner owns the Long-vs-Short composition seam,
 so it also owns the adapter that tells generic audits which representation is valid.
 
+Run 180 exposed the lifecycle half of the same contract family: a selected Short
+template could pass Draft/Review and Producer handoff, then fail the deterministic
+representation contract after every normal repair owner had already returned. This
+module therefore owns one bounded representation-specific repair before independent
+text audits. The repair is explicitly scoped as ``planning.short_repair`` and is
+followed by the full Producer and representation revalidation. No quality rule is
+weakened and no second repair is attempted.
+
+Template representation is validated only from the authoritative viewer-facing Moment
+text. Topic/research metadata can select or constrain a template, but it cannot satisfy
+a requirement that the viewer must actually see in the finished Short.
+
 Hard quality rules are not weakened here. Tone, dignity, naturalness, religious quote,
 factuality and sensitive-topic blocks remain blocking. The only normalized verdict is
 a short-template *format* complaint after the deterministic Runner-owned Short contract
@@ -21,6 +33,11 @@ from typing import Any, Callable
 
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.planner as engine_planner
+
+from scripts import native_short_stage_contract
+from scripts import planning_stage_contract
+from scripts import short_planning_repair
+from scripts.producer_quality_contract import validate_plan_for_producer_handoff
 
 
 _INSTALLED = False
@@ -59,10 +76,42 @@ _MICRO_STORY_MARKERS = (
     "في لحظة",
     "بدأ",
     "بدأت",
-    "حدث",
-    "كانت",
-    "كان",
 )
+_MICRO_STORY_NEGATION_RE = re.compile(
+    r"(?:^|[\s،؛:,.!?؟])(?:لا|لم|لن|ليس|بلا|دون|من\s+دون)\s*$"
+)
+
+_REPAIRABLE_SHORT_REPRESENTATION_ISSUES = frozenset(
+    {
+        "inner_dialogue_missing_visible_exchange",
+        "why_reframe_missing_explicit_contrast_or_reframe",
+        "micro_story_missing_concrete_event_progression",
+        "quote_reflection_missing_visible_quote",
+    }
+)
+
+_REPRESENTATION_REPAIR_GUIDANCE = {
+    "inner_dialogue_missing_visible_exchange": (
+        "The selected inner_dialogue must be visibly expressed in on_screen_text as two "
+        "short inner-thought turns. Use two clearly separated dash turns (— … — …) or "
+        "two visibly quoted inner thoughts; do not return a single explanatory monologue."
+    ),
+    "why_reframe_missing_explicit_contrast_or_reframe": (
+        "The selected why_reframe must visibly contain the contrast/reframe in the "
+        "viewer-facing wording, not only in metadata. Preserve one concise mistaken "
+        "assumption and make its useful contrast explicit."
+    ),
+    "micro_story_missing_concrete_event_progression": (
+        "The selected micro_story must visibly contain a concrete scene/event progression "
+        "and a change/turn in the viewer-facing wording. Do not replace the event with "
+        "generic advice or an abstract definition."
+    ),
+    "quote_reflection_missing_visible_quote": (
+        "The selected quote_reflection must visibly include only the actual quotation "
+        "already approved by the topic/research, then reflection/payoff. Never invent, "
+        "alter, or attribute a quotation merely to satisfy this repair."
+    ),
+}
 
 
 class ProductionTextRepresentationContractError(RuntimeError):
@@ -71,6 +120,33 @@ class ProductionTextRepresentationContractError(RuntimeError):
 
 def _clean(value: object) -> str:
     return " ".join(str(value or "").strip().split())
+
+
+def _bounded_marker_pattern(marker: str) -> re.Pattern[str]:
+    """Match a semantic marker as Arabic words, never as an arbitrary substring.
+
+    Arabic conjunctions are commonly attached to the following word (``ولكن`` / ``فلكن``),
+    so a leading waw/fa is accepted while the marker itself still has hard word edges.
+    This prevents false positives such as treating ``بل`` inside ``بلا`` as a reframe.
+    """
+    parts = _clean(marker).split()
+    body = r"\s+".join(re.escape(part) for part in parts)
+    return re.compile(r"(?<!\w)(?:[وف])?" + body + r"(?!\w)")
+
+
+def _contains_bounded_marker(text: str, markers: tuple[str, ...]) -> bool:
+    return any(_bounded_marker_pattern(marker).search(text) for marker in markers)
+
+
+def _contains_positive_micro_story_marker(text: str) -> bool:
+    """Require visible temporal/progression evidence, not a generic event/state word."""
+    for marker in _MICRO_STORY_MARKERS:
+        for match in _bounded_marker_pattern(marker).finditer(text):
+            prefix = text[max(0, match.start() - 24) : match.start()]
+            if _MICRO_STORY_NEGATION_RE.search(prefix):
+                continue
+            return True
+    return False
 
 
 def _format(plan: object) -> str:
@@ -140,23 +216,146 @@ def short_representation_issues(plan: object) -> list[str]:
         if dash_turns < 2 and arabic_quote_turns < 2:
             return ["inner_dialogue_missing_visible_exchange"]
     elif template == "why_reframe":
-        combined = authoritative_plan_text(plan)
-        if not any(marker in combined for marker in _WHY_REFRAME_MARKERS):
+        if not _contains_bounded_marker(visible, _WHY_REFRAME_MARKERS):
             return ["why_reframe_missing_explicit_contrast_or_reframe"]
     elif template == "micro_story":
-        combined = authoritative_plan_text(plan)
-        if not any(marker in combined for marker in _MICRO_STORY_MARKERS):
+        if not _contains_positive_micro_story_marker(visible):
             return ["micro_story_missing_concrete_event_progression"]
     elif template == "quote_reflection":
-        combined = authoritative_plan_text(plan)
-        has_arabic_quote = "«" in combined and "»" in combined
-        has_ascii_quote = len(re.findall(r'"[^"\n]{2,}"', combined)) >= 1
+        has_arabic_quote = "«" in visible and "»" in visible
+        has_ascii_quote = len(re.findall(r'"[^"\n]{2,}"', visible)) >= 1
         if not (has_arabic_quote or has_ascii_quote):
             return ["quote_reflection_missing_visible_quote"]
     elif template:
         return ["unsupported_short_template_representation:" + template]
 
     return []
+
+
+def _representation_issues_are_repairable(issues: list[str]) -> bool:
+    return bool(issues) and all(
+        issue in _REPAIRABLE_SHORT_REPRESENTATION_ISSUES for issue in issues
+    )
+
+
+def _planner_arg(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    index: int,
+    name: str,
+) -> Any:
+    if len(args) > index:
+        return args[index]
+    return kwargs.get(name)
+
+
+def _preserve_short_metadata(source: object, repaired: object) -> None:
+    intent = getattr(source, "editorial_intent", None)
+    if isinstance(intent, dict):
+        setattr(repaired, "editorial_intent", dict(intent))
+    narrative = getattr(source, "narrative_format", None)
+    if narrative:
+        setattr(repaired, "narrative_format", narrative)
+
+
+def _repair_short_representation_once(
+    plan: object,
+    issues: list[str],
+    *,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> object:
+    """Use the existing one-call Moment repair transport under an explicit repair stage."""
+    if not _representation_issues_are_repairable(issues):
+        raise ProductionTextRepresentationContractError(
+            "short_representation_repair_received_unowned_issue:" + ",".join(issues)
+        )
+
+    api_key = _planner_arg(args, kwargs, 0, "api_key")
+    topic = _planner_arg(args, kwargs, 1, "topic")
+    requested_format = _planner_arg(args, kwargs, 2, "requested_format")
+    content_model = _planner_arg(args, kwargs, 3, "content_model")
+    if _clean(requested_format).lower() != "moment" or _format(plan) != "moment":
+        raise ProductionTextRepresentationContractError(
+            "short_representation_repair_requires_moment"
+        )
+
+    details = [
+        _REPRESENTATION_REPAIR_GUIDANCE[issue]
+        for issue in issues
+        if issue in _REPRESENTATION_REPAIR_GUIDANCE
+    ]
+    issue_notes = (
+        "Runner Short representation contract repair:\n"
+        + "\n".join(f"- {issue}" for issue in issues)
+        + ("\n" + "\n".join(details) if details else "")
+        + "\nRepair only the viewer-facing representation needed for the selected template. "
+        "Preserve the approved topic, factual/research boundaries, template selection, "
+        "format, duration envelope, and unrelated content."
+    )
+
+    spec = native_short_stage_contract.moment_stage_spec(
+        "short_repair",
+        str(topic or getattr(plan, "topic", "")),
+    )
+    print(
+        "Short representation repair: "
+        f"issues={','.join(issues)} mode=existing_surgical_transport "
+        "stage=planning.short_repair repair_calls=1"
+    )
+    with planning_stage_contract.request_stage_scope(spec):
+        repaired = short_planning_repair._repair_existing_moment(
+            plan,
+            issue_notes,
+            api_key=api_key,
+            topic=str(topic or ""),
+            requested_format="moment",
+            content_model=str(content_model or ""),
+            research_context=kwargs.get("research_context"),
+        )
+    _preserve_short_metadata(plan, repaired)
+    return repaired
+
+
+def resolve_short_representation_for_handoff(
+    plan: object,
+    *,
+    research_context: dict | None,
+    repair_fn: Callable[[object, list[str]], object] | None = None,
+) -> object:
+    """Accept Short representation or perform exactly one owned repair then revalidate."""
+    issues = short_representation_issues(plan)
+    if not issues:
+        return plan
+
+    if repair_fn is not None and _representation_issues_are_repairable(issues):
+        repaired = repair_fn(plan, issues)
+
+        # A representation repair is not allowed to regress any previously passed
+        # Producer safety/quality invariant. Revalidate the full Producer seam first.
+        validate_plan_for_producer_handoff(
+            repaired,
+            research_context=research_context,
+        )
+        remaining = short_representation_issues(repaired)
+        if not remaining:
+            print(
+                "Short representation repair PASS: "
+                f"repaired={','.join(issues)} repair_calls=1"
+            )
+            return repaired
+
+        print(
+            "Short representation repair exhausted: "
+            f"remaining={','.join(remaining)} action=fail_closed"
+        )
+        raise ProductionTextRepresentationContractError(
+            "short_representation_contract_blocked:" + ",".join(remaining)
+        )
+
+    raise ProductionTextRepresentationContractError(
+        "short_representation_contract_blocked:" + ",".join(issues)
+    )
 
 
 def normalize_tone_audit_for_plan(plan: object, result: dict[str, Any]) -> dict[str, Any]:
@@ -248,11 +447,26 @@ def install_production_text_representation_contract() -> None:
     @wraps(current_build)
     def build_wrapped(*args: Any, **kwargs: Any):
         plan = current_build(*args, **kwargs)
-        issues = short_representation_issues(plan)
-        if issues:
-            raise ProductionTextRepresentationContractError(
-                "short_representation_contract_blocked:" + ",".join(issues)
+
+        # Do not nest a second repair while Engine/Runner is already inside the single
+        # canonical Short Dossier repair. A failed repair stays failed closed.
+        repair_fn = None
+        if (
+            _format(plan) == "moment"
+            and short_planning_repair.active_short_repair_context() is None
+        ):
+            repair_fn = lambda candidate, issues: _repair_short_representation_once(
+                candidate,
+                issues,
+                args=args,
+                kwargs=kwargs,
             )
+
+        plan = resolve_short_representation_for_handoff(
+            plan,
+            research_context=kwargs.get("research_context"),
+            repair_fn=repair_fn,
+        )
         _ACTIVE_PLAN.set(plan)
         return plan
 
@@ -323,5 +537,6 @@ def install_production_text_representation_contract() -> None:
     print(
         "Production text representation contract installed: "
         "Long=narration; Moment=on_screen_text; Short template ownership deterministic; "
+        "one bounded planning.short_repair for owned representation defects; "
         "all substantive quality/safety flags remain fail-closed"
     )
