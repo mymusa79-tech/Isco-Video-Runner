@@ -6,19 +6,23 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EDGE = ROOT / "cloudflare" / "telegram-control-worker" / "observability-worker.js"
-CORE = ROOT / "cloudflare" / "telegram-control-worker" / "observability-worker-v4-core.js"
+ENTRY = ROOT / "cloudflare" / "telegram-control-worker" / "observability-worker.js"
+V5_CORE = ROOT / "cloudflare" / "telegram-control-worker" / "observability-worker-v5-core.js"
+V4_CORE = ROOT / "cloudflare" / "telegram-control-worker" / "observability-worker-v4-core.js"
 
 
 class CreatorControlCenterV5EdgeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.text = EDGE.read_text(encoding="utf-8")
-        cls.core = CORE.read_text(encoding="utf-8")
+        cls.entry = ENTRY.read_text(encoding="utf-8")
+        cls.text = V5_CORE.read_text(encoding="utf-8")
+        cls.core = V4_CORE.read_text(encoding="utf-8")
 
-    def test_v5_is_live_wrapper_over_previous_read_only_core(self):
+    def test_v5_is_live_core_behind_production_monitoring_authority(self):
+        self.assertIn('import priorWorker from "./observability-worker-v5-core.js"', self.entry)
         self.assertIn('import priorWorker from "./observability-worker-v4-core.js"', self.text)
         self.assertIn('import { STATUS_CONTRACT } from "./status-contract.generated.js"', self.text)
+        self.assertIn("return priorWorker.fetch(request, env, ctx)", self.entry)
         self.assertIn("return priorWorker.fetch(request, env, ctx)", self.text)
         self.assertIn('import baseWorker from "./index.js"', self.core)
 
@@ -77,7 +81,7 @@ class CreatorControlCenterV5EdgeTests(unittest.TestCase):
         self.assertIn("🎬 حزمة الحلقة", self.text)
         self.assertIn("⚡ حزمة الشورت", self.text)
 
-    def test_v5_wrapper_cannot_dispatch_or_start_production(self):
+    def test_v5_core_cannot_dispatch_or_start_production(self):
         self.assertNotIn("dispatchToGitHub", self.text)
         self.assertNotIn("workflow_dispatch", self.text)
         self.assertNotIn("telegram-production-request.yml", self.text)
@@ -85,23 +89,33 @@ class CreatorControlCenterV5EdgeTests(unittest.TestCase):
         self.assertNotIn("cmd:retry", self.text)
         self.assertNotIn("cmd:produce_latest", self.text)
 
+    def test_monitoring_authority_is_read_only_even_though_it_knows_workflow_paths(self):
+        self.assertIn(".github/workflows/produce-resilient-v4.yml", self.entry)
+        self.assertIn(".github/workflows/telegram-production-request.yml", self.entry)
+        self.assertNotIn("dispatchToGitHub", self.entry)
+        self.assertNotIn("/dispatches", self.entry)
+        self.assertNotIn("workflow_dispatch", self.entry)
+        self.assertNotIn("cmd:retry", self.entry)
+        self.assertNotIn("cmd:produce_latest", self.entry)
+
     def test_exact_identity_and_webhook_secret_boundaries_remain_before_v5_routes(self):
-        for marker in (
-            "X-Telegram-Bot-Api-Secret-Token",
-            "TELEGRAM_WEBHOOK_SECRET",
-            "TELEGRAM_ALLOWED_USER_ID",
-            "TELEGRAM_CHAT_ID",
-            "secretHeaderValid(request, env)",
-            "authorized(update, env)",
-        ):
-            self.assertIn(marker, self.text)
+        for text in (self.entry, self.text):
+            for marker in (
+                "X-Telegram-Bot-Api-Secret-Token",
+                "TELEGRAM_WEBHOOK_SECRET",
+                "TELEGRAM_ALLOWED_USER_ID",
+                "TELEGRAM_CHAT_ID",
+                "secretHeaderValid(request, env)",
+                "authorized(update, env)",
+            ):
+                self.assertIn(marker, text)
 
     def test_javascript_is_valid_when_node_is_available(self):
         node = shutil.which("node")
         if not node:
             self.skipTest("node is unavailable")
-        subprocess.run([node, "--check", str(EDGE)], check=True, capture_output=True, text=True)
-        subprocess.run([node, "--check", str(CORE)], check=True, capture_output=True, text=True)
+        for path in (ENTRY, V5_CORE, V4_CORE):
+            subprocess.run([node, "--check", str(path)], check=True, capture_output=True, text=True)
 
 
 if __name__ == "__main__":
