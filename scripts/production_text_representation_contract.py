@@ -67,15 +67,66 @@ _WHY_REFRAME_MARKERS = (
     "أحيانا",
     "أحيانًا",
 )
-_MICRO_STORY_MARKERS = (
+_MICRO_STORY_SCENE_MARKERS = (
     "عندما",
     "حين",
-    "ثم",
-    "بعد",
-    "قبل",
     "في لحظة",
+    "ذات يوم",
+    "ذات مرة",
+    "مرة",
     "بدأ",
     "بدأت",
+    "فتح",
+    "فتحت",
+    "أغلق",
+    "أغلقت",
+    "دخل",
+    "دخلت",
+    "خرج",
+    "خرجت",
+    "جلس",
+    "جلست",
+    "وقف",
+    "وقفت",
+    "وصل",
+    "وصلت",
+    "غادر",
+    "غادرت",
+    "نظر",
+    "نظرت",
+    "سمع",
+    "سمعت",
+    "قال",
+    "قالت",
+    "سأل",
+    "سألت",
+)
+_MICRO_STORY_TURN_MARKERS = (
+    "ثم",
+    "بعدها",
+    "بعد ذلك",
+    "لكن",
+    "فجأة",
+    "تغير",
+    "تغيّر",
+    "تغيرت",
+    "تغيّرت",
+    "تحول",
+    "تحوّل",
+    "تحولت",
+    "تحوّلت",
+    "أصبح",
+    "أصبحت",
+    "صار",
+    "صارت",
+    "ظهر",
+    "ظهرت",
+    "أدرك",
+    "أدركت",
+    "فهم",
+    "فهمت",
+    "لاحظ",
+    "لاحظت",
 )
 _MICRO_STORY_NEGATION_RE = re.compile(
     r"(?:^|[\s،؛:,.!?؟])(?:لا|لم|لن|ليس|بلا|دون|من\s+دون)\s*$"
@@ -138,15 +189,22 @@ def _contains_bounded_marker(text: str, markers: tuple[str, ...]) -> bool:
     return any(_bounded_marker_pattern(marker).search(text) for marker in markers)
 
 
-def _contains_positive_micro_story_marker(text: str) -> bool:
-    """Require visible temporal/progression evidence, not a generic event/state word."""
-    for marker in _MICRO_STORY_MARKERS:
+def _contains_positive_marker(text: str, markers: tuple[str, ...]) -> bool:
+    """Accept a bounded marker only when it is not directly negated in viewer text."""
+    for marker in markers:
         for match in _bounded_marker_pattern(marker).finditer(text):
             prefix = text[max(0, match.start() - 24) : match.start()]
             if _MICRO_STORY_NEGATION_RE.search(prefix):
                 continue
             return True
     return False
+
+
+def _has_micro_story_progression(text: str) -> bool:
+    """Require both a concrete scene/event cue and a distinct visible change/turn cue."""
+    return _contains_positive_marker(
+        text, _MICRO_STORY_SCENE_MARKERS
+    ) and _contains_positive_marker(text, _MICRO_STORY_TURN_MARKERS)
 
 
 def _format(plan: object) -> str:
@@ -219,7 +277,7 @@ def short_representation_issues(plan: object) -> list[str]:
         if not _contains_bounded_marker(visible, _WHY_REFRAME_MARKERS):
             return ["why_reframe_missing_explicit_contrast_or_reframe"]
     elif template == "micro_story":
-        if not _contains_positive_micro_story_marker(visible):
+        if not _has_micro_story_progression(visible):
             return ["micro_story_missing_concrete_event_progression"]
     elif template == "quote_reflection":
         has_arabic_quote = "«" in visible and "»" in visible
