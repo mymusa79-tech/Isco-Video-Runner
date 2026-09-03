@@ -37,7 +37,7 @@ class F25DeliveryTerminalAuthorityFamilyTests(unittest.TestCase):
             "scripts.test_telegram_release_approval",
             "scripts.test_telegram_release_identity",
             "scripts.test_telegram_final_notify",
-            "scripts.test_youtube_manual_publish_only",
+            "scripts.test_channel_os_youtube_manual_only",
             "scripts.test_f25_family_contract",
         ):
             self.assertIn(contract, p6)
