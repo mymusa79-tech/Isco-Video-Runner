@@ -92,6 +92,13 @@ def require_staged_delivery_manifest(path: Path) -> dict[str, Any]:
     primary = str(manifest.get("primary_video_sha256") or "").strip().lower()
     if not SHA256_RE.fullmatch(primary):
         raise RuntimeError("Delivery manifest primary video SHA256 is missing or malformed")
+    qc = manifest.get("final_master_qc")
+    if not isinstance(qc, dict) or qc.get("file") != FINAL_MASTER_QC_NAME:
+        raise RuntimeError("Delivery manifest Final Master QC identity is missing")
+    qc_size = qc.get("file_size")
+    qc_sha = str(qc.get("file_sha256") or "").strip().lower()
+    if not isinstance(qc_size, int) or isinstance(qc_size, bool) or qc_size < 0 or not SHA256_RE.fullmatch(qc_sha):
+        raise RuntimeError("Delivery manifest Final Master QC artifact identity is malformed")
     return manifest
 
 
@@ -138,8 +145,17 @@ def seal_delivery_acceptance(
         raise RuntimeError("Published Release receipt is missing final.mp4")
     if final_remote.get("digest") != "sha256:" + str(manifest["primary_video_sha256"]).lower():
         raise RuntimeError("Published Release final.mp4 does not match the P4-certified Delivery video")
-    if FINAL_MASTER_QC_NAME not in assets:
+
+    qc_remote = assets.get(FINAL_MASTER_QC_NAME)
+    if not isinstance(qc_remote, dict):
         raise RuntimeError("Published Release receipt is missing Final Master QC evidence")
+    qc_manifest = manifest["final_master_qc"]
+    expected_qc = {
+        "size": qc_manifest["file_size"],
+        "digest": "sha256:" + str(qc_manifest["file_sha256"]).lower(),
+    }
+    if qc_remote != expected_qc:
+        raise RuntimeError("Published Release Final Master QC does not match the exact staged QC evidence")
 
     if journal.get("schema_version") != RELEASE_JOURNAL_SCHEMA_VERSION:
         raise RuntimeError("Release transaction journal schema is unsupported")
@@ -178,6 +194,11 @@ def seal_delivery_acceptance(
             "file": FINAL_VIDEO_NAME,
             "size": final_remote["size"],
             "digest": final_remote["digest"],
+        },
+        "final_master_qc": {
+            "file": FINAL_MASTER_QC_NAME,
+            "size": qc_remote["size"],
+            "digest": qc_remote["digest"],
         },
         "published_asset_count": len(assets) + 1,
     }
