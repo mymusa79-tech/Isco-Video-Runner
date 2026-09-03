@@ -1,18 +1,24 @@
 from __future__ import annotations
 
-"""Run #181 provider-health and Groq Vision family closure.
+"""Run #181 Vision provider-health family closure.
 
-Run #181 proved two separate truths were available but not composed: Planning/Text
-Audit knew the exact Gemini generation model was quota-limited, while provider preflight
-already knew OpenRouter spend capacity was exhausted. Vision owned a private circuit and
-therefore retried Gemini, then found its nominal fallback unavailable.
+Run #181 proved that provider-health evidence already existed in three places but was
+not composed before Vision: provider preflight knew OpenRouter spend capacity was
+exhausted, Planning/Text Audit had observed Gemini generation quota pressure, and the
+Vision owner kept a private circuit. This module closes that family without replacing
+Planning or Text-Audit owners and without weakening any visual gate.
 
-This module closes that family without weakening any visual gate:
-- share only provider/model/quota-domain unavailability evidence across capabilities;
-- seed provider-wide hard blocks from the existing zero-inference preflight artifact;
-- add qwen/qwen3.8-27b as the bounded Groq Vision route between Gemini and OpenRouter;
-- keep the existing exact visual schema, Engine normalizer/thresholds, semantic BLOCK
-  finality, Security preflight, candidate caps, and total inference-attempt ceiling.
+The composition is deliberately read-only across capabilities: immediately before a
+Vision decision we import explicit preflight blocks and read the safe telemetry those
+existing owners already publish. Provider unavailability is scoped by
+provider+model+quota-domain, so Gemini generation quota evidence can be reused by
+Vision but cannot poison unrelated Gemini TTS.
+
+Provider order for one Visual Audit logical task becomes:
+    Gemini -> Groq qwen/qwen3.8-27b -> OpenRouter
+while the existing total inference-attempt ceiling remains exactly three. The exact
+Visual Audit schema, Engine normalizer/thresholds, semantic BLOCK finality, Security
+preflight, candidate caps, and fail-closed behavior remain authoritative.
 """
 
 import base64
@@ -20,14 +26,13 @@ import hashlib
 import json
 import os
 from contextvars import ContextVar
-from dataclasses import replace
 from functools import wraps
 from pathlib import Path
 from typing import Any
 
 import requests
 
-from isco_video_agent.ai_budget import AttemptOutcome
+from isco_video_agent.ai_budget import AttemptOutcome, Capability
 from scripts import provider_health_registry as health
 from scripts import task_level_planner_router as planner_router
 from scripts import text_audit_provider_mesh as text_mesh
@@ -86,51 +91,47 @@ def _publish_gemini_generation_unavailable(detail: object, *, source: str) -> No
     )
 
 
-def _install_planning_health_bridge() -> None:
-    current = planner_router._record_attempt
-    if getattr(current, "_isco_run181_provider_health_bridge", False):
-        return
+def refresh_runtime_provider_health() -> None:
+    """Aggregate already-owned safe evidence without monkey-patching its producers."""
+    health.load_preflight_provider_health()
 
-    @wraps(current)
-    def wrapped(provider_name: str, result: str, *args, **kwargs) -> None:
-        current(provider_name, result, *args, **kwargs)
-        if str(provider_name).lower() != "gemini":
-            return
-        detail = kwargs.get("error_detail")
-        if str(result).lower() == "429" or _quota_or_rate_failure(detail):
+    # Planning telemetry is process-local, safe metadata only, and already records
+    # provider/result/error_detail. Read it; never replace Planning's recorder.
+    try:
+        planning_attempts = planner_router.get_telemetry()
+    except Exception:
+        planning_attempts = []
+    for attempt in planning_attempts:
+        if not isinstance(attempt, dict):
+            continue
+        if str(attempt.get("provider") or "").strip().lower() != "gemini":
+            continue
+        result = str(attempt.get("result") or "").strip().lower()
+        detail = attempt.get("error_detail")
+        if result == "429" or _quota_or_rate_failure(detail):
             _publish_gemini_generation_unavailable(
                 detail or result,
-                source="planning_provider_loop",
+                source="planning_telemetry",
             )
 
-    wrapped._isco_run181_provider_health_bridge = True
-    wrapped._isco_run181_original = current
-    planner_router._record_attempt = wrapped
-
-
-def _install_text_audit_health_bridge() -> None:
-    current = text_mesh._record_route_telemetry
-    if getattr(current, "_isco_run181_provider_health_bridge", False):
-        return
-
-    @wraps(current)
-    def wrapped(route_result) -> None:
-        current(route_result)
-        for attempt in list(getattr(route_result, "attempts", ()) or ()):
-            if str(getattr(attempt, "provider", "")).lower() != "gemini":
+    # Text Audit V2 likewise owns an append-only safe route log. Reuse only explicit
+    # Gemini rate/quota evidence; successful Groq/OpenRouter routes do not imply Gemini
+    # became healthy again during the same bounded production run.
+    for route in list(getattr(text_mesh, "_AUDIT_ROUTE_TELEMETRY", ()) or ()):
+        if not isinstance(route, dict):
+            continue
+        for attempt in list(route.get("attempts") or ()):
+            if not isinstance(attempt, dict):
                 continue
-            outcome = getattr(attempt, "outcome", None)
-            value = str(getattr(outcome, "value", outcome) or "").lower()
-            detail = getattr(attempt, "detail", None)
-            if value == "rate_limited" or _quota_or_rate_failure(detail):
+            if str(attempt.get("provider") or "").strip().lower() != "gemini":
+                continue
+            outcome = str(attempt.get("outcome") or "").strip().lower()
+            detail = attempt.get("detail")
+            if outcome == "rate_limited" or _quota_or_rate_failure(detail):
                 _publish_gemini_generation_unavailable(
-                    detail or value,
-                    source="text_audit_provider_mesh",
+                    detail or outcome,
+                    source="text_audit_telemetry",
                 )
-
-    wrapped._isco_run181_provider_health_bridge = True
-    wrapped._isco_run181_original = current
-    text_mesh._record_route_telemetry = wrapped
 
 
 def _certify_groq_vision_model() -> None:
@@ -161,9 +162,19 @@ def _certify_groq_vision_model() -> None:
     try:
         response = requests.get(
             GROQ_MODELS_URL,
-            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            headers={
+                "Authorization": "Bearer " + token,
+                "Content-Type": "application/json",
+            },
             timeout=GROQ_CATALOG_TIMEOUT_SECONDS,
         )
+    except requests.Timeout as exc:
+        raise contract.VisionStageError(
+            contract.VisionErrorCode.PROVIDER_TRANSIENT,
+            "Groq model-catalog timeout",
+            provider="groq",
+            requested_model=GROQ_VISION_MODEL,
+        ) from exc
     except requests.RequestException as exc:
         raise contract.VisionStageError(
             contract.VisionErrorCode.PROVIDER_TRANSIENT,
@@ -171,11 +182,16 @@ def _certify_groq_vision_model() -> None:
             provider="groq",
             requested_model=GROQ_VISION_MODEL,
         ) from exc
+
     if not response.ok:
-        code = contract._classify_http(int(response.status_code), "groq model catalog")
+        message = ""
+        try:
+            message = contract._extract_error_message(response.json())
+        except Exception:
+            pass
         raise contract.VisionStageError(
-            code,
-            f"Groq model catalog HTTP_{response.status_code}",
+            contract._classify_http(int(response.status_code), message),
+            f"Groq model catalog HTTP_{response.status_code} message={message}",
             provider="groq",
             requested_model=GROQ_VISION_MODEL,
         )
@@ -238,6 +254,8 @@ def _groq_parse_and_normalize(raw: object) -> dict[str, Any]:
             requested_model=GROQ_VISION_MODEL,
             resolved_model=GROQ_VISION_MODEL,
         )
+    # Do not trust the provider's status label alone. The exact Engine normalizer owns
+    # relevance/quality/risk thresholds for Gemini, Groq and OpenRouter equally.
     return contract.gemini_provider._normalize_visual_audit(data)
 
 
@@ -253,6 +271,7 @@ def _groq_visual_call(
         narration_context=narration_context,
         intended_visual=intended_visual,
     )
+    frames = contract.legacy._sample_preview_frames(Path(preview))
     frame_items = [
         {
             "type": "image_url",
@@ -260,7 +279,7 @@ def _groq_visual_call(
                 "url": "data:image/jpeg;base64," + base64.b64encode(frame).decode("ascii")
             },
         }
-        for frame in contract.legacy._sample_preview_frames(Path(preview))
+        for frame in frames
     ]
     payload = {
         "model": GROQ_VISION_MODEL,
@@ -279,7 +298,10 @@ def _groq_visual_call(
     try:
         response = requests.post(
             GROQ_CHAT_URL,
-            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            headers={
+                "Authorization": "Bearer " + token,
+                "Content-Type": "application/json",
+            },
             json=payload,
             timeout=GROQ_TIMEOUT_SECONDS,
         )
@@ -297,11 +319,14 @@ def _groq_visual_call(
             provider="groq",
             requested_model=GROQ_VISION_MODEL,
         ) from exc
+
     try:
         body = response.json()
     except Exception as exc:
         raise contract.VisionStageError(
-            contract.VisionErrorCode.STRUCTURAL_INVALID if response.ok else contract.VisionErrorCode.PROVIDER_TRANSIENT,
+            contract.VisionErrorCode.STRUCTURAL_INVALID
+            if response.ok
+            else contract.VisionErrorCode.PROVIDER_TRANSIENT,
             "Groq Vision response envelope is not valid JSON",
             provider="groq",
             requested_model=GROQ_VISION_MODEL,
@@ -333,7 +358,14 @@ def _groq_visual_call(
     return _groq_parse_and_normalize(message.get("content"))
 
 
-def _run_groq_attempt(ledger, spec, *, preview: Path, narration_context: str, intended_visual: str) -> dict[str, Any]:
+def _run_groq_attempt(
+    ledger,
+    spec,
+    *,
+    preview: Path,
+    narration_context: str,
+    intended_visual: str,
+) -> dict[str, Any]:
     contract._authorize(ledger, spec)
     try:
         result = _groq_visual_call(
@@ -358,14 +390,20 @@ def _run_groq_attempt(ledger, spec, *, preview: Path, narration_context: str, in
         provider="groq",
         requested_model=GROQ_VISION_MODEL,
         resolved_model=GROQ_VISION_MODEL,
-        outcome=AttemptOutcome.CONTENT_BLOCKED if result.get("status") == "block" else AttemptOutcome.SUCCESS,
+        outcome=(
+            AttemptOutcome.CONTENT_BLOCKED
+            if result.get("status") == "block"
+            else AttemptOutcome.SUCCESS
+        ),
     )
     return result
 
 
 def _mesh_unavailable(state) -> contract.legacy.VisionProviderMeshUnavailableError:
     groq = health.provider_unavailable(
-        "groq", model=GROQ_VISION_MODEL, quota_domain=GROQ_VISION_QUOTA_DOMAIN
+        "groq",
+        model=GROQ_VISION_MODEL,
+        quota_domain=GROQ_VISION_QUOTA_DOMAIN,
     )
     reasons = [
         f"gemini={state.gemini_reason or 'unavailable'}",
@@ -374,6 +412,25 @@ def _mesh_unavailable(state) -> contract.legacy.VisionProviderMeshUnavailableErr
     ]
     return contract.legacy.VisionProviderMeshUnavailableError(
         "Vision provider mesh unavailable: " + " | ".join(reasons)
+    )
+
+
+def _record_circuit_open(
+    ledger,
+    spec,
+    *,
+    provider: str,
+    requested_model: str,
+    detail: str,
+) -> None:
+    contract._record(
+        ledger,
+        spec,
+        provider=provider,
+        requested_model=requested_model,
+        resolved_model="circuit-open",
+        outcome=AttemptOutcome.CIRCUIT_OPEN,
+        detail=detail,
     )
 
 
@@ -386,7 +443,11 @@ def _route_visual_audit_v3(
     *args,
     **kwargs,
 ) -> dict[str, Any]:
-    if spec.kind != "VISUAL_AUDIT" or spec.capability is not contract.Capability.VISION or provider != "gemini":
+    if (
+        spec.kind != "VISUAL_AUDIT"
+        or spec.capability is not Capability.VISION
+        or provider != "gemini"
+    ):
         raise AssertionError("Run181 Vision mesh received a non-Visual task")
     if len(args) < 2:
         raise contract.VisionStageError(
@@ -395,7 +456,7 @@ def _route_visual_audit_v3(
             provider="internal",
         )
 
-    health.load_preflight_provider_health()
+    refresh_runtime_provider_health()
     preview = Path(args[1])
     narration_context = str(kwargs.get("narration_context") or "")
     intended_visual = str(kwargs.get("intended_visual") or "")
@@ -404,15 +465,17 @@ def _route_visual_audit_v3(
         narration_context=narration_context,
         intended_visual=intended_visual,
     )
-    routed_spec = replace(
-        spec,
-        max_provider_attempts=max(
-            contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts,
-            spec.max_provider_attempts,
-        ),
-    )
+    # V2 already owns a three-attempt logical Vision budget. V3 changes only provider
+    # composition, never the ceiling.
+    max_attempts = int(contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts)
+    if max_attempts != 3:
+        raise contract.VisionStageError(
+            contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"Run181 closure requires existing Vision attempt cap=3, found={max_attempts}",
+            provider="internal",
+        )
     if ledger is not None:
-        ledger.register_task(routed_spec)
+        ledger.register_task(spec)
     state = contract.legacy._state()
     attempts = 0
 
@@ -423,10 +486,12 @@ def _route_visual_audit_v3(
     )
     if shared_gemini is not None:
         state.gemini_open = True
-        state.gemini_reason = f"shared_health:{shared_gemini.source}:{shared_gemini.reason}"
+        state.gemini_reason = (
+            f"shared_health:{shared_gemini.source}:{shared_gemini.reason}"
+        )
 
     if not state.gemini_open:
-        contract._authorize(ledger, routed_spec)
+        contract._authorize(ledger, spec)
         attempts += 1
         try:
             result = fn(*args, **kwargs)
@@ -435,18 +500,24 @@ def _route_visual_audit_v3(
             detail = contract.legacy._safe_exception_detail(exc)
             contract._record(
                 ledger,
-                routed_spec,
+                spec,
                 provider="gemini",
                 requested_model=resolved_model,
                 resolved_model=resolved_model,
                 outcome=contract._attempt_outcome(exc),
                 detail=detail,
             )
-            if code in {contract.VisionErrorCode.AUTH_CONFIG, contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR}:
+            if code in {
+                contract.VisionErrorCode.AUTH_CONFIG,
+                contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
+            }:
                 raise
             state.gemini_open = True
             state.gemini_reason = f"{code.value} {detail}"
-            _publish_gemini_generation_unavailable(detail, source="vision_stage")
+            _publish_gemini_generation_unavailable(
+                detail,
+                source="vision_stage",
+            )
             print(
                 "Vision Stage Contract V3: Gemini circuit opened after technical failure; "
                 f"input={input_hash[:12]} reason={state.gemini_reason}"
@@ -454,7 +525,7 @@ def _route_visual_audit_v3(
         else:
             contract._record(
                 ledger,
-                routed_spec,
+                spec,
                 provider="gemini",
                 requested_model=resolved_model,
                 resolved_model=resolved_model,
@@ -464,38 +535,40 @@ def _route_visual_audit_v3(
                     else AttemptOutcome.SUCCESS
                 ),
             )
+            # Semantic BLOCK is authoritative, not a reason to shop for a friendlier
+            # provider. This preserves the existing V2 semantic-block-final contract.
             return result
     else:
-        contract._record(
+        _record_circuit_open(
             ledger,
-            routed_spec,
+            spec,
             provider="gemini",
             requested_model=resolved_model,
-            resolved_model=resolved_model,
-            outcome=AttemptOutcome.CIRCUIT_OPEN,
             detail="run-scoped/shared Gemini generation circuit already open",
         )
 
     groq_evidence = health.provider_unavailable(
-        "groq", model=GROQ_VISION_MODEL, quota_domain=GROQ_VISION_QUOTA_DOMAIN
+        "groq",
+        model=GROQ_VISION_MODEL,
+        quota_domain=GROQ_VISION_QUOTA_DOMAIN,
     )
-    if groq_evidence is None and attempts < contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts:
+    if groq_evidence is None and attempts < max_attempts:
         attempts += 1
         try:
             result = _run_groq_attempt(
                 ledger,
-                routed_spec,
+                spec,
                 preview=preview,
                 narration_context=narration_context,
                 intended_visual=intended_visual,
             )
             print(
-                "Vision Stage Contract V3: Groq Vision fallback selected "
+                "Vision Stage Contract V3: Groq Vision route selected "
                 f"model={GROQ_VISION_MODEL} input={input_hash[:12]}"
             )
             return result
         except contract.VisionStageError as exc:
-            if exc.code in {contract.VisionErrorCode.AUTH_CONFIG, contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR}:
+            if exc.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
                 raise
             health.publish_provider_unavailable(
                 "groq",
@@ -509,36 +582,35 @@ def _route_visual_audit_v3(
                 f"input={input_hash[:12]} reason={contract.legacy._safe_exception_detail(exc)}"
             )
     elif groq_evidence is not None:
-        contract._record(
+        _record_circuit_open(
             ledger,
-            routed_spec,
+            spec,
             provider="groq",
             requested_model=GROQ_VISION_MODEL,
-            resolved_model="circuit-open",
-            outcome=AttemptOutcome.CIRCUIT_OPEN,
             detail=f"shared Groq Vision health unavailable source={groq_evidence.source}",
         )
 
     openrouter_evidence = health.provider_unavailable(
-        "openrouter", model=contract.OPENROUTER_PRIMARY_MODEL, quota_domain="vision"
+        "openrouter",
+        model=contract.OPENROUTER_PRIMARY_MODEL,
+        quota_domain="vision",
     )
     if openrouter_evidence is not None:
         state.openrouter_open = True
-        state.openrouter_reason = f"shared_health:{openrouter_evidence.source}:{openrouter_evidence.reason}"
+        state.openrouter_reason = (
+            f"shared_health:{openrouter_evidence.source}:{openrouter_evidence.reason}"
+        )
 
     if state.openrouter_open:
-        contract._record(
+        _record_circuit_open(
             ledger,
-            routed_spec,
+            spec,
             provider="openrouter",
             requested_model=contract.OPENROUTER_PRIMARY_MODEL,
-            resolved_model="circuit-open",
-            outcome=AttemptOutcome.CIRCUIT_OPEN,
             detail="run-scoped/shared OpenRouter circuit already open",
         )
         raise _mesh_unavailable(state)
-
-    if attempts >= contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts:
+    if attempts >= max_attempts:
         raise _mesh_unavailable(state)
 
     attempts += 1
@@ -546,7 +618,7 @@ def _route_visual_audit_v3(
     try:
         result, first_resolved = contract._run_openrouter_attempt(
             ledger,
-            routed_spec,
+            spec,
             preview=preview,
             narration_context=narration_context,
             intended_visual=intended_visual,
@@ -555,7 +627,7 @@ def _route_visual_audit_v3(
         return result
     except contract.VisionStageError as first_error:
         if first_error.code is not contract.VisionErrorCode.STRUCTURAL_INVALID:
-            if first_error.code in {contract.VisionErrorCode.AUTH_CONFIG, contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR}:
+            if first_error.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
                 raise
             state.openrouter_open = True
             state.openrouter_reason = contract.legacy._safe_exception_detail(first_error)
@@ -569,9 +641,9 @@ def _route_visual_audit_v3(
             raise _mesh_unavailable(state) from first_error
 
         first_resolved = first_error.resolved_model or first_resolved
-        # Preserve the existing one model-diverse schema recovery only when a bounded
-        # inference slot remains. Gemini/Groq portability never expands the task cap.
-        if attempts >= contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts:
+        # Preserve V2's one model-diverse schema recovery only when a real inference
+        # slot remains. Skipped providers spend zero slots; failed wire calls spend one.
+        if attempts >= max_attempts:
             state.openrouter_reason = contract.legacy._safe_exception_detail(first_error)
             raise _mesh_unavailable(state) from first_error
         excluded = {contract.OPENROUTER_PRIMARY_MODEL}
@@ -581,7 +653,8 @@ def _route_visual_audit_v3(
         if not alternate:
             state.openrouter_open = True
             state.openrouter_reason = (
-                f"{contract.VisionErrorCode.STRUCTURAL_INVALID.value} no diverse free structured-vision model available "
+                f"{contract.VisionErrorCode.STRUCTURAL_INVALID.value} "
+                "no diverse free structured-vision model available "
                 f"after {first_resolved or contract.OPENROUTER_PRIMARY_MODEL}"
             )
             raise _mesh_unavailable(state) from first_error
@@ -593,7 +666,7 @@ def _route_visual_audit_v3(
         try:
             result, _resolved = contract._run_openrouter_attempt(
                 ledger,
-                routed_spec,
+                spec,
                 preview=preview,
                 narration_context=narration_context,
                 intended_visual=intended_visual,
@@ -601,7 +674,7 @@ def _route_visual_audit_v3(
             )
             return result
         except contract.VisionStageError as second_error:
-            if second_error.code in {contract.VisionErrorCode.AUTH_CONFIG, contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR}:
+            if second_error.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
                 raise
             state.openrouter_open = True
             state.openrouter_reason = contract.legacy._safe_exception_detail(second_error)
@@ -614,19 +687,24 @@ def _install_fingerprint_binding() -> None:
         return
 
     @wraps(current)
-    def wrapped() -> str:
+    def run181_fingerprint() -> str:
         payload = {
             "base": current(),
             "closure_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "groq_vision_model": GROQ_VISION_MODEL,
             "provider_order": ["gemini", "groq", "openrouter"],
+            "health_scope": "provider+model+quota_domain",
         }
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
 
-    wrapped._isco_run181_vision_mesh_fingerprint = True
-    wrapped._isco_run181_original = current
-    contract.vision_contract_fingerprint = wrapped
+    run181_fingerprint._isco_run181_vision_mesh_fingerprint = True
+    run181_fingerprint._isco_run181_original = current
+    contract.vision_contract_fingerprint = run181_fingerprint
 
 
 def install_run181_vision_mesh_closure() -> None:
@@ -634,22 +712,16 @@ def install_run181_vision_mesh_closure() -> None:
     if _INSTALLED:
         return
 
-    health.load_preflight_provider_health()
-    _install_planning_health_bridge()
-    _install_text_audit_health_bridge()
+    refresh_runtime_provider_health()
     _install_fingerprint_binding()
-
-    policy = replace(
-        contract.VISION_STAGE_SPEC.provider_policy,
-        providers=("gemini", "groq", "openrouter"),
-        max_total_inference_attempts=3,
-    )
-    contract.VISION_STAGE_SPEC = replace(contract.VISION_STAGE_SPEC, provider_policy=policy)
+    # The canonical V2 installer resolves this module-global function when every
+    # Visual Audit call arrives. Replace only that Vision routing hook; Planning/Text
+    # Audit recorders and their ownership remain untouched.
     contract._route_visual_audit_v2 = _route_visual_audit_v3
 
     _INSTALLED = True
     print(
         "Run181 Vision mesh closure installed: provider_order=Gemini->Groq(qwen/qwen3.8-27b)->OpenRouter; "
-        "shared provider/model/quota health=true; preflight blocks imported=true; total_inference_attempt_cap=3; "
+        "health_source=preflight+existing_planning/text_audit_telemetry; total_inference_attempt_cap=3; "
         "visual schema/normalizer/semantic BLOCK/Security gates unchanged"
     )
