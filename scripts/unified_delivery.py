@@ -5,7 +5,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+from scripts.final_master_acceptance_v2 import (
+    require_certified_final_video,
+    require_final_master_acceptance,
+)
+
+SCHEMA_VERSION = 2
 
 
 def _read_object(path: Path, *, required: bool = True) -> dict[str, Any]:
@@ -36,16 +41,6 @@ def _request_summary(request: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
-def _passing_master_qc(document: dict[str, Any]) -> bool:
-    return bool(
-        document.get("status") == "pass"
-        and document.get("production_stage") == "post_render_pre_gold_acceptance"
-        and document.get("full_decode_ok") is True
-        and document.get("final_media_mutated") is False
-        and not list(document.get("blocking_findings") or [])
-    )
-
-
 def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if short_assets and not 2 <= len(short_assets) <= 3:
         raise RuntimeError("Unified long-form delivery must contain 2–3 sibling Shorts")
@@ -60,14 +55,17 @@ def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> li
             raise RuntimeError("Unified delivery sibling Shorts must have distinct semantic jobs")
         seen_jobs.add(key)
         video = str(item.get("video") or "")
-        if not video or not (root / video).is_file():
+        video_path = root / video
+        if not video or not video_path.is_file():
             raise RuntimeError("Unified delivery sibling Short video is missing")
         qc_name = str(item.get("final_master_qc") or "")
-        if not qc_name or not (root / qc_name).is_file():
+        qc_path = root / qc_name
+        if not qc_name or not qc_path.is_file():
             raise RuntimeError("Unified delivery sibling Short Final Master QC is missing")
-        qc = _read_object(root / qc_name)
-        if not _passing_master_qc(qc):
-            raise RuntimeError("Unified delivery sibling Short failed Final Master QC")
+        try:
+            qc = require_certified_final_video(qc_path, video_path)
+        except Exception as exc:
+            raise RuntimeError("Unified delivery sibling Short failed exact Final Master acceptance") from exc
         normalized_item = dict(item)
         normalized_item["final_master_qc"] = {
             "file": qc_name,
@@ -113,15 +111,16 @@ def build_delivery_manifest(
     quality = _read_object(root / "quality-final.json")
     production = _read_object(root / "production-manifest.json")
     packaging = _read_object(root / "thumbnail-plan.json", required=False)
-    final_master_qc = _read_object(root / "final-master-qc.json")
-    if not _passing_master_qc(final_master_qc):
-        raise RuntimeError("Unified delivery requires a passing Final Master QC report")
-
-    fmt = str(plan.get("format") or quality.get("format") or production.get("format") or "")
-    kind = "short" if fmt == "moment" or str(release_tag or "").startswith("short-") else "long"
     final = root / "final.mp4"
     if not final.is_file():
         raise RuntimeError("Missing final.mp4 for delivery")
+    try:
+        final_master_qc = require_final_master_acceptance(root)
+    except Exception as exc:
+        raise RuntimeError("Unified delivery requires exact current Final Master acceptance") from exc
+
+    fmt = str(plan.get("format") or quality.get("format") or production.get("format") or "")
+    kind = "short" if fmt == "moment" or str(release_tag or "").startswith("short-") else "long"
 
     title_thumbnail_pairs: list[dict[str, Any]] = []
     raw_candidates = packaging.get("candidates") if isinstance(packaging, dict) else None
@@ -152,6 +151,7 @@ def build_delivery_manifest(
         "release_tag": release_tag,
         "delivery_url": release_url,
         "primary_video": "final.mp4",
+        "primary_video_sha256": final_master_qc["acceptance_contract"]["sources"]["final"]["sha256"],
         "title_thumbnail_pairs": title_thumbnail_pairs,
         "shorts": shorts,
         "short_count": len(shorts),

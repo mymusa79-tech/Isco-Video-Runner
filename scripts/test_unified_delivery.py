@@ -1,21 +1,55 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from scripts import final_master_acceptance_v2 as acceptance
 from scripts.unified_delivery import build_delivery_manifest, finalize_release_manifest, write_delivery_manifest
 
 
-def _passing_qc() -> dict:
+def _probe() -> dict:
     return {
+        "streams": [
+            {
+                "codec_type": "video",
+                "codec_name": "h264",
+                "profile": "High",
+                "field_order": "progressive",
+                "color_transfer": "bt709",
+                "color_primaries": "bt709",
+                "color_space": "bt709",
+            },
+            {
+                "codec_type": "audio",
+                "codec_name": "aac",
+                "profile": "LC",
+                "sample_rate": "48000",
+                "channels": 2,
+            },
+        ]
+    }
+
+
+def _seal_qc(root: Path, *, fmt: str) -> dict:
+    report = {
+        "schema_version": 1,
         "status": "pass",
         "production_stage": "post_render_pre_gold_acceptance",
+        "format": fmt,
         "full_decode_ok": True,
+        "full_decode_timed_out": False,
         "final_media_mutated": False,
         "blocking_findings": [],
+        "warnings": [],
     }
+    with patch.object(acceptance, "probe", return_value=_probe()), patch.object(
+        acceptance, "_mp4_fast_start", return_value=(True, ["ftyp", "moov", "mdat"])
+    ):
+        return acceptance.seal_final_master_acceptance(root, report)
 
 
 class UnifiedDeliveryTests(unittest.TestCase):
@@ -26,10 +60,11 @@ class UnifiedDeliveryTests(unittest.TestCase):
         (root / "final.mp4").write_bytes(b"x" * 2048)
         (root / "plan.json").write_text(json.dumps({"topic": "موضوع", "format": fmt}), encoding="utf-8")
         (root / "quality-final.json").write_text(json.dumps({"format": fmt}), encoding="utf-8")
+        (root / "visual-timeline.json").write_text(json.dumps({"duration_seconds": 12.0}), encoding="utf-8")
         (root / "production-manifest.json").write_text(json.dumps({"format": fmt}), encoding="utf-8")
         (root / "rights-manifest.json").write_text("{}", encoding="utf-8")
         (root / "gold-enforce-report.json").write_text("{}", encoding="utf-8")
-        (root / "final-master-qc.json").write_text(json.dumps(_passing_qc()), encoding="utf-8")
+        _seal_qc(root, fmt=fmt)
         payload = {
             "candidates": [
                 {
@@ -50,10 +85,18 @@ class UnifiedDeliveryTests(unittest.TestCase):
     def _short_assets(self, root: Path, count: int = 3) -> list[dict]:
         assets = []
         for index in range(1, count + 1):
+            child = root / f"child-{index:02d}"
+            child.mkdir()
+            (child / "final.mp4").write_bytes(bytes([64 + index]) * 2048)
+            (child / "plan.json").write_text(json.dumps({"format": "moment"}), encoding="utf-8")
+            (child / "quality-final.json").write_text(json.dumps({"format": "moment"}), encoding="utf-8")
+            (child / "visual-timeline.json").write_text(json.dumps({"duration_seconds": 12.0}), encoding="utf-8")
+            _seal_qc(child, fmt="moment")
+
             name = f"short-{index:02d}.mp4"
             qc_name = f"short-{index:02d}-master-qc.json"
-            (root / name).write_bytes(b"s" * 2048)
-            (root / qc_name).write_text(json.dumps(_passing_qc()), encoding="utf-8")
+            shutil.copy2(child / "final.mp4", root / name)
+            shutil.copy2(child / "final-master-qc.json", root / qc_name)
             assets.append(
                 {
                     "slot": f"S{index}",
@@ -78,6 +121,10 @@ class UnifiedDeliveryTests(unittest.TestCase):
         self.assertFalse(manifest["publication_performed"])
         self.assertTrue(manifest["delivery_url"].endswith("/releases/tag/video-123"))
         self.assertEqual(manifest["final_master_qc"]["evidence"]["status"], "pass")
+        self.assertEqual(
+            manifest["primary_video_sha256"],
+            manifest["final_master_qc"]["evidence"]["acceptance_contract"]["sources"]["final"]["sha256"],
+        )
 
     def test_staged_long_plus_shorts_is_complete_before_release_tag_exists(self):
         root = self._root()
@@ -95,6 +142,19 @@ class UnifiedDeliveryTests(unittest.TestCase):
         self.assertEqual(manifest["short_count"], 3)
         self.assertFalse(manifest["partial_delivery_allowed"])
         self.assertTrue(all(item["final_master_qc"]["evidence"]["status"] == "pass" for item in manifest["shorts"]))
+
+    def test_primary_video_mutation_after_p4_blocks_delivery(self):
+        root = self._root()
+        (root / "final.mp4").write_bytes(b"mutated" * 500)
+        with self.assertRaisesRegex(RuntimeError, "exact current Final Master acceptance"):
+            build_delivery_manifest(root, repository="r/x", release_tag=None)
+
+    def test_sibling_video_mutation_after_p4_blocks_delivery(self):
+        root = self._root()
+        shorts = self._short_assets(root, 2)
+        (root / shorts[0]["video"]).write_bytes(b"mutated-short" * 300)
+        with self.assertRaisesRegex(RuntimeError, "exact Final Master acceptance"):
+            build_delivery_manifest(root, repository="r/x", release_tag=None, short_assets=shorts)
 
     def test_bundle_request_blocks_partial_short_delivery(self):
         root = self._root()

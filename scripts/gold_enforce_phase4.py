@@ -17,6 +17,7 @@ from isco_video_agent.production_pipeline import (
 )
 from isco_video_agent.security import safe_error
 
+from scripts.final_master_acceptance_v2 import require_final_master_acceptance
 from scripts.gold_final_critic_text_fallback import gold_final_critic_text_fallback
 from scripts.gold_shadow_phase2a import _fingerprint, _provider_attempt_total
 from scripts.gold_thumbnail_budget import build_budgeted_thumbnail_package
@@ -36,9 +37,6 @@ def _augment_rights_budget_aware(output_dir: Path, package: dict) -> dict:
     if package.get("budget_degraded") is not True:
         return _augment_rights(output_dir, package)
 
-    # Let the Engine refresh/preserve the canonical core rights document without
-    # asking it to interpret a provider it does not know. Then bind each thumbnail to
-    # final.mp4 as a derivative of visuals already present in that same rights manifest.
     engine_package = dict(package)
     engine_package["candidates"] = []
     rights = _augment_rights(output_dir, engine_package)
@@ -87,17 +85,23 @@ def run_gold_enforce_phase4(
     ledger: BudgetLedger,
     pixabay: str | None = None,
 ) -> tuple[object, dict, dict]:
-    """Enforce the extracted Gold finalizer over the exact existing core render.
-
-    Phase 4 deliberately does not switch the production entrypoint yet: Runner still
-    calls orchestrator.produce() once, then this function performs the Gold
-    thumbnail->rights->critic->state sequence on that same output. Any Gold failure is
-    now authoritative and raises before manifest/analytics. No second render exists.
-    """
+    """Enforce Gold over the same exact P4-certified render when P4 evidence is present."""
+    output_dir = Path(output_dir)
     final_path = output_dir / "final.mp4"
     if not final_path.is_file():
         raise RuntimeError("Final video missing before Gold enforcement")
     final_sha_before = _sha256_file(final_path)
+
+    p4_acceptance: dict | None = None
+    qc_path = output_dir / "final-master-qc.json"
+    if qc_path.is_file():
+        p4_acceptance = require_final_master_acceptance(output_dir)
+        certified_sha = str(
+            p4_acceptance["acceptance_contract"]["sources"]["final"]["sha256"]
+        )
+        if certified_sha != final_sha_before:
+            raise RuntimeError("Gold enforcement received bytes different from P4 certificate")
+
     attempts_before = _provider_attempt_total(ledger)
     state_before = _fingerprint(Path(os.environ.get("ISCO_HISTORY_PATH", ""))) if os.environ.get("ISCO_HISTORY_PATH") else {
         "exists": None,
@@ -110,9 +114,6 @@ def run_gold_enforce_phase4(
         return build_budgeted_thumbnail_package(**kwargs, ledger=ledger, pixabay_key=pixabay)
 
     def enforced_critic(**kwargs):
-        # Final Critic is an enforcing release gate, not an enhancement. Promote only
-        # this synchronous enforce-mode scope to P0. Opening Vision remains direct
-        # Gemini; release text may make exactly one technical Gemini->OpenRouter switch.
         with enforcing_final_critic_as_p0(), gold_final_critic_text_fallback():
             critic = _run_final_critic(
                 **kwargs,
@@ -123,9 +124,6 @@ def run_gold_enforce_phase4(
                 task_kind="GOLD_FINAL_CRITIC",
             )
         critic_box["critic"] = critic
-        # Validate the one-render invariant while still inside finalize_gold_output's
-        # cleanup-protected try block. If bytes changed, the finalizer rejects/cleans
-        # the production before mark_production_accepted can execute.
         if _sha256_file(final_path) != final_sha_before:
             raise RuntimeError("Gold enforcement detected final.mp4 mutation before state acceptance")
         return critic
@@ -160,18 +158,32 @@ def run_gold_enforce_phase4(
     }
     thumbnail_plan: dict = {}
     try:
-        raw_thumbnail = json.loads((Path(output_dir) / "thumbnail-plan.json").read_text(encoding="utf-8"))
+        raw_thumbnail = json.loads((output_dir / "thumbnail-plan.json").read_text(encoding="utf-8"))
         if isinstance(raw_thumbnail, dict):
             thumbnail_plan = raw_thumbnail
     except Exception:
         pass
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "phase": "4",
         "mode": "enforce",
         "release_authority": "gold",
         "single_render": True,
         "entrypoint_switched": False,
+        "p4_acceptance": {
+            "required_on_canonical_path": True,
+            "present": p4_acceptance is not None,
+            "contract_id": (
+                p4_acceptance.get("acceptance_contract", {}).get("contract_id")
+                if isinstance(p4_acceptance, dict)
+                else None
+            ),
+            "certified_final_sha256": (
+                p4_acceptance.get("acceptance_contract", {}).get("sources", {}).get("final", {}).get("sha256")
+                if isinstance(p4_acceptance, dict)
+                else None
+            ),
+        },
         "same_render": {
             "path": str(final_path),
             "sha256_before": final_sha_before,
@@ -203,8 +215,6 @@ def run_gold_enforce_phase4(
             ),
             "final_critic_priority": "P0",
         },
-        # Never persist raw exception text here: provider/library errors can contain
-        # request URLs, headers, query strings, or credential-bearing file paths.
         "error": safe_error(error) if error is not None else None,
     }
     try:
@@ -217,7 +227,5 @@ def run_gold_enforce_phase4(
     if error is not None:
         raise error
     if final_sha_after != final_sha_before:
-        # Defensive belt-and-suspenders guard; the pre-accept check above should have
-        # caught this already. Do not let manifest/analytics proceed on divergence.
         raise RuntimeError("Gold enforcement final.mp4 invariant failed after acceptance")
     return plan, critic, report

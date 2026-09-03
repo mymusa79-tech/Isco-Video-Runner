@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from scripts import final_master_acceptance_v2 as acceptance
 from scripts import final_master_qc
 from scripts import final_qc_observer_durability as durability
 from scripts import groq_audio_audit
@@ -16,6 +17,27 @@ from scripts import voice_identity_observer
 _TOOLS = {
     "ffmpeg": {"first_line": "ffmpeg-test", "sha256": "f" * 64},
     "ffprobe": {"first_line": "ffprobe-test", "sha256": "e" * 64},
+}
+
+_ACCEPTANCE_PROBE = {
+    "streams": [
+        {
+            "codec_type": "video",
+            "codec_name": "h264",
+            "profile": "High",
+            "field_order": "progressive",
+            "color_transfer": "bt709",
+            "color_primaries": "bt709",
+            "color_space": "bt709",
+        },
+        {
+            "codec_type": "audio",
+            "codec_name": "aac",
+            "profile": "LC",
+            "sample_rate": "48000",
+            "channels": 2,
+        },
+    ]
 }
 
 
@@ -71,12 +93,18 @@ class FinalQcObserverDurabilityTests(unittest.TestCase):
 
             with patch.dict(os.environ, self._env(root), clear=False), patch.object(
                 durability, "_media_tools_identity", return_value=_TOOLS
+            ), patch.object(
+                acceptance, "probe", return_value=_ACCEPTANCE_PROBE
+            ), patch.object(
+                acceptance, "_mp4_fast_start", return_value=(True, ["ftyp", "moov", "mdat"])
             ):
                 first = durability.run_final_master_qc_durable(out, original=qc)
                 self.assertEqual(first["status"], "pass")
+                self.assertEqual(first["acceptance_contract"]["contract_id"], "final.master.acceptance.v2")
                 (out / "final-master-qc.json").unlink()
                 second = durability.run_final_master_qc_durable(out, original=qc)
                 self.assertEqual(second["status"], "pass")
+                self.assertEqual(second["acceptance_contract"]["contract_id"], "final.master.acceptance.v2")
                 self.assertEqual(calls["qc"], 1)
 
                 (out / "final.mp4").write_bytes(b"W" * 4096)
