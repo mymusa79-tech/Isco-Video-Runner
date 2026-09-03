@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 
 CONTRACT_ID = "delivery.acceptance.v2"
@@ -102,6 +102,38 @@ def require_staged_delivery_manifest(path: Path) -> dict[str, Any]:
     return manifest
 
 
+def validate_staged_delivery_assets(*, delivery_manifest: Path, assets: Sequence[Path]) -> dict[str, Any]:
+    """Validate the complete Delivery authority seam before any remote Release side effect."""
+    manifest = require_staged_delivery_manifest(delivery_manifest)
+    by_name: dict[str, Path] = {}
+    for raw in assets:
+        path = Path(raw)
+        if path.name in by_name:
+            raise RuntimeError("Delivery acceptance asset set contains duplicate basenames")
+        by_name[path.name] = path
+
+    if by_name.get(DELIVERY_MANIFEST_NAME) != Path(delivery_manifest):
+        raise RuntimeError("Release asset set is not bound to the exact staged Delivery manifest")
+    final = by_name.get(FINAL_VIDEO_NAME)
+    qc = by_name.get(FINAL_MASTER_QC_NAME)
+    if final is None or qc is None:
+        raise RuntimeError("Delivery acceptance requires final.mp4 and Final Master QC in the Release asset set")
+
+    final_identity = _identity(final)
+    if final_identity["digest"] != "sha256:" + str(manifest["primary_video_sha256"]).lower():
+        raise RuntimeError("Release final.mp4 does not match the P4-certified staged Delivery video")
+
+    qc_identity = _identity(qc)
+    qc_manifest = manifest["final_master_qc"]
+    expected_qc = {
+        "size": qc_manifest["file_size"],
+        "digest": "sha256:" + str(qc_manifest["file_sha256"]).lower(),
+    }
+    if {"size": qc_identity["size"], "digest": qc_identity["digest"]} != expected_qc:
+        raise RuntimeError("Release Final Master QC does not match the exact staged QC evidence")
+    return manifest
+
+
 def seal_delivery_acceptance(
     *,
     delivery_manifest: Path,
@@ -163,7 +195,7 @@ def seal_delivery_acceptance(
         raise RuntimeError("Delivery cannot become released before the Release transaction is complete")
     if journal.get("tag") != release_tag or str(journal.get("target_sha") or "").strip().lower() != target_sha:
         raise RuntimeError("Release transaction journal identity does not match Delivery")
-    expected_count = len(assets) + 1  # payload assets plus the published release receipt itself
+    expected_count = len(assets) + 1
     if journal.get("assets_expected") != expected_count or journal.get("assets_verified") != expected_count:
         raise RuntimeError("Release transaction journal did not verify the complete published asset set")
     journal_digests = journal.get("asset_digests")
