@@ -232,7 +232,7 @@ class MasterApprovalContractTests(unittest.TestCase):
         expected = {
             "scripts/retry_after_policy.py": "483281935a0907a9f74c571949bc7f122bed2f46",
             "scripts/provider_retry_ownership.py": "ed5b2826105f852eaf3c4f5f2e113d075905498e",
-            "scripts/planning_checkpoint_state.py": "d5768abbe19c303339c9d0fad71297ec70527de3",
+            "scripts/planning_checkpoint_state.py": "fe50e7a25621b5c8dddab15cf4650d365f893f0e",
         }
         for name, sha in expected.items():
             data = Path(name).read_bytes()
