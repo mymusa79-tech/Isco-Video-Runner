@@ -112,7 +112,7 @@ class ProductionStageLadderContractTests(unittest.TestCase):
         )
         preflight = ENVIRONMENT_PREFLIGHT.read_text(encoding="utf-8")
         self.assertIn("runtime_phase import activate_canonical_runtime, canonical_workflow_identity", preflight)
-        self.assertIn("if not canonical_workflow_identity():", preflight)
+        self.assertIn("if canonical_workflow_identity():", preflight)
         self.assertIn("activate_canonical_runtime(persist_workflow_env=False)", preflight)
         self.assertIn("require_exact_sha_stage_ladder(", preflight)
         self.assertIn('sha=os.environ.get("GITHUB_SHA")', preflight)
