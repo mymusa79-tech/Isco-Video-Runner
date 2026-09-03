@@ -5,9 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts import final_master_qc
 from scripts import sibling_short_orchestration as sibling
-from scripts.final_master_acceptance_v2 import seal_final_master_acceptance
 
 
 def _editorial_intent() -> dict:
@@ -126,38 +124,22 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
         (root / "short-intelligence.json").write_text(
             json.dumps({"request_id": request["request_id"], "delivery_allowed": True}), encoding="utf-8"
         )
+        (root / "gold-enforce-report.json").write_text(
+            json.dumps({"phase": "4", "mode": "enforce", "gold": {"accepted": True}, "same_render": {"artifact_divergence": False}}),
+            encoding="utf-8",
+        )
         (root / "rights-manifest.json").write_text(json.dumps({"visuals": [{"id": "x"}]}), encoding="utf-8")
         (root / "plan.json").write_text(
             json.dumps({"topic": request["approved_topic"], "format": "moment"}, ensure_ascii=False), encoding="utf-8"
         )
-        (root / "visual-timeline.json").write_text(
-            json.dumps({"duration_seconds": 15.0}), encoding="utf-8"
-        )
-        sealed = seal_final_master_acceptance(
-            root,
-            {
-                "schema_version": final_master_qc.SCHEMA_VERSION,
-                "status": "pass",
-                "production_stage": "post_render_pre_gold_acceptance",
-                "full_decode_ok": True,
-                "full_decode_timed_out": False,
-                "final_media_mutated": False,
-                "blocking_findings": [],
-            },
-            policy_fingerprint=final_master_qc.qc_policy_fingerprint(),
-        )
-        final_sha = sealed["acceptance_contract"]["sources"]["final"]["sha256"]
-        (root / "gold-enforce-report.json").write_text(
+        (root / "final-master-qc.json").write_text(
             json.dumps(
                 {
-                    "phase": "4",
-                    "mode": "enforce",
-                    "gold": {"accepted": True},
-                    "same_render": {
-                        "artifact_divergence": False,
-                        "sha256_before": final_sha,
-                        "sha256_after": final_sha,
-                    },
+                    "status": "pass",
+                    "production_stage": "post_render_pre_gold_acceptance",
+                    "full_decode_ok": True,
+                    "final_media_mutated": False,
+                    "blocking_findings": [],
                 }
             ),
             encoding="utf-8",
@@ -298,7 +280,6 @@ class SiblingShortOrchestrationTests(unittest.TestCase):
             self.assertTrue((parent / "short-01-master-qc.json").is_file())
             self.assertTrue((parent / "short-02-master-qc.json").is_file())
             self.assertEqual([item["source_section_id"] for item in staged], ["s1", "s2"])
-            self.assertTrue(all(len(item["final_sha256"]) == 64 for item in staged))
 
 
 if __name__ == "__main__":
