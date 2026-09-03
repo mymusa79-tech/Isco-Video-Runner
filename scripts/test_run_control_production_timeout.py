@@ -14,6 +14,7 @@ class ControlProductionTimeoutTests(unittest.TestCase):
         request = {
             "schema_version": 1,
             "request_id": "req-parent-s1",
+            "parent_control_request_id": "req-parent",
             "source": "telegram_editorial_control_panel",
             "kind": "short",
             "approval_scope": "short_sibling",

@@ -9,6 +9,10 @@ from unittest.mock import patch
 from scripts import planning_runtime_contract
 from scripts import runtime_closure
 from scripts import runtime_phase
+# Stage Ladder already executes this module for P0. Importing the dedicated master
+# TestCase makes unittest's module loader execute the new P0 Master suite as part of the
+# same certified P0 phase without widening or weakening any existing phase gate.
+from scripts.test_p0_runtime_master_contract import P0RuntimeMasterContractTests  # noqa: F401
 
 
 class Run130ExplicitRuntimePhaseTests(unittest.TestCase):
@@ -72,7 +76,7 @@ class Run130ExplicitRuntimePhaseTests(unittest.TestCase):
             self.assertFalse(runtime_phase.canonical_workflow_identity())
             self.assertFalse(runtime_phase.canonical_runtime_enabled())
 
-    def test_activation_updates_current_process_and_later_steps(self) -> None:
+    def test_activation_updates_current_process_and_later_steps_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             github_env = Path(td) / "github-env"
             env = self._workflow_env()
@@ -82,6 +86,17 @@ class Run130ExplicitRuntimePhaseTests(unittest.TestCase):
                 self.assertTrue(runtime_phase.canonical_runtime_enabled())
                 self.assertEqual(os.environ["ISCO_CANONICAL_RUNTIME"], "1")
                 self.assertIn("ISCO_CANONICAL_RUNTIME=1", github_env.read_text(encoding="utf-8"))
+
+    def test_preproduction_activation_can_be_process_local_only(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            github_env = Path(td) / "github-env"
+            env = self._workflow_env()
+            env["GITHUB_ENV"] = str(github_env)
+            with patch.dict(os.environ, env, clear=True):
+                runtime_phase.activate_canonical_runtime(persist_workflow_env=False)
+                self.assertTrue(runtime_phase.canonical_runtime_enabled())
+                self.assertEqual(os.environ["ISCO_CANONICAL_RUNTIME"], "1")
+                self.assertFalse(github_env.exists())
 
     def test_run130_preproduction_context_does_not_bind_runtime_snapshot_or_persistence(self) -> None:
         env = self._workflow_env()
@@ -143,12 +158,12 @@ class Run130ExplicitRuntimePhaseTests(unittest.TestCase):
             snapshot.assert_called_once_with()
             persistence.assert_called_once_with(runtime_closure.orchestrator)
 
-    def test_persistent_memory_owns_phase_transition_before_snapshot_bootstrap(self) -> None:
+    def test_persistent_memory_prepares_snapshot_without_exporting_live_phase(self) -> None:
         source = (Path(__file__).with_name("persistent_memory.py")).read_text(encoding="utf-8")
         self.assertIn("canonical_workflow_identity()", source)
-        self.assertIn("activate_canonical_runtime()", source)
+        self.assertIn("activate_canonical_runtime(persist_workflow_env=False)", source)
         self.assertLess(
-            source.index("activate_canonical_runtime()"),
+            source.index("activate_canonical_runtime(persist_workflow_env=False)"),
             source.index("bootstrap_immutable_planning_checkpoint("),
         )
 

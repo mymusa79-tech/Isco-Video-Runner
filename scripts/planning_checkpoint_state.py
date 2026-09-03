@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 try:
@@ -22,6 +23,45 @@ _core.canonical_runtime_enabled = _canonical_runtime_enabled
 # contract hash automatically. Voice, visual, Gold, Telegram and release changes no
 # longer invalidate otherwise compatible completed planning shards.
 _core.PLANNING_CONTRACT_ROOTS = ("scripts/planning_runtime_contract.py",)
+
+_ISOLATED_CHILD_MODE = "isolated_sibling_child_no_cross_run"
+_original_install_runtime_persistence_wrapper = _core.install_runtime_persistence_wrapper
+_original_persist_runtime_checkpoint = _core.persist_runtime_checkpoint
+
+
+def _cross_run_checkpoint_enabled() -> bool:
+    return (os.environ.get("ISCO_RUNTIME_CHECKPOINT_MODE") or "").strip() != _ISOLATED_CHILD_MODE
+
+
+def install_runtime_persistence_wrapper(orchestrator_module) -> None:
+    """Install durable cross-run persistence unless this is an isolated sibling child.
+
+    Sibling Shorts are already inside one explicitly authorized parent production bundle
+    and execute sequentially in fresh subprocesses. They inherit live-runtime authority
+    from the parent, but must not inherit the parent's durable planning-state identity:
+    the child has a different approved brief/snapshot binding. Trying to persist it under
+    the parent's planning-state identity would either fail after successful media work or
+    corrupt cross-run resume authority. Child planning remains fully fail-closed in-run;
+    only cross-run checkpoint write/resume is disabled for that isolated child process.
+    """
+    if not _cross_run_checkpoint_enabled():
+        print("Durable planning checkpoint disabled for isolated sibling child runtime")
+        return
+    _original_install_runtime_persistence_wrapper(orchestrator_module)
+
+
+def persist_runtime_checkpoint(*, repo_root, engine_root, status):
+    if not _cross_run_checkpoint_enabled():
+        return _core.PersistStatus(True, False, "isolated sibling child has no cross-run checkpoint authority")
+    return _original_persist_runtime_checkpoint(
+        repo_root=repo_root,
+        engine_root=engine_root,
+        status=status,
+    )
+
+
+_core.install_runtime_persistence_wrapper = install_runtime_persistence_wrapper
+_core.persist_runtime_checkpoint = persist_runtime_checkpoint
 
 for _name in dir(_core):
     if not _name.startswith("__"):

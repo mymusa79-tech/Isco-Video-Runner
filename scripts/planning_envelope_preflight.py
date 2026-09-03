@@ -27,6 +27,7 @@ from scripts.native_short_planner_router import (
     merge_short_template_revision,
     select_native_short_template,
 )
+from scripts.p0_runtime_master_contract import activate_p0_runtime_master
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.planning_capacity_profile import install_planning_capacity_profile
 from scripts.producer_quality_contract import merge_producer_revision_note
@@ -313,6 +314,12 @@ def main() -> None:
         json.dumps(asdict(result), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    if result.status == "pass":
+        # P0 Runtime Master V2: the planning envelope is the last canonical readiness
+        # gate in Production V4. Promote live runtime only after its evidence is durable,
+        # so Environment, State, Provider Readiness and Planning all agree on one phase
+        # boundary. Non-canonical invocations are a no-op inside the master contract.
+        activate_p0_runtime_master()
     print(
         "Planning envelope certified: "
         f"status={result.status} bytes={result.prompt_utf8_bytes} "

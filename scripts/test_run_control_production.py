@@ -3,10 +3,13 @@ from __future__ import annotations
 import copy
 import inspect
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from scripts import planning_checkpoint_state as checkpoint
 from scripts import run_control_production as control
 
 
@@ -27,6 +30,15 @@ class ControlRequestProductionTests(unittest.TestCase):
             "production_dispatch_authorized": False,
             "status": "approved_waiting_production_activation",
         }
+        request["request_sha256"] = control._canonical_request_hash(request)
+        return request
+
+    def _sibling_request(self) -> dict:
+        request = self._request(kind="short", scope="short_sibling")
+        request["request_id"] = "req-parent-s1"
+        request["parent_control_request_id"] = "req-parent"
+        request["parent_control_request_sha256"] = "a" * 64
+        request["approval_inherited_from_parent_bundle"] = True
         request["request_sha256"] = control._canonical_request_hash(request)
         return request
 
@@ -147,6 +159,53 @@ class ControlRequestProductionTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "within 2–3"):
                 control.write_sibling_short_plan(root, request)
+
+    def test_sibling_child_process_drops_parent_approved_input_identity(self):
+        request = self._sibling_request()
+        with tempfile.TemporaryDirectory() as temp:
+            request_path = Path(temp) / "child.json"
+            request_path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
+            parent_env = {
+                "ISCO_APPROVED_BRIEF_PATH": "/parent/brief.json",
+                "ISCO_APPROVED_BRIEF_SHA256": "parent-semantic",
+                "ISCO_APPROVED_BRIEF_SNAPSHOT_PATH": "/parent/snapshot.json",
+                "ISCO_APPROVED_BRIEF_SNAPSHOT_SHA256": "f" * 64,
+                "REQUEST_FILE": "/parent/request.json",
+                "ISCO_CONTROL_REQUEST_ID": "req-parent",
+                "ISCO_CANONICAL_RUNTIME": "1",
+            }
+            with patch.dict(os.environ, parent_env, clear=True):
+                child_env = control._isolated_child_process_env(request, request_path)
+            self.assertEqual(child_env["ISCO_CANONICAL_RUNTIME"], "1")
+            self.assertEqual(child_env["ISCO_RUNTIME_ISOLATED_CHILD"], "1")
+            self.assertEqual(child_env["ISCO_RUNTIME_CHECKPOINT_MODE"], control.ISOLATED_CHILD_CHECKPOINT_MODE)
+            self.assertEqual(child_env["ISCO_CONTROL_PARENT_REQUEST_ID"], "req-parent")
+            self.assertNotIn("ISCO_APPROVED_BRIEF_PATH", child_env)
+            self.assertNotIn("ISCO_APPROVED_BRIEF_SHA256", child_env)
+            self.assertNotIn("ISCO_APPROVED_BRIEF_SNAPSHOT_PATH", child_env)
+            self.assertNotIn("ISCO_APPROVED_BRIEF_SNAPSHOT_SHA256", child_env)
+            self.assertNotIn("REQUEST_FILE", child_env)
+            self.assertNotIn("ISCO_CONTROL_REQUEST_ID", child_env)
+
+    def test_isolated_sibling_child_has_no_cross_run_checkpoint_persistence_authority(self):
+        class DummyOrchestrator:
+            @staticmethod
+            def produce():
+                return "ok"
+
+        original = DummyOrchestrator.produce
+        env = {"ISCO_RUNTIME_CHECKPOINT_MODE": control.ISOLATED_CHILD_CHECKPOINT_MODE}
+        with patch.dict(os.environ, env, clear=True):
+            checkpoint.install_runtime_persistence_wrapper(DummyOrchestrator)
+            result = checkpoint.persist_runtime_checkpoint(
+                repo_root=Path("."),
+                engine_root=Path("engine"),
+                status="complete",
+            )
+        self.assertIs(DummyOrchestrator.produce, original)
+        self.assertTrue(result.pushed)
+        self.assertFalse(result.changed)
+        self.assertIn("no cross-run checkpoint authority", result.reason)
 
 
 if __name__ == "__main__":

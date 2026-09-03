@@ -29,17 +29,22 @@ def canonical_runtime_enabled() -> bool:
     return canonical_workflow_identity() and explicit in _TRUE_VALUES
 
 
-def activate_canonical_runtime() -> None:
+def activate_canonical_runtime(*, persist_workflow_env: bool = True) -> None:
     """Activate live runtime after pre-production certification has completed.
 
-    The transition is application-owned rather than inferred from ambient CI context.
-    GITHUB_ENV is updated so later workflow steps inherit the same phase identity, while
-    os.environ is updated so the current restore/bootstrap process sees it immediately.
+    Runtime activation is application-owned rather than inferred from ambient CI
+    context. The current process is always activated immediately. ``GITHUB_ENV`` is
+    updated only when the caller explicitly owns a transition that must survive into
+    later workflow steps. Pre-production bootstrap may therefore use runtime-only
+    helpers without accidentally declaring every later preflight step to be live
+    production.
     """
     if not canonical_workflow_identity():
         raise RuntimeError("canonical runtime activation requires Production V4 workflow identity")
 
     os.environ[_RUNTIME_ENV] = "1"
+    if not persist_workflow_env:
+        return
     github_env = str(os.environ.get("GITHUB_ENV") or "").strip()
     if github_env:
         with Path(github_env).open("a", encoding="utf-8") as handle:
