@@ -23,7 +23,7 @@ class FinalMasterAcceptanceRegistrationTests(unittest.TestCase):
         self.assertIn("F24", families)
         f24 = families["F24"]
         self.assertEqual(f24["required_phases"], ["P4", "P5", "P6"])
-        self.assertIn("scripts.test_final_master_acceptance_v2", f24["contracts"])
+        self.assertIn("scripts.test_final_master_qc", f24["contracts"])
         self.assertIn("scripts.test_gold_enforce_phase4", f24["contracts"])
         self.assertIn("scripts.test_unified_delivery", f24["contracts"])
         self.assertIn("scripts.test_unified_delivery_canonical", f24["contracts"])
@@ -46,6 +46,13 @@ class FinalMasterAcceptanceRegistrationTests(unittest.TestCase):
         self.assertIn("require_final_master_acceptance", durability)
         self.assertIn("_install_final_qc_durability()", durability)
         self.assertIn("_isco_final_master_acceptance_v2", durability)
+
+    def test_stage_ladder_executes_f24_specific_p4_contracts(self) -> None:
+        ladder = (ROOT / "scripts" / "production_stage_ladder.py").read_text(encoding="utf-8")
+        self.assertIn('"scripts.test_final_master_acceptance_v2"', ladder)
+        self.assertIn('"scripts.test_final_master_qc_contract_shape"', ladder)
+        self.assertIn('"scripts.test_final_master_acceptance_contract_registration"', ladder)
+        self.assertIn("run_final_master_qc_durable(staging)", ladder)
 
     def test_gold_and_delivery_revalidate_p4_identity(self) -> None:
         gold = (ROOT / "scripts" / "gold_enforce_phase4.py").read_text(encoding="utf-8")
