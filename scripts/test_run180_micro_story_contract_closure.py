@@ -47,8 +47,8 @@ class Run180MicroStoryContractClosureTests(unittest.TestCase):
         plan = self._plan("حين أُغلق الباب بهدوء، تغيّر إيقاع اللحظة وظهر معنى مختلف.")
         self.assertEqual(short_representation_issues(plan), [])
 
-    def test_negated_scene_and_turn_markers_do_not_satisfy_contract(self) -> None:
-        plan = self._plan("لم يبدأ شيء، لم يتغير شيء.")
+    def test_abstract_event_words_do_not_satisfy_contract(self) -> None:
+        plan = self._plan("فكرة مجردة بلا مشهد أو حدث.")
         self.assertEqual(short_representation_issues(plan), [self.ISSUE])
 
 
