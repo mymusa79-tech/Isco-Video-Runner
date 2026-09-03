@@ -99,46 +99,7 @@ def _implementation_sha256() -> str:
     return _sha256_file(Path(raw).resolve())
 
 
-def seal_final_master_acceptance(
-    output_dir: Path,
-    report: dict[str, Any],
-    *,
-    policy_fingerprint: str,
-) -> dict[str, Any]:
-    """Atomically turn final-master-qc.json into the exact-artifact P4 receipt."""
-    root = Path(output_dir)
-    if report.get("status") not in {"pass", "block"}:
-        raise FinalMasterAcceptanceError("final_master_acceptance_invalid_qc_decision")
-    if len(str(policy_fingerprint or "")) != 64:
-        raise FinalMasterAcceptanceError("final_master_acceptance_invalid_policy_fingerprint")
-
-    sources = _source_bindings(root)
-    acceptance = {
-        "contract_id": CONTRACT_ID,
-        "schema_version": CONTRACT_SCHEMA_VERSION,
-        "decision": report.get("status"),
-        "production_stage": "post_render_pre_gold_acceptance",
-        "qc_policy_fingerprint": policy_fingerprint,
-        "implementation_sha256": _implementation_sha256(),
-        "runner_sha": (os.environ.get("GITHUB_SHA") or "").strip().lower() or None,
-        "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "").strip().lower() or None,
-        "sources": sources,
-        "upstream_evidence": _optional_evidence_bindings(root),
-    }
-    sealed = dict(report)
-    sealed["acceptance_contract"] = acceptance
-    _atomic_json(root / REPORT_FILENAME, sealed)
-    return sealed
-
-
-def require_final_master_acceptance(
-    output_dir: Path,
-    *,
-    report: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Fail closed unless the P4 PASS receipt belongs to the current exact artifacts."""
-    root = Path(output_dir)
-    document = dict(report) if isinstance(report, dict) else _read_object(root / REPORT_FILENAME)
+def _validate_contract_document(document: dict[str, Any]) -> dict[str, Any]:
     if not (
         document.get("status") == "pass"
         and document.get("production_stage") == "post_render_pre_gold_acceptance"
@@ -161,23 +122,62 @@ def require_final_master_acceptance(
 
     from scripts import final_master_qc
 
-    expected_policy = final_master_qc.qc_policy_fingerprint()
-    if acceptance.get("qc_policy_fingerprint") != expected_policy:
+    if acceptance.get("qc_policy_fingerprint") != final_master_qc.qc_policy_fingerprint():
         raise FinalMasterAcceptanceError("final_master_acceptance_policy_drift")
     if acceptance.get("implementation_sha256") != _implementation_sha256():
         raise FinalMasterAcceptanceError("final_master_acceptance_implementation_drift")
-
-    stored_sources = acceptance.get("sources")
-    if not isinstance(stored_sources, dict):
+    if not isinstance(acceptance.get("sources"), dict):
         raise FinalMasterAcceptanceError("final_master_acceptance_missing_sources")
-    current_sources = _source_bindings(root)
-    if stored_sources != current_sources:
+    if not isinstance(acceptance.get("upstream_evidence"), dict):
+        raise FinalMasterAcceptanceError("final_master_acceptance_invalid_upstream_evidence")
+    return acceptance
+
+
+def seal_final_master_acceptance(
+    output_dir: Path,
+    report: dict[str, Any],
+    *,
+    policy_fingerprint: str,
+) -> dict[str, Any]:
+    """Atomically turn final-master-qc.json into the exact-artifact P4 receipt."""
+    root = Path(output_dir)
+    if report.get("status") not in {"pass", "block"}:
+        raise FinalMasterAcceptanceError("final_master_acceptance_invalid_qc_decision")
+    if len(str(policy_fingerprint or "")) != 64:
+        raise FinalMasterAcceptanceError("final_master_acceptance_invalid_policy_fingerprint")
+
+    acceptance = {
+        "contract_id": CONTRACT_ID,
+        "schema_version": CONTRACT_SCHEMA_VERSION,
+        "decision": report.get("status"),
+        "production_stage": "post_render_pre_gold_acceptance",
+        "qc_policy_fingerprint": policy_fingerprint,
+        "implementation_sha256": _implementation_sha256(),
+        "runner_sha": (os.environ.get("GITHUB_SHA") or "").strip().lower() or None,
+        "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "").strip().lower() or None,
+        "sources": _source_bindings(root),
+        "upstream_evidence": _optional_evidence_bindings(root),
+    }
+    sealed = dict(report)
+    sealed["acceptance_contract"] = acceptance
+    _atomic_json(root / REPORT_FILENAME, sealed)
+    return sealed
+
+
+def require_final_master_acceptance(
+    output_dir: Path,
+    *,
+    report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Fail closed unless the P4 PASS receipt belongs to all current exact artifacts."""
+    root = Path(output_dir)
+    document = dict(report) if isinstance(report, dict) else _read_object(root / REPORT_FILENAME)
+    acceptance = _validate_contract_document(document)
+
+    if acceptance["sources"] != _source_bindings(root):
         raise FinalMasterAcceptanceError("final_master_acceptance_artifact_identity_mismatch")
 
-    upstream = acceptance.get("upstream_evidence")
-    if not isinstance(upstream, dict):
-        raise FinalMasterAcceptanceError("final_master_acceptance_invalid_upstream_evidence")
-    for key, binding in upstream.items():
+    for key, binding in acceptance["upstream_evidence"].items():
         if not isinstance(binding, dict):
             raise FinalMasterAcceptanceError("final_master_acceptance_invalid_upstream_binding")
         filename = str(binding.get("file") or "")
@@ -188,7 +188,22 @@ def require_final_master_acceptance(
     return document
 
 
+def require_certified_final_video(report_path: Path, final_path: Path) -> dict[str, Any]:
+    """Verify a staged/renamed video still matches the exact P4-certified bytes."""
+    document = _read_object(Path(report_path))
+    acceptance = _validate_contract_document(document)
+    stored = acceptance["sources"].get("final")
+    if not isinstance(stored, dict):
+        raise FinalMasterAcceptanceError("final_master_acceptance_missing_final_binding")
+    current = _regular_file_binding(Path(final_path))
+    if (
+        stored.get("sha256") != current.get("sha256")
+        or int(stored.get("byte_length") or 0) != int(current.get("byte_length") or -1)
+    ):
+        raise FinalMasterAcceptanceError("final_master_acceptance_final_video_mismatch")
+    return document
+
+
 def final_master_acceptance_sha256(output_dir: Path) -> str:
     document = require_final_master_acceptance(Path(output_dir))
-    acceptance = document["acceptance_contract"]
-    return str(acceptance["sources"]["final"]["sha256"])
+    return str(document["acceptance_contract"]["sources"]["final"]["sha256"])
