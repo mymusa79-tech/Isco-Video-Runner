@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -139,6 +142,25 @@ class VisualRetrievalAdjudicationV1Tests(unittest.TestCase):
             self.assertEqual(v1._contact_sheet_bytes("ignored"), fake)
         self.assertEqual(v1.CONTACT_SHEET_FRAMES, 6)
         self.assertEqual(v1.CONTACT_SHEET_COLUMNS * v1.CONTACT_SHEET_ROWS, 6)
+
+    def test_real_ffmpeg_contact_sheet_smoke(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="isco-contact-sheet-test-") as temp_dir:
+            source = Path(temp_dir) / "source.mp4"
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=12",
+                    "-t", "6", "-pix_fmt", "yuv420p", "-y", str(source),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+            data = v1._contact_sheet_bytes(source)
+        self.assertGreater(len(data), 1024)
+        self.assertLessEqual(len(data), v1.CONTACT_SHEET_MAX_BYTES)
+        self.assertTrue(data.startswith(b"\xff\xd8"))
 
     def test_visual_intent_contract_shared_for_long_and_short_shapes(self) -> None:
         landscape = v1.build_visual_intent("calm boundary conversation")
