@@ -6,12 +6,12 @@ import sys
 try:
     from scripts import environment_preflight_core as _core
     from scripts.planning_checkpoint_state import materialize_runtime_github_token
-    from scripts.runtime_phase import canonical_runtime_enabled
+    from scripts.runtime_phase import canonical_workflow_identity
     from scripts.stage_ladder_gate import require_exact_sha_stage_ladder
 except ModuleNotFoundError:  # direct `python scripts/environment_preflight.py`
     import environment_preflight_core as _core
     from planning_checkpoint_state import materialize_runtime_github_token
-    from runtime_phase import canonical_runtime_enabled
+    from runtime_phase import canonical_workflow_identity
     from stage_ladder_gate import require_exact_sha_stage_ladder
 
 
@@ -25,7 +25,12 @@ _core_original_main = _core.main
 
 def main() -> None:
     _core_original_main()
-    if canonical_runtime_enabled():
+    # P0 Runtime Master V2: exact-SHA certification and credential staging belong to
+    # canonical pre-production preparation, not to the live runtime phase. This step
+    # already owns GITHUB_TOKEN and runs before provider work. Keeping that preparation
+    # here lets the real runtime transition remain false until all readiness gates have
+    # passed, while durable planning still receives a file-backed credential later.
+    if canonical_workflow_identity():
         token = (os.environ.get("GITHUB_TOKEN") or "").strip()
         if not token:
             raise RuntimeError("GITHUB_TOKEN is required for canonical production preflight")
