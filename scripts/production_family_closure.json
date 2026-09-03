@@ -181,6 +181,12 @@
       "historical_runs":["113-132","168","170"],
       "required_phases":["P0","P1"],
       "contracts":["scripts.test_run170_planning_contract_composition","scripts.test_planning_stage_contract","scripts.test_checkpoint_namespace_guard","scripts.test_run168_provider_visible_semantics"]
+    },
+    {
+      "id":"F24","name":"final_master_acceptance_exact_artifact_long_short_handoff",
+      "historical_runs":["51-70","81-112","161-166","169"],
+      "required_phases":["P4","P5","P6"],
+      "contracts":["scripts.test_final_master_qc","scripts.test_gold_enforce_phase4","scripts.test_unified_delivery","scripts.test_unified_delivery_canonical"]
     }
   ]
 }
