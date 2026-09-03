@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKER_DIR = ROOT / "cloudflare" / "telegram-control-worker"
 WRANGLER = WORKER_DIR / "wrangler.toml.example"
 OBSERVABILITY_WORKER = WORKER_DIR / "observability-worker.js"
+V5_CORE = WORKER_DIR / "observability-worker-v5-core.js"
 OBSERVABILITY_CORE = WORKER_DIR / "observability-worker-v4-core.js"
 GENERATED_CONTRACT = WORKER_DIR / "status-contract.generated.js"
 CANONICAL_CONTRACT = ROOT / "scripts" / "telegram_status_contract.json"
@@ -85,13 +86,15 @@ class EdgeObservabilityContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.entry = OBSERVABILITY_WORKER.read_text(encoding="utf-8")
+        cls.v5 = V5_CORE.read_text(encoding="utf-8")
         cls.worker = OBSERVABILITY_CORE.read_text(encoding="utf-8")
         cls.wrangler = WRANGLER.read_text(encoding="utf-8")
         cls.topic_ui = TOPIC_MEMORY_UI.read_text(encoding="utf-8")
 
-    def test_observability_core_remains_behind_active_v5_entrypoint(self) -> None:
+    def test_observability_authority_preserves_v5_v4_base_chain(self) -> None:
         self.assertIn('main = "observability-worker.js"', self.wrangler)
-        self.assertIn('import priorWorker from "./observability-worker-v4-core.js"', self.entry)
+        self.assertIn('import priorWorker from "./observability-worker-v5-core.js"', self.entry)
+        self.assertIn('import priorWorker from "./observability-worker-v4-core.js"', self.v5)
         self.assertIn('import baseWorker from "./index.js"', self.worker)
         self.assertIn('import { STATUS_CONTRACT } from "./status-contract.generated.js"', self.worker)
         self.assertIn('observability: "v1"', self.worker)
@@ -101,7 +104,7 @@ class EdgeObservabilityContractTests(unittest.TestCase):
         node = shutil.which("node")
         if not node:
             self.skipTest("node is unavailable")
-        for path in (OBSERVABILITY_WORKER, OBSERVABILITY_CORE, GENERATED_CONTRACT):
+        for path in (OBSERVABILITY_WORKER, V5_CORE, OBSERVABILITY_CORE, GENERATED_CONTRACT):
             subprocess.run([node, "--check", str(path)], check=True, capture_output=True, text=True)
 
     def test_python_only_array_method_regression_is_closed(self):
@@ -127,8 +130,8 @@ class EdgeObservabilityContractTests(unittest.TestCase):
             self.assertIn(marker, self.worker)
         self.assertNotIn('control-panel.json"', self.worker)
 
-    def test_security_boundaries_are_preserved_in_both_layers(self):
-        for text in (self.worker, self.entry):
+    def test_security_boundaries_are_preserved_in_all_layers(self):
+        for text in (self.worker, self.v5, self.entry):
             for marker in (
                 "X-Telegram-Bot-Api-Secret-Token", "TELEGRAM_WEBHOOK_SECRET",
                 "TELEGRAM_ALLOWED_USER_ID", "TELEGRAM_CHAT_ID", "secretHeaderValid(request, env)", "authorized(update, env)",
@@ -136,15 +139,23 @@ class EdgeObservabilityContractTests(unittest.TestCase):
                 self.assertIn(marker, text)
 
     def test_global_refresh_is_read_only_and_complete(self):
-        self.assertIn("Promise.allSettled", self.worker)
-        self.assertIn('telegram(env, "getWebhookInfo"', self.worker)
-        self.assertIn("pending_update_count", self.worker)
-        self.assertIn("control-plane-state/state/telegram-status.json", self.worker)
-        self.assertIn("latestDelivery(env)", self.worker)
-        self.assertIn("youtubeOverview(env)", self.worker)
-        self.assertIn("آخر تحقق شامل", self.worker)
-        self.assertNotIn("telegram-production-request.yml", self.worker)
-        self.assertNotIn("cmd:retry", self.worker)
+        self.assertIn("Promise.allSettled", self.entry)
+        self.assertIn('telegram(env, "getWebhookInfo"', self.entry)
+        self.assertIn("pending_update_count", self.entry)
+        self.assertIn("control-plane-state/state/telegram-status.json", self.entry)
+        self.assertIn("latestDelivery(env)", self.entry)
+        self.assertIn("youtubeOverview(env)", self.entry)
+        self.assertIn("آخر تحقق شامل", self.entry)
+        self.assertIn("تحديث الكل", self.entry)
+        self.assertNotIn("dispatchToGitHub", self.entry)
+        self.assertNotIn("/dispatches", self.entry)
+        self.assertNotIn("cmd:retry", self.entry)
+
+    def test_production_monitoring_uses_canonical_workflow_path_not_display_name(self):
+        self.assertIn("CANONICAL_PRODUCTION_PATHS.has(canonicalRunPath(run))", self.entry)
+        self.assertIn(".github/workflows/produce-resilient-v4.yml", self.entry)
+        self.assertIn("active.find(isV4Run) || active[0]", self.entry)
+        self.assertNotIn('name.startsWith("Produce Resilient")', self.entry)
 
     def test_library_callback_contract_matches_python_ui(self):
         for callback in ("cmd:saved-long", "cmd:saved-short", "cmd:used-long", "cmd:used-short", "cmd:savedpick-"):
@@ -155,9 +166,9 @@ class EdgeObservabilityContractTests(unittest.TestCase):
         self.assertIn("^cmd:(saved|used)-(long|short)", self.worker)
 
     def test_completed_failure_keeps_exact_failed_step(self):
-        self.assertIn("function failedLocation(jobs)", self.worker)
-        self.assertIn("const [job, step] = failedLocation(jobs)", self.worker)
-        self.assertIn("actions/runs/${run.id}/jobs?per_page=100", self.worker)
+        self.assertIn("function failedLocation(jobs)", self.entry)
+        self.assertIn("const [job, step] = failedLocation(jobs)", self.entry)
+        self.assertIn("actions/runs/${run.id}/jobs?per_page=100", self.entry)
 
 
 class EdgeSecretInstallationTests(unittest.TestCase):
