@@ -10,6 +10,14 @@ candidate dedup, but full regression exposed two ownership details that must sta
 2. "Already reviewed in this selector" must include cache hits, not only candidates that
    happened to create a new cache entry.
 
+Run185 exposed a third composition boundary: Opening Feasibility's historical
+``_stable_intent_audit`` correctly kept search-only syntax changes from redefining Vision
+truth, but it also erased Run183's deliberately semantic alternate intent. That made a
+candidate retrieved for e.g. ``personal boundaries calm conversation`` get judged against
+the old literal marker/line staging instead. This layer now allows only the exact bounded
+Run183 semantic alternates for the current production selector to reach Vision; all other
+queries still collapse back to the original rich intent.
+
 This layer preserves those contracts while keeping the production improvements active.
 It also sharpens the Run183 boundary+relationship intent so a high provider-rank
 whiteboard/marker result cannot outrank a lower provider-rank candidate whose metadata
@@ -31,6 +39,10 @@ from scripts import visual_retrieval_adjudication_v1 as v1
 _INSTALLED = False
 _REVIEWED_CURRENT_SELECTOR: ContextVar[set[tuple[str, object]] | None] = ContextVar(
     "isco_run183_reviewed_current_selector",
+    default=None,
+)
+_TRUSTED_SEMANTIC_INTENTS: ContextVar[frozenset[str] | None] = ContextVar(
+    "isco_run185_trusted_semantic_visual_intents",
     default=None,
 )
 
@@ -97,6 +109,65 @@ def _refine_run183_intent(original):
     return wrapped
 
 
+def _trusted_semantic_intents(intended_visual: object, narration_context: object) -> frozenset[str]:
+    """Return only semantic alternates owned by the bounded Run183 family for this selector."""
+    family = run183.semantic_query_family(intended_visual, narration_context)
+    trusted: set[str] = set()
+    for query in family.alternates:
+        normalized = run183._safe_query(query)
+        if normalized:
+            trusted.add(normalized)
+    return frozenset(trusted)
+
+
+def _semantic_recovery_stable_intent(original):
+    """Keep Run92/169 stable-intent truth except for proven Run183 semantic recovery.
+
+    Opening Feasibility intentionally forces provider-search syntaxes back to the original
+    editorial visual before Vision. Run183 is different: its alternate is a bounded
+    semantic recovery concept, not merely another stock-search spelling. The selector
+    scope below records the exact permitted alternates. Only those exact normalized
+    values, and only inside canonical Production, may bypass the historical rewrite.
+
+    The transient-provider handling is kept byte-for-byte equivalent in behavior by
+    reusing Opening Feasibility's classifier and failure envelope. Security, relevance,
+    quality thresholds and the four-review ceiling remain untouched.
+    """
+    if getattr(original, "_isco_run185_semantic_visual_truth", False):
+        return original
+
+    @wraps(original)
+    def builder(audit_fn, intended_visual: str):
+        stable = original(audit_fn, intended_visual)
+
+        @wraps(stable)
+        def semantic_aware(*args, **kwargs):
+            proposed = str(kwargs.get("intended_visual") or "").strip()
+            normalized = run183._safe_query(proposed)
+            trusted = _TRUSTED_SEMANTIC_INTENTS.get() or frozenset()
+            if _runtime_active() and normalized and normalized in trusted:
+                kwargs["intended_visual"] = normalized
+                try:
+                    return audit_fn(*args, **kwargs)
+                except Exception as exc:
+                    if not opening_guard._is_transient_vision_provider_failure(exc):
+                        raise
+                    print(
+                        "Vision provider call failed transiently, skipping this candidate: "
+                        f"{type(exc).__name__}"
+                    )
+                    return opening_guard._vision_provider_failure_envelope(exc)
+            return stable(*args, **kwargs)
+
+        semantic_aware._isco_run185_semantic_visual_truth = True
+        semantic_aware._isco_run185_stable_fallback = stable
+        return semantic_aware
+
+    builder._isco_run185_semantic_visual_truth = True
+    builder._isco_run185_original = original
+    return builder
+
+
 def _record_reviews(result: object) -> None:
     reviewed = _REVIEWED_CURRENT_SELECTOR.get()
     if reviewed is None:
@@ -133,11 +204,17 @@ def _selector_review_scope(current):
         existing = _REVIEWED_CURRENT_SELECTOR.get()
         if existing is not None:
             return current(*args, **kwargs)
-        token = _REVIEWED_CURRENT_SELECTOR.set(set())
+
+        intended_visual = str(kwargs.get("intended_visual") or "").strip()
+        narration_context = str(kwargs.get("narration_context") or "").strip()
+        trusted = _trusted_semantic_intents(intended_visual, narration_context)
+        review_token = _REVIEWED_CURRENT_SELECTOR.set(set())
+        intent_token = _TRUSTED_SEMANTIC_INTENTS.set(trusted)
         try:
             return current(*args, **kwargs)
         finally:
-            _REVIEWED_CURRENT_SELECTOR.reset(token)
+            _TRUSTED_SEMANTIC_INTENTS.reset(intent_token)
+            _REVIEWED_CURRENT_SELECTOR.reset(review_token)
 
     wrapped._isco_run183_review_scope = True
     # Runtime Scope V1 resolves this historical seam when Production is inactive.
@@ -218,9 +295,18 @@ def install_run183_visual_retrieval_scope_fix(
     )
     v1.build_visual_intent = _scoped_build_visual_intent(legacy_build_visual_intent)
 
+    # Run185: compose semantic recovery with the historical stable-intent boundary
+    # before Opening Feasibility installs its selector wrappers later in run_v3_voice.
+    # The wrapper still defaults to the original intent; only exact current-selector
+    # Run183 alternates can reach Vision during canonical Production.
+    opening_guard._stable_intent_audit = _semantic_recovery_stable_intent(
+        opening_guard._stable_intent_audit
+    )
+
     _install_review_recording()
     _INSTALLED = True
     print(
         "Run183 Visual Retrieval scope fix installed: production-only semantic ladder/intent; "
-        "current-selector review registry includes cache hits; historical Run169/V1 diagnostics preserved"
+        "current-selector review registry includes cache hits; Run185 semantic alternate Vision truth; "
+        "historical Run169/V1 diagnostics preserved"
     )
