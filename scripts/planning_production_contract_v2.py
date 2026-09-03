@@ -24,6 +24,11 @@ REPORT_FILENAME = "planning-production-contract-v2.json"
 SCHEMA_VERSION = 2
 ROOT = Path(__file__).resolve().parents[1]
 
+# These are acceptance-envelope facts recorded by F23, not new retry/transport owners.
+# Runtime Retry-After pacing remains exclusively owned by the existing certified
+# Run123/Run124/Run128 composition. F23 fingerprints the accepted ceiling so changing
+# the family expectation invalidates incompatible Planning cache identity, but it never
+# reads, writes, shortens, sleeps, retries, or otherwise re-owns that runtime policy.
 _PROVIDER_ACCEPTANCE_SECONDS = {
     "gemini": 120.0,
     "groq": 90.0,
@@ -32,7 +37,16 @@ _PROVIDER_ACCEPTANCE_SECONDS = {
 _STAGE_WALL_SECONDS = 300.0
 _LONG_FAMILY_WALL_SECONDS = 1500.0
 _SHORT_FAMILY_WALL_SECONDS = 720.0
+_RETRY_AFTER_ACCEPTANCE_SECONDS = 20.0
 _TERMINAL_RESET_MAX_SECONDS = 60.0
+
+_PLANNING_GATE_ARTIFACTS = (
+    "repair-dossier.json",
+    "factuality-audit.json",
+    "content-quality-audit.json",
+    "tone-quality-audit.json",
+    "quality-precheck.json",
+)
 
 _INSTALLED = False
 _STAGE_RECEIPTS: list[dict[str, Any]] = []
@@ -67,14 +81,10 @@ class DeadlinePolicy:
 
 
 def deadline_policy() -> DeadlinePolicy:
-    retry_after = min(
-        20.0,
-        float(getattr(stage_contract.router, "RETRY_AFTER_MAX_SECONDS", 20.0) or 20.0),
-    )
     return DeadlinePolicy(
         provider_acceptance_seconds=tuple(sorted(_PROVIDER_ACCEPTANCE_SECONDS.items())),
         max_stage_wall_seconds=_STAGE_WALL_SECONDS,
-        max_retry_after_seconds=retry_after,
+        max_retry_after_seconds=_RETRY_AFTER_ACCEPTANCE_SECONDS,
         max_terminal_reset_wait_seconds=_TERMINAL_RESET_MAX_SECONDS,
         long_family_wall_seconds=_LONG_FAMILY_WALL_SECONDS,
         short_family_wall_seconds=_SHORT_FAMILY_WALL_SECONDS,
@@ -196,6 +206,22 @@ def _research_identity(root: Path) -> dict[str, Any]:
     return {"file": path.name, "sha256": _sha256_file(path)}
 
 
+def _planning_gate_evidence(root: Path) -> dict[str, str]:
+    evidence: dict[str, str] = {}
+    for filename in _PLANNING_GATE_ARTIFACTS:
+        path = root / filename
+        if not path.is_file():
+            raise stage_contract.PlanningStageError(
+                PlanningFamilyErrorCode.LINEAGE_INVALID,
+                f"planning gate evidence missing before handoff:{filename}",
+            )
+        # Parse once as an object so corrupt/partially-written evidence cannot become
+        # authoritative merely because a file with the expected name exists.
+        _load_json(path)
+        evidence[filename] = _sha256_file(path)
+    return evidence
+
+
 def _runtime_contract_sha256() -> str:
     return durable_state.planning_contract_sha256(ROOT)
 
@@ -256,6 +282,7 @@ def certify_planning_handoff(output_dir: Path, plan_object: object | None = None
         "topic_sha256": _sha256_bytes(topic.encode("utf-8")),
         "approved_input": _approved_input_identity(),
         "research_context": _research_identity(root),
+        "planning_gate_evidence": _planning_gate_evidence(root),
         "planning_runtime_contract_sha256": _runtime_contract_sha256(),
         "runner_sha": str(os.environ.get("GITHUB_SHA") or "").strip() or None,
         "engine_sha": str(os.environ.get("ISCO_ENGINE_SHA") or "").strip() or None,
@@ -319,6 +346,11 @@ def require_planning_handoff(output_dir: Path) -> dict[str, Any]:
         raise stage_contract.PlanningStageError(
             PlanningFamilyErrorCode.LINEAGE_INVALID,
             "Planning research context changed after certification",
+        )
+    if report.get("planning_gate_evidence") != _planning_gate_evidence(root):
+        raise stage_contract.PlanningStageError(
+            PlanningFamilyErrorCode.LINEAGE_INVALID,
+            "Planning gate evidence changed after certification",
         )
     if report.get("planning_runtime_contract_sha256") != _runtime_contract_sha256():
         raise stage_contract.PlanningStageError(
@@ -388,6 +420,10 @@ def _install_stage_evidence_hooks() -> None:
     if not getattr(original_commit, "_isco_planning_production_v2", False):
         @functools.wraps(original_commit)
         def cache_commit(checkpoint, contract, model, payload, provider):
+            # The canonical Stage owner calls this once for every accepted response,
+            # including non-cacheable fragments where the underlying commit is a no-op.
+            # Recording after the call therefore captures all accepted stages without
+            # creating a second cache/write authority.
             original_commit(checkpoint, contract, model, payload, provider)
             _record_stage_receipt(
                 contract,
