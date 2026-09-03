@@ -124,7 +124,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_telegram_release_approval",
         "scripts.test_telegram_release_identity",
         "scripts.test_telegram_final_notify",
-        "scripts.test_youtube_manual_publish_only",
+        "scripts.test_channel_os_youtube_manual_only",
         "scripts.test_delivery_acceptance_v2",
         "scripts.test_f25_family_contract",
         "scripts.test_analytics_live_observability",
