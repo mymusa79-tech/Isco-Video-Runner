@@ -142,14 +142,20 @@ def build_delivery_manifest(
             )
 
     shorts = _validate_short_assets(root, list(short_assets or []))
-    release_url = f"https://github.com/{repository}/releases/tag/{release_tag}" if release_tag else None
+    candidate_tag = str(release_tag or "").strip() or None
+    candidate_url = f"https://github.com/{repository}/releases/tag/{candidate_tag}" if candidate_tag else None
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "delivery_kind": "long_plus_shorts" if kind == "long" and shorts else kind,
         "topic": str(plan.get("topic") or ""),
-        "release_state": "released" if release_tag else "staged",
-        "release_tag": release_tag,
-        "delivery_url": release_url,
+        # This document is immutable reviewed staging evidence. A tag is only a
+        # candidate namespace until release_transaction proves the published remote
+        # bytes and delivery.acceptance.v2 seals the terminal Released state.
+        "release_state": "staged",
+        "release_tag": None,
+        "delivery_url": None,
+        "release_candidate_tag": candidate_tag,
+        "release_candidate_url": candidate_url,
         "primary_video": "final.mp4",
         "primary_video_sha256": final_master_qc["acceptance_contract"]["sources"]["final"]["sha256"],
         "title_thumbnail_pairs": title_thumbnail_pairs,
@@ -205,15 +211,17 @@ def write_delivery_manifest(
 
 
 def finalize_release_manifest(path: Path, *, repository: str, release_tag: str) -> Path:
-    manifest = _read_object(path)
-    if manifest.get("release_state") not in {"staged", "released"}:
-        raise RuntimeError("Unsupported delivery release state")
-    manifest["release_state"] = "released"
-    manifest["release_tag"] = release_tag
-    manifest["delivery_url"] = f"https://github.com/{repository}/releases/tag/{release_tag}"
-    manifest["publication_performed"] = False
-    Path(path).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    return Path(path)
+    """Fail closed for the retired pre-Release authority seam.
+
+    Historically this function mutated reviewed staging evidence to ``released`` before
+    GitHub Release creation. That made a local manifest able to outrun the actual remote
+    transaction. Terminal Release truth is now owned by delivery.acceptance.v2 after the
+    durable Release receipt and complete transaction journal are verified.
+    """
+    _ = (path, repository, release_tag)
+    raise RuntimeError(
+        "Delivery manifest is immutable staged evidence; seal delivery.acceptance.v2 only after the Release transaction completes"
+    )
 
 
 def main() -> None:
