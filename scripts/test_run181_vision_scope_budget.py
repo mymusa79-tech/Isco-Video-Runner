@@ -64,6 +64,24 @@ class Run181VisionScopeBudgetTests(unittest.TestCase):
         self.assertEqual(captured[0].max_provider_attempts, 3)
         self.assertEqual(captured[0].task_id, "RUN181_SCOPE_BUDGET")
 
+    def test_adapter_canonicalizes_engine_gemini_alias_before_health_matching(self) -> None:
+        seen = []
+
+        def fake_route(ledger, spec, provider, resolved_model, fn, *args, **kwargs):
+            seen.append(resolved_model)
+            return {"status": "pass"}
+
+        adapter = self._adapter_around(fake_route)
+        with legacy.vision_provider_circuit_scope():
+            adapter(
+                None,
+                _spec(),
+                "gemini",
+                "gemini-2.5-flash",
+                lambda: None,
+            )
+        self.assertEqual(seen, ["gemini-3.7-flash"])
+
     def test_new_vision_scope_discards_prior_health_and_groq_certification(self) -> None:
         snapshots = []
 
@@ -136,7 +154,7 @@ class Run181VisionScopeBudgetTests(unittest.TestCase):
         self.assertIsNone(
             health.provider_unavailable(
                 "gemini",
-                model=run181._gemini_runtime_model(),
+                model=transport._runtime_gemini_generation_model(),
                 quota_domain=run181.GEMINI_GENERATION_QUOTA_DOMAIN,
             )
         )
@@ -164,12 +182,47 @@ class Run181VisionScopeBudgetTests(unittest.TestCase):
             transport._RUN181_TELEMETRY_BASELINE.reset(token)
         evidence = health.provider_unavailable(
             "gemini",
-            model=run181._gemini_runtime_model(),
+            model=transport._runtime_gemini_generation_model(),
             quota_domain=run181.GEMINI_GENERATION_QUOTA_DOMAIN,
         )
         self.assertIsNotNone(evidence)
         self.assertEqual(evidence.source, "planning_telemetry")
         self.assertIn("current run quota", evidence.reason)
+
+    def test_runtime_alias_is_canonicalized_when_publishing_planning_429(self) -> None:
+        current = {
+            "provider": "gemini",
+            "result": "429",
+            "error_detail": "alias quota",
+        }
+        token = transport._RUN181_TELEMETRY_BASELINE.set((0, 0))
+        try:
+            with mock.patch.object(
+                planner_router,
+                "get_telemetry",
+                return_value=[current],
+            ), mock.patch.object(text_mesh, "_AUDIT_ROUTE_TELEMETRY", []), mock.patch.object(
+                run181,
+                "_gemini_runtime_model",
+                return_value="gemini-2.5-flash",
+            ):
+                transport._scoped_refresh_runtime_provider_health()
+        finally:
+            transport._RUN181_TELEMETRY_BASELINE.reset(token)
+        self.assertIsNotNone(
+            health.provider_unavailable(
+                "gemini",
+                model="gemini-3.7-flash",
+                quota_domain=run181.GEMINI_GENERATION_QUOTA_DOMAIN,
+            )
+        )
+        self.assertIsNone(
+            health.provider_unavailable(
+                "gemini",
+                model="gemini-2.5-flash",
+                quota_domain=run181.GEMINI_GENERATION_QUOTA_DOMAIN,
+            )
+        )
 
     def test_stale_text_audit_429_before_current_run_baseline_is_ignored(self) -> None:
         old_route = {
@@ -203,7 +256,7 @@ class Run181VisionScopeBudgetTests(unittest.TestCase):
         self.assertIsNone(
             health.provider_unavailable(
                 "gemini",
-                model=run181._gemini_runtime_model(),
+                model=transport._runtime_gemini_generation_model(),
                 quota_domain=run181.GEMINI_GENERATION_QUOTA_DOMAIN,
             )
         )
