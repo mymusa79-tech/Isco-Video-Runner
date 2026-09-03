@@ -6,6 +6,7 @@ import os
 import re
 from pathlib import Path
 
+from scripts import planning_checkpoint_state as checkpoint
 from scripts.persistent_memory_core import _atomic_json_write, read_restore_identity
 from scripts.runtime_phase import (
     activate_canonical_runtime,
@@ -36,6 +37,20 @@ def _load_object(path: Path, *, label: str) -> dict:
     if not isinstance(value, dict):
         raise RuntimeError(f"P0 master {label} evidence must be a JSON object")
     return value
+
+
+def _require_secret_file(path: Path, *, label: str) -> None:
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError(f"P0 master durable {label} is missing or unsafe")
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError(f"P0 master durable {label} is unreadable") from exc
+    if not value:
+        raise RuntimeError(f"P0 master durable {label} is empty")
+    if path.stat().st_mode & 0o077:
+        raise RuntimeError(f"P0 master durable {label} permissions are not private")
 
 
 def _require_exact_runtime_identity() -> tuple[str, str, str, str]:
@@ -69,9 +84,8 @@ def _certify_preproduction_evidence(temp: Path) -> tuple[dict, dict, dict, dict[
     if environment.get("ffmpeg_libx264") is not True or environment.get("tesseract_arabic") is not True:
         raise RuntimeError("P0 master environment capability evidence is incomplete")
     filters = environment.get("ffmpeg_filters")
-    if not isinstance(filters, list) or not {"blackdetect", "silencedetect", "freezedetect", "loudnorm", "subtitles"}.issubset(
-        {str(item) for item in filters}
-    ):
+    required_filters = {"blackdetect", "silencedetect", "freezedetect", "loudnorm", "subtitles"}
+    if not isinstance(filters, list) or not required_filters.issubset({str(item) for item in filters}):
         raise RuntimeError("P0 master environment FFmpeg evidence is incomplete")
 
     providers = _load_object(provider_path, label="provider readiness")
@@ -109,6 +123,34 @@ def _certify_preproduction_evidence(temp: Path) -> tuple[dict, dict, dict, dict[
     return environment, providers, planning, hashes
 
 
+def _certify_durable_planning_state(
+    *,
+    repo_root: Path,
+    engine_root: Path,
+    snapshot_path: Path,
+    snapshot_sha: str,
+    engine_sha: str,
+) -> dict:
+    binding = checkpoint.build_binding(
+        brief_path=snapshot_path,
+        expected_brief_sha256=snapshot_sha,
+        engine_repo=engine_root,
+        expected_engine_sha=engine_sha,
+        contract_root=repo_root,
+    )
+    identity_path = checkpoint.runtime_identity_path()
+    identity = checkpoint._read_identity(identity_path, binding)
+    state_dir = identity_path.parent
+    _require_secret_file(state_dir / checkpoint._RUNTIME_KEY_FILENAME, label="checkpoint key")
+    _require_secret_file(state_dir / checkpoint._RUNTIME_TOKEN_FILENAME, label="checkpoint GitHub credential")
+    return {
+        "source": identity.get("source"),
+        "state_commit": identity.get("state_commit"),
+        "state_sequence": identity.get("state_sequence"),
+        "binding_digest": identity.get("binding_digest"),
+    }
+
+
 def activate_p0_runtime_master() -> dict:
     """Perform the one live P0 phase transition after all pre-production gates pass.
 
@@ -136,8 +178,6 @@ def activate_p0_runtime_master() -> dict:
             "reason": "synthetic canonical context without GitHub run identity",
         }
 
-    # Child processes in one already-authorized Telegram production bundle inherit the
-    # parent's explicit phase authority. Do not create a competing transition owner.
     if canonical_runtime_enabled():
         return {
             "contract_id": CONTRACT_ID,
@@ -168,8 +208,18 @@ def activate_p0_runtime_master() -> dict:
     if _sha256_file(snapshot_path) != snapshot_sha:
         raise RuntimeError("P0 master immutable approved-brief snapshot hash mismatch")
 
-    # This is the sole cross-step live-runtime promotion. GitHub documents GITHUB_ENV as
-    # applying to subsequent steps, so the final preflight gate is the correct owner.
+    repo_root = Path(__file__).resolve().parents[1]
+    engine_root = repo_root / "engine"
+    durable = _certify_durable_planning_state(
+        repo_root=repo_root,
+        engine_root=engine_root,
+        snapshot_path=snapshot_path,
+        snapshot_sha=snapshot_sha,
+        engine_sha=engine_sha,
+    )
+
+    # Sole cross-step live-runtime promotion. GITHUB_ENV applies only to subsequent
+    # steps, so this final P0 gate creates the real boundary immediately before produce.
     activate_canonical_runtime(persist_workflow_env=True)
     if not canonical_runtime_enabled():
         raise RuntimeError("P0 master failed to enter explicit live runtime")
@@ -185,6 +235,10 @@ def activate_p0_runtime_master() -> dict:
         "github_run_attempt": run_attempt,
         "persistent_memory_source": memory_identity.get("source"),
         "persistent_memory_state_commit": memory_identity.get("state_commit"),
+        "durable_planning_source": durable.get("source"),
+        "durable_planning_state_commit": durable.get("state_commit"),
+        "durable_planning_state_sequence": durable.get("state_sequence"),
+        "durable_planning_binding_digest": durable.get("binding_digest"),
         "approved_brief_snapshot_sha256": snapshot_sha,
         **hashes,
         "environment_release_namespace": environment.get("release_namespace"),
