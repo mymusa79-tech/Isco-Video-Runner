@@ -16,6 +16,10 @@ from scripts import final_master_qc
 from scripts import groq_audio_audit
 from scripts import voice_identity_observer
 from scripts import voice_mesh
+from scripts.final_master_acceptance_v2 import (
+    require_final_master_acceptance,
+    seal_final_master_acceptance,
+)
 from scripts.runtime_reliability import production_entrypoint_modules
 
 
@@ -285,6 +289,11 @@ def _passing_final_qc(document: dict[str, Any]) -> bool:
     )
 
 
+def _seal_current_p4(output_dir: Path, core_document: dict[str, Any]) -> dict[str, Any]:
+    seal_final_master_acceptance(Path(output_dir), core_document)
+    return require_final_master_acceptance(Path(output_dir))
+
+
 def run_final_master_qc_durable(
     output_dir: Path,
     *,
@@ -301,7 +310,7 @@ def run_final_master_qc_durable(
             if _passing_final_qc(document):
                 _atomic_copy(evidence, output_dir / "final-master-qc.json")
                 print(f"Final Master QC durable HIT fingerprint={fingerprint[:12]}; exact PASS evidence restored")
-                return document
+                return _seal_current_p4(output_dir, document)
             _evict(shared, "final-qc", fingerprint)
 
     result = original(output_dir)
@@ -318,7 +327,7 @@ def run_final_master_qc_durable(
             print(f"Final Master QC durable PASS stored fingerprint={fingerprint[:12]}")
         except Exception as exc:
             print(f"Final Master QC durable persistence skipped ({type(exc).__name__})")
-    return result
+    return _seal_current_p4(output_dir, result)
 
 
 def _groq_binding(output_dir: Path, *, model: str) -> dict[str, Any] | None:
@@ -365,8 +374,6 @@ def run_groq_audio_audit_durable(
     original: Callable[..., dict[str, Any]] = groq_audio_audit.run_groq_audio_audit,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    # Custom test/injection seams are deliberately not memoized. Production uses the
-    # canonical transcriber/extractor only; opaque alternative callables are live-only.
     if kwargs:
         return original(output_dir, api_key=api_key, model=model, **kwargs)
 
@@ -529,8 +536,6 @@ def _install_voice_observer_durability() -> None:
                         )
                         print(f"Voice Identity Observer durable HIT fingerprint={fingerprint[:12]}")
                         return
-                    # Preserve the original observer's one-time provenance semantics if
-                    # a concurrent/test mutation changed provenance between peek/consume.
                     if isinstance(consumed.get("fallback_used"), bool):
                         voice_mesh.record_voice_provenance(
                             Path(output),
@@ -573,6 +578,7 @@ def _install_final_qc_durability() -> None:
                 return run_final_master_qc_durable(Path(output_dir), original=original)
 
             wrapped._isco_final_qc_durable = True
+            wrapped._isco_final_master_acceptance_v2 = True
             wrapped._isco_final_qc_durable_original = original
             return wrapped
 
@@ -580,21 +586,21 @@ def _install_final_qc_durability() -> None:
 
 
 def install_final_qc_observer_durability() -> None:
-    """Install optimization-only durability around exact deterministic evidence.
+    """Install F24 acceptance always; enable durable observer reuse when configured.
 
-    Final Master QC itself remains unchanged and authoritative. Only strict PASS evidence
-    can be restored, bound to exact final/plan/quality/timeline bytes, exact QC code,
-    pinned Engine and ffmpeg/ffprobe identities. Groq is same-run-id only because the
-    provider model is opaque and can drift behind a stable model name. Voice Identity
-    is local/pinned and may reuse exact per-section evidence. Analytics is deliberately
-    excluded because it is time-varying and should refresh on every retry.
+    The certified Final Master QC core and stable QC port stay byte-identical. F24 wraps
+    the live production entrypoint above that seam, so every successful core result
+    (including a valid durable core PASS hit) is re-probed for upload conformance,
+    atomically sealed to exact current artifact bytes, and revalidated before Gold.
+    Durable cache remains an optimization only; F24 is mandatory even when no shared
+    cache is configured. Analytics stays live.
     """
-    if _shared_root() is None:
-        print("Final QC/Observer durable cache disabled: shared durable stage cache not configured")
-        return
     _install_final_qc_durability()
+    if _shared_root() is None:
+        print("Final Master Acceptance V2 installed; Final QC/Observer durable cache disabled")
+        return
     _install_voice_observer_durability()
-    print("Final QC/Observer durability installed: Final QC PASS + Groq retry + Voice Identity; analytics stays live")
+    print("Final Master Acceptance V2 + Final QC/Observer durability installed; analytics stays live")
 
 
 def _remove_path(path: Path) -> None:
