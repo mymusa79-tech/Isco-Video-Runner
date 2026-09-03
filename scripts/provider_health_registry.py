@@ -6,7 +6,12 @@ A provider failure discovered by Planning/Text Audit must not be forgotten befor
 Vision reaches the same network model/quota domain. Evidence is deliberately scoped by
 provider + model + quota_domain so one model/capability cannot poison unrelated ones.
 Provider-wide preflight blocks (for example exhausted OpenRouter spend capacity) use
-wildcards and therefore apply to every later capability in the same process.
+wildcards and therefore apply to every later capability in the same production run.
+
+The lifecycle is bound to the existing run-scoped Vision circuit owner. A new Vision
+scope clears all prior evidence and preflight-load state; subsequent candidate reviews
+inside that same scope share evidence. This prevents both cross-run contamination and
+cross-test contamination without inventing a second production lifecycle owner.
 """
 
 import json
@@ -34,11 +39,32 @@ _LOADED_PREFLIGHT: ContextVar[bool] = ContextVar(
     "isco_provider_health_preflight_loaded",
     default=False,
 )
+_BOUND_VISION_SCOPE: ContextVar[object | None] = ContextVar(
+    "isco_provider_health_bound_vision_scope",
+    default=None,
+)
 
 
 def reset_provider_health() -> None:
     _EVIDENCE.set(())
     _LOADED_PREFLIGHT.set(False)
+    _BOUND_VISION_SCOPE.set(None)
+
+
+def bind_provider_health_to_vision_scope(scope: object) -> bool:
+    """Bind evidence to one existing Vision circuit scope.
+
+    Returns True only when a new scope was observed. Callers can use that signal to
+    reset other run-scoped provider certification caches at exactly the same boundary.
+    """
+    if scope is None:
+        raise ValueError("provider health requires a concrete Vision scope")
+    if _BOUND_VISION_SCOPE.get() is scope:
+        return False
+    _EVIDENCE.set(())
+    _LOADED_PREFLIGHT.set(False)
+    _BOUND_VISION_SCOPE.set(scope)
+    return True
 
 
 def publish_provider_unavailable(
