@@ -6,7 +6,8 @@ The Stage Contract remains the semantic/schema/provider-policy owner. This modul
 only the raw HTTP boundary and the narrow composition adapters required by Run181:
 - bind shared provider-health evidence to the existing run-scoped Vision circuit;
 - preserve V2's TaskSpec provider-attempt budget when the V3 provider order is used;
-- read Planning/Text-Audit evidence only from the current orchestrator.produce() call.
+- read Planning/Text-Audit evidence only from the current orchestrator.produce() call;
+- canonicalize Gemini aliases through the pinned Engine provider before health matching.
 
 No visual semantic rule, threshold, Security gate, candidate cap, or total inference
 attempt ceiling is changed here.
@@ -35,6 +36,36 @@ _RUN181_TELEMETRY_BASELINE: ContextVar[tuple[int, int] | None] = ContextVar(
     "isco_run181_telemetry_baseline",
     default=None,
 )
+
+
+def _canonical_gemini_generation_model(model: object) -> str:
+    """Resolve Engine compatibility aliases to the actual Gemini quota/model key."""
+    raw = str(model or "").strip()
+    resolver = getattr(contract.gemini_provider, "_content_model", None)
+    if callable(resolver):
+        try:
+            resolved = str(resolver(raw)).strip()
+            if resolved:
+                return resolved
+        except Exception:
+            pass
+    return raw
+
+
+def _runtime_gemini_generation_model() -> str:
+    return _canonical_gemini_generation_model(run181._gemini_runtime_model())
+
+
+def _publish_current_gemini_unavailable(detail: object, *, source: str) -> None:
+    if not run181._quota_or_rate_failure(detail):
+        return
+    health.publish_provider_unavailable(
+        "gemini",
+        model=_runtime_gemini_generation_model(),
+        quota_domain=run181.GEMINI_GENERATION_QUOTA_DOMAIN,
+        reason=str(detail),
+        source=source,
+    )
 
 
 def _classify_http(status: int, message: str) -> contract.VisionErrorCode:
@@ -131,7 +162,7 @@ def _scoped_refresh_runtime_provider_health() -> None:
         result = str(attempt.get("result") or "").strip().lower()
         detail = attempt.get("error_detail")
         if result == "429" or run181._quota_or_rate_failure(detail):
-            run181._publish_gemini_generation_unavailable(
+            _publish_current_gemini_unavailable(
                 detail or result,
                 source="planning_telemetry",
             )
@@ -147,7 +178,7 @@ def _scoped_refresh_runtime_provider_health() -> None:
             outcome = str(attempt.get("outcome") or "").strip().lower()
             detail = attempt.get("detail")
             if outcome == "rate_limited" or run181._quota_or_rate_failure(detail):
-                run181._publish_gemini_generation_unavailable(
+                _publish_current_gemini_unavailable(
                     detail or outcome,
                     source="text_audit_telemetry",
                 )
@@ -186,6 +217,12 @@ def _install_run181_route_adapter() -> None:
                 provider="internal",
             )
 
+        # Engine keeps a compatibility alias for the content model while its provider
+        # resolves the wire call to the current Gemini model. Health must compare the
+        # actual quota/model key, not the historical alias, or Planning's 429 would be
+        # invisible to Vision despite sharing the same generate-content quota domain.
+        canonical_model = _canonical_gemini_generation_model(resolved_model)
+
         # This is the exact V2 budget behavior: the logical Visual Audit TaskSpec is
         # allowed up to the existing three real provider attempts even if the Engine
         # supplied a narrower one-provider spec. Without this widening the local V3
@@ -199,7 +236,7 @@ def _install_run181_route_adapter() -> None:
             ledger,
             routed_spec,
             provider,
-            resolved_model,
+            canonical_model,
             fn,
             *args,
             **kwargs,
