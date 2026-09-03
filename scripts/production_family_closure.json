@@ -175,6 +175,12 @@
       "historical_runs":["106-110","128","169"],
       "required_phases":["P2","P4"],
       "contracts":["scripts.test_voice_mesh","scripts.test_piper_chunking","scripts.test_short_voice_v2","scripts.test_audio_semantic_integrity","scripts.test_audio_mastering_runtime_contract","scripts.test_audio_producer_repair_lifecycle","scripts.test_groq_audio_audit","scripts.test_audio_producer_final_certificate"]
+    },
+    {
+      "id":"F23","name":"planning_production_contract_lineage_taxonomy_and_deadlines",
+      "historical_runs":["113-132","168","170"],
+      "required_phases":["P0","P1"],
+      "contracts":["scripts.test_run170_planning_contract_composition","scripts.test_planning_stage_contract","scripts.test_checkpoint_namespace_guard","scripts.test_run168_provider_visible_semantics"]
     }
   ]
 }
