@@ -13,6 +13,7 @@ from isco_video_agent.short_planner import DEFAULT_SIBLING_SPACING_HOURS, select
 import scripts.planning_runtime_contract as planning_runtime_contract
 import scripts.run_v3_voice as production
 from scripts.control_approved_brief import materialize_approved_brief
+from scripts.immutable_planning_snapshot import snapshot_approved_brief
 from scripts.native_short_planner_router import install_native_short_router
 from scripts.orchestration_shorts_port import finalize_short_quality, prepare_authoritative_short_for_gold
 from scripts.sibling_short_orchestration import orchestrate_sibling_shorts, stage_sibling_assets
@@ -20,6 +21,7 @@ from scripts.source_derived_short_planner import install_source_derived_short_pl
 from scripts.unified_delivery import write_delivery_manifest
 
 CONTROL_CHILD_TIMEOUT_SECONDS = 1200
+ISOLATED_CHILD_CHECKPOINT_MODE = "isolated_sibling_child_no_cross_run"
 
 
 def _canonical_request_hash(request: dict[str, Any]) -> str:
@@ -146,6 +148,60 @@ def _short_router_for_request(request: dict[str, Any]):
     raise RuntimeError("Unsupported Short approval scope")
 
 
+def _isolated_child_requested(request: dict[str, Any]) -> bool:
+    flag = (os.environ.get("ISCO_RUNTIME_ISOLATED_CHILD") or "").strip().lower()
+    if flag not in {"1", "true", "yes", "on"}:
+        return False
+    if request.get("kind") != "short" or request.get("approval_scope") != "short_sibling":
+        raise RuntimeError("isolated child runtime is restricted to approved sibling Shorts")
+    parent_id = str(request.get("parent_control_request_id") or "").strip()
+    if not parent_id:
+        raise RuntimeError("isolated sibling child runtime requires parent request identity")
+    mode = (os.environ.get("ISCO_RUNTIME_CHECKPOINT_MODE") or "").strip()
+    if mode != ISOLATED_CHILD_CHECKPOINT_MODE:
+        raise RuntimeError("isolated sibling child runtime checkpoint mode is invalid")
+    return True
+
+
+def _materialize_isolated_child_snapshot(brief_path: Path, runtime_dir: Path) -> tuple[Path, str]:
+    raw_sha = _sha256_file(brief_path)
+    snapshot = snapshot_approved_brief(
+        brief_path,
+        Path(runtime_dir) / "approved-brief.snapshot.json",
+        expected_sha256=raw_sha,
+    )
+    return snapshot, raw_sha
+
+
+def _runtime_env_for_request(
+    request: dict[str, Any],
+    *,
+    brief_path: Path,
+    brief_hash: str,
+    request_file: Path,
+    runtime_dir: Path,
+) -> dict[str, str]:
+    values = {
+        "ISCO_APPROVED_BRIEF_PATH": str(brief_path.resolve()),
+        "ISCO_APPROVED_BRIEF_SHA256": brief_hash,
+        "REQUEST_FILE": str(request_file.resolve()),
+        "ISCO_CONTROL_REQUEST_ID": str(request.get("request_id") or ""),
+    }
+    parent_id = str(request.get("parent_control_request_id") or "").strip()
+    if parent_id:
+        values["ISCO_CONTROL_PARENT_REQUEST_ID"] = parent_id
+    if _isolated_child_requested(request):
+        snapshot, raw_sha = _materialize_isolated_child_snapshot(brief_path, runtime_dir)
+        values.update(
+            {
+                "ISCO_APPROVED_BRIEF_SNAPSHOT_PATH": str(snapshot.resolve()),
+                "ISCO_APPROVED_BRIEF_SNAPSHOT_SHA256": raw_sha,
+                "ISCO_RUNTIME_CHECKPOINT_MODE": ISOLATED_CHILD_CHECKPOINT_MODE,
+            }
+        )
+    return values
+
+
 def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Path:
     validate_control_request(request, str(request.get("request_sha256") or ""))
     runtime_dir = Path(runtime_dir)
@@ -166,12 +222,13 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
     )
 
     previous_env = _set_runtime_env(
-        {
-            "ISCO_APPROVED_BRIEF_PATH": str(brief_path.resolve()),
-            "ISCO_APPROVED_BRIEF_SHA256": brief_hash,
-            "REQUEST_FILE": str(request_file.resolve()),
-            "ISCO_CONTROL_REQUEST_ID": str(request.get("request_id") or ""),
-        }
+        _runtime_env_for_request(
+            request,
+            brief_path=brief_path,
+            brief_hash=brief_hash,
+            request_file=request_file,
+            runtime_dir=runtime_dir,
+        )
     )
     runtime_request = dict(request)
     runtime_request["production_dispatch_authorized"] = True
@@ -234,16 +291,39 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
     return output
 
 
+def _isolated_child_process_env(child_request: dict[str, Any], request_path: Path) -> dict[str, str]:
+    parent_id = str(child_request.get("parent_control_request_id") or "").strip()
+    if child_request.get("kind") != "short" or child_request.get("approval_scope") != "short_sibling" or not parent_id:
+        raise RuntimeError("child subprocess isolation requires an approved sibling Short request")
+    env = os.environ.copy()
+    env["CONTROL_PLANE_PRODUCTION_ENABLED"] = "true"
+    env["ISCO_CONTROL_REQUEST_PATH"] = str(request_path.resolve())
+    env["ISCO_CONTROL_REQUEST_SHA256"] = str(child_request.get("request_sha256") or "")
+    env["ISCO_RUNTIME_ISOLATED_CHILD"] = "1"
+    env["ISCO_RUNTIME_CHECKPOINT_MODE"] = ISOLATED_CHILD_CHECKPOINT_MODE
+    env["ISCO_CONTROL_PARENT_REQUEST_ID"] = parent_id
+    # P0 state isolation: never let a child inherit the parent's immutable approved
+    # input binding. The child materializes a fresh read-only snapshot from its exact
+    # inherited approval before production.main() installs the canonical runtime seam.
+    for key in (
+        "ISCO_APPROVED_BRIEF_PATH",
+        "ISCO_APPROVED_BRIEF_SHA256",
+        "ISCO_APPROVED_BRIEF_SNAPSHOT_PATH",
+        "ISCO_APPROVED_BRIEF_SNAPSHOT_SHA256",
+        "REQUEST_FILE",
+        "ISCO_CONTROL_REQUEST_ID",
+    ):
+        env.pop(key, None)
+    return env
+
+
 def execute_child_subprocess(child_request: dict[str, Any], *, runtime_root: Path) -> Path:
     validate_control_request(child_request, str(child_request.get("request_sha256") or ""))
     child_dir = Path(runtime_root) / str(child_request.get("request_id") or "child")
     child_dir.mkdir(parents=True, exist_ok=True)
     request_path = child_dir / "child-control-request.json"
     request_path.write_text(json.dumps(child_request, ensure_ascii=False, indent=2), encoding="utf-8")
-    env = os.environ.copy()
-    env["CONTROL_PLANE_PRODUCTION_ENABLED"] = "true"
-    env["ISCO_CONTROL_REQUEST_PATH"] = str(request_path.resolve())
-    env["ISCO_CONTROL_REQUEST_SHA256"] = str(child_request.get("request_sha256") or "")
+    env = _isolated_child_process_env(child_request, request_path)
     before = _output_dirs()
     try:
         subprocess.run(
