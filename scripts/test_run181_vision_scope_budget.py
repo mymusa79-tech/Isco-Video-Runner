@@ -100,23 +100,29 @@ class Run181VisionScopeBudgetTests(unittest.TestCase):
         )
         run181._GROQ_MODEL_CERTIFIED.set(False)
 
-        with legacy.vision_provider_circuit_scope():
-            adapter(None, _spec(), "gemini", "gemini-3.7-flash", lambda: None)
-            self.assertEqual(snapshots[-1], [])
-            self.assertIsNone(run181._GROQ_MODEL_CERTIFIED.get())
-            health.publish_provider_unavailable(
-                "groq",
-                model=run181.GROQ_VISION_MODEL,
-                quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
-                reason="same run",
-                source="vision",
-            )
-            adapter(None, _spec(), "gemini", "gemini-3.7-flash", lambda: None)
-            self.assertEqual(len(snapshots[-1]), 1)
+        with mock.patch.object(run181, "_groq_key", return_value=""):
+            with legacy.vision_provider_circuit_scope():
+                adapter(None, _spec(), "gemini", "gemini-3.7-flash", lambda: None)
+                self.assertEqual(len(snapshots[-1]), 1)
+                self.assertEqual(snapshots[-1][0]["provider"], "groq")
+                self.assertEqual(snapshots[-1][0]["source"], "vision_static_readiness")
+                self.assertIsNone(run181._GROQ_MODEL_CERTIFIED.get())
+                health.publish_provider_unavailable(
+                    "groq",
+                    model=run181.GROQ_VISION_MODEL,
+                    quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
+                    reason="same run",
+                    source="vision",
+                )
+                adapter(None, _spec(), "gemini", "gemini-3.7-flash", lambda: None)
+                self.assertEqual(len(snapshots[-1]), 1)
+                self.assertEqual(snapshots[-1][0]["provider"], "groq")
 
-        with legacy.vision_provider_circuit_scope():
-            adapter(None, _spec(), "gemini", "gemini-3.7-flash", lambda: None)
-            self.assertEqual(snapshots[-1], [])
+            with legacy.vision_provider_circuit_scope():
+                adapter(None, _spec(), "gemini", "gemini-3.7-flash", lambda: None)
+                self.assertEqual(len(snapshots[-1]), 1)
+                self.assertEqual(snapshots[-1][0]["provider"], "groq")
+                self.assertEqual(snapshots[-1][0]["source"], "vision_static_readiness")
 
     def test_existing_wider_taskspec_is_never_narrowed(self) -> None:
         seen = []
