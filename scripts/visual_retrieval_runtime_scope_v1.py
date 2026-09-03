@@ -222,8 +222,17 @@ def install_visual_retrieval_runtime_scope_v1() -> None:
     _install_selector_scope()
     _install_rank_scope()
     _install_produce_scope()
+
+    # Run185 is the final semantic-adjudication layer. Install it only after all
+    # V1/Run183 route and runtime-scope composition is complete so Gemini/Groq/OpenRouter
+    # receive one identical semantic goal while direct historical diagnostics remain
+    # unchanged outside canonical Production.
+    from scripts.run185_visual_intent_adjudication import install_run185_visual_intent_adjudication
+
+    install_run185_visual_intent_adjudication()
     _INSTALLED = True
     print(
         "Visual Retrieval V1 runtime scope installed: active only inside orchestrator.produce; "
-        "direct V2/Run181 diagnostics preserve historical transport and health semantics"
+        "direct V2/Run181 diagnostics preserve historical transport and health semantics; "
+        "Run185 semantic adjudication composed last"
     )
