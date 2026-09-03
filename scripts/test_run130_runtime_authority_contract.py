@@ -85,7 +85,7 @@ class Run130RuntimeAuthorityContractTests(unittest.TestCase):
     def test_environment_preflight_uses_workflow_identity_without_exporting_live_phase(self) -> None:
         text = (ROOT / "scripts/environment_preflight.py").read_text(encoding="utf-8")
         self.assertIn("runtime_phase import activate_canonical_runtime, canonical_workflow_identity", text)
-        self.assertIn("if not canonical_workflow_identity():", text)
+        self.assertIn("if canonical_workflow_identity():", text)
         self.assertIn("activate_canonical_runtime(persist_workflow_env=False)", text)
         self.assertNotIn("if canonical_runtime_enabled():", text)
 
