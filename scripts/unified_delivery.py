@@ -148,9 +148,8 @@ def build_delivery_manifest(
         "schema_version": SCHEMA_VERSION,
         "delivery_kind": "long_plus_shorts" if kind == "long" and shorts else kind,
         "topic": str(plan.get("topic") or ""),
-        # This document is immutable reviewed staging evidence. A tag is only a
-        # candidate namespace until release_transaction proves the published remote
-        # bytes and delivery.acceptance.v2 seals the terminal Released state.
+        # Immutable reviewed staging evidence. A tag is only a candidate namespace
+        # until release_transaction proves the published remote bytes.
         "release_state": "staged",
         "release_tag": None,
         "delivery_url": None,
@@ -211,17 +210,28 @@ def write_delivery_manifest(
 
 
 def finalize_release_manifest(path: Path, *, repository: str, release_tag: str) -> Path:
-    """Fail closed for the retired pre-Release authority seam.
+    """Legacy call seam: bind only the requested Release candidate, never Released truth.
 
-    Historically this function mutated reviewed staging evidence to ``released`` before
-    GitHub Release creation. That made a local manifest able to outrun the actual remote
-    transaction. Terminal Release truth is now owned by delivery.acceptance.v2 after the
-    durable Release receipt and complete transaction journal are verified.
+    The V4 workflow historically calls this before ``release_transaction.py``. Keeping
+    that call compatible is useful, but it must not be able to make reviewed local
+    evidence outrun the GitHub Release boundary. Terminal ``released`` truth belongs to
+    the completed Release transaction / durable receipt and delivery.acceptance.v2.
     """
-    _ = (path, repository, release_tag)
-    raise RuntimeError(
-        "Delivery manifest is immutable staged evidence; seal delivery.acceptance.v2 only after the Release transaction completes"
-    )
+    manifest = _read_object(path)
+    if manifest.get("release_state") != "staged":
+        raise RuntimeError("Delivery manifest must remain staged before the Release transaction")
+    tag = str(release_tag or "").strip()
+    repo = str(repository or "").strip()
+    if not tag or not repo:
+        raise RuntimeError("Release candidate identity is incomplete")
+    manifest["release_state"] = "staged"
+    manifest["release_tag"] = None
+    manifest["delivery_url"] = None
+    manifest["release_candidate_tag"] = tag
+    manifest["release_candidate_url"] = f"https://github.com/{repo}/releases/tag/{tag}"
+    manifest["publication_performed"] = False
+    Path(path).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return Path(path)
 
 
 def main() -> None:
