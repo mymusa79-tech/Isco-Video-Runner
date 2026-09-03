@@ -31,6 +31,7 @@ from scripts.orchestration_render_port import install_render_runtime_port
 from scripts.planning_checkpoint_state import install_runtime_persistence_wrapper
 from scripts.planning_runtime_contract import install_runtime_planning_contracts
 from scripts.producer_quality_contract import install_producer_handoff_contract
+from scripts.run184_qr_confirmation_runtime import install_run184_qr_confirmation_runtime
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.runtime_reliability import (
     install_core_reliability_guard,
@@ -124,6 +125,9 @@ def install_runtime_closure() -> None:
     # -> durable asset/decision cache -> M8-composed prepared cache -> Pexels search
     # cache. Provider selection, retry ownership, trust/security decisions, cache
     # semantics, hit revalidation, and write policy remain in their existing owners.
+    # Run184 QR confirmation is deliberately composed *after* that stable port so the
+    # exact L7 Media implementation binding remains byte-for-byte unchanged. It wraps
+    # only the Media Trust/Security local scanner during a live produce() scope.
     # L7.3 moves only the inner Cinematic composition behind one phase-explicit stable
     # seam. INNER preserves the exact historical SFX -> M8 -> M9 -> M10 -> CTA order.
     # The OUTER M7/M11 phase remains intentionally later in run_v3_voice after TTS, so
@@ -146,6 +150,7 @@ def install_runtime_closure() -> None:
     # transaction wrapper, so `delivery_complete` means manifest + sibling Shorts both
     # returned in the actual `python ../scripts/run_v3_voice.py` process, not only tests.
     install_media_runtime_port()
+    install_run184_qr_confirmation_runtime()
     install_core_reliability_guard()
     # Shared Long+Short Vision reliability is now owned by an explicit Stage Contract:
     # Gemini remains primary; OpenRouter receives native strict JSON Schema plus
