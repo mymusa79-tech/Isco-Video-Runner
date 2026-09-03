@@ -12,11 +12,14 @@ from scripts import planning_stage_contract as stage_contract
 
 
 class PlanningProductionContractV2Tests(unittest.TestCase):
+    TOPIC = "كيف تنهض عندما تفقد الدافع تمامًا؟"
+
     def setUp(self) -> None:
         family.reset_runtime_evidence_for_tests()
         family._STAGE_RECEIPTS.append(
             {
                 "sequence": 1,
+                "lineage_kind": "accepted_stage_response",
                 "stage_id": "planning.editorial_outline",
                 "contract_id": "planning.editorial_outline.v1",
                 "input_hash": "a" * 64,
@@ -34,7 +37,7 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
     def _write_case(self, root: Path, fmt: str) -> None:
         plan = {
             "format": fmt,
-            "topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
+            "topic": self.TOPIC,
             "sections": [{"id": "s1"}],
         }
         (root / "plan.json").write_text(
@@ -61,12 +64,21 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-    def _identity_patches(self):
+    def _approved_identity(self, fmt: str = "film", sha: str = "d") -> dict:
+        return {
+            "path": "approved-brief.snapshot.json",
+            "sha256": sha * 64,
+            "topic_sha256": family._sha256_bytes(self.TOPIC.encode("utf-8")),
+            "format": fmt,
+            "approved_by_user": True,
+        }
+
+    def _identity_patches(self, fmt: str = "film"):
         return (
             patch.object(
                 family,
                 "_approved_input_identity",
-                return_value={"path": "approved-brief.snapshot.json", "sha256": "d" * 64},
+                return_value=self._approved_identity(fmt),
             ),
             patch.object(
                 family,
@@ -121,15 +133,19 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._write_case(root, "film")
-            approved, research, runtime = self._identity_patches()
+            approved, research, runtime = self._identity_patches("film")
             with approved, research, runtime, patch.object(
                 family.time, "monotonic", return_value=111.0
             ):
                 report = family.certify_planning_handoff(root)
                 self.assertEqual(report["decision"], "pass")
+                self.assertEqual(report["mode"], "stage_contract")
                 self.assertEqual(report["format"], "film")
                 self.assertEqual(report["stage_receipt_count"], 1)
-                self.assertEqual(set(report["planning_gate_evidence"]), set(family._PLANNING_GATE_ARTIFACTS))
+                self.assertEqual(
+                    set(report["planning_gate_evidence"]),
+                    set(family._PLANNING_GATE_ARTIFACTS),
+                )
                 self.assertEqual(
                     family.require_planning_handoff(root)["contract_id"],
                     family.CONTRACT_ID,
@@ -139,7 +155,7 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._write_case(root, "moment")
-            approved, research, runtime = self._identity_patches()
+            approved, research, runtime = self._identity_patches("moment")
             with approved, research, runtime, patch.object(
                 family.time, "monotonic", return_value=105.0
             ):
@@ -152,7 +168,7 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._write_case(root, "film")
-            approved, research, runtime = self._identity_patches()
+            approved, research, runtime = self._identity_patches("film")
             with approved, research, runtime, patch.object(
                 family.time, "monotonic", return_value=101.0
             ):
@@ -170,7 +186,7 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._write_case(root, "film")
-            approved, research, runtime = self._identity_patches()
+            approved, research, runtime = self._identity_patches("film")
             with approved, research, runtime, patch.object(
                 family.time, "monotonic", return_value=101.0
             ):
@@ -189,7 +205,7 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
             with patch.object(
                 family,
                 "_approved_input_identity",
-                return_value={"path": "brief.json", "sha256": "1" * 64},
+                return_value=self._approved_identity("film", "1"),
             ), patch.object(
                 family,
                 "_research_identity",
@@ -201,7 +217,7 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
             with patch.object(
                 family,
                 "_approved_input_identity",
-                return_value={"path": "brief.json", "sha256": "4" * 64},
+                return_value=self._approved_identity("film", "4"),
             ), patch.object(
                 family,
                 "_research_identity",
@@ -211,15 +227,37 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
                     family.require_planning_handoff(root)
             self.assertEqual(captured.exception.code.value, "LINEAGE_INVALID")
 
+    def test_approved_topic_or_format_mismatch_blocks_certificate(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write_case(root, "film")
+            wrong = self._approved_identity("moment")
+            with patch.object(
+                family, "_approved_input_identity", return_value=wrong
+            ), patch.object(
+                family,
+                "_research_identity",
+                return_value={"file": "research-provenance.json", "sha256": "2" * 64},
+            ), patch.object(
+                family, "_runtime_contract_sha256", return_value="3" * 64
+            ), patch.object(family.time, "monotonic", return_value=101.0):
+                with self.assertRaises(stage_contract.PlanningStageError) as captured:
+                    family.certify_planning_handoff(root)
+            self.assertEqual(captured.exception.code.value, "LINEAGE_INVALID")
+
     def test_family_wall_deadline_is_format_specific_and_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._write_case(root, "moment")
-            approved, research, runtime = self._identity_patches()
+            approved, research, runtime = self._identity_patches("moment")
             with approved, research, runtime, patch.object(
                 family.time,
                 "monotonic",
-                return_value=100.0 + family.deadline_policy().short_family_wall_seconds + 0.01,
+                return_value=(
+                    100.0
+                    + family.deadline_policy().short_family_wall_seconds
+                    + 0.01
+                ),
             ):
                 with self.assertRaises(stage_contract.PlanningStageError) as captured:
                     family.certify_planning_handoff(root)
@@ -229,7 +267,7 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._write_case(root, "film")
-            approved, research, runtime = self._identity_patches()
+            approved, research, runtime = self._identity_patches("film")
             with approved, research, runtime, patch.object(
                 family.time, "monotonic", return_value=102.0
             ):
@@ -246,10 +284,44 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
             )
             self.assertEqual(after["annotations"]["plan_source"], "gemini+groq")
 
-    def test_handoff_gate_certifies_before_director_observer_runs(self) -> None:
+    def test_product_proof_fallback_gets_truthful_local_lineage(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write_case(root, "film")
+            family._STAGE_RECEIPTS[:] = [
+                {
+                    "sequence": 1,
+                    "stage_id": "planning.editorial_outline",
+                    "output_sha256": "9" * 64,
+                }
+            ]
+            family._FAMILY_STARTED_AT = 100.0
+            approved, research, runtime = self._identity_patches("film")
+            with approved, research, runtime, patch.object(
+                family, "was_fallback_used", return_value=True
+            ), patch.object(family.time, "monotonic", return_value=103.0):
+                report = family.certify_planning_handoff(root)
+                verified = family.require_planning_handoff(root)
+
+            self.assertEqual(report["mode"], "product_proof_fallback")
+            self.assertEqual(
+                report["source_authority"],
+                "scripts.product_proof_plan._proof_plan",
+            )
+            self.assertEqual(report["stage_receipt_count"], 1)
+            self.assertEqual(
+                report["stage_receipts"][0]["stage_id"],
+                "planning.product_proof_fallback",
+            )
+            self.assertEqual(len(report["discarded_pre_fallback_stage_receipts"]), 1)
+            self.assertEqual(verified["mode"], "product_proof_fallback")
+
+    def test_handoff_gate_revalidates_after_director_observer_before_p2_p3(self) -> None:
         calls: list[str] = []
         original = family.orchestrator._observe_director_phase_a
-        family.orchestrator._observe_director_phase_a = lambda *a, **k: calls.append("director") or "ok"
+        family.orchestrator._observe_director_phase_a = (
+            lambda *a, **k: calls.append("director") or "ok"
+        )
         try:
             family._install_handoff_gate()
             with patch.object(
@@ -265,7 +337,10 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
                     out=Path("/tmp/f23"), plan=SimpleNamespace(format="film")
                 )
             self.assertEqual(result, "ok")
-            self.assertEqual(calls, ["certify", "require", "director"])
+            self.assertEqual(
+                calls,
+                ["certify", "require", "director", "require"],
+            )
         finally:
             family.orchestrator._observe_director_phase_a = original
 
