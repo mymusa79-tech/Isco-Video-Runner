@@ -16,6 +16,10 @@ text audits. The repair is explicitly scoped as ``planning.short_repair`` and is
 followed by the full Producer and representation revalidation. No quality rule is
 weakened and no second repair is attempted.
 
+Template representation is validated only from the authoritative viewer-facing Moment
+text. Topic/research metadata can select or constrain a template, but it cannot satisfy
+a requirement that the viewer must actually see in the finished Short.
+
 Hard quality rules are not weakened here. Tone, dignity, naturalness, religious quote,
 factuality and sensitive-topic blocks remain blocking. The only normalized verdict is
 a short-template *format* complaint after the deterministic Runner-owned Short contract
@@ -185,17 +189,14 @@ def short_representation_issues(plan: object) -> list[str]:
         if dash_turns < 2 and arabic_quote_turns < 2:
             return ["inner_dialogue_missing_visible_exchange"]
     elif template == "why_reframe":
-        combined = authoritative_plan_text(plan)
-        if not any(marker in combined for marker in _WHY_REFRAME_MARKERS):
+        if not any(marker in visible for marker in _WHY_REFRAME_MARKERS):
             return ["why_reframe_missing_explicit_contrast_or_reframe"]
     elif template == "micro_story":
-        combined = authoritative_plan_text(plan)
-        if not any(marker in combined for marker in _MICRO_STORY_MARKERS):
+        if not any(marker in visible for marker in _MICRO_STORY_MARKERS):
             return ["micro_story_missing_concrete_event_progression"]
     elif template == "quote_reflection":
-        combined = authoritative_plan_text(plan)
-        has_arabic_quote = "«" in combined and "»" in combined
-        has_ascii_quote = len(re.findall(r'"[^"\n]{2,}"', combined)) >= 1
+        has_arabic_quote = "«" in visible and "»" in visible
+        has_ascii_quote = len(re.findall(r'"[^"\n]{2,}"', visible)) >= 1
         if not (has_arabic_quote or has_ascii_quote):
             return ["quote_reflection_missing_visible_quote"]
     elif template:
