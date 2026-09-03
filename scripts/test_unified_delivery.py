@@ -5,15 +5,38 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from scripts import final_master_qc
-from scripts.final_master_acceptance_v2 import seal_final_master_acceptance
+from scripts import final_master_acceptance_v2 as acceptance
 from scripts.unified_delivery import build_delivery_manifest, finalize_release_manifest, write_delivery_manifest
+
+
+def _probe() -> dict:
+    return {
+        "streams": [
+            {
+                "codec_type": "video",
+                "codec_name": "h264",
+                "profile": "High",
+                "field_order": "progressive",
+                "color_transfer": "bt709",
+                "color_primaries": "bt709",
+                "color_space": "bt709",
+            },
+            {
+                "codec_type": "audio",
+                "codec_name": "aac",
+                "profile": "LC",
+                "sample_rate": "48000",
+                "channels": 2,
+            },
+        ]
+    }
 
 
 def _seal_qc(root: Path, *, fmt: str) -> dict:
     report = {
-        "schema_version": final_master_qc.SCHEMA_VERSION,
+        "schema_version": 1,
         "status": "pass",
         "production_stage": "post_render_pre_gold_acceptance",
         "format": fmt,
@@ -23,11 +46,10 @@ def _seal_qc(root: Path, *, fmt: str) -> dict:
         "blocking_findings": [],
         "warnings": [],
     }
-    return seal_final_master_acceptance(
-        root,
-        report,
-        policy_fingerprint=final_master_qc.qc_policy_fingerprint(),
-    )
+    with patch.object(acceptance, "probe", return_value=_probe()), patch.object(
+        acceptance, "_mp4_fast_start", return_value=(True, ["ftyp", "moov", "mdat"])
+    ):
+        return acceptance.seal_final_master_acceptance(root, report)
 
 
 class UnifiedDeliveryTests(unittest.TestCase):
