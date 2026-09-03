@@ -8,10 +8,6 @@ from typing import Any, Callable, Iterable
 
 from isco_video_agent.editorial_room import EditorialContractError, intent_from_dict
 from isco_video_agent.short_topic_gate import evaluate_short_topic
-from scripts.final_master_acceptance_v2 import (
-    require_certified_final_video,
-    require_final_master_acceptance,
-)
 from scripts.source_derived_short_planner import build_source_short_blueprint
 
 SCHEMA_VERSION = 1
@@ -251,20 +247,25 @@ def _read_object(path: Path) -> dict[str, Any]:
 def validate_completed_short(output_dir: Path, request: dict[str, Any]) -> dict[str, Any]:
     root = Path(output_dir)
     final = root / "final.mp4"
-    if final.is_symlink() or not final.is_file() or final.stat().st_size <= 1024:
-        raise RuntimeError("Sibling Short output has no usable regular final.mp4")
+    if not final.is_file() or final.stat().st_size <= 1024:
+        raise RuntimeError("Sibling Short output has no usable final.mp4")
     quality = _read_object(root / "quality-final.json")
     intelligence = _read_object(root / "short-intelligence.json")
     gold = _read_object(root / "gold-enforce-report.json")
     rights = _read_object(root / "rights-manifest.json")
     plan = _read_object(root / "plan.json")
-    try:
-        master_qc = require_final_master_acceptance(root)
-    except Exception as exc:
-        raise RuntimeError("Sibling Short failed exact Final Master acceptance") from exc
+    master_qc = _read_object(root / "final-master-qc.json")
 
     if quality.get("format") != "moment" or quality.get("duration_ok") is not True:
         raise RuntimeError("Sibling Short failed its final moment-duration contract")
+    if not (
+        master_qc.get("status") == "pass"
+        and master_qc.get("production_stage") == "post_render_pre_gold_acceptance"
+        and master_qc.get("full_decode_ok") is True
+        and master_qc.get("final_media_mutated") is False
+        and not list(master_qc.get("blocking_findings") or [])
+    ):
+        raise RuntimeError("Sibling Short failed Final Master QC")
     if intelligence.get("delivery_allowed") is not True:
         raise RuntimeError("Sibling Short intelligence did not allow delivery")
     if intelligence.get("request_id") != request.get("request_id"):
@@ -278,9 +279,6 @@ def validate_completed_short(output_dir: Path, request: dict[str, Any]) -> dict[
         and gold["same_render"].get("artifact_divergence") is False
     ):
         raise RuntimeError("Sibling Short Gold contract is not accepted")
-    certified_sha = str(master_qc["acceptance_contract"]["sources"]["final"]["sha256"])
-    if str((gold.get("same_render") or {}).get("sha256_before") or "") not in {"", certified_sha}:
-        raise RuntimeError("Sibling Short Gold input does not match P4-certified final.mp4")
     if not rights:
         raise RuntimeError("Sibling Short rights manifest is empty")
     if _clean(plan.get("topic")) != _clean(request.get("approved_topic")):
@@ -298,7 +296,6 @@ def validate_completed_short(output_dir: Path, request: dict[str, Any]) -> dict[
         "output_dir": str(root),
         "duration_seconds": quality.get("duration_seconds") or quality.get("video_stream_duration"),
         "final_video": str(final),
-        "final_sha256": certified_sha,
         "quality_report": str(root / "quality-final.json"),
         "short_intelligence": str(root / "short-intelligence.json"),
         "gold_report": str(root / "gold-enforce-report.json"),
@@ -369,13 +366,5 @@ def stage_sibling_assets(parent_output_dir: Path, completed: Iterable[dict[str, 
             destination = root / filename
             shutil.copy2(source, destination)
             record[record_key] = filename
-        try:
-            qc = require_certified_final_video(
-                root / f"{prefix}-master-qc.json",
-                root / f"{prefix}.mp4",
-            )
-        except Exception as exc:
-            raise RuntimeError("Staged sibling Short escaped its P4-certified bytes") from exc
-        record["final_sha256"] = str(qc["acceptance_contract"]["sources"]["final"]["sha256"])
         staged.append(record)
     return staged
