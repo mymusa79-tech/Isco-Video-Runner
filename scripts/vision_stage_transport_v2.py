@@ -7,7 +7,8 @@ only the raw HTTP boundary and the narrow composition adapters required by Run18
 - bind shared provider-health evidence to the existing run-scoped Vision circuit;
 - preserve V2's TaskSpec provider-attempt budget when the V3 provider order is used;
 - read Planning/Text-Audit evidence only from the current orchestrator.produce() call;
-- canonicalize Gemini aliases through the pinned Engine provider before health matching.
+- canonicalize Gemini aliases through the pinned Engine provider before health matching;
+- reuse Groq rate evidence only when it names the exact Qwen Vision model.
 
 No visual semantic rule, threshold, Security gate, candidate cap, or total inference
 attempt ceiling is changed here.
@@ -30,8 +31,8 @@ from scripts import vision_stage_contract_v2 as contract
 # Planning and Text-Audit telemetry are intentionally append-only diagnostic logs.
 # They may outlive one produce() call in a long-lived Python process. Capture their
 # lengths at the real production-run boundary and import only the tail created by that
-# run; otherwise an old Gemini 429 could poison a later healthy run after Health itself
-# was correctly reset.
+# run; otherwise an old provider failure could poison a later healthy run after Health
+# itself was correctly reset.
 _RUN181_TELEMETRY_BASELINE: ContextVar[tuple[int, int] | None] = ContextVar(
     "isco_run181_telemetry_baseline",
     default=None,
@@ -63,6 +64,30 @@ def _publish_current_gemini_unavailable(detail: object, *, source: str) -> None:
         "gemini",
         model=_runtime_gemini_generation_model(),
         quota_domain=run181.GEMINI_GENERATION_QUOTA_DOMAIN,
+        reason=str(detail),
+        source=source,
+    )
+
+
+def _publish_exact_groq_vision_model_unavailable(
+    model: object,
+    detail: object,
+    *,
+    source: str,
+) -> None:
+    """Share only exact-model Groq rate/quota evidence with Vision.
+
+    Groq Planning/Text Audit can use several models. A 20B/120B failure must not poison
+    Qwen Vision, but a qwen/qwen3.8-27b rate failure is the same hosted model that Vision
+    would call through the same chat-completions account boundary.
+    """
+    resolved = str(model or "").strip()
+    if resolved != run181.GROQ_VISION_MODEL or not run181._quota_or_rate_failure(detail):
+        return
+    health.publish_provider_unavailable(
+        "groq",
+        model=run181.GROQ_VISION_MODEL,
+        quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
         reason=str(detail),
         source=source,
     )
@@ -157,12 +182,21 @@ def _scoped_refresh_runtime_provider_health() -> None:
     for attempt in planning_attempts:
         if not isinstance(attempt, dict):
             continue
-        if str(attempt.get("provider") or "").strip().lower() != "gemini":
-            continue
+        provider = str(attempt.get("provider") or "").strip().lower()
         result = str(attempt.get("result") or "").strip().lower()
         detail = attempt.get("error_detail")
-        if result == "429" or run181._quota_or_rate_failure(detail):
+        if provider == "gemini" and (
+            result == "429" or run181._quota_or_rate_failure(detail)
+        ):
             _publish_current_gemini_unavailable(
+                detail or result,
+                source="planning_telemetry",
+            )
+        elif provider == "groq" and (
+            result == "429" or run181._quota_or_rate_failure(detail)
+        ):
+            _publish_exact_groq_vision_model_unavailable(
+                attempt.get("resolved_model"),
                 detail or result,
                 source="planning_telemetry",
             )
@@ -173,12 +207,22 @@ def _scoped_refresh_runtime_provider_health() -> None:
         for attempt in list(route.get("attempts") or ()):
             if not isinstance(attempt, dict):
                 continue
-            if str(attempt.get("provider") or "").strip().lower() != "gemini":
-                continue
+            provider = str(attempt.get("provider") or "").strip().lower()
             outcome = str(attempt.get("outcome") or "").strip().lower()
             detail = attempt.get("detail")
-            if outcome == "rate_limited" or run181._quota_or_rate_failure(detail):
+            if provider == "gemini" and (
+                outcome == "rate_limited" or run181._quota_or_rate_failure(detail)
+            ):
                 _publish_current_gemini_unavailable(
+                    detail or outcome,
+                    source="text_audit_telemetry",
+                )
+                continue
+            if provider.startswith("groq:") and (
+                outcome == "rate_limited" or run181._quota_or_rate_failure(detail)
+            ):
+                _publish_exact_groq_vision_model_unavailable(
+                    provider[len("groq:"):],
                     detail or outcome,
                     source="text_audit_telemetry",
                 )
