@@ -29,6 +29,7 @@ class DeliveryAcceptanceV2Tests(unittest.TestCase):
 
         qc = root / "final-master-qc.json"
         _write(qc, {"status": "pass", "acceptance_contract": {"contract_id": "final.master.acceptance.v2"}})
+        qc_identity = _identity(qc)
 
         delivery = root / "delivery-manifest.json"
         _write(
@@ -43,6 +44,12 @@ class DeliveryAcceptanceV2Tests(unittest.TestCase):
                 "release_candidate_url": "https://github.com/mymusa79-tech/Isco-Video-Runner/releases/tag/video-777",
                 "primary_video": "final.mp4",
                 "primary_video_sha256": final_hash,
+                "final_master_qc": {
+                    "file": "final-master-qc.json",
+                    "file_size": qc_identity["size"],
+                    "file_sha256": str(qc_identity["digest"])[7:],
+                    "evidence": {"status": "pass", "acceptance_contract": {"contract_id": "final.master.acceptance.v2"}},
+                },
                 "youtube_publish_mode": "manual_in_youtube_studio",
                 "publication_performed": False,
                 "partial_delivery_allowed": False,
@@ -82,6 +89,7 @@ class DeliveryAcceptanceV2Tests(unittest.TestCase):
         )
         return {
             "final": final,
+            "qc": qc,
             "delivery": delivery,
             "release_receipt": release_receipt,
             "journal": journal,
@@ -111,6 +119,7 @@ class DeliveryAcceptanceV2Tests(unittest.TestCase):
             self.assertFalse(receipt["publication_performed"])
             self.assertEqual(receipt["youtube_publish_mode"], "manual_in_youtube_studio")
             self.assertEqual(receipt["delivery_manifest"]["digest"], _digest(Path(fixture["delivery"])))
+            self.assertEqual(receipt["final_master_qc"]["digest"], _digest(Path(fixture["qc"])))
             self.assertTrue(Path(fixture["output"]).is_file())
 
     def test_preclaimed_released_manifest_is_rejected_even_with_valid_remote_receipt(self) -> None:
@@ -131,6 +140,24 @@ class DeliveryAcceptanceV2Tests(unittest.TestCase):
             value["topic"] = "changed-after-review"
             _write(path, value)
             with self.assertRaisesRegex(RuntimeError, "exact staged Delivery manifest"):
+                self._seal(fixture)
+
+    def test_release_must_bind_exact_staged_final_master_qc_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            fixture = self._fixture(Path(td))
+            receipt_path = Path(fixture["release_receipt"])
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            receipt["assets"]["final-master-qc.json"] = {
+                "size": receipt["assets"]["final-master-qc.json"]["size"],
+                "digest": "sha256:" + "0" * 64,
+            }
+            _write(receipt_path, receipt)
+            journal_path = Path(fixture["journal"])
+            journal = json.loads(journal_path.read_text(encoding="utf-8"))
+            journal["asset_digests"]["release-receipt.json"] = _digest(receipt_path)
+            journal["asset_digests"]["final-master-qc.json"] = "sha256:" + "0" * 64
+            _write(journal_path, journal)
+            with self.assertRaisesRegex(RuntimeError, "exact staged QC evidence"):
                 self._seal(fixture)
 
     def test_incomplete_release_journal_cannot_be_promoted_to_released(self) -> None:
