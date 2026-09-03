@@ -43,6 +43,10 @@ class Run184QRRuntimeScopeTests(unittest.TestCase):
         def prior_scanner(_media):
             calls.append("prior")
 
+        def legacy_zxing(_frame, _executable):
+            calls.append("legacy-zxing")
+            return "none"
+
         def core_produce():
             self.assertTrue(runtime._RUN184_ACTIVE.get())
             security_binding._scan_media_before_vision(Path("candidate.mp4"))
@@ -50,19 +54,18 @@ class Run184QRRuntimeScopeTests(unittest.TestCase):
             return "done"
 
         security_binding._scan_media_before_vision = prior_scanner
+        qr._zxing_qr_status = legacy_zxing
         runtime.orchestrator.produce = core_produce
         with patch.object(runtime, "_run184_scan", side_effect=lambda _media: calls.append("v3")), patch.object(
             runtime, "_zxing_qr_status_221", return_value="decoded"
         ) as zxing:
             runtime.install_run184_qr_confirmation_runtime()
             self.assertEqual(runtime.orchestrator.produce(), "done")
+            self.assertEqual(qr._zxing_qr_status(Path("after.pgm"), "ZXingReader"), "none")
 
-        self.assertEqual(calls, ["v3"])
+        self.assertEqual(calls, ["v3", "legacy-zxing"])
         zxing.assert_called_once()
         self.assertFalse(runtime._RUN184_ACTIVE.get())
-        # After the scope closes, the exact historical ZXing owner is visible again.
-        with patch.object(self, "original_zxing", return_value="none"):
-            pass
 
     def test_scope_resets_after_production_exception(self) -> None:
         def prior_scanner(_media):
