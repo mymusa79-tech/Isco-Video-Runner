@@ -4,9 +4,20 @@ import unittest
 from pathlib import Path
 
 
-ENGINE_SHA = "fe576d91f604412a010fa6cd61ff66f839e67550"
 RESEARCH_ENGINE_SHA = "bf85607f6e34dcedc199abad7e610b12c4685309"
 OLD_ENGINE_SHA = "39d4a0ea613cf266c7b4c561acb4a01216909cd9"
+
+
+def _canonical_production_engine_sha() -> str:
+    text = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
+    prefix = "  EXPECTED_ENGINE_SHA: "
+    pins = [line[len(prefix) :].strip() for line in text.splitlines() if line.startswith(prefix)]
+    if len(pins) != 1:
+        raise AssertionError(f"expected exactly one canonical production Engine pin, found {len(pins)}")
+    sha = pins[0]
+    if len(sha) != 40 or any(ch not in "0123456789abcdef" for ch in sha):
+        raise AssertionError(f"canonical production Engine pin is not an exact lowercase SHA-1: {sha!r}")
+    return sha
 
 
 class TelegramEditorialControlWorkflowTests(unittest.TestCase):
@@ -81,10 +92,12 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertIn('"production_queue":[]', self.text)
 
     def test_research_engine_is_isolated_from_production_engine_pin(self):
-        self.assertIn(f"ENGINE_SHA: {ENGINE_SHA}", self.text)
+        production_engine_sha = _canonical_production_engine_sha()
+        self.assertIn(f"ENGINE_SHA: {production_engine_sha}", self.text)
         self.assertIn(f"RESEARCH_ENGINE_SHA: {RESEARCH_ENGINE_SHA}", self.text)
         self.assertIn("ref: ${{ env.RESEARCH_ENGINE_SHA }}", self.text)
         self.assertIn('-f engine_sha="$ENGINE_SHA"', self.text)
+        self.assertNotEqual(production_engine_sha, RESEARCH_ENGINE_SHA)
         self.assertNotIn(OLD_ENGINE_SHA, self.text)
 
     def test_research_step_carries_openrouter_fallback_key(self):
