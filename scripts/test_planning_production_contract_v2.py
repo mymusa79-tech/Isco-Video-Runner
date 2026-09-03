@@ -44,6 +44,22 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
             json.dumps({"approved_research_pack": []}, ensure_ascii=False),
             encoding="utf-8",
         )
+        gate_payloads = {
+            "repair-dossier.json": {"repair_status": "not_needed"},
+            "factuality-audit.json": {"status": "pass"},
+            "content-quality-audit.json": {"status": "pass"},
+            "tone-quality-audit.json": {"status": "pass"},
+            "quality-precheck.json": {
+                "factuality_status": "pass",
+                "content_quality_status": "pass",
+                "tone_quality_status": "pass",
+            },
+        }
+        for filename, payload in gate_payloads.items():
+            (root / filename).write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
     def _identity_patches(self):
         return (
@@ -90,7 +106,7 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
             contract = stage_contract.bind_request_contract(
                 stage_contract.outline_stage_spec(3), "prompt"
             )
-            error, retryable, _retry_after, failure = stage_contract._provider_failure(
+            error, retryable, _provider_delay, failure = stage_contract._provider_failure(
                 contract,
                 "gemini",
                 RuntimeError("HTTP 401 Unauthorized invalid API key"),
@@ -113,6 +129,7 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
                 self.assertEqual(report["decision"], "pass")
                 self.assertEqual(report["format"], "film")
                 self.assertEqual(report["stage_receipt_count"], 1)
+                self.assertEqual(set(report["planning_gate_evidence"]), set(family._PLANNING_GATE_ARTIFACTS))
                 self.assertEqual(
                     family.require_planning_handoff(root)["contract_id"],
                     family.CONTRACT_ID,
@@ -148,6 +165,22 @@ class PlanningProductionContractV2Tests(unittest.TestCase):
                 with self.assertRaises(stage_contract.PlanningStageError) as captured:
                     family.require_planning_handoff(root)
             self.assertEqual(captured.exception.code.value, "FINAL_PLAN_INVALID")
+
+    def test_planning_gate_evidence_tamper_after_certificate_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._write_case(root, "film")
+            approved, research, runtime = self._identity_patches()
+            with approved, research, runtime, patch.object(
+                family.time, "monotonic", return_value=101.0
+            ):
+                family.certify_planning_handoff(root)
+                (root / "tone-quality-audit.json").write_text(
+                    json.dumps({"status": "changed"}), encoding="utf-8"
+                )
+                with self.assertRaises(stage_contract.PlanningStageError) as captured:
+                    family.require_planning_handoff(root)
+            self.assertEqual(captured.exception.code.value, "LINEAGE_INVALID")
 
     def test_approved_input_tamper_invalidates_handoff(self) -> None:
         with tempfile.TemporaryDirectory() as td:
