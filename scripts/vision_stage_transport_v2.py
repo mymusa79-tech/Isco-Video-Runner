@@ -36,7 +36,6 @@ _RUN181_TELEMETRY_BASELINE: ContextVar[tuple[int, int] | None] = ContextVar(
 
 
 def _canonical_gemini_generation_model(model: object) -> str:
-    """Resolve Engine compatibility aliases to the actual Gemini quota/model key."""
     raw = str(model or "").strip()
     resolver = getattr(contract.gemini_provider, "_content_model", None)
     if callable(resolver):
@@ -71,7 +70,6 @@ def _publish_exact_groq_vision_model_unavailable(
     *,
     source: str,
 ) -> None:
-    """Share only exact-model Groq rate/quota evidence with Vision."""
     resolved = str(model or "").strip()
     if resolved != run181.GROQ_VISION_MODEL or not run181._quota_or_rate_failure(detail):
         return
@@ -85,7 +83,6 @@ def _publish_exact_groq_vision_model_unavailable(
 
 
 def _seed_static_groq_readiness() -> None:
-    """Publish no-key evidence before V3 can spend a logical inference slot."""
     existing = health.provider_unavailable(
         "groq",
         model=run181.GROQ_VISION_MODEL,
@@ -103,7 +100,6 @@ def _seed_static_groq_readiness() -> None:
 
 
 def _classify_http(status: int, message: str) -> contract.VisionErrorCode:
-    """Classify gateway HTTP failures by recovery scope, not by numeric code alone."""
     lowered = str(message or "").casefold()
     if status == 401:
         return contract.VisionErrorCode.AUTH_CONFIG
@@ -179,7 +175,6 @@ def _current_run_telemetry() -> tuple[list[dict], list[dict]]:
 
 
 def _scoped_refresh_runtime_provider_health() -> None:
-    """Import hard evidence from this production run only, without replacing owners."""
     health.load_preflight_provider_health()
     planning_attempts, audit_routes = _current_run_telemetry()
 
@@ -233,7 +228,6 @@ def _scoped_refresh_runtime_provider_health() -> None:
 
 
 def _install_run181_route_adapter() -> None:
-    """Preserve V2 budget ownership while binding V3 health to the same run scope."""
     current = contract._route_visual_audit_v2
     if getattr(current, "_isco_run181_route_adapter", False):
         return
@@ -284,7 +278,6 @@ def _install_run181_route_adapter() -> None:
 
 
 def _install_run181_produce_telemetry_scope() -> None:
-    """Capture append-only telemetry cursors at the actual production-run boundary."""
     current = orchestrator.produce
     if getattr(current, "_isco_run181_telemetry_scope", False):
         return
@@ -318,13 +311,22 @@ def install_vision_provider_reliability() -> None:
     run181.refresh_runtime_provider_health = _scoped_refresh_runtime_provider_health
     _install_run181_produce_telemetry_scope()
 
+    from scripts import opening_feasibility_guard as opening_guard
+    from scripts import visual_retrieval_adjudication_v1 as v1
     from scripts.run183_visual_retrieval_closure import install_run183_visual_retrieval_closure
-    from scripts.visual_retrieval_adjudication_v1 import install_visual_retrieval_adjudication_v1
+    from scripts.run183_visual_retrieval_scope_fix import install_run183_visual_retrieval_scope_fix
     from scripts.visual_retrieval_runtime_scope_v1 import install_visual_retrieval_runtime_scope_v1
 
-    # V1 establishes metadata reranking/contact-sheet/capacity seams. Run183 then closes
-    # semantic alternate recall + cross-pool duplicate inspection. Runtime Scope remains
-    # outermost so both generations are active only inside canonical orchestrator.produce.
-    install_visual_retrieval_adjudication_v1()
+    # Capture the certified historical surfaces before Run183 changes them. The scope
+    # hardener restores these surfaces outside canonical Production while preserving the
+    # new semantics inside orchestrator.produce.
+    legacy_query_ladder = opening_guard.stock_query_ladder
+    legacy_build_visual_intent = v1.build_visual_intent
+
+    v1.install_visual_retrieval_adjudication_v1()
     install_run183_visual_retrieval_closure()
+    install_run183_visual_retrieval_scope_fix(
+        legacy_query_ladder=legacy_query_ladder,
+        legacy_build_visual_intent=legacy_build_visual_intent,
+    )
     install_visual_retrieval_runtime_scope_v1()
