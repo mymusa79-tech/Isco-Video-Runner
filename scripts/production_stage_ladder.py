@@ -102,6 +102,11 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_final_master_qc_ffmpeg",
         "scripts.test_final_master_qc_timeout",
         "scripts.test_audio_producer_final_certificate",
+        "scripts.test_final_master_acceptance_v2",
+        "scripts.test_final_master_qc_contract_shape",
+        "scripts.test_final_master_acceptance_contract_registration",
+        "scripts.test_f24_family_contract",
+        "scripts.test_f24_no_production_dispatch",
     ),
     "P5": (
         "scripts.test_gold_enforce_phase4",
@@ -226,11 +231,20 @@ def run_p4(evidence_dir: Path, baseline: Path, staging: Path) -> None:
     identity = _verify_baseline(baseline)
     duration = _prepare_staging(baseline, staging)
     before = _sha256(staging / "final.mp4")
-    from scripts.final_master_qc import run_final_master_qc
-    report = run_final_master_qc(staging)
+    from scripts.final_qc_observer_durability import run_final_master_qc_durable
+    report = run_final_master_qc_durable(staging)
     after = _sha256(staging / "final.mp4")
+    acceptance = report.get("acceptance_contract") if isinstance(report, dict) else None
     if report.get("status") != "pass" or report.get("full_decode_ok") is not True:
         raise RuntimeError("P4 current Final Master QC did not pass video-50")
+    if not isinstance(acceptance, dict) or acceptance.get("contract_id") != "final.master.acceptance.v2":
+        raise RuntimeError("P4 video-50 did not receive Final Master Acceptance V2")
+    if acceptance.get("decision") != "pass":
+        raise RuntimeError("P4 Final Master Acceptance V2 did not pass video-50")
+    if (acceptance.get("sources") or {}).get("final", {}).get("sha256") != BASELINE_SHA256:
+        raise RuntimeError("P4 Final Master Acceptance V2 is not bound to exact video-50 bytes")
+    if (report.get("upload_conformance") or {}).get("decision") != "pass":
+        raise RuntimeError("P4 upload conformance did not pass video-50")
     if before != after or after != BASELINE_SHA256:
         raise RuntimeError("P4 changed video-50 media")
     _record(
@@ -238,6 +252,10 @@ def run_p4(evidence_dir: Path, baseline: Path, staging: Path) -> None:
         current_final_master_qc={
             "status": report.get("status"), "full_decode_ok": report.get("full_decode_ok"),
             "blocking_findings": report.get("blocking_findings"), "stream_contract": report.get("stream_contract"),
+            "acceptance_contract_id": acceptance.get("contract_id"),
+            "acceptance_decision": acceptance.get("decision"),
+            "certified_final_sha256": (acceptance.get("sources") or {}).get("final", {}).get("sha256"),
+            "upload_conformance": (report.get("upload_conformance") or {}).get("decision"),
         }, final_sha256_before=before, final_sha256_after=after,
     )
 
@@ -326,9 +344,12 @@ def run_p6(evidence_dir: Path, staging: Path) -> None:
         raise RuntimeError("P6 must remain staged and unpublished")
     if manifest.get("partial_delivery_allowed") is not False or len(manifest.get("title_thumbnail_pairs") or []) != 3:
         raise RuntimeError("P6 delivery contract failed")
+    if manifest.get("primary_video_sha256") != BASELINE_SHA256:
+        raise RuntimeError("P6 delivery is not bound to the P4-certified video-50 bytes")
     _record("P6", evidence_dir, delivery={
         "release_state": "staged", "publication_performed": False, "partial_delivery_allowed": False,
         "title_thumbnail_pair_count": 3, "validated_assets": sorted(path.name for path in package.values()),
+        "certified_final_sha256": manifest.get("primary_video_sha256"),
         "release_transaction": "validated_by_current_dry_run_regression_only",
     })
 
