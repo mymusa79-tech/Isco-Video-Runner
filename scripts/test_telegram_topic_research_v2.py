@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from scripts import telegram_topic_research_v2 as v2
+from scripts.workflow_hygiene import _canonical_engine_pin
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,9 +139,16 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
         self.assertIn("ملاءمة القناة", text)
 
     def test_workflow_separates_research_engine_from_production_engine(self):
-        workflow = (ROOT / ".github/workflows/telegram-editorial-control.yml").read_text(encoding="utf-8")
-        self.assertIn("ENGINE_SHA: fe576d91f604412a010fa6cd61ff66f839e67550", workflow)
-        self.assertIn("RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309", workflow)
+        workflow_dir = ROOT / ".github/workflows"
+        production_engine_sha = _canonical_engine_pin(workflow_dir)
+        self.assertIsNotNone(production_engine_sha)
+        assert production_engine_sha is not None
+
+        workflow = (workflow_dir / "telegram-editorial-control.yml").read_text(encoding="utf-8")
+        research_engine_sha = "bf85607f6e34dcedc199abad7e610b12c4685309"
+        self.assertIn(f"ENGINE_SHA: {production_engine_sha}", workflow)
+        self.assertIn(f"RESEARCH_ENGINE_SHA: {research_engine_sha}", workflow)
+        self.assertNotEqual(production_engine_sha, research_engine_sha)
         self.assertIn("ref: ${{ env.RESEARCH_ENGINE_SHA }}", workflow)
         self.assertIn('python scripts/telegram_topic_research_v2.py research --state "$CONTROL_STATE_PATH"', workflow)
         self.assertIn('-f engine_sha="$ENGINE_SHA"', workflow)

@@ -10,7 +10,6 @@ on:
       - "scripts/telegram_session_continuity.py"
       - "scripts/test_research_provider_reliability.py"
       - "scripts/test_topic_research_market_reliability.py"
-      - "scripts/test_topic_research_runtime_recovery.py"
       - "scripts/test_telegram_session_continuity.py"
       - "scripts/test_telegram_topic_research_v2.py"
       - "scripts/test_telegram_editorial_control_workflow.py"
@@ -104,9 +103,10 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
         run: python -m unittest scripts.test_telegram_editorial_control_workflow -v
 
-      - name: Production pin remains unchanged
+      - name: Production pin follows canonical V4 authority
         run: |
           set -euo pipefail
-          grep -F 'ENGINE_SHA: fe576d91f604412a010fa6cd61ff66f839e67550' .github/workflows/telegram-editorial-control.yml
+          canonical_engine_sha="$(python -c 'from pathlib import Path; from scripts.workflow_hygiene import _canonical_engine_pin; value = _canonical_engine_pin(Path(".github/workflows")); assert value; print(value)')"
+          grep -F "ENGINE_SHA: ${canonical_engine_sha}" .github/workflows/telegram-editorial-control.yml
           grep -F 'RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309' .github/workflows/telegram-editorial-control.yml
           grep -F 'engine_sha="$ENGINE_SHA"' .github/workflows/telegram-editorial-control.yml

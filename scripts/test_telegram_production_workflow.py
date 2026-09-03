@@ -4,7 +4,16 @@ import unittest
 from pathlib import Path
 
 
-ENGINE_SHA = "fe576d91f604412a010fa6cd61ff66f839e67550"
+def _canonical_production_engine_sha() -> str:
+    text = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
+    prefix = "  EXPECTED_ENGINE_SHA: "
+    pins = [line[len(prefix) :].strip() for line in text.splitlines() if line.startswith(prefix)]
+    if len(pins) != 1:
+        raise AssertionError(f"expected exactly one canonical production Engine pin, found {len(pins)}")
+    sha = pins[0]
+    if len(sha) != 40 or any(ch not in "0123456789abcdef" for ch in sha):
+        raise AssertionError(f"canonical production Engine pin is not an exact lowercase SHA-1: {sha!r}")
+    return sha
 
 
 class TelegramProductionWorkflowTests(unittest.TestCase):
@@ -21,9 +30,10 @@ class TelegramProductionWorkflowTests(unittest.TestCase):
         self.assertIn("timeout-minutes: 10", self.text)
 
     def test_exact_request_authorization_engine_and_runner_are_bound(self):
+        engine_sha = _canonical_production_engine_sha()
         for field in ("request_id:", "request_sha256:", "authorization_id:", "engine_sha:"):
             self.assertIn(field, self.text)
-        self.assertIn(f"EXPECTED_ENGINE_SHA: {ENGINE_SHA}", self.text)
+        self.assertIn(f"EXPECTED_ENGINE_SHA: {engine_sha}", self.text)
         self.assertIn('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', self.text)
         self.assertIn('test "${GITHUB_REF_NAME}" = "main"', self.text)
         self.assertIn('test "$REQUESTED_ENGINE_SHA" = "$EXPECTED_ENGINE_SHA"', self.text)

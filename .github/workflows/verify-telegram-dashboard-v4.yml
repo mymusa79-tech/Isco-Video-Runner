@@ -50,7 +50,8 @@ jobs:
       - name: Preserve production authority boundary
         run: |
           set -euo pipefail
-          grep -F 'ENGINE_SHA: fe576d91f604412a010fa6cd61ff66f839e67550' .github/workflows/telegram-editorial-control.yml
+          canonical_engine_sha="$(python -c 'from pathlib import Path; from scripts.workflow_hygiene import _canonical_engine_pin; value = _canonical_engine_pin(Path(".github/workflows")); assert value; print(value)')"
+          grep -F "ENGINE_SHA: ${canonical_engine_sha}" .github/workflows/telegram-editorial-control.yml
           grep -F 'RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309' .github/workflows/telegram-editorial-control.yml
           grep -F '"production_dispatch_authorized": False' scripts/telegram_control_panel.py >/dev/null
           ! grep -E 'workflow run|gh workflow|production_queue|dispatch' scripts/telegram_youtube_stats.py

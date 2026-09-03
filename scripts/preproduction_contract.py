@@ -9,7 +9,6 @@ PRODUCTION_WORKFLOW = Path(".github/workflows/produce-resilient-v4.yml")
 RELEASE_TRANSACTION = Path("scripts/release_transaction.py")
 ENVIRONMENT_PREFLIGHT = Path("scripts/environment_preflight.py")
 ENVIRONMENT_PREFLIGHT_CORE = Path("scripts/environment_preflight_core.py")
-EXPECTED_ENGINE_SHA = "fe576d91f604412a010fa6cd61ff66f839e67550"
 EXPECTED_RUNNER_IMAGE = "ubuntu-24.04"
 PROVIDERS = ("gemini", "groq", "openrouter", "pexels", "pixabay")
 
@@ -22,6 +21,49 @@ class ContractIssue:
 
 def _read_if_file(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def _canonical_engine_pin_issues(text: str) -> list[ContractIssue]:
+    """Validate one Engine identity without duplicating a mutable SHA in Python.
+
+    The production workflow is the canonical V4 Engine authority. A previous static
+    EXPECTED_ENGINE_SHA constant in this module made every legitimate Engine upgrade
+    require a second hand-edited SHA and caused the Stage Ladder to reject the newer
+    production pin. Audit the three live workflow bindings instead: admission
+    EXPECTED_ENGINE_SHA, private Engine checkout ref, and runtime ISCO_ENGINE_SHA.
+    """
+    expected = re.findall(
+        r"^\s*EXPECTED_ENGINE_SHA:\s*([0-9a-f]{40})\s*$",
+        text,
+        flags=re.MULTILINE,
+    )
+    checkout = re.findall(
+        r"^\s+ref:\s+([0-9a-f]{40})\s*$",
+        text,
+        flags=re.MULTILINE,
+    )
+    runtime = re.findall(
+        r"^\s+ISCO_ENGINE_SHA:\s*([0-9a-f]{40})\s*$",
+        text,
+        flags=re.MULTILINE,
+    )
+    issues: list[ContractIssue] = []
+    if len(expected) != 1 or len(checkout) != 1 or len(runtime) != 1:
+        issues.append(
+            ContractIssue(
+                "engine_pin",
+                "canonical production Engine SHA must appear exactly once in admission, checkout, and runtime bindings",
+            )
+        )
+        return issues
+    if not (expected[0] == checkout[0] == runtime[0]):
+        issues.append(
+            ContractIssue(
+                "engine_pin_mismatch",
+                "canonical production Engine admission, checkout, and runtime SHAs must be identical",
+            )
+        )
+    return issues
 
 
 def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
@@ -40,7 +82,7 @@ def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
 
     require("runner_image", f"runs-on: {EXPECTED_RUNNER_IMAGE}", "production runner image must be explicit, not a moving -latest alias")
     require("runner_sha_verify", 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"', "exact Runner checkout must be verified before execution")
-    require("engine_pin", EXPECTED_ENGINE_SHA, "canonical production Engine SHA missing")
+    issues.extend(_canonical_engine_pin_issues(text))
     require("post_piper_pip_check", 'python -m pip check # post-piper-certification', "dependency graph must be rechecked after Piper installation")
     require("memory_restore_strict", "Require healthy restored cross-run memory", "production must not continue with an untrusted/empty fallback history")
     require("memory_restore_assert", 'test "${{ steps.restore_state.outputs.save_allowed }}" = "true"', "restored history must be explicitly proven save-safe")
