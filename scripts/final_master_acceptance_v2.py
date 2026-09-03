@@ -3,14 +3,21 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import struct
 import tempfile
 from pathlib import Path
 from typing import Any
+
+from isco_video_agent.media.ffmpeg import probe
 
 
 CONTRACT_ID = "final.master.acceptance.v2"
 CONTRACT_SCHEMA_VERSION = 2
 REPORT_FILENAME = "final-master-qc.json"
+_CORE_PATH = Path(__file__).with_name("final_master_qc.py")
+_HDR_TRANSFERS = {"smpte2084", "arib-std-b67"}
+_HDR_PRIMARIES = {"bt2020"}
+_HDR_SPACES = {"bt2020nc", "bt2020c"}
 
 
 class FinalMasterAcceptanceError(RuntimeError):
@@ -91,12 +98,148 @@ def _optional_evidence_bindings(root: Path) -> dict[str, dict[str, Any]]:
 
 
 def _implementation_sha256() -> str:
-    from scripts import final_master_qc
-
-    raw = getattr(final_master_qc, "__file__", None)
-    if not raw:
+    if not _CORE_PATH.is_file():
         raise FinalMasterAcceptanceError("final_master_acceptance_missing_implementation")
-    return _sha256_file(Path(raw).resolve())
+    return _sha256_file(_CORE_PATH)
+
+
+def qc_policy_fingerprint() -> str:
+    """Fingerprint the immutable QC core plus the F24 acceptance-only policy."""
+    policy = {
+        "contract_id": CONTRACT_ID,
+        "schema_version": CONTRACT_SCHEMA_VERSION,
+        "certified_qc_implementation_sha256": _implementation_sha256(),
+        "exact_sources": ["final.mp4", "plan.json", "quality-final.json", "visual-timeline.json"],
+        "upload_conformance": {
+            "h264_profile": "High when reported",
+            "field_order": "progressive or unknown when reported",
+            "aac_profile": "LC/AAC LC when reported",
+            "sdr_color_tags": "BT.709 when all tags reported",
+            "explicit_hdr": "block",
+            "missing_optional_metadata": "warn",
+            "mp4_fast_start": "warn_only",
+        },
+        "media_mutation": "forbidden",
+        "ai_calls_added": 0,
+    }
+    payload = json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _mp4_fast_start(final_path: Path) -> tuple[bool | None, list[str]]:
+    positions: dict[str, int] = {}
+    order: list[str] = []
+    try:
+        size = final_path.stat().st_size
+        offset = 0
+        with final_path.open("rb") as handle:
+            while offset + 8 <= size and len(order) < 64:
+                handle.seek(offset)
+                header = handle.read(8)
+                if len(header) != 8:
+                    break
+                box_size, box_type = struct.unpack(">I4s", header)
+                header_size = 8
+                if box_size == 1:
+                    extended = handle.read(8)
+                    if len(extended) != 8:
+                        break
+                    box_size = struct.unpack(">Q", extended)[0]
+                    header_size = 16
+                elif box_size == 0:
+                    box_size = size - offset
+                if box_size < header_size or offset + box_size > size:
+                    break
+                name = box_type.decode("ascii", errors="replace")
+                order.append(name)
+                positions.setdefault(name, offset)
+                if "moov" in positions and "mdat" in positions:
+                    return positions["moov"] < positions["mdat"], order
+                offset += int(box_size)
+    except OSError:
+        return None, order
+    if "moov" not in positions or "mdat" not in positions:
+        return None, order
+    return positions["moov"] < positions["mdat"], order
+
+
+def _upload_conformance(final_path: Path) -> dict[str, Any]:
+    try:
+        info = probe(final_path)
+    except Exception as exc:
+        raise FinalMasterAcceptanceError(
+            f"final_master_acceptance_probe_failed:{type(exc).__name__}"
+        ) from exc
+    streams = info.get("streams") if isinstance(info, dict) else None
+    if not isinstance(streams, list):
+        streams = []
+    videos = [item for item in streams if isinstance(item, dict) and item.get("codec_type") == "video"]
+    audios = [item for item in streams if isinstance(item, dict) and item.get("codec_type") == "audio"]
+    if len(videos) != 1:
+        raise FinalMasterAcceptanceError("final_master_acceptance_video_stream_identity_invalid")
+
+    video = videos[0]
+    warnings: list[str] = []
+    blocking: list[str] = []
+    profile = str(video.get("profile") or "").strip()
+    field_order = str(video.get("field_order") or "").strip().casefold()
+    transfer = str(video.get("color_transfer") or "").strip().casefold()
+    primaries = str(video.get("color_primaries") or "").strip().casefold()
+    space = str(video.get("color_space") or "").strip().casefold()
+
+    if profile and profile.casefold() != "high":
+        blocking.append(f"unexpected_h264_profile={profile}")
+    elif not profile:
+        warnings.append("h264_profile_missing")
+
+    if field_order and field_order not in {"progressive", "unknown"}:
+        blocking.append(f"unexpected_field_order={field_order}")
+    elif not field_order:
+        warnings.append("field_order_missing")
+
+    explicit_hdr = transfer in _HDR_TRANSFERS or primaries in _HDR_PRIMARIES or space in _HDR_SPACES
+    if explicit_hdr:
+        blocking.append(
+            "unexpected_hdr_master="
+            f"transfer:{transfer or 'missing'},primaries:{primaries or 'missing'},space:{space or 'missing'}"
+        )
+    if not transfer or not primaries or not space:
+        warnings.append("color_tags_incomplete_but_no_explicit_hdr_tag")
+    elif not explicit_hdr and {transfer, primaries, space} != {"bt709"}:
+        blocking.append(
+            "unexpected_sdr_color_tags="
+            f"transfer:{transfer},primaries:{primaries},space:{space}"
+        )
+
+    audio_profile = ""
+    if audios:
+        audio_profile = str(audios[0].get("profile") or "").strip()
+        if audio_profile and audio_profile.casefold() not in {"lc", "aac lc"}:
+            blocking.append(f"unexpected_aac_profile={audio_profile}")
+        elif not audio_profile:
+            warnings.append("aac_profile_missing")
+
+    fast_start, boxes = _mp4_fast_start(final_path)
+    if fast_start is False:
+        warnings.append("mp4_fast_start_not_present")
+    elif fast_start is None:
+        warnings.append("mp4_fast_start_not_observable")
+
+    return {
+        "decision": "block" if blocking else "pass",
+        "blocking_findings": blocking,
+        "warnings": warnings,
+        "observed": {
+            "h264_profile": profile or None,
+            "field_order": field_order or None,
+            "color_transfer": transfer or None,
+            "color_primaries": primaries or None,
+            "color_space": space or None,
+            "aac_profile": audio_profile or None,
+            "mp4_fast_start": fast_start,
+            "top_level_boxes_observed": boxes,
+        },
+    }
 
 
 def _validate_contract_document(document: dict[str, Any]) -> dict[str, Any]:
@@ -110,6 +253,12 @@ def _validate_contract_document(document: dict[str, Any]) -> dict[str, Any]:
     ):
         raise FinalMasterAcceptanceError("final_master_acceptance_qc_not_pass")
 
+    upload = document.get("upload_conformance")
+    if not isinstance(upload, dict) or upload.get("decision") != "pass":
+        raise FinalMasterAcceptanceError("final_master_acceptance_upload_conformance_not_pass")
+    if list(upload.get("blocking_findings") or []):
+        raise FinalMasterAcceptanceError("final_master_acceptance_upload_conformance_blocking")
+
     acceptance = document.get("acceptance_contract")
     if not isinstance(acceptance, dict):
         raise FinalMasterAcceptanceError("final_master_acceptance_missing_contract")
@@ -119,10 +268,7 @@ def _validate_contract_document(document: dict[str, Any]) -> dict[str, Any]:
         raise FinalMasterAcceptanceError("final_master_acceptance_schema_mismatch")
     if acceptance.get("decision") != "pass":
         raise FinalMasterAcceptanceError("final_master_acceptance_decision_mismatch")
-
-    from scripts import final_master_qc
-
-    if acceptance.get("qc_policy_fingerprint") != final_master_qc.qc_policy_fingerprint():
+    if acceptance.get("qc_policy_fingerprint") != qc_policy_fingerprint():
         raise FinalMasterAcceptanceError("final_master_acceptance_policy_drift")
     if acceptance.get("implementation_sha256") != _implementation_sha256():
         raise FinalMasterAcceptanceError("final_master_acceptance_implementation_drift")
@@ -133,34 +279,39 @@ def _validate_contract_document(document: dict[str, Any]) -> dict[str, Any]:
     return acceptance
 
 
-def seal_final_master_acceptance(
-    output_dir: Path,
-    report: dict[str, Any],
-    *,
-    policy_fingerprint: str,
-) -> dict[str, Any]:
-    """Atomically turn final-master-qc.json into the exact-artifact P4 receipt."""
+def seal_final_master_acceptance(output_dir: Path, report: dict[str, Any]) -> dict[str, Any]:
+    """Atomically upgrade a certified-core QC result into the exact-artifact P4 receipt."""
     root = Path(output_dir)
-    if report.get("status") not in {"pass", "block"}:
-        raise FinalMasterAcceptanceError("final_master_acceptance_invalid_qc_decision")
-    if len(str(policy_fingerprint or "")) != 64:
-        raise FinalMasterAcceptanceError("final_master_acceptance_invalid_policy_fingerprint")
+    if report.get("status") != "pass":
+        raise FinalMasterAcceptanceError("final_master_acceptance_requires_core_pass")
+
+    upload = _upload_conformance(root / "final.mp4")
+    sealed = dict(report)
+    sealed["schema_version"] = CONTRACT_SCHEMA_VERSION
+    sealed["upload_conformance"] = upload
+    sealed["warnings"] = list(report.get("warnings") or []) + list(upload.get("warnings") or [])
+    sealed["blocking_findings"] = list(report.get("blocking_findings") or []) + list(
+        upload.get("blocking_findings") or []
+    )
+    sealed["status"] = "block" if sealed["blocking_findings"] else "pass"
 
     acceptance = {
         "contract_id": CONTRACT_ID,
         "schema_version": CONTRACT_SCHEMA_VERSION,
-        "decision": report.get("status"),
+        "decision": sealed["status"],
         "production_stage": "post_render_pre_gold_acceptance",
-        "qc_policy_fingerprint": policy_fingerprint,
+        "qc_policy_fingerprint": qc_policy_fingerprint(),
         "implementation_sha256": _implementation_sha256(),
         "runner_sha": (os.environ.get("GITHUB_SHA") or "").strip().lower() or None,
         "engine_sha": (os.environ.get("ISCO_ENGINE_SHA") or "").strip().lower() or None,
         "sources": _source_bindings(root),
         "upstream_evidence": _optional_evidence_bindings(root),
     }
-    sealed = dict(report)
     sealed["acceptance_contract"] = acceptance
     _atomic_json(root / REPORT_FILENAME, sealed)
+
+    if sealed["status"] != "pass":
+        raise FinalMasterAcceptanceError("final_master_acceptance_upload_conformance_block")
     return sealed
 
 
