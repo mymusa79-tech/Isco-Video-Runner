@@ -39,7 +39,8 @@ class QRRuntimeBootstrapTests(unittest.TestCase):
             return mapping.get(name, f"/usr/bin/{name}")
 
         def run_side_effect(argv, **kwargs):
-            if "apt-get" in argv:
+            is_apt = any(str(item) == "apt-get" or str(item).endswith("/apt-get") for item in argv)
+            if is_apt:
                 calls["installed"] = True
                 env = kwargs["env"]
                 self.assertNotIn("GEMINI_API_KEY", env)
