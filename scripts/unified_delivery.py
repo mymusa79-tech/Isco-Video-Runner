@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,17 @@ def _read_object(path: Path, *, required: bool = True) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise RuntimeError(f"Delivery source must be an object: {path.name}")
     return data
+
+
+def _file_identity(path: Path) -> dict[str, Any]:
+    path = Path(path)
+    if not path.is_file() or path.is_symlink():
+        raise RuntimeError(f"Missing or unsafe delivery evidence: {path.name}")
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {"file": path.name, "size": path.stat().st_size, "sha256": digest.hexdigest()}
 
 
 def _request_summary(request: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -67,8 +79,11 @@ def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> li
         except Exception as exc:
             raise RuntimeError("Unified delivery sibling Short failed exact Final Master acceptance") from exc
         normalized_item = dict(item)
+        qc_identity = _file_identity(qc_path)
         normalized_item["final_master_qc"] = {
             "file": qc_name,
+            "file_size": qc_identity["size"],
+            "file_sha256": qc_identity["sha256"],
             "evidence": qc,
         }
         normalized.append(normalized_item)
@@ -118,6 +133,8 @@ def build_delivery_manifest(
         final_master_qc = require_final_master_acceptance(root)
     except Exception as exc:
         raise RuntimeError("Unified delivery requires exact current Final Master acceptance") from exc
+    final_master_qc_path = root / "final-master-qc.json"
+    final_master_qc_identity = _file_identity(final_master_qc_path)
 
     fmt = str(plan.get("format") or quality.get("format") or production.get("format") or "")
     kind = "short" if fmt == "moment" or str(release_tag or "").startswith("short-") else "long"
@@ -170,6 +187,8 @@ def build_delivery_manifest(
         "gold_report": "gold-enforce-report.json" if (root / "gold-enforce-report.json").is_file() else None,
         "final_master_qc": {
             "file": "final-master-qc.json",
+            "file_size": final_master_qc_identity["size"],
+            "file_sha256": final_master_qc_identity["sha256"],
             "evidence": final_master_qc,
         },
         "canonical_bundle_request": "canonical-bundle-request.json" if (root / "canonical-bundle-request.json").is_file() else None,
