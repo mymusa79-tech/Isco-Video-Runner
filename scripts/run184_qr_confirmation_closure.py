@@ -13,13 +13,16 @@ unchanged while giving QR-only suspicion a production-grade confirmation cascade
 
 1. sample the *whole* video at 12%, 50% and 88% instead of only the first 3 seconds;
 2. run the existing multimodal firewall/OCR on every sampled frame;
-3. independently scan every frame with two mature Ubuntu-packaged QR decoders:
+3. independently scan every frame with two mature Ubuntu-packaged QR engines:
    ZBar (zbarimg) and ZXing-C++ (ZXingReader);
-4. any valid QR decode from either mature decoder is an immediate hard block;
-5. an undecodable QR-only heuristic/geometry suspicion in video receives blocking
-   authority only with temporal confirmation on at least two distributed frames;
-6. still images retain the historical single-frame geometry fail-closed fallback;
-7. missing/broken QR confirmation infrastructure remains a production hard failure.
+4. any valid QR decode from either mature engine is an immediate hard block;
+5. an undecodable QR found by ZXing's mature detector receives blocking authority for
+   video only with temporal confirmation on at least two distributed frames;
+6. a still image has no temporal dimension, so one ZXing QR detection (including a
+   decode/checksum error) is sufficient to retain the QR block;
+7. Engine/home-grown geometry remains diagnostic evidence only and can never create a
+   QR block by itself;
+8. missing/broken QR confirmation infrastructure remains a production hard failure.
 
 No provider call, retry, Vision budget, Quality threshold, Cultural/Islamic gate or
 semantic relevance threshold is changed.
@@ -30,7 +33,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Literal
 
 from isco_video_agent.multimodal_firewall import MultimodalInjectionFirewall
 
@@ -41,8 +44,9 @@ from scripts.qr_geometry_confirmation import confirm_qr_finder_geometry
 CONTRACT_ID = "run184-qr-confirmation-closure-v1"
 CONTRACT_VERSION = 1
 _VIDEO_SAMPLE_FRACTIONS = (0.12, 0.50, 0.88)
-_TEMPORAL_GEOMETRY_QUORUM = 2
+_TEMPORAL_MATURE_DETECTION_QUORUM = 2
 _ZXING_QR_RE = re.compile(r"(?:^|\s)QR\s*Code(?:\s|$)", re.IGNORECASE)
+_ZXING_VALID_QR_RE = re.compile(r"(?:^|\s)QR\s*Code\s+\"", re.IGNORECASE)
 _INSTALLED = False
 
 
@@ -125,6 +129,9 @@ def _extract_one_frame(
 ) -> None:
     command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y"]
     if timestamp is not None:
+        # Input seeking is intentional here: stock clips can be long, while the local
+        # security sampler only needs a representative frame near each distributed
+        # timestamp. This avoids decoding the clip from frame zero three separate times.
         command.extend(["-ss", f"{timestamp:.3f}"])
     command.extend(
         [
@@ -186,7 +193,7 @@ def _zbar_decodes_qr(frame: Path, executable: str) -> bool:
                 "--nodisplay",
                 "-Sdisable",
                 "-Sqrcode.enable",
-                "-Sqrcode.test-inverted=1",
+                "-Stest-inverted=1",
                 str(frame),
             ],
             check=False,
@@ -197,18 +204,30 @@ def _zbar_decodes_qr(frame: Path, executable: str) -> bool:
         )
     except subprocess.TimeoutExpired as exc:
         raise QRConfirmationInfrastructureError("qr_confirmation_failed") from exc
-    # zbarimg: 0=decoded, 4=no barcode, every other status is an execution/image error.
+    # zbarimg documents: 0=decoded, 4=no barcode, 1/2/3 are processing/fatal/user
+    # failures. Only the explicit no-barcode status may safely mean "not confirmed".
     if completed.returncode == 0:
-        return True
+        return bool((completed.stdout or "").strip())
     if completed.returncode == 4:
         return False
     raise QRConfirmationInfrastructureError("qr_confirmation_failed")
 
 
-def _zxing_decodes_qr(frame: Path, executable: str) -> bool:
+def _zxing_qr_status(
+    frame: Path,
+    executable: str,
+) -> Literal["none", "decoded", "detected_error"]:
     try:
         completed = subprocess.run(
-            [executable, "-format", "QRCode", "-1", str(frame)],
+            [
+                executable,
+                "-formats",
+                "QRCode",
+                "-errors",
+                "-single",
+                "-1",
+                str(frame),
+            ],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -217,18 +236,19 @@ def _zxing_decodes_qr(frame: Path, executable: str) -> bool:
         )
     except subprocess.TimeoutExpired as exc:
         raise QRConfirmationInfrastructureError("qr_confirmation_failed") from exc
-    # Ubuntu 24.04 ships ZXing-C++ 2.2.1; its reader returns 0 for a clean scan even
-    # when no barcode is found and emits '<file> None'. Non-zero means parser/decoder
-    # execution failed and must not silently downgrade a Security finding.
+
+    # ZXingReader 2.2.x prints one line per file/result. A clean no-code scan uses
+    # format None and returns zero. With -errors it can also report a QR symbol whose
+    # payload/checksum is not decodable; that is mature detection evidence but not a
+    # valid decode. Any non-zero process status is treated as infrastructure failure.
     if completed.returncode != 0:
         raise QRConfirmationInfrastructureError("qr_confirmation_failed")
-    return bool(_ZXING_QR_RE.search(completed.stdout or ""))
-
-
-def _mature_qr_decoded(frame: Path, *, zbar: str, zxing: str) -> bool:
-    if _zbar_decodes_qr(frame, zbar):
-        return True
-    return _zxing_decodes_qr(frame, zxing)
+    output = completed.stdout or ""
+    if not _ZXING_QR_RE.search(output):
+        return "none"
+    if _ZXING_VALID_QR_RE.search(output):
+        return "decoded"
+    return "detected_error"
 
 
 def _scan_codes(scan_result: object) -> tuple[str, ...]:
@@ -245,8 +265,9 @@ def _evaluate_frames(
     zxing: str,
     firewall: MultimodalInjectionFirewall,
 ) -> None:
-    qr_suspicions = 0
-    geometry_confirmations = 0
+    engine_qr_suspicions = 0
+    geometry_observations = 0
+    mature_error_detections = 0
 
     for frame in tuple(frames):
         scan_result = firewall.scan_frame(frame)
@@ -257,35 +278,36 @@ def _evaluate_frames(
         if non_qr_codes:
             raise _firewall_error(",".join(non_qr_codes))
 
-        # Mature decoders scan every distributed frame, even if the cheap Engine
-        # heuristic missed QR. This closes the old first-three-seconds blind spot.
-        if _mature_qr_decoded(frame, zbar=zbar, zxing=zxing):
+        # Mature engines scan every distributed frame even when the cheap Engine
+        # heuristic missed QR. This also closes the historical first-three-seconds gap.
+        if _zbar_decodes_qr(frame, zbar):
             raise _firewall_error("qr_code_detected")
-
-        if "qr_code_detected" not in codes:
-            continue
-        qr_suspicions += 1
-        if confirm_qr_finder_geometry(frame):
-            geometry_confirmations += 1
-
-    if not qr_suspicions:
-        return
-
-    if not video:
-        # No temporal evidence exists for a still image, so retain the historical
-        # geometry fallback after both mature decoders have been consulted.
-        if geometry_confirmations:
+        zxing_status = _zxing_qr_status(frame, zxing)
+        if zxing_status == "decoded":
             raise _firewall_error("qr_code_detected")
-    elif geometry_confirmations >= _TEMPORAL_GEOMETRY_QUORUM:
-        # For video, a home-grown geometric pattern cannot block from one frame alone.
-        # Two independent distributed samples must reproduce strong QR geometry.
+        if zxing_status == "detected_error":
+            mature_error_detections += 1
+
+        if "qr_code_detected" in codes:
+            engine_qr_suspicions += 1
+            # Historical geometry is retained strictly as diagnostics/regression
+            # evidence. It no longer has independent blocking authority.
+            if confirm_qr_finder_geometry(frame):
+                geometry_observations += 1
+
+    if not video and mature_error_detections:
+        raise _firewall_error("qr_code_detected")
+    if video and mature_error_detections >= _TEMPORAL_MATURE_DETECTION_QUORUM:
         raise _firewall_error("qr_code_detected")
 
-    print(
-        "Security QR V3: heuristic QR suspicion not confirmed by mature decoders/"
-        f"temporal quorum (suspicions={qr_suspicions}, geometry={geometry_confirmations}); "
-        "retaining all other Security findings"
-    )
+    if engine_qr_suspicions or mature_error_detections:
+        print(
+            "Security QR V3: no blocking mature QR confirmation "
+            f"(engine_suspicions={engine_qr_suspicions}, "
+            f"legacy_geometry={geometry_observations}, "
+            f"mature_error_detections={mature_error_detections}); "
+            "retaining all other Security findings"
+        )
 
 
 def _scan_media_before_vision_v3(media: str | Path) -> None:
