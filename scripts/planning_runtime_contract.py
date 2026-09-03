@@ -28,6 +28,7 @@ from scripts.planning_batch_hardening import install_planning_batch_hardening
 from scripts.planning_capacity_headroom import install_planning_capacity_headroom
 from scripts.planning_capacity_profile import install_planning_capacity_profile
 from scripts.planning_legacy_authority_guard import install_legacy_planning_authority_guard
+from scripts.planning_production_contract_v2 import install_planning_production_contract_v2
 from scripts.planning_provider_visible_semantics import install_planning_provider_visible_semantics
 from scripts.planning_stage_contract import (
     assert_planning_stage_contract_installed,
@@ -164,3 +165,8 @@ def install_post_runtime_planning_contracts() -> None:
     # a second Producer repair.
     install_planning_producer_quality_contract()
     install_producer_planning_lifecycle()
+    # F23 is deliberately last. It records the already-authoritative Stage Contract
+    # outputs and Producer lifecycle result, adds deadline/taxonomy ownership, and
+    # certifies exact plan.json lineage immediately before P2/P3 can begin. Keeping it
+    # here avoids introducing a competing provider/router/cache owner.
+    install_planning_production_contract_v2()
