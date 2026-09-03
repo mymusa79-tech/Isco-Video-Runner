@@ -178,7 +178,7 @@ class EdgeObservabilityContractTests(unittest.TestCase):
             '"completed_stages": completed',
             '_PROGRESS_QUEUE: queue.Queue',
             'daemon=True',
-            'git", "push"',
+            '_run_git(root, "push", "origin", f"HEAD:{_PROGRESS_REF}"',
             'Telegram live progress persistence skipped',
         ):
             self.assertIn(marker, self.progress)
