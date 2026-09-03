@@ -14,18 +14,28 @@ Run185 exposed a third composition boundary: Opening Feasibility's historical
 ``_stable_intent_audit`` correctly kept search-only syntax changes from redefining Vision
 truth, but it also erased Run183's deliberately semantic alternate intent. That made a
 candidate retrieved for e.g. ``personal boundaries calm conversation`` get judged against
-the old literal marker/line staging instead. This layer now allows only the exact bounded
-Run183 semantic alternates for the current production selector to reach Vision; all other
-queries still collapse back to the original rich intent.
+the old literal marker/line staging instead.
 
-This layer preserves those contracts while keeping the production improvements active.
-It also sharpens the Run183 boundary+relationship intent so a high provider-rank
-whiteboard/marker result cannot outrank a lower provider-rank candidate whose metadata
-actually matches personal-boundary/relationship/conversation semantics.
+Run185 also proved that routing the semantic alternate is not sufficient by itself. The
+Engine prompt labels the value as an "Intended visual concept", so a multimodal judge can
+still treat an ideal/directorial description as a literal shot checklist. This layer now
+creates one bounded semantic editorial judgment envelope before every stable-intent Vision
+call. The envelope explicitly separates narrative meaning from literal staging while still
+rejecting generic unrelated B-roll. The exact same envelope reaches the Gemini primary and
+any provider fallback because it is applied before the provider boundary.
+
+Finally, the semantic judgment policy is included in the Vision contract fingerprint so
+old literal-policy cache verdicts cannot remain authoritative after this change.
+
+All relevance/quality thresholds, Security/Cultural/Advertiser gates and Vision review
+ceilings remain owned by their existing modules and are unchanged here.
 """
 
+import hashlib
+import json
 from contextvars import ContextVar
 from functools import wraps
+from pathlib import Path
 
 import isco_video_agent.opening_director as opening_director
 import isco_video_agent.orchestrator as orchestrator
@@ -33,10 +43,14 @@ import isco_video_agent.section_visual_sequence as section_visual_sequence
 import isco_video_agent.visual_selection as visual_selection
 from scripts import opening_feasibility_guard as opening_guard
 from scripts import run183_visual_retrieval_closure as run183
+from scripts import vision_stage_contract_v2 as vision_contract
 from scripts import visual_retrieval_adjudication_v1 as v1
 
 
 _INSTALLED = False
+RUN185_JUDGMENT_CONTRACT_ID = "run185-semantic-visual-judgment-v1"
+RUN185_JUDGMENT_POLICY = "semantic-equivalence-not-literal-checklist-v1"
+MAX_ENGINE_INTENDED_VISUAL_CHARS = 300
 _REVIEWED_CURRENT_SELECTOR: ContextVar[set[tuple[str, object]] | None] = ContextVar(
     "isco_run183_reviewed_current_selector",
     default=None,
@@ -120,8 +134,27 @@ def _trusted_semantic_intents(intended_visual: object, narration_context: object
     return frozenset(trusted)
 
 
+def _semantic_judgment_intent(value: object) -> str:
+    """Convert a retrieval/directorial phrase into the canonical Vision judgment intent.
+
+    Engine Gemini truncates the intended visual field to 300 characters. Keep the policy
+    inside that bound so every provider receives an explicit anti-literal rule without
+    changing the Engine prompt, selector thresholds, or the retrieval query itself.
+    """
+    raw = " ".join(str(value or "").split()).strip()
+    if raw.startswith("Intent:") and "SEMANTIC POLICY:" in raw:
+        return raw[:MAX_ENGINE_INTENDED_VISUAL_CHARS]
+    raw = raw[:100]
+    envelope = (
+        f"Intent: {raw}. SEMANTIC POLICY: meaning, not literal shot checklist. "
+        "Do not require every named person/object/count/pose/action/prop. "
+        "Accept specific semantic-equivalent/contextual coverage; reject generic unrelated B-roll."
+    )
+    return envelope[:MAX_ENGINE_INTENDED_VISUAL_CHARS]
+
+
 def _semantic_recovery_stable_intent(original):
-    """Keep Run92/169 stable-intent truth except for proven Run183 semantic recovery.
+    """Keep Run92/169 stable truth, permit trusted recovery, and judge semantically.
 
     Opening Feasibility intentionally forces provider-search syntaxes back to the original
     editorial visual before Vision. Run183 is different: its alternate is a bounded
@@ -129,16 +162,29 @@ def _semantic_recovery_stable_intent(original):
     scope below records the exact permitted alternates. Only those exact normalized
     values, and only inside canonical Production, may bypass the historical rewrite.
 
-    The transient-provider handling is kept byte-for-byte equivalent in behavior by
-    reusing Opening Feasibility's classifier and failure envelope. Security, relevance,
-    quality thresholds and the four-review ceiling remain untouched.
+    Regardless of which trusted editorial truth is selected, the final value reaching
+    Vision is wrapped in the canonical semantic judgment contract. This means an ideal
+    directorial description can guide relevance without becoming a mandatory literal
+    person/prop/action checklist. Generic unrelated footage still fails relevance.
+
+    Transient-provider handling is preserved through the historical wrapper for the
+    stable path and mirrored for the trusted semantic-recovery path.
     """
     if getattr(original, "_isco_run185_semantic_visual_truth", False):
         return original
 
     @wraps(original)
     def builder(audit_fn, intended_visual: str):
-        stable = original(audit_fn, intended_visual)
+        @wraps(audit_fn)
+        def semantic_judgment_audit(*args, **kwargs):
+            kwargs["intended_visual"] = _semantic_judgment_intent(
+                kwargs.get("intended_visual")
+            )
+            return audit_fn(*args, **kwargs)
+
+        # Historical stable-intent ownership remains authoritative for ordinary search
+        # syntax. It now calls the semantic judgment adapter immediately before Vision.
+        stable = original(semantic_judgment_audit, intended_visual)
 
         @wraps(stable)
         def semantic_aware(*args, **kwargs):
@@ -148,7 +194,7 @@ def _semantic_recovery_stable_intent(original):
             if _runtime_active() and normalized and normalized in trusted:
                 kwargs["intended_visual"] = normalized
                 try:
-                    return audit_fn(*args, **kwargs)
+                    return semantic_judgment_audit(*args, **kwargs)
                 except Exception as exc:
                     if not opening_guard._is_transient_vision_provider_failure(exc):
                         raise
@@ -161,11 +207,41 @@ def _semantic_recovery_stable_intent(original):
 
         semantic_aware._isco_run185_semantic_visual_truth = True
         semantic_aware._isco_run185_stable_fallback = stable
+        semantic_aware._isco_run185_semantic_judgment = semantic_judgment_audit
         return semantic_aware
 
     builder._isco_run185_semantic_visual_truth = True
     builder._isco_run185_original = original
     return builder
+
+
+def _run185_contract_fingerprint(original):
+    """Version durable Vision truth whenever the semantic judgment policy changes."""
+    if getattr(original, "_isco_run185_semantic_judgment_contract", False):
+        return original
+
+    @wraps(original)
+    def wrapped() -> str:
+        payload = {
+            "base": original(),
+            "contract_id": RUN185_JUDGMENT_CONTRACT_ID,
+            "semantic_policy": RUN185_JUDGMENT_POLICY,
+            "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "engine_intended_visual_limit": MAX_ENGINE_INTENDED_VISUAL_CHARS,
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+    wrapped._isco_run185_semantic_judgment_contract = True
+    wrapped._isco_run185_original = original
+    return wrapped
+
+
+def _install_run185_contract_fingerprint() -> None:
+    vision_contract.vision_contract_fingerprint = _run185_contract_fingerprint(
+        vision_contract.vision_contract_fingerprint
+    )
 
 
 def _record_reviews(result: object) -> None:
@@ -297,16 +373,22 @@ def install_run183_visual_retrieval_scope_fix(
 
     # Run185: compose semantic recovery with the historical stable-intent boundary
     # before Opening Feasibility installs its selector wrappers later in run_v3_voice.
-    # The wrapper still defaults to the original intent; only exact current-selector
-    # Run183 alternates can reach Vision during canonical Production.
+    # The wrapper still defaults to the original editorial truth; only exact current-
+    # selector Run183 alternates can become the judgment intent during Production. The
+    # final provider-facing value is always the bounded semantic judgment envelope.
     opening_guard._stable_intent_audit = _semantic_recovery_stable_intent(
         opening_guard._stable_intent_audit
     )
+
+    # A semantic-policy change changes the durable Vision truth contract. Include this
+    # module's SHA so cached literal-policy PASS/BLOCK decisions cannot survive silently.
+    _install_run185_contract_fingerprint()
 
     _install_review_recording()
     _INSTALLED = True
     print(
         "Run183 Visual Retrieval scope fix installed: production-only semantic ladder/intent; "
-        "current-selector review registry includes cache hits; Run185 semantic alternate Vision truth; "
+        "current-selector review registry includes cache hits; Run185 trusted semantic recovery + "
+        "anti-literal semantic judgment contract; Vision cache fingerprint versioned; "
         "historical Run169/V1 diagnostics preserved"
     )
