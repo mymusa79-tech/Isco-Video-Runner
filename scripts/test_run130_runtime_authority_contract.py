@@ -73,14 +73,21 @@ class Run130RuntimeAuthorityContractTests(unittest.TestCase):
         self.assertIn('"ISCO_CANONICAL_RUNTIME"', text)
         self.assertIn("canonical_workflow_identity() and explicit in _TRUE_VALUES", text)
 
-    def test_snapshot_environment_preflight_and_runtime_closure_use_explicit_authority(self) -> None:
+    def test_snapshot_and_runtime_closure_use_live_authority(self) -> None:
         for relative in (
             "scripts/immutable_planning_snapshot.py",
             "scripts/runtime_closure.py",
-            "scripts/environment_preflight.py",
         ):
             text = (ROOT / relative).read_text(encoding="utf-8")
             self.assertIn("runtime_phase import canonical_runtime_enabled", text, relative)
+            self.assertIn("canonical_runtime_enabled()", text, relative)
+
+    def test_environment_preflight_uses_workflow_identity_without_exporting_live_phase(self) -> None:
+        text = (ROOT / "scripts/environment_preflight.py").read_text(encoding="utf-8")
+        self.assertIn("runtime_phase import activate_canonical_runtime, canonical_workflow_identity", text)
+        self.assertIn("if not canonical_workflow_identity():", text)
+        self.assertIn("activate_canonical_runtime(persist_workflow_env=False)", text)
+        self.assertNotIn("if canonical_runtime_enabled():", text)
 
 
 if __name__ == "__main__":
