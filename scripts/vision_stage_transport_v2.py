@@ -340,5 +340,7 @@ def install_vision_provider_reliability() -> None:
     # semantic-preselection seam, while Opening Feasibility remains outermost owner of
     # query safety, review caps, and truthful technical-unavailable handling.
     from scripts.visual_retrieval_adjudication_v1 import install_visual_retrieval_adjudication_v1
+    from scripts.visual_retrieval_runtime_scope_v1 import install_visual_retrieval_runtime_scope_v1
 
     install_visual_retrieval_adjudication_v1()
+    install_visual_retrieval_runtime_scope_v1()
