@@ -14,6 +14,8 @@ from isco_video_agent.ai_budget import (
     get_active_budget_task,
 )
 
+from scripts import native_short_stage_contract
+from scripts import planning_stage_contract
 from scripts import run120_dossier_repair_hardening
 from scripts import short_planning_repair
 from scripts.producer_quality_contract import (
@@ -203,15 +205,27 @@ def _repair_short_plan_once(
         "Producer Short repair: "
         f"issues={','.join(issues)} mode=existing_surgical_transport repair_calls=1"
     )
-    repaired = short_planning_repair._repair_existing_moment(
-        plan,
-        issue_notes,
-        api_key=api_key,
-        topic=str(topic or ""),
-        requested_format="moment",
-        content_model=str(content_model or ""),
-        research_context=research_context,
+
+    # Run #193: Producer repair runs after the native Moment Draft/Review build has
+    # returned, so it is outside native_short_stage_contract's lifecycle call-state.
+    # Bind the already-defined short_repair Stage Contract at this stable capability
+    # boundary instead of letting the lower router infer identity from prompt text or
+    # call order. The scope covers the whole repair transport, including any already-
+    # authorized bounded terminal-reset retry wrapped around _repair_existing_moment.
+    repair_stage = native_short_stage_contract.moment_stage_spec(
+        "short_repair",
+        str(topic or ""),
     )
+    with planning_stage_contract.request_stage_scope(repair_stage):
+        repaired = short_planning_repair._repair_existing_moment(
+            plan,
+            issue_notes,
+            api_key=api_key,
+            topic=str(topic or ""),
+            requested_format="moment",
+            content_model=str(content_model or ""),
+            research_context=research_context,
+        )
     _preserve_short_metadata(plan, repaired)
     return repaired
 
