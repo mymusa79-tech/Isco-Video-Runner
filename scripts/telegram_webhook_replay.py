@@ -49,12 +49,7 @@ def _control_state_path() -> Path | None:
 
 
 def _reconcile_used_history_if_available() -> dict[str, int] | None:
-    """Repair historical Used projection from completed durable Telegram receipts.
-
-    Scheduled webhook-health passes already restore and later persist the encrypted
-    control state. Reusing that pass makes the migration automatic and idempotent,
-    without adding a new workflow, provider call, or Production action.
-    """
+    """Repair historical Used projection from completed durable Telegram receipts."""
     path = _control_state_path()
     if path is None:
         return None
@@ -101,12 +96,16 @@ def _durable_pending_research_exists() -> bool:
 def replay_update(state_path, update):
     _install_v5_after_active()
     from scripts import telegram_creator_control_center_v5 as creator_v5
-    from scripts.telegram_used_history_reconcile import reconcile_file
 
-    # Any stateful webhook pass also gets the same idempotent history repair before
-    # processing the new operator action. This keeps the direct Edge library and the
-    # authoritative control state convergent even before the next 5-minute schedule.
-    reconcile_file(Path(state_path))
+    # Real workflow replay always receives the restored durable file. Unit and
+    # adapter callers may inject an abstract path while mocking the replay core, so
+    # history reconciliation must remain an additive side effect rather than a new
+    # precondition for replay itself.
+    durable_path = Path(state_path)
+    if durable_path.is_file():
+        from scripts.telegram_used_history_reconcile import reconcile_file
+
+        reconcile_file(durable_path)
 
     # The replay core substitutes getUpdates with the already-authorized webhook
     # update. Preserve that callback's message identity as a class-level fallback
