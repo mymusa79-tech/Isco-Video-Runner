@@ -98,6 +98,7 @@ def main() -> None:
     core.memory_ui._install_policy()
     from scripts import telegram_canonical_status_bridge as canonical_status_bridge
     from scripts import telegram_creator_control_center_v5 as creator_v5
+    from scripts import telegram_long_format_policy
     from scripts import telegram_operator_mission_control as operator_mission_control
     from scripts import telegram_persistent_control_ui as persistent_ui
     from scripts import telegram_rich_integration as rich_integration
@@ -109,6 +110,9 @@ def main() -> None:
     canonical_status_bridge.install()
     rich_integration.install()
     core.active._install()
+    # New Long approvals do not contain a human Film/Story choice. Preserve that
+    # intent as auto so the certified Engine owns the editorial-fit decision.
+    telegram_long_format_policy.install(simple=core.simple, panel=core.panel)
     core.install_v2()
     # Install last so V5 is a presentation/navigation layer over the fully
     # certified Topic Research V2 + Production authority stack.
