@@ -28,11 +28,7 @@ from isco_video_agent.providers.openrouter import json_text as openrouter_json_t
 
 MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE = 2
 MIN_BACKOFF_SECONDS = 1.0
-# The live Gemini free-tier limiter currently returns bounded retry windows around
-# one minute. Waiting inside that explicit provider window is cheaper and more
-# reliable than immediately consuming another free provider, while still refusing
-# long/daily waits. The outer workflow remains the sole retry owner.
-MAX_RETRY_AFTER_SECONDS = 60.0
+MAX_RETRY_AFTER_SECONDS = 15.0
 
 _RETRY_AFTER_RE = re.compile(r"retry in (\d+(?:\.\d+)?)s", re.IGNORECASE)
 _QUOTA_MARKERS = (
@@ -232,15 +228,10 @@ def gemini_research_call_with_fallback(
             last_gemini_class = classification.telemetry_result
             last_gemini_status = _http_status(exc)
             quota = _is_daily_quota_failure(exc)
-            retry_hint = _parsed_retry_after_seconds(exc)
-            # A finite Retry-After is the provider's explicit statement that this
-            # request can recover after a bounded wait. Generic free-tier quota text
-            # must not override that signal. Truly long/daily windows still fail the
-            # wait-budget decision below and immediately fail over.
             can_retry_same_provider = (
-                classification.telemetry_result in _RETRYABLE_ON_SAME_PROVIDER
+                not quota
+                and classification.telemetry_result in _RETRYABLE_ON_SAME_PROVIDER
                 and attempt < MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE
-                and (not quota or retry_hint is not None)
             )
             if can_retry_same_provider:
                 delay = _backoff_seconds(exc, attempt)
