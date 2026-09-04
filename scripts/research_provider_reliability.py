@@ -6,8 +6,9 @@ Planning, change AI budgets, enable paid models, or relax quality/safety gates.
 The reliability shape is bounded: Gemini gets at most one retry for transient
 failures. A provider-supplied Retry-After up to the local one-minute budget is
 honored once, including temporary free-tier rate limits. Then the request fails
-over to OpenRouter's free routing chain. Invalid JSON receives one schema-bound
-retry through the free router rather than pinning the final chance to one model.
+over to OpenRouter's free routing chain. OpenRouter is schema-bound from the first
+fallback attempt; a malformed response receives one final bounded schema-bound
+retry through the same free routing chain.
 
 Safety/content blocks fail closed and never cross providers.
 """
@@ -207,13 +208,13 @@ def _same_provider_retry_allowed(
     return True
 
 
-def _structured_openrouter_retry(
+def _structured_openrouter_call(
     prompt: str,
     *,
     fallback_models: tuple[str, ...],
     default_model: str,
 ) -> dict[str, Any]:
-    """Retry through the free router with strict schema and bounded model fallback."""
+    """Use free OpenRouter routing with the Research schema as a hard contract."""
     return openrouter_json_text(
         prompt,
         model=default_model,
@@ -274,10 +275,10 @@ def gemini_research_call_with_fallback(
             break
 
     try:
-        return openrouter_json_text(
+        return _structured_openrouter_call(
             prompt,
-            model=openrouter_model,
             fallback_models=openrouter_fallback_models,
+            default_model=openrouter_model,
         )
     except Exception as exc:  # noqa: BLE001 - normalized immediately below
         classification = classify_provider_failure("openrouter", exc)
@@ -286,7 +287,7 @@ def gemini_research_call_with_fallback(
                 "openrouter", exc, classification, attempt=1, action="retry_structured"
             )
             try:
-                return _structured_openrouter_retry(
+                return _structured_openrouter_call(
                     prompt,
                     fallback_models=openrouter_fallback_models,
                     default_model=openrouter_model,
