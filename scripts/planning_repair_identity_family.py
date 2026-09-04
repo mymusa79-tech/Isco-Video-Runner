@@ -68,6 +68,31 @@ def _repair_patch_spec(spec: stage_contract.PlanningStageSpec) -> stage_contract
     )
 
 
+def short_repair_stage_spec(topic: str) -> stage_contract.PlanningStageSpec:
+    """Return the authoritative v2 Short repair spec regardless installer order.
+
+    Producer repair is a capability boundary that can be exercised in isolation by
+    Stage Ladder modules as well as through the fully composed runtime. Relying only on
+    a process-global wrapper makes that boundary order-sensitive: a fresh interpreter
+    can legitimately see the native v1 StageSpec before the runtime installer executes.
+    Upgrade exactly that repair StageSpec here, while accepting an already-composed v2
+    spec unchanged. Draft/Review never pass through this helper.
+    """
+    spec = short_stage.moment_stage_spec("short_repair", topic)
+    if spec.stage_id != "planning.short_repair":
+        raise stage_contract.PlanningStageError(
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"Short repair identity helper received unexpected stage={spec.stage_id}",
+            stage_id="planning.short_repair",
+        )
+    if (
+        spec.contract_id == SHORT_REPAIR_CONTRACT_ID
+        and str(spec.semantic_rules.get("identity_mode") or "") == IDENTITY_MODE
+    ):
+        return spec
+    return _repair_patch_spec(spec)
+
+
 def _rewrite_short_repair_prompt(prompt: str) -> str:
     """Make the provider-facing repair request match the strict patch schema.
 
