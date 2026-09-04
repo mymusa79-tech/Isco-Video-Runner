@@ -7,8 +7,11 @@ on:
       - "scripts/telegram_operator_mission_control.py"
       - "scripts/telegram_topic_research_v2.py"
       - "scripts/telegram_topic_research_v2_core.py"
+      - "scripts/topic_research_ranking_policy.py"
+      - "scripts/topic_research_v5_surface.py"
       - "scripts/telegram_webhook_replay.py"
       - "scripts/telegram_webhook_replay_core.py"
+      - "scripts/test_topic_research_v5_surface.py"
       - "scripts/test_telegram_creator_control_center_v5.py"
       - "scripts/test_telegram_creator_control_center_v5_edge.py"
       - "scripts/test_telegram_operator_mission_control.py"
@@ -45,6 +48,9 @@ jobs:
             scripts/telegram_operator_mission_control.py \
             scripts/telegram_topic_research_v2.py \
             scripts/telegram_topic_research_v2_core.py \
+            scripts/topic_research_ranking_policy.py \
+            scripts/topic_research_v5_surface.py \
+            scripts/test_topic_research_v5_surface.py \
             scripts/telegram_webhook_replay.py \
             scripts/telegram_webhook_replay_core.py
           node --check cloudflare/telegram-control-worker/observability-worker-v6.js
@@ -66,6 +72,9 @@ jobs:
             scripts.test_telegram_webhook_replay \
             scripts.test_telegram_observability_v1 \
             scripts.test_telegram_edge_worker_contract
+
+      - name: Final Topic Research V5 ranking surface
+        run: python -m unittest scripts.test_topic_research_v5_surface -v
 
       - name: Preserve production and research authority boundaries
         run: |
@@ -90,7 +99,8 @@ jobs:
             cloudflare/telegram-control-worker/observability-worker-v6.js \
             cloudflare/telegram-control-worker/observability-worker.js
           ! grep -E 'enqueue_request|pending_dispatch|production_queue|production_dispatch_authorized[[:space:]]*=' \
-            scripts/telegram_creator_control_center_v5.py
+            scripts/telegram_creator_control_center_v5.py \
+            scripts/topic_research_v5_surface.py
           ! grep -F 'enqueue_request(' scripts/telegram_operator_mission_control.py
           grep -F '"copy_text": {"text": CONFIRM_TEXT}' scripts/telegram_creator_control_center_v5.py
           grep -F 'if raw == PRODUCTION_CONFIRMATION_TEXT:' scripts/telegram_persistent_control_ui.py
