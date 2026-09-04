@@ -33,10 +33,10 @@ class ProductionFeasibilityContractTests(unittest.TestCase):
         self.assertEqual(feasibility.long_word_bounds("story"), (420, 630))
         self.assertEqual(feasibility.target_words("story"), 525)
 
-    def test_film_mature_band_is_preserved(self):
+    def test_film_mature_band_and_target_are_preserved(self):
         self.assertEqual(feasibility.final_duration_bounds("film"), (300.0, 900.0))
         self.assertEqual(feasibility.long_word_bounds("film"), (800, 1450))
-        self.assertEqual(feasibility.target_words("film"), 1125)
+        self.assertEqual(feasibility.target_words("film"), 960)
 
     def test_moment_family_visibility_preserves_run187_professional_floor(self):
         self.assertEqual(feasibility.final_duration_bounds("moment"), (12.0, 20.0))
@@ -46,6 +46,7 @@ class ProductionFeasibilityContractTests(unittest.TestCase):
         self.assertEqual(resilient_planner._DURATION_WORD_BOUNDS["story"], (420, 630))
         self.assertEqual(resilient_planner._TARGET_TOTAL_WORDS["story"], 525)
         self.assertEqual(resilient_planner._DURATION_WORD_BOUNDS["film"], (800, 1450))
+        self.assertEqual(resilient_planner._TARGET_TOTAL_WORDS["film"], 960)
 
         cfg = {
             "formats": {
