@@ -125,36 +125,85 @@ def _selected_template(plan: object) -> str:
     return narrative.removeprefix("short_") if narrative.startswith("short_") else ""
 
 
-def _representation_contract_guidance(issue_notes: str) -> str:
-    """Compile repair wording from the deterministic validator's live contract.
+_TEMPLATE_REPRESENTATION_ISSUES = {
+    "inner_dialogue": "inner_dialogue_missing_visible_exchange",
+    "why_reframe": "why_reframe_missing_explicit_contrast_or_reframe",
+    "micro_story": "micro_story_missing_concrete_event_progression",
+    "quote_reflection": "quote_reflection_missing_visible_quote",
+}
 
-    Run #189 proved that a semantic repair instruction can drift from a lexical
-    deterministic acceptance contract. The validator therefore stays the sole source
-    of truth: this adapter imports its live marker sets only when the owned micro_story
-    issue is being repaired. No marker vocabulary is duplicated here.
+
+def _representation_contract_guidance(issue_notes: str, *, template: str = "") -> str:
+    """Carry the live deterministic representation postcondition into every Short repair.
+
+    Run #189 proved that semantic repair wording can drift from deterministic lexical
+    acceptance. Run #190 proved the composition failure: a Moment can pass its owned
+    representation repair and then a later, unrelated RepairDossier regeneration can
+    overwrite ``on_screen_text`` without carrying that already-passed postcondition.
+
+    The representation validator remains the sole source of truth. This adapter reads
+    its live guidance/marker sets for the selected template and injects them into every
+    surgical Moment repair that is allowed to mutate viewer-facing text. No quality
+    gate is weakened and no second representation repair owner is created.
     """
-    if "micro_story_missing_concrete_event_progression" not in str(issue_notes or ""):
+    notes = str(issue_notes or "")
+    selected = _clean(template, 40)
+    if not selected:
+        selected = next(
+            (
+                name
+                for name, issue in _TEMPLATE_REPRESENTATION_ISSUES.items()
+                if issue in notes
+            ),
+            "",
+        )
+    issue = _TEMPLATE_REPRESENTATION_ISSUES.get(selected)
+    if not issue:
         return ""
 
     from scripts import production_text_representation_contract as representation
 
-    scene_markers = tuple(getattr(representation, "_MICRO_STORY_SCENE_MARKERS", ()))
-    turn_markers = tuple(getattr(representation, "_MICRO_STORY_TURN_MARKERS", ()))
-    if not scene_markers or not turn_markers:
+    guidance_map = getattr(representation, "_REPRESENTATION_REPAIR_GUIDANCE", {})
+    live_guidance = str(guidance_map.get(issue, "") or "").strip()
+    if not live_guidance:
         raise ShortRepairEnvelopeError(
-            "Micro-story repair cannot resolve the deterministic representation contract"
+            f"Short repair cannot resolve live representation guidance for template={selected}"
         )
 
-    scene_examples = "، ".join(scene_markers[:6])
-    turn_examples = "، ".join(turn_markers[:6])
-    return (
-        "DETERMINISTIC MICRO_STORY ACCEPTANCE — compiled from the live validator: "
-        "on_screen_text must contain at least one positive concrete scene/event cue "
-        f"from the validator vocabulary (for example: {scene_examples}) AND at least "
-        "one distinct positive change/turn cue from the same validator contract "
-        f"(for example: {turn_examples}). Use the cues naturally inside one coherent "
-        "micro-story; never insert them mechanically or replace meaning with keywords."
-    )
+    parts = [
+        "LIVE SHORT REPRESENTATION POSTCONDITION — preserve this even when the blocking Dossier issue is unrelated:",
+        live_guidance,
+    ]
+
+    if selected == "why_reframe":
+        markers = tuple(getattr(representation, "_WHY_REFRAME_MARKERS", ()))
+        if not markers:
+            raise ShortRepairEnvelopeError(
+                "Why-reframe repair cannot resolve the deterministic representation contract"
+            )
+        parts.append(
+            "Deterministic why_reframe acceptance uses a bounded visible contrast/reframe cue "
+            "from the live validator vocabulary (natural examples: "
+            + "، ".join(markers[:6])
+            + ")."
+        )
+    elif selected == "micro_story":
+        scene_markers = tuple(getattr(representation, "_MICRO_STORY_SCENE_MARKERS", ()))
+        turn_markers = tuple(getattr(representation, "_MICRO_STORY_TURN_MARKERS", ()))
+        if not scene_markers or not turn_markers:
+            raise ShortRepairEnvelopeError(
+                "Micro-story repair cannot resolve the deterministic representation contract"
+            )
+        parts.append(
+            "DETERMINISTIC MICRO_STORY ACCEPTANCE — compiled from the live validator: "
+            "on_screen_text must contain at least one positive concrete scene/event cue "
+            f"from the validator vocabulary (for example: {'، '.join(scene_markers[:6])}) AND at least "
+            "one distinct positive change/turn cue from the same validator contract "
+            f"(for example: {'، '.join(turn_markers[:6])}). Use the cues naturally inside one coherent "
+            "micro-story; never insert them mechanically or replace meaning with keywords."
+        )
+
+    return "\n".join(parts)
 
 
 def _micro_story_alignment_trace(plan: object, *, force: bool = False) -> dict[str, bool] | None:
@@ -191,6 +240,29 @@ def _print_micro_story_trace(phase: str, trace: dict[str, bool] | None) -> None:
     )
 
 
+def _preserve_short_metadata(source: object, repaired: object) -> None:
+    intent = getattr(source, "editorial_intent", None)
+    if isinstance(intent, dict):
+        setattr(repaired, "editorial_intent", dict(intent))
+    narrative = getattr(source, "narrative_format", None)
+    if narrative:
+        setattr(repaired, "narrative_format", narrative)
+
+
+def _assert_representation_postcondition(plan: object) -> None:
+    template = _selected_template(plan)
+    if not template:
+        return
+    from scripts import production_text_representation_contract as representation
+
+    issues = representation.short_representation_issues(plan)
+    if issues:
+        raise ShortRepairEnvelopeError(
+            "Short Dossier repair violated live representation postcondition:"
+            + ",".join(issues)
+        )
+
+
 def build_short_repair_prompt(
     current_plan: object,
     issue_notes: str,
@@ -203,7 +275,7 @@ def build_short_repair_prompt(
     template = _selected_template(current_plan)
     template_rule = short_template_contract(template)
     producer_rule = producer_writing_directive(research_context)
-    representation_rule = _representation_contract_guidance(issue_notes)
+    representation_rule = _representation_contract_guidance(issue_notes, template=template)
 
     def render(research_json: str) -> str:
         return f"""
@@ -225,6 +297,7 @@ Hard contract:
 - Moment has no narration. Keep narration empty.
 - Keep duration 7-20 seconds and max two short on-screen lines.
 - on_screen_text MUST be a natural string, never a serialized/list-looking value such as ['line 1','line 2'].
+- Preserve every already-passed selected-template representation invariant during any unrelated Dossier repair; if on_screen_text must change, the replacement must still satisfy the live deterministic representation postcondition above.
 - Preserve the approved topic and the useful promise unless a blocking issue requires a wording correction.
 - Natural contemporary Modern Standard Arabic; no generic motivation, preachiness, invented facts, medical diagnosis,
   unsupported scientific claims, fatwas, or unverified religious quotations.
@@ -274,13 +347,12 @@ def _repair_existing_moment(
     if str(getattr(current_plan, "format", "")) != "moment" or str(requested_format) != "moment":
         raise ShortRepairEnvelopeError("Short Dossier repair format mismatch")
 
-    is_micro_story_contract_repair = (
-        "micro_story_missing_concrete_event_progression" in str(issue_notes or "")
-    )
+    selected_template = _selected_template(current_plan)
+    is_micro_story_repair = selected_template == "micro_story"
     _print_micro_story_trace(
         "before_repair",
         _micro_story_alignment_trace(current_plan)
-        if is_micro_story_contract_repair
+        if is_micro_story_repair
         else None,
     )
     prompt = build_short_repair_prompt(
@@ -291,7 +363,8 @@ def _repair_existing_moment(
     print(
         "Short Dossier repair transport: "
         f"mode=in_place_one_call prompt_bytes={len(prompt.encode('utf-8'))} "
-        f"limit={SHORT_REPAIR_PROMPT_MAX_BYTES}"
+        f"limit={SHORT_REPAIR_PROMPT_MAX_BYTES} "
+        f"representation_postcondition={selected_template or 'none'}"
     )
     data = native_short.json_text(api_key, prompt, model=content_model)
     if not isinstance(data, dict):
@@ -304,12 +377,14 @@ def _repair_existing_moment(
     )
     if str(getattr(repaired, "format", "")) != "moment" or len(list(getattr(repaired, "sections", []) or [])) != 1:
         raise ShortRepairEnvelopeError("Short Dossier repair escaped the Moment contract")
+    _preserve_short_metadata(current_plan, repaired)
     _print_micro_story_trace(
         "after_repair",
         _micro_story_alignment_trace(repaired, force=True)
-        if is_micro_story_contract_repair
+        if is_micro_story_repair
         else None,
     )
+    _assert_representation_postcondition(repaired)
     return repaired
 
 
