@@ -334,7 +334,6 @@ jobs:
           set -euo pipefail
           test -n "$STATE_ENCRYPTION_KEY"
           encrypted="$RUNNER_TEMP/isco-control/control-panel.json.enc"
-          test -n "$STATE_ENCRYPTION_KEY"
           openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
             -pass env:STATE_ENCRYPTION_KEY -in "$CONTROL_STATE_PATH" -out "$encrypted"
           git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
