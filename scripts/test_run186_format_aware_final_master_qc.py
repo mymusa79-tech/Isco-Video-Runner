@@ -3,12 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
 from scripts import final_master_acceptance_v2 as acceptance
-from scripts import final_master_acceptance_v2_legacy as acceptance_legacy
 from scripts import final_master_format_router as router
 from scripts import final_master_qc as core
 from scripts.final_master_body_contract import (
@@ -158,7 +158,7 @@ class Run186FormatAwareFinalMasterQCTests(unittest.TestCase):
             ):
                 report = router.run_format_aware_final_master_qc(root, original=Mock())
 
-            with patch.object(acceptance_legacy, "probe", return_value=_probe(seconds=12.0)):
+            with patch.object(acceptance, "probe", return_value=_probe(seconds=12.0)):
                 sealed = acceptance.seal_final_master_acceptance(root, report)
                 required = acceptance.require_final_master_acceptance(root, report=sealed)
 
@@ -171,7 +171,7 @@ class Run186FormatAwareFinalMasterQCTests(unittest.TestCase):
             root = self._moment_root(td)
             with patch.object(router.core, "probe", return_value=_probe(seconds=12.0)), patch.object(
                 router.core, "_run_full_scan", return_value=_scan()
-            ), patch.object(acceptance_legacy, "probe", return_value=_probe(seconds=12.0)):
+            ), patch.object(acceptance, "probe", return_value=_probe(seconds=12.0)):
                 first = router.run_format_aware_final_master_qc(root, original=Mock())
                 first = acceptance.seal_final_master_acceptance(root, first)
                 self.assertNotIn(
@@ -201,6 +201,40 @@ class Run186FormatAwareFinalMasterQCTests(unittest.TestCase):
             _write(root / "quality-final.json", {"format": "film"})
             with self.assertRaises(acceptance.FinalMasterAcceptanceError):
                 acceptance._source_bindings(root)
+
+    def test_runtime_installer_wraps_production_port_not_certified_core(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = self._moment_root(td)
+            original = Mock(side_effect=AssertionError("Moment must route before long-only core"))
+            production = SimpleNamespace(run_final_master_qc=original)
+            core_symbol = core.run_final_master_qc
+            with patch.object(
+                router, "production_entrypoint_modules", return_value=(production,)
+            ), patch.object(
+                router, "canonical_runtime_enabled", return_value=True
+            ), patch.object(
+                router.core, "probe", return_value=_probe(seconds=12.0)
+            ), patch.object(
+                router.core, "_run_full_scan", return_value=_scan()
+            ):
+                router.install_format_aware_qc_router()
+                report = production.run_final_master_qc(root)
+
+            self.assertIs(core.run_final_master_qc, core_symbol)
+            self.assertTrue(
+                getattr(production.run_final_master_qc, "_isco_format_aware_final_master_qc", False)
+            )
+            self.assertEqual(report["status"], "pass")
+            original.assert_not_called()
+
+    def test_acceptance_seam_has_no_static_router_import(self) -> None:
+        source = Path("scripts/final_master_acceptance_v2.py").read_text(encoding="utf-8")
+        self.assertNotIn("from scripts.final_master_format_router", source)
+        self.assertNotIn("import scripts.final_master_format_router", source)
+        runtime_preflight = Path("scripts/final_qc_observer_cache_trust.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("install_format_aware_qc_router()", runtime_preflight)
 
     def test_certified_core_and_stable_port_remain_original_blobs(self) -> None:
         def blob(path: str) -> str:
