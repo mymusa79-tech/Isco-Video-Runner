@@ -79,16 +79,16 @@ def _install_live_topic_provider_reliability(mode: str) -> None:
     )
 
     # Topic Research V2 owns candidate-generation policy; provider transport
-    # reliability stays in the existing Runner adapter. Inject the already-certified
-    # bounded Gemini retry -> OpenRouter free failover into Engine select_topic()
-    # without changing the Engine's generic fallback semantics or Production paths.
+    # reliability stays in the existing Runner adapter. Inject the certified bounded
+    # Gemini retry -> OpenRouter free failover into Engine select_topic() without
+    # changing the Engine's generic fallback semantics or Production paths.
     engine_research.json_text = gemini_research_call_with_fallback
 
-    # Keep the three-live-candidate gate unchanged, but stop treating the first five
-    # candidates as the entire evidence universe. The Engine produces up to ten
-    # distinct candidates; expose that bounded pool to the adaptive market probe,
-    # which checks five first and expands only when the live contract still lacks
-    # evidence. This preserves YouTube quota when the first batch is sufficient.
+    # Three measured options remain the preferred UX target. Probe beyond the first
+    # five only when needed, up to ten candidates. If the bounded pool yields one or
+    # two fully measured candidates, preserve them rather than failing the whole
+    # request; zero measured candidates still fails closed. No unmeasured/fallback
+    # candidate is ever promoted to satisfy the count.
     core.MAX_YOUTUBE_MARKET_PROBES = MAX_MARKET_PROBE_CANDIDATES
     install_market_probe_reliability(engine_research)
     install_shortfall_reason(core)
