@@ -1,0 +1,79 @@
+name: Verify Short Planning Port Composition
+
+on:
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  short-planning-port-composition:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RUNNER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RUNNER_SHA }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Resolve canonical Engine pin
+        id: engine_contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, re
+          from pathlib import Path
+          text = Path('.github/workflows/produce-resilient-v4.yml').read_text(encoding='utf-8')
+          checkout = re.findall(r'^\s+ref:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          env_pin = re.findall(r'^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$', text, flags=re.MULTILINE)
+          if len(checkout) != 1 or len(env_pin) != 1 or checkout[0] != env_pin[0]:
+              raise SystemExit(f'Canonical V4 Engine pin mismatch: checkout={checkout} env={env_pin}')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as handle:
+              handle.write(f'engine_sha={checkout[0]}\n')
+          PY
+
+      - name: Checkout exact private Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ steps.engine_contract.outputs.engine_sha }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact pair
+        env:
+          ENGINE_SHA: ${{ steps.engine_contract.outputs.engine_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$RUNNER_SHA"
+          test "$(git -C engine rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install Engine locked runtime
+        run: |
+          set -euo pipefail
+          cd engine
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Run exact production Short planning composition regression
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python -m unittest scripts.test_short_planning_port_composition -v
+
+      - name: Certify no production dispatch
+        run: |
+          test ! -f final.mp4
+          echo "Short planning composition certified without production dispatch"
