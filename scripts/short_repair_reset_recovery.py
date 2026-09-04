@@ -6,6 +6,7 @@ from scripts import planning_capacity_headroom as headroom
 from scripts.planning_contract_composition_closure import (
     install_planning_contract_composition_closure,
 )
+from scripts.planning_repair_identity_family import install_planning_repair_identity_family
 from scripts import short_planning_repair
 from scripts.short_stage_retry_composition import install_short_stage_retry_composition
 
@@ -15,12 +16,15 @@ from scripts.short_stage_retry_composition import install_short_stage_retry_comp
 # Explicit Stage Contract changed the outer provider-failure envelope and accidentally
 # made the existing reset owner blind to trustworthy Groq evidence. Run172 proved the
 # next composition edge: after that bounded retry succeeded, the native-Short Stage
-# Contract counted the retry transport as a second logical lifecycle stage.
+# Contract counted the retry transport as a second logical lifecycle stage. Run197 then
+# proved the final ownership edge: a retry could return usable mutable repair content
+# while paraphrasing plan-level topic identity before the Engine had a chance to rebind
+# the canonical approved topic.
 #
-# Activate both composition owners at the stable runtime seam, then reuse the exact
-# same bounded Short recovery owner as before. This layer does not change Dossier
-# max_attempts, provider limits, prompt envelopes, retry budgets, or any semantic/
-# quality gate.
+# Activate the shared repair-identity family plus both retry composition owners at this
+# stable runtime seam, then reuse the exact same bounded Short recovery owner as before.
+# This layer does not change Dossier max_attempts, provider limits, prompt envelopes,
+# retry budgets, or any semantic/quality gate.
 _T = TypeVar("_T")
 _INSTALLED = False
 
@@ -36,8 +40,11 @@ def install_short_repair_reset_recovery() -> None:
     global _INSTALLED
 
     # Canonical runtime reaches this seam only after the explicit Stage Contract and
-    # Short headroom/reset owner exist, so it is the single place where their retry
-    # semantics can be composed without inventing another installer order.
+    # Short headroom/reset owner exist, so it is the single place where their retry and
+    # immutable repair-identity semantics can be composed without inventing another
+    # installer order. Long is certified by the family but remains behaviorally
+    # unchanged because its existing dossier transport is already a section-only patch.
+    install_planning_repair_identity_family()
     install_planning_contract_composition_closure()
     install_short_stage_retry_composition()
 
