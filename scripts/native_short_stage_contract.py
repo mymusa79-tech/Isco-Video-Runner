@@ -25,6 +25,14 @@ _INSTALLED = False
 _CALL_STATE: ContextVar[dict[str, Any] | None] = ContextVar(
     "isco_native_short_stage_call_state", default=None
 )
+_MOMENT_PRODUCTION_MIN_SECONDS = 12.0
+_MOMENT_PRODUCTION_MAX_SECONDS = 20.0
+_LEGACY_MOMENT_DURATION_GUIDANCE = "moment 7-20 seconds"
+_PRODUCTION_MOMENT_DURATION_GUIDANCE = "moment 12-20 seconds"
+_MOMENT_DURATION_PROVIDER_CONTRACT = (
+    "PRODUCTION MOMENT DURATION CONTRACT: sections[0].expected_seconds MUST be "
+    "between 12 and 20 seconds inclusive. Never output a value below 12 seconds."
+)
 
 
 def _strict_object(properties: dict, required: list[str]) -> dict:
@@ -91,6 +99,24 @@ def _moment_schema() -> dict:
     )
 
 
+def _provider_visible_moment_duration_contract(prompt: object) -> str:
+    """Align every standalone-Moment provider call with the downstream quality floor.
+
+    The pinned Engine still contains the historical 7-20s authoring guidance while the
+    professional Short quality contract rejects anything below 12s. Rewrite only that
+    known duration phrase, then append one explicit contract line so review/repair calls
+    that do not repeat the original guidance remain bound to the same 12-20s interval.
+    """
+    text = str(prompt)
+    text = text.replace(
+        _LEGACY_MOMENT_DURATION_GUIDANCE,
+        _PRODUCTION_MOMENT_DURATION_GUIDANCE,
+    )
+    if _MOMENT_DURATION_PROVIDER_CONTRACT not in text:
+        text = f"{text.rstrip()}\n\n{_MOMENT_DURATION_PROVIDER_CONTRACT}"
+    return text
+
+
 def moment_stage_spec(stage_kind: str, topic: str) -> stage_contract.PlanningStageSpec:
     if stage_kind not in {"short_draft", "short_review", "short_repair"}:
         raise stage_contract.PlanningStageError(
@@ -115,8 +141,8 @@ def moment_stage_spec(stage_kind: str, topic: str) -> stage_contract.PlanningSta
             "format": "moment",
             "section_count": 1,
             "narration_must_be_empty": True,
-            "expected_seconds_min": 7.0,
-            "expected_seconds_max": 20.0,
+            "expected_seconds_min": _MOMENT_PRODUCTION_MIN_SECONDS,
+            "expected_seconds_max": _MOMENT_PRODUCTION_MAX_SECONDS,
         },
         # Keep the existing conservative generic JSON completion reserve used by the
         # compatibility Moment path. We are adding identity/validation/durability, not
@@ -178,12 +204,18 @@ def _validate_short_semantics(
                 "empty",
             )
     seconds = section.get("expected_seconds")
-    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not 7.0 <= float(seconds) <= 20.0:
+    if (
+        isinstance(seconds, bool)
+        or not isinstance(seconds, (int, float))
+        or not _MOMENT_PRODUCTION_MIN_SECONDS
+        <= float(seconds)
+        <= _MOMENT_PRODUCTION_MAX_SECONDS
+    ):
         stage_contract._raise_validation(
             stage_contract.PlanningErrorCode.SEMANTIC_INVALID,
             contract,
             "$.sections[0].expected_seconds",
-            "outside_7_20_seconds",
+            "outside_12_20_seconds",
         )
 
 
@@ -253,8 +285,9 @@ def install_native_short_stage_contract() -> None:
             # unrelated Engine callers rather than inventing a stage.
             return staged.json_text(api_key, prompt, model=model)
         spec = _stage_for_call(state)
+        effective_prompt = _provider_visible_moment_duration_contract(prompt)
         with stage_contract.request_stage_scope(spec):
-            return staged.json_text(api_key, prompt, model=model)
+            return staged.json_text(api_key, effective_prompt, model=model)
 
     contracted_json_text._isco_native_short_stage_v1 = True
     native_short.json_text = contracted_json_text
