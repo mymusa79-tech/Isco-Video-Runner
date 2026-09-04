@@ -25,6 +25,16 @@ class RetryAfterPolicyTests(unittest.TestCase):
         self.assertEqual(decision.action, "retry")
         self.assertEqual(decision.delay_seconds, 18.0)
 
+    def test_provider_hint_owns_delay_even_when_local_backoff_is_longer(self) -> None:
+        decision = retry_delay_decision(
+            provider_hint="1.4",
+            calculated_delay_seconds=1.943,
+            wait_budget_seconds=60.0,
+        )
+        self.assertEqual(decision.action, "retry")
+        self.assertEqual(decision.delay_seconds, 1.4)
+        self.assertEqual(decision.reason, "provider_hint_honored")
+
     def test_local_backoff_may_be_capped_when_no_provider_hint_exists(self) -> None:
         decision = retry_delay_decision(
             calculated_delay_seconds=30.0,
