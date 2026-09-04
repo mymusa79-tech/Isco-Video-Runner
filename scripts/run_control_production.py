@@ -16,6 +16,10 @@ from scripts.control_approved_brief import materialize_approved_brief
 from scripts.immutable_planning_snapshot import snapshot_approved_brief
 from scripts.native_short_planner_router import install_native_short_router
 from scripts.orchestration_shorts_port import finalize_short_quality, prepare_authoritative_short_for_gold
+from scripts.short_finishing_capabilities import (
+    ShortFinishingCapabilities,
+    bind_short_finishing_capabilities,
+)
 from scripts.sibling_short_orchestration import orchestrate_sibling_shorts, stage_sibling_assets
 from scripts.source_derived_short_planner import install_source_derived_short_planner
 from scripts.unified_delivery import write_delivery_manifest
@@ -258,12 +262,14 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
             ledger = ledger_box.get("ledger")
             if ledger is None:
                 raise RuntimeError("Short V2 lost the production AI budget ledger before voice synthesis")
-            short_pre = prepare_authoritative_short_for_gold(
-                output_dir,
-                runtime_request,
-                ledger=ledger,
-                run_final_master_qc=production.run_final_master_qc,
-            )
+            capabilities = ShortFinishingCapabilities.from_gold_kwargs(kwargs)
+            with bind_short_finishing_capabilities(capabilities):
+                short_pre = prepare_authoritative_short_for_gold(
+                    output_dir,
+                    runtime_request,
+                    ledger=ledger,
+                    run_final_master_qc=production.run_final_master_qc,
+                )
         result = original_gold(**kwargs)
         if request["kind"] == "short":
             assert short_pre is not None
