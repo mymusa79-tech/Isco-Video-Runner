@@ -48,6 +48,14 @@ class RepairIdentityFamilyTests(unittest.TestCase):
         self.assertEqual(patched.semantic_rules["approved_topic"], "موضوع معتمد")
         self.assertEqual(patched.semantic_rules["format"], "moment")
 
+    def test_repair_stage_helper_is_v2_even_without_relying_on_installer_order(self) -> None:
+        spec = family.short_repair_stage_spec("موضوع معتمد")
+        self.assertEqual(spec.stage_id, "planning.short_repair")
+        self.assertEqual(spec.contract_id, family.SHORT_REPAIR_CONTRACT_ID)
+        self.assertEqual(spec.semantic_rules["identity_mode"], family.IDENTITY_MODE)
+        self.assertNotIn("topic", spec.output_schema["properties"])
+        self.assertNotIn("format", spec.output_schema["properties"])
+
     def test_draft_and_review_contracts_remain_full_identity_contracts(self) -> None:
         for stage_kind in ("short_draft", "short_review"):
             spec = short_stage.moment_stage_spec(stage_kind, "موضوع معتمد")
@@ -105,6 +113,10 @@ class RepairIdentityFamilyTests(unittest.TestCase):
         text = (ROOT / "scripts" / "short_repair_reset_recovery.py").read_text(encoding="utf-8")
         self.assertIn("install_planning_repair_identity_family", text)
         self.assertIn("install_planning_repair_identity_family()", text)
+
+    def test_producer_capability_boundary_resolves_family_stage_directly(self) -> None:
+        text = (ROOT / "scripts" / "producer_planning_lifecycle.py").read_text(encoding="utf-8")
+        self.assertIn("planning_repair_identity_family.short_repair_stage_spec", text)
 
 
 if __name__ == "__main__":
