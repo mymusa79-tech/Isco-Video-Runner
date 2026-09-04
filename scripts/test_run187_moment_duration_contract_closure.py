@@ -72,8 +72,8 @@ class Run187MomentDurationContractClosureTests(unittest.TestCase):
         self.assertIn("sections[0].expected_seconds MUST be between 12 and 20", effective)
 
     def test_professional_gate_is_not_lowered_or_bypassed(self):
-        rejected = choose_length_band(estimated_spoken_seconds=10.0, beat_count=1)
-        accepted = choose_length_band(estimated_spoken_seconds=12.0, beat_count=1)
+        rejected = choose_length_band(estimated_spoken_seconds=10.0, beat_count=2)
+        accepted = choose_length_band(estimated_spoken_seconds=12.0, beat_count=2)
         self.assertFalse(rejected["length_fit_pass"])
         self.assertEqual(rejected["reason"], "estimated_duration_below_professional_floor")
         self.assertTrue(accepted["length_fit_pass"])
