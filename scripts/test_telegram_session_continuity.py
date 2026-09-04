@@ -17,7 +17,16 @@ class TelegramSessionContinuityTests(unittest.TestCase):
             state.pop(active.PRODUCTION_TARGET_KEY, None)
             state.pop(active.ACTIVE_RESEARCH_SESSION_KEY, None)
 
+        def original_current_target(state):
+            target = state.get(active.PRODUCTION_TARGET_KEY)
+            if not isinstance(target, dict):
+                return None
+            if str(target.get("session_id") or "") != str(state.get(active.ACTIVE_RESEARCH_SESSION_KEY) or ""):
+                return None
+            return target
+
         active._clear_current_selection = original_clear
+        active._current_target = original_current_target
 
         def original_approve(state, session, index, scope):
             session_id = str(session.get("session_id") or "")
@@ -29,6 +38,7 @@ class TelegramSessionContinuityTests(unittest.TestCase):
                 "approved_at": "2026-08-31T00:00:00+00:00",
                 "approval_scope": "short_only" if scope == "short" else scope,
             }
+            state.setdefault("requests", {})[request["request_id"]] = dict(request)
             state[active.PRODUCTION_TARGET_KEY] = {
                 "request_id": request["request_id"],
                 "request_sha256": request["request_sha256"],
@@ -48,29 +58,95 @@ class TelegramSessionContinuityTests(unittest.TestCase):
             "candidates": [{"title": "candidate"}],
         }
 
-    def test_failed_refresh_keeps_last_successful_session_but_clears_production_target(self):
+    def test_failed_refresh_keeps_last_successful_session_and_approved_target(self):
         active, panel = self._modules()
         continuity.install(active=active, panel=panel)
         short = self._session("short-a", "short", "2026-08-31T00:00:00+00:00")
         state = {
             "sessions": {"short-a": short},
+            "requests": {
+                "req-short-a-0": {
+                    "request_id": "req-short-a-0",
+                    "request_sha256": "abc123",
+                }
+            },
             "active_research_session_id": "short-a",
-            "production_target": {"request_id": "old"},
+            "production_target": {
+                "request_id": "req-short-a-0",
+                "request_sha256": "abc123",
+                "session_id": "short-a",
+            },
         }
 
         active._clear_current_selection(state)
 
         self.assertEqual(state["active_research_session_id"], "short-a")
-        self.assertNotIn("production_target", state)
+        self.assertIn("production_target", state)
+        self.assertEqual(active._current_target(state)["request_id"], "req-short-a-0")
 
-    def test_invalid_active_pointer_is_not_preserved(self):
+    def test_invalid_active_pointer_is_removed_without_revoking_approval(self):
         active, panel = self._modules()
         continuity.install(active=active, panel=panel)
-        state = {"sessions": {}, "active_research_session_id": "missing"}
+        state = {
+            "sessions": {},
+            "requests": {
+                "req-1": {"request_id": "req-1", "request_sha256": "abc123"}
+            },
+            "active_research_session_id": "missing",
+            "production_target": {
+                "request_id": "req-1",
+                "request_sha256": "abc123",
+                "session_id": "old-session",
+            },
+        }
 
         active._clear_current_selection(state)
 
         self.assertNotIn("active_research_session_id", state)
+        self.assertEqual(active._current_target(state)["request_id"], "req-1")
+
+    def test_approved_target_survives_research_session_switch(self):
+        active, panel = self._modules()
+        continuity.install(active=active, panel=panel)
+        short = self._session("short-a", "short", "2026-08-31T00:00:00+00:00")
+        long = self._session("long-b", "long", "2026-08-31T00:05:00+00:00")
+        state = {
+            "sessions": {"short-a": short, "long-b": long},
+            "requests": {
+                "req-short-a-0": {
+                    "request_id": "req-short-a-0",
+                    "request_sha256": "abc123",
+                }
+            },
+            "active_research_session_id": "long-b",
+            "production_target": {
+                "request_id": "req-short-a-0",
+                "request_sha256": "abc123",
+                "session_id": "short-a",
+            },
+        }
+
+        target = active._current_target(state)
+
+        self.assertIsNotNone(target)
+        self.assertEqual(target["request_id"], "req-short-a-0")
+
+    def test_tampered_or_missing_request_hash_is_rejected(self):
+        active, panel = self._modules()
+        continuity.install(active=active, panel=panel)
+        state = {
+            "sessions": {},
+            "requests": {"req-1": {"request_id": "req-1", "request_sha256": "good"}},
+            "production_target": {
+                "request_id": "req-1",
+                "request_sha256": "tampered",
+                "session_id": "s",
+            },
+        }
+        self.assertIsNone(active._current_target(state))
+        state["production_target"]["request_sha256"] = "good"
+        del state["requests"]["req-1"]
+        self.assertIsNone(active._current_target(state))
 
     def test_latest_short_remains_selectable_when_long_is_globally_active(self):
         active, panel = self._modules()
@@ -79,6 +155,7 @@ class TelegramSessionContinuityTests(unittest.TestCase):
         long = self._session("long-b", "long", "2026-08-31T00:05:00+00:00")
         state = {
             "sessions": {"short-a": short, "long-b": long},
+            "requests": {},
             "active_research_session_id": "long-b",
         }
 
@@ -100,6 +177,7 @@ class TelegramSessionContinuityTests(unittest.TestCase):
                 "short-new": new_short,
                 "long-current": long,
             },
+            "requests": {},
             "active_research_session_id": "long-current",
         }
 
@@ -115,6 +193,7 @@ class TelegramSessionContinuityTests(unittest.TestCase):
         long = self._session("long-a", "long", "2026-08-31T00:06:00+00:00")
         state = {
             "sessions": {"short-a": short, "long-a": long},
+            "requests": {},
             "active_research_session_id": "long-a",
         }
 
@@ -127,11 +206,13 @@ class TelegramSessionContinuityTests(unittest.TestCase):
         active, panel = self._modules()
         continuity.install(active=active, panel=panel)
         first_clear = active._clear_current_selection
+        first_current = active._current_target
         first_approve = panel._approve
 
         continuity.install(active=active, panel=panel)
 
         self.assertIs(active._clear_current_selection, first_clear)
+        self.assertIs(active._current_target, first_current)
         self.assertIs(panel._approve, first_approve)
 
 

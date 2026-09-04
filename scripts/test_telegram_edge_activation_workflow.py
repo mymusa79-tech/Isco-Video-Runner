@@ -13,8 +13,9 @@ class TelegramEdgeActivationWorkflowTests(unittest.TestCase):
         self.assertIn("if: github.event_name == 'pull_request'", self.text)
         self.assertIn("if: github.event_name != 'pull_request'", self.text)
         self.assertIn('node --check cloudflare/telegram-control-worker/index.js', self.text)
+        self.assertIn('node --check cloudflare/telegram-control-worker/editorial-worker-v7.js', self.text)
 
-    def test_activation_requires_identity_and_cloudflare_secrets(self):
+    def test_activation_requires_identity_cloudflare_and_state_secrets(self):
         for name in (
             'CLOUDFLARE_API_TOKEN',
             'CLOUDFLARE_ACCOUNT_ID',
@@ -23,6 +24,7 @@ class TelegramEdgeActivationWorkflowTests(unittest.TestCase):
             'TELEGRAM_CHAT_ID',
             'GITHUB_CONTROL_TOKEN',
             'YOUTUBE_API_KEY',
+            'STATE_ENCRYPTION_KEY',
         ):
             self.assertIn(name, self.text)
 
@@ -30,6 +32,10 @@ class TelegramEdgeActivationWorkflowTests(unittest.TestCase):
         self.assertIn('GITHUB_CONTROL_TOKEN: ${{ secrets.ISCO_GITHUB_CONTROL_TOKEN }}', self.text)
         self.assertNotIn('GITHUB_CONTROL_TOKEN: ${{ secrets.GITHUB_CONTROL_TOKEN }}', self.text)
         self.assertIn('put_secret GITHUB_CONTROL_TOKEN "$GITHUB_CONTROL_TOKEN"', self.text)
+
+    def test_encrypted_state_key_is_reinstalled_on_every_edge_deploy(self):
+        self.assertIn('STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}', self.text)
+        self.assertIn('put_secret STATE_ENCRYPTION_KEY "$STATE_ENCRYPTION_KEY"', self.text)
 
     def test_workers_dev_account_subdomain_is_bootstrapped_via_free_api(self):
         self.assertIn('Ensure free workers.dev account subdomain', self.text)
@@ -71,11 +77,13 @@ class TelegramEdgeActivationWorkflowTests(unittest.TestCase):
         self.assertIn('runs-on: ubuntu-latest', self.text)
         self.assertNotIn('runs-on: ubuntu-', self.text.replace('runs-on: ubuntu-latest', ''))
 
-    def test_wrangler_is_exactly_pinned(self):
+    def test_wrangler_is_exactly_pinned_to_editorial_v7(self):
         self.assertIn('WRANGLER_VERSION: "4.125.0"', self.text)
         self.assertIn('wrangler@${WRANGLER_VERSION}', self.text)
         self.assertNotIn('wrangler@4 deploy', self.text)
         self.assertNotIn('wrangler@latest', self.text)
+        self.assertIn('main = "editorial-worker-v7.js"', self.wrangler)
+        self.assertIn("assert data.get('main') == 'editorial-worker-v7.js'", self.text)
 
     def test_worker_uses_native_free_plan_limits_without_paid_limit_config(self):
         self.assertIn('workers_dev = true', self.wrangler)

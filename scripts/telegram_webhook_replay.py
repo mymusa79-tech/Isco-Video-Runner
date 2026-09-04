@@ -40,6 +40,30 @@ def _install_v5_after_active() -> None:
     core.active._isco_v5_replay_hooked = True
 
 
+def _control_state_path() -> Path | None:
+    raw = str(os.environ.get("CONTROL_STATE_PATH") or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    return path if path.is_file() else None
+
+
+def _reconcile_used_history_if_available() -> dict[str, int] | None:
+    """Repair historical Used projection from completed durable Telegram receipts."""
+    path = _control_state_path()
+    if path is None:
+        return None
+    from scripts.telegram_used_history_reconcile import reconcile_file
+
+    result = reconcile_file(path)
+    if result["added"]:
+        print(
+            "Telegram Used history backfill applied from completed receipts: "
+            f"added={result['added']} processed={result['processed']}"
+        )
+    return result
+
+
 def _durable_pending_research_exists() -> bool:
     """Return whether the restored control state still owns pending research work.
 
@@ -51,11 +75,8 @@ def _durable_pending_research_exists() -> bool:
     pending-work case; the poll entrypoint then claims the pending work without
     polling Telegram.
     """
-    raw = str(os.environ.get("CONTROL_STATE_PATH") or "").strip()
-    if not raw:
-        return False
-    path = Path(raw)
-    if not path.is_file():
+    path = _control_state_path()
+    if path is None:
         return False
     try:
         state = core.panel.load_state(path)
@@ -76,6 +97,16 @@ def replay_update(state_path, update):
     _install_v5_after_active()
     from scripts import telegram_creator_control_center_v5 as creator_v5
 
+    # Real workflow replay always receives the restored durable file. Unit and
+    # adapter callers may inject an abstract path while mocking the replay core, so
+    # history reconciliation must remain an additive side effect rather than a new
+    # precondition for replay itself.
+    durable_path = Path(state_path)
+    if durable_path.is_file():
+        from scripts.telegram_used_history_reconcile import reconcile_file
+
+        reconcile_file(durable_path)
+
     # The replay core substitutes getUpdates with the already-authorized webhook
     # update. Preserve that callback's message identity as a class-level fallback
     # so V5 can still edit the exact Telegram card in place after the replay core
@@ -92,6 +123,10 @@ def main() -> None:
     _install_v5_after_active()
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode == "webhook-active":
+        # This command is executed by every scheduled control pass after encrypted
+        # state restore. Reconcile first; the workflow's existing persistence step
+        # will write any idempotent backfill to control-plane-state.
+        _reconcile_used_history_if_available()
         active_now = core.webhook_active()
         if active_now and _durable_pending_research_exists():
             print(

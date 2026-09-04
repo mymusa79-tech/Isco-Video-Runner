@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts import telegram_topic_research_v2 as v2
 from scripts.workflow_hygiene import _canonical_engine_pin
@@ -44,6 +45,10 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
                 }
             ],
         }
+
+    def test_research_contract_targets_three_but_accepts_one(self):
+        self.assertEqual(v2.TARGET_RESEARCH_OPTIONS, 3)
+        self.assertEqual(v2.MIN_LIVE_MARKET_CANDIDATES, 1)
 
     def test_recent_seen_topics_blocks_recent_displayed_sessions(self):
         state = {
@@ -131,12 +136,35 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
         high_timing = self._candidate("شورت ب", 0.90, 0.75, 0.0)
         self.assertGreater(v2._control_score(high_timing, "short"), v2._control_score(low_timing, "short"))
 
-    def test_short_panel_is_explicitly_live_research(self):
-        candidate = v2._build_candidate_payload(self._candidate("فكرة شورت", 0.72, 0.75, 0.90), "short")
-        text = v2._candidate_panel_text("short", [candidate, candidate, candidate])
+    def test_full_panel_still_shows_three_when_three_are_valid(self):
+        candidates = [
+            v2._build_candidate_payload(self._candidate(f"فكرة {i}", 0.72, 0.75, 0.90 - i * 0.01), "short")
+            for i in range(3)
+        ]
+        text = v2._candidate_panel_text("short", candidates)
         self.assertIn("3 فرص بحث حي للشورت", text)
-        self.assertIn("الآن:", text)
-        self.assertIn("ملاءمة القناة", text)
+        self.assertNotIn("لم أخفّض", text)
+
+    def test_partial_panel_is_honest_and_does_not_claim_three(self):
+        candidate = v2._build_candidate_payload(
+            self._candidate("فكرة شورت", 0.72, 0.75, 0.90), "short"
+        )
+        text = v2._candidate_panel_text("short", [candidate])
+        self.assertIn("1 فرصة بحث حي للشورت", text)
+        self.assertIn("وجدت 1 خيارًا صالحًا فقط", text)
+        self.assertIn("لم أخفّض أي Quality/Market Gate", text)
+
+    def test_partial_keyboard_removes_impossible_pick_buttons(self):
+        base_rows = [
+            [{"text": "one"}],
+            [{"text": "two"}],
+            [{"text": "three"}],
+            [{"text": "refresh"}],
+            [{"text": "home"}],
+        ]
+        with patch.object(v2.panel, "_candidate_keyboard", return_value=base_rows):
+            rows = v2._candidate_keyboard("session", "short", 1)
+        self.assertEqual(rows, [base_rows[0], base_rows[3], base_rows[4]])
 
     def test_workflow_separates_research_engine_from_production_engine(self):
         workflow_dir = ROOT / ".github/workflows"

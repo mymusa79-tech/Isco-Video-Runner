@@ -141,7 +141,7 @@ class EnglishResearchQueriesProviderFallbackTests(unittest.TestCase):
     def _candidates(self):
         return [{"title": "كيف تبني عادة القراءة اليومية"}, {"title": "لماذا نخاف من التغيير"}]
 
-    def test_gemini_quota_failure_recovers_via_openrouter_fallback(self):
+    def test_gemini_quota_retry_after_is_honored_once_then_recovers_via_openrouter(self):
         from scripts import research_provider_reliability as rpr
 
         quota_error = RuntimeError(
@@ -158,9 +158,9 @@ class EnglishResearchQueriesProviderFallbackTests(unittest.TestCase):
                 patch.object(rpr, "openrouter_json_text", return_value=fallback_payload) as openrouter, \
                 patch.object(rpr.time, "sleep") as sleep:
             result = ui._english_research_queries("fake-gemini-key", self._candidates(), "gemini-2.5-flash")
-        gemini.assert_called_once()
+        self.assertEqual(gemini.call_count, 2)
         openrouter.assert_called_once()
-        sleep.assert_not_called()
+        sleep.assert_called_once_with(1.4)
         self.assertEqual(
             result,
             {0: "daily reading habit formation psychology", 1: "fear of change behavioral psychology"},

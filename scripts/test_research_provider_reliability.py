@@ -56,6 +56,12 @@ class BackoffCalculationTests(unittest.TestCase):
             seconds = rpr._backoff_seconds(error, attempt=1)
         self.assertAlmostEqual(seconds, 1.447794966, places=6)
 
+    def test_live_56s_hint_is_within_research_wait_budget(self) -> None:
+        error = RuntimeError("Please retry in 56.7s.")
+        with patch.object(rpr.random, "uniform", return_value=0.0):
+            seconds = rpr._backoff_seconds(error, attempt=1)
+        self.assertEqual(seconds, 56.7)
+
     def test_hint_above_wait_budget_requires_failover_not_partial_sleep(self) -> None:
         error = RuntimeError("Please retry in 500s.")
         with patch.object(rpr.random, "uniform", return_value=0.0):
@@ -80,10 +86,23 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
         openrouter.assert_not_called()
         sleep.assert_not_called()
 
-    def test_daily_quota_failure_skips_retry_and_uses_fallback_immediately(self) -> None:
+    def test_bounded_quota_retry_after_is_honored_once_then_succeeds(self) -> None:
         quota_error = RuntimeError(
             "Quota exceeded for metric: generate_content_free_tier_requests, limit: 20. "
             "Please retry in 1.4s."
+        )
+        with patch.object(rpr, "gemini_json_text", side_effect=[quota_error, {"items": ["ok"]}]) as gemini, \
+                patch.object(rpr, "openrouter_json_text") as openrouter, \
+                patch.object(rpr.time, "sleep") as sleep:
+            result = rpr.gemini_research_call_with_fallback("key", "prompt", "model")
+        self.assertEqual(result, {"items": ["ok"]})
+        self.assertEqual(gemini.call_count, 2)
+        openrouter.assert_not_called()
+        sleep.assert_called_once_with(1.4)
+
+    def test_quota_without_retry_after_fails_over_immediately(self) -> None:
+        quota_error = RuntimeError(
+            "Quota exceeded for metric: generate_content_free_tier_requests, limit: 20."
         )
         with patch.object(rpr, "gemini_json_text", side_effect=quota_error) as gemini, \
                 patch.object(rpr, "openrouter_json_text", return_value={"items": ["ok"]}) as openrouter, \
@@ -94,26 +113,24 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
         openrouter.assert_called_once()
         sleep.assert_not_called()
 
-    def test_live_49s_quota_then_invalid_json_recovers_via_strict_schema_fallback(self) -> None:
+    def test_live_49s_quota_then_invalid_json_recovers_via_schema_bound_free_router(self) -> None:
         live_error = RuntimeError(
             "Quota exceeded for metric: generate_content_free_tier_requests, limit: 20. "
             "Please retry in 49.3198s."
         )
         invalid_json = RuntimeError("OpenRouter returned invalid JSON")
         structured = {"candidates": [{"title": "ok"}]}
-        with patch.object(rpr, "gemini_json_text", side_effect=live_error) as gemini, \
+        with patch.object(rpr, "gemini_json_text", side_effect=[live_error, live_error]) as gemini, \
                 patch.object(rpr.time, "sleep") as sleep, \
                 patch.object(rpr, "openrouter_json_text", side_effect=[invalid_json, structured]) as openrouter:
             result = rpr.gemini_research_call_with_fallback("key", "prompt", "model")
         self.assertEqual(result, structured)
-        gemini.assert_called_once()
-        sleep.assert_not_called()
+        self.assertEqual(gemini.call_count, 2)
+        sleep.assert_called_once_with(49.3198)
         self.assertEqual(openrouter.call_count, 2)
-        self.assertNotIn("response_schema", openrouter.call_args_list[0].kwargs)
-        self.assertIs(
-            openrouter.call_args_list[1].kwargs["response_schema"],
-            rpr.RESEARCH_RESPONSE_SCHEMA,
-        )
+        for call in openrouter.call_args_list:
+            self.assertIs(call.kwargs["response_schema"], rpr.RESEARCH_RESPONSE_SCHEMA)
+            self.assertEqual(call.kwargs["schema_name"], "isco_topic_research_response")
 
     def test_transient_rate_limit_retries_gemini_once_then_succeeds(self) -> None:
         transient_error = RuntimeError("HTTP 429 rate_limit_exceeded")
@@ -128,8 +145,21 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
         openrouter.assert_not_called()
         sleep.assert_called_once()
 
-    def test_retry_after_above_budget_skips_same_provider_retry_and_falls_back(self) -> None:
+    def test_live_38s_retry_after_is_retried_not_forced_to_fallback(self) -> None:
         transient_error = RuntimeError("HTTP 429 rate_limit_exceeded. Please retry in 38s.")
+        with patch.object(
+            rpr, "gemini_json_text", side_effect=[transient_error, {"items": ["ok"]}]
+        ) as gemini, patch.object(rpr, "openrouter_json_text") as openrouter, patch.object(
+            rpr.time, "sleep"
+        ) as sleep:
+            result = rpr.gemini_research_call_with_fallback("key", "prompt", "model")
+        self.assertEqual(result, {"items": ["ok"]})
+        self.assertEqual(gemini.call_count, 2)
+        openrouter.assert_not_called()
+        sleep.assert_called_once_with(38.0)
+
+    def test_retry_after_above_budget_skips_same_provider_retry_and_falls_back(self) -> None:
+        transient_error = RuntimeError("HTTP 429 rate_limit_exceeded. Please retry in 90s.")
         with patch.object(rpr, "gemini_json_text", side_effect=transient_error) as gemini, \
                 patch.object(rpr, "openrouter_json_text", return_value={"items": ["fallback"]}) as openrouter, \
                 patch.object(rpr.time, "sleep") as sleep:
@@ -150,7 +180,7 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
         openrouter.assert_called_once()
         sleep.assert_called_once()
 
-    def test_openrouter_invalid_json_gets_one_strict_schema_retry(self) -> None:
+    def test_openrouter_is_schema_bound_from_first_fallback_and_retries_once_if_malformed(self) -> None:
         gemini_error = RuntimeError("HTTP 500 server error")
         invalid_json = RuntimeError("OpenRouter returned invalid JSON")
         structured = {"candidates": [{"title": "ok"}]}
@@ -160,14 +190,12 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
             result = rpr.gemini_research_call_with_fallback("key", "prompt", "model")
         self.assertEqual(result, structured)
         self.assertEqual(openrouter.call_count, 2)
-        first = openrouter.call_args_list[0]
-        second = openrouter.call_args_list[1]
-        self.assertEqual(first.kwargs["model"], "openrouter/free")
-        self.assertNotIn("response_schema", first.kwargs)
-        self.assertEqual(second.kwargs["model"], "openai/gpt-oss-20b:free")
-        self.assertEqual(second.kwargs["fallback_models"], ())
-        self.assertIs(second.kwargs["response_schema"], rpr.RESEARCH_RESPONSE_SCHEMA)
-        self.assertEqual(second.kwargs["schema_name"], "isco_topic_research_response")
+        first, second = openrouter.call_args_list
+        for call in (first, second):
+            self.assertEqual(call.kwargs["model"], "openrouter/free")
+            self.assertEqual(call.kwargs["fallback_models"], ("openai/gpt-oss-20b:free",))
+            self.assertIs(call.kwargs["response_schema"], rpr.RESEARCH_RESPONSE_SCHEMA)
+            self.assertEqual(call.kwargs["schema_name"], "isco_topic_research_response")
 
     def test_structured_openrouter_retry_failure_is_bounded_and_sanitized(self) -> None:
         secret = "SECRET_RESEARCH_SENTINEL"
