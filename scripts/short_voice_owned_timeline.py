@@ -18,7 +18,6 @@ from scripts.short_voice_v2 import (
     _has_audio,
     _record_voice_rights,
     _refresh_quality_final,
-    _voice_script,
     decide_voice_mode,
 )
 from scripts.voice_mesh import consume_voice_provenance
@@ -30,7 +29,9 @@ from scripts.voice_owned_timeline import (
 )
 
 
-VOICE_TASK_ID = "SHORT_VOICE_OWNED_TIMELINE_V1"
+# Keep the historical task identity so Voice Mesh/TTS cache/observability continuity
+# is preserved while the timeline ownership contract changes underneath it.
+VOICE_TASK_ID = "SHORT_VOICE_V2"
 
 _PERFORMANCE_STYLE_BY_TEMPLATE = {
     "why_reframe": (
@@ -52,6 +53,37 @@ _PERFORMANCE_STYLE_BY_TEMPLATE = {
         "the reflection, and end personally rather than grandly. Warm, restrained, non-melodramatic delivery."
     ),
 }
+
+
+def _clean(value: object) -> str:
+    return " ".join(str(value or "").strip().split())
+
+
+def _performance_script(events: list[dict[str, Any]], mode: str, template: str) -> str:
+    """Preserve approved words while giving Gemini sentence/beat breathing cues.
+
+    This is punctuation-only performance shaping: no beat is rewritten, summarized or
+    invented. Voice-led templates speak every approved beat; hybrid templates speak the
+    hook and payoff while the intermediate beats remain visual/on-screen information.
+    """
+    texts = [_clean(item.get("text")) for item in events if isinstance(item, dict) and _clean(item.get("text"))]
+    if len(texts) < 2:
+        raise RuntimeError("Voice-Owned Timeline requires at least two semantic beats")
+    if mode == "hybrid":
+        texts = [texts[0], texts[-1]]
+    elif mode != "voice_led":
+        raise RuntimeError("Voice-Owned Timeline received unsupported voice mode")
+
+    cleaned = [text.rstrip(" .،!?؟…") for text in texts]
+    if template in {"inner_dialogue", "quote_reflection"}:
+        separator = "… "
+    elif template == "micro_story":
+        separator = ". "
+    elif template == "why_reframe":
+        separator = "… " if len(cleaned) <= 2 else ". "
+    else:
+        raise RuntimeError("Voice-Owned Timeline received unsupported Short template")
+    return separator.join(cleaned) + "."
 
 
 def _read_quality(root: Path) -> dict[str, Any]:
@@ -197,7 +229,7 @@ def apply_voice_owned_short(
     events = [item for item in list(pre_gold.get("timed_text_events") or []) if isinstance(item, dict)]
     if len(events) < 2:
         raise RuntimeError("Voice-Owned Timeline requires at least two semantic beats")
-    transcript = _voice_script(events, mode)
+    transcript = _performance_script(events, mode, template)
 
     final_path = root / "final.mp4"
     if not final_path.is_file():
@@ -254,9 +286,10 @@ def apply_voice_owned_short(
     updated["timed_text_events"] = retimed_events
     _write_provisional_timeline_quality(root, target_seconds)
 
-    # Standalone Shorts can use audited additional B-roll to express the longer/shorter
-    # natural performance. Sibling Shorts stay bound to source-derived visual provenance;
-    # their planner provisions enough source-safe media before this measured certification.
+    # Standalone Shorts can use audited additional B-roll to express the measured
+    # natural performance. Source-derived Shorts never add unrelated stock here: if
+    # their inherited visual budget is materially too short, the contract fails closed
+    # and asks for source-safe reprovisioning instead of compressing the voice.
     if control_request.get("kind") == "short" and scope == "short_only":
         updated = upgrade_short_cinematic(root, control_request, updated, ledger=ledger)
     updated = apply_short_sfx(root, updated)
@@ -291,6 +324,7 @@ def apply_voice_owned_short(
             "voice_time_compression": False,
             "voice_duration_estimate_is_certification": False,
             "measured_voice_is_authoritative": True,
+            "performance_punctuation_preserves_words": True,
             "gemini_provider_attempt_cap": 1,
             "piper_local_fallback": True,
             "extra_text_ai_calls": 0,
@@ -311,6 +345,7 @@ def apply_voice_owned_short(
         "timeline": timeline,
         "post_speed_factor": 1.0,
         "time_compression": False,
+        "performance_punctuation_preserves_words": True,
         "generated_before_authoritative_final_master_qc": True,
         "quality_final_stage": quality.get("quality_measurement_stage"),
         "rights_provenance_recorded": True,
