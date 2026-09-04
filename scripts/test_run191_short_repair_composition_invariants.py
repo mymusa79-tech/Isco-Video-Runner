@@ -9,6 +9,9 @@ from isco_video_agent.models import ProductionPlan, ScriptSection
 
 from scripts import production_text_representation_contract as representation
 from scripts import short_planning_repair as repair
+from scripts.test_run193_producer_short_stage_ownership import (
+    Run193ProducerShortStageOwnershipTests,
+)
 
 
 class Run191ShortRepairCompositionInvariantTests(unittest.TestCase):
