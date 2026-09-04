@@ -13,6 +13,8 @@ bindings against the pinned private Engine:
    download, visual review or FFmpeg picture render begins.  The final duration gate
    reuses the same duration authority as defense in depth.
 
+Standalone Moment remains owned by native_short_stage_contract; this module reads that
+existing contract for family visibility instead of copying its 12-20s constants.
 The contract does not lower any existing quality gate and does not add provider calls.
 """
 
@@ -24,6 +26,8 @@ from pathlib import Path
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.resilient_planner as resilient_planner
 from isco_video_agent.config import load_channel_config
+
+from scripts import native_short_stage_contract as moment_contract
 
 
 CONTRACT_ID = "production-feasibility-v1"
@@ -55,10 +59,6 @@ _FINAL_DURATION_RATIOS: dict[str, tuple[float, float]] = {
     "story": (0.70, 1.50),
 }
 
-# Run187's already-merged standalone Moment contract is recorded for family visibility.
-# Moment is not narration-driven and therefore is not patched by the long-form binding.
-MOMENT_DURATION_SECONDS = (12.0, 20.0)
-
 
 class ProductionFeasibilityError(RuntimeError):
     """A plan/audio artifact cannot satisfy the production duration contract."""
@@ -79,10 +79,19 @@ def _config(cfg: dict | None = None) -> dict:
     return cfg if cfg is not None else load_channel_config()
 
 
+def _moment_duration_bounds() -> tuple[float, float]:
+    """Read the already-authoritative Run187 Moment contract without duplicating it."""
+    stage = moment_contract.moment_stage_spec("short_draft", "feasibility-contract-probe")
+    return (
+        float(stage.semantic_rules["expected_seconds_min"]),
+        float(stage.semantic_rules["expected_seconds_max"]),
+    )
+
+
 def final_duration_bounds(fmt: str, cfg: dict | None = None) -> tuple[float, float]:
     fmt = str(fmt or "").strip().lower()
     if fmt == "moment":
-        return MOMENT_DURATION_SECONDS
+        return _moment_duration_bounds()
     if fmt not in _FINAL_DURATION_RATIOS:
         raise ProductionFeasibilityError(f"unsupported_feasibility_format:{fmt or 'missing'}")
     config = _config(cfg)
@@ -252,6 +261,6 @@ def install_production_feasibility_contract() -> dict[str, object]:
         "story_word_bounds": (story.min_words, story.max_words),
         "story_target_words": story.target_words,
         "story_duration_bounds": (story.min_seconds, story.max_seconds),
-        "moment_duration_bounds": MOMENT_DURATION_SECONDS,
+        "moment_duration_bounds": _moment_duration_bounds(),
         "post_tts_pre_visual_gate": True,
     }
