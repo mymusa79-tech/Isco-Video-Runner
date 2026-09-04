@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from scripts import run184_qr_confirmation_closure as qr
 from scripts import run184_qr_confirmation_runtime as qr_runtime
+from scripts.qr_runtime_bootstrap import ensure_qr_confirmation_runtime
 
 
 class _Firewall:
@@ -199,8 +200,13 @@ class Run184QRConfirmationClosureTests(unittest.TestCase):
             )
 
     def test_real_zbar_and_zxing_smoke_on_generated_qr_and_blank_frame(self) -> None:
-        required = ("ffmpeg", "zbarimg", "ZXingReader", "ZXingWriter")
-        resolved = {name: shutil.which(name) for name in required}
+        tools = ensure_qr_confirmation_runtime(allow_install=True)
+        resolved = {
+            "ffmpeg": shutil.which("ffmpeg"),
+            "zbarimg": tools.zbarimg,
+            "ZXingReader": tools.zxing_reader,
+            "ZXingWriter": shutil.which("ZXingWriter"),
+        }
         missing = [name for name, path in resolved.items() if not path]
         self.assertFalse(missing, f"mandatory QR confirmation tools missing: {missing}")
 

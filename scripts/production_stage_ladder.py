@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ PHASES = ("P0", "P1", "P2", "P3", "P4", "P5", "P6")
 BASELINE_TAG = "video-50"
 BASELINE_SIZE = 239_012_306
 BASELINE_SHA256 = "143abdfb7b55f2269cab2c4634b68e7a99a5581ac08eceeccfb8cdda2ffdc742"
+RUN_TEST_PATTERN = re.compile(r"^test_run(\d+)_.*\.py$")
 
 PHASE_TESTS: dict[str, tuple[str, ...]] = {
     "P0": (
@@ -32,6 +34,8 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_run129_production_test_isolation_contract",
         "scripts.test_run130_explicit_runtime_phase",
         "scripts.test_run130_runtime_authority_contract",
+        "scripts.test_run179_engine_pin_single_source",
+        "scripts.test_run188_short_capability_ownership",
         "scripts.test_runtime_closure",
         "scripts.test_runtime_closure_idempotence_run102",
         "scripts.test_run103_runtime_marker_preservation",
@@ -62,6 +66,15 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_run167_text_audit_capacity_ownership",
         "scripts.test_run168_provider_visible_semantics",
         "scripts.test_run170_planning_contract_composition",
+        "scripts.test_run179_short_representation_contract",
+        "scripts.test_run180_micro_story_contract_closure",
+        "scripts.test_run180_short_representation_metadata_authority",
+        "scripts.test_run180_short_template_representation_lifecycle",
+        "scripts.test_run181_groq_readiness_budget",
+        "scripts.test_run187_moment_duration_contract_closure",
+        "scripts.test_run189_micro_story_contract_alignment",
+        "scripts.test_run191_short_repair_composition_invariants",
+        "scripts.test_run191_tone_audit_representation_bridge",
         "scripts.test_p0_2_budget_enforcement",
         "scripts.test_budget_wire_attempts",
         "scripts.test_provider_retry_ownership",
@@ -72,6 +85,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_voice_mesh",
         "scripts.test_piper_chunking",
         "scripts.test_short_voice_v2",
+        "scripts.test_run192_short_voice_feasibility",
         "scripts.test_audio_semantic_integrity",
         "scripts.test_audio_mastering_runtime_contract",
         "scripts.test_audio_producer_repair_lifecycle",
@@ -82,6 +96,12 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_run92_opening_feasibility_guard",
         "scripts.test_run108_stock_candidate_isolation",
         "scripts.test_run169_visual_retrieval_truth",
+        "scripts.test_run181_vision_provider_health_mesh",
+        "scripts.test_run181_vision_scope_budget",
+        "scripts.test_run183_visual_retrieval_closure",
+        "scripts.test_run184_qr_confirmation_closure",
+        "scripts.test_run184_qr_runtime_scope",
+        "scripts.test_run185_semantic_visual_adjudication",
         "scripts.test_vision_provider_reliability",
         "scripts.test_vision_stage_contract_v2",
         "scripts.test_vision_stage_transport_v2",
@@ -105,6 +125,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_final_master_acceptance_v2",
         "scripts.test_final_master_qc_contract_shape",
         "scripts.test_final_master_acceptance_contract_registration",
+        "scripts.test_run186_format_aware_final_master_qc",
         "scripts.test_f24_family_contract",
         "scripts.test_f24_no_production_dispatch",
     ),
@@ -372,6 +393,16 @@ def _expand(spec: str) -> set[int]:
     return set(range(int(left), int(right) + 1))
 
 
+def _named_run_regressions() -> dict[int, set[str]]:
+    result: dict[int, set[str]] = {}
+    for path in sorted((ROOT / "scripts").glob("test_run*_*.py")):
+        match = RUN_TEST_PATTERN.match(path.name)
+        if match is None:
+            continue
+        result.setdefault(int(match.group(1)), set()).add(f"scripts.{path.stem}")
+    return result
+
+
 def certify(evidence_dir: Path, output: Path) -> None:
     register = json.loads(REGISTER_PATH.read_text(encoding="utf-8"))
     runner_sha, engine_sha = _git_sha(ROOT), _git_sha(ENGINE_ROOT)
@@ -432,6 +463,31 @@ def certify(evidence_dir: Path, output: Path) -> None:
             "contracts": contracts, "contracts_executed_on_sha": True,
         })
 
+    guard = register.get("forward_guard") or {}
+    enforcement_from = int(guard.get("named_run_contract_enforcement_from") or last_run + 1)
+    named_regressions = {
+        run: modules
+        for run, modules in _named_run_regressions().items()
+        if run >= enforcement_from
+    }
+    max_named_run = max(named_regressions, default=enforcement_from - 1)
+    if guard.get("require_window_not_behind_named_regressions") is True and max_named_run > last_run:
+        raise RuntimeError(
+            f"family closure register is stale: last_run={last_run} max_named_regression_run={max_named_run}"
+        )
+    declared_contracts = {
+        str(contract)
+        for family in families
+        for contract in family.get("contracts") or []
+    }
+    orphaned = {
+        run: sorted(modules - declared_contracts)
+        for run, modules in named_regressions.items()
+        if run <= last_run and modules - declared_contracts
+    }
+    if guard.get("require_every_named_regression_declared") is True and orphaned:
+        raise RuntimeError(f"named production regressions are not declared by a family: {orphaned}")
+
     baseline = evidence["P4"].get("baseline") or {}
     if baseline.get("sha256") != BASELINE_SHA256 or baseline.get("size_bytes") != BASELINE_SIZE:
         raise RuntimeError("P4 evidence is not bound to exact video-50")
@@ -440,8 +496,14 @@ def certify(evidence_dir: Path, output: Path) -> None:
         "known_good_baseline": baseline,
         "phases": {phase: {"status": "pass", "evidence": f"{phase}.json"} for phase in PHASES},
         "historical_run_coverage": {"first_run": first_run, "last_run": last_run, "complete": True},
+        "named_run_contract_guard": {
+            "enforcement_from": enforcement_from,
+            "max_named_regression_run": max_named_run,
+            "orphaned_contracts": {},
+            "complete": True,
+        },
         "families": families, "production_dispatch_performed": False, "release_publication_performed": False,
-        "certification_rule": "all_P0_through_P6_same_runner_sha_same_engine_sha_all_family_contracts_executed",
+        "certification_rule": "all_P0_through_P6_same_runner_sha_same_engine_sha_all_family_contracts_executed_no_orphaned_named_run_regressions",
     }
     _write_json(output, certificate)
     print(

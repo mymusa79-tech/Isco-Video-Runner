@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -14,6 +15,7 @@ ENVIRONMENT_PREFLIGHT = ROOT / "scripts" / "environment_preflight.py"
 CHECKPOINT_WRAPPER = ROOT / "scripts" / "planning_checkpoint_state.py"
 CHECKPOINT_CORE = ROOT / "scripts" / "planning_checkpoint_state_core.py"
 RELIABILITY_MATRIX = ROOT / "scripts" / "reliability_failure_matrix.json"
+RUN_TEST_PATTERN = re.compile(r"^test_run(\d+)_.*\.py$")
 
 
 def _module_path(module: str) -> Path:
@@ -28,6 +30,16 @@ def _expand(spec: str) -> set[int]:
     return set(range(int(left), int(right) + 1))
 
 
+def _named_run_regressions() -> dict[int, set[str]]:
+    result: dict[int, set[str]] = {}
+    for path in sorted((ROOT / "scripts").glob("test_run*_*.py")):
+        match = RUN_TEST_PATTERN.match(path.name)
+        if match is None:
+            continue
+        result.setdefault(int(match.group(1)), set()).add(f"scripts.{path.stem}")
+    return result
+
+
 class ProductionStageLadderContractTests(unittest.TestCase):
     def test_phase_set_is_exactly_p0_through_p6_and_all_modules_exist(self) -> None:
         self.assertEqual(PHASES, ("P0", "P1", "P2", "P3", "P4", "P5", "P6"))
@@ -37,11 +49,11 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             for module in modules:
                 self.assertTrue(_module_path(module).is_file(), f"{phase} missing {module}")
 
-    def test_register_exactly_covers_every_run_51_through_170(self) -> None:
+    def test_register_exactly_covers_every_run_51_through_192(self) -> None:
         data = json.loads(REGISTER.read_text(encoding="utf-8"))
         window = data["historical_window"]
-        self.assertEqual((window["first_run"], window["last_run"]), (51, 170))
-        expected = set(range(51, 171))
+        self.assertEqual((window["first_run"], window["last_run"]), (51, 192))
+        expected = set(range(51, 193))
         seen: set[int] = set()
         for cohort in data["audit_cohorts"]:
             runs = _expand(cohort["runs"])
@@ -70,6 +82,31 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             for module in family["contracts"]:
                 self.assertTrue(_module_path(module).is_file(), f"{family['id']} missing {module}")
                 self.assertIn(module, executed, f"{family['id']} contract not executed by Stage Ladder: {module}")
+
+    def test_forward_guard_rejects_window_lag_and_orphaned_named_run_regressions(self) -> None:
+        data = json.loads(REGISTER.read_text(encoding="utf-8"))
+        window = data["historical_window"]
+        guard = data["forward_guard"]
+        enforcement_from = int(guard["named_run_contract_enforcement_from"])
+        regressions = _named_run_regressions()
+        guarded = {
+            run: modules
+            for run, modules in regressions.items()
+            if run >= enforcement_from
+        }
+        self.assertTrue(guarded)
+        self.assertLessEqual(max(guarded), int(window["last_run"]))
+        declared = {
+            module
+            for family in data["families"]
+            for module in family["contracts"]
+        }
+        orphaned = {
+            run: sorted(modules - declared)
+            for run, modules in guarded.items()
+            if modules - declared
+        }
+        self.assertEqual(orphaned, {})
 
     def test_ladder_replays_video50_in_phase_order_and_never_dispatches_production(self) -> None:
         text = LADDER_WORKFLOW.read_text(encoding="utf-8")

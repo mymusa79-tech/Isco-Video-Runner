@@ -43,6 +43,35 @@ class Run192ShortVoiceFeasibilityTests(unittest.TestCase):
         self.assertEqual(result["spoken_beat_indexes"][-1], 3)
         self.assertLessEqual(result["estimated_natural_seconds"], result["planning_budget_seconds"])
         self.assertEqual(result["runtime_max_speed_unchanged"], 1.20)
+        self.assertTrue(result["projection_search_complete"])
+
+    def test_projection_keeps_earlier_middle_beat_when_later_middle_is_too_dense(self):
+        events = [
+            {"text": "سؤال قصير"},
+            {"text": "خطوة صغيرة"},
+            {"text": " ".join(["تفصيل"] * 18)},
+            {"text": "ابدأ الآن"},
+        ]
+        result = build_voice_projection(events, "voice_led", final_seconds=6.0)
+        self.assertEqual(result["spoken_beat_indexes"], [0, 1, 3])
+        self.assertEqual(result["spoken_beat_count"], 3)
+        self.assertEqual(result["omitted_beat_indexes"], [2])
+        self.assertEqual(
+            result["projection_search_policy"],
+            "max_spoken_beat_count_then_latest_semantic_turn",
+        )
+        self.assertTrue(result["projection_search_complete"])
+
+    def test_equal_cardinality_still_prefers_latest_semantic_turn(self):
+        events = [
+            {"text": "سؤال قصير"},
+            {"text": "تفصيل أول"},
+            {"text": "تفصيل أخير"},
+            {"text": "ابدأ الآن"},
+        ]
+        result = build_voice_projection(events, "voice_led", final_seconds=4.8)
+        self.assertEqual(result["spoken_beat_indexes"], [0, 2, 3])
+        self.assertEqual(result["spoken_beat_count"], 3)
 
     def test_hybrid_keeps_hook_and_payoff_only(self):
         events = [
