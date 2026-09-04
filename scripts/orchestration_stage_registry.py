@@ -503,7 +503,7 @@ def certified_non_planning_contracts() -> tuple[StageContract, ...]:
             evidence_schema="ShortsEvidenceV1",
             adapter_id="shorts-runtime-port-v1",
             source_path="scripts/orchestration_shorts_port.py",
-            source_sha="b8525adf42d296dcadde2f1e8eaac9dd5b6e2f39",
+            source_sha="1b90047b74eb9dc31de17f5aa7d239317d73a0a2",
         ),
     )
 
