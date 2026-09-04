@@ -61,7 +61,8 @@ class Run185SemanticVisualAdjudicationTests(unittest.TestCase):
 
         self.assertEqual(len(seen), 2)
         self.assert_semantic_contract(seen[0], contains=RUN185_ALTERNATE)
-        self.assert_semantic_contract(seen[1], contains="A person standing between two people")
+        # Historical Run169/V1 diagnostics outside canonical Production must remain raw.
+        self.assertEqual(seen[1], RUN185_VISUAL)
         self.assertNotEqual(seen[0], seen[1])
 
     def test_untrusted_search_syntax_still_uses_original_visual_truth(self) -> None:
