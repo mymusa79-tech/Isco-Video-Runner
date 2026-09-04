@@ -269,9 +269,16 @@ def update_stage(stage: str) -> None:
 
 
 def mark_stage_done(stage: str) -> None:
+    if stage not in _STAGE_KEYS:
+        return
     _state["completed"].add(stage)
-    if stage == "mux" and _state.get("current_stage") == "mux":
-        _enqueue_progress_snapshot("mux")
+    # Persist the completion boundary itself. The compact lifecycle message remains
+    # unchanged, while the opt-in detailed Telegram view can now distinguish the
+    # gap after planning from planning-in-progress (Editorial QA), and the gap after
+    # mux from rendering-in-progress (Final QC). This is observability-only and
+    # remains best-effort/non-authoritative for production.
+    if _state.get("current_stage") == stage:
+        _enqueue_progress_snapshot(stage)
 
 
 def is_authorized_user(user_id: int) -> bool:
