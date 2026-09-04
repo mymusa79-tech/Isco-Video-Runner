@@ -36,6 +36,28 @@ class VoiceOwnedTimelineV1Tests(unittest.TestCase):
         self.assertNotIn("_fit_voice_to_video", source)
         self.assertIn('"voice_post_speed_factor": 1.0', source)
         self.assertIn('"voice_time_compression": False', source)
+        self.assertEqual(runtime.VOICE_TASK_ID, "SHORT_VOICE_V2")
+
+    def test_performance_script_preserves_words_and_adds_breathing_punctuation(self):
+        events = [
+            {"text": "أنا خائف؟"},
+            {"text": "لكنني ما زلت هنا"},
+            {"text": "يمكنني أن أبدأ بهدوء"},
+        ]
+        script = runtime._performance_script(events, "voice_led", "inner_dialogue")
+        self.assertEqual(script, "أنا خائف… لكنني ما زلت هنا… يمكنني أن أبدأ بهدوء.")
+        for expected in ("أنا خائف", "لكنني ما زلت هنا", "يمكنني أن أبدأ بهدوء"):
+            self.assertIn(expected, script)
+
+    def test_hybrid_performance_speaks_hook_and_payoff_with_pause(self):
+        events = [
+            {"text": "الفكرة الأولى"},
+            {"text": "معلومة بصرية"},
+            {"text": "الخلاصة الأخيرة"},
+        ]
+        script = runtime._performance_script(events, "hybrid", "quote_reflection")
+        self.assertEqual(script, "الفكرة الأولى… الخلاصة الأخيرة.")
+        self.assertNotIn("معلومة بصرية", script)
 
     def test_hard_max_requests_planning_repair_instead_of_speed(self):
         with self.assertRaisesRegex(VoiceOwnedTimelineError, "planning_repair_required=true"):
