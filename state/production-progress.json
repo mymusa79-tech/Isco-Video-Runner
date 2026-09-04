@@ -1,14 +1,10 @@
 {
   "schema_version": 1,
-  "run_id": "33858792425",
-  "run_number": "187",
+  "run_id": "33864747558",
+  "run_number": "188",
   "workflow_path": ".github/workflows/produce-resilient-v4.yml",
   "status": "running",
-  "stage": "mux",
-  "completed_stages": [
-    "planning",
-    "visuals",
-    "mux"
-  ],
-  "updated_at": "2026-09-04T09:35:19.501459Z"
+  "stage": "starting",
+  "completed_stages": [],
+  "updated_at": "2026-09-04T10:48:15.431150Z"
 }
