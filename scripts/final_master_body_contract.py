@@ -26,6 +26,8 @@ class FinalMasterBodyContractError(RuntimeError):
 
 def _read_required_object(path: Path) -> dict[str, Any]:
     try:
+        if path.is_symlink():
+            raise ValueError("symlink not allowed")
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
         raise FinalMasterBodyContractError(
@@ -39,7 +41,7 @@ def _read_required_object(path: Path) -> dict[str, Any]:
 
 
 def _read_optional_object(path: Path) -> dict[str, Any] | None:
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return None
     return _read_required_object(path)
 

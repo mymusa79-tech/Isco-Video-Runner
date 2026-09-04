@@ -1,42 +1,45 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from pathlib import Path
 import tempfile
 import unittest
-from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from scripts import final_master_qc as qc
-from scripts import orchestration_shorts_port as short_port
+from scripts import final_master_acceptance_v2 as acceptance
+from scripts import final_master_acceptance_v2_legacy as acceptance_legacy
+from scripts import final_master_format_router as router
+from scripts import final_master_qc as core
+from scripts.final_master_body_contract import (
+    FinalMasterBodyContractError,
+    resolve_body_contract,
+)
 
 
 def _write(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _probe(*, seconds: float = 12.0, fmt: str = "moment") -> dict:
+def _probe(*, seconds: float, fmt: str = "moment") -> dict:
     width, height = ((1080, 1920) if fmt == "moment" else (1920, 1080))
     return {
+        "format": {"duration": str(seconds)},
         "streams": [
             {
                 "codec_type": "video",
                 "codec_name": "h264",
+                "profile": "High",
                 "width": width,
                 "height": height,
                 "pix_fmt": "yuv420p",
                 "avg_frame_rate": "30/1",
+                "field_order": "progressive",
                 "color_transfer": "bt709",
                 "color_primaries": "bt709",
                 "color_space": "bt709",
-            },
-            {
-                "codec_type": "audio",
-                "codec_name": "aac",
-                "sample_rate": "48000",
-                "channels": 2,
-            },
+            }
         ],
-        "format": {"duration": str(seconds)},
     }
 
 
@@ -51,171 +54,190 @@ def _scan() -> dict:
     }
 
 
-def _moment_root(td: str, *, duration: float = 12.0) -> Path:
-    root = Path(td)
-    (root / "final.mp4").write_bytes(b"final" * 1024)
-    _write(root / "plan.json", {"format": "moment"})
-    _write(
-        root / "quality-final.json",
-        {
-            "format": "moment",
-            "duration_seconds": duration,
-            "video_stream_duration": duration,
-            "audio_stream_duration": duration,
-            "quality_measurement_stage": "post_render",
-        },
-    )
-    return root
-
-
 class Run186FormatAwareFinalMasterQCTests(unittest.TestCase):
-    def test_observed_short_base_master_passes_without_m7_visual_timeline(self) -> None:
+    def _moment_root(self, td: str, *, seconds: float = 12.0) -> Path:
+        root = Path(td)
+        (root / "final.mp4").write_bytes(b"moment-final-bytes")
+        _write(root / "plan.json", {"format": "moment"})
+        _write(
+            root / "quality-final.json",
+            {
+                "format": "moment",
+                "duration_ok": True,
+                "audio_ok": True,
+                "av_sync_ok": True,
+                "video_stream_duration": seconds,
+                "duration_seconds": seconds,
+            },
+        )
+        return root
+
+    def test_observed_production_shape_passes_without_long_m7_timeline(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = _moment_root(td)
+            root = self._moment_root(td)
             self.assertFalse((root / "visual-timeline.json").exists())
-            with patch.object(qc, "probe", return_value=_probe()), patch.object(
-                qc, "_run_full_scan", return_value=_scan()
+            original = Mock(side_effect=AssertionError("Moment must not enter long-only core body lookup"))
+            with patch.object(router.core, "probe", return_value=_probe(seconds=12.0)), patch.object(
+                router.core, "_run_full_scan", return_value=_scan()
             ):
-                report = qc.run_final_master_qc(root)
+                report = router.run_format_aware_final_master_qc(root, original=original)
 
             self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["format"], "moment")
             self.assertEqual(report["body_contract_kind"], "moment_measured_render")
             self.assertEqual(report["body_duration_source"], "quality-final.json:video_stream_duration")
             self.assertFalse(report["m7_timeline_authoritative"])
-            self.assertFalse(report["short_timeline_authoritative"])
-            self.assertEqual(report["body_duration_seconds"], 12.0)
-            self.assertEqual(report["m7_body_duration_seconds"], 12.0)
+            original.assert_not_called()
 
-    def test_long_form_still_fails_closed_without_m7_timeline(self) -> None:
+    def test_long_form_delegates_to_certified_core_exactly_once(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            (root / "final.mp4").write_bytes(b"final" * 1024)
             _write(root / "plan.json", {"format": "film"})
-            _write(root / "quality-final.json", {"format": "film", "video_stream_duration": 60.0})
-            with self.assertRaisesRegex(qc.FinalMasterQCError, "visual-timeline.json"):
-                qc.run_final_master_qc(root)
+            _write(root / "quality-final.json", {"format": "film"})
+            expected = {"status": "pass", "owner": "certified-core"}
+            original = Mock(return_value=expected)
+            result = router.run_format_aware_final_master_qc(root, original=original)
+            self.assertIs(result, expected)
+            original.assert_called_once_with(root)
 
-    def test_long_form_keeps_m7_timeline_authoritative(self) -> None:
+    def test_standalone_short_timeline_is_authoritative_only_after_it_exists(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            (root / "final.mp4").write_bytes(b"final" * 1024)
-            _write(root / "plan.json", {"format": "film"})
-            _write(root / "quality-final.json", {"format": "film", "video_stream_duration": 60.0})
-            _write(root / "visual-timeline.json", {"duration_seconds": 60.0})
-            with patch.object(qc, "probe", return_value=_probe(seconds=60.0, fmt="film")), patch.object(
-                qc, "_run_full_scan", return_value=_scan()
-            ):
-                report = qc.run_final_master_qc(root)
-            self.assertEqual(report["body_contract_kind"], "long_m7_timeline")
-            self.assertEqual(report["body_duration_source"], "visual-timeline.json:duration_seconds")
-            self.assertTrue(report["m7_timeline_authoritative"])
-
-    def test_finished_standalone_short_prefers_real_short_cinematic_timeline(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = _moment_root(td)
-            _write(
-                root / "short-visual-timeline.json",
-                {
-                    "schema_version": 1,
-                    "profile": "short_cinematic_director_v1",
-                    "status": "applied",
-                    "duration_seconds": 12.0,
-                    "shot_count": 3,
-                },
+            root = self._moment_root(td)
+            base = resolve_body_contract(
+                root,
+                fmt="moment",
+                quality=json.loads((root / "quality-final.json").read_text()),
             )
-            with patch.object(qc, "probe", return_value=_probe()), patch.object(
-                qc, "_run_full_scan", return_value=_scan()
-            ):
-                report = qc.run_final_master_qc(root)
-            self.assertEqual(report["body_contract_kind"], "moment_short_cinematic_timeline")
-            self.assertEqual(report["body_duration_source"], "short-visual-timeline.json:duration_seconds")
-            self.assertTrue(report["short_timeline_authoritative"])
-            self.assertEqual(report["quality_duration_crosscheck_seconds"], 12.0)
+            self.assertEqual(base["kind"], "moment_measured_render")
 
-    def test_sibling_short_without_cinematic_timeline_uses_refreshed_quality_measurement(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = _moment_root(td, duration=14.0)
-            _write(
-                root / "quality-final.json",
-                {
-                    "format": "moment",
-                    "video_stream_duration": 14.0,
-                    "duration_seconds": 14.0,
-                    "quality_measurement_stage": "post_short_finishing_pre_gold",
-                },
+            _write(root / "short-visual-timeline.json", {"duration_seconds": 12.0})
+            finished = resolve_body_contract(
+                root,
+                fmt="moment",
+                quality=json.loads((root / "quality-final.json").read_text()),
             )
-            with patch.object(qc, "probe", return_value=_probe(seconds=14.0)), patch.object(
-                qc, "_run_full_scan", return_value=_scan()
-            ):
-                report = qc.run_final_master_qc(root)
-            self.assertEqual(report["body_contract_kind"], "moment_measured_render")
-            self.assertEqual(report["body_duration_source"], "quality-final.json:video_stream_duration")
-            self.assertFalse(report["short_timeline_authoritative"])
+            self.assertEqual(finished["kind"], "moment_short_cinematic_timeline")
+            self.assertTrue(finished["short_timeline_authoritative"])
 
-    def test_existing_malformed_short_timeline_blocks_instead_of_silent_fallback(self) -> None:
+    def test_malformed_existing_short_timeline_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = _moment_root(td)
-            (root / "short-visual-timeline.json").write_text("not-json", encoding="utf-8")
-            with self.assertRaisesRegex(qc.FinalMasterQCError, "short-visual-timeline.json"):
-                qc.run_final_master_qc(root)
+            root = self._moment_root(td)
+            (root / "short-visual-timeline.json").write_text("{bad", encoding="utf-8")
+            with self.assertRaises(FinalMasterBodyContractError):
+                resolve_body_contract(
+                    root,
+                    fmt="moment",
+                    quality=json.loads((root / "quality-final.json").read_text()),
+                )
 
-    def test_short_timeline_and_quality_duration_disagreement_blocks(self) -> None:
+    def test_conflicting_short_and_measured_duration_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = _moment_root(td, duration=12.0)
+            root = self._moment_root(td)
             _write(root / "short-visual-timeline.json", {"duration_seconds": 10.0})
-            with self.assertRaisesRegex(qc.FinalMasterQCError, "body-duration authority mismatch"):
-                qc.run_final_master_qc(root)
+            with self.assertRaises(FinalMasterBodyContractError):
+                resolve_body_contract(
+                    root,
+                    fmt="moment",
+                    quality=json.loads((root / "quality-final.json").read_text()),
+                )
 
     def test_moment_probe_and_body_duration_drift_blocks(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = _moment_root(td, duration=12.0)
-            with patch.object(qc, "probe", return_value=_probe(seconds=12.5)):
-                with self.assertRaisesRegex(qc.FinalMasterQCError, "Moment final/body duration mismatch"):
-                    qc.run_final_master_qc(root)
-
-    def test_short_double_qc_handoff_crosses_base_qc_then_rechecks_finished_bytes(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            root = _moment_root(td)
-            request = {"kind": "short", "request_id": "run186-short"}
-            with patch.object(qc, "probe", return_value=_probe()), patch.object(
-                qc, "_run_full_scan", return_value=_scan()
+            root = self._moment_root(td)
+            with patch.object(router.core, "probe", return_value=_probe(seconds=13.0)), patch.object(
+                router.core, "_run_full_scan", return_value=_scan()
             ):
-                base_report = qc.run_final_master_qc(root)
-                self.assertEqual(base_report["body_contract_kind"], "moment_measured_render")
+                with self.assertRaises(core.FinalMasterQCError):
+                    router.run_format_aware_final_master_qc(root, original=Mock())
 
-                def voice(_out, _request, pre_gold, *, ledger):
-                    _write(
-                        root / "short-visual-timeline.json",
-                        {"status": "applied", "duration_seconds": 12.0, "shot_count": 3},
-                    )
-                    _write(
-                        root / "quality-final.json",
-                        {
-                            "format": "moment",
-                            "video_stream_duration": 12.0,
-                            "duration_seconds": 12.0,
-                            "quality_measurement_stage": "post_short_finishing_pre_gold",
-                        },
-                    )
-                    return {**pre_gold, "voice": {"generated": True}}
+    def test_moment_acceptance_receipt_owns_no_long_timeline(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = self._moment_root(td)
+            with patch.object(router.core, "probe", return_value=_probe(seconds=12.0)), patch.object(
+                router.core, "_run_full_scan", return_value=_scan()
+            ):
+                report = router.run_format_aware_final_master_qc(root, original=Mock())
 
-                with patch.object(
-                    short_port.core, "prepare_short_render", return_value={"stage": "pre_gold"}
-                ), patch.object(short_port, "apply_short_voice_v2", side_effect=voice):
-                    result = short_port.prepare_authoritative_short_for_gold(
-                        root,
-                        request,
-                        ledger=object(),
-                        run_final_master_qc=qc.run_final_master_qc,
-                    )
+            with patch.object(acceptance_legacy, "probe", return_value=_probe(seconds=12.0)):
+                sealed = acceptance.seal_final_master_acceptance(root, report)
+                required = acceptance.require_final_master_acceptance(root, report=sealed)
 
-            self.assertTrue(result["authoritative_final_master_qc_rerun"])
-            finished_report = json.loads((root / "final-master-qc.json").read_text(encoding="utf-8"))
-            self.assertEqual(finished_report["status"], "pass")
+            sources = required["acceptance_contract"]["sources"]
+            self.assertEqual(set(sources), {"final", "plan", "quality_final"})
+            self.assertNotIn("visual_timeline", sources)
+
+    def test_second_qc_after_short_finishing_binds_short_timeline(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = self._moment_root(td)
+            with patch.object(router.core, "probe", return_value=_probe(seconds=12.0)), patch.object(
+                router.core, "_run_full_scan", return_value=_scan()
+            ), patch.object(acceptance_legacy, "probe", return_value=_probe(seconds=12.0)):
+                first = router.run_format_aware_final_master_qc(root, original=Mock())
+                first = acceptance.seal_final_master_acceptance(root, first)
+                self.assertNotIn(
+                    "short_visual_timeline",
+                    first["acceptance_contract"]["sources"],
+                )
+
+                _write(root / "short-visual-timeline.json", {"duration_seconds": 12.0})
+                second = router.run_format_aware_final_master_qc(root, original=Mock())
+                second = acceptance.seal_final_master_acceptance(root, second)
+
             self.assertEqual(
-                finished_report["body_contract_kind"],
+                second["body_contract_kind"],
                 "moment_short_cinematic_timeline",
             )
+            self.assertIn(
+                "short_visual_timeline",
+                second["acceptance_contract"]["sources"],
+            )
+            acceptance.require_final_master_acceptance(root, report=second)
+
+    def test_long_acceptance_still_requires_m7_visual_timeline(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "final.mp4").write_bytes(b"long-final")
+            _write(root / "plan.json", {"format": "film"})
+            _write(root / "quality-final.json", {"format": "film"})
+            with self.assertRaises(acceptance.FinalMasterAcceptanceError):
+                acceptance._source_bindings(root)
+
+    def test_certified_core_and_stable_port_remain_original_blobs(self) -> None:
+        def blob(path: str) -> str:
+            data = Path(path).read_bytes()
+            return hashlib.sha1(
+                f"blob {len(data)}\0".encode("ascii") + data
+            ).hexdigest()
+
+        self.assertEqual(
+            blob("scripts/final_master_qc.py"),
+            "e3412fc5710618eb9d7529710d8dbbc539e9fa91",
+        )
+        self.assertEqual(
+            blob("scripts/orchestration_qc_port.py"),
+            "9d23051dc3db8ad8f5913dd5a21dcc2f4bee7035",
+        )
+
+    def test_router_reuses_certified_core_thresholds_and_scanners(self) -> None:
+        source = Path("scripts/final_master_format_router.py").read_text(encoding="utf-8")
+        for required in (
+            "core._stream_contract",
+            "core._run_full_scan",
+            "core._parse_silence_events",
+            "core._parse_freeze_events",
+            "core.BLACK_DETECT_SECONDS",
+            "core.SILENCE_DETECT_SECONDS",
+            "core.FREEZE_BLOCK_SECONDS",
+            "core.FULL_SCAN_TIMEOUT_SECONDS",
+        ):
+            self.assertIn(required, source)
+        for forbidden in (
+            "BLACK_DETECT_SECONDS =",
+            "SILENCE_DETECT_SECONDS =",
+            "FREEZE_BLOCK_SECONDS =",
+            "FULL_SCAN_TIMEOUT_SECONDS =",
+        ):
+            self.assertNotIn(forbidden, source)
 
 
 if __name__ == "__main__":
