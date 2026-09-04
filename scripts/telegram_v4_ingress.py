@@ -103,7 +103,17 @@ def prepare(
 
     brief_path, brief_sha256 = materialize_approved_brief(request, Path(brief_output))
     brief_path.chmod(0o600)
-    fmt = "moment" if request.get("kind") == "short" else str(request.get("format") or "film")
+
+    # The runtime request must use the exact same outer format that was resolved and
+    # cryptographically bound into the Approved Brief. Never re-read the untrusted
+    # pre-resolution `request["format"]` here: new Long approvals intentionally store
+    # `auto` until this V4 seam, while Planning must receive the final film/story.
+    bound_brief = json.loads(brief_path.read_text(encoding="utf-8"))
+    fmt = str(bound_brief.get("format") or "").strip()
+    expected_formats = {"moment"} if request.get("kind") == "short" else {"film", "story"}
+    if fmt not in expected_formats:
+        raise RuntimeError("Resolved Approved Brief format is inconsistent with Telegram request kind")
+
     request_output = Path(request_output)
     request_output.parent.mkdir(parents=True, exist_ok=True)
     request_output.write_text(
@@ -127,6 +137,7 @@ def prepare(
         "release_tag": release_tag,
         "kind": str(request.get("kind") or ""),
         "approval_scope": str(request.get("approval_scope") or ""),
+        "resolved_format": fmt,
         "runner_sha": runner_sha,
     }
     _github_output(github_output, **values)
