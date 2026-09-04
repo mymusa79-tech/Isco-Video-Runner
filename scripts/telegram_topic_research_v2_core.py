@@ -18,7 +18,10 @@ from scripts import telegram_topic_memory_ui as memory_ui
 
 RESEARCH_CONTRACT_VERSION = "topic-research-v2"
 SEEN_COOLDOWN_DAYS = 21
-MIN_LIVE_MARKET_CANDIDATES = 3
+# Three is the UX target, not a validity condition. Every returned candidate still
+# has to satisfy the same live-market / used-topic / production-readiness gates.
+MIN_LIVE_MARKET_CANDIDATES = 1
+TARGET_RESEARCH_OPTIONS = 3
 MAX_YOUTUBE_MARKET_PROBES = 5
 
 
@@ -137,7 +140,7 @@ def _build_candidate_payload(candidate: dict[str, Any], kind: str) -> dict[str, 
     return normalized
 
 
-def _diverse_top(candidates: list[dict[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
+def _diverse_top(candidates: list[dict[str, Any]], limit: int = TARGET_RESEARCH_OPTIONS) -> list[dict[str, Any]]:
     ranked = sorted(candidates, key=lambda item: float(item.get("control_score", 0.0) or 0.0), reverse=True)
     chosen: list[dict[str, Any]] = []
     for bucket in ("rising", "hybrid", "evergreen", "explore"):
@@ -176,10 +179,22 @@ def _diverse_top(candidates: list[dict[str, Any]], limit: int = 3) -> list[dict[
 
 def _candidate_panel_text(kind: str, candidates: list[dict[str, Any]]) -> str:
     icon = "🎬" if kind == "long" else "⚡"
-    heading = "3 فرص بحث حي للحلقة" if kind == "long" else "3 فرص بحث حي للشورت"
+    count = min(TARGET_RESEARCH_OPTIONS, len(candidates))
+    subject = "للحلقة" if kind == "long" else "للشورت"
+    heading = f"{count} {'فرصة' if count == 1 else 'فرص'} بحث حي {subject}"
     badges = ("1️⃣", "2️⃣", "3️⃣")
-    lines = [f"{icon} {heading}", "", "الدرجة تفصل بين ملاءمة القناة وتوقيت السوق؛ «الآن» مبني على YouTube حديث وليس تقديرًا من النموذج.", ""]
-    for index, item in enumerate(candidates[:3]):
+    lines = [
+        f"{icon} {heading}",
+        "",
+        "الدرجة تفصل بين ملاءمة القناة وتوقيت السوق؛ «الآن» مبني على YouTube حديث وليس تقديرًا من النموذج.",
+        "",
+    ]
+    if count < TARGET_RESEARCH_OPTIONS:
+        lines.extend([
+            f"ℹ️ وجدت {count} خيارًا صالحًا فقط في هذه الدورة. لم أخفّض أي Quality/Market Gate لملء العدد إلى 3.",
+            "",
+        ])
+    for index, item in enumerate(candidates[:TARGET_RESEARCH_OPTIONS]):
         score = float(item.get("control_score", 0.0) or 0.0) * 10
         fit = float(item.get("channel_fit_score", 0.0) or 0.0) * 10
         trend = float(item.get("trend_score", 0.0) or 0.0) * 10
@@ -192,6 +207,17 @@ def _candidate_panel_text(kind: str, candidates: list[dict[str, Any]]) -> str:
         lines.append("")
     lines.append("👇 اختر فكرة، أو افتح التفاصيل لرؤية دليل السوق وتاريخه. لا يبدأ Production من هذه البطاقة.")
     return "\n".join(lines).strip()
+
+
+def _candidate_keyboard(session_id: str, kind: str, candidate_count: int) -> list[list[dict[str, str]]]:
+    """Trim impossible selection buttons when Research returns fewer than three."""
+    rows = panel._candidate_keyboard(session_id, kind)
+    count = max(0, min(TARGET_RESEARCH_OPTIONS, int(candidate_count)))
+    if count >= TARGET_RESEARCH_OPTIONS:
+        return rows
+    # The certified keyboard owns three candidate rows followed by utility rows
+    # (refresh/home). Preserve the utility tail unchanged.
+    return rows[:count] + rows[TARGET_RESEARCH_OPTIONS:]
 
 
 def _candidate_detail(item: dict[str, Any], index: int) -> str:
@@ -244,7 +270,9 @@ def _research_failure_reason(exc: Exception) -> str:
     if "Live topic selection failed" in text or "Live topic research" in text:
         return "السبب: لم يكتمل عقد البحث الحي؛ تم منع الـFallback الثابت من الظهور كأنه بحث جديد."
     if "live market" in text.casefold() or "market" in text.casefold():
-        return "السبب: لم تتوفر 3 فرص بدليل سوق حي كافٍ؛ لن أعرض رقم «اهتمام حالي» غير موثق."
+        return "السبب: لم تتوفر أي فرصة بدليل سوق حي كافٍ؛ لن أعرض رقم «اهتمام حالي» غير موثق."
+    if "production-ready" in text:
+        return "السبب: لم تبقَ أي فكرة تجتاز عقد الجاهزية الكامل بعد الفلاتر."
     return ""
 
 
@@ -310,10 +338,13 @@ def _research_current_v2(state_path: Path) -> None:
         )
         probe_pool = sorted(ranked, key=lambda item: item.channel_fit_score, reverse=True)[:MAX_YOUTUBE_MARKET_PROBES]
         ranked = measure_market_timing(youtube, probe_pool, region=region, language=language)
-        live = [item for item in ranked if item.market_timing_status == "measured" and item.source_mode == "live_research"]
+        live = [
+            item for item in ranked
+            if item.market_timing_status == "measured" and item.source_mode == "live_research"
+        ]
         if len(live) < MIN_LIVE_MARKET_CANDIDATES:
             raise RuntimeError(
-                f"Live market evidence produced only {len(live)} candidates; need {MIN_LIVE_MARKET_CANDIDATES}"
+                f"Live market evidence produced only {len(live)} candidates; need at least {MIN_LIVE_MARKET_CANDIDATES}"
             )
         candidates = [_build_candidate_payload(item.to_dict(), kind) for item in live]
         candidates.sort(key=lambda item: float(item.get("control_score", 0.0) or 0.0), reverse=True)
@@ -322,9 +353,10 @@ def _research_current_v2(state_path: Path) -> None:
             research_ready = simple._research_ready_long_candidates(gemini, unused_candidates[:5], model)
         else:
             research_ready = unused_candidates
-        chosen = _diverse_top(research_ready, 3)
-        if len(chosen) != 3:
-            raise RuntimeError("Live research did not produce three distinct production-ready candidates")
+        chosen = _diverse_top(research_ready, TARGET_RESEARCH_OPTIONS)
+        if not chosen:
+            raise RuntimeError("Live research did not produce any distinct production-ready candidate")
+
         session_id = secrets.token_hex(4)
         session = {
             "schema_version": 2,
@@ -335,6 +367,8 @@ def _research_current_v2(state_path: Path) -> None:
             "source_mode": "live_research",
             "seen_cooldown_days": SEEN_COOLDOWN_DAYS,
             "youtube_market_probe_limit": MAX_YOUTUBE_MARKET_PROBES,
+            "target_option_count": TARGET_RESEARCH_OPTIONS,
+            "returned_option_count": len(chosen),
             "excluded_recent_topics": exclusions,
             "candidates": chosen,
             "used_topics_filtered": used_filtered,
@@ -342,7 +376,8 @@ def _research_current_v2(state_path: Path) -> None:
         state["sessions"][session_id] = session
         active._archive_session_candidates(state, session, review_candidates=unused_candidates)
         state[active.ACTIVE_RESEARCH_SESSION_KEY] = session_id
-        state.pop(active.PRODUCTION_TARGET_KEY, None)
+        # Deliberately do NOT clear PRODUCTION_TARGET_KEY. A successful research
+        # refresh is discovery state, not revocation of an approved operator decision.
         pending["status"] = "completed"
         pending["completed_at"] = panel._now()
         state["last_research_result"] = {
@@ -351,10 +386,13 @@ def _research_current_v2(state_path: Path) -> None:
             "session_id": session_id,
             "completed_at": pending["completed_at"],
             "attempts": attempts,
+            "returned_option_count": len(chosen),
         }
         state["last_event_at"] = pending["completed_at"]
         panel.save_state(state_path, state)
     except Exception as exc:
+        # Session-continuity policy preserves the last valid research card and any
+        # approved Production target while this new refresh retries/fails.
         active._clear_current_selection(state)
         reason = _research_failure_reason(exc)
         final_failure = attempts >= 3
@@ -396,7 +434,7 @@ def _research_current_v2(state_path: Path) -> None:
             client,
             pending,
             _candidate_panel_text(kind, chosen),
-            keyboard=panel._candidate_keyboard(session_id, kind),
+            keyboard=_candidate_keyboard(session_id, kind, len(chosen)),
             chat_id=chat_id,
         )
     except Exception as exc:
@@ -428,7 +466,3 @@ def main() -> None:
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     memory_ui._require_poll_identity(mode)
     panel.main()
-
-
-if __name__ == "__main__":
-    main()
