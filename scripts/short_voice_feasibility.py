@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import combinations
 from typing import Any
 
 
@@ -37,22 +38,18 @@ def _candidate_index_sets(count: int, mode: str) -> list[list[int]]:
     if mode != "voice_led":
         raise RuntimeError("Short Voice feasibility received unsupported voice mode")
 
-    candidates: list[list[int]] = [list(range(count))]
-    middle = list(range(1, count - 1))
-    if middle:
-        # Preserve the hook and payoff first, then keep the latest semantic turn.
-        # Additional middle beats are admitted only while the natural-duration budget allows.
-        candidates.append([0, middle[-1], count - 1])
-    candidates.append([0, count - 1])
-
-    unique: list[list[int]] = []
-    seen: set[tuple[int, ...]] = set()
-    for item in candidates:
-        key = tuple(item)
-        if key not in seen:
-            seen.add(key)
-            unique.append(item)
-    return unique
+    # Hook and payoff are mandatory. Search every middle-beat subset by descending
+    # cardinality so the first feasible projection always preserves the maximum
+    # number of already-approved semantic beats. For equal cardinality prefer the
+    # latest semantic turns first, preserving the prior policy without allowing an
+    # untested earlier subset to be skipped entirely.
+    middle = tuple(range(1, count - 1))
+    candidates: list[list[int]] = []
+    for keep_count in range(len(middle), -1, -1):
+        variants = sorted(combinations(middle, keep_count), reverse=True)
+        for variant in variants:
+            candidates.append([0, *variant, count - 1])
+    return candidates
 
 
 def build_voice_projection(
@@ -82,7 +79,8 @@ def build_voice_projection(
 
     chosen_indexes: list[int] | None = None
     chosen_estimate = 0.0
-    for indexes in _candidate_index_sets(len(texts), mode):
+    candidates = _candidate_index_sets(len(texts), mode)
+    for indexes in candidates:
         candidate = [texts[index] for index in indexes]
         estimate = _estimate_seconds(candidate)
         if estimate <= planning_budget:
@@ -118,6 +116,9 @@ def build_voice_projection(
         "inter_beat_pause_seconds": INTER_BEAT_PAUSE_SECONDS,
         "preflight_speed_headroom": PREFLIGHT_SPEED_HEADROOM,
         "runtime_max_speed_unchanged": RUNTIME_MAX_SPEED,
+        "projection_search_policy": "max_spoken_beat_count_then_latest_semantic_turn",
+        "projection_candidates_considered": len(candidates),
+        "projection_search_complete": True,
         "ai_rewrite_used": False,
         "on_screen_semantic_beats_preserved": True,
     }
