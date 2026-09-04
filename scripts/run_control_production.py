@@ -19,6 +19,8 @@ from scripts.orchestration_shorts_port import finalize_short_quality, prepare_au
 from scripts.short_finishing_capabilities import (
     ShortFinishingCapabilities,
     bind_short_finishing_capabilities,
+    cleanup_child_capability_files,
+    materialize_child_capability_files,
 )
 from scripts.sibling_short_orchestration import orchestrate_sibling_shorts, stage_sibling_assets
 from scripts.source_derived_short_planner import install_source_derived_short_planner
@@ -206,7 +208,12 @@ def _runtime_env_for_request(
     return values
 
 
-def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Path:
+def execute_control_request(
+    request: dict[str, Any],
+    *,
+    runtime_dir: Path,
+    capability_sink: dict[str, ShortFinishingCapabilities] | None = None,
+) -> Path:
     validate_control_request(request, str(request.get("request_sha256") or ""))
     runtime_dir = Path(runtime_dir)
     runtime_dir.mkdir(parents=True, exist_ok=True)
@@ -257,12 +264,17 @@ def execute_control_request(request: dict[str, Any], *, runtime_dir: Path) -> Pa
 
     def controlled_gold(**kwargs):
         nonlocal short_pre
+        capabilities: ShortFinishingCapabilities | None = None
+        if request["kind"] == "short" or capability_sink is not None:
+            capabilities = ShortFinishingCapabilities.from_gold_kwargs(kwargs)
+            if capability_sink is not None:
+                capability_sink["short_finishing"] = capabilities
         if request["kind"] == "short":
             output_dir = Path(kwargs["output_dir"])
             ledger = ledger_box.get("ledger")
             if ledger is None:
                 raise RuntimeError("Short V2 lost the production AI budget ledger before voice synthesis")
-            capabilities = ShortFinishingCapabilities.from_gold_kwargs(kwargs)
+            assert capabilities is not None
             with bind_short_finishing_capabilities(capabilities):
                 short_pre = prepare_authoritative_short_for_gold(
                     output_dir,
@@ -320,16 +332,38 @@ def _isolated_child_process_env(child_request: dict[str, Any], request_path: Pat
         "ISCO_CONTROL_REQUEST_ID",
     ):
         env.pop(key, None)
+    # Provider capability isolation: parent direct values and any stale one-time paths
+    # are never inherited. execute_child_subprocess installs fresh child-only *_FILE
+    # paths immediately before process creation.
+    for key in (
+        "GEMINI_API_KEY",
+        "GEMINI_API_KEY_FILE",
+        "PEXELS_API_KEY",
+        "PEXELS_API_KEY_FILE",
+        "PIXABAY_API_KEY",
+        "PIXABAY_API_KEY_FILE",
+    ):
+        env.pop(key, None)
     return env
 
 
-def execute_child_subprocess(child_request: dict[str, Any], *, runtime_root: Path) -> Path:
+def execute_child_subprocess(
+    child_request: dict[str, Any],
+    *,
+    runtime_root: Path,
+    capabilities: ShortFinishingCapabilities,
+) -> Path:
     validate_control_request(child_request, str(child_request.get("request_sha256") or ""))
     child_dir = Path(runtime_root) / str(child_request.get("request_id") or "child")
     child_dir.mkdir(parents=True, exist_ok=True)
     request_path = child_dir / "child-control-request.json"
     request_path.write_text(json.dumps(child_request, ensure_ascii=False, indent=2), encoding="utf-8")
     env = _isolated_child_process_env(child_request, request_path)
+    capability_env = materialize_child_capability_files(
+        capabilities,
+        child_dir / "provider-capabilities",
+    )
+    env.update(capability_env)
     before = _output_dirs()
     try:
         subprocess.run(
@@ -342,20 +376,35 @@ def execute_child_subprocess(child_request: dict[str, Any], *, runtime_root: Pat
         raise RuntimeError(
             f"Sibling Short production timed out after {CONTROL_CHILD_TIMEOUT_SECONDS}s"
         ) from exc
+    finally:
+        cleanup_child_capability_files(capability_env)
     return _new_output_dir(before)
 
 
 def execute_bundle(parent_request: dict[str, Any], *, runtime_root: Path) -> Path:
-    parent_output = execute_control_request(parent_request, runtime_dir=Path(runtime_root) / "parent")
-    if parent_request.get("approval_scope") != "long_plus_sibling_shorts":
+    needs_sibling_children = parent_request.get("approval_scope") == "long_plus_sibling_shorts"
+    capability_sink: dict[str, ShortFinishingCapabilities] = {}
+    parent_output = execute_control_request(
+        parent_request,
+        runtime_dir=Path(runtime_root) / "parent",
+        capability_sink=capability_sink if needs_sibling_children else None,
+    )
+    if not needs_sibling_children:
         return parent_output
 
     sibling_plan = parent_output / "sibling-short-plan.json"
     if not sibling_plan.is_file():
         raise RuntimeError("Approved long+Shorts request completed without sibling-short-plan.json")
+    capabilities = capability_sink.pop("short_finishing", None)
+    if not isinstance(capabilities, ShortFinishingCapabilities):
+        raise RuntimeError("Long+Shorts parent lost provider capability ownership before sibling execution")
 
     def execute_child(child_request: dict[str, Any]) -> Path:
-        return execute_child_subprocess(child_request, runtime_root=runtime_root)
+        return execute_child_subprocess(
+            child_request,
+            runtime_root=runtime_root,
+            capabilities=capabilities,
+        )
 
     completed = orchestrate_sibling_shorts(parent_request, sibling_plan, execute_short=execute_child)
     staged = stage_sibling_assets(parent_output, completed)
