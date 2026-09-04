@@ -40,8 +40,21 @@ class FinalMasterQCTests(unittest.TestCase):
         root = Path(td)
         (root / "final.mp4").write_bytes(b"fake-final")
         _write_json(root / "plan.json", {"format": fmt})
-        _write_json(root / "quality-final.json", {"format": fmt, "duration_ok": True, "audio_ok": True, "av_sync_ok": True})
-        _write_json(root / "visual-timeline.json", {"duration_seconds": body})
+        _write_json(
+            root / "quality-final.json",
+            {
+                "format": fmt,
+                "duration_ok": True,
+                "audio_ok": True,
+                "av_sync_ok": True,
+                "duration_seconds": body,
+                "video_stream_duration": body,
+            },
+        )
+        # Long-form owns M7 visual-timeline. Moment intentionally does not: production
+        # reaches its first Final Master QC before the Short finishing/cinematic seam.
+        if fmt != "moment":
+            _write_json(root / "visual-timeline.json", {"duration_seconds": body})
         return root
 
     def test_outro_black_silence_and_freeze_are_excluded(self) -> None:
@@ -155,12 +168,14 @@ class FinalMasterQCTests(unittest.TestCase):
     def test_portrait_moment_contract(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = self._root(td, fmt="moment", body=15.0)
+            self.assertFalse((root / "visual-timeline.json").exists())
             scan = {"returncode": 0, "black_events": [], "silence_events": [], "freeze_events": [], "stderr": ""}
             with patch.object(qc, "probe", return_value=_probe(seconds=15.0, fmt="moment")), patch.object(qc, "_run_full_scan", return_value=scan):
                 report = qc.run_final_master_qc(root)
             self.assertEqual(report["status"], "pass")
             self.assertEqual(report["stream_contract"]["width"], 1080)
             self.assertEqual(report["stream_contract"]["height"], 1920)
+            self.assertEqual(report["body_contract_kind"], "moment_measured_render")
 
 
 if __name__ == "__main__":
