@@ -7,8 +7,8 @@ final media QC could each accept a different duration envelope.  This module mak
 long-form feasibility decision explicit and versioned, then installs two small runtime
 bindings against the pinned private Engine:
 
-1. Film/Story planning uses a word envelope that is guaranteed to be representable
-   inside the final media-duration contract for a conservative spoken-rate envelope.
+1. Film/Story planning uses a word envelope that is representable inside the final
+   media-duration contract for a conservative spoken-rate envelope.
 2. The actual concatenated narration is measured before any stock-media search,
    download, visual review or FFmpeg picture render begins.  The final duration gate
    reuses the same duration authority as defense in depth.
@@ -39,6 +39,13 @@ SPEECH_WPM_CEILING = 150.0
 _BASE_LONG_WORD_BOUNDS: dict[str, tuple[int, int]] = {
     "film": (800, 1450),
     "story": (260, 800),
+}
+
+# Film is already mature and safe, so preserve its authored 960-word target exactly.
+# Story intentionally uses the midpoint of its newly feasible envelope to stop living
+# on the old 420-word lower edge.
+_PRESERVED_TARGET_WORDS: dict[str, int] = {
+    "film": 960,
 }
 
 # These ratios are the current Engine final-QC policy. Keeping them here makes planning,
@@ -85,7 +92,7 @@ def final_duration_bounds(fmt: str, cfg: dict | None = None) -> tuple[float, flo
 
 
 def long_word_bounds(fmt: str, cfg: dict | None = None) -> tuple[int, int]:
-    """Return the old editorial range intersected with provably renderable speech time."""
+    """Return the old editorial range intersected with renderable speech time."""
     fmt = str(fmt or "").strip().lower()
     if fmt not in _BASE_LONG_WORD_BOUNDS:
         raise ProductionFeasibilityError(f"unsupported_long_format:{fmt or 'missing'}")
@@ -103,7 +110,17 @@ def long_word_bounds(fmt: str, cfg: dict | None = None) -> tuple[int, int]:
 
 
 def target_words(fmt: str, cfg: dict | None = None) -> int:
-    lower, upper = long_word_bounds(fmt, cfg)
+    normalized = str(fmt or "").strip().lower()
+    if normalized in _PRESERVED_TARGET_WORDS:
+        # Still validate that the preserved target belongs to the current feasible band.
+        lower, upper = long_word_bounds(normalized, cfg)
+        preserved = _PRESERVED_TARGET_WORDS[normalized]
+        if not lower <= preserved <= upper:
+            raise ProductionFeasibilityError(
+                f"preserved_target_outside_feasible_band:{normalized}:{preserved}"
+            )
+        return preserved
+    lower, upper = long_word_bounds(normalized, cfg)
     return int(round((lower + upper) / 2.0))
 
 
@@ -230,6 +247,7 @@ def install_production_feasibility_contract() -> dict[str, object]:
         "contract_id": CONTRACT_ID,
         "contract_version": CONTRACT_VERSION,
         "film_word_bounds": (film.min_words, film.max_words),
+        "film_target_words": film.target_words,
         "film_duration_bounds": (film.min_seconds, film.max_seconds),
         "story_word_bounds": (story.min_words, story.max_words),
         "story_target_words": story.target_words,
