@@ -2,7 +2,7 @@
   "editorial": {
     "approved_request_hash": "",
     "approved_target": false,
-    "pending_actions_count": 1,
+    "pending_actions_count": 0,
     "production_inflight_count": 0,
     "production_queue_count": 0,
     "production_reserved_count": 0,
@@ -17,8 +17,8 @@
     "used_long_count": 0,
     "used_short_count": 0
   },
-  "generated_at": "2026-09-04T01:49:53.079074Z",
+  "generated_at": "2026-09-04T01:51:38.064120Z",
   "release_approvals": [],
   "schema_version": 1,
-  "source_last_event_at": "2026-09-04T01:49:53.079074+00:00"
+  "source_last_event_at": "2026-09-04T01:51:38.064120+00:00"
 }
