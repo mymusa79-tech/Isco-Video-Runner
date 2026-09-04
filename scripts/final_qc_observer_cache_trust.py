@@ -4,6 +4,8 @@ import os
 import shutil
 from pathlib import Path
 
+from scripts.final_master_format_router import install_format_aware_qc_router
+
 
 def _remove_link_or_path(path: Path) -> None:
     try:
@@ -18,13 +20,22 @@ def _remove_link_or_path(path: Path) -> None:
 
 
 def sanitize_final_observer_cache_before_runtime() -> bool:
-    """Fail closed on untrusted cache parent shapes before any durability lookup.
+    """Install post-planning Final-QC routing, then validate durable cache parents.
+
+    Runtime closure deliberately reaches this module only after planning composition is
+    complete. Installing the format router here keeps Final Master QC outside the
+    planning checkpoint source closure while placing it immediately before the durable
+    Final-QC wrapper captures the live production QC port.
 
     GitHub Actions restores the shared cache before production starts. Older durable
     layers already validate their own entries; this preflight specifically prevents the
-    new Final-QC/Observer namespace from traversing a symlinked shared root or namespace
+    Final-QC/Observer namespace from traversing a symlinked shared root or namespace
     parent. A rejected shape becomes a clean cache miss and never changes production.
     """
+    # This is mandatory even when no shared cache is configured: routing is correctness,
+    # durability is only an optimization.
+    install_format_aware_qc_router()
+
     raw = (os.environ.get("ISCO_TTS_CACHE_PATH") or "").strip()
     if not raw:
         return False
