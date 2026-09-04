@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import inspect
 import os
+from pathlib import Path
+import stat
+import tempfile
 import unittest
 
 from scripts import canonical_v4_short_child, run_control_production
@@ -10,6 +13,8 @@ from scripts.short_finishing_capabilities import (
     ShortFinishingCapabilities,
     ShortFinishingCapabilityError,
     bind_short_finishing_capabilities,
+    cleanup_child_capability_files,
+    materialize_child_capability_files,
 )
 
 
@@ -37,7 +42,7 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
         self.assertNotIn("pexels-sensitive-value", rendered)
         self.assertNotIn("pixabay-sensitive-value", rendered)
 
-    def test_gold_kwargs_are_the_only_capability_source(self) -> None:
+    def test_gold_kwargs_are_the_only_same_process_capability_source(self) -> None:
         capabilities = ShortFinishingCapabilities.from_gold_kwargs(
             {
                 "gemini": "owned-gemini",
@@ -106,7 +111,34 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
                 self.assertEqual(short_voice_v2.secret("GEMINI_API_KEY"), "inner-g")
             self.assertEqual(short_voice_v2.secret("GEMINI_API_KEY"), "outer-g")
 
-    def test_standalone_and_sibling_callers_bind_exact_gold_kwargs_before_finishing(self) -> None:
+    def test_child_process_handoff_uses_fresh_0600_one_time_files(self) -> None:
+        capabilities = ShortFinishingCapabilities(
+            gemini="child-g",
+            pexels="child-p",
+            pixabay="child-x",
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "provider-capabilities"
+            file_env = materialize_child_capability_files(capabilities, root)
+            self.assertEqual(
+                set(file_env),
+                {"GEMINI_API_KEY_FILE", "PEXELS_API_KEY_FILE", "PIXABAY_API_KEY_FILE"},
+            )
+            self.assertEqual(stat.S_IMODE(root.stat().st_mode), 0o700)
+            expected = {
+                "GEMINI_API_KEY_FILE": "child-g",
+                "PEXELS_API_KEY_FILE": "child-p",
+                "PIXABAY_API_KEY_FILE": "child-x",
+            }
+            for name, path_text in file_env.items():
+                path = Path(path_text)
+                self.assertTrue(path.is_file())
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+                self.assertEqual(path.read_text(encoding="utf-8"), expected[name])
+            cleanup_child_capability_files(file_env)
+            self.assertTrue(all(not Path(path).exists() for path in file_env.values()))
+
+    def test_standalone_and_direct_sibling_callers_bind_exact_gold_kwargs_before_finishing(self) -> None:
         standalone = inspect.getsource(run_control_production.execute_control_request)
         sibling = inspect.getsource(canonical_v4_short_child.execute)
         for source in (standalone, sibling):
@@ -118,15 +150,30 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
             self.assertLess(bind_at, finish_at)
             self.assertLess(finish_at, gold_at)
 
-    def test_capability_adapter_contains_no_source_secret_reader_or_env_reinjection(self) -> None:
+    def test_long_bundle_reuses_owned_capability_only_via_child_one_time_files(self) -> None:
+        bundle = inspect.getsource(run_control_production.execute_bundle)
+        child = inspect.getsource(run_control_production.execute_child_subprocess)
+        child_env = inspect.getsource(run_control_production._isolated_child_process_env)
+        self.assertIn("capability_sink=capability_sink if needs_sibling_children else None", bundle)
+        self.assertIn('capability_sink.pop("short_finishing", None)', bundle)
+        self.assertIn("capabilities=capabilities", bundle)
+        self.assertIn("materialize_child_capability_files(", child)
+        self.assertIn("cleanup_child_capability_files(capability_env)", child)
+        self.assertIn('"GEMINI_API_KEY"', child_env)
+        self.assertIn('"GEMINI_API_KEY_FILE"', child_env)
+        self.assertIn('"PEXELS_API_KEY"', child_env)
+        self.assertIn('"PIXABAY_API_KEY_FILE"', child_env)
+
+    def test_capability_adapter_has_no_source_secret_reader_or_direct_env_reinjection(self) -> None:
         from scripts import short_finishing_capabilities as adapter
 
         source = inspect.getsource(adapter)
         self.assertNotIn("from isco_video_agent.config import secret", source)
         self.assertNotIn("os.environ", source)
-        self.assertNotIn("Path(", source)
         self.assertIn("ContextVar", source)
         self.assertIn("field(repr=False)", source)
+        self.assertIn("os.O_EXCL", source)
+        self.assertIn("0o600", source)
 
 
 if __name__ == "__main__":
