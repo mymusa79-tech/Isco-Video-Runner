@@ -37,6 +37,7 @@ from scripts.planning_stage_contract import (
 )
 from scripts.producer_planning_lifecycle import install_producer_planning_lifecycle
 from scripts.producer_quality_contract import install_planning_producer_quality_contract
+from scripts.production_feasibility_contract import install_production_feasibility_contract
 from scripts.production_text_representation_contract import install_production_text_representation_contract
 from scripts.product_proof_plan import install_product_proof_fallback
 from scripts.provider_capacity_hardening import install_provider_capacity_hardening
@@ -113,6 +114,12 @@ def install_runtime_planning_contracts() -> None:
     # any runtime planning patch can build durable checkpoint identity.
     if canonical_runtime_enabled():
         install_runtime_snapshot_binding()
+
+    # Run187 family closure: make Film/Story planning word ranges, the post-TTS
+    # pre-visual feasibility gate and final duration QC consume one versioned contract.
+    # This is planning-affecting by design, so it lives inside this canonical seam and
+    # therefore enters durable planning checkpoint identity automatically.
+    install_production_feasibility_contract()
 
     install_attempt10_append_bound_recovery()
     install_bounded_output_recovery()
