@@ -7,6 +7,17 @@ const CANONICAL_PRODUCTION_PATH = ".github/workflows/produce-resilient-v4.yml";
 const PROGRESS_REF = "control-plane-state";
 const PROGRESS_PATH = "state/production-progress.json";
 const INTERNAL_STAGE_ORDER = ["planning", "voice", "visuals", "mux"];
+const DETAIL_STAGE_ORDER = [
+  ["authorization", "التحقق من التفويض"],
+  ["setup", "تهيئة الإنتاج"],
+  ["planning", "التخطيط"],
+  ["editorial_qa", "المراجعة التحريرية وQA"],
+  ["voice", "الصوت"],
+  ["visuals", "المشاهد"],
+  ["render", "التجميع والتصدير"],
+  ["final_qc", "الفحص النهائي"],
+  ["delivery", "الحزمة النهائية"],
+];
 
 function actor(update) {
   const callback = update && update.callback_query;
@@ -92,6 +103,15 @@ async function updatePanel(env, target, text, rows) {
   });
 }
 
+async function sendPanel(env, target, text, rows) {
+  return telegram(env, "sendMessage", {
+    chat_id: target.chatId,
+    text,
+    disable_web_page_preview: true,
+    reply_markup: { inline_keyboard: rows },
+  });
+}
+
 function githubHeaders(env, authenticated = true) {
   const headers = {
     accept: "application/vnd.github+json",
@@ -139,6 +159,18 @@ async function liveProgress(env, run) {
   }
 }
 
+async function productionStateForRun(env, runId) {
+  const id = String(runId || "").trim();
+  if (!/^\d+$/.test(id)) throw new Error("Invalid production run id");
+  const run = await githubJson(env, `actions/runs/${id}`);
+  if (!run || String(run.id || "") !== id || String(run.path || "") !== CANONICAL_PRODUCTION_PATH) {
+    throw new Error("Requested run is not canonical Production V4");
+  }
+  const jobsPayload = await githubJson(env, `actions/runs/${id}/jobs?per_page=100`);
+  const jobs = Array.isArray(jobsPayload.jobs) ? jobsPayload.jobs : [];
+  return { run, jobs, progress: await liveProgress(env, run) };
+}
+
 async function canonicalProductionState(env) {
   // Query the canonical workflow directly. Never infer production authority from a
   // display name, and never confuse the short Telegram gateway run with Production V4.
@@ -182,12 +214,37 @@ function stageLabel(code) {
   return String(((STATUS_CONTRACT.status_labels || {})[code]) || code || "الإنتاج الجاري");
 }
 
-function externalStage(step) {
+function externalStageRule(step) {
   const folded = String(step || "").toLowerCase();
-  const rule = (STATUS_CONTRACT.stage_rules || []).find((item) =>
+  return (STATUS_CONTRACT.stage_rules || []).find((item) =>
     (item.contains || []).some((needle) => folded.includes(String(needle).toLowerCase())),
-  );
+  ) || null;
+}
+
+function externalStage(step) {
+  const rule = externalStageRule(step);
   return String((rule && rule.label) || step || "الإنتاج الجاري");
+}
+
+function externalDetailStage(step) {
+  const rule = externalStageRule(step);
+  const key = String((rule && rule.key) || "");
+  if (key === "quality") return "final_qc";
+  if (["authorization", "setup", "planning", "voice", "visuals", "delivery"].includes(key)) return key;
+  if (key === "production") return "production";
+  return "";
+}
+
+function detailedInternalStage(progress) {
+  if (!progress) return "";
+  const stage = String(progress.stage || "");
+  const completed = new Set(Array.isArray(progress.completed_stages) ? progress.completed_stages.map(String) : []);
+  if (stage === "starting") return "setup";
+  if (stage === "planning") return completed.has("planning") ? "editorial_qa" : "planning";
+  if (stage === "voice") return completed.has("voice") ? "visuals" : "voice";
+  if (stage === "visuals") return completed.has("visuals") ? "render" : "visuals";
+  if (stage === "mux") return completed.has("mux") ? "final_qc" : "render";
+  return "";
 }
 
 function productionView(value) {
@@ -227,6 +284,65 @@ function productionView(value) {
   };
 }
 
+function detailedStageState(value) {
+  const run = value && value.run;
+  const jobs = (value && value.jobs) || [];
+  const progress = value && value.progress;
+  if (!run) return { key: "", terminal: "none", location: { job: "", step: "" } };
+
+  const conclusion = String(run.conclusion || "").toLowerCase();
+  const completed = String(run.status || "") === "completed";
+  const location = completed ? failedLocation(jobs) : currentLocation(jobs);
+  if (completed && conclusion === "success") return { key: "delivery", terminal: "success", location };
+
+  let key = externalDetailStage(location.step);
+  if (key === "production" || (!key && progress)) key = detailedInternalStage(progress) || "planning";
+  if (!key && completed && conclusion !== "success") key = detailedInternalStage(progress);
+  if (!key && !completed) key = "setup";
+  return { key, terminal: completed ? conclusion || "failure" : "running", location };
+}
+
+function detailStageIcon(index, currentIndex, terminal) {
+  if (terminal === "success") return "✅";
+  if (currentIndex < 0) return "▫️";
+  if (index < currentIndex) return "✅";
+  if (index > currentIndex) return "▫️";
+  if (["failure", "timed_out"].includes(terminal)) return "❌";
+  if (terminal === "cancelled") return "⏸️";
+  return "🔵";
+}
+
+function detailStageText(value) {
+  const run = value && value.run;
+  if (!run) return "🧩 تفاصيل المراحل\n\nلا يوجد Production V4 معروف.";
+  const state = detailedStageState(value);
+  const currentIndex = DETAIL_STAGE_ORDER.findIndex(([key]) => key === state.key);
+  const lines = [
+    `🧩 تفاصيل مراحل Production V4${run.run_number ? ` · Run #${run.run_number}` : ""}`,
+    "",
+  ];
+  DETAIL_STAGE_ORDER.forEach(([key, label], index) => {
+    lines.push(`${detailStageIcon(index, currentIndex, state.terminal)} ${label}`);
+  });
+
+  const currentLabel = currentIndex >= 0 ? DETAIL_STAGE_ORDER[currentIndex][1] : "غير محددة بدقة";
+  lines.push("", `المرحلة الدقيقة الآن: ${currentLabel}`);
+  if (state.location.step) lines.push(`GitHub Step: ${state.location.step}`);
+  else if (state.location.job) lines.push(`GitHub Job: ${state.location.job}`);
+  const freshness = progressFreshness(value.progress);
+  if (freshness) lines.push(freshness);
+  if (value.progress) {
+    const completedInternal = Array.isArray(value.progress.completed_stages) ? value.progress.completed_stages : [];
+    if (completedInternal.length) lines.push(`Runtime milestones المكتملة: ${completedInternal.join(" → ")}`);
+  }
+  lines.push(
+    "",
+    `🕒 قراءة مباشرة: ${omanTime()} · عُمان`,
+    "🔐 تفاصيل قراءة فقط؛ لا تغيّر Production أو أي Quality/Security Gate.",
+  );
+  return lines.join("\n");
+}
+
 function omanTime(value = new Date()) {
   return new Intl.DateTimeFormat("ar-OM", {
     timeZone: "Asia/Muscat",
@@ -263,10 +379,28 @@ function rowsFor(value, includeHome = true) {
     { text: "🔄 تحديث", callback_data: "cmd:status" },
     { text: "🔄 تحديث الكل", callback_data: "cmd:refresh_all" },
   ]];
+  if (value && value.run && value.run.id) {
+    rows.push([{ text: "🧩 تفاصيل المراحل", callback_data: `cmd:stage_details:${value.run.id}` }]);
+  }
   if (value && value.run && String(value.run.html_url || "").startsWith("https://")) {
     rows.push([{ text: "🔗 فتح Run في GitHub", url: value.run.html_url }]);
   }
   if (includeHome) rows.push([{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }]);
+  return rows;
+}
+
+function detailRows(value) {
+  const run = value && value.run;
+  const runId = String((run && run.id) || "");
+  const rows = [];
+  if (/^\d+$/.test(runId)) {
+    rows.push([{ text: "🔄 تحديث التفاصيل", callback_data: `cmd:stage_details_refresh:${runId}` }]);
+  }
+  rows.push([{ text: "📊 الحالة العامة", callback_data: "cmd:status" }]);
+  if (run && String(run.html_url || "").startsWith("https://")) {
+    rows.push([{ text: "🔗 فتح Run في GitHub", url: run.html_url }]);
+  }
+  rows.push([{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }]);
   return rows;
 }
 
@@ -290,6 +424,14 @@ async function showLiveStatus(env, target, stageHint = "") {
   if (freshness) lines.push(freshness);
   lines.push("", `🕒 قراءة مباشرة: ${omanTime()} · عُمان`, "🔐 قراءة فقط؛ لا تبدأ ولا تعيد Production.");
   await updatePanel(env, target, lines.join("\n"), rowsFor(value));
+}
+
+async function showStageDetails(env, target, runId, replaceExisting = false) {
+  const value = await productionStateForRun(env, runId);
+  const text = detailStageText(value);
+  const rows = detailRows(value);
+  if (replaceExisting) await updatePanel(env, target, text, rows);
+  else await sendPanel(env, target, text, rows);
 }
 
 async function showRefreshAll(env, target) {
@@ -323,10 +465,14 @@ async function showRefreshAll(env, target) {
 }
 
 function liveRoute(data) {
-  if (data === "cmd:status" || data === "cmd:system_status") return { kind: "status", stage: "" };
-  if (data === "cmd:refresh_all") return { kind: "refresh", stage: "" };
-  const match = /^cmd:progress_stage:(planning|voice|visuals|mux)$/.exec(String(data || ""));
-  if (match) return { kind: "status", stage: match[1] };
+  if (data === "cmd:status" || data === "cmd:system_status") return { kind: "status", stage: "", runId: "" };
+  if (data === "cmd:refresh_all") return { kind: "refresh", stage: "", runId: "" };
+  let match = /^cmd:stage_details:(\d+)$/.exec(String(data || ""));
+  if (match) return { kind: "details", stage: "", runId: match[1] };
+  match = /^cmd:stage_details_refresh:(\d+)$/.exec(String(data || ""));
+  if (match) return { kind: "details_refresh", stage: "", runId: match[1] };
+  match = /^cmd:progress_stage:(planning|voice|visuals|mux)$/.exec(String(data || ""));
+  if (match) return { kind: "status", stage: match[1], runId: "" };
   return null;
 }
 
@@ -349,18 +495,18 @@ export default {
     const route = update.callback_query ? liveRoute(target.data) : null;
     if (!route) return priorWorker.fetch(request, env, ctx);
     ctx.waitUntil((async () => {
-      await ack(env, target.callbackId, "أقرأ مرحلة الرن الآن…");
+      await ack(env, target.callbackId, route.kind.startsWith("details") ? "أفتح تفاصيل المراحل…" : "أقرأ مرحلة الرن الآن…");
       try {
         if (route.kind === "refresh") await showRefreshAll(env, target);
+        else if (route.kind === "details") await showStageDetails(env, target, route.runId, false);
+        else if (route.kind === "details_refresh") await showStageDetails(env, target, route.runId, true);
         else await showLiveStatus(env, target, route.stage);
       } catch (error) {
         console.error("Telegram live production read failed", String((error && error.message) || error || "unknown"));
-        await updatePanel(
-          env,
-          target,
-          `⚠️ تعذر قراءة المرحلة الحية الآن. لم يبدأ ولم يتغير أي Production Run.\n\n🕒 ${omanTime()} · عُمان`,
-          [[{ text: "🔄 إعادة القراءة", callback_data: "cmd:status" }], [{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }]],
-        );
+        const text = `⚠️ تعذر قراءة المرحلة الحية الآن. لم يبدأ ولم يتغير أي Production Run.\n\n🕒 ${omanTime()} · عُمان`;
+        const rows = [[{ text: "🔄 إعادة القراءة", callback_data: "cmd:status" }], [{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }]];
+        if (route.kind === "details") await sendPanel(env, target, text, rows);
+        else await updatePanel(env, target, text, rows);
       }
     })());
     return new Response("OK");
