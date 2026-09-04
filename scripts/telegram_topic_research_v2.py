@@ -9,6 +9,8 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import telegram_topic_research_v2_core as core
+from scripts import topic_research_ranking_policy as ranking_policy
+from scripts import topic_research_v5_surface as ranking_surface
 
 
 def __getattr__(name: str):
@@ -111,9 +113,16 @@ def main() -> None:
     rich_integration.install()
     core.active._install()
     core.install_v2()
-    # Install last so V5 is a presentation/navigation layer over the fully
-    # certified Topic Research V2 + Production authority stack.
+    # Ranking installs over the certified V2 core before V5 adds its final
+    # presentation/navigation wrapper. It changes selection/ranking only, never
+    # live-evidence acquisition, Production authority, or Quality/Security gates.
+    ranking_policy.install(core=core, panel=core.panel)
     creator_v5.install(core)
+    # V5 intentionally owns the final Telegram navigation surface, so bind the
+    # ranking presentation *after* V5. This prevents a later UI layer from turning
+    # a 4-5/10 Evergreen into "best now", promising three options when only one/two
+    # survived admission, or recreating impossible pick buttons on reopen.
+    ranking_surface.install(core=core, panel=core.panel, creator_v5=creator_v5)
     # Bind session continuity after every approval/UI wrapper is final. This keeps
     # latest Long and latest Short cards independently actionable without bypassing
     # the existing approval or Production activation gates.

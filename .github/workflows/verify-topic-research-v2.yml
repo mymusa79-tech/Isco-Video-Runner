@@ -4,12 +4,17 @@ on:
   pull_request:
     paths:
       - "scripts/telegram_topic_research_v2.py"
+      - "scripts/telegram_topic_research_v2_core.py"
+      - "scripts/topic_research_ranking_policy.py"
+      - "scripts/topic_research_v5_surface.py"
+      - "scripts/telegram_creator_control_center_v5.py"
       - "scripts/telegram_webhook_replay.py"
       - "scripts/research_provider_reliability.py"
       - "scripts/topic_research_market_reliability.py"
       - "scripts/telegram_session_continuity.py"
       - "scripts/test_research_provider_reliability.py"
       - "scripts/test_topic_research_market_reliability.py"
+      - "scripts/test_topic_research_v5_surface.py"
       - "scripts/test_telegram_session_continuity.py"
       - "scripts/test_telegram_topic_research_v2.py"
       - "scripts/test_telegram_editorial_control_workflow.py"
@@ -72,8 +77,13 @@ jobs:
             scripts/telegram_session_continuity.py \
             scripts/test_research_provider_reliability.py \
             scripts/test_topic_research_market_reliability.py \
+            scripts/test_topic_research_v5_surface.py \
             scripts/test_telegram_session_continuity.py \
             scripts/telegram_topic_research_v2.py \
+            scripts/telegram_topic_research_v2_core.py \
+            scripts/topic_research_ranking_policy.py \
+            scripts/topic_research_v5_surface.py \
+            scripts/telegram_creator_control_center_v5.py \
             scripts/telegram_webhook_replay.py \
             scripts/test_topic_research_runtime_recovery.py
 
@@ -98,6 +108,11 @@ jobs:
           python -m unittest scripts.test_topic_research_runtime_recovery -v
           python -m unittest scripts.test_telegram_session_continuity -v
 
+      - name: Final V5 ranking surface contract
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+        run: python -m unittest scripts.test_topic_research_v5_surface -v
+
       - name: Updated Telegram workflow contract test
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
@@ -110,3 +125,4 @@ jobs:
           grep -F "ENGINE_SHA: ${canonical_engine_sha}" .github/workflows/telegram-editorial-control.yml
           grep -F 'RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309' .github/workflows/telegram-editorial-control.yml
           grep -F 'engine_sha="$ENGINE_SHA"' .github/workflows/telegram-editorial-control.yml
+          ! grep -E 'workflow_dispatch|enqueue_request\(|pending_dispatch|production_dispatch_authorized[[:space:]]*=' scripts/topic_research_v5_surface.py
