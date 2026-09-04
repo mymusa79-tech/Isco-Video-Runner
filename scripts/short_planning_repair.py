@@ -125,6 +125,72 @@ def _selected_template(plan: object) -> str:
     return narrative.removeprefix("short_") if narrative.startswith("short_") else ""
 
 
+def _representation_contract_guidance(issue_notes: str) -> str:
+    """Compile repair wording from the deterministic validator's live contract.
+
+    Run #189 proved that a semantic repair instruction can drift from a lexical
+    deterministic acceptance contract. The validator therefore stays the sole source
+    of truth: this adapter imports its live marker sets only when the owned micro_story
+    issue is being repaired. No marker vocabulary is duplicated here.
+    """
+    if "micro_story_missing_concrete_event_progression" not in str(issue_notes or ""):
+        return ""
+
+    from scripts import production_text_representation_contract as representation
+
+    scene_markers = tuple(getattr(representation, "_MICRO_STORY_SCENE_MARKERS", ()))
+    turn_markers = tuple(getattr(representation, "_MICRO_STORY_TURN_MARKERS", ()))
+    if not scene_markers or not turn_markers:
+        raise ShortRepairEnvelopeError(
+            "Micro-story repair cannot resolve the deterministic representation contract"
+        )
+
+    scene_examples = "، ".join(scene_markers[:6])
+    turn_examples = "، ".join(turn_markers[:6])
+    return (
+        "DETERMINISTIC MICRO_STORY ACCEPTANCE — compiled from the live validator: "
+        "on_screen_text must contain at least one positive concrete scene/event cue "
+        f"from the validator vocabulary (for example: {scene_examples}) AND at least "
+        "one distinct positive change/turn cue from the same validator contract "
+        f"(for example: {turn_examples}). Use the cues naturally inside one coherent "
+        "micro-story; never insert them mechanically or replace meaning with keywords."
+    )
+
+
+def _micro_story_alignment_trace(plan: object, *, force: bool = False) -> dict[str, bool] | None:
+    """Return metadata-only acceptance evidence; never expose viewer-facing copy."""
+    if not force and _selected_template(plan) != "micro_story":
+        return None
+
+    from scripts import production_text_representation_contract as representation
+
+    sections = list(getattr(plan, "sections", []) or [])
+    visible = ""
+    if len(sections) == 1:
+        visible = representation.authoritative_section_text(plan, sections[0])
+    scene_markers = tuple(getattr(representation, "_MICRO_STORY_SCENE_MARKERS", ()))
+    turn_markers = tuple(getattr(representation, "_MICRO_STORY_TURN_MARKERS", ()))
+    if not scene_markers or not turn_markers:
+        raise ShortRepairEnvelopeError(
+            "Micro-story trace cannot resolve the deterministic representation contract"
+        )
+    return {
+        "scene_cue": bool(representation._contains_positive_marker(visible, scene_markers)),
+        "turn_cue": bool(representation._contains_positive_marker(visible, turn_markers)),
+    }
+
+
+def _print_micro_story_trace(phase: str, trace: dict[str, bool] | None) -> None:
+    if trace is None:
+        return
+    print(
+        "Short representation alignment trace: "
+        f"phase={phase} template=micro_story source=deterministic_validator "
+        f"scene_cue={str(trace['scene_cue']).lower()} "
+        f"turn_cue={str(trace['turn_cue']).lower()}"
+    )
+
+
 def build_short_repair_prompt(
     current_plan: object,
     issue_notes: str,
@@ -137,6 +203,7 @@ def build_short_repair_prompt(
     template = _selected_template(current_plan)
     template_rule = short_template_contract(template)
     producer_rule = producer_writing_directive(research_context)
+    representation_rule = _representation_contract_guidance(issue_notes)
 
     def render(research_json: str) -> str:
         return f"""
@@ -151,6 +218,7 @@ PRODUCER QUALITY CONTRACT — mandatory before independent reaudit:
 {producer_rule}
 Selected Short template: {template or "unknown"}.
 {template_rule or "Preserve the approved Short structure and make its semantic progression visible in the actual viewer-facing text."}
+{representation_rule}
 
 Hard contract:
 - format stays moment and sections stays EXACTLY one section.
@@ -206,6 +274,15 @@ def _repair_existing_moment(
     if str(getattr(current_plan, "format", "")) != "moment" or str(requested_format) != "moment":
         raise ShortRepairEnvelopeError("Short Dossier repair format mismatch")
 
+    is_micro_story_contract_repair = (
+        "micro_story_missing_concrete_event_progression" in str(issue_notes or "")
+    )
+    _print_micro_story_trace(
+        "before_repair",
+        _micro_story_alignment_trace(current_plan)
+        if is_micro_story_contract_repair
+        else None,
+    )
     prompt = build_short_repair_prompt(
         current_plan,
         issue_notes,
@@ -227,6 +304,12 @@ def _repair_existing_moment(
     )
     if str(getattr(repaired, "format", "")) != "moment" or len(list(getattr(repaired, "sections", []) or [])) != 1:
         raise ShortRepairEnvelopeError("Short Dossier repair escaped the Moment contract")
+    _print_micro_story_trace(
+        "after_repair",
+        _micro_story_alignment_trace(repaired, force=True)
+        if is_micro_story_contract_repair
+        else None,
+    )
     return repaired
 
 
