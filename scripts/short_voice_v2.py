@@ -13,6 +13,7 @@ from isco_video_agent.media.ffmpeg import duration, measure_audio_loudness, prob
 from isco_video_agent.tts_budget import TtsBudget, TtsCircuit
 
 from scripts.short_cinematic_director import apply_short_sfx, upgrade_short_cinematic
+from scripts.short_voice_feasibility import RUNTIME_MAX_SPEED, build_voice_projection
 from scripts.voice_mesh import consume_voice_provenance
 
 
@@ -80,7 +81,7 @@ def _fit_voice_to_video(voice_path: Path, final_seconds: float) -> Path:
     if voice_seconds <= final_seconds - 0.15:
         return voice_path
     speed = voice_seconds / max(0.1, final_seconds - 0.15)
-    if speed > 1.20:
+    if speed > RUNTIME_MAX_SPEED:
         raise RuntimeError(
             f"Short Voice V2 narration is too dense for the approved duration: speed_required={speed:.3f}"
         )
@@ -246,10 +247,16 @@ def apply_short_voice_v2(
     template = str(pre_gold.get("short_template") or "").strip()
     mode = decide_voice_mode(template)
     events = list(pre_gold.get("timed_text_events") or [])
-    transcript = _voice_script(events, mode)
     final_path = root / "final.mp4"
     if not final_path.is_file():
         raise RuntimeError("Short Voice V2 requires final.mp4")
+    final_seconds = _final_duration(final_path)
+
+    # Duration ownership belongs here, before any TTS provider call. Keep all approved
+    # on-screen beats, but speak only the richest semantic projection that fits within
+    # the natural-duration budget. The runtime 1.20x ceiling remains a final hard guard.
+    projection = build_voice_projection(events, mode, final_seconds=final_seconds)
+    transcript = str(projection["transcript"])
 
     gemini = secret("GEMINI_API_KEY")
     if not gemini:
@@ -269,11 +276,11 @@ def apply_short_voice_v2(
         voice=voice,
         style=(
             "Warm, mature, natural Modern Standard Arabic. Calm confidence; no announcer tone. "
-            f"Short template: {template}; delivery mode: {mode}."
+            f"Short template: {template}; delivery mode: {mode}; projection: {projection['strategy']}."
         ),
     )
     provenance = consume_voice_provenance(voice_path)
-    fitted_voice = _fit_voice_to_video(voice_path, _final_duration(final_path))
+    fitted_voice = _fit_voice_to_video(voice_path, final_seconds)
     voiced = root / "final-short-voice-v2.mp4"
     _mix_voice(final_path, fitted_voice, voiced)
     shutil.move(str(voiced), str(final_path))
@@ -310,6 +317,14 @@ def apply_short_voice_v2(
             "voice_provider": provider,
             "voice_fallback_used": fallback_used,
             "voice_task_id": "SHORT_VOICE_V2",
+            "voice_duration_preflight": True,
+            "voice_projection_strategy": projection.get("strategy"),
+            "voice_original_beat_count": projection.get("original_beat_count"),
+            "voice_spoken_beat_count": projection.get("spoken_beat_count"),
+            "voice_omitted_beat_indexes": projection.get("omitted_beat_indexes"),
+            "voice_estimated_natural_seconds": projection.get("estimated_natural_seconds"),
+            "voice_planning_budget_seconds": projection.get("planning_budget_seconds"),
+            "voice_runtime_max_speed_unchanged": projection.get("runtime_max_speed_unchanged"),
             "gemini_provider_attempt_cap": 1,
             "piper_local_fallback": True,
             "extra_text_ai_calls": 0,
@@ -325,6 +340,7 @@ def apply_short_voice_v2(
         "scope": scope,
         "source_derived_from_long": scope == "short_sibling",
         "transcript": transcript,
+        "projection": projection,
         "provider": provider,
         "fallback_used": fallback_used,
         "generated_before_authoritative_final_master_qc": True,
