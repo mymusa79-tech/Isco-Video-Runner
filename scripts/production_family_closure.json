@@ -2,7 +2,7 @@
   "schema_version": 1,
   "historical_window": {
     "first_run": 51,
-    "last_run": 170,
+    "last_run": 192,
     "known_good_baseline": {
       "release_tag": "video-50",
       "runner_commit": "a98bc309d52159d65ef6ac65e516beaab344a32e",
@@ -23,6 +23,12 @@
     "historical_fix_alone_is_closure_evidence": false,
     "production_dispatch_allowed_by_this_register": false
   },
+  "forward_guard": {
+    "named_run_contract_enforcement_from": 171,
+    "require_window_not_behind_named_regressions": true,
+    "require_every_named_regression_declared": true,
+    "note": "Any scripts/test_runNNN_*.py at or after the enforcement boundary must fit inside the certified historical window and be declared by at least one executable family contract."
+  },
   "audit_cohorts": [
     {"id":"C01","runs":"51-70","required_phases":["P0","P1","P2","P3","P4","P5","P6"],"purpose":"early end-to-end provider/output/media/quality/release recertification"},
     {"id":"C02","runs":"71-80","required_phases":["P0","P1","P4","P5","P6"],"purpose":"structured-output and wrapper/order recertification"},
@@ -41,7 +47,10 @@
     {"id":"C15","runs":"167","required_phases":["P0","P1"],"purpose":"Text Audit capacity ownership and bounded pre-wire pacing recertification"},
     {"id":"C16","runs":"168","required_phases":["P0","P1"],"purpose":"provider-visible Planning semantic contract recertification"},
     {"id":"C17","runs":"169","required_phases":["P2","P3","P4"],"purpose":"truthful visual retrieval/Vision availability plus Audio Producer lifecycle recertification"},
-    {"id":"C18","runs":"170","required_phases":["P0","P1"],"purpose":"Planning Stage Contract terminal-reset composition and durable checkpoint ownership recertification"}
+    {"id":"C18","runs":"170","required_phases":["P0","P1"],"purpose":"Planning Stage Contract terminal-reset composition and durable checkpoint ownership recertification"},
+    {"id":"C19","runs":"171-178","required_phases":["P0","P1","P2","P3","P4","P5","P6"],"purpose":"post-Run170 integrated production continuity before the representation/vision incident series"},
+    {"id":"C20","runs":"179-186","required_phases":["P0","P1","P3","P4"],"purpose":"Short representation authority, Vision health/retrieval, QR adjudication and format-aware Final Master recertification"},
+    {"id":"C21","runs":"187-192","required_phases":["P0","P1","P2","P3","P4"],"purpose":"Moment duration, finishing capability ownership, repair composition, tone representation and pre-TTS voice feasibility recertification"}
   ],
   "families": [
     {
@@ -199,6 +208,54 @@
       "historical_runs":["51-70","81-112","161-166"],
       "required_phases":["P5","P6"],
       "contracts":["scripts.test_gold_enforce_phase4","scripts.test_packaging_artifact_delivery_p0e","scripts.test_unified_delivery_canonical"]
+    },
+    {
+      "id":"F27","name":"engine_pin_and_short_representation_authority",
+      "historical_runs":["179-180"],
+      "required_phases":["P0","P1"],
+      "contracts":["scripts.test_run179_engine_pin_single_source","scripts.test_run179_short_representation_contract","scripts.test_run180_micro_story_contract_closure","scripts.test_run180_short_representation_metadata_authority","scripts.test_run180_short_template_representation_lifecycle"]
+    },
+    {
+      "id":"F28","name":"vision_provider_health_scope_and_readiness",
+      "historical_runs":["181"],
+      "required_phases":["P1","P3"],
+      "contracts":["scripts.test_run181_groq_readiness_budget","scripts.test_run181_vision_provider_health_mesh","scripts.test_run181_vision_scope_budget"]
+    },
+    {
+      "id":"F29","name":"semantic_visual_retrieval_qr_and_adjudication",
+      "historical_runs":["183-185"],
+      "required_phases":["P3"],
+      "contracts":["scripts.test_run183_visual_retrieval_closure","scripts.test_run184_qr_confirmation_closure","scripts.test_run184_qr_runtime_scope","scripts.test_run185_semantic_visual_adjudication"]
+    },
+    {
+      "id":"F30","name":"format_aware_final_master_acceptance",
+      "historical_runs":["186"],
+      "required_phases":["P4"],
+      "contracts":["scripts.test_run186_format_aware_final_master_qc"]
+    },
+    {
+      "id":"F31","name":"moment_duration_contract_before_render",
+      "historical_runs":["187"],
+      "required_phases":["P1"],
+      "contracts":["scripts.test_run187_moment_duration_contract_closure"]
+    },
+    {
+      "id":"F32","name":"short_finishing_capability_ownership",
+      "historical_runs":["188"],
+      "required_phases":["P0","P2","P3"],
+      "contracts":["scripts.test_run188_short_capability_ownership"]
+    },
+    {
+      "id":"F33","name":"short_repair_composition_and_tone_representation",
+      "historical_runs":["189-191"],
+      "required_phases":["P1"],
+      "contracts":["scripts.test_run189_micro_story_contract_alignment","scripts.test_run191_short_repair_composition_invariants","scripts.test_run191_tone_audit_representation_bridge"]
+    },
+    {
+      "id":"F34","name":"short_voice_pre_tts_feasibility_and_projection_selection",
+      "historical_runs":["192"],
+      "required_phases":["P2"],
+      "contracts":["scripts.test_run192_short_voice_feasibility"]
     }
   ]
 }
