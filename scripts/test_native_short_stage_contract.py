@@ -91,37 +91,42 @@ class NativeShortStageContractTests(unittest.TestCase):
                     planning.validate_response(bound, data)
                 self.assertEqual(captured.exception.code, planning.PlanningErrorCode.SEMANTIC_INVALID)
 
-    def test_normal_call_sequence_is_exactly_draft_then_review(self):
-        state = {"topic": self.TOPIC, "calls": 0}
-        with mock.patch.object(short_contract, "active_short_repair_context", return_value=None):
-            self.assertEqual(short_contract._stage_for_call(state).stage_id, "planning.short_draft")
-            self.assertEqual(short_contract._stage_for_call(state).stage_id, "planning.short_review")
+    def test_named_operation_sequence_is_exactly_draft_then_review(self):
+        state = {"topic": self.TOPIC, "operations": []}
+        with (
+            mock.patch.object(short_contract, "active_short_repair_context", return_value=None),
+            mock.patch.object(
+                short_contract,
+                "active_planning_operation",
+                side_effect=["short_draft", "short_review", "short_review"],
+            ),
+        ):
+            self.assertEqual(short_contract._stage_for_operation(state).stage_id, "planning.short_draft")
+            self.assertEqual(short_contract._stage_for_operation(state).stage_id, "planning.short_review")
             with self.assertRaises(planning.PlanningStageError) as captured:
-                short_contract._stage_for_call(state)
+                short_contract._stage_for_operation(state)
         self.assertEqual(captured.exception.code, planning.PlanningErrorCode.INTERNAL_CONTRACT_ERROR)
+        self.assertEqual(state["operations"], ["short_draft", "short_review"])
 
     def test_repair_context_is_explicit_single_repair_stage(self):
-        state = {"topic": self.TOPIC, "calls": 0}
+        state = {"topic": self.TOPIC, "operations": []}
         current = SimpleNamespace(topic=self.TOPIC)
         with mock.patch.object(short_contract, "active_short_repair_context", return_value=(current, "issue")):
-            spec = short_contract._stage_for_call(state)
+            spec = short_contract._stage_for_operation(state)
         self.assertEqual(spec.stage_id, "planning.short_repair")
-        self.assertEqual(state["calls"], 1)
+        self.assertEqual(state["operations"], ["short_repair"])
 
-    def test_provider_failure_is_not_replaced_by_lifecycle_call_count(self):
-        class OriginalFailure(RuntimeError):
-            pass
-
-        # Exercise the lifecycle pattern directly: the contract deliberately performs
-        # no post-failure expected-call assertion. A provider error remains the cause.
-        state = {"topic": self.TOPIC, "calls": 0}
-        token = short_contract._CALL_STATE.set(state)
-        try:
-            with self.assertRaises(OriginalFailure):
-                raise OriginalFailure("provider failed")
-        finally:
-            short_contract._CALL_STATE.reset(token)
-        self.assertEqual(state["calls"], 0)
+    def test_missing_named_operation_fails_closed_without_ordinal_fallback(self):
+        state = {"topic": self.TOPIC, "operations": []}
+        with (
+            mock.patch.object(short_contract, "active_short_repair_context", return_value=None),
+            mock.patch.object(short_contract, "active_planning_operation", return_value=None),
+        ):
+            with self.assertRaises(planning.PlanningStageError) as captured:
+                short_contract._stage_for_operation(state)
+        self.assertEqual(captured.exception.code, planning.PlanningErrorCode.INTERNAL_CONTRACT_ERROR)
+        self.assertEqual(captured.exception.stage_id, "planning.short_missing_operation")
+        self.assertEqual(state["operations"], [])
 
 
 if __name__ == "__main__":

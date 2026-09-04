@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ENGINE_SHA: 6cf758177d694bf0a7bedc1a8a815b87f44e8cc8
+  ENGINE_SHA: d698dbfddbf7cdb752d40362dfb58c6942cb52dd
   RESEARCH_ENGINE_SHA: bf85607f6e34dcedc199abad7e610b12c4685309
   CONTROL_PLANE_PRODUCTION_ENABLED: "true"
 

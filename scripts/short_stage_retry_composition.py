@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-"""Compose native-Short stage identity with the existing bounded reset retry owner.
+"""Compose explicit native-Short operation identity with bounded terminal retry.
 
-Run172 proved that the retry owner and the explicit native-Short Stage Contract were
-individually correct but disagreed on what a retry means: the recovery layer may call
-the same Draft/Review/Repair transport a second time after trustworthy Groq reset
-evidence, while the Stage Contract counted that second transport attempt as a new
-logical lifecycle stage.
+Run172 proved that the retry owner and the native-Short Stage Contract were individually
+correct but disagreed on what a retry means: recovery may invoke the same
+Draft/Review/Repair transport a second time after trustworthy Groq reset evidence, while
+the Stage Contract must still treat both transport attempts as one logical operation.
 
-This module does not add a retry or change any provider budget. It marks only the
-already-authorized second attempt and makes the Stage Contract reuse the exact previous
-stage identity without advancing its logical Draft -> Review / Repair call counter.
+This module does not add retries, change provider budgets, infer identity from call order,
+or inspect prompt text. It marks only the already-authorized second attempt and reuses
+the exact previous Stage Contract only when the currently active named operation matches
+the operation that owned the first attempt.
 """
 
 from contextvars import ContextVar
@@ -28,10 +28,18 @@ _AUTHORIZED_RETRY: ContextVar[bool] = ContextVar(
     default=False,
 )
 _LAST_STAGE_KEY = "_isco_short_stage_retry_previous_stage"
+_LAST_OPERATION_KEY = "_isco_short_stage_retry_previous_operation"
 
 
 def authorized_terminal_retry_active() -> bool:
     return bool(_AUTHORIZED_RETRY.get())
+
+
+def _active_operation_name() -> str | None:
+    if short_stage.active_short_repair_context() is not None:
+        return "short_repair"
+    operation = short_stage.active_planning_operation()
+    return str(operation).strip() if operation is not None else None
 
 
 def _recovery_with_retry_identity(
@@ -63,21 +71,38 @@ def _recovery_with_retry_identity(
 
 
 def _stage_with_retry_identity(
-    original_stage_for_call: Callable[[dict[str, Any]], stage_contract.PlanningStageSpec],
+    original_stage_for_operation: Callable[[dict[str, Any]], stage_contract.PlanningStageSpec],
     state: dict[str, Any],
 ) -> stage_contract.PlanningStageSpec:
+    operation = _active_operation_name()
+
     if authorized_terminal_retry_active():
         previous = state.get(_LAST_STAGE_KEY)
-        if not isinstance(previous, stage_contract.PlanningStageSpec):
+        previous_operation = state.get(_LAST_OPERATION_KEY)
+        if not isinstance(previous, stage_contract.PlanningStageSpec) or not previous_operation:
             raise stage_contract.PlanningStageError(
                 stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-                "native Short authorized retry has no previous logical stage",
+                "native Short authorized retry has no previous logical operation",
                 stage_id="planning.short_retry_without_stage",
+            )
+        if operation != previous_operation:
+            raise stage_contract.PlanningStageError(
+                stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+                f"native Short retry operation mismatch previous={previous_operation!r} current={operation!r}",
+                stage_id="planning.short_retry_operation_mismatch",
             )
         return previous
 
-    spec = original_stage_for_call(state)
+    spec = original_stage_for_operation(state)
+    operation = _active_operation_name()
+    if operation not in {"short_draft", "short_review", "short_repair"}:
+        raise stage_contract.PlanningStageError(
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"native Short stage resolved without explicit named operation={operation!r}",
+            stage_id="planning.short_retry_missing_operation",
+        )
     state[_LAST_STAGE_KEY] = spec
+    state[_LAST_OPERATION_KEY] = operation
     return spec
 
 
@@ -99,18 +124,18 @@ def install_short_stage_retry_composition() -> None:
         recovery._isco_short_stage_retry_original = original_recovery
         headroom._short_provider_call_with_terminal_recovery = recovery
 
-    original_stage_for_call = short_stage._stage_for_call
-    if not getattr(original_stage_for_call, "_isco_short_stage_retry_composition", False):
-        def stage_for_call(state: dict[str, Any]):
-            return _stage_with_retry_identity(original_stage_for_call, state)
+    original_stage_for_operation = short_stage._stage_for_operation
+    if not getattr(original_stage_for_operation, "_isco_short_stage_retry_composition", False):
+        def stage_for_operation(state: dict[str, Any]):
+            return _stage_with_retry_identity(original_stage_for_operation, state)
 
-        stage_for_call._isco_short_stage_retry_composition = True
-        stage_for_call._isco_short_stage_retry_original = original_stage_for_call
-        short_stage._stage_for_call = stage_for_call
+        stage_for_operation._isco_short_stage_retry_composition = True
+        stage_for_operation._isco_short_stage_retry_original = original_stage_for_operation
+        short_stage._stage_for_operation = stage_for_operation
 
     _INSTALLED = True
     print(
         "Short Stage/retry composition installed: "
-        "logical_stage_reused_on_authorized_terminal_retry=true "
-        "retry_budget=unchanged max_transport_attempts=2"
+        "named_operation_reused_on_authorized_terminal_retry=true "
+        "ordinal_inference=false retry_budget=unchanged max_transport_attempts=2"
     )

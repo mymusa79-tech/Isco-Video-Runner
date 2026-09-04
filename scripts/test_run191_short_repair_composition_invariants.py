@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from isco_video_agent.models import ProductionPlan, ScriptSection
+from isco_video_agent.planning_operation import planning_operation_scope
 
 from scripts import native_short_stage_contract as short_stage
 from scripts import planning_stage_contract as planning
@@ -202,6 +203,63 @@ class Run191ShortRepairCompositionInvariantTests(unittest.TestCase):
             "",
         )
         self.assertEqual(representation.short_representation_issues(long_plan), [])
+
+
+class NamedShortStageOwnershipRegressionTests(unittest.TestCase):
+    """F33: operation names own identity; order is validation only, never inference."""
+
+    TOPIC = "فخ المجاملة المستمرة: لماذا يصعب عليك قول لا حتى لمن تحب؟"
+
+    def _state(self) -> dict:
+        return {"topic": self.TOPIC, "operations": []}
+
+    def test_stage_identity_comes_from_named_engine_operation(self) -> None:
+        state = self._state()
+        with planning_operation_scope("short_draft"):
+            draft = short_stage._stage_for_operation(state)
+        with planning_operation_scope("short_review"):
+            review = short_stage._stage_for_operation(state)
+
+        self.assertEqual(draft.stage_id, "planning.short_draft")
+        self.assertEqual(draft.contract_id, "planning.short_draft.v1")
+        self.assertEqual(review.stage_id, "planning.short_review")
+        self.assertEqual(review.contract_id, "planning.short_review.v1")
+        self.assertEqual(state["operations"], ["short_draft", "short_review"])
+
+    def test_missing_named_operation_fails_closed_before_stage_selection(self) -> None:
+        state = self._state()
+        with self.assertRaises(planning.PlanningStageError) as raised:
+            short_stage._stage_for_operation(state)
+
+        self.assertEqual(
+            raised.exception.code,
+            planning.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+        )
+        self.assertEqual(raised.exception.stage_id, "planning.short_missing_operation")
+        self.assertEqual(state["operations"], [])
+
+    def test_review_cannot_arrive_before_draft_even_when_named(self) -> None:
+        state = self._state()
+        with planning_operation_scope("short_review"):
+            with self.assertRaises(planning.PlanningStageError) as raised:
+                short_stage._stage_for_operation(state)
+
+        self.assertEqual(raised.exception.stage_id, "planning.short_operation_sequence")
+        self.assertEqual(state["operations"], [])
+
+    def test_duplicate_draft_is_rejected_instead_of_becoming_review(self) -> None:
+        state = self._state()
+        with planning_operation_scope("short_draft"):
+            first = short_stage._stage_for_operation(state)
+            with self.assertRaises(planning.PlanningStageError) as raised:
+                short_stage._stage_for_operation(state)
+
+        self.assertEqual(first.stage_id, "planning.short_draft")
+        self.assertEqual(raised.exception.stage_id, "planning.short_operation_sequence")
+        self.assertEqual(state["operations"], ["short_draft"])
+
+    def test_ordinal_identity_state_no_longer_exists(self) -> None:
+        self.assertFalse(hasattr(short_stage, "_CALL_STATE"))
 
 
 class ProducerShortStageOwnershipRegressionTests(unittest.TestCase):

@@ -3,10 +3,10 @@ from __future__ import annotations
 """Explicit Stage Contract for standalone Moment Draft/Review/Repair calls.
 
 The Engine Moment planner intentionally bypasses resilient_planner's long-form stage
-functions, but it still uses the same provider mesh. Historically that left its two
-normal model calls and the compact RepairDossier call outside the explicit Stage
-Contract/cache authority. This module binds stage identity at the Python call boundary;
-prompt wording never selects Draft, Review or Repair.
+functions, but it still uses the same provider mesh. Stage identity is published by the
+actual Engine Draft/Review call sites and consumed here at the provider boundary. Repair
+identity remains owned by the explicit repair capability context. Prompt wording and
+provider-call ordinal never select Draft, Review or Repair.
 """
 
 import functools
@@ -16,14 +16,15 @@ from typing import Any
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.planner as native_short
 import isco_video_agent.resilient_planner as staged
+from isco_video_agent.planning_operation import active_planning_operation
 
 from scripts import planning_stage_contract as stage_contract
 from scripts.short_planning_repair import active_short_repair_context
 
 
 _INSTALLED = False
-_CALL_STATE: ContextVar[dict[str, Any] | None] = ContextVar(
-    "isco_native_short_stage_call_state", default=None
+_LIFECYCLE_STATE: ContextVar[dict[str, Any] | None] = ContextVar(
+    "isco_native_short_stage_lifecycle_state", default=None
 )
 _MOMENT_PRODUCTION_MIN_SECONDS = 12.0
 _MOMENT_PRODUCTION_MAX_SECONDS = 20.0
@@ -249,23 +250,36 @@ def _install_stage_contract_extensions() -> None:
         stage_contract.validate_response = validate_response
 
 
-def _stage_for_call(state: dict[str, Any]) -> stage_contract.PlanningStageSpec:
+def _stage_for_operation(state: dict[str, Any]) -> stage_contract.PlanningStageSpec:
     repair = active_short_repair_context()
     if repair is not None:
         current_plan, _issue_notes = repair
-        state["calls"] += 1
-        return moment_stage_spec("short_repair", getattr(current_plan, "topic", state["topic"]))
+        operation = "short_repair"
+        topic = getattr(current_plan, "topic", state["topic"])
+        expected = ["short_repair"]
+    else:
+        operation = active_planning_operation()
+        topic = state["topic"]
+        expected = ["short_draft", "short_review"]
 
-    state["calls"] += 1
-    if state["calls"] == 1:
-        return moment_stage_spec("short_draft", state["topic"])
-    if state["calls"] == 2:
-        return moment_stage_spec("short_review", state["topic"])
-    raise stage_contract.PlanningStageError(
-        stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-        f"unexpected native Short provider call index={state['calls']}",
-        stage_id="planning.short_unexpected_call",
-    )
+    if operation not in {"short_draft", "short_review", "short_repair"}:
+        raise stage_contract.PlanningStageError(
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"native Short provider call lacks explicit named operation={operation!r}",
+            stage_id="planning.short_missing_operation",
+        )
+
+    observed = state["operations"]
+    next_index = len(observed)
+    expected_operation = expected[next_index] if next_index < len(expected) else None
+    if operation != expected_operation:
+        raise stage_contract.PlanningStageError(
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"native Short operation sequence expected={expected_operation!r} observed={operation!r}",
+            stage_id="planning.short_operation_sequence",
+        )
+    observed.append(operation)
+    return moment_stage_spec(operation, topic)
 
 
 def install_native_short_stage_contract() -> None:
@@ -279,12 +293,13 @@ def install_native_short_stage_contract() -> None:
     # before install_planning_contract_router() is the historical compatibility bug
     # this contract closes.
     def contracted_json_text(api_key, prompt, model="gemini-2.5-flash"):
-        state = _CALL_STATE.get()
+        state = _LIFECYCLE_STATE.get()
         if state is None:
             # Outside the standalone-Moment build lifecycle retain compatibility for
-            # unrelated Engine callers rather than inventing a stage.
+            # unrelated Engine callers rather than inventing a stage. Producer repair
+            # is explicitly scoped at its own capability boundary.
             return staged.json_text(api_key, prompt, model=model)
-        spec = _stage_for_call(state)
+        spec = _stage_for_operation(state)
         effective_prompt = _provider_visible_moment_duration_contract(prompt)
         with stage_contract.request_stage_scope(spec):
             return staged.json_text(api_key, effective_prompt, model=model)
@@ -302,25 +317,28 @@ def install_native_short_stage_contract() -> None:
                 return current_build(*args, **kwargs)
 
             repair_active = active_short_repair_context() is not None
-            state = {"topic": " ".join(str(topic or "").strip().split()), "calls": 0}
-            token = _CALL_STATE.set(state)
+            state = {
+                "topic": " ".join(str(topic or "").strip().split()),
+                "operations": [],
+            }
+            token = _LIFECYCLE_STATE.set(state)
             try:
                 result = current_build(*args, **kwargs)
             except Exception:
                 # Never replace the original provider/schema/semantic failure with a
-                # secondary call-count assertion.
+                # secondary lifecycle assertion.
                 raise
             else:
-                expected = 1 if repair_active else 2
-                if state["calls"] != expected:
+                expected = ["short_repair"] if repair_active else ["short_draft", "short_review"]
+                if state["operations"] != expected:
                     raise stage_contract.PlanningStageError(
                         stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-                        f"native Short completed with calls={state['calls']} expected={expected}",
+                        f"native Short completed with operations={state['operations']} expected={expected}",
                         stage_id="planning.short_lifecycle",
                     )
                 return result
             finally:
-                _CALL_STATE.reset(token)
+                _LIFECYCLE_STATE.reset(token)
 
         stage_bound_build._isco_native_short_stage_parent_v1 = True
         stage_bound_build._isco_native_short_stage_original = current_build
@@ -329,5 +347,6 @@ def install_native_short_stage_contract() -> None:
     _INSTALLED = True
     print(
         "Native Short Stage Contract installed: draft=explicit review=explicit "
-        "repair=explicit prompt_inference=false cache_revalidate=true"
+        "repair=explicit operation_source=engine_context prompt_inference=false "
+        "ordinal_inference=false cache_revalidate=true"
     )
