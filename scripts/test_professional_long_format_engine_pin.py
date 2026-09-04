@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-ENGINE_SHA = "d698dbfddbf7cdb752d40362dfb58c6942cb52dd"
+ENGINE_SHA = "3d584c868b5c094d7856370f6d728aec841fef27"
 
 
 class ProfessionalLongFormatEnginePinTests(unittest.TestCase):
