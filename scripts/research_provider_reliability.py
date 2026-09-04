@@ -5,7 +5,8 @@ Planning, change AI budgets, enable paid models, or relax quality/safety gates.
 
 The reliability shape is deliberately bounded: Gemini gets at most one retry for
 transient failures, then the request may fail over to OpenRouter's free-model
-chain. Safety blocks fail closed and never cross providers.
+chain. If OpenRouter returns syntactically invalid JSON, one final schema-bound
+free-model attempt is allowed. Safety blocks fail closed and never cross providers.
 
 Provider diagnostics emitted here are intentionally metadata-only. They contain
 provider, normalized failure class, numeric HTTP status when safely available,
@@ -27,7 +28,11 @@ from isco_video_agent.providers.openrouter import json_text as openrouter_json_t
 
 MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE = 2
 MIN_BACKOFF_SECONDS = 1.0
-MAX_RETRY_AFTER_SECONDS = 15.0
+# The live Gemini free-tier limiter currently returns bounded retry windows around
+# one minute. Waiting inside that explicit provider window is cheaper and more
+# reliable than immediately consuming another free provider, while still refusing
+# long/daily waits. The outer workflow remains the sole retry owner.
+MAX_RETRY_AFTER_SECONDS = 60.0
 
 _RETRY_AFTER_RE = re.compile(r"retry in (\d+(?:\.\d+)?)s", re.IGNORECASE)
 _QUOTA_MARKERS = (
@@ -41,6 +46,62 @@ _QUOTA_MARKERS = (
 _RETRYABLE_ON_SAME_PROVIDER = frozenset(
     {"429", "server_error", "network_error", "timeout", "capacity_unavailable"}
 )
+
+# Research is the only consumer of this schema. It mirrors the candidate contract
+# already required by Engine research.py, without changing the Engine or any
+# Production/Planning contract. The Engine still performs semantic filtering,
+# diversity checks, exclusion checks, and the live-market evidence gate afterwards.
+_SCORE_FIELDS = (
+    "trend_score",
+    "evergreen_score",
+    "audience_fit",
+    "emotional_pull",
+    "title_thumbnail_potential",
+    "hook_potential",
+    "retention_potential",
+    "competition_opportunity",
+    "evidence_quality",
+    "production_feasibility",
+)
+_RESEARCH_CANDIDATE_PROPERTIES: dict[str, Any] = {
+    "title": {"type": "string", "minLength": 1},
+    "market_query": {"type": "string", "minLength": 1},
+    "pillar": {"type": "string", "enum": ["understand", "rise", "see"]},
+    "format_hint": {"type": "string", "enum": ["film", "moment", "story"]},
+    "evidence": {"type": "array", "items": {"type": "string"}},
+}
+for _score_field in _SCORE_FIELDS:
+    _RESEARCH_CANDIDATE_PROPERTIES[_score_field] = {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+    }
+
+RESEARCH_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "candidates": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 10,
+            "items": {
+                "type": "object",
+                "properties": _RESEARCH_CANDIDATE_PROPERTIES,
+                "required": [
+                    "title",
+                    "market_query",
+                    "pillar",
+                    "format_hint",
+                    *_SCORE_FIELDS,
+                    "evidence",
+                ],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["candidates"],
+    "additionalProperties": False,
+}
 
 
 class ResearchProviderExhausted(RuntimeError):
@@ -133,6 +194,23 @@ def _is_eligible_for_fallback(telemetry_result: str) -> bool:
     return telemetry_result != "content_blocked"
 
 
+def _structured_openrouter_retry(
+    prompt: str,
+    *,
+    fallback_models: tuple[str, ...],
+    default_model: str,
+) -> dict[str, Any]:
+    """Use one explicit free model with strict schema after invalid JSON only."""
+    structured_model = fallback_models[0] if fallback_models else default_model
+    return openrouter_json_text(
+        prompt,
+        model=structured_model,
+        fallback_models=(),
+        response_schema=RESEARCH_RESPONSE_SCHEMA,
+        schema_name="isco_topic_research_response",
+    )
+
+
 def gemini_research_call_with_fallback(
     api_key: str,
     prompt: str,
@@ -154,10 +232,15 @@ def gemini_research_call_with_fallback(
             last_gemini_class = classification.telemetry_result
             last_gemini_status = _http_status(exc)
             quota = _is_daily_quota_failure(exc)
+            retry_hint = _parsed_retry_after_seconds(exc)
+            # A finite Retry-After is the provider's explicit statement that this
+            # request can recover after a bounded wait. Generic free-tier quota text
+            # must not override that signal. Truly long/daily windows still fail the
+            # wait-budget decision below and immediately fail over.
             can_retry_same_provider = (
-                not quota
-                and classification.telemetry_result in _RETRYABLE_ON_SAME_PROVIDER
+                classification.telemetry_result in _RETRYABLE_ON_SAME_PROVIDER
                 and attempt < MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE
+                and (not quota or retry_hint is not None)
             )
             if can_retry_same_provider:
                 delay = _backoff_seconds(exc, attempt)
@@ -195,6 +278,37 @@ def gemini_research_call_with_fallback(
         )
     except Exception as exc:  # noqa: BLE001 - normalized immediately below
         classification = classify_provider_failure("openrouter", exc)
+        if classification.telemetry_result == "invalid_json":
+            _emit_provider_failure(
+                "openrouter", exc, classification, attempt=1, action="retry_structured"
+            )
+            try:
+                return _structured_openrouter_retry(
+                    prompt,
+                    fallback_models=openrouter_fallback_models,
+                    default_model=openrouter_model,
+                )
+            except Exception as structured_exc:  # noqa: BLE001 - normalized below
+                structured_classification = classify_provider_failure(
+                    "openrouter", structured_exc
+                )
+                _emit_provider_failure(
+                    "openrouter",
+                    structured_exc,
+                    structured_classification,
+                    attempt=2,
+                    action="exhausted",
+                )
+                openrouter_status = _http_status(structured_exc)
+                raise ResearchProviderExhausted(
+                    "research_provider_exhausted "
+                    f"gemini_failure_class={last_gemini_class} "
+                    f"gemini_http_status={_format_optional_number(last_gemini_status)} "
+                    f"openrouter_first_failure_class={classification.telemetry_result} "
+                    f"openrouter_failure_class={structured_classification.telemetry_result} "
+                    f"openrouter_http_status={_format_optional_number(openrouter_status)}"
+                ) from structured_exc
+
         _emit_provider_failure(
             "openrouter", exc, classification, attempt=1, action="exhausted"
         )
