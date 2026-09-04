@@ -188,8 +188,11 @@ class Run170PlanningContractCompositionTests(unittest.TestCase):
 class Run172ShortStageRetryCompositionTests(unittest.TestCase):
     TOPIC = "كيف تنهض عندما تفقد الدافع تمامًا؟"
 
-    def test_exact_run172_repair_retry_reuses_one_logical_repair_stage(self) -> None:
-        state = {"topic": self.TOPIC, "calls": 0}
+    def _state(self) -> dict:
+        return {"topic": self.TOPIC, "operations": []}
+
+    def test_exact_run172_repair_retry_reuses_one_named_repair_stage(self) -> None:
+        state = self._state()
         current = SimpleNamespace(topic=self.TOPIC)
         with patch.object(
             short_stage,
@@ -197,13 +200,13 @@ class Run172ShortStageRetryCompositionTests(unittest.TestCase):
             return_value=(current, "repair issue"),
         ):
             first = retry_composition._stage_with_retry_identity(
-                short_stage._stage_for_call,
+                short_stage._stage_for_operation,
                 state,
             )
             token = retry_composition._AUTHORIZED_RETRY.set(True)
             try:
                 retry = retry_composition._stage_with_retry_identity(
-                    short_stage._stage_for_call,
+                    short_stage._stage_for_operation,
                     state,
                 )
             finally:
@@ -212,32 +215,81 @@ class Run172ShortStageRetryCompositionTests(unittest.TestCase):
         self.assertEqual(first.stage_id, "planning.short_repair")
         self.assertEqual(retry.stage_id, "planning.short_repair")
         self.assertIs(retry, first)
-        self.assertEqual(state["calls"], 1)
+        self.assertEqual(state["operations"], ["short_repair"])
 
-    def test_draft_retry_reuses_draft_then_normal_flow_advances_to_review(self) -> None:
-        state = {"topic": self.TOPIC, "calls": 0}
+    def test_draft_retry_reuses_named_draft_then_review_advances_explicitly(self) -> None:
+        state = self._state()
         with patch.object(short_stage, "active_short_repair_context", return_value=None):
-            draft = retry_composition._stage_with_retry_identity(
-                short_stage._stage_for_call,
-                state,
-            )
-            token = retry_composition._AUTHORIZED_RETRY.set(True)
-            try:
-                draft_retry = retry_composition._stage_with_retry_identity(
-                    short_stage._stage_for_call,
+            with patch.object(
+                short_stage,
+                "active_planning_operation",
+                return_value="short_draft",
+            ):
+                draft = retry_composition._stage_with_retry_identity(
+                    short_stage._stage_for_operation,
                     state,
                 )
-            finally:
-                retry_composition._AUTHORIZED_RETRY.reset(token)
-            review = retry_composition._stage_with_retry_identity(
-                short_stage._stage_for_call,
-                state,
-            )
+                token = retry_composition._AUTHORIZED_RETRY.set(True)
+                try:
+                    draft_retry = retry_composition._stage_with_retry_identity(
+                        short_stage._stage_for_operation,
+                        state,
+                    )
+                finally:
+                    retry_composition._AUTHORIZED_RETRY.reset(token)
+
+            with patch.object(
+                short_stage,
+                "active_planning_operation",
+                return_value="short_review",
+            ):
+                review = retry_composition._stage_with_retry_identity(
+                    short_stage._stage_for_operation,
+                    state,
+                )
 
         self.assertEqual(draft.stage_id, "planning.short_draft")
         self.assertIs(draft_retry, draft)
         self.assertEqual(review.stage_id, "planning.short_review")
-        self.assertEqual(state["calls"], 2)
+        self.assertEqual(state["operations"], ["short_draft", "short_review"])
+
+    def test_retry_operation_mismatch_fails_closed(self) -> None:
+        state = self._state()
+        with patch.object(short_stage, "active_short_repair_context", return_value=None):
+            with patch.object(
+                short_stage,
+                "active_planning_operation",
+                return_value="short_draft",
+            ):
+                retry_composition._stage_with_retry_identity(
+                    short_stage._stage_for_operation,
+                    state,
+                )
+
+            token = retry_composition._AUTHORIZED_RETRY.set(True)
+            try:
+                with patch.object(
+                    short_stage,
+                    "active_planning_operation",
+                    return_value="short_review",
+                ):
+                    with self.assertRaises(stage_contract.PlanningStageError) as captured:
+                        retry_composition._stage_with_retry_identity(
+                            short_stage._stage_for_operation,
+                            state,
+                        )
+            finally:
+                retry_composition._AUTHORIZED_RETRY.reset(token)
+
+        self.assertEqual(
+            captured.exception.code,
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+        )
+        self.assertEqual(
+            captured.exception.stage_id,
+            "planning.short_retry_operation_mismatch",
+        )
+        self.assertEqual(state["operations"], ["short_draft"])
 
     def test_retry_marker_exists_only_for_existing_owner_second_attempt(self) -> None:
         observed: list[bool] = []
@@ -266,20 +318,31 @@ class Run172ShortStageRetryCompositionTests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(observed, [False, True])
 
-    def test_unmarked_duplicate_repair_call_is_not_collapsed(self) -> None:
-        state = {"topic": self.TOPIC, "calls": 0}
+    def test_unmarked_duplicate_repair_fails_before_identity_can_drift(self) -> None:
+        state = self._state()
         current = SimpleNamespace(topic=self.TOPIC)
         with patch.object(
             short_stage,
             "active_short_repair_context",
             return_value=(current, "repair issue"),
         ):
-            retry_composition._stage_with_retry_identity(short_stage._stage_for_call, state)
-            retry_composition._stage_with_retry_identity(short_stage._stage_for_call, state)
-        # The parent lifecycle still expects exactly one logical Repair stage and will
-        # fail closed on this unauthorized duplicate. Only the marked terminal retry is
-        # collapsed onto the previous stage identity.
-        self.assertEqual(state["calls"], 2)
+            first = retry_composition._stage_with_retry_identity(
+                short_stage._stage_for_operation,
+                state,
+            )
+            with self.assertRaises(stage_contract.PlanningStageError) as captured:
+                retry_composition._stage_with_retry_identity(
+                    short_stage._stage_for_operation,
+                    state,
+                )
+
+        self.assertEqual(first.stage_id, "planning.short_repair")
+        self.assertEqual(
+            captured.exception.code,
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+        )
+        self.assertEqual(captured.exception.stage_id, "planning.short_operation_sequence")
+        self.assertEqual(state["operations"], ["short_repair"])
 
     def test_composition_refuses_a_third_transport_attempt(self) -> None:
         def always_fails():
