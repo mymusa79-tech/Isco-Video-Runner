@@ -28,22 +28,32 @@ PR #366 was merged only after Full Engine + Full Runner + M7 + M11 were Green on
 
 Run132 proved that individually correct checkpoint, cache and terminal-recovery features can still conflict after composition. The durable router document remains schema v1 while namespace evolution is versioned independently; a Groq prompt family becomes cache-warm only after provider-reported `cached_tokens > 0`; and terminal recovery accepts reset evidence up to 60 seconds, sleeps no more than 60 seconds per recovery, allows at most three recoveries, and caps total terminal wait at 180 seconds. These composed contracts are now explicit Stage Ladder evidence rather than historical PR claims.
 
-## Closure 5 — Run51–132 cumulative regression / stale-stage evidence
+## Closure 5 — Run51–192 cumulative regression / stale-stage evidence
 
 **State:** BLOCKING until the exact current `main` SHA receives a Green P0–P6 Stage Ladder certificate.
 
 Run50 is the last independently verified historical End-to-End success and is the known-good media baseline. Its `final.mp4` identity is locked in the machine-readable register by exact size and SHA256. A historical fix, a test named after a run, or an old success at Stage 6 is not current closure evidence.
 
 The mandatory ladder is:
-- P0 — runtime, environment, state, checkpoint and test/production isolation.
-- P1 — planning, schema/repair, provider routing, capacity, budget and retry ownership.
-- P2 — TTS, voice, audio semantics and mastering.
-- P3 — media/visual feasibility, security and M7–M11 cinematic bindings.
-- P4 — current Final Master QC over the real immutable `video-50/final.mp4` baseline.
+- P0 — runtime, environment, state, checkpoint, capability ownership and test/production isolation.
+- P1 — planning, schema/repair, representation authority, provider routing, capacity, budget and retry ownership.
+- P2 — TTS, voice, pre-TTS feasibility, audio semantics and mastering.
+- P3 — media/visual feasibility, Vision health/scope, QR/security and M7–M11 cinematic bindings.
+- P4 — current format-aware Final Master QC over the real immutable `video-50/final.mp4` baseline.
 - P5 — current Gold same-render state transition over that staging media with deterministic recorded external boundaries.
 - P6 — current packaging, unified delivery and release-transaction dry replay with zero publication.
 
-Every Run from 51 through 132 belongs to exactly one audit cohort in `scripts/production_family_closure.json`; known repeated failure families are mapped separately to executable contracts and required phases. The certificate fails closed if a cohort is missing/duplicated, if a family references a run outside the certified window, or if a declared family contract is absent from the tests executed on that exact SHA.
+Every Run from 51 through 192 belongs to exactly one audit cohort in `scripts/production_family_closure.json`; known repeated failure families are mapped separately to executable contracts and required phases. The recent incident series is explicitly represented: Short representation/metadata authority (179–180), Vision health/scope (181), semantic visual retrieval + QR adjudication (183–185), format-aware Final Master acceptance (186), Moment duration authority (187), Short finishing capability ownership (188), repair/tone representation composition (189–191), and pre-TTS Short Voice feasibility/projection selection (192).
+
+The certificate fails closed if a cohort is missing/duplicated, if a family references a run outside the certified window, or if a declared family contract is absent from the tests executed on that exact SHA.
+
+## Forward anti-staleness guard
+
+Starting at Run171, every tracked `scripts/test_runNNN_*.py` is treated as a production incident regression contract. Stage Ladder refuses certification when either:
+- the highest named regression Run is newer than `historical_window.last_run`, or
+- a named Run regression inside the window is not declared by at least one family in the machine-readable register.
+
+This makes the register self-policing: adding a future Run193 regression without extending the historical window and binding that regression to a family can no longer leave the system with a misleading Green family-closure certificate.
 
 ## Permanent production rule
 
