@@ -35,6 +35,7 @@ class ShortVoiceV2Tests(unittest.TestCase):
         self.assertIn("ابدأ بحركة صغيرة", hybrid)
 
     def _assert_scope_is_voiced(self, scope: str) -> dict:
+        """Keep direct legacy Voice V2 coverage while the authoritative seam moves on."""
         pre = {
             "short_template": "micro_story",
             "timed_text_events": [
@@ -90,13 +91,14 @@ class ShortVoiceV2Tests(unittest.TestCase):
         self.assertLess(quality_at, rights_at)
         self.assertIn('"quality_final_refreshed_after_voice": True', source)
 
-    def test_final_mutation_happens_before_authoritative_qc_and_gold(self):
+    def test_authoritative_seam_uses_voice_owned_timeline_before_qc_and_gold(self):
         seam = inspect.getsource(orchestration_shorts_port.prepare_authoritative_short_for_gold)
         prepare_at = seam.index("core.prepare_short_render(")
-        voice_at = seam.index("apply_short_voice_v2(")
+        voice_at = seam.index("apply_voice_owned_short(")
         qc_at = seam.index("run_final_master_qc(output_dir)")
         self.assertLess(prepare_at, voice_at)
         self.assertLess(voice_at, qc_at)
+        self.assertNotIn("apply_short_voice_v2(", seam)
 
         source = inspect.getsource(run_control_production.execute_control_request)
         seam_at = source.index("prepare_authoritative_short_for_gold(")
