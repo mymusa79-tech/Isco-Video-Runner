@@ -1,5 +1,5 @@
 name = "isco-telegram-control"
-main = "observability-worker-v6.js"
+main = "editorial-worker-v7.js"
 compatibility_date = "2026-08-26"
 workers_dev = true
 
@@ -24,3 +24,4 @@ ZERO_COST_MODE = "true"
 #   TELEGRAM_CHAT_ID
 #   GITHUB_CONTROL_TOKEN   (repo-scoped fine-grained token; Actions: write only)
 #   YOUTUBE_API_KEY
+#   STATE_ENCRYPTION_KEY   (installed by telegram-edge-state-secret.yml)
