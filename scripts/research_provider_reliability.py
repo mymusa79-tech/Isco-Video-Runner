@@ -3,12 +3,13 @@
 This module owns only Research provider transport reliability. It does not patch
 Planning, change AI budgets, enable paid models, or relax quality/safety gates.
 
-The reliability shape is bounded: Gemini gets at most one retry for transient
-failures. A provider-supplied Retry-After up to the local one-minute budget is
-honored once, including temporary free-tier rate limits. Then the request fails
-over to OpenRouter's free routing chain. OpenRouter is schema-bound from the first
-fallback attempt; a malformed response receives one final bounded schema-bound
-retry through the same free routing chain.
+The reliability shape is bounded: Gemini gets at most one generic transient retry
+plus at most one provider-directed Retry-After retry when that hint is within the
+local one-minute wait budget. This covers the real timeout -> 429 Retry-After
+sequence without opening an unbounded retry loop. Then the request fails over to
+OpenRouter's free routing chain. OpenRouter is schema-bound from the first fallback
+attempt; a malformed response receives one final bounded schema-bound retry through
+the same free routing chain.
 
 Safety/content blocks fail closed and never cross providers.
 """
@@ -192,18 +193,23 @@ def _same_provider_retry_allowed(
     error: BaseException,
     classification: ProviderFailure,
     attempt: int,
+    *,
+    retry_after_retry_used: bool = False,
 ) -> bool:
     if classification.telemetry_result not in _RETRYABLE_ON_SAME_PROVIDER:
         return False
+
+    hinted = _parsed_retry_after_seconds(error)
+    if hinted is not None:
+        # A real provider Retry-After may arrive after one generic transient retry
+        # (the live failure was timeout -> 429). It owns one extra bounded chance,
+        # never two. _backoff_seconds still rejects hints above the local budget.
+        return not retry_after_retry_used
+
+    # Without a provider hint, preserve the original single generic retry budget.
     if attempt >= MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE:
         return False
-
-    # A provider Retry-After is stronger evidence than generic quota wording. If
-    # Gemini explicitly says the request becomes retryable within our bounded
-    # latency budget, honor it once. Hard quota exhaustion without such a bounded
-    # hint fails over immediately.
-    hinted = _parsed_retry_after_seconds(error)
-    if _is_quota_failure(error) and hinted is None:
+    if _is_quota_failure(error):
         return False
     return True
 
@@ -234,6 +240,7 @@ def gemini_research_call_with_fallback(
 ) -> dict[str, Any]:
     """Run one live Research call with bounded Gemini retry and free failover."""
     attempt = 0
+    retry_after_retry_used = False
     last_gemini_class = "none"
     last_gemini_status: int | None = None
     while True:
@@ -245,9 +252,16 @@ def gemini_research_call_with_fallback(
             last_gemini_class = classification.telemetry_result
             last_gemini_status = _http_status(exc)
 
-            if _same_provider_retry_allowed(exc, classification, attempt):
+            if _same_provider_retry_allowed(
+                exc,
+                classification,
+                attempt,
+                retry_after_retry_used=retry_after_retry_used,
+            ):
                 delay = _backoff_seconds(exc, attempt)
                 if delay is not None:
+                    if _parsed_retry_after_seconds(exc) is not None:
+                        retry_after_retry_used = True
                     _emit_provider_failure(
                         "gemini", exc, classification, attempt=attempt, action="retry"
                     )
