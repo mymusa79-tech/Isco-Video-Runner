@@ -98,6 +98,7 @@ def main() -> None:
     core.memory_ui._install_policy()
     from scripts import telegram_canonical_status_bridge as canonical_status_bridge
     from scripts import telegram_creator_control_center_v5 as creator_v5
+    from scripts import telegram_long_format_policy as long_format_policy
     from scripts import telegram_operator_mission_control as operator_mission_control
     from scripts import telegram_persistent_control_ui as persistent_ui
     from scripts import telegram_rich_integration as rich_integration
@@ -120,6 +121,10 @@ def main() -> None:
     # Mission Control is the final operator projection: it normalizes state labels
     # and receipts only, while the exact typed-confirmation authority remains intact.
     operator_mission_control.install()
+    # The outer-format policy must wrap the final approval owner. It changes only new
+    # Long approvals from the legacy UI default to `auto`, re-hashes that immutable
+    # request, and leaves Shorts plus explicit human format locks unchanged.
+    long_format_policy.install(panel=core.panel)
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     core.memory_ui._require_poll_identity(mode)
     if _claim_pending_scheduler_retry_without_polling(mode):
