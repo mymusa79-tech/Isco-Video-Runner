@@ -309,7 +309,7 @@ class ProducerShortStageOwnershipRegressionTests(unittest.TestCase):
 
         self.assertIs(result, corrected)
         self.assertEqual(observed["stage_id"], "planning.short_repair")
-        self.assertEqual(observed["contract_id"], "planning.short_repair.v1")
+        self.assertEqual(observed["contract_id"], "planning.short_repair.v2")
         self.assertEqual(observed["topic"], self.TOPIC)
         self.assertIsNone(planning._ACTIVE_STAGE_SPEC.get())
         routed.assert_called_once()
