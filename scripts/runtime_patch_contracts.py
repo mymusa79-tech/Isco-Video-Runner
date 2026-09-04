@@ -348,10 +348,10 @@ def _certify_retry_after_contracts() -> int:
             RuntimeError("HTTP 429 rate_limit_exceeded. Please retry in 38s."),
             attempt=1,
         )
-        if research_delay is not None:
+        if research_delay != 38.0:
             raise RuntimeError(
                 "RUNTIME_RETRY_AFTER_CONTRACT_MISMATCH "
-                "target=research expected=failover_without_partial_retry"
+                "target=research expected=full_provider_retry_after_within_budget"
             )
     finally:
         router._last_call_rate_limit_headers.clear()
