@@ -40,6 +40,35 @@ def _install_v5_after_active() -> None:
     core.active._isco_v5_replay_hooked = True
 
 
+def _control_state_path() -> Path | None:
+    raw = str(os.environ.get("CONTROL_STATE_PATH") or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    return path if path.is_file() else None
+
+
+def _reconcile_used_history_if_available() -> dict[str, int] | None:
+    """Repair historical Used projection from completed durable Telegram receipts.
+
+    Scheduled webhook-health passes already restore and later persist the encrypted
+    control state. Reusing that pass makes the migration automatic and idempotent,
+    without adding a new workflow, provider call, or Production action.
+    """
+    path = _control_state_path()
+    if path is None:
+        return None
+    from scripts.telegram_used_history_reconcile import reconcile_file
+
+    result = reconcile_file(path)
+    if result["added"]:
+        print(
+            "Telegram Used history backfill applied from completed receipts: "
+            f"added={result['added']} processed={result['processed']}"
+        )
+    return result
+
+
 def _durable_pending_research_exists() -> bool:
     """Return whether the restored control state still owns pending research work.
 
@@ -51,11 +80,8 @@ def _durable_pending_research_exists() -> bool:
     pending-work case; the poll entrypoint then claims the pending work without
     polling Telegram.
     """
-    raw = str(os.environ.get("CONTROL_STATE_PATH") or "").strip()
-    if not raw:
-        return False
-    path = Path(raw)
-    if not path.is_file():
+    path = _control_state_path()
+    if path is None:
         return False
     try:
         state = core.panel.load_state(path)
@@ -75,6 +101,12 @@ def _durable_pending_research_exists() -> bool:
 def replay_update(state_path, update):
     _install_v5_after_active()
     from scripts import telegram_creator_control_center_v5 as creator_v5
+    from scripts.telegram_used_history_reconcile import reconcile_file
+
+    # Any stateful webhook pass also gets the same idempotent history repair before
+    # processing the new operator action. This keeps the direct Edge library and the
+    # authoritative control state convergent even before the next 5-minute schedule.
+    reconcile_file(Path(state_path))
 
     # The replay core substitutes getUpdates with the already-authorized webhook
     # update. Preserve that callback's message identity as a class-level fallback
@@ -92,6 +124,10 @@ def main() -> None:
     _install_v5_after_active()
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode == "webhook-active":
+        # This command is executed by every scheduled control pass after encrypted
+        # state restore. Reconcile first; the workflow's existing persistence step
+        # will write any idempotent backfill to control-plane-state.
+        _reconcile_used_history_if_available()
         active_now = core.webhook_active()
         if active_now and _durable_pending_research_exists():
             print(
