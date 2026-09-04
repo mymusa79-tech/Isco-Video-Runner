@@ -14,6 +14,7 @@ from scripts import telegram_status_projection as projection
 ROOT = Path(__file__).resolve().parents[1]
 WORKER_DIR = ROOT / "cloudflare" / "telegram-control-worker"
 WRANGLER = WORKER_DIR / "wrangler.toml.example"
+EDITORIAL_WORKER = WORKER_DIR / "editorial-worker-v7.js"
 LIVE_OBSERVABILITY_WORKER = WORKER_DIR / "observability-worker-v6.js"
 OBSERVABILITY_WORKER = WORKER_DIR / "observability-worker.js"
 OBSERVABILITY_CORE = WORKER_DIR / "observability-worker-v4-core.js"
@@ -86,6 +87,7 @@ class SanitizedProjectionTests(unittest.TestCase):
 class EdgeObservabilityContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.editorial = EDITORIAL_WORKER.read_text(encoding="utf-8")
         cls.live = LIVE_OBSERVABILITY_WORKER.read_text(encoding="utf-8")
         cls.entry = OBSERVABILITY_WORKER.read_text(encoding="utf-8")
         cls.worker = OBSERVABILITY_CORE.read_text(encoding="utf-8")
@@ -93,8 +95,9 @@ class EdgeObservabilityContractTests(unittest.TestCase):
         cls.topic_ui = TOPIC_MEMORY_UI.read_text(encoding="utf-8")
         cls.progress = TELEGRAM_PROGRESS.read_text(encoding="utf-8")
 
-    def test_observability_layers_remain_behind_active_v6_entrypoint(self) -> None:
-        self.assertIn('main = "observability-worker-v6.js"', self.wrangler)
+    def test_observability_layers_remain_behind_active_editorial_v7_entrypoint(self) -> None:
+        self.assertIn('main = "editorial-worker-v7.js"', self.wrangler)
+        self.assertIn('import priorWorker from "./observability-worker-v6.js"', self.editorial)
         self.assertIn('import priorWorker from "./observability-worker.js"', self.live)
         self.assertIn('import priorWorker from "./observability-worker-v4-core.js"', self.entry)
         self.assertIn('import baseWorker from "./index.js"', self.worker)
@@ -107,7 +110,7 @@ class EdgeObservabilityContractTests(unittest.TestCase):
         node = shutil.which("node")
         if not node:
             self.skipTest("node is unavailable")
-        for path in (LIVE_OBSERVABILITY_WORKER, OBSERVABILITY_WORKER, OBSERVABILITY_CORE, GENERATED_CONTRACT):
+        for path in (EDITORIAL_WORKER, LIVE_OBSERVABILITY_WORKER, OBSERVABILITY_WORKER, OBSERVABILITY_CORE, GENERATED_CONTRACT):
             subprocess.run([node, "--check", str(path)], check=True, capture_output=True, text=True)
 
     def test_python_only_array_method_regression_is_closed(self):
@@ -122,19 +125,21 @@ class EdgeObservabilityContractTests(unittest.TestCase):
             "editMessageText", "message is not modified",
         ):
             self.assertIn(marker, self.worker)
-        self.assertNotIn("dispatchToGitHub", self.worker)
-        self.assertNotIn("workflow_dispatch", self.worker)
+        for marker in ('value === "cmd:saved"', 'value === "cmd:used"', 'showSavedPage(env', 'showUsedPage(env'):
+            self.assertIn(marker, self.editorial)
+        self.assertNotIn("dispatchToGitHub", self.editorial)
+        self.assertNotIn("workflow_dispatch", self.editorial)
 
     def test_encrypted_library_state_is_read_only_and_private(self):
         for marker in (
             "STATE_ENCRYPTION_KEY", "control-plane-state/state/control-panel.json.enc", '"PBKDF2"',
             '"AES-CBC"', "iterations: 10000", "STATE_TTL_MS",
         ):
-            self.assertIn(marker, self.worker)
-        self.assertNotIn('control-panel.json"', self.worker)
+            self.assertIn(marker, self.editorial)
+        self.assertNotIn('control-panel.json"', self.editorial)
 
     def test_security_boundaries_are_preserved_in_all_active_layers(self):
-        for text in (self.live, self.entry, self.worker):
+        for text in (self.editorial, self.live, self.entry, self.worker):
             for marker in (
                 "X-Telegram-Bot-Api-Secret-Token", "TELEGRAM_WEBHOOK_SECRET",
                 "TELEGRAM_ALLOWED_USER_ID", "TELEGRAM_CHAT_ID", "secretHeaderValid(request, env)", "authorized(update, env)",
