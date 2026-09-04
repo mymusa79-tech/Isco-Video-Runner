@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts import shorts_production_binding as core
-from scripts.short_voice_v2 import apply_short_voice_v2
+from scripts.short_voice_owned_timeline import apply_voice_owned_short
 
 
 PORT_ID = "shorts-runtime-port-v1"
@@ -29,13 +29,14 @@ def prepare_authoritative_short_for_gold(
 ) -> dict[str, Any]:
     """Own the one Short finishing seam that must complete before Gold.
 
-    The core builds the progressive Short, Voice V2 owns voice/cinematic/SFX mutations,
-    then the caller's already-composed Final Master QC surface is invoked again. Passing
-    the composed surface is deliberate: Producer Handoff, Audio Semantic Integrity and
-    durable Final QC remain in their existing owners and validate the exact final bytes.
+    The core builds the progressive visual candidate, Voice-Owned Timeline V1 synthesizes
+    the natural performance and makes the visual timeline follow measured narration,
+    then the caller's already-composed Final Master QC surface validates the exact bytes.
+    Producer Handoff, Audio Semantic Integrity and durable Final QC remain in their
+    existing owners; no quality gate or retry budget is weakened here.
     """
     pre_gold = core.prepare_short_render(output_dir, control_request)
-    pre_gold = apply_short_voice_v2(
+    pre_gold = apply_voice_owned_short(
         output_dir,
         control_request,
         pre_gold,
@@ -43,7 +44,7 @@ def prepare_authoritative_short_for_gold(
     )
     master_qc = run_final_master_qc(output_dir)
     if master_qc.get("status") != "pass" or master_qc.get("final_media_mutated") is not False:
-        raise RuntimeError("Short V2 authoritative Final Master QC did not pass")
+        raise RuntimeError("Voice-Owned Short authoritative Final Master QC did not pass")
     pre_gold["authoritative_final_master_qc_rerun"] = True
     return pre_gold
 

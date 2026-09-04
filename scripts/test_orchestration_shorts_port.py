@@ -55,7 +55,7 @@ class ShortsStablePortTests(unittest.TestCase):
             return {"status": "pass", "final_media_mutated": False}
 
         with patch.object(core, "prepare_short_render", side_effect=prepare) as prepare_mock, patch.object(
-            port, "apply_short_voice_v2", side_effect=voice
+            port, "apply_voice_owned_short", side_effect=voice
         ) as voice_mock:
             result = port.prepare_authoritative_short_for_gold(
                 out,
@@ -74,7 +74,7 @@ class ShortsStablePortTests(unittest.TestCase):
         out = Path("output/run")
         request = {"kind": "short", "request_id": "req-1"}
         with patch.object(core, "prepare_short_render", return_value={"stage": "pre_gold"}), patch.object(
-            port, "apply_short_voice_v2", return_value={"stage": "pre_gold"}
+            port, "apply_voice_owned_short", return_value={"stage": "pre_gold"}
         ):
             with self.assertRaisesRegex(RuntimeError, "authoritative Final Master QC did not pass"):
                 port.prepare_authoritative_short_for_gold(
@@ -164,7 +164,8 @@ class ShortsStablePortTests(unittest.TestCase):
         self.assertEqual(
             source.count("core.finalize_short_quality(output_dir, control_request, pre_gold)"), 1
         )
-        self.assertIn("apply_short_voice_v2(", source)
+        self.assertIn("apply_voice_owned_short(", source)
+        self.assertNotIn("apply_short_voice_v2(", source)
         self.assertIn("run_final_master_qc(output_dir)", source)
         self.assertIn('PROVIDER_OWNER = "canonical-short-child-core"', source)
         self.assertIn('RETRY_OWNER = "canonical-short-child-core"', source)
