@@ -8,6 +8,10 @@ from typing import Any
 
 from isco_video_agent.media.ffmpeg import probe
 from isco_video_agent.security import secret_free_subprocess_env
+from scripts.final_master_body_contract import (
+    FinalMasterBodyContractError,
+    resolve_body_contract,
+)
 
 
 SCHEMA_VERSION = 1
@@ -267,21 +271,28 @@ def run_final_master_qc(output_dir: Path) -> dict[str, Any]:
     report_path = root / "final-master-qc.json"
     plan = _read_object(root / "plan.json")
     quality = _read_object(root / "quality-final.json")
-    timeline = _read_object(root / "visual-timeline.json")
     if not final_path.is_file():
         raise FinalMasterQCError("Final Master QC requires final.mp4")
 
     fmt = str(plan.get("format") or quality.get("format") or "").strip().lower()
     if fmt not in {"film", "story", "moment"}:
         raise FinalMasterQCError("Final Master QC received unsupported format")
-    body_end = _float(timeline.get("duration_seconds"))
+    try:
+        body_contract = resolve_body_contract(root, fmt=fmt, quality=quality)
+    except FinalMasterBodyContractError as exc:
+        raise FinalMasterQCError(str(exc)) from exc
+    body_end = _float(body_contract.get("duration_seconds"))
     if body_end <= 0:
-        raise FinalMasterQCError("Final Master QC requires positive M7 timeline duration")
+        raise FinalMasterQCError("Final Master QC requires positive body duration")
 
     info = probe(final_path)
     final_seconds = _float((info.get("format") or {}).get("duration")) if isinstance(info, dict) else 0.0
     if final_seconds <= 0 or final_seconds + 0.25 < body_end:
         raise FinalMasterQCError("Final Master QC found invalid final/body duration relationship")
+    if fmt == "moment" and abs(final_seconds - body_end) > 0.25:
+        raise FinalMasterQCError(
+            "Final Master QC found Moment final/body duration mismatch"
+        )
 
     stream_contract, blocking, warnings = _stream_contract(info, fmt)
     has_audio = bool(stream_contract["audio_stream_count"])
@@ -328,6 +339,18 @@ def run_final_master_qc(output_dir: Path) -> dict[str, Any]:
         "final_file": final_path.name,
         "format": fmt,
         "final_duration_seconds": round(final_seconds, 3),
+        "body_duration_seconds": round(body_end, 3),
+        "body_duration_source": body_contract["source"],
+        "body_contract_kind": body_contract["kind"],
+        "m7_timeline_authoritative": bool(body_contract["m7_timeline_authoritative"]),
+        "short_timeline_authoritative": bool(body_contract["short_timeline_authoritative"]),
+        "quality_duration_crosscheck_seconds": (
+            round(float(body_contract["quality_duration_crosscheck_seconds"]), 3)
+            if body_contract.get("quality_duration_crosscheck_seconds") is not None
+            else None
+        ),
+        # Backward-compatible alias for existing report consumers. New consumers must
+        # use body_duration_seconds/body_duration_source because Moment does not own M7.
         "m7_body_duration_seconds": round(body_end, 3),
         "outro_or_tail_seconds": round(max(0.0, final_seconds - body_end), 3),
         "full_decode_ok": scan["returncode"] == 0 and scan.get("timed_out") is not True,
