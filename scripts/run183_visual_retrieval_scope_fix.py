@@ -18,11 +18,11 @@ the old literal marker/line staging instead.
 
 Run185 also proved that routing the semantic alternate is not sufficient by itself. The
 Engine prompt labels the value as an "Intended visual concept", so a multimodal judge can
-still treat an ideal/directorial description as a literal shot checklist. This layer now
-creates one bounded semantic editorial judgment envelope before every stable-intent Vision
-call. The envelope explicitly separates narrative meaning from literal staging while still
-rejecting generic unrelated B-roll. The exact same envelope reaches the Gemini primary and
-any provider fallback because it is applied before the provider boundary.
+still treat an ideal/directorial description as a literal shot checklist. Inside canonical
+Production, this layer creates one bounded semantic editorial judgment envelope before the
+provider boundary. The envelope explicitly separates narrative meaning from literal staging
+while still rejecting generic unrelated B-roll. Outside canonical Production, historical
+Run169/V1 observable behavior remains byte-for-byte stable for diagnostics/regression.
 
 Finally, the semantic judgment policy is included in the Vision contract fingerprint so
 old literal-policy cache verdicts cannot remain authoritative after this change.
@@ -137,20 +137,22 @@ def _trusted_semantic_intents(intended_visual: object, narration_context: object
 def _semantic_judgment_intent(value: object) -> str:
     """Convert a retrieval/directorial phrase into the canonical Vision judgment intent.
 
-    Engine Gemini truncates the intended visual field to 300 characters. Keep the policy
-    inside that bound so every provider receives an explicit anti-literal rule without
-    changing the Engine prompt, selector thresholds, or the retrieval query itself.
+    Engine Gemini truncates the intended visual field to 300 characters. Keep the complete
+    semantic policy inside that bound so every provider receives both the anti-literal rule
+    and the generic-B-roll rejection without changing selector thresholds or retrieval.
     """
     raw = " ".join(str(value or "").split()).strip()
     if raw.startswith("Intent:") and "SEMANTIC POLICY:" in raw:
         return raw[:MAX_ENGINE_INTENDED_VISUAL_CHARS]
-    raw = raw[:100]
+    raw = raw[:91]
     envelope = (
         f"Intent: {raw}. SEMANTIC POLICY: meaning, not literal shot checklist. "
-        "Do not require every named person/object/count/pose/action/prop. "
+        "Named people/objects/actions/props need not all appear. "
         "Accept specific semantic-equivalent/contextual coverage; reject generic unrelated B-roll."
     )
-    return envelope[:MAX_ENGINE_INTENDED_VISUAL_CHARS]
+    if len(envelope) > MAX_ENGINE_INTENDED_VISUAL_CHARS:
+        raise AssertionError("Run185 semantic judgment envelope exceeded Engine 300-char contract")
+    return envelope
 
 
 def _semantic_recovery_stable_intent(original):
@@ -162,10 +164,9 @@ def _semantic_recovery_stable_intent(original):
     scope below records the exact permitted alternates. Only those exact normalized
     values, and only inside canonical Production, may bypass the historical rewrite.
 
-    Regardless of which trusted editorial truth is selected, the final value reaching
-    Vision is wrapped in the canonical semantic judgment contract. This means an ideal
-    directorial description can guide relevance without becoming a mandatory literal
-    person/prop/action checklist. Generic unrelated footage still fails relevance.
+    Inside canonical Production, whichever trusted editorial truth is selected is wrapped
+    in the semantic judgment contract. Outside canonical Production, no envelope is added:
+    historical Run169/V1 diagnostics keep observing the original raw stable intent.
 
     Transient-provider handling is preserved through the historical wrapper for the
     stable path and mirrored for the trusted semantic-recovery path.
@@ -177,13 +178,14 @@ def _semantic_recovery_stable_intent(original):
     def builder(audit_fn, intended_visual: str):
         @wraps(audit_fn)
         def semantic_judgment_audit(*args, **kwargs):
-            kwargs["intended_visual"] = _semantic_judgment_intent(
-                kwargs.get("intended_visual")
-            )
+            if _runtime_active():
+                kwargs["intended_visual"] = _semantic_judgment_intent(
+                    kwargs.get("intended_visual")
+                )
             return audit_fn(*args, **kwargs)
 
         # Historical stable-intent ownership remains authoritative for ordinary search
-        # syntax. It now calls the semantic judgment adapter immediately before Vision.
+        # syntax. The adapter changes judgment semantics only inside canonical Production.
         stable = original(semantic_judgment_audit, intended_visual)
 
         @wraps(stable)
@@ -375,7 +377,7 @@ def install_run183_visual_retrieval_scope_fix(
     # before Opening Feasibility installs its selector wrappers later in run_v3_voice.
     # The wrapper still defaults to the original editorial truth; only exact current-
     # selector Run183 alternates can become the judgment intent during Production. The
-    # final provider-facing value is always the bounded semantic judgment envelope.
+    # provider-facing semantic envelope is likewise production-scoped.
     opening_guard._stable_intent_audit = _semantic_recovery_stable_intent(
         opening_guard._stable_intent_audit
     )
