@@ -1,17 +1,15 @@
-"""Provider reliability for the Telegram editorial *Research* call site only.
+"""Provider reliability for the Telegram editorial Research call site only.
 
 This module owns only Research provider transport reliability. It does not patch
 Planning, change AI budgets, enable paid models, or relax quality/safety gates.
 
-The reliability shape is deliberately bounded: Gemini gets at most one retry for
-transient failures, then the request may fail over to OpenRouter's free-model
-chain. If OpenRouter returns syntactically invalid JSON, one final schema-bound
-free-model attempt is allowed. Safety blocks fail closed and never cross providers.
+The reliability shape is bounded: Gemini gets at most one retry for transient
+failures. A provider-supplied Retry-After up to the local one-minute budget is
+honored once, including temporary free-tier rate limits. Then the request fails
+over to OpenRouter's free routing chain. Invalid JSON receives one schema-bound
+retry through the free router rather than pinning the final chance to one model.
 
-Provider diagnostics emitted here are intentionally metadata-only. They contain
-provider, normalized failure class, numeric HTTP status when safely available,
-numeric Retry-After when safely available, attempt, and action. Raw exception
-messages, prompts, responses, headers, URLs, and credentials are never emitted.
+Safety/content blocks fail closed and never cross providers.
 """
 
 from __future__ import annotations
@@ -28,7 +26,7 @@ from isco_video_agent.providers.openrouter import json_text as openrouter_json_t
 
 MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE = 2
 MIN_BACKOFF_SECONDS = 1.0
-MAX_RETRY_AFTER_SECONDS = 15.0
+MAX_RETRY_AFTER_SECONDS = 60.0
 
 _RETRY_AFTER_RE = re.compile(r"retry in (\d+(?:\.\d+)?)s", re.IGNORECASE)
 _QUOTA_MARKERS = (
@@ -43,10 +41,6 @@ _RETRYABLE_ON_SAME_PROVIDER = frozenset(
     {"429", "server_error", "network_error", "timeout", "capacity_unavailable"}
 )
 
-# Research is the only consumer of this schema. It mirrors the candidate contract
-# already required by Engine research.py, without changing the Engine or any
-# Production/Planning contract. The Engine still performs semantic filtering,
-# diversity checks, exclusion checks, and the live-market evidence gate afterwards.
 _SCORE_FIELDS = (
     "trend_score",
     "evergreen_score",
@@ -78,7 +72,7 @@ RESEARCH_RESPONSE_SCHEMA: dict[str, Any] = {
     "properties": {
         "candidates": {
             "type": "array",
-            "minItems": 3,
+            "minItems": 1,
             "maxItems": 10,
             "items": {
                 "type": "object",
@@ -104,9 +98,14 @@ class ResearchProviderExhausted(RuntimeError):
     """All eligible live Research providers failed for one provider call."""
 
 
-def _is_daily_quota_failure(error: BaseException) -> bool:
+def _is_quota_failure(error: BaseException) -> bool:
     detail = str(error).casefold()
     return any(marker in detail for marker in _QUOTA_MARKERS)
+
+
+# Backward-compatible name retained for existing regression tests/callers.
+def _is_daily_quota_failure(error: BaseException) -> bool:
+    return _is_quota_failure(error)
 
 
 def _parsed_retry_after_seconds(error: BaseException) -> float | None:
@@ -131,7 +130,6 @@ def _parsed_retry_after_seconds(error: BaseException) -> float | None:
 
 
 def _http_status(error: BaseException) -> int | None:
-    """Extract only a numeric HTTP status from structured exception metadata."""
     candidates = [getattr(error, "status_code", None), getattr(error, "status", None)]
     response = getattr(error, "response", None)
     if response is not None:
@@ -164,7 +162,6 @@ def _emit_provider_failure(
     attempt: int,
     action: str,
 ) -> None:
-    """Emit a stable, non-sensitive provider-failure diagnostic line."""
     print(
         "RESEARCH_PROVIDER_TELEMETRY "
         f"provider={provider} "
@@ -190,18 +187,37 @@ def _is_eligible_for_fallback(telemetry_result: str) -> bool:
     return telemetry_result != "content_blocked"
 
 
+def _same_provider_retry_allowed(
+    error: BaseException,
+    classification: ProviderFailure,
+    attempt: int,
+) -> bool:
+    if classification.telemetry_result not in _RETRYABLE_ON_SAME_PROVIDER:
+        return False
+    if attempt >= MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE:
+        return False
+
+    # A provider Retry-After is stronger evidence than generic quota wording. If
+    # Gemini explicitly says the request becomes retryable within our bounded
+    # latency budget, honor it once. Hard quota exhaustion without such a bounded
+    # hint fails over immediately.
+    hinted = _parsed_retry_after_seconds(error)
+    if _is_quota_failure(error) and hinted is None:
+        return False
+    return True
+
+
 def _structured_openrouter_retry(
     prompt: str,
     *,
     fallback_models: tuple[str, ...],
     default_model: str,
 ) -> dict[str, Any]:
-    """Use one explicit free model with strict schema after invalid JSON only."""
-    structured_model = fallback_models[0] if fallback_models else default_model
+    """Retry through the free router with strict schema and bounded model fallback."""
     return openrouter_json_text(
         prompt,
-        model=structured_model,
-        fallback_models=(),
+        model=default_model,
+        fallback_models=fallback_models,
         response_schema=RESEARCH_RESPONSE_SCHEMA,
         schema_name="isco_topic_research_response",
     )
@@ -227,13 +243,8 @@ def gemini_research_call_with_fallback(
             classification = classify_provider_failure("gemini", exc)
             last_gemini_class = classification.telemetry_result
             last_gemini_status = _http_status(exc)
-            quota = _is_daily_quota_failure(exc)
-            can_retry_same_provider = (
-                not quota
-                and classification.telemetry_result in _RETRYABLE_ON_SAME_PROVIDER
-                and attempt < MAX_GEMINI_ATTEMPTS_FOR_TRANSIENT_FAILURE
-            )
-            if can_retry_same_provider:
+
+            if _same_provider_retry_allowed(exc, classification, attempt):
                 delay = _backoff_seconds(exc, attempt)
                 if delay is not None:
                     _emit_provider_failure(
@@ -257,6 +268,7 @@ def gemini_research_call_with_fallback(
                 _emit_provider_failure(
                     "gemini", exc, classification, attempt=attempt, action="failover"
                 )
+
             if not _is_eligible_for_fallback(classification.telemetry_result):
                 raise
             break
@@ -279,7 +291,7 @@ def gemini_research_call_with_fallback(
                     fallback_models=openrouter_fallback_models,
                     default_model=openrouter_model,
                 )
-            except Exception as structured_exc:  # noqa: BLE001 - normalized below
+            except Exception as structured_exc:  # noqa: BLE001
                 structured_classification = classify_provider_failure(
                     "openrouter", structured_exc
                 )
