@@ -19,6 +19,7 @@ from scripts.final_master_body_contract import (
     resolve_body_contract,
 )
 from scripts.runtime_phase import canonical_runtime_enabled
+from scripts.runtime_reliability import production_entrypoint_modules
 
 
 ROUTER_ID = "final-master-format-router-v1"
@@ -199,19 +200,31 @@ def run_format_aware_final_master_qc(
 
 
 def install_format_aware_qc_router() -> None:
-    """Install a runtime-only adapter without changing certified source bytes."""
-    current = core.run_final_master_qc
-    if getattr(current, "_isco_format_aware_final_master_qc", False) is True:
-        return
+    """Wrap only live production QC ports; never mutate the certified core symbol.
 
-    def wrapped(output_dir: Path) -> dict[str, Any]:
-        if not canonical_runtime_enabled():
-            return current(Path(output_dir))
-        return run_format_aware_final_master_qc(
-            Path(output_dir),
-            original=current,
-        )
+    Runtime closure calls this immediately before Final-QC durability is installed.
+    Durability therefore captures this wrapper as its `original`, yielding the explicit
+    order Durable QC -> Format Router -> certified core. Direct core unit tests and the
+    byte-certified stable port remain untouched.
+    """
+    for production in production_entrypoint_modules():
+        current = getattr(production, "run_final_master_qc", None)
+        if not callable(current) or getattr(
+            current, "_isco_format_aware_final_master_qc", False
+        ) is True:
+            continue
 
-    wrapped._isco_format_aware_final_master_qc = True
-    wrapped._isco_format_aware_final_master_qc_original = current
-    core.run_final_master_qc = wrapped
+        def make_wrapper(original: Callable[[Path], dict[str, Any]]):
+            def wrapped(output_dir: Path) -> dict[str, Any]:
+                if not canonical_runtime_enabled():
+                    return original(Path(output_dir))
+                return run_format_aware_final_master_qc(
+                    Path(output_dir),
+                    original=original,
+                )
+
+            wrapped._isco_format_aware_final_master_qc = True
+            wrapped._isco_format_aware_final_master_qc_original = original
+            return wrapped
+
+        setattr(production, "run_final_master_qc", make_wrapper(current))
