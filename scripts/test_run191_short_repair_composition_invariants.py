@@ -206,6 +206,8 @@ class Run191ShortRepairCompositionInvariantTests(unittest.TestCase):
 
 
 class NamedShortStageOwnershipRegressionTests(unittest.TestCase):
+    """F33: operation names own identity; order is validation only, never inference."""
+
     TOPIC = "فخ المجاملة المستمرة: لماذا يصعب عليك قول لا حتى لمن تحب؟"
 
     def _state(self) -> dict:
