@@ -10,6 +10,10 @@ from typing import Any
 from isco_video_agent.brief_approval_binding import attach_approval_binding
 
 from scripts.orchestration_shorts_port import finalize_short_quality, prepare_authoritative_short_for_gold
+from scripts.short_finishing_capabilities import (
+    ShortFinishingCapabilities,
+    bind_short_finishing_capabilities,
+)
 from scripts.source_derived_short_planner import install_source_derived_short_planner
 
 
@@ -131,12 +135,14 @@ def execute(request: dict[str, Any], *, runtime_dir: Path) -> Path:
         ledger = ledger_box.get("ledger")
         if ledger is None:
             raise RuntimeError("Canonical sibling Short lost the production AI budget ledger before finishing")
-        short_pre = prepare_authoritative_short_for_gold(
-            output_dir,
-            runtime_request,
-            ledger=ledger,
-            run_final_master_qc=production.run_final_master_qc,
-        )
+        capabilities = ShortFinishingCapabilities.from_gold_kwargs(kwargs)
+        with bind_short_finishing_capabilities(capabilities):
+            short_pre = prepare_authoritative_short_for_gold(
+                output_dir,
+                runtime_request,
+                ledger=ledger,
+                run_final_master_qc=production.run_final_master_qc,
+            )
         result = original_gold(**kwargs)
         assert short_pre is not None
         finalize_short_quality(output_dir, runtime_request, short_pre)
