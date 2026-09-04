@@ -15,6 +15,7 @@ from isco_video_agent.ai_budget import (
 )
 
 from scripts import native_short_stage_contract
+from scripts import planning_repair_identity_family
 from scripts import planning_stage_contract
 from scripts import run120_dossier_repair_hardening
 from scripts import short_planning_repair
@@ -208,12 +209,11 @@ def _repair_short_plan_once(
 
     # Run #193: Producer repair runs after the native Moment Draft/Review build has
     # returned, so it is outside native_short_stage_contract's lifecycle call-state.
-    # Bind the already-defined short_repair Stage Contract at this stable capability
-    # boundary instead of letting the lower router infer identity from prompt text or
-    # call order. The scope covers the whole repair transport, including any already-
-    # authorized bounded terminal-reset retry wrapped around _repair_existing_moment.
-    repair_stage = native_short_stage_contract.moment_stage_spec(
-        "short_repair",
+    # Run #197 then proved that this capability boundary must also own immutable repair
+    # identity independent of process-global installer order. Resolve the authoritative
+    # v2 repair StageSpec directly from the identity family; the helper is idempotent
+    # when the fully composed runtime has already wrapped moment_stage_spec.
+    repair_stage = planning_repair_identity_family.short_repair_stage_spec(
         str(topic or ""),
     )
     with planning_stage_contract.request_stage_scope(repair_stage):

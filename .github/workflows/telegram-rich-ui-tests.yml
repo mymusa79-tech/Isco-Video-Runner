@@ -6,6 +6,7 @@ on:
     paths:
       - "cloudflare/telegram-control-worker/index.js"
       - "cloudflare/telegram-control-worker/observability-worker.js"
+      - "cloudflare/telegram-control-worker/observability-worker-v6.js"
       - "cloudflare/telegram-control-worker/status-contract.generated.js"
       - "scripts/telegram_bot_api_10_3_ui.py"
       - "scripts/telegram_production_rich_ui.py"
@@ -25,11 +26,13 @@ on:
       - "scripts/test_telegram_library_split.py"
       - "scripts/test_telegram_final_notify.py"
       - "scripts/test_telegram_observability_v1.py"
+      - "scripts/test_telegram_terminal_truth_family.py"
       - ".github/workflows/telegram-rich-ui-tests.yml"
   pull_request:
     paths:
       - "cloudflare/telegram-control-worker/index.js"
       - "cloudflare/telegram-control-worker/observability-worker.js"
+      - "cloudflare/telegram-control-worker/observability-worker-v6.js"
       - "cloudflare/telegram-control-worker/status-contract.generated.js"
       - "scripts/telegram_bot_api_10_3_ui.py"
       - "scripts/telegram_production_rich_ui.py"
@@ -49,6 +52,7 @@ on:
       - "scripts/test_telegram_library_split.py"
       - "scripts/test_telegram_final_notify.py"
       - "scripts/test_telegram_observability_v1.py"
+      - "scripts/test_telegram_terminal_truth_family.py"
       - ".github/workflows/telegram-rich-ui-tests.yml"
   workflow_dispatch:
 
@@ -82,6 +86,7 @@ jobs:
             scripts/generate_telegram_status_contract_js.py
           node --check cloudflare/telegram-control-worker/index.js
           node --check cloudflare/telegram-control-worker/observability-worker.js
+          node --check cloudflare/telegram-control-worker/observability-worker-v6.js
           node --check cloudflare/telegram-control-worker/status-contract.generated.js
 
       - name: Run Telegram UI and observability tests
@@ -94,4 +99,5 @@ jobs:
             scripts.test_telegram_topic_memory_ui \
             scripts.test_telegram_library_split \
             scripts.test_telegram_final_notify \
-            scripts.test_telegram_observability_v1
+            scripts.test_telegram_observability_v1 \
+            scripts.test_telegram_terminal_truth_family
