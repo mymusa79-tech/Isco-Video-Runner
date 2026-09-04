@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_ENGINE_SHA: d698dbfddbf7cdb752d40362dfb58c6942cb52dd
+  EXPECTED_ENGINE_SHA: 3d584c868b5c094d7856370f6d728aec841fef27
   STATIC_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
 
 jobs:
@@ -96,7 +96,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: d698dbfddbf7cdb752d40362dfb58c6942cb52dd
+          ref: 3d584c868b5c094d7856370f6d728aec841fef27
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -462,7 +462,7 @@ jobs:
           YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
           YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
           YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
-          ISCO_ENGINE_SHA: d698dbfddbf7cdb752d40362dfb58c6942cb52dd
+          ISCO_ENGINE_SHA: 3d584c868b5c094d7856370f6d728aec841fef27
           ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
           ISCO_APPROVED_BRIEF_SHA256: ${{ steps.validate_brief.outputs.brief_sha256 }}
           ISCO_TTS_CACHE_PATH: ${{ runner.temp }}/isco-tts-cache

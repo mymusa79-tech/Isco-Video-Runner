@@ -50,6 +50,7 @@ from scripts.run125_capacity_routing_closure import install_run125_capacity_rout
 from scripts.runtime_patch_contracts import certify_runtime_patch_contracts
 from scripts.runtime_phase import canonical_runtime_enabled
 from scripts.schema_repair_policy import install_schema_repair_policy
+from scripts.short_planning_port_adapter import install_short_planning_port_adapter
 from scripts.short_planning_repair import install_short_planning_repair
 from scripts.short_repair_reset_recovery import install_short_repair_reset_recovery
 from scripts.task_level_planner_router import install_router
@@ -136,6 +137,12 @@ def install_runtime_planning_contracts() -> None:
     # reset owner without replacing the existing long-form shard recovery semantics.
     install_planning_capacity_profile()
     install_planning_capacity_headroom()
+    # Capacity remains the transport owner, but logical standalone-Short lifecycle
+    # ownership belongs to the Engine public port. Install the compatibility adapter
+    # immediately after Capacity has established its bounded build wrapper so the live
+    # wrapper resolves Draft/Review through the Engine contract rather than an ordinal
+    # or Runner-private lifecycle.
+    install_short_planning_port_adapter()
     # Runs #158/#160 reached the compact Moment RepairDossier after Draft/Review, but
     # that transport sat outside the native-Short reset owner. Reuse the exact same
     # evidence-backed <=60s wait + one retry for the surgical repair call only; Dossier
