@@ -29,34 +29,40 @@ def retry_delay_decision(
     calculated_delay_seconds: float = 0.0,
     wait_budget_seconds: float,
 ) -> RetryDelayDecision:
-    """Return a full-delay retry or immediate failover; never a partial Retry-After.
+    """Return a provider-owned retry delay or local backoff; never mix the two.
 
-    A provider Retry-After is a minimum safe delay. A local latency budget may decide
-    that waiting that long is undesirable, but it must not shorten the provider delay
-    and then issue the same request early. In that case the only valid local action is
-    failover/no-same-provider-retry. Locally calculated backoff may be capped because it
-    is our policy, not provider evidence, as long as the resulting delay still honors
-    the complete provider hint.
+    A provider Retry-After owns the timing decision when it is present. If the full
+    provider delay fits inside the local wait budget, retry after that exact delay.
+    Do not add local exponential backoff or jitter on top of provider evidence.
+    If the provider delay exceeds the local budget, fail over instead of shortening
+    it. Only when no valid provider hint exists may local backoff/jitter be used and
+    capped to the local budget.
     """
     budget = max(0.0, float(wait_budget_seconds))
     calculated = max(0.0, float(calculated_delay_seconds))
     hinted = parse_retry_after_seconds(provider_hint)
 
-    if hinted is not None and hinted > budget:
+    if hinted is not None:
+        if hinted > budget:
+            return RetryDelayDecision(
+                action="failover",
+                delay_seconds=None,
+                provider_hint_seconds=hinted,
+                wait_budget_seconds=budget,
+                reason="provider_retry_after_exceeds_local_wait_budget",
+            )
         return RetryDelayDecision(
-            action="failover",
-            delay_seconds=None,
+            action="retry",
+            delay_seconds=hinted,
             provider_hint_seconds=hinted,
             wait_budget_seconds=budget,
-            reason="provider_retry_after_exceeds_local_wait_budget",
+            reason="provider_hint_honored",
         )
 
-    local_delay = min(calculated, budget)
-    delay = max(local_delay, hinted or 0.0)
     return RetryDelayDecision(
         action="retry",
-        delay_seconds=delay,
-        provider_hint_seconds=hinted,
+        delay_seconds=min(calculated, budget),
+        provider_hint_seconds=None,
         wait_budget_seconds=budget,
-        reason="provider_hint_honored" if hinted is not None else "local_backoff",
+        reason="local_backoff",
     )
