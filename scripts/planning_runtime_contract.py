@@ -53,6 +53,7 @@ from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.short_planning_repair import install_short_planning_repair
 from scripts.short_repair_reset_recovery import install_short_repair_reset_recovery
 from scripts.task_level_planner_router import install_router
+from scripts.tone_audit_representation_bridge import install_tone_audit_representation_bridge
 
 
 # runtime_closure is intentionally unit-testable in isolation. Such a test must not
@@ -173,6 +174,12 @@ def install_post_runtime_planning_contracts() -> None:
     # a second Producer repair.
     install_planning_producer_quality_contract()
     install_producer_planning_lifecycle()
+    # Run191 closure: Engine Tone QA predates standalone Moment and explicitly reasons
+    # about narration. Bind its *input* to the authoritative viewer-facing representation
+    # before the final representation wrapper is installed. The later wrapper therefore
+    # still receives the untouched production plan for deterministic normalization, while
+    # the provider sees a deep-copy audit projection. No Tone verdict is filtered here.
+    install_tone_audit_representation_bridge()
     # Run179 closure: after Producer has final ownership of the plan, bind generic
     # Engine audits to the representation that is authoritative for the selected
     # format. Long remains narration-authoritative; standalone Moment is screen-text
