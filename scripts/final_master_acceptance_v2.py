@@ -8,6 +8,11 @@ long-form receipts still bind the M7 visual timeline, while Moment receipts bind
 the measured Short artifacts they actually own. The upload-conformance policy,
 exact final-byte validation, and fail-closed semantics remain in the legacy F24
 implementation.
+
+The format router is deliberately *not* imported here. F24 is reachable from the
+durable planning source closure, while Final Master QC is post-planning media policy.
+The router is installed later from the runtime media preflight so this acceptance
+shim cannot pull media/QC code into the planning checkpoint contract.
 """
 
 import hashlib
@@ -16,23 +21,31 @@ from pathlib import Path
 from typing import Any
 
 from scripts import final_master_acceptance_v2_legacy as _legacy
-from scripts.final_master_format_router import (
-    ROUTER_ID,
-    ROUTER_VERSION,
-    implementation_sha256 as router_implementation_sha256,
-    install_format_aware_qc_router,
-)
 
 
 CONTRACT_ID = _legacy.CONTRACT_ID
 CONTRACT_SCHEMA_VERSION = _legacy.CONTRACT_SCHEMA_VERSION
 REPORT_FILENAME = _legacy.REPORT_FILENAME
 FinalMasterAcceptanceError = _legacy.FinalMasterAcceptanceError
+ROUTER_ID = "final-master-format-router-v1"
+ROUTER_VERSION = 1
+_ROUTER_PATH = Path(__file__).with_name("final_master_format_router.py")
 
 # Compatibility surfaces retained for existing tests/diagnostics that monkeypatch the
 # public F24 module. Production does not replace these callables.
 probe = _legacy.probe
 _mp4_fast_start = _legacy._mp4_fast_start
+
+
+def _router_implementation_sha256() -> str:
+    try:
+        if _ROUTER_PATH.is_symlink() or not _ROUTER_PATH.is_file():
+            raise OSError("router is not a regular file")
+        return hashlib.sha256(_ROUTER_PATH.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise FinalMasterAcceptanceError(
+            "final_master_acceptance_missing_format_router"
+        ) from exc
 
 
 def _read_format(root: Path) -> str:
@@ -79,7 +92,7 @@ def qc_policy_fingerprint() -> str:
         "format_router": {
             "id": ROUTER_ID,
             "version": ROUTER_VERSION,
-            "implementation_sha256": router_implementation_sha256(),
+            "implementation_sha256": _router_implementation_sha256(),
         },
         "source_ownership": {
             "film_story": [
@@ -155,8 +168,3 @@ final_master_acceptance_sha256 = _legacy.final_master_acceptance_sha256
 
 def __getattr__(name: str):
     return getattr(_legacy, name)
-
-
-# Imported by final_qc_observer_durability during runtime_closure import.
-# The wrapper is inert outside canonical runtime, preserving direct core unit tests.
-install_format_aware_qc_router()
