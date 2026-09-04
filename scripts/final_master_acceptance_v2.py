@@ -29,6 +29,11 @@ CONTRACT_SCHEMA_VERSION = _legacy.CONTRACT_SCHEMA_VERSION
 REPORT_FILENAME = _legacy.REPORT_FILENAME
 FinalMasterAcceptanceError = _legacy.FinalMasterAcceptanceError
 
+# Compatibility surfaces retained for existing tests/diagnostics that monkeypatch the
+# public F24 module. Production does not replace these callables.
+probe = _legacy.probe
+_mp4_fast_start = _legacy._mp4_fast_start
+
 
 def _read_format(root: Path) -> str:
     plan = _legacy._read_object(Path(root) / "plan.json")
@@ -118,7 +123,31 @@ def qc_policy_fingerprint() -> str:
 _legacy._source_bindings = _source_bindings
 _legacy.qc_policy_fingerprint = qc_policy_fingerprint
 
-seal_final_master_acceptance = _legacy.seal_final_master_acceptance
+
+def _with_public_upload_overrides(callable_, *args, **kwargs):
+    old_probe = _legacy.probe
+    old_fast_start = _legacy._mp4_fast_start
+    _legacy.probe = probe
+    _legacy._mp4_fast_start = _mp4_fast_start
+    try:
+        return callable_(*args, **kwargs)
+    finally:
+        _legacy.probe = old_probe
+        _legacy._mp4_fast_start = old_fast_start
+
+
+def _upload_conformance(final_path: Path) -> dict[str, Any]:
+    return _with_public_upload_overrides(_legacy._upload_conformance, final_path)
+
+
+def seal_final_master_acceptance(output_dir: Path, report: dict[str, Any]) -> dict[str, Any]:
+    return _with_public_upload_overrides(
+        _legacy.seal_final_master_acceptance,
+        output_dir,
+        report,
+    )
+
+
 require_final_master_acceptance = _legacy.require_final_master_acceptance
 require_certified_final_video = _legacy.require_certified_final_video
 final_master_acceptance_sha256 = _legacy.final_master_acceptance_sha256
