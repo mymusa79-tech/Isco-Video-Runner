@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts import run_control_production as control
+from scripts.short_finishing_capabilities import ShortFinishingCapabilities
 
 
 class ControlBundleRuntimeTests(unittest.TestCase):
@@ -44,12 +45,23 @@ class ControlBundleRuntimeTests(unittest.TestCase):
         request["request_sha256"] = control._canonical_request_hash(request)
         return request
 
+    def _capabilities(self) -> ShortFinishingCapabilities:
+        return ShortFinishingCapabilities(
+            gemini="test-owned-gemini",
+            pexels="test-owned-pexels",
+            pixabay="test-owned-pixabay",
+        )
+
     def test_child_runtime_uses_clean_subprocess_and_exact_hashed_request(self):
         child = self._child()
         with tempfile.TemporaryDirectory() as temp, patch.object(control, "_output_dirs", return_value=set()), patch.object(
             control, "_new_output_dir", return_value=Path(temp) / "output-short"
         ), patch.object(control.subprocess, "run") as run:
-            result = control.execute_child_subprocess(child, runtime_root=Path(temp) / "runtime")
+            result = control.execute_child_subprocess(
+                child,
+                runtime_root=Path(temp) / "runtime",
+                capabilities=self._capabilities(),
+            )
             self.assertEqual(result, Path(temp) / "output-short")
             run.assert_called_once()
             command = run.call_args.args[0]
@@ -71,7 +83,11 @@ class ControlBundleRuntimeTests(unittest.TestCase):
         child["request_sha256"] = control._canonical_request_hash(child)
         with tempfile.TemporaryDirectory() as temp, patch.object(control.subprocess, "run") as run:
             with self.assertRaisesRegex(RuntimeError, "must remain non-dispatching"):
-                control.execute_child_subprocess(child, runtime_root=Path(temp))
+                control.execute_child_subprocess(
+                    child,
+                    runtime_root=Path(temp),
+                    capabilities=self._capabilities(),
+                )
         run.assert_not_called()
 
 
