@@ -8,6 +8,7 @@ import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.editorial_room import EditorialContractError, intent_from_dict
 from isco_video_agent.models import ProductionPlan, ScriptSection
 from isco_video_agent.short_planner import build_short_plan, plan_as_dict
+from scripts.voice_owned_timeline import provision_source_derived_visual_seconds
 
 
 class SourceDerivedShortError(RuntimeError):
@@ -301,13 +302,17 @@ def build_production_plan(control_request: dict[str, Any]) -> ProductionPlan:
     if pillar not in {"understand", "rise", "see"}:
         pillar = "understand"
 
+    # This is only a source-safe visual provisioning budget. It intentionally errs on
+    # the generous side so the later measured Voice-Owned Timeline can keep 1.00x
+    # speech. The actual generated waveform remains the final timing authority.
+    visual_budget_seconds = provision_source_derived_visual_seconds(beat_texts)
     section = ScriptSection(
         id="s1",
         narration="",
         visual_query=_clean(excerpt.get("source_visual_query"))[:260],
         on_screen_text=beat_texts[1][:220] if len(beat_texts) > 2 else beat_texts[0][:220],
         emotion=_clean(excerpt.get("source_emotion"))[:40] or "reflective",
-        expected_seconds=15.0,
+        expected_seconds=visual_budget_seconds,
         key_point=semantic_job[:220],
     )
     titles = [semantic_job, beat_texts[0], beat_texts[-1]]
