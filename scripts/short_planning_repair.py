@@ -125,36 +125,88 @@ def _selected_template(plan: object) -> str:
     return narrative.removeprefix("short_") if narrative.startswith("short_") else ""
 
 
-def _representation_contract_guidance(issue_notes: str) -> str:
-    """Compile repair wording from the deterministic validator's live contract.
+def _representation_contract_guidance(
+    issue_notes: str,
+    current_plan: object | None = None,
+) -> str:
+    """Compile mutation constraints from the live deterministic Short validator.
 
-    Run #189 proved that a semantic repair instruction can drift from a lexical
-    deterministic acceptance contract. The validator therefore stays the sole source
-    of truth: this adapter imports its live marker sets only when the owned micro_story
-    issue is being repaired. No marker vocabulary is duplicated here.
+    Run #189 aligned the owned micro_story repair with the validator. The next live run
+    exposed the composition half of the family: a later Dossier repair for another issue
+    could rewrite an already-certified representation and regress it. Every Moment
+    mutation therefore carries the selected-template invariant, not only a mutation
+    whose local issue happens to name that invariant.
     """
-    if "micro_story_missing_concrete_event_progression" not in str(issue_notes or ""):
-        return ""
-
     from scripts import production_text_representation_contract as representation
 
-    scene_markers = tuple(getattr(representation, "_MICRO_STORY_SCENE_MARKERS", ()))
-    turn_markers = tuple(getattr(representation, "_MICRO_STORY_TURN_MARKERS", ()))
-    if not scene_markers or not turn_markers:
-        raise ShortRepairEnvelopeError(
-            "Micro-story repair cannot resolve the deterministic representation contract"
+    template = _selected_template(current_plan) if current_plan is not None else ""
+    if not template and "micro_story_missing_concrete_event_progression" in str(issue_notes or ""):
+        # Backward-compatible direct diagnostic call used by existing tests.
+        template = "micro_story"
+    if not template:
+        return ""
+
+    source_issues = (
+        representation.short_representation_issues(current_plan)
+        if current_plan is not None
+        else []
+    )
+    mode = "REPAIR" if source_issues else "PRESERVE"
+    prefix = (
+        f"DETERMINISTIC SHORT MUTATION INVARIANT — {mode} selected template={template}: "
+        "the returned on_screen_text must pass the same deterministic representation "
+        "validator after this repair. Do not trade an already-certified template invariant "
+        "for the local Dossier fix. "
+    )
+
+    if template == "micro_story":
+        scene_markers = tuple(getattr(representation, "_MICRO_STORY_SCENE_MARKERS", ()))
+        turn_markers = tuple(getattr(representation, "_MICRO_STORY_TURN_MARKERS", ()))
+        if not scene_markers or not turn_markers:
+            raise ShortRepairEnvelopeError(
+                "Micro-story repair cannot resolve the deterministic representation contract"
+            )
+        scene_examples = "، ".join(scene_markers[:6])
+        turn_examples = "، ".join(turn_markers[:6])
+        return (
+            prefix
+            + "DETERMINISTIC MICRO_STORY ACCEPTANCE — compiled from the live validator: "
+            "on_screen_text must contain at least one positive concrete scene/event cue "
+            f"from the validator vocabulary (for example: {scene_examples}) AND at least "
+            "one distinct positive change/turn cue from the same validator contract "
+            f"(for example: {turn_examples}). Use the cues naturally inside one coherent "
+            "micro-story; never insert them mechanically or replace meaning with keywords."
         )
 
-    scene_examples = "، ".join(scene_markers[:6])
-    turn_examples = "، ".join(turn_markers[:6])
-    return (
-        "DETERMINISTIC MICRO_STORY ACCEPTANCE — compiled from the live validator: "
-        "on_screen_text must contain at least one positive concrete scene/event cue "
-        f"from the validator vocabulary (for example: {scene_examples}) AND at least "
-        "one distinct positive change/turn cue from the same validator contract "
-        f"(for example: {turn_examples}). Use the cues naturally inside one coherent "
-        "micro-story; never insert them mechanically or replace meaning with keywords."
-    )
+    if template == "why_reframe":
+        markers = tuple(getattr(representation, "_WHY_REFRAME_MARKERS", ()))
+        if not markers:
+            raise ShortRepairEnvelopeError(
+                "Why-reframe repair cannot resolve the deterministic representation contract"
+            )
+        examples = "، ".join(markers[:6])
+        return (
+            prefix
+            + "The visible wording must keep at least one bounded contrast/reframe cue "
+            f"recognized by the live validator (for example: {examples}), used naturally."
+        )
+
+    if template == "inner_dialogue":
+        return (
+            prefix
+            + "Keep a visible two-turn inner exchange: at least two separated dash turns "
+            "or at least two visibly quoted inner thoughts; a single explanatory monologue "
+            "does not satisfy the deterministic representation contract."
+        )
+
+    if template == "quote_reflection":
+        return (
+            prefix
+            + "Keep the actual already-approved visible quotation and its reflection/payoff. "
+            "Never invent, alter, or newly attribute a quotation during an unrelated repair."
+        )
+
+    return prefix
 
 
 def _micro_story_alignment_trace(plan: object, *, force: bool = False) -> dict[str, bool] | None:
@@ -191,6 +243,68 @@ def _print_micro_story_trace(phase: str, trace: dict[str, bool] | None) -> None:
     )
 
 
+def _preserve_template_identity(source: object, repaired: object) -> None:
+    """A surgical repair may change wording, never the already-selected Short template."""
+    intent = getattr(source, "editorial_intent", None)
+    if isinstance(intent, dict):
+        setattr(repaired, "editorial_intent", dict(intent))
+    narrative = getattr(source, "narrative_format", None)
+    if narrative:
+        setattr(repaired, "narrative_format", narrative)
+
+
+def _restore_certified_representation_if_regressed(source: object, repaired: object) -> object:
+    """Transactional guard for representation-owned fields; no extra provider call.
+
+    If the source Moment already passed its deterministic template representation and a
+    later repair for another owner regresses that invariant, restore only the fields
+    owned by the representation contract. All Producer/Dossier validators still rerun
+    afterwards, so a repair that genuinely required those fields will fail closed rather
+    than silently bypass its original issue.
+    """
+    from scripts import production_text_representation_contract as representation
+
+    if str(getattr(source, "format", "")).strip().lower() != "moment":
+        return repaired
+    source_issues = representation.short_representation_issues(source)
+    if source_issues:
+        return repaired
+
+    candidate_issues = representation.short_representation_issues(repaired)
+    if not candidate_issues:
+        return repaired
+
+    source_sections = list(getattr(source, "sections", []) or [])
+    repaired_sections = list(getattr(repaired, "sections", []) or [])
+    if len(source_sections) != 1 or len(repaired_sections) != 1:
+        raise ShortRepairEnvelopeError(
+            "Certified Short representation regressed outside the owned rollback shape"
+        )
+
+    setattr(repaired_sections[0], "narration", getattr(source_sections[0], "narration", ""))
+    setattr(
+        repaired_sections[0],
+        "on_screen_text",
+        getattr(source_sections[0], "on_screen_text", ""),
+    )
+    _preserve_template_identity(source, repaired)
+
+    remaining = representation.short_representation_issues(repaired)
+    restored = not remaining
+    print(
+        "Short repair invariant guard: "
+        f"template={_selected_template(source) or 'unknown'} source_certified=true "
+        "candidate_regressed=true action=restore_representation_owned_fields "
+        f"restored={str(restored).lower()}"
+    )
+    if remaining:
+        raise ShortRepairEnvelopeError(
+            "Certified Short representation could not be restored after unrelated repair: "
+            + ",".join(remaining)
+        )
+    return repaired
+
+
 def build_short_repair_prompt(
     current_plan: object,
     issue_notes: str,
@@ -203,7 +317,7 @@ def build_short_repair_prompt(
     template = _selected_template(current_plan)
     template_rule = short_template_contract(template)
     producer_rule = producer_writing_directive(research_context)
-    representation_rule = _representation_contract_guidance(issue_notes)
+    representation_rule = _representation_contract_guidance(issue_notes, current_plan)
 
     def render(research_json: str) -> str:
         return f"""
@@ -274,14 +388,10 @@ def _repair_existing_moment(
     if str(getattr(current_plan, "format", "")) != "moment" or str(requested_format) != "moment":
         raise ShortRepairEnvelopeError("Short Dossier repair format mismatch")
 
-    is_micro_story_contract_repair = (
-        "micro_story_missing_concrete_event_progression" in str(issue_notes or "")
-    )
+    trace_micro_story = _selected_template(current_plan) == "micro_story"
     _print_micro_story_trace(
         "before_repair",
-        _micro_story_alignment_trace(current_plan)
-        if is_micro_story_contract_repair
-        else None,
+        _micro_story_alignment_trace(current_plan) if trace_micro_story else None,
     )
     prompt = build_short_repair_prompt(
         current_plan,
@@ -304,11 +414,12 @@ def _repair_existing_moment(
     )
     if str(getattr(repaired, "format", "")) != "moment" or len(list(getattr(repaired, "sections", []) or [])) != 1:
         raise ShortRepairEnvelopeError("Short Dossier repair escaped the Moment contract")
+
+    _preserve_template_identity(current_plan, repaired)
+    repaired = _restore_certified_representation_if_regressed(current_plan, repaired)
     _print_micro_story_trace(
         "after_repair",
-        _micro_story_alignment_trace(repaired, force=True)
-        if is_micro_story_contract_repair
-        else None,
+        _micro_story_alignment_trace(repaired, force=True) if trace_micro_story else None,
     )
     return repaired
 
