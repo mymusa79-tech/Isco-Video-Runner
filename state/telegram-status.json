@@ -3,9 +3,9 @@
     "approved_request_hash": "bc2ef4f45511",
     "approved_target": true,
     "pending_actions_count": 0,
-    "production_inflight_count": 0,
-    "production_queue_count": 1,
-    "production_reserved_count": 1,
+    "production_inflight_count": 1,
+    "production_queue_count": 0,
+    "production_reserved_count": 0,
     "production_waiting_count": 0,
     "request_count": 32,
     "research_active": true,
@@ -17,8 +17,8 @@
     "used_long_count": 0,
     "used_short_count": 0
   },
-  "generated_at": "2026-09-04T20:16:16.931368Z",
+  "generated_at": "2026-09-04T20:16:43.922015Z",
   "release_approvals": [],
   "schema_version": 1,
-  "source_last_event_at": "2026-09-04T20:16:16.931368+00:00"
+  "source_last_event_at": "2026-09-04T20:16:43.922015+00:00"
 }
