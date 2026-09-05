@@ -29,6 +29,11 @@ def classify_production_failure(exc: Exception) -> tuple[str, str]:
 
     name = type(exc).__name__
     detail = str(exc).lower()
+    # Run200: a technical Vision outage means no semantic verdict was made. Keep it in
+    # the visual stage domain but give it its own stable availability code instead of
+    # collapsing it into generic VISUAL_FAILURE / candidate exhaustion.
+    if "visionverdictunavailableerror" in name.lower() or "vision_unavailable" in detail:
+        return "visual", "VISION_UNAVAILABLE"
     if "planningstageerror" in name.lower() or "planning_" in detail or "planning stage" in detail:
         return "planning", "PLANNING_FAILURE"
     if "finalmasterqc" in name.lower() or "final master qc" in detail or "gold enforcement" in detail:

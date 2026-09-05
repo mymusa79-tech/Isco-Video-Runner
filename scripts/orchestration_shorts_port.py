@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts import shorts_production_binding as core
+from scripts.run200_short_vision_recovery_closure import short_vision_recovery_scope
 from scripts.short_voice_owned_timeline import apply_voice_owned_short
 
 
@@ -36,12 +37,16 @@ def prepare_authoritative_short_for_gold(
     existing owners; no quality gate or retry budget is weakened here.
     """
     pre_gold = core.prepare_short_render(output_dir, control_request)
-    pre_gold = apply_voice_owned_short(
-        output_dir,
-        control_request,
-        pre_gold,
-        ledger=ledger,
-    )
+    # Short Cinematic executes after orchestrator.produce(), so re-enter the canonical
+    # Visual Retrieval/Vision policy only for this finishing request. Run200 restores all
+    # imported-by-value Short surfaces in finally; no process-lifetime policy leaks out.
+    with short_vision_recovery_scope(output_dir):
+        pre_gold = apply_voice_owned_short(
+            output_dir,
+            control_request,
+            pre_gold,
+            ledger=ledger,
+        )
     master_qc = run_final_master_qc(output_dir)
     if master_qc.get("status") != "pass" or master_qc.get("final_media_mutated") is not False:
         raise RuntimeError("Voice-Owned Short authoritative Final Master QC did not pass")
