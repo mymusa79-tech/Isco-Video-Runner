@@ -99,6 +99,19 @@ class Run191ToneAuditRepresentationBridgeTests(unittest.TestCase):
             "narrative_format_flags": [],
             "unverified_religious_quote_flags": [],
             "notes": [],
+            # Run191's invariant is that the representation bridge changes only the
+            # audit input and preserves a real block verdict. The exact production
+            # Engine now also signs continuity-capability provenance on every Tone QA
+            # result, so the historical fake must model that current Engine output.
+            "editorial_promise_continuity": {
+                "schema_version": 1,
+                "decision": "pass",
+                "flags": [],
+                "semantic_authority": "engine_tone_quality_same_provider_call",
+                "provider_calls_added": 0,
+                "repair_owner": "existing_tone_repair_dossier",
+                "validation": "valid",
+            },
         }
 
         def fake_audit(api_key: str, audit_plan: object, model: str):
