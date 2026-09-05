@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import importlib
+import os
+import subprocess
+import sys
+import textwrap
 import unittest
+from pathlib import Path
 from unittest import mock
 
+import isco_video_agent.resilient_planner as staged
+
+from scripts import run125_capacity_routing_closure as run125
 from scripts import planning_stage_contract as stage_contract
 from scripts import task_level_planner_router as router
-from scripts import run125_capacity_routing_closure as run125
-import isco_video_agent.resilient_planner as staged
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningOutlineSplitSchemaTests(unittest.TestCase):
@@ -373,6 +382,114 @@ class PlanningSplitEnvelopeTests(unittest.TestCase):
         )
         self.assertGreater(core["estimated_request_tokens"], 0)
         self.assertGreater(sections["estimated_request_tokens"], 0)
+
+
+class PlanningOutlineSplitCanonicalCompositionTests(unittest.TestCase):
+    def test_final_runtime_composition_keeps_core_semantics_out_of_sections(self) -> None:
+        """Exercise the production installer order in a fresh process.
+
+        Run #206 failed at the composed Engine/Runner boundary, not in either helper in
+        isolation. Keep the network mocked at the provider port while preserving every
+        canonical json_text wrapper so this regression catches an inner split
+        dispatcher that lets the parent full-outline contract reach later wrappers.
+        """
+
+        probe = textwrap.dedent(
+            """
+            import os
+            import tempfile
+            from pathlib import Path
+
+            import isco_video_agent.resilient_planner as staged
+            from scripts import planning_stage_contract as stage
+            from scripts import task_level_planner_router as router
+            from scripts.planning_provider_visible_semantics import _VISIBLE_MARKER
+            from scripts.planning_runtime_contract import (
+                install_entrypoint_planning_contracts,
+                install_post_runtime_planning_contracts,
+                install_runtime_planning_contracts,
+            )
+
+            observed = []
+
+            def engine_outline(api_key, **kwargs):
+                core = staged.json_text(api_key, "CORE_REQUEST", model=kwargs["model"])
+                sections = staged.json_text(
+                    api_key, "SECTIONS_REQUEST", model=kwargs["model"]
+                )
+                return {"core": core, "sections": sections}
+
+            # The entrypoint installer wraps this exact Engine boundary just as it wraps
+            # the pinned implementation. The two nested calls are the invariant under
+            # test; no provider or Production operation is contacted.
+            staged._outline = engine_outline
+
+            with tempfile.TemporaryDirectory() as tmp:
+                router.CACHE_PATH = Path(tmp) / "planning-checkpoint.json"
+                install_entrypoint_planning_contracts()
+                install_runtime_planning_contracts()
+                install_post_runtime_planning_contracts()
+
+                def fake_gemini(api_key, prompt, model="gemini-2.5-flash"):
+                    owner = stage._ACTIVE_REQUEST_CONTRACT.get()
+                    observed.append(
+                        {
+                            "stage_id": owner.stage_id,
+                            "properties": set(owner.output_schema["properties"]),
+                            "prompt": prompt,
+                        }
+                    )
+                    return {}
+
+                router.gemini_json_text = fake_gemini
+                # This probe verifies wrapper composition. Structural/semantic behavior
+                # has dedicated tests below and the final full gate remains installed in
+                # production; accepting the synthetic payload keeps the probe provider-free.
+                stage.validate_response = lambda contract, data: data
+
+                staged._outline(
+                    "test-key",
+                    topic="موضوع",
+                    fmt="film",
+                    model="test-model",
+                    policy_json="{}",
+                    research_json="{}",
+                    avoid_json="{}",
+                    learning_json="{}",
+                    revision_note="",
+                )
+
+            assert [row["stage_id"] for row in observed] == [
+                "planning.editorial_outline_core",
+                "planning.editorial_outline_sections",
+            ], observed
+            assert "pillar" in observed[0]["properties"], observed
+            assert _VISIBLE_MARKER in observed[0]["prompt"], observed
+            assert observed[1]["properties"] == {"section_briefs"}, observed
+            assert _VISIBLE_MARKER not in observed[1]["prompt"], observed
+            """
+        )
+
+        env = dict(os.environ)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        for name in (
+            "ISCO_CANONICAL_RUNTIME",
+            "GITHUB_ACTIONS",
+            "GITHUB_EVENT_NAME",
+            "GITHUB_WORKFLOW_REF",
+        ):
+            env.pop(name, None)
+        completed = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout)
 
 
 if __name__ == "__main__":
