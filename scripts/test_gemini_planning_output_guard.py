@@ -59,7 +59,7 @@ class GeminiPlanningOutputGuardTests(unittest.TestCase):
                     "scripts.gemini_planning_output_guard.gemini_provider.with_channel_persona",
                     side_effect=lambda prompt: prompt,
                 ):
-                    with self.assertRaisesRegex(RuntimeError, "INCOMPLETE_MAX_TOKENS"):
+                    with self.assertRaisesRegex(RuntimeError, "INTERACTION_OUTPUT_TRUNCATED"):
                         _guarded_gemini_json_text("key", "prompt", model="model")
 
     def test_empty_completed_output_is_explicit_failure(self) -> None:
