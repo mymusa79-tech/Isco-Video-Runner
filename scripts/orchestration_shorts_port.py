@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts import shorts_production_binding as core
+from scripts.run200_short_vision_recovery_closure import install_run200_short_vision_recovery_closure
 from scripts.short_voice_owned_timeline import apply_voice_owned_short
 
 
@@ -35,6 +36,11 @@ def prepare_authoritative_short_for_gold(
     Producer Handoff, Audio Semantic Integrity and durable Final QC remain in their
     existing owners; no quality gate or retry budget is weakened here.
     """
+    # Run200 closes only Short Vision availability at this finishing seam: one bounded
+    # same-candidate half-open after an already-observed Groq cooldown, truthful
+    # VISION_UNAVAILABLE taxonomy, and durable partial audit evidence. It does not alter
+    # any semantic/security gate or candidate-retrieval ceiling.
+    install_run200_short_vision_recovery_closure()
     pre_gold = core.prepare_short_render(output_dir, control_request)
     pre_gold = apply_voice_owned_short(
         output_dir,
