@@ -67,7 +67,13 @@ def _guarded_gemini_json_text(
     )
     status = _status_value(getattr(interaction, "status", None))
     if status == "incomplete":
-        raise RuntimeError("GEMINI_INTERACTION_INCOMPLETE_MAX_TOKENS")
+        # Interactions API defines `incomplete` as a completed interaction whose
+        # result is incomplete (for example, the output-token ceiling was reached).
+        # Normalize that as output truncation, not hard provider capacity.  The
+        # Planning Stage Contract can then use its already-bounded independent-provider
+        # failover/second sweep.  Hard 413/429/quota/context/TPM failures remain owned
+        # by the capacity classifier and are still fail-closed.
+        raise RuntimeError("GEMINI_INTERACTION_OUTPUT_TRUNCATED")
     if status and status != "completed":
         raise RuntimeError(f"GEMINI_INTERACTION_{status.upper()}")
 
