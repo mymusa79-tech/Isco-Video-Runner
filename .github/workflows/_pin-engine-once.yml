@@ -1,15 +1,16 @@
-# Trigger the already-reviewed one-time pin job on this push.
 name: One-time exact Engine pin update
 
 on:
-  push:
-    branches: ["fix/editorial-promise-continuity-family"]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
 
 jobs:
   pin:
+    if: github.event.pull_request.head.ref == 'fix/editorial-promise-continuity-family'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout branch
