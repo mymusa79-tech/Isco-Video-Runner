@@ -6,6 +6,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from scripts.test_telegram_long_policy_ingress_closure import Run203LongPolicyIngressClosureTests  # noqa: F401
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/telegram-editorial-control.yml"

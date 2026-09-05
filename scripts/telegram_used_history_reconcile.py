@@ -10,7 +10,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.telegram_control_active_ui import _mark_request_used
-from scripts.telegram_production_queue import release_tag_for, validate_ready_request
+from scripts.telegram_production_queue import QUEUE_KEY, release_tag_for, validate_ready_request
 
 
 def reconcile_completed_history(state: dict[str, Any]) -> dict[str, int]:
@@ -19,8 +19,13 @@ def reconcile_completed_history(state: dict[str, Any]) -> dict[str, int]:
     Only exact completed queue records are eligible. Each record must still bind to
     the immutable approved request hash and deterministic release tag. The operation
     is idempotent because _mark_request_used upserts by request_id.
+
+    ``production_queue`` is a lazily-created durable ledger within state schema v1,
+    so a valid fresh or pre-ledger state may legitimately omit it until the first
+    dispatch. Canonicalize only absence to an empty ledger; an explicitly malformed
+    value remains fail-closed.
     """
-    queue = state.get("production_queue")
+    queue = state.setdefault(QUEUE_KEY, [])
     requests = state.get("requests")
     if not isinstance(queue, list):
         raise RuntimeError("Telegram production queue is malformed")

@@ -25,6 +25,7 @@ def _install_v5_after_active() -> None:
     def install_with_v5() -> None:
         original_install()
         from scripts import telegram_creator_control_center_v5 as creator_v5
+        from scripts import telegram_long_format_policy as long_format_policy
         from scripts import telegram_operator_mission_control as operator_mission_control
         from scripts import telegram_session_continuity as session_continuity
 
@@ -35,6 +36,11 @@ def _install_v5_after_active() -> None:
         # Final operator projection: state wording and confirmation receipts only.
         # Production authority remains the existing exact typed-confirmation seam.
         operator_mission_control.install()
+        # Run #203 closure: webhook replay must bind the same Long outer-format
+        # policy as the certified fallback-polling entrypoint. Install it last over
+        # the final approval owner so a live webhook approval cannot bypass
+        # ``long -> auto -> film/story`` or the canonical research-pack contract.
+        long_format_policy.install(panel=core.panel)
 
     core.active._install = install_with_v5
     core.active._isco_v5_replay_hooked = True
@@ -46,6 +52,38 @@ def _control_state_path() -> Path | None:
         return None
     path = Path(raw)
     return path if path.is_file() else None
+
+
+def _state_arg_from_argv() -> Path | None:
+    args = sys.argv[1:]
+    try:
+        index = args.index("--state")
+    except ValueError:
+        return None
+    if index + 1 >= len(args):
+        return None
+    path = Path(args[index + 1])
+    return path if path.is_file() else None
+
+
+def _repair_current_long_target_if_available(path: Path | None = None) -> bool:
+    """Repair only the currently approved legacy Long target, never historical state."""
+    state_path = path or _control_state_path()
+    if state_path is None or not state_path.is_file():
+        return False
+    from scripts import telegram_long_format_policy as long_format_policy
+
+    state = core.panel.load_state(state_path)
+    changed = long_format_policy.migrate_current_production_target(state, panel=core.panel)
+    if not changed:
+        return False
+    core.panel.save_state(state_path, state)
+    target = state.get("production_target") or {}
+    print(
+        "Run203 Long target migration applied before Telegram control: "
+        f"request={target.get('request_id')} sha={target.get('request_sha256')}"
+    )
+    return True
 
 
 def _reconcile_used_history_if_available() -> dict[str, int] | None:
@@ -97,12 +135,11 @@ def replay_update(state_path, update):
     _install_v5_after_active()
     from scripts import telegram_creator_control_center_v5 as creator_v5
 
-    # Real workflow replay always receives the restored durable file. Unit and
-    # adapter callers may inject an abstract path while mocking the replay core, so
-    # history reconciliation must remain an additive side effect rather than a new
-    # precondition for replay itself.
+    # Direct adapter callers use this wrapper rather than core.main(). Keep the same
+    # pre-replay state migration that the CLI path performs below.
     durable_path = Path(state_path)
     if durable_path.is_file():
+        _repair_current_long_target_if_available(durable_path)
         from scripts.telegram_used_history_reconcile import reconcile_file
 
         reconcile_file(durable_path)
@@ -125,8 +162,9 @@ def main() -> None:
     if mode == "webhook-active":
         # This command is executed by every scheduled control pass after encrypted
         # state restore. Reconcile first; the workflow's existing persistence step
-        # will write any idempotent backfill to control-plane-state.
+        # will write any idempotent backfill/migration to control-plane-state.
         _reconcile_used_history_if_available()
+        _repair_current_long_target_if_available()
         active_now = core.webhook_active()
         if active_now and _durable_pending_research_exists():
             print(
@@ -135,6 +173,10 @@ def main() -> None:
             )
             raise SystemExit(1)
         raise SystemExit(0 if active_now else 1)
+    if mode == "replay":
+        # core.main() owns CLI parsing and replay execution, but this wrapper owns
+        # the policy migration. Repair the exact restored state before core loads it.
+        _repair_current_long_target_if_available(_state_arg_from_argv())
     core.main()
 
 

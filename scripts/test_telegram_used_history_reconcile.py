@@ -73,6 +73,17 @@ class TelegramUsedHistoryReconcileTests(unittest.TestCase):
         self.assertEqual(result, {"processed": 0, "added": 0})
         self.assertEqual(state["used_topics"], [])
 
+    def test_missing_queue_is_canonical_empty_ledger(self):
+        state = {"requests": {}}
+        result = reconcile.reconcile_completed_history(state)
+        self.assertEqual(result, {"processed": 0, "added": 0})
+        self.assertEqual(state["production_queue"], [])
+
+    def test_malformed_queue_still_fails_closed(self):
+        state = {"requests": {}, "production_queue": {}}
+        with self.assertRaisesRegex(RuntimeError, "production queue is malformed"):
+            reconcile.reconcile_completed_history(state)
+
     def test_tampered_hash_fails_closed(self):
         state = self._state()
         state["production_queue"][0]["request_sha256"] = "tampered"

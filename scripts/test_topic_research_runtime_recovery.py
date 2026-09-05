@@ -15,7 +15,7 @@ from scripts import telegram_webhook_replay as webhook_entry
 class TopicResearchRuntimeRecoveryTests(unittest.TestCase):
     def test_webhook_gate_yields_scheduler_when_durable_research_is_pending(self):
         with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as handle:
-            json.dump({"requests": {}, "production_queue": [], "used_topics": [], "saved_suggestions": []}, handle)
+            json.dump(webhook_entry.core.panel._new_state(), handle)
             handle.flush()
             previous = os.environ.get("CONTROL_STATE_PATH")
             os.environ["CONTROL_STATE_PATH"] = handle.name
@@ -26,6 +26,24 @@ class TopicResearchRuntimeRecoveryTests(unittest.TestCase):
                     with self.assertRaises(SystemExit) as raised:
                         webhook_entry.main()
                 self.assertEqual(raised.exception.code, 1)
+            finally:
+                if previous is None:
+                    os.environ.pop("CONTROL_STATE_PATH", None)
+                else:
+                    os.environ["CONTROL_STATE_PATH"] = previous
+
+    def test_webhook_gate_fails_closed_on_unsupported_state_schema(self):
+        with tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8") as handle:
+            json.dump({"requests": {}, "production_queue": [], "used_topics": [], "saved_suggestions": []}, handle)
+            handle.flush()
+            previous = os.environ.get("CONTROL_STATE_PATH")
+            os.environ["CONTROL_STATE_PATH"] = handle.name
+            try:
+                with patch.object(webhook_entry.core, "webhook_active", return_value=True), patch.object(
+                    sys, "argv", ["telegram_webhook_replay.py", "webhook-active"]
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "Unsupported control-panel state schema"):
+                        webhook_entry.main()
             finally:
                 if previous is None:
                     os.environ.pop("CONTROL_STATE_PATH", None)
