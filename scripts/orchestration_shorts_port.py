@@ -54,13 +54,5 @@ def finalize_short_quality(
     control_request: dict[str, Any],
     pre_gold: dict[str, Any],
 ) -> dict[str, Any]:
-    """Finalize core once, then certify Engine-owned promise continuity explicitly.
-
-    The core remains the sole Short quality finalizer. Promise continuity is a post-core
-    certification owned by this orchestration port, so import order cannot mutate the
-    core function or create a second finalization path.
-    """
-    report = core.finalize_short_quality(output_dir, control_request, pre_gold)
-    from scripts.editorial_promise_continuity import certify_short_delivery
-
-    return certify_short_delivery(output_dir, control_request, report)
+    """Delegate post-Gold Short quality finalization to the certified core exactly once."""
+    return core.finalize_short_quality(output_dir, control_request, pre_gold)
