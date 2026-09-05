@@ -1,13 +1,31 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from isco_video_agent.editorial_room import intent_from_dict
 
 from scripts import editorial_promise_continuity as continuity
+from scripts import orchestration_shorts_port
+from scripts import shorts_production_binding as short_core
 
 
 RUN198_TOPIC = "جلد الذات بعد كل لقاء: لماذا تراجع كل كلمة قلتها؟"
+
+
+def _passing_engine_evidence() -> dict:
+    return {
+        "schema_version": 1,
+        "decision": "pass",
+        "flags": [],
+        "semantic_authority": "engine_tone_quality_same_provider_call",
+        "provider_calls_added": 0,
+        "repair_owner": "existing_tone_repair_dossier",
+        "validation": "valid",
+    }
 
 
 class EditorialPromiseContinuityTests(unittest.TestCase):
@@ -123,15 +141,7 @@ class EditorialPromiseContinuityTests(unittest.TestCase):
         self.assertTrue(result["source_scope"]["parent_editorial_intent_preserved_separately"])
 
     def test_engine_continuity_evidence_is_the_only_semantic_delivery_authority(self) -> None:
-        evidence = {
-            "schema_version": 1,
-            "decision": "pass",
-            "flags": [],
-            "semantic_authority": "engine_tone_quality_same_provider_call",
-            "provider_calls_added": 0,
-            "repair_owner": "existing_tone_repair_dossier",
-            "validation": "valid",
-        }
+        evidence = _passing_engine_evidence()
         self.assertEqual(continuity._engine_continuity_evidence({"editorial_promise_continuity": evidence}), evidence)
 
     def test_delivery_rejects_missing_or_nonpassing_engine_semantic_evidence(self) -> None:
@@ -141,15 +151,9 @@ class EditorialPromiseContinuityTests(unittest.TestCase):
         ):
             continuity._engine_continuity_evidence({})
 
-        blocked = {
-            "schema_version": 1,
-            "decision": "block",
-            "flags": ["editorial_promise_continuity: adjacent answer"],
-            "semantic_authority": "engine_tone_quality_same_provider_call",
-            "provider_calls_added": 0,
-            "repair_owner": "existing_tone_repair_dossier",
-            "validation": "valid",
-        }
+        blocked = _passing_engine_evidence()
+        blocked["decision"] = "block"
+        blocked["flags"] = ["editorial_promise_continuity: adjacent answer"]
         with self.assertRaisesRegex(
             continuity.EditorialPromiseContinuityError,
             "short_delivery_engine_continuity_not_passed",
@@ -157,20 +161,83 @@ class EditorialPromiseContinuityTests(unittest.TestCase):
             continuity._engine_continuity_evidence({"editorial_promise_continuity": blocked})
 
     def test_delivery_rejects_fabricated_numeric_or_wrong_authority_evidence(self) -> None:
-        fabricated = {
-            "schema_version": 1,
-            "decision": "pass",
-            "flags": [],
-            "semantic_authority": "final_critic_numeric_proxy",
-            "provider_calls_added": 0,
-            "repair_owner": "existing_tone_repair_dossier",
-            "validation": "valid",
-        }
+        fabricated = _passing_engine_evidence()
+        fabricated["semantic_authority"] = "final_critic_numeric_proxy"
         with self.assertRaisesRegex(
             continuity.EditorialPromiseContinuityError,
             "short_delivery_engine_continuity_authority_invalid",
         ):
             continuity._engine_continuity_evidence({"editorial_promise_continuity": fabricated})
+
+    def test_install_does_not_monkeypatch_core_short_finalizer(self) -> None:
+        original = short_core.finalize_short_quality
+        continuity.install_editorial_promise_continuity()
+        self.assertIs(short_core.finalize_short_quality, original)
+
+    def test_explicit_orchestration_port_calls_core_and_certifier_once(self) -> None:
+        core_report = {"quality": "core-pass"}
+        certified_report = {"quality": "core-pass", "editorial_promise_continuity": {"decision": "pass"}}
+        with (
+            patch.object(orchestration_shorts_port.core, "finalize_short_quality", return_value=core_report) as core_finalize,
+            patch.object(continuity, "certify_short_delivery", return_value=certified_report) as certify,
+        ):
+            result = orchestration_shorts_port.finalize_short_quality(
+                Path("/tmp/short"),
+                {"approved_topic": RUN198_TOPIC},
+                {"pre_gold": True},
+            )
+        self.assertIs(result, certified_report)
+        core_finalize.assert_called_once()
+        certify.assert_called_once_with(
+            Path("/tmp/short"),
+            {"approved_topic": RUN198_TOPIC},
+            core_report,
+        )
+
+    def test_certifier_writes_engine_authority_and_keeps_numeric_score_as_craft_proxy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "plan.json").write_text(
+                json.dumps(
+                    {
+                        "topic": RUN198_TOPIC,
+                        "cta": "بعد اللقاء سمِّ الجملة التي ما زلت تعيدها",
+                        "closing_payoff": "بعد اللقاء افصل بين ما حدث وبين تفسيرك له",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "tone-quality-audit.json").write_text(
+                json.dumps(
+                    {
+                        "status": "pass",
+                        "editorial_promise_continuity": _passing_engine_evidence(),
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            report = {"promise_payoff_score": 88.0}
+            control = {
+                "approved_topic": RUN198_TOPIC,
+                "short_admission": {
+                    "single_action_contract": "بعد اللقاء سمِّ جملة واحدة ما زلت تعيدها"
+                },
+            }
+            result = continuity.certify_short_delivery(root, control, report)
+            self.assertIs(result, report)
+            self.assertEqual(
+                result["editorial_promise_continuity"]["semantic_authority"],
+                "engine_tone_quality_same_provider_call",
+            )
+            self.assertEqual(
+                result["evidence_provenance"]["promise_payoff_numeric_score_role"],
+                "existing_final_critic_craft_proxy_not_semantic_authority",
+            )
+            self.assertFalse(result["evidence_provenance"]["semantic_promise_score_fabricated"])
+            persisted = json.loads((root / "short-intelligence.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["editorial_promise_continuity"]["decision"], "pass")
 
 
 if __name__ == "__main__":
