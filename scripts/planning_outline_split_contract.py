@@ -2,20 +2,19 @@ from __future__ import annotations
 
 """Bind the pinned Engine's split outline topology to exact Runner Stage Contracts.
 
-The pinned Engine already performs two model calls for a long-form outline:
-  1) editorial premise / identity (everything except section_briefs),
-  2) section_briefs only, using the locked result from call 1.
+The provider-facing outline contracts are transport DTOs. The pinned Engine then
+canonicalizes EditorialIntent locally (including host-owned fingerprint/persona
+metadata), assembles Core + Section Briefs, and finally exposes a domain object.
 
-The Runner historically wrapped the *parent* `_outline()` with one full combined
-`editorial_outline` contract. Because the two nested json_text calls inherited that
-parent contract, both providers were still forced to emit the obsolete combined JSON
-shape. This module closes that Engine<->Runner contract mismatch without changing the
-Engine, provider order, quality gates, or final outline shape.
+This module keeps those layers explicit:
 
-Every subcall receives its own explicit strict schema. The Engine assembles both dicts
-locally exactly as before, then the original full outline contract is run once more on
-the assembled result. Any Engine call-topology drift (not exactly two model calls) is
-fail-closed before the result can become cache/plan authority.
+  provider transport -> Engine canonical domain -> canonical JSON projection
+
+That distinction prevents Engine-owned metadata from being rejected by the provider
+schema, while keeping `additionalProperties=False` on every model response. It also
+fails closed if the pinned Engine dataclasses or split-call topology drift, measures
+Call 1b with post-enrichment metadata, and proves plan.json is the exact JSON projection
+of the in-memory ProductionPlan before P2/P3 handoff.
 """
 
 import copy
@@ -23,6 +22,8 @@ import functools
 import json
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import isco_video_agent.resilient_planner as staged
 
@@ -35,16 +36,52 @@ from scripts import task_level_planner_router as router
 CORE_PROFILE = "editorial_outline_core"
 SECTIONS_PROFILE = "editorial_outline_sections"
 SPLIT_PROFILES = frozenset({CORE_PROFILE, SECTIONS_PROFILE})
-_SPLIT_MARKER = "_isco_planning_outline_split_contract_v1"
-_SPLIT_JSON_MARKER = "_isco_planning_outline_split_json_v1"
+_SPLIT_MARKER = "_isco_planning_outline_split_contract_v2"
+_SPLIT_JSON_MARKER = "_isco_planning_outline_split_json_v2"
 _COMPLETION_TOKENS = stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET
-# Call 1b embeds only the locked premise fields below. Keep that exact serialized block
-# bounded so the second request remains genuinely provider-portable instead of merely
-# being smaller on average. 3.6 KiB still allows roughly 1.8K Arabic characters of
-# premise detail - well above Engine's explicit "concise" instruction - while leaving
-# the documented 10% Groq operational margin on the pinned Engine envelope. Oversized
-# provider output is rejected and provider-failed-over; it is never silently truncated.
+
 LOCKED_PREMISE_MAX_UTF8_BYTES = 3_600
+
+_PROVIDER_INTENT_FIELDS = (
+    "editorial_thesis",
+    "viewer_starting_belief",
+    "hidden_assumption",
+    "editorial_turn",
+    "stakes",
+    "viewer_promise",
+    "evidence_boundaries",
+    "earned_payoff",
+)
+_CANONICAL_INTENT_FIELDS = _PROVIDER_INTENT_FIELDS + (
+    "editorial_fingerprint",
+    "persona_version",
+)
+_EXPECTED_PRODUCTION_PLAN_FIELDS = (
+    "topic",
+    "pillar",
+    "format",
+    "hook",
+    "title_options",
+    "thumbnail_concepts",
+    "sections",
+    "cta",
+    "closing_payoff",
+    "identity_opener",
+    "identity_closer",
+    "identity_transitions",
+    "narrative_format",
+    "editorial_intent",
+)
+_EXPECTED_SCRIPT_SECTION_FIELDS = (
+    "id",
+    "narration",
+    "visual_query",
+    "on_screen_text",
+    "emotion",
+    "expected_seconds",
+    "key_point",
+)
+
 _INSTALLED = False
 
 
@@ -58,14 +95,34 @@ class _OutlineCallState:
 _ACTIVE_OUTLINE_CALLS: ContextVar[_OutlineCallState | None] = ContextVar(
     "isco_outline_split_calls", default=None
 )
-# Run-local only. No prompt/response text is stored. A provider that already proved the
-# same exact request fingerprint cannot complete its structured output is not contacted
-# again on the optional outer second sweep.
 _TERMINAL_REQUEST_FINGERPRINTS: set[tuple[str, str, str]] = set()
+
+
+def _json_projection(value: Any) -> Any:
+    return json.loads(json.dumps(value, ensure_ascii=False))
 
 
 def _full_schema(expected_count: int) -> dict:
     return copy.deepcopy(stage_contract._outline_schema(expected_count))
+
+
+def provider_editorial_intent_schema() -> dict:
+    return copy.deepcopy(_full_schema(1)["properties"]["editorial_intent"])
+
+
+def canonical_editorial_intent_schema() -> dict:
+    schema = provider_editorial_intent_schema()
+    properties = dict(schema["properties"])
+    properties["editorial_fingerprint"] = {"type": "string"}
+    properties["persona_version"] = {"type": "number"}
+    return stage_contract._strict_object(properties, list(_CANONICAL_INTENT_FIELDS))
+
+
+def canonical_outline_schema(expected_count: int) -> dict:
+    schema = _full_schema(expected_count)
+    properties = dict(schema["properties"])
+    properties["editorial_intent"] = canonical_editorial_intent_schema()
+    return stage_contract._strict_object(properties, list(schema["required"]))
 
 
 def outline_core_schema(expected_count: int) -> dict:
@@ -73,6 +130,7 @@ def outline_core_schema(expected_count: int) -> dict:
     properties = dict(schema["properties"])
     properties.pop("section_briefs", None)
     required = [key for key in schema["required"] if key != "section_briefs"]
+    properties["editorial_intent"] = provider_editorial_intent_schema()
     return stage_contract._strict_object(properties, required)
 
 
@@ -86,9 +144,6 @@ def outline_sections_schema(expected_count: int) -> dict:
 
 
 def _split_provider_policy() -> stage_contract.ProviderPolicy:
-    # Preserve the established P0 provider family and outer attempt budget. The new
-    # fingerprint guard below prevents deterministic output-shape failures from making
-    # a second HTTP request with the exact same provider/request fingerprint.
     return stage_contract._provider_policy(
         _COMPLETION_TOKENS,
         max_attempts_per_provider=stage_contract.OUTLINE_MAX_ATTEMPTS_PER_PROVIDER,
@@ -106,7 +161,7 @@ def outline_core_stage_spec(expected_count: int) -> stage_contract.PlanningStage
         )
     return stage_contract.PlanningStageSpec(
         stage_id="planning.editorial_outline_core",
-        contract_id="planning.editorial_outline_core.v1",
+        contract_id="planning.editorial_outline_core.transport.v2",
         output_schema=outline_core_schema(expected_count),
         semantic_rules={
             "kind": CORE_PROFILE,
@@ -114,6 +169,7 @@ def outline_core_stage_spec(expected_count: int) -> stage_contract.PlanningStage
             "expected_count": expected_count,
             "narrative_identity_gates": True,
             "locked_premise_max_utf8_bytes": LOCKED_PREMISE_MAX_UTF8_BYTES,
+            "contract_layer": "provider_transport",
         },
         provider_policy=_split_provider_policy(),
         cache_policy=stage_contract.CachePolicy(),
@@ -129,7 +185,7 @@ def outline_sections_stage_spec(expected_count: int) -> stage_contract.PlanningS
         )
     return stage_contract.PlanningStageSpec(
         stage_id="planning.editorial_outline_sections",
-        contract_id="planning.editorial_outline_sections.v1",
+        contract_id="planning.editorial_outline_sections.transport.v2",
         output_schema=outline_sections_schema(expected_count),
         semantic_rules={
             "kind": SECTIONS_PROFILE,
@@ -137,6 +193,7 @@ def outline_sections_stage_spec(expected_count: int) -> stage_contract.PlanningS
             "expected_count": expected_count,
             "unique_nonempty_ids": True,
             "nonempty_purpose": True,
+            "contract_layer": "provider_transport",
         },
         provider_policy=_split_provider_policy(),
         cache_policy=stage_contract.CachePolicy(),
@@ -165,15 +222,47 @@ def outline_sections_stage_spec_for_format(fmt: str) -> stage_contract.PlanningS
     return outline_sections_stage_spec(expected)
 
 
+def _persona_version_for_sizing() -> int:
+    import isco_video_agent.editorial_room as editorial_room
+
+    persona = editorial_room.validate_channel_persona(
+        editorial_room.load_channel_persona()
+    )
+    return int(persona["version"])
+
+
+def _intent_for_transport_sizing(value: object) -> dict:
+    projected = _json_projection(value)
+    if not isinstance(projected, dict):
+        projected = {}
+    for key in ("editorial_fingerprint", "persona_version"):
+        projected.pop(key, None)
+    projected["editorial_fingerprint"] = "0" * 24
+    projected["persona_version"] = _persona_version_for_sizing()
+    return projected
+
+
+def locked_premise_for_sizing(data: dict) -> dict:
+    result = copy.deepcopy(data)
+    result["editorial_intent"] = _intent_for_transport_sizing(
+        result.get("editorial_intent")
+    )
+    return result
+
+
 def locked_premise_payload(data: dict) -> dict:
     narrative_format = str(data.get("narrative_format") or "").strip()
     return {
         "narrative_format": narrative_format,
-        "narrative_format_definition": staged._NARRATIVE_FORMATS.get(narrative_format, ""),
+        "narrative_format_definition": staged._NARRATIVE_FORMATS.get(
+            narrative_format, ""
+        ),
         "pillar": str(data.get("pillar") or "").strip(),
         "hook": str(data.get("hook") or "").strip(),
         "closing_payoff": str(data.get("closing_payoff") or "").strip(),
-        "editorial_intent": data.get("editorial_intent"),
+        "editorial_intent": _intent_for_transport_sizing(
+            data.get("editorial_intent")
+        ),
     }
 
 
@@ -189,10 +278,6 @@ def locked_premise_utf8_bytes(data: dict) -> int:
 
 def _validate_core(data: dict, contract: stage_contract.PlanningStageContract) -> dict:
     stage_contract._validate_schema(data, contract.output_schema, contract)
-    # Reuse the canonical full-outline semantic owner instead of cloning its narrative,
-    # identity, and EditorialIntent rules here. Its only brief-specific checks are
-    # unique non-empty id/purpose, so one local synthetic brief satisfies that seam.
-    # The synthetic value never leaves validation and can never enter cache/plan output.
     semantic_view = dict(data)
     semantic_view["section_briefs"] = [
         {
@@ -221,7 +306,9 @@ def _validate_core(data: dict, contract: stage_contract.PlanningStageContract) -
     return data
 
 
-def _validate_sections(data: dict, contract: stage_contract.PlanningStageContract) -> dict:
+def _validate_sections(
+    data: dict, contract: stage_contract.PlanningStageContract
+) -> dict:
     stage_contract._validate_schema(data, contract.output_schema, contract)
     briefs = data.get("section_briefs")
     if not isinstance(briefs, list):
@@ -240,6 +327,91 @@ def _validate_sections(data: dict, contract: stage_contract.PlanningStageContrac
             "empty_purpose",
         )
     return data
+
+
+def _canonical_engine_intent(value: object) -> dict:
+    intent = staged.intent_from_dict(_json_projection(value))
+    return _json_projection(intent.to_dict())
+
+
+def _validate_canonical_editorial_intent(
+    value: object,
+    contract: stage_contract.PlanningStageContract,
+) -> dict:
+    projected = _json_projection(value)
+    stage_contract._validate_schema(
+        projected,
+        canonical_editorial_intent_schema(),
+        contract,
+        "$.editorial_intent",
+    )
+    if (
+        isinstance(projected.get("persona_version"), bool)
+        or not isinstance(projected.get("persona_version"), int)
+    ):
+        stage_contract._raise_validation(
+            stage_contract.PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.editorial_intent.persona_version",
+            "expected_engine_integer_persona_version",
+        )
+    try:
+        recomputed = _canonical_engine_intent(projected)
+    except Exception as exc:
+        stage_contract._raise_validation(
+            stage_contract.PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.editorial_intent",
+            f"engine_canonicalization_failed:{type(exc).__name__}",
+        )
+    if projected.get("editorial_fingerprint") != recomputed.get(
+        "editorial_fingerprint"
+    ):
+        stage_contract._raise_validation(
+            stage_contract.PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.editorial_intent.editorial_fingerprint",
+            "host_fingerprint_mismatch",
+        )
+    if projected.get("persona_version") != recomputed.get("persona_version"):
+        stage_contract._raise_validation(
+            stage_contract.PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.editorial_intent.persona_version",
+            "host_persona_version_mismatch",
+        )
+    if projected != recomputed:
+        differing = sorted(
+            key
+            for key in set(projected) | set(recomputed)
+            if projected.get(key) != recomputed.get(key)
+        )
+        stage_contract._raise_validation(
+            stage_contract.PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$.editorial_intent",
+            "canonical_roundtrip_mismatch=" + ",".join(differing),
+        )
+    return projected
+
+
+def _validate_canonical_outline(
+    data: dict,
+    contract: stage_contract.PlanningStageContract,
+    expected_count: int,
+) -> dict:
+    projected = _json_projection(data)
+    stage_contract._validate_schema(
+        projected,
+        canonical_outline_schema(expected_count),
+        contract,
+    )
+    _validate_canonical_editorial_intent(
+        projected.get("editorial_intent"),
+        contract,
+    )
+    stage_contract._validate_outline_semantics(projected, contract)
+    return projected
 
 
 def _active_profile() -> str:
@@ -269,7 +441,7 @@ def _groq_schema_generation_failed(error: BaseException | str) -> bool:
 
 
 def _install_schema_and_validation_adapters() -> None:
-    if getattr(stage_contract, "_ISCO_OUTLINE_SPLIT_SCHEMA_ADAPTER", False):
+    if getattr(stage_contract, "_ISCO_OUTLINE_SPLIT_SCHEMA_ADAPTER_V2", False):
         return
 
     original_schema_tuple = stage_contract._schema_tuple
@@ -292,29 +464,29 @@ def _install_schema_and_validation_adapters() -> None:
 
     stage_contract._schema_tuple = schema_tuple
     stage_contract.validate_response = validate
-    # The lower provider layer owns transport reserve lookup by schema name. Keep the
-    # same already-certified 2400-token reserve for both smaller requests.
     capacity._COMPLETION_TOKEN_BUDGETS[CORE_PROFILE] = _COMPLETION_TOKENS
     capacity._COMPLETION_TOKEN_BUDGETS[SECTIONS_PROFILE] = _COMPLETION_TOKENS
-    stage_contract._ISCO_OUTLINE_SPLIT_SCHEMA_ADAPTER = True
+    stage_contract._ISCO_OUTLINE_SPLIT_SCHEMA_ADAPTER_V2 = True
 
 
 def _install_groq_model_diversity() -> None:
-    if getattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER", False):
+    if getattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2", False):
         return
     original = run125._is_model_unavailable
 
     def model_unavailable(error) -> bool:
         if original(error):
             return True
-        return _active_profile() in SPLIT_PROFILES and _groq_schema_generation_failed(error)
+        return _active_profile() in SPLIT_PROFILES and _groq_schema_generation_failed(
+            error
+        )
 
     run125._is_model_unavailable = model_unavailable
-    run125._ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER = True
+    run125._ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2 = True
 
 
 def _install_same_fingerprint_guard() -> None:
-    if getattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD", False):
+    if getattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD_V2", False):
         return
 
     original_gemini = router.gemini_json_text
@@ -323,10 +495,11 @@ def _install_same_fingerprint_guard() -> None:
     def guarded_gemini(*args, **kwargs):
         fingerprint = _active_fingerprint("gemini")
         if fingerprint is not None and fingerprint in _TERMINAL_REQUEST_FINGERPRINTS:
+            owner = stage_contract._ACTIVE_REQUEST_CONTRACT.get()
             raise stage_contract.PlanningStageError(
                 stage_contract.PlanningErrorCode.CAPACITY,
                 "same_fingerprint_blocked_after_output_truncation",
-                stage_id=stage_contract._ACTIVE_REQUEST_CONTRACT.get().stage_id,
+                stage_id=getattr(owner, "stage_id", None),
                 provider="gemini",
             )
         try:
@@ -342,34 +515,148 @@ def _install_same_fingerprint_guard() -> None:
     def guarded_groq(prompt: str):
         fingerprint = _active_fingerprint("groq")
         if fingerprint is not None and fingerprint in _TERMINAL_REQUEST_FINGERPRINTS:
+            owner = stage_contract._ACTIVE_REQUEST_CONTRACT.get()
             raise stage_contract.PlanningStageError(
                 stage_contract.PlanningErrorCode.CAPACITY,
                 "same_fingerprint_blocked_after_structured_generation_failure",
-                stage_id=stage_contract._ACTIVE_REQUEST_CONTRACT.get().stage_id,
+                stage_id=getattr(owner, "stage_id", None),
                 provider="groq",
             )
         try:
             return original_groq(prompt)
         except Exception as exc:
-            # This sits *outside* Run125's model pool. The fingerprint is terminal only
-            # after its already-bounded 20b -> 120b model-diverse attempt is exhausted.
             if fingerprint is not None and _groq_schema_generation_failed(exc):
                 _TERMINAL_REQUEST_FINGERPRINTS.add(fingerprint)
             raise
 
     router.gemini_json_text = guarded_gemini
     router._groq_call = guarded_groq
-    router._ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD = True
+    router._ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD_V2 = True
 
 
 def _certify_engine_topology() -> None:
-    for name in ("build_outline_structure_prompt", "build_outline_sections_prompt"):
+    for name in (
+        "build_outline_structure_prompt",
+        "build_outline_sections_prompt",
+        "intent_from_dict",
+    ):
         if not callable(getattr(staged, name, None)):
             raise stage_contract.PlanningStageError(
                 stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-                f"pinned Engine missing split outline port:{name}",
+                f"pinned Engine missing planning contract port:{name}",
                 stage_id="planning.editorial_outline",
             )
+
+
+def assert_engine_runner_contract_compatible() -> dict[str, tuple[str, ...]]:
+    from isco_video_agent.editorial_room import EditorialIntent
+    from isco_video_agent.models import ProductionPlan, ScriptSection
+
+    observed = {
+        "EditorialIntent": tuple(EditorialIntent.__dataclass_fields__),
+        "ProductionPlan": tuple(ProductionPlan.__dataclass_fields__),
+        "ScriptSection": tuple(ScriptSection.__dataclass_fields__),
+    }
+    expected = {
+        "EditorialIntent": _CANONICAL_INTENT_FIELDS,
+        "ProductionPlan": _EXPECTED_PRODUCTION_PLAN_FIELDS,
+        "ScriptSection": _EXPECTED_SCRIPT_SECTION_FIELDS,
+    }
+    drift = {
+        name: (expected[name], observed[name])
+        for name in expected
+        if observed[name] != expected[name]
+    }
+    if drift:
+        details = "; ".join(
+            f"{name}:expected={exp} observed={obs}"
+            for name, (exp, obs) in drift.items()
+        )
+        raise stage_contract.PlanningStageError(
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            "ENGINE_RUNNER_DOMAIN_CONTRACT_DRIFT " + details,
+            stage_id="planning.engine_runner_contract",
+        )
+
+    provider_fields = tuple(provider_editorial_intent_schema()["required"])
+    if provider_fields != _PROVIDER_INTENT_FIELDS:
+        raise stage_contract.PlanningStageError(
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"ENGINE_RUNNER_PROVIDER_DTO_DRIFT expected={_PROVIDER_INTENT_FIELDS} observed={provider_fields}",
+            stage_id="planning.engine_runner_contract",
+        )
+    return observed
+
+
+def _assert_exact_plan_json_projection(
+    output_dir: Path,
+    plan_object: object | None,
+) -> None:
+    if plan_object is None:
+        return
+    to_dict = getattr(plan_object, "to_dict", None)
+    if not callable(to_dict):
+        raise stage_contract.PlanningStageError(
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            "final plan object has no canonical to_dict projection",
+            stage_id="planning.final_plan_projection",
+        )
+    path = Path(output_dir) / "plan.json"
+    if not path.is_file() or path.is_symlink():
+        return
+    try:
+        actual = json.loads(path.read_text(encoding="utf-8"))
+        expected = _json_projection(to_dict())
+    except Exception as exc:
+        raise stage_contract.PlanningStageError(
+            stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            f"final plan projection unreadable:{type(exc).__name__}",
+            stage_id="planning.final_plan_projection",
+        ) from exc
+    if not isinstance(actual, dict) or not isinstance(expected, dict):
+        raise stage_contract.PlanningStageError(
+            stage_contract.PlanningErrorCode.STRUCTURAL_INVALID,
+            "final plan projection is not an object",
+            stage_id="planning.final_plan_projection",
+        )
+
+    actual = dict(actual)
+    expected = dict(expected)
+    actual.pop("plan_source", None)
+    expected.pop("plan_source", None)
+
+    if actual != expected:
+        actual_keys = set(actual)
+        expected_keys = set(expected)
+        missing = sorted(expected_keys - actual_keys)
+        extra = sorted(actual_keys - expected_keys)
+        changed = sorted(
+            key
+            for key in actual_keys & expected_keys
+            if actual.get(key) != expected.get(key)
+        )
+        raise stage_contract.PlanningStageError(
+            stage_contract.PlanningErrorCode.STRUCTURAL_INVALID,
+            f"plan_json_domain_projection_mismatch missing={missing} extra={extra} changed={changed}",
+            stage_id="planning.final_plan_projection",
+        )
+
+
+def _install_plan_handoff_equivalence_guard() -> None:
+    import scripts.planning_production_contract_v2 as production_contract
+
+    current = production_contract.certify_planning_handoff
+    if getattr(current, "_isco_exact_plan_projection_v1", False):
+        return
+
+    @functools.wraps(current)
+    def guarded(output_dir, plan_object=None):
+        _assert_exact_plan_json_projection(Path(output_dir), plan_object)
+        return current(output_dir, plan_object)
+
+    guarded._isco_exact_plan_projection_v1 = True
+    guarded._isco_original = current
+    production_contract.certify_planning_handoff = guarded
 
 
 def _install_call_sequence_binding() -> None:
@@ -393,8 +680,6 @@ def _install_call_sequence_binding() -> None:
                     f"pinned Engine outline call topology drifted: unexpected json_text call index={index + 1}",
                     stage_id="planning.editorial_outline",
                 )
-            # Increment once per Engine-level json_text call. Provider retries happen
-            # below current_json and therefore cannot accidentally advance this state.
             state.call_index += 1
             with stage_contract.request_stage_scope(spec):
                 return current_json(api_key, prompt, model=model)
@@ -435,14 +720,12 @@ def _install_call_sequence_binding() -> None:
                 stage_id="planning.editorial_outline",
             )
 
-        # Final authority remains the exact historical full outline schema + semantic
-        # gates. Splitting changes transport only; acceptance is not weakened.
         full_spec = stage_contract.outline_stage_spec(expected)
         assembled_contract = stage_contract.bind_request_contract(
             full_spec,
-            f"local-assembled-outline:{fmt}:{expected}",
+            f"local-canonical-assembled-outline:v2:{fmt}:{expected}",
         )
-        stage_contract.validate_response(assembled_contract, result)
+        _validate_canonical_outline(result, assembled_contract, expected)
         return result
 
     setattr(split_outline, _SPLIT_MARKER, True)
@@ -454,15 +737,19 @@ def install_planning_outline_split_contract() -> None:
     if _INSTALLED:
         return
     _certify_engine_topology()
+    assert_engine_runner_contract_compatible()
     _install_schema_and_validation_adapters()
     _install_groq_model_diversity()
     _install_same_fingerprint_guard()
     _install_call_sequence_binding()
+    _install_plan_handoff_equivalence_guard()
     _INSTALLED = True
     print(
-        "Planning outline split contract installed: "
-        "engine_calls=core->section_briefs exact_subschemas=true "
-        f"locked_premise_max_utf8_bytes={LOCKED_PREMISE_MAX_UTF8_BYTES} "
-        "local_full_outline_revalidation=true groq_schema_failure_model_diverse=true "
+        "Planning outline split contract v2 installed: "
+        "engine_calls=core->section_briefs provider_transport_schema=strict "
+        "engine_canonical_schema=strict host_metadata=fingerprint+persona_version "
+        f"locked_premise_post_enrichment_max_utf8_bytes={LOCKED_PREMISE_MAX_UTF8_BYTES} "
+        "local_canonical_outline_revalidation=true plan_json_exact_domain_projection=true "
+        "engine_runner_domain_drift=fail_closed groq_schema_failure_model_diverse=true "
         "same_fingerprint_terminal_retry=false quality_gates=unchanged"
     )
