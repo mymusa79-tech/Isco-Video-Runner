@@ -26,7 +26,13 @@ from isco_video_agent.short_timed_text import render_progressive_text
 from isco_video_agent.stock_media_preflight import inspect_stock_media, local_preflight_block
 from isco_video_agent.visual_selection import VisualCandidateCache, select_with_recovery
 
-from scripts.opening_feasibility_guard import _stable_intent_audit
+from scripts.opening_feasibility_guard import (
+    SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
+    SHORT_VISUAL_QUALITY_MINIMUM,
+    SHORT_VISUAL_RELEVANCE_MINIMUM,
+    _short_visual_quality_floor,
+    _stable_intent_audit,
+)
 
 
 PROFILE = "short_cinematic_director_v1"
@@ -422,7 +428,9 @@ def upgrade_short_cinematic(
 
         # Alternate search text is retrieval-only. Keep the semantic Vision intent
         # stable on the beat's primary editorial visual, matching the long-form guard.
-        stable_audit = _stable_intent_audit(audit_fn, primary_query)
+        stable_audit = _short_visual_quality_floor(
+            _stable_intent_audit(audit_fn, primary_query)
+        )
         primary = _search_assets(primary_query, pexels_key=pexels_key, pixabay_key=pixabay_key)
         result = select_with_recovery(
             primary,
@@ -544,6 +552,9 @@ def upgrade_short_cinematic(
         "transition_policy": "hard_cut_default_for_short_retention",
         "recent_visual_history_exclusion": True,
         "max_vision_reviews_per_additional_beat": MAX_VISION_REVIEWS_PER_BEAT,
+        "short_visual_quality_floor_contract": SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
+        "short_visual_relevance_minimum": SHORT_VISUAL_RELEVANCE_MINIMUM,
+        "short_visual_quality_minimum": SHORT_VISUAL_QUALITY_MINIMUM,
         "zero_text_ai_calls": True,
         "shots": timeline_shots,
     }
@@ -565,6 +576,9 @@ def upgrade_short_cinematic(
         "all_additional_assets_m8_normalized": True,
         "recent_visual_history_exclusion": True,
         "max_vision_reviews_per_additional_beat": MAX_VISION_REVIEWS_PER_BEAT,
+        "short_visual_quality_floor_contract": SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
+        "short_visual_relevance_minimum": SHORT_VISUAL_RELEVANCE_MINIMUM,
+        "short_visual_quality_minimum": SHORT_VISUAL_QUALITY_MINIMUM,
         "transition_policy": timeline["transition_policy"],
     }
     _append_rights(root, credits, new_credits, rights_metadata)
@@ -583,6 +597,9 @@ def upgrade_short_cinematic(
             "additional_visual_ai_calls_bounded": True,
             "max_vision_reviews_per_additional_beat": MAX_VISION_REVIEWS_PER_BEAT,
             "vision_reviews_per_retrieval_attempt": MAX_VISION_REVIEWS_PER_ATTEMPT,
+            "short_visual_quality_floor_contract": SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
+            "short_visual_relevance_minimum": SHORT_VISUAL_RELEVANCE_MINIMUM,
+            "short_visual_quality_minimum": SHORT_VISUAL_QUALITY_MINIMUM,
             "recent_visual_history_exclusion": True,
             "m8_applied_to_additional_assets": True,
             "rights_refreshed": True,

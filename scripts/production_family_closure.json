@@ -2,13 +2,16 @@
   "schema_version": 1,
   "historical_window": {
     "first_run": 51,
-    "last_run": 201,
+    "last_run": 202,
     "known_good_baseline": {
       "release_tag": "video-50",
       "runner_commit": "a98bc309d52159d65ef6ac65e516beaab344a32e",
       "asset": "final.mp4",
       "size_bytes": 239012306,
-      "sha256": "143abdfb7b55f2269cab2c4634b68e7a99a5581ac08eceeccfb8cdda2ffdc742"
+      "sha256": "143abdfb7b55f2269cab2c4634b68e7a99a5581ac08eceeccfb8cdda2ffdc742",
+      "role": "immutable_delivery_integrity_fixture_not_current_visual_baseline",
+      "visual_baseline": false,
+      "note": "Run50 predates the current montage stack and certifies immutable QC/Gold/delivery byte handoff only."
     }
   },
   "historical_run_identity": {
@@ -51,7 +54,8 @@
     {"id":"C19","runs":"171-178","required_phases":["P0","P1","P2","P3","P4","P5","P6"],"purpose":"post-Run170 integrated production continuity before the representation/vision incident series"},
     {"id":"C20","runs":"179-186","required_phases":["P0","P1","P3","P4"],"purpose":"Short representation authority, Vision health/retrieval, QR adjudication and format-aware Final Master recertification"},
     {"id":"C21","runs":"187-192","required_phases":["P0","P1","P2","P3","P4"],"purpose":"Moment duration, finishing capability ownership, repair composition, tone representation and pre-TTS voice feasibility recertification"},
-    {"id":"C22","runs":"193-201","required_phases":["P3"],"purpose":"Short Vision runtime-scope, truthful capacity recovery, bounded 429 cooldown and QR post-core authority recertification"}
+    {"id":"C22","runs":"193-201","required_phases":["P3"],"purpose":"Short Vision runtime-scope, truthful capacity recovery, bounded 429 cooldown and QR post-core authority recertification"},
+    {"id":"C23","runs":"202","required_phases":["P0","P6"],"purpose":"production Python package-entrypoint parity plus adjacent Telegram outbox recovery-path recertification"}
   ],
   "families": [
     {
@@ -98,9 +102,9 @@
     },
     {
       "id":"F08","name":"environment_preflight_and_provider_readiness",
-      "historical_runs":["111","113-126"],
+      "historical_runs":["111","113-126","202"],
       "required_phases":["P0","P1"],
-      "contracts":["scripts.test_environment_preflight","scripts.test_provider_preflight","scripts.test_preproduction_contract"]
+      "contracts":["scripts.test_environment_preflight","scripts.test_provider_preflight","scripts.test_youtube_oauth_readonly_firewall","scripts.test_preproduction_contract"]
     },
     {
       "id":"F09","name":"post_render_qc_gold_packaging_and_release",
@@ -224,7 +228,7 @@
     },
     {
       "id":"F29","name":"semantic_visual_retrieval_qr_and_adjudication",
-      "historical_runs":["183-185","201"],
+      "historical_runs":["183-185","198-201"],
       "required_phases":["P3"],
       "contracts":["scripts.test_run183_visual_retrieval_closure","scripts.test_run184_qr_confirmation_closure","scripts.test_run184_qr_runtime_scope","scripts.test_run185_semantic_visual_adjudication","scripts.test_run201_qr_post_core_scope"]
     },
@@ -263,6 +267,12 @@
       "historical_runs":["200"],
       "required_phases":["P3"],
       "contracts":["scripts.test_run200_short_vision_recovery_closure"]
+    },
+    {
+      "id":"F36","name":"production_package_entrypoint_and_control_outbox_parity",
+      "historical_runs":["202"],
+      "required_phases":["P0","P6"],
+      "contracts":["scripts.test_youtube_oauth_readonly_firewall","scripts.test_telegram_direct_entrypoints","scripts.test_telegram_outbox_runtime"]
     }
   ]
 }

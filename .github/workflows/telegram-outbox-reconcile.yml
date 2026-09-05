@@ -70,14 +70,14 @@ jobs:
           case "$RECONCILE_OUTCOME" in
             sent)
               test -n "$TELEGRAM_MESSAGE_ID"
-              python scripts/telegram_outbox_runtime.py reconcile-sent \
+              python -m scripts.telegram_outbox_runtime reconcile-sent \
                 --state "$CONTROL_STATE_PATH" \
                 --outbox-message-id "$OUTBOX_MESSAGE_ID" \
                 --telegram-message-id "$TELEGRAM_MESSAGE_ID"
               ;;
             absent)
               args=(
-                python scripts/telegram_outbox_runtime.py reconcile-absent
+                python -m scripts.telegram_outbox_runtime reconcile-absent
                 --state "$CONTROL_STATE_PATH"
                 --outbox-message-id "$OUTBOX_MESSAGE_ID"
               )

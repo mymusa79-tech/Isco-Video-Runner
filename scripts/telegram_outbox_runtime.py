@@ -4,8 +4,16 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, Mapping
+
+# Keep direct execution compatible with the package imports below. Production uses
+# ``python -m``; this fallback protects operator and recovery invocations.
+if __package__ in {None, ""}:
+    _REPO_ROOT = Path(__file__).resolve().parent.parent
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
 
 import requests
 

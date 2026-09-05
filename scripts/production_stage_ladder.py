@@ -19,12 +19,15 @@ PHASES = ("P0", "P1", "P2", "P3", "P4", "P5", "P6")
 BASELINE_TAG = "video-50"
 BASELINE_SIZE = 239_012_306
 BASELINE_SHA256 = "143abdfb7b55f2269cab2c4634b68e7a99a5581ac08eceeccfb8cdda2ffdc742"
+BASELINE_ROLE = "immutable_delivery_integrity_fixture_not_current_visual_baseline"
 RUN_TEST_PATTERN = re.compile(r"^test_run(\d+)_.*\.py$")
 
 PHASE_TESTS: dict[str, tuple[str, ...]] = {
     "P0": (
         "scripts.test_environment_preflight",
         "scripts.test_provider_preflight",
+        "scripts.test_youtube_oauth_readonly_firewall",
+        "scripts.test_telegram_direct_entrypoints",
         "scripts.test_preproduction_contract",
         "scripts.test_crossref_reliability",
         "scripts.test_persistent_memory",
@@ -147,6 +150,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_telegram_release_approval",
         "scripts.test_telegram_release_identity",
         "scripts.test_telegram_final_notify",
+        "scripts.test_telegram_outbox_runtime",
         "scripts.test_channel_os_youtube_manual_only",
         "scripts.test_delivery_acceptance_v2",
         "scripts.test_f25_family_contract",
@@ -226,7 +230,13 @@ def _verify_baseline(path: Path) -> dict[str, Any]:
     digest = _sha256(path)
     if size != BASELINE_SIZE or digest != BASELINE_SHA256:
         raise RuntimeError(f"video-50 identity mismatch size={size} sha256={digest}")
-    return {"release_tag": BASELINE_TAG, "asset": "final.mp4", "size_bytes": size, "sha256": digest}
+    return {
+        "release_tag": BASELINE_TAG,
+        "asset": "final.mp4",
+        "size_bytes": size,
+        "sha256": digest,
+        "role": BASELINE_ROLE,
+    }
 
 
 def _duration(path: Path) -> float:
@@ -251,7 +261,10 @@ def _prepare_staging(baseline: Path, staging: Path) -> float:
     except OSError:
         shutil.copy2(baseline, final)
     duration = _duration(final)
-    _write_json(staging / "plan.json", {"format": "film", "topic": "video-50 known-good baseline replay"})
+    _write_json(
+        staging / "plan.json",
+        {"format": "film", "topic": "video-50 historical delivery-integrity replay"},
+    )
     _write_json(staging / "quality-final.json", {"format": "film", "status": "baseline_replay"})
     _write_json(staging / "visual-timeline.json", {
         "status": "baseline_replay", "duration_seconds": max(1.0, duration - 0.1), "source": BASELINE_TAG,

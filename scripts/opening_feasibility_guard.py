@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from functools import wraps
-from math import ceil
+from math import ceil, isfinite
 
 import isco_video_agent.opening_director as opening_director
 import isco_video_agent.orchestrator as orchestrator
@@ -21,6 +21,9 @@ MAX_ADAPTIVE_OPENING_SLOTS = 6
 MAX_ADAPTIVE_OPENING_REVIEWS = 8
 MAX_ADAPTIVE_SECTION_REVIEWS = 5
 STOCK_CANDIDATE_POOL = 40
+SHORT_VISUAL_RELEVANCE_MINIMUM = 0.75
+SHORT_VISUAL_QUALITY_MINIMUM = 0.75
+SHORT_VISUAL_QUALITY_FLOOR_CONTRACT = "short-visual-quality-floor-v1"
 
 # Keep semantic/environment words that help stock retrieval. Only remove terms that
 # force an identifiable staged human subject or add no retrieval value. This fixes
@@ -105,6 +108,16 @@ _DETAIL_AVOID_TERMS = {
     "background",
     "scene",
 }
+
+_OPENING_AUXILIARY_SLOTS = frozenset({"cold_open", "escalation"})
+_VISUAL_RISK_KEYS = (
+    "sensitive_trait_implication_risk",
+    "prominent_logo_or_brand",
+    "cultural_conflict",
+    "cultural_islamic_suitability_risk",
+    "advertiser_conflict",
+    "obvious_synthetic_or_visual_artifact",
+)
 
 
 class VisionVerdictUnavailableError(RuntimeError):
@@ -251,6 +264,105 @@ def _adaptive_section_review_cap(section_seconds: float) -> int:
     )
 
 
+def _normalize_adaptive_opening_audits(result: object, *, section_seconds: float):
+    """Represent an adaptive opening as one primary composite plus two auxiliaries.
+
+    The pinned Engine's original three-shot opening contract permits exactly one
+    selected visual per section and exactly two auxiliary opening shots. Run92 later
+    split narration beyond 30 seconds into additional real-stock body slots, but those
+    tail slots inherited ``is_final_cut_auxiliary=True``. Gold therefore rejected a
+    valid adaptive opening as selection-integrity drift, and M7 could not account for
+    every rendered first-section clip.
+
+    Keep cold-open/escalation as the two established auxiliaries. The promise review is
+    the section's one selected composite, with promise + every adaptive tail shot
+    preserved as individually audited sequence members. No verdict is invented: this
+    function runs only after the Engine selected every required slot, and the composite
+    takes the minimum member scores plus the union of all risk flags.
+    """
+    if str(getattr(result, "status", "")) != "selected":
+        return result
+
+    specs = adaptive_opening_slot_specs(section_seconds)
+    slots = list(getattr(result, "slots", ()) or ())
+    if not specs or not slots:
+        return result
+    expected = [spec.key for spec in specs]
+    by_key = {str(slot.spec.key): slot for slot in slots}
+    if len(by_key) != len(slots) or set(by_key) != set(expected):
+        raise RuntimeError("adaptive_opening_audit_shape_mismatch")
+
+    body_keys = [key for key in expected if key not in _OPENING_AUXILIARY_SLOTS]
+    if not body_keys or body_keys[0] != "promise":
+        raise RuntimeError("adaptive_opening_primary_composite_missing")
+
+    members: list[dict] = []
+    for key in expected:
+        review = by_key[key].review
+        audit = review.audit
+        audit["is_selected"] = False
+        audit["is_final_cut_auxiliary"] = key in _OPENING_AUXILIARY_SLOTS
+        audit["is_section_sequence_member"] = key in body_keys
+        if key in body_keys:
+            audit["section_sequence_slot"] = key
+            members.append(
+                {
+                    "slot": key,
+                    "seconds": float(by_key[key].spec.seconds),
+                    "provider": review.provider,
+                    "candidate_id": review.candidate.get("id"),
+                    "status": audit.get("status"),
+                    "relevance": audit.get("relevance"),
+                    "visual_quality": audit.get("visual_quality"),
+                    **{risk: bool(audit.get(risk)) for risk in _VISUAL_RISK_KEYS},
+                    "reason": audit.get("reason", ""),
+                }
+            )
+
+    primary = by_key["promise"].review.audit
+    relevance = [
+        float(member["relevance"])
+        for member in members
+        if isinstance(member.get("relevance"), (int, float))
+    ]
+    quality = [
+        float(member["visual_quality"])
+        for member in members
+        if isinstance(member.get("visual_quality"), (int, float))
+    ]
+    complete_scores = (
+        len(relevance) == len(members)
+        and len(quality) == len(members)
+        and all(isfinite(score) for score in (*relevance, *quality))
+    )
+    composite_pass = bool(
+        members
+        and complete_scores
+        and all(member["status"] == "pass" for member in members)
+    )
+    primary.update(
+        {
+            "status": "pass" if composite_pass else "block",
+            "is_selected": True,
+            "is_final_cut_auxiliary": False,
+            "is_section_sequence_member": False,
+            "is_section_sequence": True,
+            "is_adaptive_opening_composite": True,
+            "sequence_member_count": len(members),
+            "sequence_members": members,
+            "relevance": min(relevance) if relevance else 0.0,
+            "visual_quality": min(quality) if quality else 0.0,
+            **{risk: any(member[risk] for member in members) for risk in _VISUAL_RISK_KEYS},
+            "reason": (
+                "Adaptive opening promise and tail members all passed the existing visual review."
+                if composite_pass
+                else "Adaptive opening composite lacks a complete passing score for every member."
+            ),
+        }
+    )
+    return result
+
+
 _VISION_PROVIDER_FAILURE_ORIGIN = "runner_vision_provider_call_failure"
 
 # Mirrors the transient-provider vocabulary already used by provider_failure.py and
@@ -325,6 +437,75 @@ def _stable_intent_audit(audit_fn, intended_visual: str):
             return _vision_provider_failure_envelope(exc)
 
     return wrapped
+
+
+def _short_visual_quality_floor(audit_fn):
+    """Reject borderline Short imagery using the already-made Vision verdict.
+
+    Run201 proved that the Engine's universal 0.65 floor can admit an empty ambience
+    shot for a person-centred Short. This adapter only downgrades an existing Vision
+    PASS; it never upgrades a BLOCK, changes a risk flag, or expands selector budgets.
+    """
+
+    @wraps(audit_fn)
+    def wrapped(*args, **kwargs):
+        result = audit_fn(*args, **kwargs)
+        if not isinstance(result, dict) or str(result.get("status", "")).lower() != "pass":
+            return result
+
+        try:
+            relevance = float(result.get("relevance", 0.0) or 0.0)
+            visual_quality = float(result.get("visual_quality", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            relevance = 0.0
+            visual_quality = 0.0
+
+        if (
+            isfinite(relevance)
+            and isfinite(visual_quality)
+            and relevance >= SHORT_VISUAL_RELEVANCE_MINIMUM
+            and visual_quality >= SHORT_VISUAL_QUALITY_MINIMUM
+        ):
+            accepted = dict(result)
+            accepted.update(
+                {
+                    "short_visual_quality_floor_evaluated": True,
+                    "short_visual_quality_floor_contract": SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
+                    "short_visual_relevance_minimum": SHORT_VISUAL_RELEVANCE_MINIMUM,
+                    "short_visual_quality_minimum": SHORT_VISUAL_QUALITY_MINIMUM,
+                }
+            )
+            return accepted
+
+        original_reason = str(result.get("reason", "") or "").strip()
+        blocked = dict(result)
+        blocked.update(
+            {
+                "status": "block",
+                "reason": (
+                    "Short visual editorial floor rejected a borderline Vision PASS: "
+                    f"relevance={relevance:.3f}/{SHORT_VISUAL_RELEVANCE_MINIMUM:.2f}, "
+                    f"visual_quality={visual_quality:.3f}/{SHORT_VISUAL_QUALITY_MINIMUM:.2f}"
+                    + (f"; vision_reason={original_reason}" if original_reason else "")
+                )[:500],
+                "short_visual_quality_floor_applied": True,
+                "short_visual_quality_floor_evaluated": True,
+                "short_visual_quality_floor_contract": SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
+                "short_visual_relevance_minimum": SHORT_VISUAL_RELEVANCE_MINIMUM,
+                "short_visual_quality_minimum": SHORT_VISUAL_QUALITY_MINIMUM,
+            }
+        )
+        return blocked
+
+    wrapped._isco_short_visual_quality_floor = True
+    wrapped._isco_short_visual_quality_floor_contract = SHORT_VISUAL_QUALITY_FLOOR_CONTRACT
+    return wrapped
+
+
+def _format_aware_single_audit(audit_fn, intended_visual: str, *, portrait: bool):
+    """Keep shared semantic truth, adding the stricter editorial floor only to Shorts."""
+    stable = _stable_intent_audit(audit_fn, intended_visual)
+    return _short_visual_quality_floor(stable) if portrait else stable
 
 
 def _technical_unavailable_reviews(result: object) -> list[object]:
@@ -461,6 +642,10 @@ def _install_selection_wrappers() -> None:
             if "max_reviews" not in kwargs:
                 kwargs["max_reviews"] = _adaptive_review_cap(section_seconds)
             result = current_opening_select(*args, **kwargs)
+            result = _normalize_adaptive_opening_audits(
+                result,
+                section_seconds=section_seconds,
+            )
             return _enforce_truthful_visual_outcome(result, scope="opening")
 
         guarded_opening_select._isco_run92_adaptive_opening_guard = True
@@ -502,11 +687,16 @@ def _install_selection_wrappers() -> None:
         @wraps(current_single_select)
         def guarded_single_select(*args, **kwargs):
             intended_visual = str(kwargs.get("intended_visual", ""))
+            portrait = bool(kwargs.get("portrait", args[1] if len(args) > 1 else False))
             candidates_by_provider = args[0] if args else kwargs.get("candidates_by_provider")
             _log_candidate_pool_size(candidates_by_provider, scope="single")
             audit_fn = kwargs.get("audit_fn")
             if callable(audit_fn):
-                kwargs["audit_fn"] = _stable_intent_audit(audit_fn, intended_visual)
+                kwargs["audit_fn"] = _format_aware_single_audit(
+                    audit_fn,
+                    intended_visual,
+                    portrait=portrait,
+                )
             alternate_query_fn = kwargs.get("alternate_query_fn")
             if callable(alternate_query_fn):
                 kwargs["alternate_query_fn"] = _bounded_alternate_query_fn(
@@ -554,5 +744,5 @@ def install_opening_feasibility_guard() -> None:
     print(
         "Opening feasibility guard installed: fixed 30s opening; adaptive <=45s tail; "
         "search/intent separation; bounded retrieval ladder; truthful Vision-unavailable; "
-        "40-result stock pool; existing Vision QA caps preserved"
+        "40-result stock pool; Short 0.75 editorial visual floor; existing Vision QA caps preserved"
     )

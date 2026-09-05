@@ -6,16 +6,23 @@ from unittest.mock import patch
 import isco_video_agent.opening_director as opening_director
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.section_visual_sequence as section_visual_sequence
+import isco_video_agent.final_critic as final_critic
 from isco_video_agent.visual_selection import VisualCandidateCache, VisualSelectionResult
 
 from scripts.opening_feasibility_guard import (
+    SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
+    SHORT_VISUAL_QUALITY_MINIMUM,
+    SHORT_VISUAL_RELEVANCE_MINIMUM,
     STOCK_CANDIDATE_POOL,
     _adaptive_review_cap,
     _adaptive_section_review_cap,
+    _format_aware_single_audit,
     _install_selection_wrappers,
     _install_stock_search_wrappers,
     _log_candidate_pool_size,
+    _normalize_adaptive_opening_audits,
     _preserve_outline_visual_intent,
+    _short_visual_quality_floor,
     _stable_intent_audit,
     adaptive_opening_slot_specs,
     stock_safe_search_query,
@@ -137,6 +144,75 @@ class Run92OpeningFeasibilityGuardTests(unittest.TestCase):
         selected_ids = [slot.review.candidate["id"] for slot in result.slots]
         self.assertEqual(len(set(selected_ids)), 4)
         self.assertLessEqual(len(calls), 6)
+
+    def test_adaptive_opening_projects_one_composite_and_only_two_gold_auxiliaries(self) -> None:
+        def audit_fn(**_kwargs):
+            return {
+                "status": "pass",
+                "relevance": 0.91,
+                "visual_quality": 0.89,
+            }
+
+        with patch.object(opening_director, "opening_slot_specs", adaptive_opening_slot_specs):
+            result = opening_director.select_opening_sequence(
+                {"pexels": [_candidate(index, 70) for index in range(1, 6)]},
+                section_seconds=62.3,
+                portrait=False,
+                narration_context="opening narration",
+                intended_visual="original visual intent",
+                audit_fn=audit_fn,
+                cache=VisualCandidateCache(excluded_assets={}),
+                max_reviews=_adaptive_review_cap(62.3),
+            )
+        _normalize_adaptive_opening_audits(result, section_seconds=62.3)
+
+        audits = [{"section": "s1", **dict(review.audit)} for review in result.reviewed]
+        selected = [item for item in audits if item.get("is_selected") is True]
+        auxiliaries = [item for item in audits if item.get("is_final_cut_auxiliary") is True]
+        members = [item for item in audits if item.get("is_section_sequence_member") is True]
+        self.assertEqual(len(selected), 1)
+        self.assertTrue(selected[0]["is_adaptive_opening_composite"])
+        self.assertEqual(
+            [item["slot"] for item in selected[0]["sequence_members"]],
+            ["promise", "body_1"],
+        )
+        self.assertEqual(
+            {item["opening_slot"] for item in auxiliaries},
+            {"cold_open", "escalation"},
+        )
+        self.assertEqual([item["opening_slot"] for item in members], ["body_1"])
+        blocks = final_critic._deterministic_blocks(
+            quality={"duration_ok": True, "audio_ok": True},
+            visual_audits=audits,
+            rights_manifest={"visuals": [{"provider": "pexels"}]},
+            monetization_check={"status": "PASS"},
+            opening_visual_audit={"status": "pass"},
+            section_ids=["s1"],
+        )
+        self.assertNotIn("section_visual_selection_integrity_failed", blocks)
+
+    def test_adaptive_opening_composite_fails_closed_when_member_scores_are_missing(self) -> None:
+        def audit_fn(**kwargs):
+            if int(kwargs["candidate"]["id"]) == 4:
+                return {"status": "pass", "relevance": 0.91}
+            return {"status": "pass", "relevance": 0.91, "visual_quality": 0.89}
+
+        with patch.object(opening_director, "opening_slot_specs", adaptive_opening_slot_specs):
+            result = opening_director.select_opening_sequence(
+                {"pexels": [_candidate(index, 70) for index in range(1, 6)]},
+                section_seconds=62.3,
+                portrait=False,
+                narration_context="opening narration",
+                intended_visual="original visual intent",
+                audit_fn=audit_fn,
+                cache=VisualCandidateCache(excluded_assets={}),
+                max_reviews=_adaptive_review_cap(62.3),
+            )
+        _normalize_adaptive_opening_audits(result, section_seconds=62.3)
+
+        primary = next(slot.review.audit for slot in result.slots if slot.spec.key == "promise")
+        self.assertEqual(primary["status"], "block")
+        self.assertIn("lacks a complete passing score", primary["reason"])
 
     def test_run105_normal_three_slot_opening_recovers_after_two_semantic_blocks(self) -> None:
         calls: list[int] = []
@@ -417,6 +493,73 @@ class VisionProviderFailureResilienceTests(unittest.TestCase):
 
         self.assertEqual(result.status, "selected")
         self.assertIn(101, attempts)
+
+
+class ShortVisualQualityFloorTests(unittest.TestCase):
+    def test_run201_borderline_pass_is_rejected_for_short(self) -> None:
+        audit = _short_visual_quality_floor(
+            lambda **_: {
+                "status": "pass",
+                "relevance": 0.65,
+                "visual_quality": 0.65,
+                "reason": "setting matches the reflective mood",
+                "verdict_authority": "vision",
+            }
+        )
+        result = audit()
+        self.assertEqual(result["status"], "block")
+        self.assertTrue(result["short_visual_quality_floor_applied"])
+        self.assertEqual(
+            result["short_visual_quality_floor_contract"],
+            SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
+        )
+        self.assertEqual(result["verdict_authority"], "vision")
+
+    def test_threshold_passes_and_existing_blocks_are_never_reinterpreted(self) -> None:
+        threshold = {
+            "status": "pass",
+            "relevance": SHORT_VISUAL_RELEVANCE_MINIMUM,
+            "visual_quality": SHORT_VISUAL_QUALITY_MINIMUM,
+        }
+        accepted = _short_visual_quality_floor(lambda **_: threshold)()
+        self.assertEqual(accepted["status"], "pass")
+        self.assertTrue(accepted["short_visual_quality_floor_evaluated"])
+        self.assertEqual(
+            accepted["short_visual_quality_floor_contract"],
+            SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
+        )
+
+        existing_block = {
+            "status": "block",
+            "relevance": 0.99,
+            "visual_quality": 0.99,
+            "cultural_conflict": True,
+        }
+        self.assertIs(_short_visual_quality_floor(lambda **_: existing_block)(), existing_block)
+
+    def test_format_aware_adapter_keeps_long_floor_and_strengthens_short_only(self) -> None:
+        def borderline(**kwargs):
+            return {
+                "status": "pass",
+                "relevance": 0.65,
+                "visual_quality": 0.65,
+                "seen_intent": kwargs.get("intended_visual"),
+            }
+
+        short = _format_aware_single_audit(
+            borderline,
+            "a person reflecting after a conversation",
+            portrait=True,
+        )
+        long = _format_aware_single_audit(
+            borderline,
+            "a person reflecting after a conversation",
+            portrait=False,
+        )
+        self.assertEqual(short(intended_visual="search-only words")["status"], "block")
+        long_result = long(intended_visual="search-only words")
+        self.assertEqual(long_result["status"], "pass")
+        self.assertEqual(long_result["seen_intent"], "a person reflecting after a conversation")
 
 
 class CandidatePoolSizeDiagnosticsTests(unittest.TestCase):

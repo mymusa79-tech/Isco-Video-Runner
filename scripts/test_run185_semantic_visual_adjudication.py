@@ -21,8 +21,9 @@ class Run185SemanticVisualAdjudicationTests(unittest.TestCase):
         self.assertLessEqual(len(value), scope_fix.MAX_ENGINE_INTENDED_VISUAL_CHARS)
         self.assertIn("SEMANTIC POLICY:", value)
         self.assertIn("not literal shot checklist", value)
-        self.assertIn("semantic-equivalent/contextual coverage", value)
-        self.assertIn("reject generic unrelated B-roll", value)
+        self.assertIn("Person/action intent needs visible human/action evidence", value)
+        self.assertIn("mood/setting alone fails", value)
+        self.assertIn("Reject generic B-roll", value)
         self.assertIn(contains, value)
 
     def test_run185_alternate_is_owned_by_current_semantic_family(self) -> None:
@@ -37,6 +38,16 @@ class Run185SemanticVisualAdjudicationTests(unittest.TestCase):
         # Re-wrapping must be idempotent; nested wrappers cannot consume the 300-char
         # Engine field with duplicate policy text.
         self.assertEqual(scope_fix._semantic_judgment_intent(value), value)
+
+    def test_shared_contract_requires_a_specific_anchor_for_long_and_short_intents(self) -> None:
+        for intended_visual in (
+            "A thoughtful person pauses by a window during a difficult conversation",
+            "A young Arab man reflects in his car after a social event",
+        ):
+            with self.subTest(intended_visual=intended_visual):
+                value = scope_fix._semantic_judgment_intent(intended_visual)
+                self.assertIn("visible human/action evidence", value)
+                self.assertIn("mood/setting alone fails", value)
 
     def test_semantic_alternate_reaches_vision_only_inside_runtime_scope(self) -> None:
         seen: list[str] = []

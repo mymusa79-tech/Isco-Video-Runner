@@ -142,11 +142,18 @@ def _audit_rows(result: object, *, selector_index: int, intended_visual: str) ->
             continue
         candidate = getattr(review, "candidate", None)
         candidate_id = candidate.get("id") if isinstance(candidate, dict) else None
+        candidate_url = None
+        candidate_duration = None
+        if isinstance(candidate, dict):
+            candidate_url = candidate.get("url") or candidate.get("pageURL")
+            candidate_duration = candidate.get("duration")
         rows.append(
             {
                 "selector_index": int(selector_index),
                 "provider": str(getattr(review, "provider", "") or ""),
                 "candidate_id": candidate_id,
+                "candidate_url": candidate_url,
+                "candidate_duration_seconds": candidate_duration,
                 "from_cache": bool(getattr(review, "from_cache", False)),
                 "intended_visual": str(intended_visual or "")[:500],
                 "selector_status": str(getattr(result, "status", "")),

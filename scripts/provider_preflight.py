@@ -1,6 +1,16 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
+
+# Production historically invoked this facade as a file.  Keep that entrypoint
+# compatible even though the implementation now lives in sibling package modules.
+# The canonical workflow uses ``python -m`` below, but this bootstrap prevents a
+# future direct caller from recreating Run 202's package-resolution failure.
+if __package__ in {None, ""}:
+    _REPO_ROOT = Path(__file__).resolve().parent.parent
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
 
 from scripts import provider_preflight_core as _core
 from scripts.youtube_oauth_readonly_firewall import enforce_from_runner_temp

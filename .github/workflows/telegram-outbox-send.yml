@@ -78,7 +78,7 @@ jobs:
         id: enqueue
         run: |
           set -euo pipefail
-          python scripts/telegram_outbox_runtime.py enqueue \
+          python -m scripts.telegram_outbox_runtime enqueue \
             --state "$CONTROL_STATE_PATH" \
             --request "$OUTBOX_REQUEST_PATH"
 
@@ -108,7 +108,7 @@ jobs:
         id: begin
         run: |
           set -euo pipefail
-          python scripts/telegram_outbox_runtime.py begin \
+          python -m scripts.telegram_outbox_runtime begin \
             --state "$CONTROL_STATE_PATH" \
             --outbox-message-id "${{ steps.enqueue.outputs.outbox_message_id }}"
 
@@ -139,7 +139,7 @@ jobs:
         if: steps.begin.outputs.send_allowed == 'true'
         run: |
           set -euo pipefail
-          python scripts/telegram_outbox_runtime.py send \
+          python -m scripts.telegram_outbox_runtime send \
             --state "$CONTROL_STATE_PATH" \
             --outbox-message-id "${{ steps.enqueue.outputs.outbox_message_id }}"
 

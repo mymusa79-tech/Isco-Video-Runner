@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from dataclasses import replace
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Callable
@@ -190,6 +191,146 @@ def _m11_color_authority_render_fn(runtime: Any) -> Callable[..., Path]:
     return render
 
 
+def _adaptive_opening_entries(
+    plan: Any,
+    *,
+    section_seconds: float,
+    visual_audits: list[dict[str, Any]],
+) -> list[dict[str, Any]] | None:
+    """Compile Run92's real first-section slots for the pinned M7 timeline.
+
+    M7 predates the adaptive opening geometry and knows only
+    ``cold_open/escalation/promise_and_body``. Production now renders
+    ``cold_open/escalation/promise/body_N``; passing those audits to the old compiler
+    raises before concat, while collapsing them back to three rows would make the
+    timeline disagree with the actual clip list. This adapter preserves every audited
+    slot and its exact deterministic duration.
+    """
+    from scripts.opening_feasibility_guard import adaptive_opening_slot_specs
+
+    specs = adaptive_opening_slot_specs(section_seconds)
+    if not specs:
+        return None
+    first_id = str(plan.sections[0].id)
+    rows = [
+        audit
+        for audit in visual_audits
+        if isinstance(audit, dict)
+        and str(audit.get("section") or "") == first_id
+        and audit.get("status") == "pass"
+        and str(audit.get("opening_slot") or "")
+    ]
+    keys = [str(row.get("opening_slot") or "") for row in rows]
+    # Preserve the Engine's original path for historical three-shot evidence.
+    if "promise_and_body" in keys and "promise" not in keys:
+        return None
+
+    expected = [spec.key for spec in specs]
+    if len(keys) != len(set(keys)) or set(keys) != set(expected):
+        raise engine_m7.TimelineCompileError(
+            "M7 adaptive opening evidence does not exactly match rendered slot geometry"
+        )
+    by_key = {str(row["opening_slot"]): row for row in rows}
+    entries: list[dict[str, Any]] = []
+    for spec in specs:
+        audit = by_key[spec.key]
+        provider = str(audit.get("provider") or "")
+        asset_id = audit.get("candidate_id")
+        if not provider or asset_id is None:
+            raise engine_m7.TimelineCompileError(
+                f"M7 adaptive opening provenance missing for {spec.key}"
+            )
+        entries.append(
+            {
+                "section_id": first_id,
+                "slot_key": spec.key,
+                "duration_seconds": float(spec.seconds),
+                "provider": provider,
+                "asset_id": asset_id,
+                "candidate_ref": f"{provider}:{asset_id}",
+                "source_url": None,
+                "cut_reason": (
+                    "m6_opening_boundary"
+                    if spec.key in {"cold_open", "escalation", "promise"}
+                    else "source_coverage_without_replay"
+                ),
+                "fallback_reason": (
+                    None if spec.key in {"cold_open", "escalation", "promise"}
+                    else "adaptive_opening_tail_without_replay"
+                ),
+                "rights_reference": None,
+            }
+        )
+    # Bind against the complete persisted audit list. JSON pointers are evidence
+    # addresses in visual-audit.json, so binding against a filtered opening subset
+    # would silently point at unrelated rows whenever earlier reviews existed.
+    return engine_m7.bind_legacy_audit_references(entries, visual_audits)
+
+
+@contextmanager
+def _m7_adaptive_opening_scope():
+    """Compose adaptive M6 evidence into every M7 compile/fallback path."""
+    original = engine_m7._legacy_entries_from_audits
+
+    def bound(plan, *, section_durations, visual_audits):
+        if not plan.sections or not section_durations:
+            return original(
+                plan,
+                section_durations=section_durations,
+                visual_audits=visual_audits,
+            )
+        opening = _adaptive_opening_entries(
+            plan,
+            section_seconds=float(section_durations[0]),
+            visual_audits=visual_audits,
+        )
+        if opening is None:
+            return original(
+                plan,
+                section_durations=section_durations,
+                visual_audits=visual_audits,
+            )
+        if len(plan.sections) == 1:
+            return opening
+        body_plan = replace(plan, sections=list(plan.sections[1:]))
+        body = original(
+            body_plan,
+            section_durations=list(section_durations[1:]),
+            # The Engine filters rows per body section internally, but its final
+            # audit-reference binder must still see the complete persisted list.
+            visual_audits=visual_audits,
+        )
+        return opening + body
+
+    engine_m7._legacy_entries_from_audits = bound
+    try:
+        yield
+    finally:
+        engine_m7._legacy_entries_from_audits = original
+
+
+@contextmanager
+def _m7_dynamic_prepare_scope():
+    """Inject the live M8 prepare authority instead of M7's import-time default.
+
+    The Engine function's ``prepare_clip_fn=prepare_clip`` default was bound when its
+    module loaded. Patching ``media_ffmpeg.prepare_clip`` later therefore did not affect
+    M7 semantic body clips. Resolve the callable at materialization time, while M8's
+    request scope is active, so stock and archive shots share one BT.709/SDR authority.
+    """
+    original = engine_m7.materialize_semantic_body
+
+    def bound(timeline: dict, **kwargs):
+        kwargs.setdefault("prepare_clip_fn", media_ffmpeg.prepare_clip)
+        return original(timeline, **kwargs)
+
+    engine_m7.materialize_semantic_body = bound
+    try:
+        yield
+    finally:
+        engine_m7.materialize_semantic_body = original
+
+
 @contextmanager
 def _m11_archive_scope(
     *,
@@ -272,10 +413,12 @@ def install_m7_live_binding() -> None:
                 content_model=content_model,
                 ledger=kwargs.get("ledger"),
             ):
-                with live_m7_binding_scope(
-                    orchestrator, pexels_api_key=pexels, pixabay_api_key=pixabay
-                ):
-                    return current(*args, **kwargs)
+                with _m7_adaptive_opening_scope():
+                    with _m7_dynamic_prepare_scope():
+                        with live_m7_binding_scope(
+                            orchestrator, pexels_api_key=pexels, pixabay_api_key=pixabay
+                        ):
+                            return current(*args, **kwargs)
 
     wrapped._isco_m7_live_binding = True
     wrapped._isco_m7_original = current
