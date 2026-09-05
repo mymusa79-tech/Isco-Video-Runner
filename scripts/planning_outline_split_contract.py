@@ -20,6 +20,7 @@ fail-closed before the result can become cache/plan authority.
 
 import copy
 import functools
+import json
 from contextvars import ContextVar
 from dataclasses import dataclass
 
@@ -37,6 +38,13 @@ SPLIT_PROFILES = frozenset({CORE_PROFILE, SECTIONS_PROFILE})
 _SPLIT_MARKER = "_isco_planning_outline_split_contract_v1"
 _SPLIT_JSON_MARKER = "_isco_planning_outline_split_json_v1"
 _COMPLETION_TOKENS = stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET
+# Call 1b embeds only the locked premise fields below. Keep that exact serialized block
+# bounded so the second request remains genuinely provider-portable instead of merely
+# being smaller on average. 3.6 KiB still allows roughly 1.8K Arabic characters of
+# premise detail - well above Engine's explicit "concise" instruction - while leaving
+# the documented 10% Groq operational margin on the pinned Engine envelope. Oversized
+# provider output is rejected and provider-failed-over; it is never silently truncated.
+LOCKED_PREMISE_MAX_UTF8_BYTES = 3_600
 _INSTALLED = False
 
 
@@ -105,6 +113,7 @@ def outline_core_stage_spec(expected_count: int) -> stage_contract.PlanningStage
             "transport_profile": CORE_PROFILE,
             "expected_count": expected_count,
             "narrative_identity_gates": True,
+            "locked_premise_max_utf8_bytes": LOCKED_PREMISE_MAX_UTF8_BYTES,
         },
         provider_policy=_split_provider_policy(),
         cache_policy=stage_contract.CachePolicy(),
@@ -156,6 +165,28 @@ def outline_sections_stage_spec_for_format(fmt: str) -> stage_contract.PlanningS
     return outline_sections_stage_spec(expected)
 
 
+def locked_premise_payload(data: dict) -> dict:
+    narrative_format = str(data.get("narrative_format") or "").strip()
+    return {
+        "narrative_format": narrative_format,
+        "narrative_format_definition": staged._NARRATIVE_FORMATS.get(narrative_format, ""),
+        "pillar": str(data.get("pillar") or "").strip(),
+        "hook": str(data.get("hook") or "").strip(),
+        "closing_payoff": str(data.get("closing_payoff") or "").strip(),
+        "editorial_intent": data.get("editorial_intent"),
+    }
+
+
+def locked_premise_utf8_bytes(data: dict) -> int:
+    return len(
+        json.dumps(
+            locked_premise_payload(data),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+
+
 def _validate_core(data: dict, contract: stage_contract.PlanningStageContract) -> dict:
     stage_contract._validate_schema(data, contract.output_schema, contract)
     # Reuse the canonical full-outline semantic owner instead of cloning its narrative,
@@ -174,6 +205,19 @@ def _validate_core(data: dict, contract: stage_contract.PlanningStageContract) -
         }
     ]
     stage_contract._validate_outline_semantics(semantic_view, contract)
+
+    locked_bytes = locked_premise_utf8_bytes(data)
+    limit = int(
+        contract.semantic_rules.get("locked_premise_max_utf8_bytes")
+        or LOCKED_PREMISE_MAX_UTF8_BYTES
+    )
+    if locked_bytes > limit:
+        stage_contract._raise_validation(
+            stage_contract.PlanningErrorCode.SEMANTIC_INVALID,
+            contract,
+            "$",
+            f"locked_premise_portability_budget_exceeded bytes={locked_bytes} limit={limit}",
+        )
     return data
 
 
@@ -418,6 +462,7 @@ def install_planning_outline_split_contract() -> None:
     print(
         "Planning outline split contract installed: "
         "engine_calls=core->section_briefs exact_subschemas=true "
+        f"locked_premise_max_utf8_bytes={LOCKED_PREMISE_MAX_UTF8_BYTES} "
         "local_full_outline_revalidation=true groq_schema_failure_model_diverse=true "
         "same_fingerprint_terminal_retry=false quality_gates=unchanged"
     )
