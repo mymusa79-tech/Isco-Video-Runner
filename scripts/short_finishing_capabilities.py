@@ -7,6 +7,10 @@ Short Voice V2 and the Short Cinematic Director later attempted to consume the s
 source secrets again.  This adapter preserves the one-time secret owner and exposes only
 request-scoped in-memory capabilities during same-process Short finishing.
 
+Run #198 extended that same family: Voice-Owned Timeline V1 is another post-core Short
+finisher and must lease the already-captured Gemini capability instead of re-consuming
+the destructive source-secret reader after the core has finished.
+
 Sibling Shorts cross a real subprocess boundary after the long parent has already
 consumed its source secrets.  For that boundary only, the parent materializes fresh
 0600 one-time files inside RUNNER_TEMP and passes file *paths* to the child.  The Engine's
@@ -91,12 +95,15 @@ def _cinematic_secret(name: str) -> str | None:
 
 
 def _install_legacy_resolvers() -> None:
-    """Bind legacy finishing readers to scoped memory, never source secrets."""
-    from scripts import short_cinematic_director, short_voice_v2
+    """Bind post-core finishing readers to scoped memory, never source secrets."""
+    from scripts import short_cinematic_director, short_voice_owned_timeline, short_voice_v2
 
     if getattr(short_voice_v2.secret, "_isco_short_capability_resolver", False) is not True:
         _voice_secret._isco_short_capability_resolver = True
         short_voice_v2.secret = _voice_secret
+    if getattr(short_voice_owned_timeline.secret, "_isco_short_capability_resolver", False) is not True:
+        _voice_secret._isco_short_capability_resolver = True
+        short_voice_owned_timeline.secret = _voice_secret
     if getattr(short_cinematic_director.secret, "_isco_short_capability_resolver", False) is not True:
         _cinematic_secret._isco_short_capability_resolver = True
         short_cinematic_director.secret = _cinematic_secret
