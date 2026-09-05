@@ -9,6 +9,47 @@ permissions:
   contents: read
 
 jobs:
+  pin-engine-once:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'fix/editorial-promise-continuity-family'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/editorial-promise-continuity-family
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Pin merged Engine and self-clean temporary workflow changes
+        env:
+          PIN_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$PIN_TOKEN"
+          git fetch origin main --depth=1
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/produce-resilient-v4.yml')
+          old = '3d584c868b5c094d7856370f6d728aec841fef27'
+          new = '69b21dd1c10f196c623e5b426bccd574a80accf5'
+          text = path.read_text(encoding='utf-8')
+          if text.count(old) != 3:
+              raise SystemExit(f'Expected exactly 3 old Engine pins, found {text.count(old)}')
+          updated = text.replace(old, new)
+          if updated.count(new) != 3 or old in updated:
+              raise SystemExit('Exact Engine pin replacement failed closed')
+          path.write_text(updated, encoding='utf-8')
+          PY
+          git checkout FETCH_HEAD -- .github/workflows/verify-short-planning-port-composition.yml
+          git rm .github/workflows/_pin-engine-once.yml
+          git config user.name "isco-integration-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/workflows/produce-resilient-v4.yml .github/workflows/verify-short-planning-port-composition.yml
+          git diff --cached --check
+          git commit -m "Pin production to Engine promise-continuity merge"
+          git push "https://x-access-token:${PIN_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:fix/editorial-promise-continuity-family
+
   short-planning-port-composition:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
