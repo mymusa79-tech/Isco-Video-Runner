@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import unittest
+from copy import deepcopy
 from pathlib import Path
 
 from scripts.production_stage_ladder import (
@@ -11,6 +12,7 @@ from scripts.production_stage_ladder import (
     BASELINE_SIZE,
     PHASES,
     PHASE_TESTS,
+    _validate_family_register,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +49,10 @@ def _named_run_regressions() -> dict[int, set[str]]:
 
 
 class ProductionStageLadderContractTests(unittest.TestCase):
+    @staticmethod
+    def _executed_by_phase() -> dict[str, set[str]]:
+        return {phase: set(modules) for phase, modules in PHASE_TESTS.items()}
+
     def test_phase_set_is_exactly_p0_through_p6_and_all_modules_exist(self) -> None:
         self.assertEqual(PHASES, ("P0", "P1", "P2", "P3", "P4", "P5", "P6"))
         self.assertEqual(set(PHASE_TESTS), set(PHASES))
@@ -118,6 +124,60 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             if modules - declared
         }
         self.assertEqual(orphaned, {})
+
+    def test_recent_incident_ledger_is_exact_phase_aligned_and_reciprocal(self) -> None:
+        data = json.loads(REGISTER.read_text(encoding="utf-8"))
+        closure = _validate_family_register(data, self._executed_by_phase())
+        incidents = closure["incidents"]
+        self.assertEqual(closure["incident_enforcement_from"], 184)
+        self.assertEqual([row["run"] for row in incidents], list(range(184, 204)))
+        self.assertEqual(len(incidents), 20)
+        self.assertEqual(
+            next(row for row in incidents if row["run"] == 193)["failure_phase"],
+            "P1",
+        )
+        self.assertEqual(
+            next(row for row in incidents if row["run"] == 198)["family_ids"],
+            ["F32"],
+        )
+        self.assertEqual(
+            next(row for row in incidents if row["run"] == 203)["format"],
+            "long",
+        )
+
+    def test_recent_incident_cannot_hide_behind_wrong_phase_family(self) -> None:
+        data = json.loads(REGISTER.read_text(encoding="utf-8"))
+        corrupted = deepcopy(data)
+        run193 = next(
+            row for row in corrupted["incident_ledger"]["entries"] if row["run"] == 193
+        )
+        run193["failure_phase"] = "P3"
+        run193["family_ids"] = ["F29"]
+        with self.assertRaisesRegex(RuntimeError, r"Run193 phase=P3 is absent from its audit cohort"):
+            _validate_family_register(corrupted, self._executed_by_phase())
+
+    def test_recent_incident_cannot_be_unclassified_or_one_way_only(self) -> None:
+        data = json.loads(REGISTER.read_text(encoding="utf-8"))
+        missing = deepcopy(data)
+        missing["incident_ledger"]["entries"] = [
+            row for row in missing["incident_ledger"]["entries"] if row["run"] != 203
+        ]
+        with self.assertRaisesRegex(RuntimeError, r"missing=\[203\]"):
+            _validate_family_register(missing, self._executed_by_phase())
+
+        one_way = deepcopy(data)
+        family = next(item for item in one_way["families"] if item["id"] == "F32")
+        family["historical_runs"] = ["188"]
+        with self.assertRaisesRegex(RuntimeError, r"Run198 family=F32 has no reciprocal"):
+            _validate_family_register(one_way, self._executed_by_phase())
+
+        wrong_phase_tests = self._executed_by_phase()
+        wrong_phase_tests["P2"].remove("scripts.test_run188_short_capability_ownership")
+        with self.assertRaisesRegex(
+            RuntimeError,
+            r"Run188 phase=P2 has no family contract executed in that phase",
+        ):
+            _validate_family_register(data, wrong_phase_tests)
 
     def test_ladder_replays_video50_in_phase_order_and_never_dispatches_production(self) -> None:
         text = LADDER_WORKFLOW.read_text(encoding="utf-8")
