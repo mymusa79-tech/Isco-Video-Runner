@@ -2,47 +2,23 @@ from __future__ import annotations
 
 """Run #200 preventive closure for Short Cinematic visual/Vision reliability.
 
-Run #200 exposed two composition gaps at the standalone-Short finishing seam:
+The Short finishing seam runs after ``orchestrator.produce()`` and therefore must
+explicitly re-enter the canonical Visual Retrieval runtime scope. Run200 adds one bounded
+same-candidate availability half-open after an already-observed Groq 429, preserves the
+server/header cooldown, keeps semantic/security verdicts authoritative, and reports an
+unmade technical verdict as ``VISION_UNAVAILABLE`` rather than false stock exhaustion.
 
-* Short Cinematic runs during Gold, after ``orchestrator.produce()`` has returned, while
-  Visual Retrieval V1 is intentionally scoped to the canonical produce context. That
-  left the Short's Vision calls outside the header-aware Groq capacity scope.
-* ``short_cinematic_director`` imports several visual callables by value before runtime
-  composition installs Run183/185/V1 wrappers. Run199 correctly bridged the Short task
-  *kind* into the canonical Vision provider mesh, but those by-value retrieval/judgment
-  surfaces could still remain on their historical functions.
-
-A short-window Groq 429 could therefore arrive when hundreds of stock candidates existed,
-be truthfully converted to an unmade technical verdict, consume the Short selector's one
-cloud-review slot, and finally be mislabeled as "no safe distinct asset".
-
-This closure keeps all existing visual/security thresholds, semantic BLOCK finality,
-candidate caps and run-wide budgets. It adds only bounded composition/recovery behavior:
-
-1. Rebind the Short's by-value visual surfaces to the already-installed canonical
-   Run183/185/V1 surfaces and execute Short Cinematic inside the existing Visual Retrieval
-   runtime scope. There is still one policy owner; no parallel retry/ranking system is
-   created.
-2. Preserve a server/header-derived Groq 429 cooldown instead of letting a later truncated
-   exception string extend it to the older generic 60-second fallback.
-3. If a Short candidate returns a technical-unavailable envelope while that bounded 429
-   cooldown is live, half-open exactly once on the SAME candidate. The existing Groq
-   transport owner performs the actual wait; this layer never sleeps independently.
-4. If recovery still produces no semantic verdict, reuse Run183's truthful outcome guard
-   and raise VISION_UNAVAILABLE instead of false stock exhaustion.
-5. Persist selector evidence atomically before a terminal failure for postmortem use.
-
-Provider-attempt accounting remains in BudgetLedger/Stage Contract and the run-wide hard
-cap remains authoritative. Semantic BLOCK, Security/QR rejection and permanent/daily
-capacity failures never enter this availability recovery path.
+All composition in this module is request-scoped and restored in ``finally``. No process-
+lifetime monkey patch is allowed to escape the Short finishing seam.
 """
 
 import json
 import time
+from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.visual_selection as visual_selection
@@ -50,38 +26,16 @@ from scripts import opening_feasibility_guard as opening_guard
 from scripts import provider_health_registry as health
 from scripts import run181_vision_mesh_closure as run181
 from scripts import short_cinematic_director as short_director
-from scripts import short_voice_owned_timeline as short_voice
 from scripts import visual_retrieval_adjudication_v1 as visual_v1
 from scripts import visual_retrieval_runtime_scope_v1 as visual_scope
 
 
-CONTRACT_ID = "run200-short-visual-runtime-recovery-v2"
+CONTRACT_ID = "run200-short-visual-runtime-recovery-v3"
 MAX_HALF_OPEN_WAIT_SECONDS = float(visual_v1.GROQ_MAX_BOUNDED_WAIT_SECONDS)
 PARTIAL_AUDIT_FILENAME = "short-cinematic-visual-audit.partial.json"
 
-_INSTALLED = False
-_ACTIVE_ROOT: ContextVar[Path | None] = ContextVar(
-    "isco_run200_short_visual_root",
-    default=None,
-)
-_SELECTOR_CALL_INDEX: ContextVar[int] = ContextVar(
-    "isco_run200_short_selector_call_index",
-    default=0,
-)
-
-
-def _bind_short_visual_policy_surfaces() -> None:
-    """Make imported-by-value Short call sites use the canonical installed surfaces.
-
-    ``run_control_production`` imports the Short finishing port before ``production.main``
-    installs runtime composition. Reassignment in the source modules therefore cannot
-    update the Short module's copied function objects automatically. Bind only the three
-    callables whose runtime policy is intentionally composed elsewhere; the Short still
-    owns its beat geometry, local preflight, review cap and final assembly.
-    """
-    short_director.select_with_recovery = visual_selection.select_with_recovery
-    short_director._stable_intent_audit = opening_guard._stable_intent_audit
-    short_director.pexels_search_videos = orchestrator.pexels_search_videos
+_ACTIVE_ROOT: ContextVar[Path | None] = ContextVar("isco_run200_short_visual_root", default=None)
+_SELECTOR_CALL_INDEX: ContextVar[int] = ContextVar("isco_run200_short_selector_call_index", default=0)
 
 
 def _is_technical_unavailable(payload: object) -> bool:
@@ -104,11 +58,8 @@ def _active_groq_cooldown_seconds() -> float | None:
     return remaining
 
 
-def _install_exact_groq_cooldown_preservation() -> None:
-    """Do not overwrite a server/header-derived cooldown with the legacy 60s fallback."""
-    current = health.publish_provider_unavailable
-    if getattr(current, "_isco_run200_exact_groq_cooldown", False) is True:
-        return
+def _make_exact_groq_cooldown_publisher(current):
+    """Preserve a header-derived cooldown instead of publishing a generic 60s fallback."""
 
     @wraps(current)
     def wrapped(
@@ -142,14 +93,10 @@ def _install_exact_groq_cooldown_preservation() -> None:
 
     wrapped._isco_run200_exact_groq_cooldown = True
     wrapped._isco_run200_original = current
-    health.publish_provider_unavailable = wrapped
+    return wrapped
 
 
-def _install_short_same_candidate_half_open() -> None:
-    current_factory = short_director._stable_intent_audit
-    if getattr(current_factory, "_isco_run200_short_half_open", False):
-        return
-
+def _make_short_same_candidate_half_open(current_factory):
     @wraps(current_factory)
     def recovering_factory(audit_fn, intended_visual: str):
         base = current_factory(audit_fn, intended_visual)
@@ -170,9 +117,8 @@ def _install_short_same_candidate_half_open() -> None:
                 "Run200 Vision recovery: bounded half-open retry on same Short candidate "
                 f"after Groq cooldown seconds={wait:.2f}; candidate/retrieval budgets unchanged"
             )
-            # One timing owner only. Re-entering the canonical audit reaches the
-            # header-aware Groq HTTP boundary, whose existing _admit_groq() performs the
-            # exact bounded wait before any new provider request is sent.
+            # The canonical Groq transport owns the wait. Re-entering the same audit only
+            # gives that owner one half-open opportunity; this layer never sleeps itself.
             second = base(*args, **kwargs)
             if isinstance(second, dict):
                 second = dict(second)
@@ -185,7 +131,7 @@ def _install_short_same_candidate_half_open() -> None:
 
     recovering_factory._isco_run200_short_half_open = True
     recovering_factory._isco_run200_original = current_factory
-    short_director._stable_intent_audit = recovering_factory
+    return recovering_factory
 
 
 def _audit_rows(result: object, *, selector_index: int, intended_visual: str) -> list[dict[str, Any]]:
@@ -229,85 +175,66 @@ def _persist_partial_result(result: object, *, intended_visual: str) -> None:
         temp.write_text(json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
         temp.replace(path)
     except Exception as exc:
-        # Forensics must never mask the production verdict.
         print(
             "Run200 Vision recovery: partial Short visual audit persistence skipped "
             f"({type(exc).__name__})"
         )
 
 
-def _install_truthful_short_selector_outcome() -> None:
-    current = short_director.select_with_recovery
-    if getattr(current, "_isco_run200_truthful_short_outcome", False):
-        return
-
+def _make_truthful_short_selector(current):
     @wraps(current)
     def wrapped(*args, **kwargs):
         result = current(*args, **kwargs)
         intended_visual = str(kwargs.get("intended_visual") or "")
         _persist_partial_result(result, intended_visual=intended_visual)
-        # Existing Run183 helper changes no PASS/BLOCK rule. It only prevents a final
-        # technically-unjudged selector result from masquerading as asset exhaustion.
-        return opening_guard._enforce_truthful_visual_outcome(
-            result,
-            scope="short_cinematic",
-        )
+        return opening_guard._enforce_truthful_visual_outcome(result, scope="short_cinematic")
 
     wrapped._isco_run200_truthful_short_outcome = True
     wrapped._isco_run200_original = current
-    short_director.select_with_recovery = wrapped
+    return wrapped
 
 
-def _install_short_root_scope() -> None:
-    current = short_voice.upgrade_short_cinematic
-    if getattr(current, "_isco_run200_short_visual_root", False):
+@contextmanager
+def short_vision_recovery_scope(root: Path) -> Iterator[None]:
+    """Temporarily compose canonical Visual V1 policy into the Short finishing seam."""
+    if _ACTIVE_ROOT.get() is not None:
+        # Re-entrant callers reuse the outer request-scoped bindings and ContextVars.
+        with visual_scope.visual_retrieval_runtime_scope():
+            yield
         return
 
-    @wraps(current)
-    def wrapped(root: Path, *args, **kwargs):
-        active_root = _ACTIVE_ROOT.get()
-        if active_root is not None:
-            # Nested calls share both the run root and the canonical visual scope.
-            with visual_scope.visual_retrieval_runtime_scope():
-                return current(root, *args, **kwargs)
+    resolved = Path(root)
+    token_root = _ACTIVE_ROOT.set(resolved)
+    token_index = _SELECTOR_CALL_INDEX.set(0)
+    original_health = health.publish_provider_unavailable
+    original_selector = short_director.select_with_recovery
+    original_audit = short_director._stable_intent_audit
+    original_pexels = short_director.pexels_search_videos
+    partial = resolved / PARTIAL_AUDIT_FILENAME
 
-        resolved = Path(root)
-        token_root = _ACTIVE_ROOT.set(resolved)
-        token_index = _SELECTOR_CALL_INDEX.set(0)
-        partial = resolved / PARTIAL_AUDIT_FILENAME
-        try:
-            # The Short finishing seam runs after orchestrator.produce(), so explicitly
-            # re-enter the same canonical visual runtime policy here. This activates the
-            # existing V1 HTTP header pacing, Run183 semantic retrieval/dedup and Run185
-            # semantic judgment without widening their lifetime beyond this Short.
-            partial.unlink(missing_ok=True)
-            with visual_scope.visual_retrieval_runtime_scope():
-                return current(root, *args, **kwargs)
-        finally:
-            _SELECTOR_CALL_INDEX.reset(token_index)
-            _ACTIVE_ROOT.reset(token_root)
-
-    wrapped._isco_run200_short_visual_root = True
-    wrapped._isco_run200_original = current
-    short_voice.upgrade_short_cinematic = wrapped
+    try:
+        partial.unlink(missing_ok=True)
+        with visual_scope.visual_retrieval_runtime_scope():
+            # These are imported-by-value Short surfaces. Bind them only for this request
+            # and restore every identity afterward, including exception paths.
+            health.publish_provider_unavailable = _make_exact_groq_cooldown_publisher(original_health)
+            short_director.select_with_recovery = _make_truthful_short_selector(
+                visual_selection.select_with_recovery
+            )
+            short_director._stable_intent_audit = _make_short_same_candidate_half_open(
+                opening_guard._stable_intent_audit
+            )
+            short_director.pexels_search_videos = orchestrator.pexels_search_videos
+            yield
+    finally:
+        health.publish_provider_unavailable = original_health
+        short_director.select_with_recovery = original_selector
+        short_director._stable_intent_audit = original_audit
+        short_director.pexels_search_videos = original_pexels
+        _SELECTOR_CALL_INDEX.reset(token_index)
+        _ACTIVE_ROOT.reset(token_root)
 
 
 def install_run200_short_vision_recovery_closure() -> None:
-    global _INSTALLED
-    if _INSTALLED:
-        return
-    # Runtime composition has already installed Run183/185/V1 before Gold reaches this
-    # Short finishing seam. Bind the Short's copied callables to those canonical owners
-    # before layering the narrow Run200 availability behavior around them.
-    _bind_short_visual_policy_surfaces()
-    _install_exact_groq_cooldown_preservation()
-    _install_short_same_candidate_half_open()
-    _install_truthful_short_selector_outcome()
-    _install_short_root_scope()
-    _INSTALLED = True
-    print(
-        "Run200 Short visual closure installed: canonical visual runtime scope rebound for Gold; "
-        "Run183/185/V1 surfaces active; same-candidate half-open=once; "
-        "cooldown_owner=existing Groq header-aware capacity; truthful_failure=VISION_UNAVAILABLE; "
-        "partial_visual_audit=atomic; visual/security thresholds and retrieval caps unchanged"
-    )
+    """Compatibility shim: Run200 policy is now activated only by the scoped seam."""
+    return None
