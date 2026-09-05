@@ -1,0 +1,53 @@
+name: YouTube OAuth Capability Regression
+
+on:
+  pull_request:
+    paths:
+      - "scripts/provider_preflight.py"
+      - "scripts/provider_preflight_core.py"
+      - "scripts/youtube_oauth_readonly_firewall.py"
+      - "scripts/test_provider_preflight.py"
+      - "scripts/test_youtube_oauth_readonly_firewall.py"
+      - ".github/workflows/produce-resilient-v4.yml"
+      - ".github/workflows/telegram-production-request.yml"
+      - ".github/workflows/telegram-editorial-control.yml"
+      - ".github/workflows/youtube-oauth-capability-regression.yml"
+  push:
+    branches:
+      - main
+      - "hardening/**"
+    paths:
+      - "scripts/provider_preflight.py"
+      - "scripts/provider_preflight_core.py"
+      - "scripts/youtube_oauth_readonly_firewall.py"
+      - "scripts/test_provider_preflight.py"
+      - "scripts/test_youtube_oauth_readonly_firewall.py"
+      - ".github/workflows/produce-resilient-v4.yml"
+      - ".github/workflows/telegram-production-request.yml"
+      - ".github/workflows/telegram-editorial-control.yml"
+      - ".github/workflows/youtube-oauth-capability-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readonly-capability-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install minimal test dependency
+        run: python -m pip install --disable-pip-version-check requests
+
+      - name: Run provider and YouTube authority regression tests
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            scripts.test_provider_preflight \
+            scripts.test_youtube_oauth_readonly_firewall
