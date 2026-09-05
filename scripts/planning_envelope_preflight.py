@@ -34,6 +34,8 @@ from scripts.p0_runtime_master_contract import activate_p0_runtime_master
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.planning_capacity_profile import install_planning_capacity_profile
 from scripts.planning_outline_split_contract import (
+    LOCKED_PREMISE_MAX_UTF8_BYTES,
+    locked_premise_utf8_bytes,
     outline_core_stage_spec_for_format,
     outline_sections_stage_spec_for_format,
 )
@@ -197,28 +199,47 @@ def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCert
     )
 
 
-def _bounded_preflight_editorial_intent() -> dict:
-    """Conservative no-inference payload for sizing Engine call 1b.
+def _bounded_preflight_locked_premise() -> dict:
+    """Near-limit contract-valid Core for conservative Call 1b sizing.
 
-    Call 1b cannot be built from the real Call 1a result during preflight because that
-    would itself require inference. Size it with a deliberately large, contract-valid
-    locked premise instead. The fields consumed by build_outline_sections_prompt total
-    roughly the entire 2400-token Core completion transport allowance under the same
-    4.25 UTF-8-bytes/token estimator used by live Groq admission, so the resulting
-    second-call envelope is conservative without inventing a third planning shape.
+    Production enforces the exact serialized LOCKED_EDITORIAL_PREMISE at 3.6 KiB before
+    a Core response may become cache/plan authority. Preflight therefore sizes Call 1b
+    with a valid premise deliberately just below that same hard runtime bound instead of
+    inventing an impossible 8+ KiB Core payload. This is a shared transport invariant,
+    not an average-output guess and not a quality relaxation.
     """
-    long_value = "م" * 400
-    boundary = "ح" * 120
-    return {
-        "editorial_thesis": long_value,
-        "viewer_starting_belief": long_value,
-        "hidden_assumption": long_value,
-        "editorial_turn": long_value,
-        "stakes": long_value,
-        "viewer_promise": long_value,
-        "evidence_boundaries": [boundary for _ in range(5)],
-        "earned_payoff": long_value,
+    long_value = "م" * 150
+    boundary = "ح" * 50
+    premise = {
+        "narrative_format": "direct_cinematic",
+        "pillar": "ف" * 90,
+        "hook": "ه" * 90,
+        "closing_payoff": "خ" * 90,
+        "editorial_intent": {
+            "editorial_thesis": long_value,
+            "viewer_starting_belief": long_value,
+            "hidden_assumption": long_value,
+            "editorial_turn": long_value,
+            "stakes": long_value,
+            "viewer_promise": long_value,
+            "evidence_boundaries": [boundary for _ in range(5)],
+            "earned_payoff": long_value,
+        },
     }
+    measured = locked_premise_utf8_bytes(premise)
+    if measured > LOCKED_PREMISE_MAX_UTF8_BYTES:
+        raise RuntimeError(
+            "preflight_locked_premise_fixture_exceeds_runtime_contract "
+            f"bytes={measured} limit={LOCKED_PREMISE_MAX_UTF8_BYTES}"
+        )
+    # Keep the fixture meaningfully conservative: accidental shrinkage must not turn
+    # this into a happy-path estimate that misses the runtime boundary.
+    if measured < int(LOCKED_PREMISE_MAX_UTF8_BYTES * 0.90):
+        raise RuntimeError(
+            "preflight_locked_premise_fixture_not_conservative "
+            f"bytes={measured} limit={LOCKED_PREMISE_MAX_UTF8_BYTES}"
+        )
+    return premise
 
 
 def _split_outline_envelopes(
@@ -227,7 +248,7 @@ def _split_outline_envelopes(
     fmt: str,
     research: dict,
 ) -> tuple[dict, dict, int, int]:
-    """Return exact Core + conservative Sections capacities from pinned Engine ports."""
+    """Return exact Core + worst-allowed Sections capacities from pinned Engine ports."""
     topic = str(brief["approved_topic"])
     policy_json = json.dumps(load_editorial_policy(), ensure_ascii=False)
     research_json = json.dumps(research, ensure_ascii=False)
@@ -248,8 +269,10 @@ def _split_outline_envelopes(
     )
     core_enriched = with_channel_persona(core_prompt)
 
-    # The Engine consumes only these locked Core fields in Call 1b. Use a bounded
-    # conservative payload rather than the deprecated combined build_outline_prompt.
+    # Call 1b is input-dependent. Size it at the exact hard runtime Core portability
+    # boundary rather than the deprecated combined build_outline_prompt or an impossible
+    # unbounded synthetic result.
+    premise = _bounded_preflight_locked_premise()
     sections_prompt = build_outline_sections_prompt(
         topic=topic,
         fmt=fmt,
@@ -257,11 +280,11 @@ def _split_outline_envelopes(
         research_json=research_json,
         avoid_json=avoid_json,
         revision_note="",
-        narrative_format="direct_cinematic",
-        editorial_intent=_bounded_preflight_editorial_intent(),
-        pillar="ف" * 250,
-        hook="ه" * 250,
-        closing_payoff="خ" * 250,
+        narrative_format=str(premise["narrative_format"]),
+        editorial_intent=dict(premise["editorial_intent"]),
+        pillar=str(premise["pillar"]),
+        hook=str(premise["hook"]),
+        closing_payoff=str(premise["closing_payoff"]),
     )
     sections_enriched = with_channel_persona(sections_prompt)
 
@@ -291,10 +314,11 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
     """Certify provider-portable capacity before a real production inference call.
 
     Long-form certifies the two real pinned-Engine outline request shapes independently
-    and gates on the larger request, plus the Writer batching contract. Moment certifies
-    its own format-native Draft envelope plus a worst-case bounded Review envelope.
-    Both paths apply the same Groq operational headroom used by live runtime. The
-    immediately preceding provider-preflight result is also checked for observable
+    and gates on the larger request, plus the Writer batching contract. Call 1b is sized
+    at the same hard locked-premise bound enforced after Call 1a in live runtime. Moment
+    certifies its own format-native Draft envelope plus a worst-case bounded Review
+    envelope. Both paths apply the same Groq operational headroom used by live runtime.
+    The immediately preceding provider-preflight result is also checked for observable
     media request-count headroom, so `remaining > 0` is never treated as enough for a
     multi-search production topology.
     """
@@ -387,8 +411,8 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
         required_provider_families=P0_OUTLINE_MIN_PROVIDER_FAMILIES,
         runtime_token_admission=(
             "p0_two_provider_families+groq_operational_headroom+"
-            "split_outline_max_of_core_sections+provider_set_dynamic+"
-            "exact_writer+observable_media_margin"
+            "split_outline_max_of_core_sections+locked_premise_runtime_bound+"
+            "provider_set_dynamic+exact_writer+observable_media_margin"
         ),
     )
 
