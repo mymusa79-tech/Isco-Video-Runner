@@ -1,22 +1,20 @@
 from __future__ import annotations
 
-"""One editorial-promise continuity family for Long, standalone Short, and sibling Short.
+"""Runner binding for the Engine-owned Editorial Promise Continuity family.
 
-This layer deliberately reuses the existing independent Tone QA provider call and the
-existing RepairDossier. It adds no provider request, no new repair owner, and never
-weakens an existing gate. Its job is to keep the approved viewer problem, context/time
-frame, reframe/payoff, single action, and visual intent on the same editorial promise.
+Engine Tone QA is the sole semantic authority and uses its existing provider call and
+RepairDossier. Runner does not decorate that provider prompt and does not add a retry or
+repair owner. Runner's responsibility is narrower: bind immutable viewer intent before
+writing, localize sibling Shorts to their exact source semantic job, and fail closed at
+Short delivery unless the Engine-owned continuity evidence is valid and passing.
 """
 
 import json
 import re
 from functools import wraps
 from pathlib import Path
-from threading import RLock
 from typing import Any
 
-import isco_video_agent.orchestrator as orchestrator
-import isco_video_agent.tone_quality as engine_tone
 from isco_video_agent.editorial_room import EditorialContractError, intent_from_dict, make_editorial_intent
 
 from scripts import native_short_planner_router
@@ -26,9 +24,8 @@ from scripts import source_derived_short_planner
 
 
 SCHEMA_VERSION = 1
-_PROMPT_MARKER = "[EDITORIAL_PROMISE_CONTINUITY_V1]"
-_LOCK = RLock()
 _INSTALLED = False
+_ENGINE_SEMANTIC_AUTHORITY = "engine_tone_quality_same_provider_call"
 
 
 class EditorialPromiseContinuityError(RuntimeError):
@@ -65,121 +62,6 @@ def _time_context_frame(*values: object) -> list[str]:
         if any(f" {marker} " in f" {normalized} " for marker in markers):
             frames.append(canonical)
     return frames
-
-
-def _plan_contract(plan: object) -> dict[str, Any]:
-    sections = []
-    for section in list(getattr(plan, "sections", []) or [])[:10]:
-        sections.append(
-            {
-                "id": _clean(getattr(section, "id", ""))[:40],
-                "key_point": _clean(getattr(section, "key_point", ""))[:320],
-                "on_screen_text": _clean(getattr(section, "on_screen_text", ""))[:320],
-                "visual_query": _clean(getattr(section, "visual_query", ""))[:320],
-                "emotion": _clean(getattr(section, "emotion", ""))[:80],
-            }
-        )
-    editorial = getattr(plan, "editorial_intent", None)
-    if not isinstance(editorial, dict):
-        editorial = {}
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "topic": _clean(getattr(plan, "topic", ""))[:500],
-        "format": _clean(getattr(plan, "format", ""))[:40],
-        "hook": _clean(getattr(plan, "hook", ""))[:700],
-        "cta": _clean(getattr(plan, "cta", ""))[:700],
-        "closing_payoff": _clean(getattr(plan, "closing_payoff", ""))[:700],
-        "editorial_intent": editorial,
-        "sections": sections,
-        "time_context_frame": _time_context_frame(
-            getattr(plan, "topic", ""),
-            getattr(plan, "hook", ""),
-        ),
-    }
-
-
-def _append_continuity_contract(prompt: str, plan: object) -> str:
-    if _PROMPT_MARKER in prompt:
-        return prompt
-    contract = json.dumps(_plan_contract(plan), ensure_ascii=False, separators=(",", ":"))
-    return (
-        prompt
-        + "\n\n"
-        + _PROMPT_MARKER
-        + "\n"
-        + "Additional mandatory editorial-continuity audit. Do not rewrite. Judge semantic fulfillment, not word overlap.\n"
-        + "1. The approved topic/title promise, hook, section or beat job, CTA, closing payoff and visual_query must stay on the SAME viewer problem and the same causal/context/time frame.\n"
-        + "2. A fluent adjacent piece of advice is still a defect if it answers another question. Concrete known failure example: a promise about replaying every word AFTER a meeting must not drift into advice to pause BEFORE replying.\n"
-        + "3. A deeper explanation, natural paraphrase, or practical action is valid when it directly earns the SAME promised outcome; do not require literal keyword copying.\n"
-        + "4. If editorial_intent is a full contract, actual viewer-facing material must execute viewer_starting_belief, hidden_assumption, editorial_turn, viewer_promise and earned_payoff. Merely echoing metadata is not fulfillment.\n"
-        + "5. If short_promise_contract exists, approved_topic, selected template, required progression and time/context frame are locked intent.\n"
-        + "6. A visual may be metaphorical, but it must support the same event/emotion/conceptual job. Generic keyword symbolism alone is insufficient when it changes the situation promised to the viewer.\n"
-        + "7. Put each continuity defect in the EXISTING narrative_format_flags array and prefix it exactly with editorial_promise_continuity:. Do not add keys or change the response schema.\n"
-        + "8. Any such flag is blocking and must be eligible for the existing Tone RepairDossier; do not soften it into notes.\n"
-        + f"LOCKED_CONTINUITY_CONTRACT={contract}\n"
-        + "[/EDITORIAL_PROMISE_CONTINUITY_V1]"
-    )
-
-
-class _OpenRouterPromptProxy:
-    def __init__(self, original_module: object, plan: object):
-        self._original_module = original_module
-        self._plan = plan
-
-    def json_text(self, prompt: str, *args, **kwargs):
-        return self._original_module.json_text(
-            _append_continuity_contract(prompt, self._plan),
-            *args,
-            **kwargs,
-        )
-
-
-def _install_tone_continuity_adapter() -> None:
-    current = orchestrator.audit_tone_and_naturalness
-    if getattr(current, "_isco_editorial_promise_continuity", False):
-        return
-
-    @wraps(current)
-    def wrapped(api_key: str, plan: object, model: str):
-        # Engine Tone QA already owns provider routing, diagnostics, Approval-Shopping
-        # behavior and fail-closed semantics. Decorate only the prompt at its two
-        # provider seams and restore them even if the audit raises.
-        with _LOCK:
-            original_json_text = engine_tone.json_text
-            original_openrouter = engine_tone.openrouter
-
-            def routed_json_text(key: str, prompt: str, *, model: str):
-                return original_json_text(
-                    key,
-                    _append_continuity_contract(prompt, plan),
-                    model=model,
-                )
-
-            engine_tone.json_text = routed_json_text
-            engine_tone.openrouter = _OpenRouterPromptProxy(original_openrouter, plan)
-            try:
-                result = current(api_key, plan, model)
-            finally:
-                engine_tone.json_text = original_json_text
-                engine_tone.openrouter = original_openrouter
-        if isinstance(result, dict):
-            flags = [
-                str(item)
-                for item in result.get("narrative_format_flags", [])
-                if str(item).startswith("editorial_promise_continuity:")
-            ]
-            result["editorial_promise_continuity"] = {
-                "schema_version": SCHEMA_VERSION,
-                "decision": "block" if flags else "pass",
-                "flags": flags,
-                "provider_calls_added": 0,
-                "repair_owner": "existing_tone_repair_dossier",
-            }
-        return result
-
-    wrapped._isco_editorial_promise_continuity = True
-    wrapped._isco_editorial_promise_continuity_original = current
-    orchestrator.audit_tone_and_naturalness = wrapped
 
 
 def _standalone_editorial_intent(topic: str, template: str, prior: dict[str, Any]) -> dict[str, Any]:
@@ -229,7 +111,6 @@ def _standalone_editorial_intent(topic: str, template: str, prior: dict[str, Any
         "adjacent_advice_allowed": False,
         "extra_ai_calls": 0,
     }
-    # Canonicalize now so an invalid locally constructed intent fails before media.
     intent_from_dict(resolved)
     return resolved
 
@@ -237,6 +118,7 @@ def _standalone_editorial_intent(topic: str, template: str, prior: dict[str, Any
 def _install_standalone_short_promise_contract() -> None:
     current_attach = native_short_planner_router._attach_compensation_metadata
     if not getattr(current_attach, "_isco_editorial_promise_continuity", False):
+
         @wraps(current_attach)
         def attach(plan: object, topic: object, preselected: dict[str, Any]):
             selection = current_attach(plan, topic, preselected)
@@ -252,6 +134,7 @@ def _install_standalone_short_promise_contract() -> None:
 
     current_revision = native_short_planner_router.merge_short_template_revision
     if not getattr(current_revision, "_isco_editorial_promise_continuity", False):
+
         @wraps(current_revision)
         def revision(template: str, existing: object) -> str:
             base = current_revision(template, existing)
@@ -265,7 +148,6 @@ def _install_standalone_short_promise_contract() -> None:
         revision._isco_editorial_promise_continuity = True
         revision._isco_editorial_promise_continuity_original = current_revision
         native_short_planner_router.merge_short_template_revision = revision
-        # Historical alias is used by a few direct tests/callers.
         native_short_planner_router._planning_revision_note = revision
 
 
@@ -327,6 +209,7 @@ def _source_local_editorial_intent(request: dict[str, Any]) -> dict[str, Any]:
 def _install_source_short_local_scope() -> None:
     current_requests = sibling_short_orchestration.build_sibling_requests
     if not getattr(current_requests, "_isco_editorial_promise_continuity", False):
+
         @wraps(current_requests)
         def build_requests(parent_request: dict[str, Any], sibling_plan: dict[str, Any], source_plan: dict[str, Any]):
             requests = current_requests(parent_request, sibling_plan, source_plan)
@@ -350,6 +233,7 @@ def _install_source_short_local_scope() -> None:
 
     current_source_intent = source_derived_short_planner._source_editorial_intent
     if not getattr(current_source_intent, "_isco_editorial_promise_continuity", False):
+
         @wraps(current_source_intent)
         def source_intent(control_request: dict[str, Any]) -> dict[str, Any]:
             local = control_request.get("source_short_editorial_intent")
@@ -400,6 +284,24 @@ def _source_action_alignment(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _engine_continuity_evidence(tone: dict[str, Any]) -> dict[str, Any]:
+    evidence = tone.get("editorial_promise_continuity")
+    if not isinstance(evidence, dict):
+        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_evidence_missing")
+    if evidence.get("semantic_authority") != _ENGINE_SEMANTIC_AUTHORITY:
+        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_authority_invalid")
+    if evidence.get("provider_calls_added") != 0:
+        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_budget_invalid")
+    if evidence.get("repair_owner") != "existing_tone_repair_dossier":
+        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_repair_owner_invalid")
+    if evidence.get("validation") != "valid" or evidence.get("decision") != "pass":
+        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_not_passed")
+    flags = evidence.get("flags")
+    if not isinstance(flags, list) or flags:
+        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_flags_invalid")
+    return evidence
+
+
 def _install_final_short_delivery_guard() -> None:
     current = short_core.finalize_short_quality
     if getattr(current, "_isco_editorial_promise_continuity", False):
@@ -411,13 +313,9 @@ def _install_final_short_delivery_guard() -> None:
         root = Path(output_dir)
         plan = short_core._read(root / "plan.json")
         tone = short_core._read(root / "tone-quality-audit.json")
-        flags = [
-            str(item)
-            for item in tone.get("narrative_format_flags", [])
-            if str(item).startswith("editorial_promise_continuity:")
-        ]
-        if tone.get("status") != "pass" or flags:
-            raise EditorialPromiseContinuityError("short_delivery_continuity_tone_gate_failed")
+        if tone.get("status") != "pass":
+            raise EditorialPromiseContinuityError("short_delivery_tone_gate_not_passed")
+        engine_evidence = _engine_continuity_evidence(tone)
 
         action_alignment = _source_action_alignment(control_request)
         if action_alignment.get("pass") is not True:
@@ -441,15 +339,16 @@ def _install_final_short_delivery_guard() -> None:
             "schema_version": SCHEMA_VERSION,
             "decision": "pass",
             "continuity_flags": [],
-            "semantic_authority": "independent_tone_audit_same_provider_call",
+            "semantic_authority": _ENGINE_SEMANTIC_AUTHORITY,
             "provider_calls_added": 0,
             "repair_flow": "existing_tone_repair_dossier",
+            "engine_evidence": engine_evidence,
             "temporal_alignment": {"pass": True, "topic_frames": _time_context_frame(topic)},
             "single_action_alignment": action_alignment,
         }
         report["editorial_promise_continuity"] = continuity
         provenance = report.setdefault("evidence_provenance", {})
-        provenance["promise_payoff_semantic_authority"] = "editorial_promise_continuity"
+        provenance["promise_payoff_semantic_authority"] = _ENGINE_SEMANTIC_AUTHORITY
         provenance["promise_payoff_numeric_score_role"] = "existing_final_critic_craft_proxy_not_semantic_authority"
         provenance["semantic_promise_score_fabricated"] = False
         (root / "short-intelligence.json").write_text(
@@ -463,17 +362,16 @@ def _install_final_short_delivery_guard() -> None:
 
 
 def install_editorial_promise_continuity() -> None:
-    """Install one family without adding a provider/retry/repair owner."""
+    """Install Runner bindings only; semantic Tone QA remains Engine-owned."""
     global _INSTALLED
     if _INSTALLED:
         return
     _install_standalone_short_promise_contract()
     _install_source_short_local_scope()
-    _install_tone_continuity_adapter()
     _install_final_short_delivery_guard()
     _INSTALLED = True
     print(
         "Editorial Promise Continuity V1 installed: "
-        "Long+StandaloneShort+SiblingShort; provider_calls_added=0; "
-        "repair_owner=existing_tone_repair_dossier; delivery=fail_closed"
+        "semantic_authority=Engine Tone QA; Long+StandaloneShort+SiblingShort; "
+        "provider_calls_added=0; repair_owner=existing_tone_repair_dossier; delivery=fail_closed"
     )
