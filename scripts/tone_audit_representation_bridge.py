@@ -61,11 +61,11 @@ def project_plan_for_tone_audit(plan: object) -> object:
 
 
 def install_tone_audit_representation_bridge() -> None:
-    """Bind Engine Tone QA to authoritative text, then add same-call promise continuity."""
+    """Bind Engine Tone QA to authoritative text, then install Runner continuity bindings."""
     current = orchestrator.audit_tone_and_naturalness
     if getattr(current, "_isco_tone_audit_representation_bridge", False):
         # A later idempotent caller may arrive after the representation bridge already
-        # exists but before the continuity family is installed in a fresh test process.
+        # exists but before Runner's continuity bindings are installed in a fresh process.
         from scripts.editorial_promise_continuity import install_editorial_promise_continuity
 
         install_editorial_promise_continuity()
@@ -91,11 +91,10 @@ def install_tone_audit_representation_bridge() -> None:
         "quality verdicts unchanged"
     )
 
-    # Promise continuity must sit outside the representation wrapper so it can keep
-    # the immutable production plan as the locked intent while Engine Tone QA receives
-    # its format-authoritative audit projection. The continuity family decorates the
-    # existing provider prompt only; it adds zero provider calls and reuses the existing
-    # Tone RepairDossier/fail-closed lifecycle.
+    # Engine now owns the semantic continuity verdict inside the existing Tone QA call.
+    # Runner only binds approved intent for standalone/sibling Shorts and certifies the
+    # Engine-owned evidence at delivery. Installing those bindings here preserves the
+    # canonical planning seam and adds no provider prompt decorator, call, or repair owner.
     from scripts.editorial_promise_continuity import install_editorial_promise_continuity
 
     install_editorial_promise_continuity()
