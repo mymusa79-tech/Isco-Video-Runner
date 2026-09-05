@@ -65,4 +65,5 @@ jobs:
           name: synchronized-live-engine-pins
           path: ${{ runner.temp }}/live-engine-pins
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 1
