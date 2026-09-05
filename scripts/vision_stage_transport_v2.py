@@ -3,9 +3,10 @@ from __future__ import annotations
 """Transport hardening for Vision Stage Contract V2/V3.
 
 The Stage Contract remains the semantic/schema/provider-policy owner. This module owns
-only the raw HTTP boundary and the narrow composition adapters required by Run181:
+only the raw HTTP boundary and the narrow composition adapters required by Run181/199:
 - bind shared provider-health evidence to the existing run-scoped Vision circuit;
 - preserve V2's TaskSpec provider-attempt budget when the V3 provider order is used;
+- bridge legacy Short Cinematic audit task identity into the canonical Visual Audit stage;
 - read Planning/Text-Audit evidence only from the current orchestrator.produce() call;
 - canonicalize Gemini aliases through the pinned Engine provider before health matching;
 - reuse Groq rate evidence only when it names the exact Qwen Vision model;
@@ -22,6 +23,7 @@ from functools import wraps
 import requests
 
 import isco_video_agent.orchestrator as orchestrator
+from isco_video_agent.ai_budget import Capability
 from scripts import provider_health_registry as health
 from scripts import run181_vision_mesh_closure as run181
 from scripts import task_level_planner_router as planner_router
@@ -277,6 +279,42 @@ def _install_run181_route_adapter() -> None:
     contract._route_visual_audit_v2 = run181_route_adapter
 
 
+def _install_short_visual_audit_kind_bridge() -> None:
+    """Route legacy Short Cinematic audits through the canonical Vision Stage.
+
+    Run199 showed that Short Cinematic used a distinct task *kind* while calling the
+    same visual-audit capability. That bypassed the installed Gemini->Groq->OpenRouter
+    provider mesh and incorrectly turned a Gemini 429 into a rejected visual candidate.
+    Preserve the Short-specific task_id for observability, but normalize only the coarse
+    kind at the orchestration boundary. The canonical stage remains the sole owner of
+    provider failover, attempt ceilings, schema validation and semantic BLOCK finality.
+    """
+    current = orchestrator._ledger_call_status
+    if getattr(current, "_isco_run199_short_visual_audit_kind_bridge", False):
+        return
+
+    @wraps(current)
+    def short_visual_audit_bridge(ledger, spec, provider, resolved_model, fn, *args, **kwargs):
+        if (
+            getattr(spec, "kind", "") == "SHORT_VISUAL_AUDIT"
+            and getattr(spec, "capability", None) is Capability.VISION
+        ):
+            spec = replace(spec, kind="VISUAL_AUDIT")
+        return current(
+            ledger,
+            spec,
+            provider,
+            resolved_model,
+            fn,
+            *args,
+            **kwargs,
+        )
+
+    short_visual_audit_bridge._isco_run199_short_visual_audit_kind_bridge = True
+    short_visual_audit_bridge._isco_run199_original = current
+    orchestrator._ledger_call_status = short_visual_audit_bridge
+
+
 def _install_run181_produce_telemetry_scope() -> None:
     current = orchestrator.produce
     if getattr(current, "_isco_run181_telemetry_scope", False):
@@ -308,6 +346,9 @@ def install_vision_provider_reliability() -> None:
     run181.install_run181_vision_mesh_closure()
     _install_run181_route_adapter()
     contract.install_vision_provider_reliability()
+    # Install after the canonical call-status wrapper so the bridge normalizes the
+    # legacy Short kind *before* the inner Stage predicate evaluates it.
+    _install_short_visual_audit_kind_bridge()
     run181.refresh_runtime_provider_health = _scoped_refresh_runtime_provider_health
     _install_run181_produce_telemetry_scope()
 
