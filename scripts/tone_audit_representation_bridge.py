@@ -61,9 +61,14 @@ def project_plan_for_tone_audit(plan: object) -> object:
 
 
 def install_tone_audit_representation_bridge() -> None:
-    """Bind Engine Tone QA to the authoritative representation before final normalization."""
+    """Bind Engine Tone QA to authoritative text, then add same-call promise continuity."""
     current = orchestrator.audit_tone_and_naturalness
     if getattr(current, "_isco_tone_audit_representation_bridge", False):
+        # A later idempotent caller may arrive after the representation bridge already
+        # exists but before the continuity family is installed in a fresh test process.
+        from scripts.editorial_promise_continuity import install_editorial_promise_continuity
+
+        install_editorial_promise_continuity()
         return
 
     @wraps(current)
@@ -85,3 +90,12 @@ def install_tone_audit_representation_bridge() -> None:
         "Long=narration passthrough; Moment=on_screen_text audit projection; "
         "quality verdicts unchanged"
     )
+
+    # Promise continuity must sit outside the representation wrapper so it can keep
+    # the immutable production plan as the locked intent while Engine Tone QA receives
+    # its format-authoritative audit projection. The continuity family decorates the
+    # existing provider prompt only; it adds zero provider calls and reuses the existing
+    # Tone RepairDossier/fail-closed lifecycle.
+    from scripts.editorial_promise_continuity import install_editorial_promise_continuity
+
+    install_editorial_promise_continuity()
