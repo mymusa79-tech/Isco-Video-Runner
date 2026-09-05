@@ -107,7 +107,7 @@ def _active_groq_cooldown_seconds() -> float | None:
 def _install_exact_groq_cooldown_preservation() -> None:
     """Do not overwrite a server/header-derived cooldown with the legacy 60s fallback."""
     current = health.publish_provider_unavailable
-    if getattr(current, "_isco_run200_exact_groq_cooldown", False):
+    if getattr(current, "_isco_run200_exact_groq_cooldown", False) is True:
         return
 
     @wraps(current)
