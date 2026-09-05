@@ -28,6 +28,7 @@ from scripts.planning_batch_hardening import install_planning_batch_hardening
 from scripts.planning_capacity_headroom import install_planning_capacity_headroom
 from scripts.planning_capacity_profile import install_planning_capacity_profile
 from scripts.planning_legacy_authority_guard import install_legacy_planning_authority_guard
+from scripts.planning_outline_split_contract import install_planning_outline_split_contract
 from scripts.planning_production_contract_v2 import install_planning_production_contract_v2
 from scripts.planning_provider_visible_semantics import install_planning_provider_visible_semantics
 from scripts.planning_stage_contract import (
@@ -156,6 +157,12 @@ def install_runtime_planning_contracts() -> None:
     # is, so loss of the explicit router remains fail-closed.
     certify_runtime_patch_contracts()
     _reassert_after_lifecycle_patch()
+    # The pinned Engine already split long-form outline transport into two model calls.
+    # Bind those exact call boundaries only after every historical provider/capacity
+    # owner is final, so the adapter cannot be overwritten by Run125/Headroom layers.
+    # This module is imported by this canonical seam and therefore enters the durable
+    # planning contract hash automatically.
+    install_planning_outline_split_contract()
 
 
 def install_post_runtime_planning_contracts() -> None:
