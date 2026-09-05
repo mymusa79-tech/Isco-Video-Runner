@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 from scripts import canonical_v4_short_child, run_control_production
-from scripts import short_cinematic_director, short_voice_v2
+from scripts import short_cinematic_director, short_voice_owned_timeline, short_voice_v2
 from scripts.short_finishing_capabilities import (
     ShortFinishingCapabilities,
     ShortFinishingCapabilityError,
@@ -22,6 +22,7 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls._original_voice_secret = short_voice_v2.secret
+        cls._original_timeline_secret = short_voice_owned_timeline.secret
         cls._original_cinematic_secret = short_cinematic_director.secret
 
     @classmethod
@@ -29,6 +30,7 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
         # The production bridge is process-stable by design, but this unit module must
         # not leak that runtime mutation into unrelated tests sharing the same worker.
         short_voice_v2.secret = cls._original_voice_secret
+        short_voice_owned_timeline.secret = cls._original_timeline_secret
         short_cinematic_director.secret = cls._original_cinematic_secret
 
     def test_capabilities_never_expose_secret_material_in_repr(self) -> None:
@@ -76,6 +78,10 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
             )
             with bind_short_finishing_capabilities(capabilities):
                 self.assertEqual(short_voice_v2.secret("GEMINI_API_KEY"), "owned-g")
+                # Run #198: Voice-Owned Timeline is post-core just like Short Voice V2.
+                # It must lease the same captured Gemini value rather than touching the
+                # already-consumed source secret/environment again.
+                self.assertEqual(short_voice_owned_timeline.secret("GEMINI_API_KEY"), "owned-g")
                 self.assertEqual(short_cinematic_director.secret("GEMINI_API_KEY"), "owned-g")
                 self.assertEqual(short_cinematic_director.secret("PEXELS_API_KEY"), "owned-p")
                 self.assertEqual(short_cinematic_director.secret("PIXABAY_API_KEY"), "owned-x")
@@ -86,6 +92,11 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
                     "SHORT_VOICE_CAPABILITY_NOT_ALLOWED",
                 ):
                     short_voice_v2.secret("PEXELS_API_KEY")
+                with self.assertRaisesRegex(
+                    ShortFinishingCapabilityError,
+                    "SHORT_VOICE_CAPABILITY_NOT_ALLOWED",
+                ):
+                    short_voice_owned_timeline.secret("PEXELS_API_KEY")
 
             # Resolver remains fail-closed after the lease ends; it never falls back to
             # the still-present poison environment value.
@@ -94,6 +105,11 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
                 "SHORT_FINISHING_CAPABILITY_CONTEXT_MISSING",
             ):
                 short_voice_v2.secret("GEMINI_API_KEY")
+            with self.assertRaisesRegex(
+                ShortFinishingCapabilityError,
+                "SHORT_FINISHING_CAPABILITY_CONTEXT_MISSING",
+            ):
+                short_voice_owned_timeline.secret("GEMINI_API_KEY")
             self.assertEqual({name: os.environ.get(name) for name in names}, poison)
         finally:
             for name, value in previous.items():
@@ -107,9 +123,12 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
         inner = ShortFinishingCapabilities(gemini="inner-g", pexels="inner-p")
         with bind_short_finishing_capabilities(outer):
             self.assertEqual(short_voice_v2.secret("GEMINI_API_KEY"), "outer-g")
+            self.assertEqual(short_voice_owned_timeline.secret("GEMINI_API_KEY"), "outer-g")
             with bind_short_finishing_capabilities(inner):
                 self.assertEqual(short_voice_v2.secret("GEMINI_API_KEY"), "inner-g")
+                self.assertEqual(short_voice_owned_timeline.secret("GEMINI_API_KEY"), "inner-g")
             self.assertEqual(short_voice_v2.secret("GEMINI_API_KEY"), "outer-g")
+            self.assertEqual(short_voice_owned_timeline.secret("GEMINI_API_KEY"), "outer-g")
 
     def test_child_process_handoff_uses_fresh_0600_one_time_files(self) -> None:
         capabilities = ShortFinishingCapabilities(
@@ -172,6 +191,7 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
         self.assertNotIn("os.environ", source)
         self.assertIn("ContextVar", source)
         self.assertIn("field(repr=False)", source)
+        self.assertIn("short_voice_owned_timeline", source)
         self.assertIn("os.O_EXCL", source)
         self.assertIn("0o600", source)
 
