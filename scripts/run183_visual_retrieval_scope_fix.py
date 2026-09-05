@@ -147,7 +147,7 @@ def _semantic_judgment_intent(value: object) -> str:
         return raw[:MAX_ENGINE_INTENDED_VISUAL_CHARS]
     raw = raw[:86]
     envelope = (
-        f"Intent: {raw}. SEMANTIC POLICY: equivalents allowed, not literal checklist. "
+        f"Intent: {raw}. SEMANTIC POLICY: equivalents; not literal shot checklist. "
         "Person/action intent needs visible human/action evidence; mood/setting alone fails. "
         "Other intent needs specific anchor. Reject generic B-roll."
     )
