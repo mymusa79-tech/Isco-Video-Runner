@@ -61,9 +61,17 @@ def project_plan_for_tone_audit(plan: object) -> object:
 
 
 def install_tone_audit_representation_bridge() -> None:
-    """Bind Engine Tone QA to the authoritative representation before final normalization."""
+    """Bind Engine Tone QA to authoritative text and certify continuity capability.
+
+    The Engine owns the semantic verdict and the existing RepairDossier owns repair.
+    Runner only verifies that the exact Engine returned the signed continuity evidence
+    block. This check adds no provider call and does not reinterpret a semantic block.
+    """
     current = orchestrator.audit_tone_and_naturalness
     if getattr(current, "_isco_tone_audit_representation_bridge", False):
+        from scripts.editorial_promise_continuity import install_editorial_promise_continuity
+
+        install_editorial_promise_continuity()
         return
 
     @wraps(current)
@@ -76,12 +84,20 @@ def install_tone_audit_representation_bridge() -> None:
                 f"sections={len(list(getattr(plan, 'sections', []) or []))} "
                 "production_plan_mutated=false verdict_filtering=false"
             )
-        return current(api_key, audit_plan, model)
+        result = current(api_key, audit_plan, model)
+        from scripts.editorial_promise_continuity import require_engine_continuity_evidence
+
+        require_engine_continuity_evidence(result)
+        return result
 
     wrapped._isco_tone_audit_representation_bridge = True
     orchestrator.audit_tone_and_naturalness = wrapped
     print(
         "Tone audit representation bridge installed: "
         "Long=narration passthrough; Moment=on_screen_text audit projection; "
-        "quality verdicts unchanged"
+        "Engine promise-continuity capability required; quality verdicts unchanged"
     )
+
+    from scripts.editorial_promise_continuity import install_editorial_promise_continuity
+
+    install_editorial_promise_continuity()
