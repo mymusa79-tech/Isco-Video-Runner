@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from types import SimpleNamespace
 
-import isco_video_agent.orchestrator as orchestrator
-import isco_video_agent.tone_quality as engine_tone
 from isco_video_agent.editorial_room import intent_from_dict
 
 from scripts import editorial_promise_continuity as continuity
@@ -43,40 +40,6 @@ class EditorialPromiseContinuityTests(unittest.TestCase):
                 "قبل المقابلة سمِّ التوقع الذي يضغط عليك",
             )
         )
-
-    def test_prompt_extension_is_idempotent_and_uses_existing_tone_schema(self) -> None:
-        plan = SimpleNamespace(
-            topic=RUN198_TOPIC,
-            format="moment",
-            hook="هل تراجع كل كلمة بعد اللقاء؟",
-            cta="",
-            closing_payoff="بعد اللقاء افصل بين ما حدث وما تتخيله عنه",
-            sections=[
-                SimpleNamespace(
-                    id="s1",
-                    key_point="مراجعة الكلام بعد اللقاء لا تعني تلقائيًا أنك أخطأت",
-                    on_screen_text="أنت تبحث عن يقين بعد موقف انتهى",
-                    visual_query="person alone after a social meeting reflective realistic",
-                    emotion="reflective",
-                )
-            ],
-            editorial_intent={
-                "short_promise_contract": {
-                    "approved_topic": RUN198_TOPIC,
-                    "template": "why_reframe",
-                }
-            },
-        )
-        first = continuity._append_continuity_contract("BASE PROMPT", plan)
-        second = continuity._append_continuity_contract(first, plan)
-        self.assertEqual(first, second)
-        self.assertEqual(first.count("[EDITORIAL_PROMISE_CONTINUITY_V1]"), 1)
-        self.assertIn("AFTER a meeting", first)
-        self.assertIn("BEFORE replying", first)
-        self.assertIn("visual_query", first)
-        self.assertIn("narrative_format_flags", first)
-        self.assertIn("editorial_promise_continuity:", first)
-        self.assertIn(RUN198_TOPIC, first)
 
     def test_standalone_short_gets_valid_full_editorial_intent_and_locked_short_contract(self) -> None:
         prior = {
@@ -159,73 +122,55 @@ class EditorialPromiseContinuityTests(unittest.TestCase):
         self.assertIn("لا نشخّص اضطرابًا نفسيًا.", result["evidence_boundaries"])
         self.assertTrue(result["source_scope"]["parent_editorial_intent_preserved_separately"])
 
-    def test_tone_adapter_adds_no_provider_call_and_restores_provider_surface(self) -> None:
-        original_audit = orchestrator.audit_tone_and_naturalness
-        original_json_text = engine_tone.json_text
-        original_openrouter = engine_tone.openrouter
-        calls: list[str] = []
+    def test_engine_continuity_evidence_is_the_only_semantic_delivery_authority(self) -> None:
+        evidence = {
+            "schema_version": 1,
+            "decision": "pass",
+            "flags": [],
+            "semantic_authority": "engine_tone_quality_same_provider_call",
+            "provider_calls_added": 0,
+            "repair_owner": "existing_tone_repair_dossier",
+            "validation": "valid",
+        }
+        self.assertEqual(continuity._engine_continuity_evidence({"editorial_promise_continuity": evidence}), evidence)
 
-        def fake_json_text(key: str, prompt: str, *, model: str):
-            calls.append(prompt)
-            return {"status": "pass"}
+    def test_delivery_rejects_missing_or_nonpassing_engine_semantic_evidence(self) -> None:
+        with self.assertRaisesRegex(
+            continuity.EditorialPromiseContinuityError,
+            "short_delivery_engine_continuity_evidence_missing",
+        ):
+            continuity._engine_continuity_evidence({})
 
-        def fake_audit(api_key: str, plan: object, model: str):
-            engine_tone.json_text(api_key, "ORIGINAL TONE PROMPT", model=model)
-            return {"status": "pass", "narrative_format_flags": []}
+        blocked = {
+            "schema_version": 1,
+            "decision": "block",
+            "flags": ["editorial_promise_continuity: adjacent answer"],
+            "semantic_authority": "engine_tone_quality_same_provider_call",
+            "provider_calls_added": 0,
+            "repair_owner": "existing_tone_repair_dossier",
+            "validation": "valid",
+        }
+        with self.assertRaisesRegex(
+            continuity.EditorialPromiseContinuityError,
+            "short_delivery_engine_continuity_not_passed",
+        ):
+            continuity._engine_continuity_evidence({"editorial_promise_continuity": blocked})
 
-        try:
-            orchestrator.audit_tone_and_naturalness = fake_audit
-            engine_tone.json_text = fake_json_text
-            continuity._install_tone_continuity_adapter()
-            plan = SimpleNamespace(
-                topic=RUN198_TOPIC,
-                format="moment",
-                hook="بعد اللقاء لماذا تعيد كل كلمة؟",
-                cta="",
-                closing_payoff="بعد اللقاء افصل بين الحدث وتفسيرك",
-                sections=[],
-                editorial_intent={},
-            )
-            result = orchestrator.audit_tone_and_naturalness("key", plan, "model")
-            self.assertEqual(len(calls), 1)
-            self.assertIn("[EDITORIAL_PROMISE_CONTINUITY_V1]", calls[0])
-            self.assertEqual(result["editorial_promise_continuity"]["provider_calls_added"], 0)
-            self.assertEqual(result["editorial_promise_continuity"]["decision"], "pass")
-            self.assertIs(engine_tone.json_text, fake_json_text)
-            self.assertIs(engine_tone.openrouter, original_openrouter)
-        finally:
-            orchestrator.audit_tone_and_naturalness = original_audit
-            engine_tone.json_text = original_json_text
-            engine_tone.openrouter = original_openrouter
-
-    def test_tone_adapter_restores_provider_surface_when_underlying_audit_raises(self) -> None:
-        original_audit = orchestrator.audit_tone_and_naturalness
-        original_json_text = engine_tone.json_text
-        original_openrouter = engine_tone.openrouter
-
-        def exploding_audit(api_key: str, plan: object, model: str):
-            raise RuntimeError("boom")
-
-        try:
-            orchestrator.audit_tone_and_naturalness = exploding_audit
-            continuity._install_tone_continuity_adapter()
-            plan = SimpleNamespace(
-                topic=RUN198_TOPIC,
-                format="moment",
-                hook="",
-                cta="",
-                closing_payoff="",
-                sections=[],
-                editorial_intent={},
-            )
-            with self.assertRaisesRegex(RuntimeError, "boom"):
-                orchestrator.audit_tone_and_naturalness("key", plan, "model")
-            self.assertIs(engine_tone.json_text, original_json_text)
-            self.assertIs(engine_tone.openrouter, original_openrouter)
-        finally:
-            orchestrator.audit_tone_and_naturalness = original_audit
-            engine_tone.json_text = original_json_text
-            engine_tone.openrouter = original_openrouter
+    def test_delivery_rejects_fabricated_numeric_or_wrong_authority_evidence(self) -> None:
+        fabricated = {
+            "schema_version": 1,
+            "decision": "pass",
+            "flags": [],
+            "semantic_authority": "final_critic_numeric_proxy",
+            "provider_calls_added": 0,
+            "repair_owner": "existing_tone_repair_dossier",
+            "validation": "valid",
+        }
+        with self.assertRaisesRegex(
+            continuity.EditorialPromiseContinuityError,
+            "short_delivery_engine_continuity_authority_invalid",
+        ):
+            continuity._engine_continuity_evidence({"editorial_promise_continuity": fabricated})
 
 
 if __name__ == "__main__":
