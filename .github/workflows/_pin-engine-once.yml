@@ -1,4 +1,4 @@
-name: One-time exact Engine pin materialization
+name: One-time exact Engine pin update
 
 on:
   push:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  materialize:
+  pin:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout branch
@@ -18,31 +18,32 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Replace canonical production Engine pin in artifact copy
+      - name: Replace canonical production Engine pin and remove one-time workflow
+        env:
+          PIN_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
         run: |
           set -euo pipefail
+          test -n "$PIN_TOKEN"
           python - <<'PY'
           from pathlib import Path
 
-          source = Path('.github/workflows/produce-resilient-v4.yml')
-          target = Path('pinned-produce-resilient-v4.yml')
+          path = Path('.github/workflows/produce-resilient-v4.yml')
           old = '3d584c868b5c094d7856370f6d728aec841fef27'
           new = '69b21dd1c10f196c623e5b426bccd574a80accf5'
-          text = source.read_text(encoding='utf-8')
+          text = path.read_text(encoding='utf-8')
           count = text.count(old)
           if count != 3:
               raise SystemExit(f'Expected exactly 3 canonical Engine pins, found {count}')
           updated = text.replace(old, new)
           if updated.count(new) != 3 or old in updated:
               raise SystemExit('Exact Engine pin replacement failed closed')
-          target.write_text(updated, encoding='utf-8')
-          print(f'Pinned workflow bytes={target.stat().st_size}')
+          path.write_text(updated, encoding='utf-8')
           PY
-
-      - name: Upload pinned production workflow
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: pinned-production-workflow-${{ github.sha }}
-          path: pinned-produce-resilient-v4.yml
-          if-no-files-found: error
-          retention-days: 1
+          git rm .github/workflows/_pin-engine-once.yml
+          git config user.name "isco-integration-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/workflows/produce-resilient-v4.yml
+          git diff --cached --check
+          test "$(git diff --cached --numstat | wc -l | tr -d ' ')" -eq 2
+          git commit -m "Pin production to Engine promise-continuity merge"
+          git push "https://x-access-token:${PIN_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:fix/editorial-promise-continuity-family
