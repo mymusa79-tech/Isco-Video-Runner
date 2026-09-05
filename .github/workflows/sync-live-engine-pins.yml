@@ -6,7 +6,7 @@ on:
       - fix/editorial-promise-continuity-family
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   sync:
@@ -17,10 +17,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: fix/editorial-promise-continuity-family
-          persist-credentials: true
-          fetch-depth: 0
+          persist-credentials: false
+          fetch-depth: 1
 
-      - name: Synchronize every live production Engine pin
+      - name: Synchronize every live production Engine pin in workspace
         env:
           OLD_ENGINE_SHA: 3d584c868b5c094d7856370f6d728aec841fef27
           NEW_ENGINE_SHA: 69b21dd1c10f196c623e5b426bccd574a80accf5
@@ -43,21 +43,26 @@ jobs:
               count = text.count(old)
               if count < 1:
                   raise SystemExit(f'{path}: expected old Engine SHA at least once, found {count}')
-              path.write_text(text.replace(old, new), encoding='utf-8')
+              updated = text.replace(old, new)
+              if old in updated or new not in updated:
+                  raise SystemExit(f'{path}: pin synchronization verification failed')
+              path.write_text(updated, encoding='utf-8')
               print(f'{path}: replaced {count} live pin(s)')
           PY
 
-      - name: Remove synchronization workflow and commit exact pin family
+      - name: Stage exact synchronized workflow files
         run: |
           set -euo pipefail
-          rm .github/workflows/sync-live-engine-pins.yml
-          git config user.name "isco-maintenance-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add .github/workflows/telegram-editorial-control.yml \
-                  .github/workflows/telegram-production-request.yml \
-                  .github/workflows/verify-human-editorial-intent-m7.yml \
-                  .github/workflows/verify-m11-live-integration.yml \
-                  .github/workflows/sync-live-engine-pins.yml
-          test -n "$(git status --porcelain)"
-          git commit -m "Pin every live workflow to editorial continuity Engine"
-          git push origin HEAD:fix/editorial-promise-continuity-family
+          mkdir -p "$RUNNER_TEMP/live-engine-pins/.github/workflows"
+          cp .github/workflows/telegram-editorial-control.yml "$RUNNER_TEMP/live-engine-pins/.github/workflows/"
+          cp .github/workflows/telegram-production-request.yml "$RUNNER_TEMP/live-engine-pins/.github/workflows/"
+          cp .github/workflows/verify-human-editorial-intent-m7.yml "$RUNNER_TEMP/live-engine-pins/.github/workflows/"
+          cp .github/workflows/verify-m11-live-integration.yml "$RUNNER_TEMP/live-engine-pins/.github/workflows/"
+
+      - name: Upload synchronized workflow files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: synchronized-live-engine-pins
+          path: ${{ runner.temp }}/live-engine-pins
+          if-no-files-found: error
+          retention-days: 1
