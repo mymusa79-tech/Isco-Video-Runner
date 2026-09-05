@@ -17,7 +17,10 @@ from isco_video_agent.providers.gemini import (
     OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES,
     with_channel_persona,
 )
-from isco_video_agent.resilient_planner import build_outline_prompt
+from isco_video_agent.resilient_planner import (
+    build_outline_sections_prompt,
+    build_outline_structure_prompt,
+)
 from scripts.dynamic_planning_capacity import (
     viable_planning_providers,
     viable_provider_families,
@@ -30,6 +33,10 @@ from scripts.native_short_planner_router import (
 from scripts.p0_runtime_master_contract import activate_p0_runtime_master
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.planning_capacity_profile import install_planning_capacity_profile
+from scripts.planning_outline_split_contract import (
+    outline_core_stage_spec_for_format,
+    outline_sections_stage_spec_for_format,
+)
 from scripts.producer_quality_contract import merge_producer_revision_note
 from scripts.provider_capacity_margin_audit import audit_media_capacity_margin
 
@@ -45,11 +52,8 @@ from scripts.planning_capacity_headroom import (  # noqa: E402
     groq_operational_headroom_tokens,
     worst_case_short_review_capacity,
 )
-from scripts.planning_stage_contract import (
-    outline_stage_spec_for_format,
-    script_stage_spec,
-)
-from scripts.provider_capacity_hardening import (
+from scripts.planning_stage_contract import script_stage_spec  # noqa: E402
+from scripts.provider_capacity_hardening import (  # noqa: E402
     groq_capacity_estimate,
     groq_effective_tpm_limit,
 )
@@ -193,13 +197,104 @@ def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCert
     )
 
 
+def _bounded_preflight_editorial_intent() -> dict:
+    """Conservative no-inference payload for sizing Engine call 1b.
+
+    Call 1b cannot be built from the real Call 1a result during preflight because that
+    would itself require inference. Size it with a deliberately large, contract-valid
+    locked premise instead. The fields consumed by build_outline_sections_prompt total
+    roughly the entire 2400-token Core completion transport allowance under the same
+    4.25 UTF-8-bytes/token estimator used by live Groq admission, so the resulting
+    second-call envelope is conservative without inventing a third planning shape.
+    """
+    long_value = "م" * 400
+    boundary = "ح" * 120
+    return {
+        "editorial_thesis": long_value,
+        "viewer_starting_belief": long_value,
+        "hidden_assumption": long_value,
+        "editorial_turn": long_value,
+        "stakes": long_value,
+        "viewer_promise": long_value,
+        "evidence_boundaries": [boundary for _ in range(5)],
+        "earned_payoff": long_value,
+    }
+
+
+def _split_outline_envelopes(
+    *,
+    brief: dict,
+    fmt: str,
+    research: dict,
+) -> tuple[dict, dict, int, int]:
+    """Return exact Core + conservative Sections capacities from pinned Engine ports."""
+    topic = str(brief["approved_topic"])
+    policy_json = json.dumps(load_editorial_policy(), ensure_ascii=False)
+    research_json = json.dumps(research, ensure_ascii=False)
+    avoid_json = json.dumps(novelty_context(), ensure_ascii=False)
+    learning_json = json.dumps(learning_context(fmt), ensure_ascii=False)
+
+    core_spec = outline_core_stage_spec_for_format(fmt)
+    sections_spec = outline_sections_stage_spec_for_format(fmt)
+
+    core_prompt = build_outline_structure_prompt(
+        topic=topic,
+        fmt=fmt,
+        policy_json=policy_json,
+        research_json=research_json,
+        avoid_json=avoid_json,
+        learning_json=learning_json,
+        revision_note="",
+    )
+    core_enriched = with_channel_persona(core_prompt)
+
+    # The Engine consumes only these locked Core fields in Call 1b. Use a bounded
+    # conservative payload rather than the deprecated combined build_outline_prompt.
+    sections_prompt = build_outline_sections_prompt(
+        topic=topic,
+        fmt=fmt,
+        policy_json=policy_json,
+        research_json=research_json,
+        avoid_json=avoid_json,
+        revision_note="",
+        narrative_format="direct_cinematic",
+        editorial_intent=_bounded_preflight_editorial_intent(),
+        pillar="ف" * 250,
+        hook="ه" * 250,
+        closing_payoff="خ" * 250,
+    )
+    sections_enriched = with_channel_persona(sections_prompt)
+
+    core_size = len(core_enriched.encode("utf-8"))
+    sections_size = len(sections_enriched.encode("utf-8"))
+    for phase, size in (("core", core_size), ("sections", sections_size)):
+        if size > OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES:
+            raise RuntimeError(
+                "planning split envelope exceeds provider-portable limit: "
+                f"phase={phase} bytes={size} limit={OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES}"
+            )
+
+    core_capacity = groq_capacity_estimate(
+        core_enriched,
+        reserved_completion_tokens=core_spec.provider_policy.completion_tokens,
+        contract_name=str(core_spec.semantic_rules["transport_profile"]),
+    )
+    sections_capacity = groq_capacity_estimate(
+        sections_enriched,
+        reserved_completion_tokens=sections_spec.provider_policy.completion_tokens,
+        contract_name=str(sections_spec.semantic_rules["transport_profile"]),
+    )
+    return core_capacity, sections_capacity, core_size, sections_size
+
+
 def certify_planning_envelope() -> PlanningEnvelopeCertification:
     """Certify provider-portable capacity before a real production inference call.
 
-    Long-form certifies the exact current outline plus Writer batching contract. Moment
-    certifies its own format-native Draft envelope plus a worst-case bounded Review
-    envelope. Both paths apply the same Groq operational headroom used by live runtime.
-    The immediately preceding provider-preflight result is also checked for observable
+    Long-form certifies the two real pinned-Engine outline request shapes independently
+    and gates on the larger request, plus the Writer batching contract. Moment certifies
+    its own format-native Draft envelope plus a worst-case bounded Review envelope.
+    Both paths apply the same Groq operational headroom used by live runtime. The
+    immediately preceding provider-preflight result is also checked for observable
     media request-count headroom, so `remaining > 0` is never treated as enough for a
     multi-search production topology.
     """
@@ -235,60 +330,54 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
             runtime_token_admission="provider_set_dynamic+exact_writer",
         )
 
-    outline_spec = outline_stage_spec_for_format(fmt)
+    core_spec = outline_core_stage_spec_for_format(fmt)
+    sections_spec = outline_sections_stage_spec_for_format(fmt)
     writer_spec = script_stage_spec(
         "full_script",
         [f"preflight-section-{index}" for index in range(1, MAX_SCRIPT_BATCH_SECTIONS + 1)],
     )
-    outline_reserve = outline_spec.provider_policy.completion_tokens
+    outline_reserve = max(
+        core_spec.provider_policy.completion_tokens,
+        sections_spec.provider_policy.completion_tokens,
+    )
     writer_reserve = writer_spec.provider_policy.completion_tokens
 
-    prompt = build_outline_prompt(
-        topic=str(brief["approved_topic"]),
+    core_capacity, sections_capacity, core_size, sections_size = _split_outline_envelopes(
+        brief=brief,
         fmt=fmt,
-        policy_json=json.dumps(load_editorial_policy(), ensure_ascii=False),
-        research_json=json.dumps(research, ensure_ascii=False),
-        avoid_json=json.dumps(novelty_context(), ensure_ascii=False),
-        learning_json=json.dumps(learning_context(fmt), ensure_ascii=False),
-        revision_note="",
+        research=research,
     )
-    enriched = with_channel_persona(prompt)
-    size = len(enriched.encode("utf-8"))
-    if size > OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES:
-        raise RuntimeError(
-            "planning envelope exceeds provider-portable limit: "
-            f"bytes={size} limit={OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES}"
-        )
     if MAX_SCRIPT_BATCH_SECTIONS > 3:
         raise RuntimeError("long-form writer batch certification exceeds three sections")
 
-    request_capacity = groq_capacity_estimate(
-        enriched,
-        reserved_completion_tokens=outline_reserve,
-        contract_name=str(outline_spec.semantic_rules["transport_profile"]),
+    request_capacity = max(
+        (core_capacity, sections_capacity),
+        key=lambda item: int(item["estimated_request_tokens"]),
     )
+    required_tokens = int(request_capacity["estimated_request_tokens"])
     _, families = _require_provider_redundancy(
-        int(request_capacity["estimated_request_tokens"]),
-        phase="preproduction_general_envelope",
+        required_tokens,
+        phase="preproduction_split_outline_envelope",
         required_families=P0_OUTLINE_MIN_PROVIDER_FAMILIES,
     )
 
     groq_limit = request_capacity.get("provider_tpm_limit")
     headroom = (
-        int(groq_limit) - int(request_capacity["estimated_request_tokens"])
+        int(groq_limit) - required_tokens
         if isinstance(groq_limit, int)
         else None
     )
+    max_size = max(core_size, sections_size)
 
     return PlanningEnvelopeCertification(
         status="pass",
         format=fmt,
-        prompt_utf8_bytes=size,
+        prompt_utf8_bytes=max_size,
         portable_limit_utf8_bytes=OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES,
-        remaining_headroom_utf8_bytes=OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES - size,
+        remaining_headroom_utf8_bytes=OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES - max_size,
         approved_sources=len(research.get("approved_research_pack", [])),
         approved_boundaries=len(research.get("content_boundaries", [])),
-        outline_estimated_request_tokens=request_capacity["estimated_request_tokens"],
+        outline_estimated_request_tokens=required_tokens,
         groq_tpm_limit=groq_limit,
         outline_groq_tpm_headroom=headroom,
         outline_completion_reserve=outline_reserve,
@@ -298,7 +387,8 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
         required_provider_families=P0_OUTLINE_MIN_PROVIDER_FAMILIES,
         runtime_token_admission=(
             "p0_two_provider_families+groq_operational_headroom+"
-            "provider_set_dynamic+exact_writer+observable_media_margin"
+            "split_outline_max_of_core_sections+provider_set_dynamic+"
+            "exact_writer+observable_media_margin"
         ),
     )
 
