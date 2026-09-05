@@ -216,7 +216,7 @@ class Run200ScopeIsolationTests(unittest.TestCase):
                 self.assertTrue(getattr(during[0], "_isco_run200_exact_groq_cooldown", False))
                 self.assertTrue(getattr(during[1], "_isco_run200_truthful_short_outcome", False))
                 self.assertTrue(getattr(during[2], "_isco_run200_short_half_open", False))
-                self.assertIsNot(during[3], before[3])
+                self.assertIs(during[3], closure.orchestrator.pexels_search_videos)
         self.assertFalse(closure.visual_scope.active())
         self.assertEqual(self._surfaces(), before)
 
