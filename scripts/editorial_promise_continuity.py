@@ -3,23 +3,22 @@ from __future__ import annotations
 """Runner binding for the Engine-owned Editorial Promise Continuity family.
 
 Engine Tone QA is the sole semantic authority and uses its existing provider call and
-RepairDossier. Runner does not decorate that provider prompt and does not add a retry or
-repair owner. Runner binds immutable viewer intent before writing, localizes sibling
-Shorts to their exact source semantic job, and exposes an explicit post-Gold delivery
-certifier consumed by ``orchestration_shorts_port``. No global Short-core finalizer
-monkeypatch is installed.
+RepairDossier. Runner adds no provider request, no retry owner and no second repair
+owner. Runner binds immutable viewer intent for standalone Shorts, localizes sibling
+Shorts to their exact source semantic job, and verifies that the Engine continuity
+capability is present at the existing Tone QA seam before any later hard gate can pass.
+
+The certified Shorts stable port/core stay byte-identical. This family therefore cannot
+silently redefine Short finalization or bypass existing Gold/Final-Master ownership.
 """
 
-import json
 import re
 from functools import wraps
-from pathlib import Path
 from typing import Any
 
 from isco_video_agent.editorial_room import EditorialContractError, intent_from_dict, make_editorial_intent
 
 from scripts import native_short_planner_router
-from scripts import shorts_production_binding as short_core
 from scripts import sibling_short_orchestration
 from scripts import source_derived_short_planner
 
@@ -63,6 +62,22 @@ def _time_context_frame(*values: object) -> list[str]:
         if any(f" {marker} " in f" {normalized} " for marker in markers):
             frames.append(canonical)
     return frames
+
+
+def _temporal_conflict(topic: object, action_text: object) -> str | None:
+    """Small deterministic tripwire for obvious before/after inversions.
+
+    This is intentionally not the semantic authority. Engine Tone QA owns nuanced
+    judgment and repair. The helper exists for regression evidence and metadata only so
+    the known Run #198 family cannot disappear from the contract unnoticed.
+    """
+    topic_frames = set(_time_context_frame(topic))
+    action_frames = set(_time_context_frame(action_text))
+    if "after" in topic_frames and "after" not in action_frames and "before" in action_frames:
+        return "approved_after_context_shifted_to_before_action"
+    if "before" in topic_frames and "before" not in action_frames and "after" in action_frames:
+        return "approved_before_context_shifted_to_after_action"
+    return None
 
 
 def _standalone_editorial_intent(topic: str, template: str, prior: dict[str, Any]) -> dict[str, Any]:
@@ -117,39 +132,39 @@ def _standalone_editorial_intent(topic: str, template: str, prior: dict[str, Any
 
 
 def _install_standalone_short_promise_contract() -> None:
+    """Attach immutable promise metadata without mutating the certified prompt surface.
+
+    Engine Tone QA performs the semantic judgment and the existing RepairDossier owns
+    correction. Keeping the planner revision function unchanged preserves the exact
+    preflight/runtime prompt-capacity contract and avoids import-order drift.
+    """
     current_attach = native_short_planner_router._attach_compensation_metadata
-    if not getattr(current_attach, "_isco_editorial_promise_continuity", False):
+    if getattr(current_attach, "_isco_editorial_promise_continuity", False):
+        return
 
-        @wraps(current_attach)
-        def attach(plan: object, topic: object, preselected: dict[str, Any]):
-            selection = current_attach(plan, topic, preselected)
-            prior = getattr(plan, "editorial_intent", None)
-            prior = dict(prior) if isinstance(prior, dict) else {}
-            template = _clean(selection.get("template"))
-            setattr(plan, "editorial_intent", _standalone_editorial_intent(_clean(topic), template, prior))
-            return selection
+    @wraps(current_attach)
+    def attach(plan: object, topic: object, preselected: dict[str, Any]):
+        selection = current_attach(plan, topic, preselected)
+        prior = getattr(plan, "editorial_intent", None)
+        prior = dict(prior) if isinstance(prior, dict) else {}
+        template = _clean(selection.get("template"))
+        intent = _standalone_editorial_intent(_clean(topic), template, prior)
+        action_text = " ".join(
+            [
+                _clean(getattr(plan, "cta", "")),
+                _clean(getattr(plan, "closing_payoff", "")),
+            ]
+        )
+        intent["short_promise_contract"]["deterministic_time_context_warning"] = _temporal_conflict(
+            topic,
+            action_text,
+        )
+        setattr(plan, "editorial_intent", intent)
+        return selection
 
-        attach._isco_editorial_promise_continuity = True
-        attach._isco_editorial_promise_continuity_original = current_attach
-        native_short_planner_router._attach_compensation_metadata = attach
-
-    current_revision = native_short_planner_router.merge_short_template_revision
-    if not getattr(current_revision, "_isco_editorial_promise_continuity", False):
-
-        @wraps(current_revision)
-        def revision(template: str, existing: object) -> str:
-            base = current_revision(template, existing)
-            requirement = (
-                "Editorial promise continuity is mandatory: every hook, contrast/turn, reframe, payoff and CTA must answer "
-                "the exact USER_TOPIC_DATA problem and preserve its event, causal context and time frame. Useful adjacent advice "
-                "does not satisfy the promise. Visual intent must support the same situation, not only a generic keyword metaphor."
-            )
-            return f"{base} Additional continuity requirement: {requirement}"
-
-        revision._isco_editorial_promise_continuity = True
-        revision._isco_editorial_promise_continuity_original = current_revision
-        native_short_planner_router.merge_short_template_revision = revision
-        native_short_planner_router._planning_revision_note = revision
+    attach._isco_editorial_promise_continuity = True
+    attach._isco_editorial_promise_continuity_original = current_attach
+    native_short_planner_router._attach_compensation_metadata = attach
 
 
 def _significant_job_tokens(job: object) -> list[str]:
@@ -207,6 +222,31 @@ def _source_local_editorial_intent(request: dict[str, Any]) -> dict[str, Any]:
     return intent
 
 
+def _source_action_alignment(request: dict[str, Any]) -> dict[str, Any]:
+    scope = _clean(request.get("approval_scope"))
+    admission = request.get("short_admission") if isinstance(request, dict) else {}
+    action = _clean((admission or {}).get("single_action_contract"))
+    if scope != "short_sibling":
+        return {
+            "pass": True,
+            "reason": "standalone_or_non_sibling_no_source_action_contract_required",
+            "action": action,
+        }
+    if not action:
+        return {"pass": False, "reason": "single_action_contract_missing", "action": ""}
+    job = _clean(request.get("source_semantic_job"))
+    tokens = _significant_job_tokens(job)
+    action_key = set(_semantic_key(action).split())
+    overlap = [token for token in tokens if token in action_key]
+    return {
+        "pass": bool(overlap),
+        "reason": "source_job_anchor_present" if overlap else "source_job_anchor_missing",
+        "action": action,
+        "source_semantic_job": job,
+        "matched_tokens": overlap[:8],
+    }
+
+
 def _install_source_short_local_scope() -> None:
     current_requests = sibling_short_orchestration.build_sibling_requests
     if not getattr(current_requests, "_isco_editorial_promise_continuity", False):
@@ -224,6 +264,17 @@ def _install_source_short_local_scope() -> None:
                 admission["single_action_scope"] = "source_semantic_job_local"
                 request["source_short_editorial_intent"] = _source_local_editorial_intent(request)
                 request["source_short_plan"] = source_derived_short_planner.build_source_short_blueprint(request)
+                alignment = _source_action_alignment(request)
+                if alignment.get("pass") is not True:
+                    raise EditorialPromiseContinuityError(
+                        "source_short_single_action_not_bound_to_semantic_job"
+                    )
+                request["editorial_promise_continuity"] = {
+                    "schema_version": SCHEMA_VERSION,
+                    "source_action_alignment": alignment,
+                    "semantic_authority": _ENGINE_SEMANTIC_AUTHORITY,
+                    "provider_calls_added": 0,
+                }
                 request.pop("request_sha256", None)
                 request["request_sha256"] = sibling_short_orchestration._canonical_hash(request)
             return requests
@@ -254,117 +305,43 @@ def _install_source_short_local_scope() -> None:
         source_derived_short_planner._source_editorial_intent = source_intent
 
 
-def _temporal_conflict(topic: object, action_text: object) -> str | None:
-    topic_frames = set(_time_context_frame(topic))
-    action_frames = set(_time_context_frame(action_text))
-    if "after" in topic_frames and "after" not in action_frames and "before" in action_frames:
-        return "approved_after_context_shifted_to_before_action"
-    if "before" in topic_frames and "before" not in action_frames and "after" in action_frames:
-        return "approved_before_context_shifted_to_after_action"
-    return None
+def require_engine_continuity_evidence(tone: dict[str, Any]) -> dict[str, Any]:
+    """Prove that the exact Engine supports this semantic dimension.
 
-
-def _source_action_alignment(request: dict[str, Any]) -> dict[str, Any]:
-    admission = request.get("short_admission") if isinstance(request, dict) else {}
-    action = _clean((admission or {}).get("single_action_contract"))
-    if not action:
-        return {"pass": False, "reason": "single_action_contract_missing", "action": ""}
-    scope = _clean(request.get("approval_scope"))
-    if scope != "short_sibling":
-        return {"pass": True, "reason": "standalone_or_non_sibling", "action": action}
-    job = _clean(request.get("source_semantic_job"))
-    tokens = _significant_job_tokens(job)
-    action_key = set(_semantic_key(action).split())
-    overlap = [token for token in tokens if token in action_key]
-    return {
-        "pass": bool(overlap),
-        "reason": "source_job_anchor_present" if overlap else "source_job_anchor_missing",
-        "action": action,
-        "source_semantic_job": job,
-        "matched_tokens": overlap[:8],
-    }
-
-
-def _engine_continuity_evidence(tone: dict[str, Any]) -> dict[str, Any]:
+    This validates capability/provenance only. It deliberately does NOT translate a
+    semantic block into an exception because the existing RepairDossier must still own
+    the single repair. Technical provider failures likewise retain Engine's established
+    fail-closed tone-audit semantics.
+    """
+    if not isinstance(tone, dict):
+        raise EditorialPromiseContinuityError("engine_continuity_tone_result_invalid")
     evidence = tone.get("editorial_promise_continuity")
     if not isinstance(evidence, dict):
-        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_evidence_missing")
+        raise EditorialPromiseContinuityError("engine_continuity_evidence_missing")
     if evidence.get("semantic_authority") != _ENGINE_SEMANTIC_AUTHORITY:
-        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_authority_invalid")
+        raise EditorialPromiseContinuityError("engine_continuity_authority_invalid")
     if evidence.get("provider_calls_added") != 0:
-        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_budget_invalid")
+        raise EditorialPromiseContinuityError("engine_continuity_provider_budget_invalid")
     if evidence.get("repair_owner") != "existing_tone_repair_dossier":
-        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_repair_owner_invalid")
-    if evidence.get("validation") != "valid" or evidence.get("decision") != "pass":
-        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_not_passed")
+        raise EditorialPromiseContinuityError("engine_continuity_repair_owner_invalid")
+    validation = _clean(evidence.get("validation"))
+    if not validation:
+        raise EditorialPromiseContinuityError("engine_continuity_validation_missing")
+    decision = _clean(evidence.get("decision"))
+    if decision not in {"pass", "block"}:
+        raise EditorialPromiseContinuityError("engine_continuity_decision_invalid")
     flags = evidence.get("flags")
-    if not isinstance(flags, list) or flags:
-        raise EditorialPromiseContinuityError("short_delivery_engine_continuity_flags_invalid")
+    if not isinstance(flags, list):
+        raise EditorialPromiseContinuityError("engine_continuity_flags_invalid")
+    if decision == "pass" and (validation != "valid" or flags):
+        raise EditorialPromiseContinuityError("engine_continuity_pass_evidence_inconsistent")
+    if any(not str(item).startswith("editorial_promise_continuity:") for item in flags):
+        raise EditorialPromiseContinuityError("engine_continuity_flag_prefix_invalid")
     return evidence
 
 
-def certify_short_delivery(
-    output_dir: Path,
-    control_request: dict[str, Any],
-    report: dict[str, Any],
-) -> dict[str, Any]:
-    """Certify post-Gold Short continuity at the orchestration port, fail closed.
-
-    ``core.finalize_short_quality`` remains untouched and executes exactly once. This
-    certifier only accepts its completed report after proving the Engine-owned Tone QA
-    continuity evidence and deterministic source/time binding. It is deliberately an
-    explicit call from ``orchestration_shorts_port.finalize_short_quality`` rather than
-    a process-global monkeypatch, so import order cannot change the quality owner.
-    """
-    root = Path(output_dir)
-    plan = short_core._read(root / "plan.json")
-    tone = short_core._read(root / "tone-quality-audit.json")
-    if tone.get("status") != "pass":
-        raise EditorialPromiseContinuityError("short_delivery_tone_gate_not_passed")
-    engine_evidence = _engine_continuity_evidence(tone)
-
-    action_alignment = _source_action_alignment(control_request)
-    if action_alignment.get("pass") is not True:
-        raise EditorialPromiseContinuityError(
-            "short_delivery_single_action_not_bound_to_source_semantic_job"
-        )
-
-    topic = _clean(control_request.get("approved_topic") or plan.get("topic"))
-    action_text = " ".join(
-        [
-            _clean((control_request.get("short_admission") or {}).get("single_action_contract")),
-            _clean(plan.get("cta")),
-            _clean(plan.get("closing_payoff")),
-        ]
-    )
-    temporal = _temporal_conflict(topic, action_text)
-    if temporal:
-        raise EditorialPromiseContinuityError("short_delivery_temporal_promise_drift:" + temporal)
-
-    continuity = {
-        "schema_version": SCHEMA_VERSION,
-        "decision": "pass",
-        "continuity_flags": [],
-        "semantic_authority": _ENGINE_SEMANTIC_AUTHORITY,
-        "provider_calls_added": 0,
-        "repair_flow": "existing_tone_repair_dossier",
-        "engine_evidence": engine_evidence,
-        "temporal_alignment": {"pass": True, "topic_frames": _time_context_frame(topic)},
-        "single_action_alignment": action_alignment,
-    }
-    report["editorial_promise_continuity"] = continuity
-    provenance = report.setdefault("evidence_provenance", {})
-    provenance["promise_payoff_semantic_authority"] = _ENGINE_SEMANTIC_AUTHORITY
-    provenance["promise_payoff_numeric_score_role"] = "existing_final_critic_craft_proxy_not_semantic_authority"
-    provenance["semantic_promise_score_fabricated"] = False
-    (root / "short-intelligence.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    return report
-
-
 def install_editorial_promise_continuity() -> None:
-    """Install planning bindings only; semantic QA is Engine-owned, delivery is explicit."""
+    """Install intent bindings only; semantic QA and repair remain Engine-owned."""
     global _INSTALLED
     if _INSTALLED:
         return
@@ -375,5 +352,5 @@ def install_editorial_promise_continuity() -> None:
         "Editorial Promise Continuity V1 installed: "
         "semantic_authority=Engine Tone QA; Long+StandaloneShort+SiblingShort; "
         "provider_calls_added=0; repair_owner=existing_tone_repair_dossier; "
-        "delivery=explicit_orchestration_port_fail_closed"
+        "stable_short_port_and_core=unchanged"
     )
