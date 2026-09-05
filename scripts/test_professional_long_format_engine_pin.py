@@ -10,13 +10,12 @@ _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _canonical_v4_engine_sha() -> str:
-    """Read the single production Engine authority from canonical V4.
+    """Return the one production Engine authority declared by canonical V4.
 
-    This deliberately avoids a second hard-coded Engine SHA in tests. When production
-    advances the Engine, workflow_hygiene owns cross-workflow parity and this focused
-    regression still proves V4's checkout/runtime/Telegram dispatch all resolve to the
-    same full SHA. That prevents stale historical test constants from becoming a false
-    release blocker while preserving the actual pin invariant.
+    The invariant under test is parity, not a historical SHA value. Keeping the
+    authoritative value in one workflow avoids false release failures whenever a
+    reviewed Engine pin advances, while the repository-wide workflow hygiene gate
+    continues to reject any live workflow that drifts from this canonical pin.
     """
     text = (ROOT / ".github" / "workflows" / "produce-resilient-v4.yml").read_text(encoding="utf-8")
     expected = re.findall(
