@@ -4,9 +4,10 @@ from __future__ import annotations
 
 Engine Tone QA is the sole semantic authority and uses its existing provider call and
 RepairDossier. Runner does not decorate that provider prompt and does not add a retry or
-repair owner. Runner's responsibility is narrower: bind immutable viewer intent before
-writing, localize sibling Shorts to their exact source semantic job, and fail closed at
-Short delivery unless the Engine-owned continuity evidence is valid and passing.
+repair owner. Runner binds immutable viewer intent before writing, localizes sibling
+Shorts to their exact source semantic job, and exposes an explicit post-Gold delivery
+certifier consumed by ``orchestration_shorts_port``. No global Short-core finalizer
+monkeypatch is installed.
 """
 
 import json
@@ -302,76 +303,77 @@ def _engine_continuity_evidence(tone: dict[str, Any]) -> dict[str, Any]:
     return evidence
 
 
-def _install_final_short_delivery_guard() -> None:
-    current = short_core.finalize_short_quality
-    if getattr(current, "_isco_editorial_promise_continuity", False):
-        return
+def certify_short_delivery(
+    output_dir: Path,
+    control_request: dict[str, Any],
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    """Certify post-Gold Short continuity at the orchestration port, fail closed.
 
-    @wraps(current)
-    def finalize(output_dir: Path, control_request: dict[str, Any], pre_gold: dict[str, Any]):
-        report = current(output_dir, control_request, pre_gold)
-        root = Path(output_dir)
-        plan = short_core._read(root / "plan.json")
-        tone = short_core._read(root / "tone-quality-audit.json")
-        if tone.get("status") != "pass":
-            raise EditorialPromiseContinuityError("short_delivery_tone_gate_not_passed")
-        engine_evidence = _engine_continuity_evidence(tone)
+    ``core.finalize_short_quality`` remains untouched and executes exactly once. This
+    certifier only accepts its completed report after proving the Engine-owned Tone QA
+    continuity evidence and deterministic source/time binding. It is deliberately an
+    explicit call from ``orchestration_shorts_port.finalize_short_quality`` rather than
+    a process-global monkeypatch, so import order cannot change the quality owner.
+    """
+    root = Path(output_dir)
+    plan = short_core._read(root / "plan.json")
+    tone = short_core._read(root / "tone-quality-audit.json")
+    if tone.get("status") != "pass":
+        raise EditorialPromiseContinuityError("short_delivery_tone_gate_not_passed")
+    engine_evidence = _engine_continuity_evidence(tone)
 
-        action_alignment = _source_action_alignment(control_request)
-        if action_alignment.get("pass") is not True:
-            raise EditorialPromiseContinuityError(
-                "short_delivery_single_action_not_bound_to_source_semantic_job"
-            )
-
-        topic = _clean(control_request.get("approved_topic") or plan.get("topic"))
-        action_text = " ".join(
-            [
-                _clean((control_request.get("short_admission") or {}).get("single_action_contract")),
-                _clean(plan.get("cta")),
-                _clean(plan.get("closing_payoff")),
-            ]
+    action_alignment = _source_action_alignment(control_request)
+    if action_alignment.get("pass") is not True:
+        raise EditorialPromiseContinuityError(
+            "short_delivery_single_action_not_bound_to_source_semantic_job"
         )
-        temporal = _temporal_conflict(topic, action_text)
-        if temporal:
-            raise EditorialPromiseContinuityError("short_delivery_temporal_promise_drift:" + temporal)
 
-        continuity = {
-            "schema_version": SCHEMA_VERSION,
-            "decision": "pass",
-            "continuity_flags": [],
-            "semantic_authority": _ENGINE_SEMANTIC_AUTHORITY,
-            "provider_calls_added": 0,
-            "repair_flow": "existing_tone_repair_dossier",
-            "engine_evidence": engine_evidence,
-            "temporal_alignment": {"pass": True, "topic_frames": _time_context_frame(topic)},
-            "single_action_alignment": action_alignment,
-        }
-        report["editorial_promise_continuity"] = continuity
-        provenance = report.setdefault("evidence_provenance", {})
-        provenance["promise_payoff_semantic_authority"] = _ENGINE_SEMANTIC_AUTHORITY
-        provenance["promise_payoff_numeric_score_role"] = "existing_final_critic_craft_proxy_not_semantic_authority"
-        provenance["semantic_promise_score_fabricated"] = False
-        (root / "short-intelligence.json").write_text(
-            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        return report
+    topic = _clean(control_request.get("approved_topic") or plan.get("topic"))
+    action_text = " ".join(
+        [
+            _clean((control_request.get("short_admission") or {}).get("single_action_contract")),
+            _clean(plan.get("cta")),
+            _clean(plan.get("closing_payoff")),
+        ]
+    )
+    temporal = _temporal_conflict(topic, action_text)
+    if temporal:
+        raise EditorialPromiseContinuityError("short_delivery_temporal_promise_drift:" + temporal)
 
-    finalize._isco_editorial_promise_continuity = True
-    finalize._isco_editorial_promise_continuity_original = current
-    short_core.finalize_short_quality = finalize
+    continuity = {
+        "schema_version": SCHEMA_VERSION,
+        "decision": "pass",
+        "continuity_flags": [],
+        "semantic_authority": _ENGINE_SEMANTIC_AUTHORITY,
+        "provider_calls_added": 0,
+        "repair_flow": "existing_tone_repair_dossier",
+        "engine_evidence": engine_evidence,
+        "temporal_alignment": {"pass": True, "topic_frames": _time_context_frame(topic)},
+        "single_action_alignment": action_alignment,
+    }
+    report["editorial_promise_continuity"] = continuity
+    provenance = report.setdefault("evidence_provenance", {})
+    provenance["promise_payoff_semantic_authority"] = _ENGINE_SEMANTIC_AUTHORITY
+    provenance["promise_payoff_numeric_score_role"] = "existing_final_critic_craft_proxy_not_semantic_authority"
+    provenance["semantic_promise_score_fabricated"] = False
+    (root / "short-intelligence.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return report
 
 
 def install_editorial_promise_continuity() -> None:
-    """Install Runner bindings only; semantic Tone QA remains Engine-owned."""
+    """Install planning bindings only; semantic QA is Engine-owned, delivery is explicit."""
     global _INSTALLED
     if _INSTALLED:
         return
     _install_standalone_short_promise_contract()
     _install_source_short_local_scope()
-    _install_final_short_delivery_guard()
     _INSTALLED = True
     print(
         "Editorial Promise Continuity V1 installed: "
         "semantic_authority=Engine Tone QA; Long+StandaloneShort+SiblingShort; "
-        "provider_calls_added=0; repair_owner=existing_tone_repair_dossier; delivery=fail_closed"
+        "provider_calls_added=0; repair_owner=existing_tone_repair_dossier; "
+        "delivery=explicit_orchestration_port_fail_closed"
     )
