@@ -1,4 +1,4 @@
-name: One-time exact Engine pin update
+name: One-time exact Engine pin blob materialization
 
 on:
   pull_request:
@@ -6,46 +6,41 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  pin:
+  materialize:
     if: github.event.pull_request.head.ref == 'fix/editorial-promise-continuity-family'
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout branch
+      - name: Checkout branch with write token
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: fix/editorial-promise-continuity-family
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 1
 
-      - name: Replace canonical production Engine pin and remove one-time workflow
-        env:
-          PIN_TOKEN: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+      - name: Materialize exact pinned workflow as ordinary repository blob
         run: |
           set -euo pipefail
-          test -n "$PIN_TOKEN"
+          mkdir -p .integration
           python - <<'PY'
           from pathlib import Path
-
-          path = Path('.github/workflows/produce-resilient-v4.yml')
+          source = Path('.github/workflows/produce-resilient-v4.yml')
+          target = Path('.integration/pinned-produce-resilient-v4.yml')
           old = '3d584c868b5c094d7856370f6d728aec841fef27'
           new = '69b21dd1c10f196c623e5b426bccd574a80accf5'
-          text = path.read_text(encoding='utf-8')
-          count = text.count(old)
-          if count != 3:
-              raise SystemExit(f'Expected exactly 3 canonical Engine pins, found {count}')
+          text = source.read_text(encoding='utf-8')
+          if text.count(old) != 3:
+              raise SystemExit(f'Expected exactly 3 old Engine pins, found {text.count(old)}')
           updated = text.replace(old, new)
           if updated.count(new) != 3 or old in updated:
               raise SystemExit('Exact Engine pin replacement failed closed')
-          path.write_text(updated, encoding='utf-8')
+          target.write_text(updated, encoding='utf-8')
           PY
-          git rm .github/workflows/_pin-engine-once.yml
           git config user.name "isco-integration-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add .github/workflows/produce-resilient-v4.yml
+          git add .integration/pinned-produce-resilient-v4.yml
           git diff --cached --check
-          test "$(git diff --cached --numstat | wc -l | tr -d ' ')" -eq 2
-          git commit -m "Pin production to Engine promise-continuity merge"
-          git push "https://x-access-token:${PIN_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:fix/editorial-promise-continuity-family
+          git commit -m "Materialize exact production Engine pin blob"
+          git push origin HEAD:fix/editorial-promise-continuity-family
