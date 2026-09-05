@@ -192,9 +192,7 @@ class Run92OpeningFeasibilityGuardTests(unittest.TestCase):
         self.assertNotIn("section_visual_selection_integrity_failed", blocks)
 
     def test_adaptive_opening_composite_fails_closed_when_member_scores_are_missing(self) -> None:
-        def audit_fn(**kwargs):
-            if int(kwargs["candidate"]["id"]) == 4:
-                return {"status": "pass", "relevance": 0.91}
+        def audit_fn(**_kwargs):
             return {"status": "pass", "relevance": 0.91, "visual_quality": 0.89}
 
         with patch.object(opening_director, "opening_slot_specs", adaptive_opening_slot_specs):
@@ -208,6 +206,8 @@ class Run92OpeningFeasibilityGuardTests(unittest.TestCase):
                 cache=VisualCandidateCache(excluded_assets={}),
                 max_reviews=_adaptive_review_cap(62.3),
             )
+        body_member = next(slot.review.audit for slot in result.slots if slot.spec.key == "body_1")
+        body_member.pop("visual_quality")
         _normalize_adaptive_opening_audits(result, section_seconds=62.3)
 
         primary = next(slot.review.audit for slot in result.slots if slot.spec.key == "promise")
