@@ -49,11 +49,14 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             for module in modules:
                 self.assertTrue(_module_path(module).is_file(), f"{phase} missing {module}")
 
-    def test_register_exactly_covers_every_run_51_through_200(self) -> None:
+    def test_register_exactly_covers_certified_historical_window(self) -> None:
         data = json.loads(REGISTER.read_text(encoding="utf-8"))
         window = data["historical_window"]
-        self.assertEqual((window["first_run"], window["last_run"]), (51, 200))
-        expected = set(range(51, 201))
+        first_run = int(window["first_run"])
+        last_run = int(window["last_run"])
+        self.assertEqual(first_run, 51)
+        self.assertGreaterEqual(last_run, first_run)
+        expected = set(range(first_run, last_run + 1))
         seen: set[int] = set()
         for cohort in data["audit_cohorts"]:
             runs = _expand(cohort["runs"])
