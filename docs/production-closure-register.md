@@ -32,7 +32,7 @@ Run132 proved that individually correct checkpoint, cache and terminal-recovery 
 
 **State:** BLOCKING until the exact current `main` SHA receives a Green P0–P6 Stage Ladder certificate.
 
-Run50 is the last independently verified historical End-to-End success and is the known-good media baseline. Its `final.mp4` identity is locked in the machine-readable register by exact size and SHA256. A historical fix, a test named after a run, or an old success at Stage 6 is not current closure evidence.
+Run50 is the last independently verified historical End-to-End success. Its `final.mp4` identity is locked by exact size and SHA256 only as an immutable QC/Gold/delivery handoff fixture. It predates the current montage stack and is not a current visual-quality baseline. A historical fix, a test named after a run, or an old success at Stage 6 is not current closure evidence.
 
 The mandatory ladder is:
 - P0 — runtime, environment, state, checkpoint, capability ownership and test/production isolation.

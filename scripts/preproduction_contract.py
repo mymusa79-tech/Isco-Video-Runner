@@ -11,6 +11,7 @@ ENVIRONMENT_PREFLIGHT = Path("scripts/environment_preflight.py")
 ENVIRONMENT_PREFLIGHT_CORE = Path("scripts/environment_preflight_core.py")
 EXPECTED_RUNNER_IMAGE = "ubuntu-24.04"
 PROVIDERS = ("gemini", "groq", "openrouter", "pexels", "pixabay")
+PROVIDER_PREFLIGHT_COMMAND = "python -m scripts.provider_preflight"
 
 
 @dataclass(frozen=True)
@@ -87,7 +88,11 @@ def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
     require("memory_restore_strict", "Require healthy restored cross-run memory", "production must not continue with an untrusted/empty fallback history")
     require("memory_restore_assert", 'test "${{ steps.restore_state.outputs.save_allowed }}" = "true"', "restored history must be explicitly proven save-safe")
     require("environment_preflight", "python scripts/environment_preflight.py", "runtime/media/environment capabilities must be certified before production")
-    require("provider_preflight", "python scripts/provider_preflight.py", "all configured providers must be preflighted before production")
+    require(
+        "provider_preflight",
+        PROVIDER_PREFLIGHT_COMMAND,
+        "all configured providers must be preflighted before production",
+    )
     for provider in PROVIDERS:
         require(f"provider_{provider}", f"--{provider}-key-file", f"provider preflight is missing {provider}")
 
@@ -143,7 +148,7 @@ def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
     produce_index = text.find("python ../scripts/run_v3_voice.py")
     for code, marker in (
         ("environment_order", "python scripts/environment_preflight.py"),
-        ("provider_order", "python scripts/provider_preflight.py"),
+        ("provider_order", PROVIDER_PREFLIGHT_COMMAND),
         ("memory_order", "Require healthy restored cross-run memory"),
     ):
         marker_index = text.find(marker)

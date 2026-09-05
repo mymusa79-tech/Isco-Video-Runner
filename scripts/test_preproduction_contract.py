@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.preproduction_contract import audit_preproduction_contract
+from scripts.preproduction_contract import PROVIDER_PREFLIGHT_COMMAND, audit_preproduction_contract
 
 
 class PreProductionContractTests(unittest.TestCase):
@@ -18,6 +18,11 @@ class PreProductionContractTests(unittest.TestCase):
 
     def test_current_repository_contract_is_clean(self) -> None:
         self.assertEqual(audit_preproduction_contract(Path(".")), [])
+
+    def test_provider_preflight_contract_requires_package_safe_entrypoint(self) -> None:
+        workflow = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
+        self.assertIn(PROVIDER_PREFLIGHT_COMMAND, workflow)
+        self.assertNotIn("python scripts/provider_preflight.py", workflow)
 
     def test_moving_runner_alias_is_rejected(self) -> None:
         tmp, root = self._repo("on:\n  workflow_dispatch:\nconcurrency:\njobs:\n  x:\n    runs-on: ubuntu-latest\n")

@@ -5,7 +5,13 @@ import re
 import unittest
 from pathlib import Path
 
-from scripts.production_stage_ladder import BASELINE_SHA256, BASELINE_SIZE, PHASES, PHASE_TESTS
+from scripts.production_stage_ladder import (
+    BASELINE_ROLE,
+    BASELINE_SHA256,
+    BASELINE_SIZE,
+    PHASES,
+    PHASE_TESTS,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTER = ROOT / "scripts" / "production_family_closure.json"
@@ -72,6 +78,8 @@ class ProductionStageLadderContractTests(unittest.TestCase):
         self.assertEqual(baseline["asset"], "final.mp4")
         self.assertEqual(baseline["size_bytes"], BASELINE_SIZE)
         self.assertEqual(baseline["sha256"], BASELINE_SHA256)
+        self.assertEqual(baseline["role"], BASELINE_ROLE)
+        self.assertFalse(baseline["visual_baseline"])
         self.assertFalse(data["closure_policy"]["historical_fix_alone_is_closure_evidence"])
         self.assertFalse(data["closure_policy"]["production_dispatch_allowed_by_this_register"])
         executed = {module for modules in PHASE_TESTS.values() for module in modules}

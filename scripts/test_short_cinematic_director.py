@@ -84,6 +84,7 @@ class ShortCinematicDirectorTests(unittest.TestCase):
         source = inspect.getsource(director.upgrade_short_cinematic)
         self.assertIn("select_with_recovery(", source)
         self.assertIn("_stable_intent_audit", source)
+        self.assertIn("_short_visual_quality_floor", source)
         self.assertIn("_prepare_m8_clip(", source)
         self.assertIn("_append_rights(", source)
         self.assertIn("cache = VisualCandidateCache()", source)

@@ -109,7 +109,11 @@ class Run200TruthAndForensicsTests(unittest.TestCase):
     def _failed_result(self):
         review = types.SimpleNamespace(
             provider="groq",
-            candidate={"id": 123},
+            candidate={
+                "id": 123,
+                "url": "https://www.pexels.com/video/123/",
+                "duration": 14,
+            },
             from_cache=False,
             audit=dict(TECHNICAL),
         )
@@ -137,6 +141,8 @@ class Run200TruthAndForensicsTests(unittest.TestCase):
             rows = json.loads(partial.read_text(encoding="utf-8"))
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["candidate_id"], 123)
+            self.assertEqual(rows[0]["candidate_url"], "https://www.pexels.com/video/123/")
+            self.assertEqual(rows[0]["candidate_duration_seconds"], 14)
             self.assertFalse(rows[0]["vision_review_performed"])
             self.assertEqual(rows[0]["verdict_authority"], "technical_unavailable")
 
@@ -166,6 +172,22 @@ class Run200TruthAndForensicsTests(unittest.TestCase):
             opening_guard._enforce_truthful_visual_outcome(result, scope="short_cinematic"),
             result,
         )
+
+    def test_failure_artifact_keeps_short_visual_partial_and_prepared_evidence(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "produce-resilient-v4.yml"
+        ).read_text(encoding="utf-8")
+        for required in (
+            "engine/output/*/short-cinematic-visual-audit.partial.json",
+            "engine/output/*/short-visual-timeline.json",
+            "engine/output/*/short-cinematic-v1/prepared/*.m8.json",
+            "engine/output/*/production-failure-diagnostics.json",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, workflow)
 
 
 class Run200CooldownOwnershipTests(unittest.TestCase):

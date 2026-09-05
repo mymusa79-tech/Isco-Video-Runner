@@ -410,7 +410,7 @@ jobs:
           GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
         run: |
           set -euo pipefail
-          python scripts/provider_preflight.py \
+          python -m scripts.provider_preflight \
             --output "$RUNNER_TEMP/provider-preflight.json" \
             --content-model "$GEMINI_CONTENT_MODEL" \
             --tts-model "$GEMINI_TTS_MODEL" \
@@ -550,6 +550,10 @@ jobs:
             engine/output/*/research.json
             engine/output/*/planning-telemetry.json
             engine/output/*/visual-audit.json
+            engine/output/*/short-cinematic-visual-audit.partial.json
+            engine/output/*/short-visual-timeline.json
+            engine/output/*/short-cinematic-v1/prepared/*.m8.json
+            engine/output/*/short-sfx-plan.json
             engine/output/*/final-critic.json
             engine/output/*/ai-budget.json
             engine/output/*/production-manifest.json
@@ -564,6 +568,7 @@ jobs:
             engine/output/*/sibling-short-results.json
             engine/output/*/delivery-manifest.json
             engine/output/*/capability-manifest.json
+            engine/output/*/production-failure-diagnostics.json
             ${{ runner.temp }}/provider-preflight.json
             ${{ runner.temp }}/preproduction-environment.json
             ${{ runner.temp }}/production-certification-gate.json

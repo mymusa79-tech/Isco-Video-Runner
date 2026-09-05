@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -100,7 +102,7 @@ class YoutubeOAuthReadonlyFirewallTests(unittest.TestCase):
         repo_root = Path(__file__).resolve().parents[1]
         production = (repo_root / ".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
 
-        preflight_index = production.index("python scripts/provider_preflight.py")
+        preflight_index = production.index("python -m scripts.provider_preflight")
         produce_index = production.index("- name: Produce with canonical V4 runtime")
         self.assertLess(preflight_index, produce_index)
 
@@ -119,6 +121,32 @@ class YoutubeOAuthReadonlyFirewallTests(unittest.TestCase):
             self.assertNotIn("YOUTUBE_CLIENT_ID", telegram)
             self.assertNotIn("YOUTUBE_CLIENT_SECRET", telegram)
             self.assertNotIn("YOUTUBE_REFRESH_TOKEN", telegram)
+
+    def test_provider_preflight_entrypoints_resolve_package_in_clean_subprocess(self) -> None:
+        """Exercise the real CLI boundary that import-only tests missed in Run 202."""
+        repo_root = Path(__file__).resolve().parents[1]
+        commands = (
+            [sys.executable, "-m", "scripts.provider_preflight", "--help"],
+            [sys.executable, "scripts/provider_preflight.py", "--help"],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["RUNNER_TEMP"] = tmp
+            env.pop("PYTHONPATH", None)
+            for command in commands:
+                with self.subTest(command=command):
+                    completed = subprocess.run(
+                        command,
+                        cwd=repo_root,
+                        env=env,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        check=False,
+                        timeout=30,
+                    )
+                    self.assertEqual(completed.returncode, 0, completed.stderr)
+                    self.assertIn("--output", completed.stdout)
 
 
 if __name__ == "__main__":

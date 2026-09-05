@@ -24,7 +24,7 @@ class SecurityV1PreproductionOrderTests(unittest.TestCase):
         restore = self.text.index("id: restore_state")
         materialize = self.text.index("id: prepare_request")
         providers = self.text.index("id: verify_providers")
-        provider_contract = self.text.index("python scripts/provider_preflight.py")
+        provider_contract = self.text.index("python -m scripts.provider_preflight")
         produce = self.text.index("id: produce_video")
         self.assertLess(gate, install)
         self.assertLess(gate, restore)

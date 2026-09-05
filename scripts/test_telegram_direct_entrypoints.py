@@ -9,6 +9,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/telegram-editorial-control.yml"
+OUTBOX_WORKFLOWS = (
+    ROOT / ".github/workflows/telegram-outbox-send.yml",
+    ROOT / ".github/workflows/telegram-outbox-reconcile.yml",
+)
 
 
 class TelegramDirectEntrypointTests(unittest.TestCase):
@@ -40,6 +44,32 @@ class TelegramDirectEntrypointTests(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_outbox_workflows_use_package_safe_module_entrypoint(self):
+        for path in OUTBOX_WORKFLOWS:
+            with self.subTest(workflow=path.name):
+                workflow = path.read_text(encoding="utf-8")
+                self.assertIn("python -m scripts.telegram_outbox_runtime", workflow)
+                self.assertNotIn("python scripts/telegram_outbox_runtime.py", workflow)
+
+    def test_outbox_module_and_recovery_entrypoints_boot_in_clean_subprocess(self):
+        invocations = (
+            (sys.executable, "-m", "scripts.telegram_outbox_runtime", "--help"),
+            (sys.executable, "scripts/telegram_outbox_runtime.py", "--help"),
+        )
+        for invocation in invocations:
+            with self.subTest(invocation=invocation):
+                result = subprocess.run(
+                    invocation,
+                    cwd=ROOT,
+                    env={"PATH": str(Path(sys.executable).parent)},
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertIn("reconcile-sent", result.stdout)
 
 
 if __name__ == "__main__":

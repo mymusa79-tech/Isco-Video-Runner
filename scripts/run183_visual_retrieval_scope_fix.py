@@ -20,9 +20,10 @@ Run185 also proved that routing the semantic alternate is not sufficient by itse
 Engine prompt labels the value as an "Intended visual concept", so a multimodal judge can
 still treat an ideal/directorial description as a literal shot checklist. Inside canonical
 Production, this layer creates one bounded semantic editorial judgment envelope before the
-provider boundary. The envelope explicitly separates narrative meaning from literal staging
-while still rejecting generic unrelated B-roll. Outside canonical Production, historical
-Run169/V1 observable behavior remains byte-for-byte stable for diagnostics/regression.
+provider boundary. The envelope permits contextual equivalence while requiring a specific
+visible anchor, and rejects mood/setting-only substitutions for person/action intent.
+Outside canonical Production, historical Run169/V1 observable behavior remains byte-for-
+byte stable for diagnostics/regression.
 
 Finally, the semantic judgment policy is included in the Vision contract fingerprint so
 old literal-policy cache verdicts cannot remain authoritative after this change.
@@ -48,8 +49,8 @@ from scripts import visual_retrieval_adjudication_v1 as v1
 
 
 _INSTALLED = False
-RUN185_JUDGMENT_CONTRACT_ID = "run185-semantic-visual-judgment-v1"
-RUN185_JUDGMENT_POLICY = "semantic-equivalence-not-literal-checklist-v1"
+RUN185_JUDGMENT_CONTRACT_ID = "run185-semantic-visual-judgment-v2"
+RUN185_JUDGMENT_POLICY = "semantic-equivalence-with-specific-anchor-v2"
 MAX_ENGINE_INTENDED_VISUAL_CHARS = 300
 _REVIEWED_CURRENT_SELECTOR: ContextVar[set[tuple[str, object]] | None] = ContextVar(
     "isco_run183_reviewed_current_selector",
@@ -144,11 +145,11 @@ def _semantic_judgment_intent(value: object) -> str:
     raw = " ".join(str(value or "").split()).strip()
     if raw.startswith("Intent:") and "SEMANTIC POLICY:" in raw:
         return raw[:MAX_ENGINE_INTENDED_VISUAL_CHARS]
-    raw = raw[:91]
+    raw = raw[:86]
     envelope = (
-        f"Intent: {raw}. SEMANTIC POLICY: meaning, not literal shot checklist. "
-        "Named people/objects/actions/props need not all appear. "
-        "Accept specific semantic-equivalent/contextual coverage; reject generic unrelated B-roll."
+        f"Intent: {raw}. SEMANTIC POLICY: equivalents; not literal shot checklist. "
+        "Person/action intent needs visible human/action evidence; mood/setting alone fails. "
+        "Other intent needs specific anchor. Reject generic B-roll."
     )
     if len(envelope) > MAX_ENGINE_INTENDED_VISUAL_CHARS:
         raise AssertionError("Run185 semantic judgment envelope exceeded Engine 300-char contract")
@@ -391,6 +392,6 @@ def install_run183_visual_retrieval_scope_fix(
     print(
         "Run183 Visual Retrieval scope fix installed: production-only semantic ladder/intent; "
         "current-selector review registry includes cache hits; Run185 trusted semantic recovery + "
-        "anti-literal semantic judgment contract; Vision cache fingerprint versioned; "
+        "specific-anchor semantic judgment contract; Vision cache fingerprint versioned; "
         "historical Run169/V1 diagnostics preserved"
     )

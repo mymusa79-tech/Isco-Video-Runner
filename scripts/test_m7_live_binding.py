@@ -7,6 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from isco_video_agent.models import ProductionPlan, ScriptSection
+
 import scripts.m7_live_binding as bridge
 
 
@@ -114,6 +116,91 @@ class M7RunnerInstallerTests(unittest.TestCase):
         prepare.assert_called_once_with(
             expected_raw, destination, 7.5, portrait=False, fps=30
         )
+
+    def test_m7_semantic_body_resolves_live_m8_prepare_instead_of_import_time_default(self) -> None:
+        captured = {}
+
+        def materialize(_timeline, **kwargs):
+            captured.update(kwargs)
+            return [], [], []
+
+        def live_prepare(*_args, **_kwargs):
+            return Path("prepared.mp4")
+
+        with patch.object(bridge.engine_m7, "materialize_semantic_body", materialize), patch.object(
+            bridge.media_ffmpeg, "prepare_clip", live_prepare
+        ):
+            with bridge._m7_dynamic_prepare_scope():
+                bridge.engine_m7.materialize_semantic_body({"final_cut_visuals": []})
+
+        self.assertIs(captured["prepare_clip_fn"], live_prepare)
+
+    def test_m7_timeline_preserves_every_adaptive_opening_clip_and_duration(self) -> None:
+        plan = ProductionPlan(
+            topic="topic",
+            pillar="understand",
+            format="film",
+            hook="hook",
+            title_options=["title"],
+            thumbnail_concepts=["thumb"],
+            sections=[
+                ScriptSection("s1", "opening", "opening visual"),
+                ScriptSection("s2", "body", "body visual"),
+            ],
+            cta="cta",
+            closing_payoff="payoff",
+        )
+        slots = (
+            ("cold_open", 1, False, True),
+            ("escalation", 2, False, True),
+            ("promise", 3, True, False),
+            ("body_1", 4, False, False),
+        )
+        audits = [{
+            "section": "s1",
+            "status": "block",
+            "provider": "pexels",
+            "candidate_id": 999,
+            "reason": "earlier rejected review",
+        }] + [
+            {
+                "section": "s1",
+                "status": "pass",
+                "opening_slot": slot,
+                "provider": "pexels",
+                "candidate_id": asset_id,
+                "is_selected": selected,
+                "is_final_cut_auxiliary": auxiliary,
+                "is_section_sequence_member": slot == "body_1",
+            }
+            for slot, asset_id, selected, auxiliary in slots
+        ] + [{
+            "section": "s2",
+            "status": "pass",
+            "provider": "pixabay",
+            "candidate_id": 5,
+            "is_selected": True,
+            "is_final_cut_auxiliary": False,
+        }]
+        original = bridge.engine_m7._legacy_entries_from_audits
+        with bridge._m7_adaptive_opening_scope():
+            entries = bridge.engine_m7._legacy_entries_from_audits(
+                plan,
+                section_durations=[62.3, 20.0],
+                visual_audits=audits,
+            )
+
+        self.assertEqual(
+            [entry["slot_key"] for entry in entries],
+            ["cold_open", "escalation", "promise", "body_1", "single"],
+        )
+        self.assertAlmostEqual(sum(entry["duration_seconds"] for entry in entries[:4]), 62.3)
+        self.assertAlmostEqual(entries[4]["duration_seconds"], 20.0)
+        self.assertEqual(
+            [entry["final_cut_audit_reference"]["json_pointer"] for entry in entries],
+            ["/1", "/2", "/3", "/4", "/5"],
+        )
+        self.assertIs(bridge.engine_m7._legacy_entries_from_audits, original)
 
 
 if __name__ == "__main__":

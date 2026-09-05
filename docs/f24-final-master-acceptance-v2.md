@@ -28,7 +28,7 @@ The certified core continues to own its existing H.264/yuv420p/30fps/AAC/48k and
 
 ## Stage Ladder
 
-- P4 runs the exact `video-50` known-good baseline through certified core → F24 composition and proves the certified final SHA equals the baseline SHA without media mutation.
+- P4 runs the exact immutable `video-50` delivery-integrity fixture through certified core → F24 composition and proves the certified final SHA equals the fixture SHA without media mutation. Run50 predates the current montage stack, so this replay is not visual-quality evidence for current Short or long output.
 - P5 proves Gold accepts the same bytes and preserves its same-render invariant.
 - P6 proves Unified Delivery still carries that exact P4-certified SHA while publication remains false.
 - F24-specific unit/fault tests run in P4; existing historical family evidence is preserved rather than rewritten.
