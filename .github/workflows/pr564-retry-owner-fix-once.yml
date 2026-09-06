@@ -29,43 +29,36 @@ jobs:
 
           path = Path("scripts/planning_stage_contract.py")
           text = path.read_text(encoding="utf-8")
-          old = '''                    if (
-                        contract.provider_policy.second_pass_after_full_exhaustion
-                        and round_index == 1
-                        and deferred_retry_providers
-                        and total_attempts < contract.provider_policy.max_total_attempts
-                    ):
-                        time.sleep(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
-                        continue
-          '''
-          new = '''                    if (
-                        contract.provider_policy.second_pass_after_full_exhaustion
-                        and round_index == 1
-                        and deferred_retry_providers
-                        and total_attempts < contract.provider_policy.max_total_attempts
-                    ):
-                        # The deferred round owns this bounded cooldown. Clear only the
-                        # provider-local timestamps for providers explicitly authorized
-                        # for round two so the same cooldown is not enforced twice.
-                        time.sleep(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
-                        for provider in deferred_retry_providers:
-                            transient_cooldown_until.pop(provider, None)
-                        continue
-          '''
-          if old not in text:
-              if "The deferred round owns this bounded cooldown" in text:
-                  print("PR564 retry cooldown owner fix already applied")
-                  raise SystemExit(0)
-              raise SystemExit("expected PR564 retry block not found")
-          if text.count(old) != 1:
-              raise SystemExit(f"expected exactly one PR564 retry block, found {text.count(old)}")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
-          PY
+          marker = "The deferred round owns this bounded cooldown"
+          if marker in text:
+              print("PR564 retry cooldown owner fix already applied")
+              raise SystemExit(0)
 
-          if git diff --quiet -- scripts/planning_stage_contract.py; then
-            echo "No patch needed"
-            exit 0
-          fi
+          lines = text.splitlines(keepends=True)
+          matches = []
+          for i, line in enumerate(lines):
+              if line.strip() != "time.sleep(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)":
+                  continue
+              context = "".join(lines[max(0, i - 8):i])
+              if "second_pass_after_full_exhaustion" in context and "deferred_retry_providers" in context:
+                  matches.append(i)
+
+          if len(matches) != 1:
+              raise SystemExit(f"expected one deferred-round cooldown line, found {len(matches)}")
+
+          i = matches[0]
+          indent = lines[i][: len(lines[i]) - len(lines[i].lstrip())]
+          insertion = [
+              indent + "# The deferred round owns this bounded cooldown. Clear only the\n",
+              indent + "# provider-local timestamps for providers explicitly authorized\n",
+              indent + "# for round two so the same cooldown is not enforced twice.\n",
+              lines[i],
+              indent + "for provider in deferred_retry_providers:\n",
+              indent + "    transient_cooldown_until.pop(provider, None)\n",
+          ]
+          lines[i:i + 1] = insertion
+          path.write_text("".join(lines), encoding="utf-8")
+          PY
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
