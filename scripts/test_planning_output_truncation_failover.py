@@ -35,7 +35,7 @@ def _script(ids: list[str]) -> dict:
 
 
 class PlanningOutputTruncationFailoverTests(unittest.TestCase):
-    """Regression for the production outline-provider truncation collision."""
+    """Regression for provider-first failover plus selective transient retry."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -95,32 +95,37 @@ class PlanningOutputTruncationFailoverTests(unittest.TestCase):
         )
         return dataclasses.replace(base, provider_policy=policy)
 
-    def test_truncation_is_not_hard_capacity(self) -> None:
+    def test_truncation_is_not_hard_capacity_but_is_not_retry_eligible(self) -> None:
         spec = self._second_pass_spec()
         bound = contract.bind_request_contract(spec, "prompt")
-        classified, _retryable, _retry_after, _failure = contract._provider_failure(
+        classified, retryable, _retry_after, _failure = contract._provider_failure(
             bound,
             "gemini",
             RuntimeError(_GEMINI_OUTPUT_TRUNCATED),
         )
         self.assertEqual(classified.code, contract.PlanningErrorCode.PROVIDER_TRANSIENT)
+        self.assertFalse(retryable)
 
-    def test_exact_collision_uses_reserved_second_sweep_and_recovers(self) -> None:
+    def test_collision_retries_only_retryable_groq_after_all_families_are_tried(self) -> None:
         valid = _script(["s1"])
         calls = {"gemini": 0, "groq": 0, "openrouter": 0}
+        order: list[str] = []
 
         def fake_gemini(*_args, **_kwargs):
             calls["gemini"] += 1
+            order.append("gemini")
             raise RuntimeError(_GEMINI_OUTPUT_TRUNCATED)
 
         def fake_groq(_prompt):
             calls["groq"] += 1
+            order.append("groq")
             if calls["groq"] == 1:
                 raise RuntimeError(_GROQ_JSON_VALIDATE_FAILED)
             return valid
 
         def fake_openrouter(*_args, **_kwargs):
             calls["openrouter"] += 1
+            order.append("openrouter")
             raise RuntimeError(_OPENROUTER_SPEND_BLOCKED)
 
         with patch.object(router, "gemini_json_text", side_effect=fake_gemini), \
@@ -130,10 +135,11 @@ class PlanningOutputTruncationFailoverTests(unittest.TestCase):
             result = staged.json_text("unused", "prompt")
 
         self.assertEqual(result, valid)
-        self.assertEqual(calls, {"gemini": 2, "groq": 2, "openrouter": 1})
+        self.assertEqual(calls, {"gemini": 1, "groq": 2, "openrouter": 1})
+        self.assertEqual(order, ["gemini", "groq", "openrouter", "groq"])
         self.contract_sleep_mock.assert_any_call(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
 
-    def test_real_hard_capacity_still_blocks_second_sweep(self) -> None:
+    def test_terminal_failure_does_not_suppress_other_provider_transient_retry(self) -> None:
         calls = {"gemini": 0, "groq": 0, "openrouter": 0}
 
         def fake_gemini(*_args, **_kwargs):
@@ -152,11 +158,11 @@ class PlanningOutputTruncationFailoverTests(unittest.TestCase):
                 patch.object(router, "_groq_call", side_effect=fake_groq), \
                 patch.object(router, "_openrouter_call_with_repair", side_effect=fake_openrouter), \
                 contract.request_stage_scope(self._second_pass_spec()):
-            with self.assertRaisesRegex(contract.PlanningStageError, r"exhausted after 3/6 attempts"):
+            with self.assertRaisesRegex(contract.PlanningStageError, r"exhausted after 4/6 attempts"):
                 staged.json_text("unused", "prompt")
 
-        self.assertEqual(calls, {"gemini": 1, "groq": 1, "openrouter": 1})
-        self.contract_sleep_mock.assert_not_called()
+        self.assertEqual(calls, {"gemini": 1, "groq": 2, "openrouter": 1})
+        self.contract_sleep_mock.assert_any_call(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
 
 
 if __name__ == "__main__":
