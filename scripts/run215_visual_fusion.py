@@ -17,8 +17,8 @@ selector or retry loop:
   corrective-query evidence can outrank generic primary-query hits after primary fails;
 * turn severe multimodal Vision BLOCKs from the current attempt into bounded
   hard-negative semantic prototypes, then penalize similar recovery candidates locally;
-* reset those hard negatives on the next primary pool so feedback cannot leak across
-  beats or requests;
+* reset those hard negatives at the start of each selector audit scope so feedback cannot
+  leak across beats or requests while remaining available to that selector's recovery;
 * keep Run214's exact CanonicalVisualIntent authoritative for Vision;
 * keep all Quality/Security/Cultural/Islamic thresholds and the four-review Vision ceiling
   unchanged;
@@ -130,6 +130,10 @@ def _vision_feedback_audit_factory(current_factory: Callable):
 
     @wraps(current_factory)
     def factory(audit_fn, intended_visual: str):
+        # The factory is invoked once at the start of each Opening/Section/Single/Short
+        # selector scope. Reset here—not in recovery fusion—so primary Vision BLOCKs stay
+        # available to that same selector's recovery, but never leak into the next beat.
+        _VISION_NEGATIVES.set({})
         wrapped = current_factory(audit_fn, intended_visual)
         canonical = str(intended_visual or "").strip()
 
@@ -171,20 +175,12 @@ def _rank_source(query: str, provider: str, rank: int, phase: str) -> dict:
 
 
 def _merge_with_rank_provenance(current: Callable):
-    """Preserve Run183 dedup semantics while accumulating retrieval-rank evidence.
-
-    A single pool is the beginning of a fresh primary attempt. Clear semantic hard-negative
-    memory there so feedback from an earlier beat/request cannot affect a new attempt.
-    Multi-pool recovery keeps the current attempt's primary Vision feedback available.
-    """
+    """Preserve Run183 dedup semantics while accumulating all retrieval-rank evidence."""
     if getattr(current, "_isco_run215_rank_provenance", False):
         return current
 
     @wraps(current)
     def wrapped(pools, *, excluded_pairs):
-        if isinstance(pools, (list, tuple)) and len(pools) <= 1:
-            _VISION_NEGATIVES.set({})
-
         merged = current(pools, excluded_pairs=excluded_pairs)
         if not isinstance(merged, dict):
             return merged
