@@ -121,8 +121,8 @@ class EngineRunnerContractEvolutionTests(unittest.TestCase):
         self.assertEqual(len(intent["editorial_fingerprint"]), 24)
         self.assertIsInstance(intent["persona_version"], int)
         measured = split.locked_premise_utf8_bytes(premise)
-        self.assertLessEqual(measured, split.LOCKED_PREMISE_MAX_UTF8_BYTES)
-        self.assertGreaterEqual(measured, int(split.LOCKED_PREMISE_MAX_UTF8_BYTES * 0.90))
+        self.assertEqual(measured, split.LOCKED_PREMISE_MAX_UTF8_BYTES)
+        self.assertEqual(premise["pillar"], "understand")
 
     def test_real_pinned_engine_outline_canonicalizes_between_the_two_calls(self) -> None:
         engine_outline = inspect.unwrap(staged._outline)
