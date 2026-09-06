@@ -14,6 +14,7 @@ from isco_video_agent.cinematic_cta import (
     schedule_cta,
     write_cta_report,
 )
+from scripts.visual_punctuation_live_binding import visual_punctuation_live_scope
 
 
 _REPORT_NAME = "cta-plan.json"
@@ -174,8 +175,13 @@ def install_cta_live_binding() -> None:
         return
 
     def wrapped(*args, **kwargs):
-        with cta_live_scope():
-            return current(*args, **kwargs)
+        # Visual punctuation is the outer mux scope and CTA the inner one. Therefore
+        # the final mux chain is M10 -> CTA -> visual punctuation -> core. The new
+        # director sees CTA/M10 reports and the already-rendered CTA picture, so it can
+        # avoid actual occupied intervals while preserving the certified stable port.
+        with visual_punctuation_live_scope():
+            with cta_live_scope():
+                return current(*args, **kwargs)
 
     wrapped._isco_cta_live_binding = True
     wrapped._isco_cta_original = current

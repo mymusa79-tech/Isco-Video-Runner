@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_ENGINE_SHA: 69b21dd1c10f196c623e5b426bccd574a80accf5
+  EXPECTED_ENGINE_SHA: 4f726df0d9dd20c68bc0c0f096320dc9c7369aeb
   STATIC_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
 
 jobs:
@@ -96,7 +96,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 69b21dd1c10f196c623e5b426bccd574a80accf5
+          ref: 4f726df0d9dd20c68bc0c0f096320dc9c7369aeb
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -197,7 +197,7 @@ jobs:
               json.dumps({"topic": topic, "format": fmt}, ensure_ascii=False), encoding="utf-8"
           )
           request.chmod(0o600)
-          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
+          with Path(os.environ["GITHUB_OUTPUT"]).open('a', encoding='utf-8') as fh:
               fh.write(f"brief_sha256={os.environ['ISCO_APPROVED_BRIEF_SHA256']}\n")
           print(f"Approved production brief validated before secret materialization: format={fmt}")
           PY
@@ -462,7 +462,7 @@ jobs:
           YOUTUBE_CLIENT_ID_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-id
           YOUTUBE_CLIENT_SECRET_FILE: ${{ runner.temp }}/isco-secrets/youtube-client-secret
           YOUTUBE_REFRESH_TOKEN_FILE: ${{ runner.temp }}/isco-secrets/youtube-refresh-token
-          ISCO_ENGINE_SHA: 69b21dd1c10f196c623e5b426bccd574a80accf5
+          ISCO_ENGINE_SHA: 4f726df0d9dd20c68bc0c0f096320dc9c7369aeb
           ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
           ISCO_APPROVED_BRIEF_SHA256: ${{ steps.validate_brief.outputs.brief_sha256 }}
           ISCO_TTS_CACHE_PATH: ${{ runner.temp }}/isco-tts-cache
