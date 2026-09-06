@@ -32,7 +32,7 @@ class ShortsStablePortTests(unittest.TestCase):
         self.assertIs(raised.exception, error)
         prepare.assert_called_once_with(out, request)
 
-    def test_authoritative_pre_gold_seam_orders_prepare_voice_then_re_qc(self) -> None:
+    def test_authoritative_pre_gold_seam_orders_prepare_voice_live_audio_refresh_then_re_qc(self) -> None:
         out = Path("output/run")
         request = {"kind": "short", "request_id": "req-1"}
         ledger = object()
@@ -50,13 +50,21 @@ class ShortsStablePortTests(unittest.TestCase):
             order.append("voice")
             return voiced
 
+        def live_refresh(root, final_path):
+            self.assertEqual(root, out)
+            self.assertEqual(final_path, out / "final.mp4")
+            order.append("live-refresh")
+            return {"format": "moment", "audio_streams": 1}
+
         def qc(_out):
             order.append("qc")
             return {"status": "pass", "final_media_mutated": False}
 
         with patch.object(core, "prepare_short_render", side_effect=prepare) as prepare_mock, patch.object(
             port, "apply_voice_owned_short", side_effect=voice
-        ) as voice_mock:
+        ) as voice_mock, patch.object(
+            port.short_voice_v2, "_refresh_quality_final", side_effect=live_refresh
+        ) as refresh_mock:
             result = port.prepare_authoritative_short_for_gold(
                 out,
                 request,
@@ -66,15 +74,45 @@ class ShortsStablePortTests(unittest.TestCase):
 
         self.assertIs(result, voiced)
         self.assertTrue(result["authoritative_final_master_qc_rerun"])
-        self.assertEqual(order, ["prepare", "voice", "qc"])
+        self.assertEqual(order, ["prepare", "voice", "live-refresh", "qc"])
         prepare_mock.assert_called_once()
         voice_mock.assert_called_once()
+        refresh_mock.assert_called_once_with(out, out / "final.mp4")
+
+    def test_run219_uses_late_bound_short_refresh_replacement_not_imported_callable(self) -> None:
+        out = Path("output/run")
+        request = {"kind": "short", "request_id": "req-run219"}
+        observed: list[str] = []
+
+        def replacement(root, final_path):
+            observed.append("replacement")
+            self.assertEqual(root, out)
+            self.assertEqual(final_path, out / "final.mp4")
+            return {"format": "moment"}
+
+        # The replacement is installed after orchestration_shorts_port was imported,
+        # matching production where Audio Producer patches short_voice_v2 at runtime.
+        with patch.object(core, "prepare_short_render", return_value={"stage": "pre_gold"}), patch.object(
+            port, "apply_voice_owned_short", return_value={"stage": "pre_gold"}
+        ), patch.object(
+            port.short_voice_v2, "_refresh_quality_final", replacement
+        ):
+            port.prepare_authoritative_short_for_gold(
+                out,
+                request,
+                ledger=object(),
+                run_final_master_qc=lambda _out: {"status": "pass", "final_media_mutated": False},
+            )
+
+        self.assertEqual(observed, ["replacement"])
 
     def test_authoritative_pre_gold_seam_blocks_failed_re_qc(self) -> None:
         out = Path("output/run")
         request = {"kind": "short", "request_id": "req-1"}
         with patch.object(core, "prepare_short_render", return_value={"stage": "pre_gold"}), patch.object(
             port, "apply_voice_owned_short", return_value={"stage": "pre_gold"}
+        ), patch.object(
+            port.short_voice_v2, "_refresh_quality_final", return_value={"format": "moment"}
         ):
             with self.assertRaisesRegex(RuntimeError, "authoritative Final Master QC did not pass"):
                 port.prepare_authoritative_short_for_gold(
@@ -158,6 +196,7 @@ class ShortsStablePortTests(unittest.TestCase):
             "time.sleep",
             "try:",
             "except ",
+            "resolve_audio_producer_handoff",
         ):
             self.assertNotIn(forbidden, source)
         self.assertEqual(source.count("core.prepare_short_render(output_dir, control_request)"), 2)
@@ -166,7 +205,10 @@ class ShortsStablePortTests(unittest.TestCase):
         )
         self.assertIn("apply_voice_owned_short(", source)
         self.assertNotIn("apply_short_voice_v2(", source)
-        self.assertIn("run_final_master_qc(output_dir)", source)
+        self.assertEqual(source.count("short_voice_v2._refresh_quality_final("), 1)
+        refresh_index = source.index("short_voice_v2._refresh_quality_final(")
+        qc_index = source.index("run_final_master_qc(output_dir)")
+        self.assertLess(refresh_index, qc_index)
         self.assertIn('PROVIDER_OWNER = "canonical-short-child-core"', source)
         self.assertIn('RETRY_OWNER = "canonical-short-child-core"', source)
 
