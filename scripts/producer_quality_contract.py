@@ -14,12 +14,13 @@ import isco_video_agent.orchestrator as orchestrator
 REPORT_FILENAME = "producer-handoff-quality.json"
 SCHEMA_VERSION = 1
 
+# Keep the provider-facing Producer instruction semantically complete but transport-
+# compact. The deterministic acceptance rules below remain the authority; this text is
+# guidance, not a replacement for any factuality/template/representation gate.
 _PRODUCER_DIRECTIVE = (
-    "Producer pre-gate: use precise factual/scientific/psychological/medical/statistical/legal/political/religious claims only "
-    "when supported by APPROVED_RESEARCH_PACK; otherwise use modest non-technical observation. Write natural specific MSA, "
-    "non-diagnostic, non-preachy, without generic AI motivation. Preserve the selected narrative/template and give each "
-    "section/beat a distinct useful job. Moment: no direct commands in story beats, no list-serialized on_screen_text, and make "
-    "the selected template progression visible in actual viewer-facing wording."
+    "Producer pre-gate: precise factual/high-risk claims require APPROVED_RESEARCH_PACK; otherwise use modest non-technical "
+    "wording. Use specific natural MSA; non-diagnostic, non-preachy, no generic AI motivation. Preserve narrative/template and "
+    "distinct beats. Moment: no direct commands or serialized-list on_screen_text; show template progression."
 )
 
 _SHORT_TEMPLATE_CONTRACTS = {

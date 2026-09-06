@@ -264,12 +264,13 @@ def _split_outline_envelopes(
     fmt: str,
     research: dict,
 ) -> tuple[dict, dict, int, int]:
-    """Return exact Core + worst-allowed Sections capacities from pinned Engine ports."""
+    """Return exact Producer-enriched Core + worst-allowed Sections capacities."""
     topic = str(brief["approved_topic"])
     policy_json = json.dumps(load_editorial_policy(), ensure_ascii=False)
     research_json = json.dumps(research, ensure_ascii=False)
     avoid_json = json.dumps(novelty_context(), ensure_ascii=False)
     learning_json = json.dumps(learning_context(fmt), ensure_ascii=False)
+    producer_revision = merge_producer_revision_note("", research)
 
     core_spec = outline_core_stage_spec_for_format(fmt)
     sections_spec = outline_sections_stage_spec_for_format(fmt)
@@ -281,13 +282,14 @@ def _split_outline_envelopes(
         research_json=research_json,
         avoid_json=avoid_json,
         learning_json=learning_json,
-        revision_note="",
+        revision_note=producer_revision,
     )
     core_enriched = _effective_split_provider_prompt(core_prompt, core_spec, core=True)
 
     # Call 1b is input-dependent. Size it at the exact hard runtime Core portability
     # boundary rather than the deprecated combined build_outline_prompt or an impossible
-    # unbounded synthetic result.
+    # unbounded synthetic result. The same Producer revision used by live build_plan()
+    # is included here, so preflight cannot certify a smaller envelope than runtime.
     premise = _bounded_preflight_locked_premise()
     sections_prompt = build_outline_sections_prompt(
         topic=topic,
@@ -295,7 +297,7 @@ def _split_outline_envelopes(
         policy_json=policy_json,
         research_json=research_json,
         avoid_json=avoid_json,
-        revision_note="",
+        revision_note=producer_revision,
         narrative_format=str(premise["narrative_format"]),
         editorial_intent=dict(premise["editorial_intent"]),
         pillar=str(premise["pillar"]),
@@ -432,7 +434,8 @@ def certify_planning_envelope() -> PlanningEnvelopeCertification:
         runtime_token_admission=(
             "p0_two_provider_families+groq_operational_headroom+"
             "split_outline_max_of_core_sections+locked_premise_runtime_bound+"
-            "provider_set_dynamic+exact_writer+observable_media_margin"
+            "producer_revision_runtime_parity+provider_set_dynamic+exact_writer+"
+            "observable_media_margin"
         ),
     )
 
