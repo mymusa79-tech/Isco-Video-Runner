@@ -2,7 +2,7 @@
   "schema_version": 2,
   "historical_window": {
     "first_run": 51,
-    "last_run": 213,
+    "last_run": 214,
     "known_good_baseline": {
       "release_tag": "video-50",
       "runner_commit": "a98bc309d52159d65ef6ac65e516beaab344a32e",
@@ -66,7 +66,7 @@
     {"id":"C28","runs":"203","required_phases":["P0"],"purpose":"Long format ingress, immutable approved-brief normalization and active-state migration recertification"},
     {"id":"C29","runs":"204-209","required_phases":["P1"],"purpose":"Long split-outline structured-output, Engine domain evolution, provider-specific output headroom and bounded Groq TPM-window recovery recertification"},
     {"id":"C30","runs":"210","required_phases":["P1"],"purpose":"Producer-enriched planning envelope parity and provider-specific bounded transient retry recertification"},
-    {"id":"C31","runs":"211-213","required_phases":["P3"],"purpose":"semantic visual recovery fusion, bounded Short candidate-utilization and active-beat semantic precision recertification"}
+    {"id":"C31","runs":"211-214","required_phases":["P3"],"purpose":"semantic visual recovery fusion, bounded candidate-utilization, active-beat precision and canonical intent/search separation recertification"}
   ],
   "incident_ledger": {
     "enforcement_from": 184,
@@ -100,7 +100,8 @@
       {"run":210,"format":"long","failure_phase":"P1","failure_signature":"preflight_runtime_producer_envelope_drift_with_mixed_provider_exhaustion","family_ids":["F38"]},
       {"run":211,"format":"short","failure_phase":"P3","failure_signature":"visual_recovery_stranded_unreviewed_primary_candidates_after_large_retrieval","family_ids":["F29"]},
       {"run":212,"format":"short","failure_phase":"P3","failure_signature":"short_visual_candidate_utilization_query_compaction_and_hard_negative_reuse","family_ids":["F29"]},
-      {"run":213,"format":"short","failure_phase":"P3","failure_signature":"short_visual_recovery_prioritized_topic_over_active_beat_semantics","family_ids":["F29"]}
+      {"run":213,"format":"short","failure_phase":"P3","failure_signature":"short_visual_recovery_prioritized_topic_over_active_beat_semantics","family_ids":["F29"]},
+      {"run":214,"format":"short","failure_phase":"P3","failure_signature":"core_short_visual_recovery_promoted_search_query_over_canonical_intent","family_ids":["F29"]}
     ]
   },
   "families": [
@@ -274,7 +275,7 @@
     },
     {
       "id":"F29","name":"semantic_visual_retrieval_qr_and_adjudication",
-      "historical_runs":["183-185","201","211-213"],
+      "historical_runs":["183-185","201","211-214"],
       "required_phases":["P3"],
       "contracts":["scripts.test_run183_visual_retrieval_closure","scripts.test_run184_qr_confirmation_closure","scripts.test_run184_qr_runtime_scope","scripts.test_run185_semantic_visual_adjudication","scripts.test_run201_qr_post_core_scope","scripts.test_run212_visual_candidate_utilization"]
     },
