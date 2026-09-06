@@ -5,6 +5,7 @@ from unittest import mock
 
 from scripts import planning_envelope_preflight as preflight
 from scripts import planning_outline_split_contract as split
+from scripts import planning_provider_visible_semantics as visible
 from scripts import producer_quality_contract as producer
 
 
@@ -69,11 +70,28 @@ class PlanningEnvelopeRuntimeParityTests(unittest.TestCase):
             {"approved_research_pack": [{"claim": "approved"}]}
         )
         self.assertIn("APPROVED_RESEARCH_PACK", directive)
+        self.assertIn("precise/high-risk", directive)
         self.assertIn("non-diagnostic", directive)
         self.assertIn("non-preachy", directive)
         self.assertIn("template progression", directive)
-        self.assertLess(len(directive.encode("utf-8")), 450)
+        self.assertLess(len(directive.encode("utf-8")), 360)
         self.assertTrue(callable(producer.validate_plan_for_producer_handoff))
+
+    def test_provider_visible_pillar_guidance_is_compact_and_schema_remains_authoritative(self) -> None:
+        spec = split.outline_core_stage_spec_for_format("film")
+        prompt = visible._provider_visible_prompt("CORE", spec)
+        self.assertIn(visible._VISIBLE_MARKER, prompt)
+        for pillar in visible.PLANNING_PILLARS:
+            self.assertIn(pillar, prompt)
+        self.assertIn("translate/rename/invent", prompt)
+        self.assertLess(len(prompt.encode("utf-8")), 150)
+
+        contract = split.stage_contract.bind_request_contract(spec, "CORE")
+        upgraded = visible._with_pillar_schema(contract)
+        self.assertEqual(
+            upgraded.output_schema["properties"]["pillar"]["enum"],
+            list(visible.PLANNING_PILLARS),
+        )
 
 
 class PlanningSplitRetryPolicyTests(unittest.TestCase):
