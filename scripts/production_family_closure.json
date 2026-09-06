@@ -51,7 +51,7 @@
     {"id":"C13","runs":"157-160","required_phases":["P0","P1","P6"],"purpose":"Text Audit provider-pool isolation and bounded external scholarly-research reliability recertification"},
     {"id":"C14","runs":"161-166","required_phases":["P0","P1","P2","P3","P4","P6"],"purpose":"Short effective-envelope and Producer lifecycle composition continuity recertification"},
     {"id":"C15","runs":"167","required_phases":["P0","P1"],"purpose":"Text Audit capacity ownership and bounded pre-wire pacing recertification"},
-    {"id":"C16","runs":"168","required_phases":["P1"],"purpose":"provider-visible Planning semantic contract recertification"},
+    {"id":"C16","runs":"168","required_phases":["P0","P1"],"purpose":"provider-visible Planning semantic contract recertification"},
     {"id":"C17","runs":"169","required_phases":["P2","P3","P4"],"purpose":"truthful visual retrieval/Vision availability plus Audio Producer lifecycle recertification"},
     {"id":"C18","runs":"170","required_phases":["P0","P1"],"purpose":"Planning Stage Contract terminal-reset composition and durable checkpoint ownership recertification"},
     {"id":"C19","runs":"171-178","required_phases":["P0","P1","P2","P3","P4","P5","P6"],"purpose":"post-Run170 integrated production continuity before the representation/vision incident series"},
