@@ -6,10 +6,6 @@ from unittest import mock
 from scripts import planning_envelope_preflight as preflight
 from scripts import planning_outline_split_contract as split
 from scripts import producer_quality_contract as producer
-from scripts.planning_split_retry_policy import (
-    install_planning_split_retry_policy,
-    split_retry_provider_policy,
-)
 
 
 class PlanningEnvelopeRuntimeParityTests(unittest.TestCase):
@@ -81,28 +77,20 @@ class PlanningEnvelopeRuntimeParityTests(unittest.TestCase):
 
 
 class PlanningSplitRetryPolicyTests(unittest.TestCase):
-    def test_split_policy_adds_only_one_bounded_per_provider_retry_slot(self) -> None:
-        policy = split_retry_provider_policy()
-        self.assertEqual(policy.max_attempts_per_provider, 2)
-        self.assertEqual(policy.max_total_attempts, 6)
-        self.assertEqual(policy.completion_tokens, split._COMPLETION_TOKENS)
-        self.assertEqual(
-            policy.completion_tokens_for("gemini"),
-            split._GEMINI_COMPLETION_TOKENS,
-        )
-        self.assertTrue(policy.second_pass_after_full_exhaustion)
-
-    def test_installer_changes_split_spec_policy_without_touching_budgets(self) -> None:
-        original = split._split_provider_policy
-        try:
-            install_planning_split_retry_policy()
-            policy = split.outline_core_stage_spec_for_format("film").provider_policy
-            self.assertEqual(policy.max_attempts_per_provider, 2)
+    def test_split_policy_keeps_provider_first_single_attempt_sweep(self) -> None:
+        for spec in (
+            split.outline_core_stage_spec_for_format("film"),
+            split.outline_sections_stage_spec_for_format("film"),
+        ):
+            policy = spec.provider_policy
+            self.assertEqual(policy.max_attempts_per_provider, 1)
             self.assertEqual(policy.max_total_attempts, 6)
-            self.assertEqual(policy.completion_tokens, 2400)
-            self.assertEqual(policy.completion_tokens_for("gemini"), 4800)
-        finally:
-            split._split_provider_policy = original
+            self.assertEqual(policy.completion_tokens, split._COMPLETION_TOKENS)
+            self.assertEqual(
+                policy.completion_tokens_for("gemini"),
+                split._GEMINI_COMPLETION_TOKENS,
+            )
+            self.assertTrue(policy.second_pass_after_full_exhaustion)
 
 
 if __name__ == "__main__":
