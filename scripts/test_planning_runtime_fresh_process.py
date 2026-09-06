@@ -75,7 +75,7 @@ class PlanningRuntimeFreshProcessTests(unittest.TestCase):
             assert "GEMINI_API_KEY" not in os.environ
 
             seen = {}
-            def fake_gemini(api_key, prompt, model="gemini-2.5-flash"):
+            def fake_gemini(api_key, prompt, model="gemini-2.5-flash", **kwargs):
                 seen["api_key"] = api_key
                 return {
                     "sections": [

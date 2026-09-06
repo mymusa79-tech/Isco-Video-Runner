@@ -123,7 +123,7 @@ class PlanningStageContractTests(unittest.TestCase):
         valid = _script(ids)
         seen: dict[str, str] = {}
 
-        def fake_gemini(api_key, prompt, model="gemini-2.5-flash"):
+        def fake_gemini(api_key, prompt, model="gemini-2.5-flash", **kwargs):
             seen.update(api_key=api_key, prompt=prompt, model=model)
             return valid
 
@@ -367,6 +367,22 @@ class ProviderFailureBookkeepingResilienceTests(unittest.TestCase):
         with patch.object(router, "_record_attempt", side_effect=KeyError("some_unexpected_key")):
             contract._safe_record_attempt("groq", "some_result", error_detail="detail")
         # No exception means the defect in telemetry recording never reached the caller.
+
+    def test_completion_tokens_for_falls_back_to_the_shared_budget_without_an_override(self) -> None:
+        spec = contract.script_stage_spec("full_script", ["s1"])
+        policy = spec.provider_policy
+        self.assertEqual(policy.completion_tokens_by_provider, ())
+        for provider in ("gemini", "groq", "openrouter"):
+            self.assertEqual(policy.completion_tokens_for(provider), policy.completion_tokens)
+
+    def test_completion_tokens_for_honors_an_explicit_per_provider_override(self) -> None:
+        policy = contract._provider_policy(
+            2400,
+            completion_tokens_by_provider=(("gemini", 4800),),
+        )
+        self.assertEqual(policy.completion_tokens_for("gemini"), 4800)
+        self.assertEqual(policy.completion_tokens_for("groq"), 2400)
+        self.assertEqual(policy.completion_tokens_for("openrouter"), 2400)
 
 
 if __name__ == "__main__":

@@ -71,9 +71,21 @@ class ProviderPolicy:
     # CAPACITY/STRUCTURAL_INVALID/SEMANTIC_INVALID/INTERNAL_CONTRACT_ERROR failure,
     # which stays single-shot exactly as before.
     second_pass_after_full_exhaustion: bool = False
+    # Run #209 (and the identical Run #204/#205 before the outline split): 2400 is sized
+    # from Groq's own 8000 TPM ceiling (confirmed razor-thin - Run #208 hit
+    # GROQ_TPM_WINDOW_BUSY_PRECHECK at that same budget for Film/Long), but Gemini has no
+    # such shared-window constraint at all and was truncating (GEMINI_INTERACTION_
+    # OUTPUT_TRUNCATED/INCOMPLETE_MAX_TOKENS) on Film's richer editorial_intent content
+    # even after the outline was split into core+sections. Optional per-provider override
+    # so a provider whose real ceiling is unrelated to Groq's math can get real headroom
+    # without touching Groq's own budget.
+    completion_tokens_by_provider: tuple[tuple[str, int], ...] = ()
 
     def prompt_limit(self, provider: str) -> int | None:
         return dict(self.max_prompt_utf8_bytes).get(provider)
+
+    def completion_tokens_for(self, provider: str) -> int:
+        return dict(self.completion_tokens_by_provider).get(provider, self.completion_tokens)
 
 
 @dataclass(frozen=True)
@@ -306,6 +318,7 @@ def _provider_policy(
     max_attempts_per_provider: int | None = None,
     max_total_attempts: int | None = None,
     second_pass_after_full_exhaustion: bool = False,
+    completion_tokens_by_provider: tuple[tuple[str, int], ...] = (),
 ) -> ProviderPolicy:
     attempts_per_provider = (
         router.TRANSIENT_PROVIDER_MAX_ATTEMPTS
@@ -332,6 +345,7 @@ def _provider_policy(
         max_prompt_utf8_bytes=(("groq", router.GROQ_MAX_PROMPT_UTF8_BYTES),),
         openrouter_compact_repair_max_attempts=1,
         second_pass_after_full_exhaustion=second_pass_after_full_exhaustion,
+        completion_tokens_by_provider=completion_tokens_by_provider,
     )
 
 
@@ -1094,6 +1108,7 @@ def _provider_result(
             gemini_key,
             prompt,
             model=model,
+            max_output_tokens=contract.provider_policy.completion_tokens_for("gemini"),
         )
     if provider == "groq":
         return router._groq_call(prompt)
