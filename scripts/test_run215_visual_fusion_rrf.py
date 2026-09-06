@@ -92,23 +92,27 @@ class Run215VisualFusionIncidentTests(unittest.TestCase):
         self.assertEqual([candidate["id"] for _provider, candidate in ranked], baseline_ids)
         self.assertFalse(run215._has_recovery_rank_evidence(ranked))
 
-    def test_new_primary_pool_clears_prior_attempt_hard_negatives(self) -> None:
+    def test_new_selector_audit_scope_clears_prior_attempt_hard_negatives(self) -> None:
         run215._VISION_NEGATIVES.set(
             {"same intent": (frozenset({"forest", "wilderness"}),)}
         )
-        candidate = {
-            "id": 99,
-            "url": "https://example.test/pixabay/99",
-            "_isco_visual_intelligence": {"semantic_text": "coffee cup desk"},
-        }
 
-        def base_merge(pools, *, excluded_pairs):
-            del pools, excluded_pairs
-            return {"pixabay": [candidate]}
+        def base_factory(audit_fn, _intent):
+            return audit_fn
 
-        merge = run215._merge_with_rank_provenance(base_merge)
-        merge([("person pausing before choosing", {"pixabay": [candidate]})], excluded_pairs=set())
+        def audit_fn(*args, **kwargs):
+            del args, kwargs
+            return {
+                "status": "pass",
+                "relevance": 0.9,
+                "visual_quality": 0.9,
+                "vision_review_performed": True,
+            }
+
+        feedback_factory = run215._vision_feedback_audit_factory(base_factory)
+        wrapped = feedback_factory(audit_fn, "fresh selector intent")
         self.assertEqual(run215._VISION_NEGATIVES.get(), {})
+        self.assertEqual(wrapped(provider="pixabay", candidate={"id": 99})["status"], "pass")
 
     def test_multi_pool_recovery_keeps_same_attempt_negative_feedback(self) -> None:
         marker = {"same intent": (frozenset({"forest", "wilderness"}),)}
