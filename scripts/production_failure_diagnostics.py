@@ -15,10 +15,26 @@ from scripts.text_audit_provider_mesh import TextAuditUnavailableError
 
 SCHEMA_VERSION = 1
 _TONE_SEMANTIC_MARKER = "Independent tone/naturalness gate blocked real production"
+_PRODUCER_PATH_MARKER = ":failing_field_paths="
+_ALLOWED_PRODUCER_FIELD_PATHS = frozenset(
+    {"hook", "sections[0].on_screen_text", "closing_payoff"}
+)
 
 
 def is_tone_semantic_failure(exc: Exception) -> bool:
     return not isinstance(exc, TextAuditUnavailableError) and _TONE_SEMANTIC_MARKER in str(exc)
+
+
+def _producer_failing_field_paths(exc: Exception) -> list[str]:
+    """Extract only allowlisted structural paths; never persist plan/error prose."""
+    if "producerqualitycontracterror" not in type(exc).__name__.lower():
+        return []
+    detail = str(exc)
+    if _PRODUCER_PATH_MARKER not in detail:
+        return []
+    suffix = detail.split(_PRODUCER_PATH_MARKER, 1)[1]
+    candidates = [item.strip() for item in suffix.split(",") if item.strip()]
+    return [item for item in candidates if item in _ALLOWED_PRODUCER_FIELD_PATHS]
 
 
 def classify_production_failure(exc: Exception) -> tuple[str, str]:
@@ -67,6 +83,9 @@ def write_production_failure_diagnostics(output_dir: Path, exc: Exception) -> Pa
         "tone_semantic_gate": is_tone_semantic_failure(exc),
         "raw_exception_persisted": False,
     }
+    producer_paths = _producer_failing_field_paths(exc)
+    if producer_paths:
+        payload["producer_failing_field_paths"] = producer_paths
     path = root / "production-failure-diagnostics.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
