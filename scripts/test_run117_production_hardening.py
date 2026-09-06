@@ -8,6 +8,8 @@ from unittest.mock import patch
 import isco_video_agent.resilient_planner as staged
 
 from scripts import planning_batch_hardening as batching
+from scripts import planning_capacity_profile as capacity_profile
+from scripts import planning_stage_contract as planning_contract
 from scripts import provider_capacity_hardening as capacity
 from scripts.provider_failure import classify_provider_failure
 
@@ -39,21 +41,38 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
             + payload
         )
 
+    @staticmethod
+    def _writer_contract() -> tuple[str, dict]:
+        spec = planning_contract.script_stage_spec("full_script", ["s1", "s2", "s3"])
+        return planning_contract._schema_tuple(spec)
+
     def setUp(self) -> None:
         capacity.reset_groq_capacity_state_for_tests()
+        capacity_profile.install_explicit_planning_transport_projection()
 
     def tearDown(self) -> None:
         capacity.reset_groq_capacity_state_for_tests()
 
     def test_bounded_full_script_reserve_is_smaller_than_run117_whole_script_reserve(self) -> None:
-        contract = capacity.router._structured_schema_for_prompt(self._full_script_prompt("x"))
-        self.assertIsNotNone(contract)
-        self.assertEqual(contract[0], "full_script")
-        self.assertEqual(capacity.completion_token_budget(contract), 2400)
+        response_contract = self._writer_contract()
+        self.assertEqual(response_contract[0], "script_writer_3")
+        # Canonical Stage Contract owns the current bounded 3-section writer reserve;
+        # the old whole-script 2400 compatibility value is no longer transport policy.
+        self.assertEqual(capacity.completion_token_budget(response_contract), 1800)
 
     def test_capacity_estimate_accepts_normal_batch_but_rejects_oversized_request(self) -> None:
-        normal = capacity.groq_capacity_estimate(self._full_script_prompt("x" * 12_000))
-        oversized = capacity.groq_capacity_estimate(self._full_script_prompt("x" * 30_000))
+        response_contract = self._writer_contract()
+        reserve = capacity.completion_token_budget(response_contract)
+        normal = capacity.groq_capacity_estimate(
+            self._full_script_prompt("x" * 12_000),
+            reserved_completion_tokens=reserve,
+            contract_name=response_contract[0],
+        )
+        oversized = capacity.groq_capacity_estimate(
+            self._full_script_prompt("x" * 30_000),
+            reserved_completion_tokens=reserve,
+            contract_name=response_contract[0],
+        )
         self.assertLessEqual(normal["estimated_request_tokens"], capacity.GROQ_FREE_TPM_LIMIT)
         self.assertGreater(oversized["estimated_request_tokens"], capacity.GROQ_FREE_TPM_LIMIT)
 
@@ -115,7 +134,7 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
 
     def test_openrouter_full_script_uses_minimal_reasoning_and_free_model_failover(self) -> None:
         prompt = self._full_script_prompt("write")
-        contract = capacity.router._structured_schema_for_prompt(prompt)
+        response_contract = self._writer_contract()
         captured: dict = {}
 
         class FakeResponse:
@@ -152,7 +171,7 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
 
         with patch.object(capacity.router, "_openrouter_key", return_value="fake"), \
                 patch.object(capacity.router.requests, "post", side_effect=fake_post):
-            result = capacity._hardened_openrouter_structured_request(prompt, contract)
+            result = capacity._hardened_openrouter_structured_request(prompt, response_contract)
 
         self.assertIn("sections", result)
         self.assertEqual(captured["models"], list(capacity.OPENROUTER_OUTPUT_HEAVY_MODELS))
@@ -164,7 +183,7 @@ class ProviderCapacityPolicyTests(unittest.TestCase):
         # Run #121 proved that low reasoning can consume output headroom on free fallbacks.
         self.assertEqual(captured["reasoning"], {"effort": "minimal", "exclude": True})
         self.assertEqual(captured["response_format"], {"type": "json_object"})
-        self.assertEqual(captured["max_tokens"], 2400)
+        self.assertEqual(captured["max_tokens"], 1800)
 
 
 class BoundedWriterTests(unittest.TestCase):
