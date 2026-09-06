@@ -29,8 +29,14 @@ class ExplicitPlanningTransportProjectionTests(unittest.TestCase):
         capacity.reset_groq_capacity_state_for_tests()
         router._last_call_rate_limit_headers.clear()
         router._last_call_response_meta.clear()
+        self._old_schema_resolver = router._structured_schema_for_prompt
+        # This is the compatibility seam the canonical Stage Contract router installs
+        # process-wide. Tests that call the low-level Groq adapter directly must install
+        # the same seam or they accidentally exercise the retired prompt-inference path.
+        router._structured_schema_for_prompt = contract._explicit_schema_adapter
 
     def tearDown(self) -> None:
+        router._structured_schema_for_prompt = self._old_schema_resolver
         capacity.reset_groq_capacity_state_for_tests()
 
     def test_every_bounded_explicit_shard_uses_canonical_budget_and_output_heavy_transport(self) -> None:
@@ -85,8 +91,7 @@ class ExplicitPlanningTransportProjectionTests(unittest.TestCase):
 
         # Alias avoids shadowing the imported json module in fake_post's keyword arg.
         json_module = json
-        spec = contract.script_stage_spec("full_script", ["s1", "s2", "s3"])
-        with contract.request_stage_scope(spec), \
+        with contract.script_batch_scope("writer", ["s1", "s2", "s3"]), \
                 patch.object(capacity, "groq_admission_decision", return_value={"action": "admit", "reason": "capacity_available", "actual_limit": 8000, "remaining_tokens": 8000}), \
                 patch.object(capacity, "_proactive_groq_pacing", return_value=0.0), \
                 patch.object(router, "_read_secret_file", return_value="fake-key"), \
