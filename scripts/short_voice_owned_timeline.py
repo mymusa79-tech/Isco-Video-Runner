@@ -12,12 +12,12 @@ from isco_video_agent.config import env, secret
 from isco_video_agent.media.ffmpeg import duration
 from isco_video_agent.tts_budget import TtsBudget, TtsCircuit
 
+from scripts import short_voice_v2
 from scripts.short_cinematic_director import apply_short_sfx, upgrade_short_cinematic
 from scripts.short_voice_v2 import (
     _final_duration,
     _has_audio,
     _record_voice_rights,
-    _refresh_quality_final,
     decide_voice_mode,
 )
 from scripts.voice_mesh import consume_voice_provenance
@@ -294,7 +294,11 @@ def apply_voice_owned_short(
         updated = upgrade_short_cinematic(root, control_request, updated, ledger=ledger)
     updated = apply_short_sfx(root, updated)
 
-    quality = _refresh_quality_final(root, final_path)
+    # F20 / Run219 recurrence closure: late-bind the module-owned refresh after every
+    # final Short media mutation. Production installs the Audio Producer wrapper at
+    # runtime; importing this callable by value before installation can retain the
+    # historical function and skip the exact-byte short_finished certificate.
+    quality = short_voice_v2._refresh_quality_final(root, final_path)
     provider = str(provenance.get("provider") or "unknown")
     fallback_used = provenance.get("fallback_used")
     _record_voice_rights(
