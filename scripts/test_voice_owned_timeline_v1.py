@@ -129,13 +129,23 @@ class VoiceOwnedTimelineV1Tests(unittest.TestCase):
                 self.assertEqual([item["text"] for item in retimed], [item["text"] for item in events])
                 self.assertEqual([item["role"] for item in retimed], [item["role"] for item in events])
 
-    def test_existing_producer_call_receives_four_template_and_long_craft_guidance(self):
-        directive = producer_quality_contract.producer_writing_directive({})
+    def test_producer_craft_is_format_scoped_without_extra_generation(self):
+        short_directive = producer_quality_contract.producer_writing_directive({}, "moment")
         for template in craft.template_names():
-            self.assertIn(template, directive)
-        self.assertIn("Long:", directive)
-        self.assertIn("no extra generation", directive)
-        self.assertIn("APPROVED_RESEARCH_PACK=EMPTY", directive)
+            self.assertIn(template, short_directive)
+        self.assertNotIn("Long opening", short_directive)
+        self.assertIn("no extra generation", short_directive)
+        self.assertIn("APPROVED_RESEARCH_PACK=EMPTY", short_directive)
+
+        for long_format in ("film", "story"):
+            with self.subTest(long_format=long_format):
+                long_directive = producer_quality_contract.producer_writing_directive({}, long_format)
+                self.assertIn("Long opening", long_directive)
+                for template in craft.template_names():
+                    self.assertNotIn(template, long_directive)
+                self.assertNotIn("Moment:", long_directive)
+                self.assertIn("no extra generation", long_directive)
+                self.assertIn("APPROVED_RESEARCH_PACK=EMPTY", long_directive)
 
     def test_source_derived_short_keeps_compact_atoms_from_long_source_only(self):
         narration = (
