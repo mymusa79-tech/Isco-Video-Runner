@@ -17,6 +17,7 @@ from isco_video_agent.ai_budget import (
 from scripts import native_short_stage_contract
 from scripts import planning_repair_identity_family
 from scripts import planning_stage_contract
+from scripts import producer_short_repair_guidance
 from scripts import run120_dossier_repair_hardening
 from scripts import short_planning_repair
 from scripts.producer_quality_contract import (
@@ -99,6 +100,15 @@ def _duplicate_long_key_point_target_ids(plan: object) -> list[str]:
     return targets
 
 
+def _short_failure_target_suffix(plan: object, issues: list[str]) -> str:
+    if "moment_direct_imperative_in_story_beat" not in issues:
+        return ""
+    targets = producer_short_repair_guidance.moment_direct_imperative_targets(plan)
+    if not targets:
+        return ""
+    return ":failing_field_paths=" + ",".join(targets)
+
+
 def resolve_plan_for_producer_handoff(
     plan: object,
     *,
@@ -137,12 +147,19 @@ def resolve_plan_for_producer_handoff(
             research_context=research_context,
         )
         if remaining:
+            target_suffix = (
+                _short_failure_target_suffix(repaired, remaining)
+                if label == "Short"
+                else ""
+            )
             print(
                 f"Producer {label} repair exhausted: "
-                f"remaining={','.join(remaining)} action=fail_closed"
+                f"remaining={','.join(remaining)}{target_suffix} action=fail_closed"
             )
             raise ProducerQualityContractError(
-                "producer_plan_handoff_blocked:" + ",".join(remaining)
+                "producer_plan_handoff_blocked:"
+                + ",".join(remaining)
+                + target_suffix
             )
         print(
             f"Producer {label} repair PASS: "
@@ -202,9 +219,19 @@ def _repair_short_plan_once(
         "Producer pre-gate repairable Short issues:\n"
         + "\n".join(f"- {issue}" for issue in issues)
     )
+    deterministic_guidance = producer_short_repair_guidance.short_producer_repair_guidance(
+        plan,
+        issues,
+    )
+    if deterministic_guidance:
+        issue_notes += "\n" + deterministic_guidance
+
+    targets = producer_short_repair_guidance.moment_direct_imperative_targets(plan)
+    target_note = ",".join(targets) if targets else "none"
     print(
         "Producer Short repair: "
-        f"issues={','.join(issues)} mode=existing_surgical_transport repair_calls=1"
+        f"issues={','.join(issues)} imperative_targets={target_note} "
+        "mode=existing_surgical_transport repair_calls=1"
     )
 
     # Run #193: Producer repair runs after the native Moment Draft/Review build has
