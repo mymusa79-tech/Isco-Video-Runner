@@ -3,7 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from scripts import planning_capacity_headroom as headroom
+from scripts import planning_stage_contract as stage_contract
+from scripts import provider_capacity_hardening as capacity
 from scripts import run125_capacity_routing_closure as run125
+from scripts import task_level_planner_router as router
 
 
 # Format-native payload caps. These are content-shape bounds, not provider quota
@@ -137,6 +140,56 @@ def compact_plan_payload(plan: object) -> dict[str, Any]:
     }
 
 
+def install_explicit_planning_transport_projection() -> None:
+    """Project canonical Stage Contract identities into legacy capacity adapters.
+
+    Provider-capacity hardening predates explicit Planning Stage Contracts and still
+    consumes the schema tuple name for transport-only choices such as JSON-object vs
+    strict-schema mode, reasoning effort, and completion reserve. The explicit Stage
+    Contract is the sole policy owner now, so copy its bounded transport identities and
+    budgets into that compatibility table instead of re-inferring them from prompt text.
+
+    This is deliberately not a retry/router owner. It only teaches the existing
+    transport adapter the names and budgets already owned by PlanningStageSpec.
+    """
+    # Some direct compatibility callers reach provider_capacity_hardening before the
+    # full Stage Contract router installer swaps out the historical prompt-schema hint.
+    # When an explicit request scope is already active, prompt text must still be data
+    # only: project that scope into the legacy helper. Outside an explicit scope, retain
+    # the historical hint solely for compatibility callers. If the strict Stage Contract
+    # adapter is already installed, leave its fail-closed behavior untouched.
+    current_hint = router._legacy_schema_hint
+    if (
+        current_hint is not stage_contract._explicit_schema_adapter
+        and not getattr(current_hint, "_isco_explicit_transport_projection", False)
+    ):
+        legacy_hint = current_hint
+
+        def explicit_or_legacy_schema_hint(prompt: str):
+            if stage_contract.active_planning_completion_tokens() is not None:
+                return stage_contract._explicit_schema_adapter(prompt)
+            return legacy_hint(prompt)
+
+        explicit_or_legacy_schema_hint._isco_explicit_transport_projection = True
+        router._legacy_schema_hint = explicit_or_legacy_schema_hint
+
+    canonical_budgets = dict(stage_contract.SHARD_COMPLETION_TOKEN_BUDGETS)
+    canonical_budgets["editorial_outline"] = stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET
+    canonical_budgets["section_repair"] = stage_contract._transport_completion_tokens(
+        "section_repair", 1
+    )
+    capacity._COMPLETION_TOKEN_BUDGETS.update(canonical_budgets)
+
+    # Before explicit contracts, every bounded sections/append payload was classified
+    # as full_script/append_only_repair and therefore used JSON-object transport with
+    # low/minimal reasoning. Preserve that proven transport behavior under the new
+    # explicit names; only identity/budget authority moves to PlanningStageSpec.
+    output_heavy = set(capacity._OUTPUT_HEAVY_CONTRACTS)
+    output_heavy.update(stage_contract.SHARD_COMPLETION_TOKEN_BUDGETS)
+    output_heavy.add("section_repair")
+    capacity._OUTPUT_HEAVY_CONTRACTS = frozenset(output_heavy)
+
+
 def _install_headroom_model_failover_semantics() -> None:
     """Keep model-pool failover model-scoped when a request misses safety headroom.
 
@@ -161,6 +214,7 @@ def install_planning_capacity_profile() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
+    install_explicit_planning_transport_projection()
     headroom.SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES = SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES
     headroom.SHORT_MAX_RESEARCH_ITEMS = SHORT_MAX_RESEARCH_ITEMS
     headroom.SHORT_MAX_RESEARCH_VALUE_CHARS = SHORT_MAX_RESEARCH_VALUE_CHARS

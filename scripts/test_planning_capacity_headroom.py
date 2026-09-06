@@ -173,8 +173,13 @@ class PlanningCapacityHeadroomTests(unittest.TestCase):
             research,
         )
         self.assertEqual(selection["template"], "inner_dialogue")
-        # Run #163 failed at the former 800-character proxy before any provider call.
-        self.assertGreater(len(revision), 800)
+        # Run #163 originally exposed a proxy that rejected a full revision merely for
+        # being longer than 800 characters. The contract is semantic, not a minimum
+        # length: compaction is safe only if the Producer evidence state and selected
+        # template requirements survive and the exact revision reaches both calls.
+        self.assertIn("Producer pre-gate", revision)
+        self.assertIn("APPROVED_RESEARCH_PACK=EMPTY", revision)
+        self.assertIn("inner_dialogue", revision)
         plan = self._valid_short_plan(topic)
 
         with patch.object(
@@ -197,6 +202,10 @@ class PlanningCapacityHeadroomTests(unittest.TestCase):
 
         self.assertIs(result, plan)
         self.assertEqual(provider_call.call_count, 2)
+        prompts = [call.args[1] for call in provider_call.call_args_list]
+        self.assertEqual(len(prompts), 2)
+        for prompt in prompts:
+            self.assertIn(revision, prompt)
 
     def test_oversized_full_revision_still_fails_closed_on_routed_prompt(self):
         prompt = headroom.build_short_initial_prompt(

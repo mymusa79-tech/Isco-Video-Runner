@@ -142,14 +142,14 @@ class Run142OutlineSecondPassRetryTests(unittest.TestCase):
         self.assertEqual(openrouter_calls, 1)
         self.contract_sleep_mock.assert_any_call(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
 
-    def test_non_transient_failure_skips_second_pass(self) -> None:
+    def test_terminal_failure_is_local_and_does_not_veto_other_transient_retry(self) -> None:
         invalid = _script(["s1"])
         del invalid["sections"][0]["key_point"]
         calls = {"gemini": 0, "groq": 0, "openrouter": 0}
 
         def fake_gemini(*_args, **_kwargs):
             calls["gemini"] += 1
-            return invalid  # structurally invalid: fails validate_response, not transient
+            return invalid  # structurally invalid: terminal for Gemini only
 
         def fake_groq(_prompt):
             calls["groq"] += 1
@@ -166,10 +166,12 @@ class Run142OutlineSecondPassRetryTests(unittest.TestCase):
             with self.assertRaises(contract.PlanningStageError):
                 staged.json_text("unused", "prompt")
 
-        # Exactly one sweep: a STRUCTURAL_INVALID failure anywhere in the sweep must never
-        # earn a second pass, matching the single-shot behavior for definitive failures.
-        self.assertEqual(calls, {"gemini": 1, "groq": 1, "openrouter": 1})
-        self.contract_sleep_mock.assert_not_called()
+        # Run210 closure: a terminal result is provider-local. Gemini's structural
+        # invalidity is never replayed; OpenRouter's spend block is circuit-terminal;
+        # Groq's independent generation error remains eligible for exactly one deferred
+        # retry after every provider family has had its first-sweep opportunity.
+        self.assertEqual(calls, {"gemini": 1, "groq": 2, "openrouter": 1})
+        self.contract_sleep_mock.assert_any_call(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
 
     def test_second_sweep_also_fails_raises_after_bounded_two_sweeps(self) -> None:
         calls = {"gemini": 0, "groq": 0, "openrouter": 0}

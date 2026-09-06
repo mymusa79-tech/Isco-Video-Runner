@@ -117,6 +117,18 @@ _HARSH_DIRECTIVE_PATTERNS = (
 )
 
 
+def apply_planner_prompt_semantics() -> None:
+    """Apply the narrow Engine prompt semantics shared by preflight and runtime.
+
+    Preflight executes in a fresh process and must size the same narrative-format
+    contract that runtime installs before building the split Core prompt. Keep this
+    helper deliberately free of wrapper installation: it only mutates the one Engine
+    prompt table that participates in prompt construction, so capacity certification
+    cannot drift from the bytes later sent to providers.
+    """
+    staged._NARRATIVE_FORMATS["question_answer"] = _QUESTION_ANSWER_RUNTIME_RULE
+
+
 def _single_use_transition_slots(transition_variants: list[str], section_count: int) -> list[str]:
     """Return one transition slot per post-opening section without recycling hints.
 
@@ -264,7 +276,7 @@ def _spoken_hook_from_history_record(record: dict) -> str:
 
 def install_planner_quality_guard() -> None:
     """Patch runtime quality semantics without adding provider calls or weakening gates."""
-    staged._NARRATIVE_FORMATS["question_answer"] = _QUESTION_ANSWER_RUNTIME_RULE
+    apply_planner_prompt_semantics()
 
     current_outline = staged._outline
     if not getattr(current_outline, "_isco_opening_visual_query_guard", False):

@@ -201,7 +201,7 @@ def install_post_runtime_planning_contracts() -> None:
     # The pinned Engine splits long-form outline transport into Core and Section Briefs.
     # This adapter must be the final planning wrapper: it establishes the exact substage
     # before provider-visible semantics inspect it, and it wraps the final F23 handoff
-    # owner with exact plan.json equivalence. Installing it earlier leaked Core-only
-    # pillar instructions into the Sections-only schema after all individually-green
-    # planning branches were composed.
+    # owner with exact plan.json equivalence. Retry/failover remains owned solely by the
+    # explicit Stage Contract router, so wrapper composition cannot create a second
+    # retry layer.
     install_planning_outline_split_contract()

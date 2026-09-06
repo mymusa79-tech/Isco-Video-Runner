@@ -129,9 +129,14 @@ class ProductionStageLadderContractTests(unittest.TestCase):
         data = json.loads(REGISTER.read_text(encoding="utf-8"))
         closure = _validate_family_register(data, self._executed_by_phase())
         incidents = closure["incidents"]
-        self.assertEqual(closure["incident_enforcement_from"], 184)
-        self.assertEqual([row["run"] for row in incidents], list(range(184, 210)))
-        self.assertEqual(len(incidents), 26)
+        enforcement_from = int(closure["incident_enforcement_from"])
+        last_run = int(data["historical_window"]["last_run"])
+        self.assertEqual(enforcement_from, 184)
+        self.assertEqual(
+            [row["run"] for row in incidents],
+            list(range(enforcement_from, last_run + 1)),
+        )
+        self.assertEqual(len(incidents), last_run - enforcement_from + 1)
         self.assertEqual(
             next(row for row in incidents if row["run"] == 193)["failure_phase"],
             "P1",
@@ -144,9 +149,10 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             next(row for row in incidents if row["run"] == 203)["format"],
             "long",
         )
-        recent_long = [row for row in incidents if 204 <= row["run"] <= 209]
-        self.assertEqual([row["failure_phase"] for row in recent_long], ["P1"] * 6)
-        self.assertEqual([row["format"] for row in recent_long], ["long"] * 6)
+        recent_long = [row for row in incidents if 204 <= row["run"] <= min(last_run, 210)]
+        self.assertTrue(recent_long)
+        self.assertEqual([row["failure_phase"] for row in recent_long], ["P1"] * len(recent_long))
+        self.assertEqual([row["format"] for row in recent_long], ["long"] * len(recent_long))
         self.assertEqual(
             next(row for row in incidents if row["run"] == 208)["family_ids"],
             ["F39"],
@@ -155,6 +161,11 @@ class ProductionStageLadderContractTests(unittest.TestCase):
             next(row for row in incidents if row["run"] == 209)["family_ids"],
             ["F38"],
         )
+        if last_run >= 210:
+            self.assertEqual(
+                next(row for row in incidents if row["run"] == 210)["family_ids"],
+                ["F38"],
+            )
 
     def test_recent_incident_cannot_hide_behind_wrong_phase_family(self) -> None:
         data = json.loads(REGISTER.read_text(encoding="utf-8"))
@@ -169,11 +180,12 @@ class ProductionStageLadderContractTests(unittest.TestCase):
 
     def test_recent_incident_cannot_be_unclassified_or_one_way_only(self) -> None:
         data = json.loads(REGISTER.read_text(encoding="utf-8"))
+        last_run = int(data["historical_window"]["last_run"])
         missing = deepcopy(data)
         missing["incident_ledger"]["entries"] = [
-            row for row in missing["incident_ledger"]["entries"] if row["run"] != 209
+            row for row in missing["incident_ledger"]["entries"] if row["run"] != last_run
         ]
-        with self.assertRaisesRegex(RuntimeError, r"missing=\[209\]"):
+        with self.assertRaisesRegex(RuntimeError, rf"missing=\[{last_run}\]"):
             _validate_family_register(missing, self._executed_by_phase())
 
         one_way = deepcopy(data)

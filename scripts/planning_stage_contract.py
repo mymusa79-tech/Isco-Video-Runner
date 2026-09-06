@@ -62,14 +62,12 @@ class ProviderPolicy:
     completion_tokens: int
     max_prompt_utf8_bytes: tuple[tuple[str, int], ...]
     openrouter_compact_repair_max_attempts: int = 1
-    # Run #142: a fast, one-attempt-per-provider sweep (see outline_stage_spec) can
-    # still lose the whole stage to an unlucky simultaneous transient collision across
-    # every provider (real production evidence: Gemini client timeout + Groq
-    # json_validate_failed + OpenRouter spend-cap block, all in one pass). When set,
-    # run_provider_loop() is allowed exactly one additional full round-robin sweep
-    # after a first pass whose failures were *all* PROVIDER_TRANSIENT - never after a
-    # CAPACITY/STRUCTURAL_INVALID/SEMANTIC_INVALID/INTERNAL_CONTRACT_ERROR failure,
-    # which stays single-shot exactly as before.
+    # Run #142 reserves a second provider pass for outline-style contracts. Run #210
+    # tightens the rule: the first pass always tries independent provider families in
+    # order; a second pass may revisit only providers whose own first-pass failure was
+    # genuinely retryable/transient. A CAPACITY/STRUCTURAL/SEMANTIC/INTERNAL failure on
+    # one provider must neither be retried for that provider nor suppress an unrelated
+    # transient provider's bounded retry slot.
     second_pass_after_full_exhaustion: bool = False
     # Run #209 (and the identical Run #204/#205 before the outline split): 2400 is sized
     # from Groq's own 8000 TPM ceiling (confirmed razor-thin - Run #208 hit
@@ -139,9 +137,9 @@ _ROUTER_MARKER = "_isco_explicit_planning_contract_router"
 # restoring Groq portability (7506 estimated tokens for the Run #140 envelope).
 OUTLINE_COMPLETION_TOKEN_BUDGET = 2400
 OUTLINE_MAX_ATTEMPTS_PER_PROVIDER = 1
-# Run #142: budget for exactly two full one-attempt-per-provider sweeps (see
-# second_pass_after_full_exhaustion), not just one. The per-provider cap above stays 1,
-# so no single provider is ever retried back-to-back within a sweep.
+# Two one-contact-per-family passes fit inside the same existing global ceiling. The
+# second pass is selective: only providers whose first-pass failure is retry-eligible
+# may appear again, so no provider is retried back-to-back before alternatives are tried.
 OUTLINE_MAX_TOTAL_ATTEMPTS = len(_PROVIDER_ORDER) * 2
 
 # One explicit provider-output budget per bounded Planning transport contract.  These
@@ -368,15 +366,10 @@ def outline_stage_spec(expected_count: int) -> PlanningStageSpec:
             "nonempty_purpose": True,
             "narrative_identity_gates": True,
         },
-        # P0 outline optimizes for independent-provider failover, not repeated waiting
-        # on one transiently slow provider. Run #140 spent ~181 s on two Gemini timeouts
-        # while Groq/OpenRouter had not yet been tried. One bounded attempt per family
-        # moves directly Gemini -> Groq -> OpenRouter without weakening validation.
-        # Run #142: that single fast sweep can still lose the whole stage to an unlucky
-        # simultaneous transient collision across all three providers in one pass, with
-        # zero margin left to retry. second_pass_after_full_exhaustion allows exactly one
-        # extra full round-robin sweep, but only when every failure in the first sweep
-        # was PROVIDER_TRANSIENT (never after a capacity/structural/semantic failure).
+        # Provider-first failover: one request per family in the first sweep. If the
+        # sweep fails, only providers with a retryable transient outcome can participate
+        # in one bounded second sweep; terminal failures on other providers do not veto
+        # that independent retry.
         provider_policy=_provider_policy(
             _transport_completion_tokens("editorial_outline", expected_count),
             max_attempts_per_provider=OUTLINE_MAX_ATTEMPTS_PER_PROVIDER,
@@ -1188,13 +1181,25 @@ def install_planning_contract_router() -> None:
         def run_provider_loop() -> tuple[dict, str]:
             total_attempts = 0
             failures: list[PlanningStageError] = []
+            deferred_retry_providers: set[str] = set()
             request_token = _ACTIVE_REQUEST_CONTRACT.set(contract)
             try:
                 round_index = 0
                 while True:
                     round_index += 1
-                    round_failures: list[PlanningStageError] = []
-                    for provider in admitted:
+                    providers_this_round = (
+                        admitted
+                        if round_index == 1
+                        else [
+                            provider
+                            for provider in admitted
+                            if provider in deferred_retry_providers
+                        ]
+                    )
+                    if not providers_this_round:
+                        break
+
+                    for provider in providers_this_round:
                         if provider in cooldown:
                             router._record_attempt(provider, "circuit-open")
                             continue
@@ -1232,7 +1237,6 @@ def install_planning_contract_router() -> None:
                                 validate_response(contract, parsed)
                             except PlanningStageError as exc:
                                 failures.append(exc)
-                                round_failures.append(exc)
                                 _safe_record_attempt(
                                     provider,
                                     exc.code.value.lower(),
@@ -1240,8 +1244,8 @@ def install_planning_contract_router() -> None:
                                     duration_seconds=time.monotonic() - started,
                                     provider_attempt=provider_attempt + 1,
                                 )
-                                # Invalid output, capacity, and contract failures never hit
-                                # the same provider again for this request.
+                                # Invalid output, fixed capacity, and contract failures
+                                # are terminal for this provider in this request.
                                 if exc.code in {
                                     PlanningErrorCode.STRUCTURAL_INVALID,
                                     PlanningErrorCode.SEMANTIC_INVALID,
@@ -1257,6 +1261,13 @@ def install_planning_contract_router() -> None:
                                 ):
                                     time.sleep(router._retry_delay_seconds(provider, provider_attempt))
                                     continue
+                                if (
+                                    exc.code == PlanningErrorCode.PROVIDER_TRANSIENT
+                                    and round_index == 1
+                                    and contract.provider_policy.second_pass_after_full_exhaustion
+                                    and total_attempts < contract.provider_policy.max_total_attempts
+                                ):
+                                    deferred_retry_providers.add(provider)
                                 transient_cooldown_until[provider] = (
                                     time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
                                 )
@@ -1268,7 +1279,6 @@ def install_planning_contract_router() -> None:
                                     exc,
                                 )
                                 failures.append(classified)
-                                round_failures.append(classified)
                                 _safe_record_attempt(
                                     provider,
                                     failure.telemetry_result,
@@ -1293,6 +1303,13 @@ def install_planning_contract_router() -> None:
                                     )
                                     continue
                                 if retryable:
+                                    if (
+                                        round_index == 1
+                                        and contract.provider_policy.second_pass_after_full_exhaustion
+                                        and not failure.open_circuit
+                                        and total_attempts < contract.provider_policy.max_total_attempts
+                                    ):
+                                        deferred_retry_providers.add(provider)
                                     transient_cooldown_until[provider] = (
                                         time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
                                     )
@@ -1311,23 +1328,22 @@ def install_planning_contract_router() -> None:
                                 )
                                 return parsed, provider
 
-                    # A full round-robin sweep across every admitted provider finished
-                    # with no success. Run #142: allow exactly one additional sweep when
-                    # the whole first sweep failed only on PROVIDER_TRANSIENT errors and
-                    # the contract explicitly opts in - never after a capacity/structural/
-                    # semantic/internal failure, and never more than this one extra sweep.
-                    # Sleeping the full transient cooldown first guarantees every provider
-                    # that entered cooldown during the first sweep is eligible again.
-                    all_transient_this_round = bool(round_failures) and all(
-                        item.code == PlanningErrorCode.PROVIDER_TRANSIENT for item in round_failures
-                    )
+                    # First pass always gives every admitted family its independent shot.
+                    # Only after that sweep do we wait once and retry the providers that
+                    # themselves proved transient/retryable. Terminal failure on another
+                    # family is local to that family and cannot veto this bounded retry.
                     if (
                         contract.provider_policy.second_pass_after_full_exhaustion
                         and round_index == 1
-                        and all_transient_this_round
+                        and deferred_retry_providers
                         and total_attempts < contract.provider_policy.max_total_attempts
                     ):
+                        # The deferred round owns this bounded cooldown. Clear only the
+                        # provider-local timestamps for providers explicitly authorized
+                        # for round two so the same cooldown is not enforced twice.
                         time.sleep(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
+                        for provider in deferred_retry_providers:
+                            transient_cooldown_until.pop(provider, None)
                         continue
                     break
 
@@ -1374,7 +1390,8 @@ def install_planning_contract_router() -> None:
     staged.json_text = contract_router
     print(
         "Explicit Planning Stage Contract router installed: prompt inference disabled; "
-        "admission precedes provider contact; structural+semantic validation precedes the single cache write"
+        "admission precedes provider contact; provider-first selective transient retry; "
+        "structural+semantic validation precedes the single cache write"
     )
 
 

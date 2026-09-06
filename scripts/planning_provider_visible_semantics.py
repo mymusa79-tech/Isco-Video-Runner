@@ -28,11 +28,31 @@ from dataclasses import replace
 import isco_video_agent.resilient_planner as staged
 
 from scripts import planning_stage_contract as stage_contract
+from scripts.planner_quality_guard import _QUESTION_ANSWER_RUNTIME_RULE
 
 
 PLANNING_PILLARS = ("understand", "rise", "see")
 _VISIBLE_MARKER = "<PROVIDER_VISIBLE_SEMANTIC_CONTRACT>"
 _INSTALLED = False
+
+# Keep the richer local narrative-format contract as the semantic source of truth,
+# but do not pay for its explanatory redundancy on every provider request. This is a
+# deterministic transport projection used by both standalone preflight and canonical
+# runtime. It retains the three acceptance facts that matter to the model: Q&A must be
+# spoken (not metadata-only), answers are layered, and each exchange advances the
+# argument rather than becoming a repetitive FAQ. Deterministic validators remain the
+# authority after provider output.
+_COMPACT_QUESTION_ANSWER_PROVIDER_RULE = (
+    "Q&A: SPOKEN narration itself asks real questions with layered answers; "
+    "do not collapse to metadata-only FAQ. Each exchange advances the argument."
+)
+
+
+def _compact_provider_prompt(prompt: str) -> str:
+    return str(prompt).replace(
+        _QUESTION_ANSWER_RUNTIME_RULE,
+        _COMPACT_QUESTION_ANSWER_PROVIDER_RULE,
+    )
 
 
 def _has_pillar_field(owner: object) -> bool:
@@ -57,6 +77,7 @@ def _with_pillar_schema(contract: stage_contract.PlanningStageContract) -> stage
 
 
 def _provider_visible_prompt(prompt: str, owner: object | None) -> str:
+    prompt = _compact_provider_prompt(prompt)
     if owner is None or not _has_pillar_field(owner) or _VISIBLE_MARKER in prompt:
         return prompt
     values = " | ".join(PLANNING_PILLARS)
@@ -64,10 +85,9 @@ def _provider_visible_prompt(prompt: str, owner: object | None) -> str:
         prompt
         + "\n\n"
         + _VISIBLE_MARKER
-        + "\nThe JSON field `pillar` MUST be exactly one of: "
+        + "\n`pillar` MUST be exactly: "
         + values
-        + ". Do not translate, rename, or invent another pillar value.\n"
-        + "</PROVIDER_VISIBLE_SEMANTIC_CONTRACT>"
+        + "; do not translate/rename/invent."
     )
 
 
@@ -135,5 +155,6 @@ def install_planning_provider_visible_semantics() -> None:
     _INSTALLED = True
     print(
         "Planning provider-visible semantics installed: "
-        "pillar=understand|rise|see scope=Long+StandaloneShort schema+prompt+validation"
+        "pillar=understand|rise|see scope=Long+StandaloneShort schema+prompt+validation "
+        "question_answer_transport=compact_shared_projection"
     )

@@ -2,7 +2,7 @@
   "schema_version": 2,
   "historical_window": {
     "first_run": 51,
-    "last_run": 209,
+    "last_run": 210,
     "known_good_baseline": {
       "release_tag": "video-50",
       "runner_commit": "a98bc309d52159d65ef6ac65e516beaab344a32e",
@@ -64,7 +64,8 @@
     {"id":"C26","runs":"199-201","required_phases":["P3"],"purpose":"canonical Short Vision routing, bounded 429 recovery and post-core QR authority recertification"},
     {"id":"C27","runs":"202","required_phases":["P0","P6"],"purpose":"production Python package-entrypoint parity plus adjacent Telegram outbox recovery-path recertification"},
     {"id":"C28","runs":"203","required_phases":["P0"],"purpose":"Long format ingress, immutable approved-brief normalization and active-state migration recertification"},
-    {"id":"C29","runs":"204-209","required_phases":["P1"],"purpose":"Long split-outline structured-output, Engine domain evolution, provider-specific output headroom and bounded Groq TPM-window recovery recertification"}
+    {"id":"C29","runs":"204-209","required_phases":["P1"],"purpose":"Long split-outline structured-output, Engine domain evolution, provider-specific output headroom and bounded Groq TPM-window recovery recertification"},
+    {"id":"C30","runs":"210","required_phases":["P1"],"purpose":"Producer-enriched planning envelope parity and provider-specific bounded transient retry recertification"}
   ],
   "incident_ledger": {
     "enforcement_from": 184,
@@ -94,7 +95,8 @@
       {"run":206,"format":"long","failure_phase":"P1","failure_signature":"combined_outline_schema_exhausted_all_provider_paths","family_ids":["F38"]},
       {"run":207,"format":"long","failure_phase":"P1","failure_signature":"engine_canonical_metadata_collided_with_provider_transport_schema","family_ids":["F38"]},
       {"run":208,"format":"long","failure_phase":"P1","failure_signature":"groq_tpm_window_recursively_sharded_and_wait_amplified","family_ids":["F39"]},
-      {"run":209,"format":"long","failure_phase":"P1","failure_signature":"split_core_gemini_output_truncated_at_shared_budget","family_ids":["F38"]}
+      {"run":209,"format":"long","failure_phase":"P1","failure_signature":"split_core_gemini_output_truncated_at_shared_budget","family_ids":["F38"]},
+      {"run":210,"format":"long","failure_phase":"P1","failure_signature":"preflight_runtime_producer_envelope_drift_with_mixed_provider_exhaustion","family_ids":["F38"]}
     ]
   },
   "families": [
@@ -321,10 +323,10 @@
       "contracts":["scripts.test_telegram_direct_entrypoints"]
     },
     {
-      "id":"F38","name":"long_planning_split_transport_domain_and_output_headroom",
-      "historical_runs":["204-207","209"],
+      "id":"F38","name":"long_planning_split_transport_domain_output_headroom_and_retry_parity",
+      "historical_runs":["204-207","209-210"],
       "required_phases":["P1"],
-      "contracts":["scripts.test_planning_outline_split_contract","scripts.test_planning_outline_portability_bound","scripts.test_engine_runner_contract_evolution","scripts.test_planning_envelope_preflight","scripts.test_planning_envelope_split_contract","scripts.test_planning_runtime_fresh_process","scripts.test_planning_stage_contract"]
+      "contracts":["scripts.test_planning_outline_split_contract","scripts.test_planning_outline_portability_bound","scripts.test_engine_runner_contract_evolution","scripts.test_planning_envelope_preflight","scripts.test_planning_envelope_split_contract","scripts.test_planning_runtime_fresh_process","scripts.test_planning_stage_contract","scripts.test_retry_after_policy"]
     },
     {
       "id":"F39","name":"long_planning_temporal_groq_window_batch_recovery",
