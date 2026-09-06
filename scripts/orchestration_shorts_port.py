@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from scripts import short_voice_v2
 from scripts import shorts_production_binding as core
 from scripts.run212_visual_candidate_utilization import short_candidate_utilization_scope
 from scripts.short_voice_owned_timeline import apply_voice_owned_short
@@ -48,6 +49,19 @@ def prepare_authoritative_short_for_gold(
             pre_gold,
             ledger=ledger,
         )
+
+    # Run219 closure: Voice-Owned Timeline is imported before production.main() installs
+    # runtime wrappers, so an imported-by-value quality refresh can retain the historical
+    # callable and bypass the live Audio Producer short_finished wrapper. Re-enter the
+    # module-owned surface *after* all Voice/Cinematic/SFX mutations. This makes the
+    # already-installed Audio Producer lifecycle measure/repair (at most once) and bind
+    # its receipt to the exact finished final.mp4 bytes before independent Final Master
+    # QC. No provider/AI call or retry is introduced here.
+    short_voice_v2._refresh_quality_final(
+        Path(output_dir),
+        Path(output_dir) / "final.mp4",
+    )
+
     master_qc = run_final_master_qc(output_dir)
     if master_qc.get("status") != "pass" or master_qc.get("final_media_mutated") is not False:
         raise RuntimeError("Voice-Owned Short authoritative Final Master QC did not pass")
