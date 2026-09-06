@@ -31,7 +31,6 @@ from scripts.planning_legacy_authority_guard import install_legacy_planning_auth
 from scripts.planning_outline_split_contract import install_planning_outline_split_contract
 from scripts.planning_production_contract_v2 import install_planning_production_contract_v2
 from scripts.planning_provider_visible_semantics import install_planning_provider_visible_semantics
-from scripts.planning_split_retry_policy import install_planning_split_retry_policy
 from scripts.planning_stage_contract import (
     assert_planning_stage_contract_installed,
     install_planning_contract_router,
@@ -200,13 +199,9 @@ def install_post_runtime_planning_contracts() -> None:
     # here avoids introducing a competing provider/router/cache owner.
     install_planning_production_contract_v2()
     # The pinned Engine splits long-form outline transport into Core and Section Briefs.
-    # Install the bounded transient retry policy before the final split wrapper can
-    # construct a request spec. It changes only per-provider transient eligibility;
-    # request-wide attempts, output budgets, and every semantic/quality gate stay fixed.
-    install_planning_split_retry_policy()
     # This adapter must be the final planning wrapper: it establishes the exact substage
     # before provider-visible semantics inspect it, and it wraps the final F23 handoff
-    # owner with exact plan.json equivalence. Installing it earlier leaked Core-only
-    # pillar instructions into the Sections-only schema after all individually-green
-    # planning branches were composed.
+    # owner with exact plan.json equivalence. Retry/failover remains owned solely by the
+    # explicit Stage Contract router, so wrapper composition cannot create a second
+    # retry layer.
     install_planning_outline_split_contract()
