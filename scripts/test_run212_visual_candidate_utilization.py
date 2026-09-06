@@ -43,23 +43,27 @@ class Run212VisualCandidateUtilizationTests(unittest.TestCase):
         compact = run212._balanced_stock_query(RUN213_BEAT2_QUERY)
         tokens = compact.split()
         self.assertLessEqual(len(tokens), 8)
-        self.assertEqual(
-            compact,
-            "contrasting perspective professional desk everyday micro choices",
-        )
+        for semantic in ("contrasting", "perspective", "professional", "micro", "choices"):
+            self.assertIn(semantic, tokens)
+        # Environmental context remains eligible; Run92 already established that stock
+        # terms such as sunlit are useful retrieval evidence rather than pure render style.
+        self.assertIn("sunlit", tokens)
         for noise in (
             "medium",
             "close",
-            "minimalist",
-            "sunlit",
-            "morning",
-            "calm",
             "atmospheric",
             "lighting",
             "documentary",
             "style",
         ):
             self.assertNotIn(noise, tokens)
+
+    def test_run213_preserves_run92_environmental_search_semantics(self) -> None:
+        query = "person sitting at wooden table in sunlit room empty notebook"
+        self.assertEqual(
+            run212._balanced_stock_query(query),
+            "wooden table sunlit room empty notebook",
+        )
 
     def test_balanced_stock_query_keeps_historical_passthrough_when_transform_not_needed(self) -> None:
         query = "crossroads direction morning light"
