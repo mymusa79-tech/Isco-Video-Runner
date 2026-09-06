@@ -4,8 +4,9 @@ import unittest
 
 from scripts.retry_after_policy import parse_retry_after_seconds, retry_delay_decision
 # P1 already owns provider retry/capacity semantics. Import the Run210 closure suites
-# here so Production Stage Ladder executes envelope/runtime parity and split transient
-# retry behavior without creating a second retry-policy owner.
+# here so Production Stage Ladder executes envelope/runtime parity, full merged-wrapper
+# composition, and selective transient retry without creating a second retry owner.
+from scripts.test_planning_e2e_composition import PlanningEndToEndCompositionTests  # noqa: F401
 from scripts.test_planning_envelope_runtime_parity import (  # noqa: F401
     PlanningEnvelopeRuntimeParityTests,
     PlanningSplitRetryPolicyTests,
