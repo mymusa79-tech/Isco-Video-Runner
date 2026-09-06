@@ -116,6 +116,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_run185_semantic_visual_adjudication",
         "scripts.test_run200_short_vision_recovery_closure",
         "scripts.test_run201_qr_post_core_scope",
+        "scripts.test_run212_visual_candidate_utilization",
         "scripts.test_vision_provider_reliability",
         "scripts.test_vision_stage_contract_v2",
         "scripts.test_vision_stage_transport_v2",
