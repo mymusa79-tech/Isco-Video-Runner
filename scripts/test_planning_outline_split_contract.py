@@ -358,6 +358,75 @@ class PlanningOutlineSplitFailureAwareRetryTests(unittest.TestCase):
             self.assertFalse(run125._is_model_unavailable(error))
 
 
+class PlanningSplitGeminiHeadroomTests(unittest.TestCase):
+    """Run #209 (identical to #204/#205): Gemini truncated real Film/Long
+    editorial_intent content at the shared 2400-token budget, which is sized from
+    Groq's own 8000 TPM ceiling and has nothing to do with Gemini's real ceiling.
+    """
+
+    def setUp(self) -> None:
+        from scripts import planning_outline_split_contract as split
+
+        self.split = importlib.reload(split)
+        self.split._TERMINAL_REQUEST_FINGERPRINTS.clear()
+
+    def test_gemini_gets_more_completion_headroom_than_groq_on_both_split_calls(self) -> None:
+        for spec in (
+            self.split.outline_core_stage_spec(6),
+            self.split.outline_sections_stage_spec(6),
+        ):
+            with self.subTest(stage_id=spec.stage_id):
+                policy = spec.provider_policy
+                self.assertEqual(policy.completion_tokens, stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET)
+                self.assertGreater(
+                    policy.completion_tokens_for("gemini"),
+                    policy.completion_tokens,
+                )
+                self.assertEqual(policy.completion_tokens_for("gemini"), self.split._GEMINI_COMPLETION_TOKENS)
+                # Groq's own TPM admission math must never move: it is already
+                # razor-thin for Film (Run #208: GROQ_TPM_WINDOW_BUSY_PRECHECK at
+                # this exact budget), so only Gemini gets real headroom here.
+                self.assertEqual(policy.completion_tokens_for("groq"), stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET)
+                self.assertEqual(
+                    policy.completion_tokens_for("openrouter"), stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET
+                )
+
+    def test_gemini_call_actually_receives_the_larger_max_output_tokens(self) -> None:
+        spec = self.split.outline_core_stage_spec(6)
+        contract = stage_contract.bind_request_contract(spec, "core-request")
+        captured: dict = {}
+
+        def fake_gemini(api_key, prompt, model="gemini-2.5-flash", **kwargs):
+            captured.update(kwargs)
+            return {}
+
+        with mock.patch.object(router, "gemini_json_text", side_effect=fake_gemini):
+            stage_contract._provider_result("gemini", "prompt", "model", contract, "key")
+
+        self.assertEqual(captured.get("max_output_tokens"), self.split._GEMINI_COMPLETION_TOKENS)
+        self.assertGreater(self.split._GEMINI_COMPLETION_TOKENS, stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET)
+
+    def test_non_split_stages_are_unaffected_gemini_gets_the_same_shared_budget(self) -> None:
+        spec = stage_contract.script_stage_spec("full_script", ["s1"])
+        contract = stage_contract.bind_request_contract(spec, "script-request")
+        captured: dict = {}
+
+        def fake_gemini(api_key, prompt, model="gemini-2.5-flash", **kwargs):
+            captured.update(kwargs)
+            return {}
+
+        with mock.patch.object(router, "gemini_json_text", side_effect=fake_gemini):
+            stage_contract._provider_result("gemini", "prompt", "model", contract, "key")
+
+        self.assertEqual(captured.get("max_output_tokens"), contract.provider_policy.completion_tokens)
+
+    def test_groq_admission_math_is_untouched_by_the_gemini_override(self) -> None:
+        # planning_envelope_preflight.py's Groq TPM sizing must keep reading the base
+        # completion_tokens field, never the per-provider override.
+        core = self.split.outline_core_stage_spec(6)
+        self.assertEqual(core.provider_policy.completion_tokens, stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET)
+
+
 class PlanningSplitEnvelopeTests(unittest.TestCase):
     def test_preflight_sizes_both_real_engine_split_prompts(self) -> None:
         from scripts import planning_envelope_preflight as preflight

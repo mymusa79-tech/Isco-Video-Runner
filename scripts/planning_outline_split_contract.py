@@ -39,6 +39,13 @@ SPLIT_PROFILES = frozenset({CORE_PROFILE, SECTIONS_PROFILE})
 _SPLIT_MARKER = "_isco_planning_outline_split_contract_v2"
 _SPLIT_JSON_MARKER = "_isco_planning_outline_split_json_v2"
 _COMPLETION_TOKENS = stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET
+# Run #209 (and identical Run #204/#205): Gemini truncated real Film/Long editorial_intent
+# content at the shared 2400-token budget, which is sized for Groq's own 8000 TPM ceiling
+# (confirmed razor-thin for Film by Run #208's GROQ_TPM_WINDOW_BUSY_PRECHECK) and has no
+# relationship to Gemini's own, much higher real ceiling. Gemini gets real headroom here;
+# Groq's own admission math (planning_envelope_preflight.py) still reads the unchanged
+# base _COMPLETION_TOKENS above, so its TPM budget is untouched by this override.
+_GEMINI_COMPLETION_TOKENS = _COMPLETION_TOKENS * 2
 
 LOCKED_PREMISE_MAX_UTF8_BYTES = 3_600
 
@@ -149,6 +156,7 @@ def _split_provider_policy() -> stage_contract.ProviderPolicy:
         max_attempts_per_provider=stage_contract.OUTLINE_MAX_ATTEMPTS_PER_PROVIDER,
         max_total_attempts=stage_contract.OUTLINE_MAX_TOTAL_ATTEMPTS,
         second_pass_after_full_exhaustion=True,
+        completion_tokens_by_provider=(("gemini", _GEMINI_COMPLETION_TOKENS),),
     )
 
 
