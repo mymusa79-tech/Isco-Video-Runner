@@ -93,6 +93,25 @@ class PlanningEnvelopeRuntimeParityTests(unittest.TestCase):
             list(visible.PLANNING_PILLARS),
         )
 
+    def test_question_answer_transport_is_compact_without_losing_spoken_contract(self) -> None:
+        spec = split.outline_core_stage_spec_for_format("film")
+        verbose = visible._QUESTION_ANSWER_RUNTIME_RULE
+        source = "PREFIX\n" + verbose + "\nSUFFIX"
+        prompt = visible._provider_visible_prompt(source, spec)
+
+        self.assertNotIn(verbose, prompt)
+        self.assertIn(visible._COMPACT_QUESTION_ANSWER_PROVIDER_RULE, prompt)
+        self.assertIn("SPOKEN narration itself", prompt)
+        self.assertIn("layered answers", prompt)
+        self.assertIn("do not collapse", prompt)
+        self.assertIn("metadata", prompt)
+        self.assertIn("advances the argument", prompt)
+        self.assertGreater(
+            len(verbose.encode("utf-8"))
+            - len(visible._COMPACT_QUESTION_ANSWER_PROVIDER_RULE.encode("utf-8")),
+            200,
+        )
+
 
 class PlanningSplitRetryPolicyTests(unittest.TestCase):
     def test_split_policy_keeps_provider_first_single_attempt_sweep(self) -> None:
