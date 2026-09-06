@@ -12,6 +12,7 @@ from isco_video_agent.config import env, secret
 from isco_video_agent.media.ffmpeg import duration
 from isco_video_agent.tts_budget import TtsBudget, TtsCircuit
 
+from scripts import short_editorial_craft_contract as craft
 from scripts import short_voice_v2
 from scripts.short_cinematic_director import apply_short_sfx, upgrade_short_cinematic
 from scripts.short_voice_v2 import (
@@ -274,7 +275,22 @@ def apply_voice_owned_short(
         raise RuntimeError(str(exc)) from exc
 
     target_seconds = float(timeline["target_seconds"])
-    retimed_events = retime_events(events, source_seconds=source_seconds, target_seconds=target_seconds)
+    hook_beat_max = craft.template_hook_beat_max_seconds(template)
+    retimed_events = retime_events(
+        events,
+        source_seconds=source_seconds,
+        target_seconds=target_seconds,
+        first_event_max_seconds=hook_beat_max,
+    )
+    hook_beat_actual = round(float(retimed_events[0]["end"]) - float(retimed_events[0]["start"]), 3)
+    timeline.update(
+        {
+            "hook_visual_beat_template": template,
+            "hook_visual_beat_max_seconds": hook_beat_max,
+            "hook_visual_beat_actual_seconds": hook_beat_actual,
+            "hook_visual_beat_capped_after_voice": hook_beat_actual <= hook_beat_max + 0.001,
+        }
+    )
     staged = root / "voice-owned-visual-stage.mp4"
     _stage_visual_duration(final_path, staged, target_seconds)
     voiced = root / "final-voice-owned-v1.mp4"
@@ -324,6 +340,8 @@ def apply_voice_owned_short(
             "voice_seconds_measured": timeline.get("voice_seconds_measured"),
             "voice_target_timeline_seconds": timeline.get("target_seconds"),
             "voice_timeline_adjustment_seconds": timeline.get("timeline_adjustment_seconds"),
+            "hook_visual_beat_max_seconds": hook_beat_max,
+            "hook_visual_beat_actual_seconds": hook_beat_actual,
             "voice_post_speed_factor": 1.0,
             "voice_time_compression": False,
             "voice_duration_estimate_is_certification": False,
