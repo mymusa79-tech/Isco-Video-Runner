@@ -5,6 +5,8 @@ import unittest
 from unittest.mock import patch
 
 from scripts import planning_batch_hardening as batching
+from scripts import planning_capacity_profile as capacity_profile
+from scripts import planning_stage_contract as planning_contract
 from scripts import provider_capacity_hardening as capacity
 from scripts import task_level_planner_router as router
 from scripts.provider_failure import classify_provider_failure
@@ -28,6 +30,10 @@ with EXACTLY 3 entries, in this exact order.
 '''
 
 
+def _writer_spec() -> planning_contract.PlanningStageSpec:
+    return planning_contract.script_stage_spec("full_script", ["s1", "s2", "s3"])
+
+
 class Run118BatchHeadroomTests(unittest.TestCase):
     def test_film_transport_maximum_is_three_three_two(self) -> None:
         self.assertEqual(batching.MAX_SCRIPT_BATCH_SECTIONS, 3)
@@ -43,6 +49,7 @@ class Run118GroqGenerationTests(unittest.TestCase):
     def setUp(self) -> None:
         router._last_call_rate_limit_headers.clear()
         router._last_call_response_meta.clear()
+        capacity_profile.install_explicit_planning_transport_projection()
 
     def test_output_heavy_groq_uses_json_object_and_low_reasoning(self) -> None:
         captured = {}
@@ -62,22 +69,23 @@ class Run118GroqGenerationTests(unittest.TestCase):
                 "usage": {"prompt_tokens": 100, "completion_tokens": 200},
             })
 
-        with patch.object(router, "_read_secret_file", return_value="test-key"), patch.object(
-            router.requests, "post", side_effect=fake_post
-        ):
+        with planning_contract.request_stage_scope(_writer_spec()), \
+                patch.object(router, "_read_secret_file", return_value="test-key"), \
+                patch.object(router.requests, "post", side_effect=fake_post):
             result = capacity._hardened_groq_call(FULL_SCRIPT_PROMPT)
 
         self.assertEqual(len(result["sections"]), 3)
         self.assertEqual(captured["response_format"], {"type": "json_object"})
         self.assertEqual(captured["reasoning_effort"], "low")
         self.assertFalse(captured["include_reasoning"])
-        self.assertEqual(captured["max_completion_tokens"], 2400)
+        self.assertEqual(captured["max_completion_tokens"], 1800)
 
     def test_outline_keeps_strict_schema(self) -> None:
-        prompt = "Required number of sections: exactly 8. Return section_briefs."
-        contract = router._structured_schema_for_prompt(prompt)
-        self.assertIsNotNone(contract)
-        response_format = capacity._response_format_for_contract(contract)
+        response_contract = planning_contract._schema_tuple(
+            planning_contract.outline_stage_spec(8)
+        )
+        self.assertEqual(response_contract[0], "editorial_outline")
+        response_format = capacity._response_format_for_contract(response_contract)
         self.assertEqual(response_format["type"], "json_schema")
         self.assertTrue(response_format["json_schema"]["strict"])
 
@@ -96,11 +104,12 @@ class Run118OpenRouterFallbackTests(unittest.TestCase):
     def setUp(self) -> None:
         router._last_call_rate_limit_headers.clear()
         router._last_call_response_meta.clear()
+        capacity_profile.install_explicit_planning_transport_projection()
 
     def test_output_heavy_openrouter_keeps_free_only_failover_and_minimal_reasoning(self) -> None:
         captured = {}
-        contract = router._structured_schema_for_prompt(FULL_SCRIPT_PROMPT)
-        self.assertIsNotNone(contract)
+        response_contract = planning_contract._schema_tuple(_writer_spec())
+        self.assertEqual(response_contract[0], "script_writer_3")
         content = json.dumps({
             "sections": [
                 {"id": "s1", "narration": "أ", "key_point": "١"},
@@ -120,7 +129,9 @@ class Run118OpenRouterFallbackTests(unittest.TestCase):
         with patch.object(router, "_openrouter_key", return_value="test-key"), patch.object(
             router.requests, "post", side_effect=fake_post
         ):
-            result = capacity._hardened_openrouter_structured_request(FULL_SCRIPT_PROMPT, contract)
+            result = capacity._hardened_openrouter_structured_request(
+                FULL_SCRIPT_PROMPT, response_contract
+            )
 
         self.assertEqual(len(result["sections"]), 3)
         self.assertEqual(captured["models"], list(capacity.OPENROUTER_OUTPUT_HEAVY_MODELS))
@@ -128,7 +139,7 @@ class Run118OpenRouterFallbackTests(unittest.TestCase):
         self.assertTrue(all(model.endswith(":free") for model in captured["models"][:-1]))
         self.assertEqual(captured["response_format"], {"type": "json_object"})
         self.assertEqual(captured["reasoning"], {"effort": "minimal", "exclude": True})
-        self.assertEqual(captured["max_tokens"], 2400)
+        self.assertEqual(captured["max_tokens"], 1800)
         self.assertTrue(captured["provider"]["allow_fallbacks"])
         self.assertTrue(captured["provider"]["require_parameters"])
 
