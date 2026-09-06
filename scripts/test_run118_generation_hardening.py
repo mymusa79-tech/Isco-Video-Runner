@@ -50,6 +50,15 @@ class Run118GroqGenerationTests(unittest.TestCase):
         router._last_call_rate_limit_headers.clear()
         router._last_call_response_meta.clear()
         capacity_profile.install_explicit_planning_transport_projection()
+        # Production's explicit Planning router owns this compatibility seam. Keep the
+        # focused Run118 test on that same seam instead of accidentally reviving the
+        # retired prompt-inference helper merely because this unit test calls the lower
+        # Groq transport directly.
+        self._old_schema_resolver = router._structured_schema_for_prompt
+        router._structured_schema_for_prompt = planning_contract._explicit_schema_adapter
+
+    def tearDown(self) -> None:
+        router._structured_schema_for_prompt = self._old_schema_resolver
 
     def test_output_heavy_groq_uses_json_object_and_low_reasoning(self) -> None:
         captured = {}
@@ -69,7 +78,10 @@ class Run118GroqGenerationTests(unittest.TestCase):
                 "usage": {"prompt_tokens": 100, "completion_tokens": 200},
             })
 
-        with planning_contract.request_stage_scope(_writer_spec()), \
+        # Use the same bounded Writer scope installed around production shards. This
+        # proves schema identity and the 1800-token reserve come from Stage Contract,
+        # not from matching the words in FULL_SCRIPT_PROMPT.
+        with planning_contract.script_batch_scope("writer", ["s1", "s2", "s3"]), \
                 patch.object(router, "_read_secret_file", return_value="test-key"), \
                 patch.object(router.requests, "post", side_effect=fake_post):
             result = capacity._hardened_groq_call(FULL_SCRIPT_PROMPT)
