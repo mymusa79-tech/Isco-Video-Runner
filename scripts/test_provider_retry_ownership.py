@@ -49,9 +49,16 @@ class ProviderRetryOwnershipTests(unittest.TestCase):
         self.assertEqual(result["vision_single_wire_boundaries"], 3)
 
     def test_short_voice_uses_engine_tts_owner_not_direct_gemini_boundary(self) -> None:
+        # apply_short_voice_v2() calls the shared _synthesize_voice() helper (Run #196
+        # bounded dense-narration retry needs to reach the same real-provider boundary
+        # up to twice, never more) - the actual Engine TTS-owner boundary call itself
+        # lives in that helper, not inlined in apply_short_voice_v2 anymore.
         source = inspect.getsource(short_voice_v2.apply_short_voice_v2)
-        self.assertIn("orchestrator._synthesize_tts_section", source)
+        self.assertIn("_synthesize_voice(", source)
         self.assertNotIn("gemini_synthesize", source)
+        helper_source = inspect.getsource(short_voice_v2._synthesize_voice)
+        self.assertIn("orchestrator._synthesize_tts_section", helper_source)
+        self.assertNotIn("gemini_synthesize", helper_source)
 
     def test_engine_runner_tts_path_forces_literal_single_attempt(self) -> None:
         self.assertGreaterEqual(

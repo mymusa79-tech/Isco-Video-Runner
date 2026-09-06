@@ -85,6 +85,40 @@ class Run192ShortVoiceFeasibilityTests(unittest.TestCase):
         self.assertIn("وهذه هي الخلاصة", result["transcript"])
         self.assertNotIn("تفصيل داخلي", result["transcript"])
 
+    def test_exclude_index_sets_skips_an_already_tried_projection(self):
+        # Run #196 bounded retry: a caller whose real (post-synthesis) speed exceeded
+        # RUNTIME_MAX_SPEED asks for the next-richest untried projection instead of
+        # the one it already spent a real TTS call on.
+        events = [
+            {"text": "سؤال قصير"},
+            {"text": "خطوة صغيرة"},
+            {"text": " ".join(["تفصيل"] * 18)},
+            {"text": "ابدأ الآن"},
+        ]
+        first = build_voice_projection(events, "voice_led", final_seconds=6.0)
+        self.assertEqual(first["spoken_beat_indexes"], [0, 1, 3])
+        second = build_voice_projection(
+            events, "voice_led", final_seconds=6.0,
+            exclude_index_sets=[first["spoken_beat_indexes"]],
+        )
+        self.assertNotEqual(second["spoken_beat_indexes"], first["spoken_beat_indexes"])
+        self.assertLess(second["spoken_beat_count"], first["spoken_beat_count"])
+
+    def test_exclude_index_sets_exhausted_raises_impossible(self):
+        # Hybrid mode only ever has one candidate (hook+payoff) - excluding it leaves
+        # nothing, so a second retry correctly fails closed instead of looping.
+        events = [
+            {"text": "هذا هو السؤال"},
+            {"text": "تفصيل داخلي"},
+            {"text": "وهذه هي الخلاصة"},
+        ]
+        first = build_voice_projection(events, "hybrid", final_seconds=15.0)
+        with self.assertRaisesRegex(RuntimeError, "impossible without rewriting"):
+            build_voice_projection(
+                events, "hybrid", final_seconds=15.0,
+                exclude_index_sets=[first["spoken_beat_indexes"]],
+            )
+
     def test_impossible_hook_payoff_budget_fails_before_provider_call(self):
         events = [
             {"text": " ".join(["مقدمة"] * 30)},
@@ -106,12 +140,16 @@ class Run192ShortVoiceFeasibilityTests(unittest.TestCase):
     def test_apply_short_voice_builds_projection_before_tts(self):
         source = inspect.getsource(short_voice_v2.apply_short_voice_v2)
         projection_at = source.index("build_voice_projection(")
-        synth_at = source.index("orchestrator._synthesize_tts_section(")
+        synth_at = source.index("_synthesize_voice(")
         fit_at = source.index("_fit_voice_to_video(")
         self.assertLess(projection_at, synth_at)
         self.assertLess(synth_at, fit_at)
         self.assertIn('"voice_duration_preflight": True', source)
         self.assertIn('"extra_text_ai_calls": 0', source)
+        # _synthesize_voice() is the actual real-provider boundary (Run #196 bounded
+        # retry needs the same synthesize-then-fit shape reachable twice, never more).
+        helper_source = inspect.getsource(short_voice_v2._synthesize_voice)
+        self.assertIn("orchestrator._synthesize_tts_section(", helper_source)
 
 
 if __name__ == "__main__":
