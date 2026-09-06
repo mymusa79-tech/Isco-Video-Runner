@@ -28,7 +28,7 @@ PR #366 was merged only after Full Engine + Full Runner + M7 + M11 were Green on
 
 Run132 proved that individually correct checkpoint, cache and terminal-recovery features can still conflict after composition. The durable router document remains schema v1 while namespace evolution is versioned independently; a Groq prompt family becomes cache-warm only after provider-reported `cached_tokens > 0`; and terminal recovery accepts reset evidence up to 60 seconds, sleeps no more than 60 seconds per recovery, allows at most three recoveries, and caps total terminal wait at 180 seconds. These composed contracts are now explicit Stage Ladder evidence rather than historical PR claims.
 
-## Closure 5 — Run51–192 cumulative regression / stale-stage evidence
+## Closure 5 — Run51–209 cumulative regression / stale-stage evidence
 
 **State:** BLOCKING until the exact current `main` SHA receives a Green P0–P6 Stage Ladder certificate.
 
@@ -43,9 +43,9 @@ The mandatory ladder is:
 - P5 — current Gold same-render state transition over that staging media with deterministic recorded external boundaries.
 - P6 — current packaging, unified delivery and release-transaction dry replay with zero publication.
 
-Every Run from 51 through 192 belongs to exactly one audit cohort in `scripts/production_family_closure.json`; known repeated failure families are mapped separately to executable contracts and required phases. The recent incident series is explicitly represented: Short representation/metadata authority (179–180), Vision health/scope (181), semantic visual retrieval + QR adjudication (183–185), format-aware Final Master acceptance (186), Moment duration authority (187), Short finishing capability ownership (188), repair/tone representation composition (189–191), and pre-TTS Short Voice feasibility/projection selection (192).
+Every Run from 51 through 209 belongs to exactly one audit cohort in `scripts/production_family_closure.json`; known repeated failure families are mapped separately to executable contracts and required phases. The exact incident ledger now covers Run184–209, including the latest twenty-run window (190–209): each Run records Short/Long format, the real failure phase, a stable failure signature, and one or more reciprocal executable families. Runs 193–195 and 197 are Planning/P1, Runs 196 and 198 are Voice/P2, Runs 199–201 are Visual/P3, Run202 is entrypoint/P0, Run203 is Long ingress/P0, and Runs 204–209 are Long Planning/P1. Within that final series, Runs 204–207 and 209 belong to split-outline transport/domain/output-headroom closure, while Run208 belongs to temporal Groq TPM-window batch recovery.
 
-The certificate fails closed if a cohort is missing/duplicated, if a family references a run outside the certified window, or if a declared family contract is absent from the tests executed on that exact SHA.
+The certificate fails closed if a cohort or incident is missing/duplicated, if an incident points to the wrong phase, if its family does not point back to the same Run, if no declared family contract ran in the actual failure phase, if a family references a run outside the certified window, or if a declared family contract is absent from the tests executed on that exact SHA.
 
 ## Forward anti-staleness guard
 
@@ -53,7 +53,7 @@ Starting at Run171, every tracked `scripts/test_runNNN_*.py` is treated as a pro
 - the highest named regression Run is newer than `historical_window.last_run`, or
 - a named Run regression inside the window is not declared by at least one family in the machine-readable register.
 
-This makes the register self-policing: adding a future Run193 regression without extending the historical window and binding that regression to a family can no longer leave the system with a misleading Green family-closure certificate.
+Starting at Run184, the stronger incident-ledger guard additionally requires exact numeric coverage through `historical_window.last_run`, phase/cohort alignment, reciprocal Run↔family membership, and at least one family contract executed in the incident's failure phase. This makes the register self-policing: a future incident cannot be hidden behind an unrelated visual family or omitted while leaving a misleading Green family-closure certificate.
 
 ## Permanent production rule
 

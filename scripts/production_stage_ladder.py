@@ -29,6 +29,7 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_youtube_oauth_readonly_firewall",
         "scripts.test_telegram_direct_entrypoints",
         "scripts.test_preproduction_contract",
+        "scripts.test_production_stage_ladder_contract",
         "scripts.test_crossref_reliability",
         "scripts.test_persistent_memory",
         "scripts.test_persistent_memory_migration_epoch",
@@ -50,7 +51,13 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_bounded_output_recovery",
         "scripts.test_schema_repair_policy",
         "scripts.test_planning_capacity_headroom",
+        "scripts.test_planning_envelope_preflight",
+        "scripts.test_planning_envelope_split_contract",
+        "scripts.test_planning_outline_portability_bound",
+        "scripts.test_planning_outline_split_contract",
+        "scripts.test_planning_runtime_fresh_process",
         "scripts.test_planning_stage_contract",
+        "scripts.test_engine_runner_contract_evolution",
         "scripts.test_run117_production_hardening",
         "scripts.test_run118_generation_hardening",
         "scripts.test_run120_dossier_repair_hardening",
@@ -88,7 +95,9 @@ PHASE_TESTS: dict[str, tuple[str, ...]] = {
         "scripts.test_voice_mesh",
         "scripts.test_piper_chunking",
         "scripts.test_short_voice_v2",
+        "scripts.test_run188_short_capability_ownership",
         "scripts.test_run192_short_voice_feasibility",
+        "scripts.test_voice_owned_timeline_v1",
         "scripts.test_audio_semantic_integrity",
         "scripts.test_audio_mastering_runtime_contract",
         "scripts.test_audio_producer_repair_lifecycle",
@@ -418,25 +427,35 @@ def _named_run_regressions() -> dict[int, set[str]]:
     return result
 
 
-def certify(evidence_dir: Path, output: Path) -> None:
-    register = json.loads(REGISTER_PATH.read_text(encoding="utf-8"))
-    runner_sha, engine_sha = _git_sha(ROOT), _git_sha(ENGINE_ROOT)
-    evidence: dict[str, dict[str, Any]] = {}
-    for phase in PHASES:
-        item = json.loads((evidence_dir / f"{phase}.json").read_text(encoding="utf-8"))
-        if item.get("status") != "pass" or item.get("runner_sha") != runner_sha or item.get("engine_sha") != engine_sha:
-            raise RuntimeError(f"{phase} evidence is not Green on the exact current source pair")
-        evidence[phase] = item
+def _validate_family_register(
+    register: dict[str, Any],
+    executed_tests_by_phase: dict[str, set[str]],
+) -> dict[str, Any]:
+    """Validate reciprocal incident/cohort/family closure before Green certification.
 
+    Cohorts prove that the numeric window has no holes.  The incident ledger proves
+    the stronger property that every recent production failure is classified by its
+    real phase and points to an executable family which points back to that same run.
+    This prevents a broad P3 cohort (the old Run193-201 entry) from hiding planning or
+    audio failures behind unrelated visual tests.
+    """
     window = register["historical_window"]
+    executed_tests = {
+        module for modules in executed_tests_by_phase.values() for module in modules
+    }
     first_run = int(window["first_run"])
     last_run = int(window["last_run"])
     expected = set(range(first_run, last_run + 1))
     cohort_membership: dict[int, list[str]] = {}
+    cohort_phases: dict[int, set[str]] = {}
     for cohort in register.get("audit_cohorts") or []:
         cohort_id = str(cohort.get("id") or "unknown")
+        required_phases = set(cohort.get("required_phases") or [])
+        if not required_phases or not required_phases.issubset(PHASES):
+            raise RuntimeError(f"audit cohort {cohort_id} has invalid required phases")
         for run_number in _expand(cohort["runs"]):
             cohort_membership.setdefault(run_number, []).append(cohort_id)
+            cohort_phases[run_number] = required_phases
     covered = set(cohort_membership)
     duplicates = {run: ids for run, ids in cohort_membership.items() if len(ids) != 1}
     if covered != expected or duplicates:
@@ -445,23 +464,24 @@ def certify(evidence_dir: Path, output: Path) -> None:
             f"missing={sorted(expected-covered)} extra={sorted(covered-expected)} duplicates={duplicates}"
         )
 
-    executed_tests = {
-        str(test_name)
-        for phase in PHASES
-        for test_name in (evidence[phase].get("tests") or [])
-    }
-    families = []
+    families: list[dict[str, Any]] = []
+    family_runs_by_id: dict[str, set[int]] = {}
+    family_phases_by_id: dict[str, set[str]] = {}
+    family_contracts_by_id: dict[str, set[str]] = {}
     for family in register.get("families") or []:
+        family_id = str(family.get("id") or "").strip()
+        if not family_id or family_id in family_runs_by_id:
+            raise RuntimeError(f"duplicate or empty family id={family_id or 'missing'}")
         required = list(family.get("required_phases") or [])
-        if not required or any(phase not in evidence for phase in required):
-            raise RuntimeError(f"family {family.get('id')} lacks current phase evidence")
+        if not required or any(phase not in PHASES for phase in required):
+            raise RuntimeError(f"family {family_id} has invalid required phases")
         contracts = list(family.get("contracts") or [])
         if not contracts:
-            raise RuntimeError(f"family {family.get('id')} has no executable contracts")
+            raise RuntimeError(f"family {family_id} has no executable contracts")
         missing_contracts = sorted(set(contracts) - executed_tests)
         if missing_contracts:
             raise RuntimeError(
-                f"family {family.get('id')} declares contracts not executed by current Stage Ladder: "
+                f"family {family_id} declares contracts not executed by current Stage Ladder: "
                 f"{missing_contracts}"
             )
         family_runs: set[int] = set()
@@ -469,11 +489,14 @@ def certify(evidence_dir: Path, output: Path) -> None:
             family_runs.update(_expand(spec))
         if not family_runs or not family_runs.issubset(expected):
             raise RuntimeError(
-                f"family {family.get('id')} references runs outside certified window: "
+                f"family {family_id} references runs outside certified window: "
                 f"{sorted(family_runs-expected)}"
             )
+        family_runs_by_id[family_id] = family_runs
+        family_phases_by_id[family_id] = set(required)
+        family_contracts_by_id[family_id] = set(contracts)
         families.append({
-            "id": family["id"], "name": family["name"], "status": "closed_on_certified_sha",
+            "id": family_id, "name": family["name"], "status": "closed_on_certified_sha",
             "required_phases": required, "historical_runs": family.get("historical_runs"),
             "contracts": contracts, "contracts_executed_on_sha": True,
         })
@@ -503,11 +526,135 @@ def certify(evidence_dir: Path, output: Path) -> None:
     if guard.get("require_every_named_regression_declared") is True and orphaned:
         raise RuntimeError(f"named production regressions are not declared by a family: {orphaned}")
 
+    ledger = register.get("incident_ledger") or {}
+    ledger_from = int(ledger.get("enforcement_from") or last_run + 1)
+    guard_ledger_from = int(guard.get("incident_ledger_enforcement_from") or ledger_from)
+    if ledger_from != guard_ledger_from:
+        raise RuntimeError(
+            "incident-ledger enforcement boundary drift: "
+            f"ledger={ledger_from} forward_guard={guard_ledger_from}"
+        )
+    expected_incidents = set(range(max(first_run, ledger_from), last_run + 1))
+    incident_by_run: dict[int, dict[str, Any]] = {}
+    reciprocal_membership: dict[str, set[int]] = {
+        family_id: set() for family_id in family_runs_by_id
+    }
+    for raw in ledger.get("entries") or []:
+        run_number = raw.get("run")
+        if isinstance(run_number, bool) or not isinstance(run_number, int):
+            raise RuntimeError(f"incident row has invalid run={run_number!r}")
+        if run_number in incident_by_run:
+            raise RuntimeError(f"incident ledger duplicates Run{run_number}")
+        fmt = str(raw.get("format") or "").strip()
+        if fmt not in {"short", "long"}:
+            raise RuntimeError(f"incident Run{run_number} has invalid format={fmt or 'missing'}")
+        failure_phase = str(raw.get("failure_phase") or "").strip()
+        if failure_phase not in PHASES:
+            raise RuntimeError(
+                f"incident Run{run_number} has invalid failure phase={failure_phase or 'missing'}"
+            )
+        if failure_phase not in cohort_phases.get(run_number, set()):
+            raise RuntimeError(
+                f"incident Run{run_number} phase={failure_phase} is absent from its audit cohort"
+            )
+        signature = str(raw.get("failure_signature") or "").strip()
+        if not signature or re.fullmatch(r"[a-z0-9_]+", signature) is None:
+            raise RuntimeError(f"incident Run{run_number} lacks a stable failure signature")
+        family_ids = list(raw.get("family_ids") or [])
+        if not family_ids or len(family_ids) != len(set(family_ids)):
+            raise RuntimeError(
+                f"incident Run{run_number} must declare one or more unique family ids"
+            )
+        for family_id in family_ids:
+            if family_id not in family_runs_by_id:
+                raise RuntimeError(
+                    f"incident Run{run_number} references unknown family={family_id}"
+                )
+            if run_number not in family_runs_by_id[family_id]:
+                raise RuntimeError(
+                    f"incident Run{run_number} family={family_id} has no reciprocal historical run"
+                )
+            if failure_phase not in family_phases_by_id[family_id]:
+                raise RuntimeError(
+                    f"incident Run{run_number} phase={failure_phase} is not certified by family={family_id}"
+                )
+            reciprocal_membership[family_id].add(run_number)
+        phase_contracts = set(executed_tests_by_phase.get(failure_phase) or set())
+        aligned_contracts = {
+            contract
+            for family_id in family_ids
+            for contract in family_contracts_by_id[family_id]
+            if contract in phase_contracts
+        }
+        if not aligned_contracts:
+            raise RuntimeError(
+                f"incident Run{run_number} phase={failure_phase} has no family contract "
+                "executed in that phase"
+            )
+        incident_by_run[run_number] = {
+            "run": run_number,
+            "format": fmt,
+            "failure_phase": failure_phase,
+            "failure_signature": signature,
+            "family_ids": family_ids,
+        }
+
+    incident_runs = set(incident_by_run)
+    if guard.get("require_exact_incident_family_coverage") is True and incident_runs != expected_incidents:
+        raise RuntimeError(
+            f"incident ledger does not exactly cover Run{ledger_from}-{last_run} "
+            f"missing={sorted(expected_incidents-incident_runs)} "
+            f"extra={sorted(incident_runs-expected_incidents)}"
+        )
+    if guard.get("require_incident_phase_family_alignment") is True:
+        missing_reciprocal: dict[str, list[int]] = {}
+        for family_id, family_runs in family_runs_by_id.items():
+            guarded_family_runs = family_runs & expected_incidents
+            missing = guarded_family_runs - reciprocal_membership[family_id]
+            if missing:
+                missing_reciprocal[family_id] = sorted(missing)
+        if missing_reciprocal:
+            raise RuntimeError(
+                "family historical runs lack reciprocal incident-ledger mappings: "
+                f"{missing_reciprocal}"
+            )
+
+    return {
+        "first_run": first_run,
+        "last_run": last_run,
+        "families": families,
+        "named_enforcement_from": enforcement_from,
+        "max_named_run": max_named_run,
+        "incident_enforcement_from": ledger_from,
+        "incidents": [incident_by_run[run] for run in sorted(incident_by_run)],
+    }
+
+
+def certify(evidence_dir: Path, output: Path) -> None:
+    register = json.loads(REGISTER_PATH.read_text(encoding="utf-8"))
+    runner_sha, engine_sha = _git_sha(ROOT), _git_sha(ENGINE_ROOT)
+    evidence: dict[str, dict[str, Any]] = {}
+    for phase in PHASES:
+        item = json.loads((evidence_dir / f"{phase}.json").read_text(encoding="utf-8"))
+        if item.get("status") != "pass" or item.get("runner_sha") != runner_sha or item.get("engine_sha") != engine_sha:
+            raise RuntimeError(f"{phase} evidence is not Green on the exact current source pair")
+        evidence[phase] = item
+    executed_tests_by_phase = {
+        phase: {str(test_name) for test_name in (evidence[phase].get("tests") or [])}
+        for phase in PHASES
+    }
+    closure = _validate_family_register(register, executed_tests_by_phase)
+    first_run = int(closure["first_run"])
+    last_run = int(closure["last_run"])
+    families = list(closure["families"])
+    enforcement_from = int(closure["named_enforcement_from"])
+    max_named_run = int(closure["max_named_run"])
+
     baseline = evidence["P4"].get("baseline") or {}
     if baseline.get("sha256") != BASELINE_SHA256 or baseline.get("size_bytes") != BASELINE_SIZE:
         raise RuntimeError("P4 evidence is not bound to exact video-50")
     certificate = {
-        "schema_version": 1, "status": "green", "runner_sha": runner_sha, "engine_sha": engine_sha,
+        "schema_version": 2, "status": "green", "runner_sha": runner_sha, "engine_sha": engine_sha,
         "known_good_baseline": baseline,
         "phases": {phase: {"status": "pass", "evidence": f"{phase}.json"} for phase in PHASES},
         "historical_run_coverage": {"first_run": first_run, "last_run": last_run, "complete": True},
@@ -517,8 +664,17 @@ def certify(evidence_dir: Path, output: Path) -> None:
             "orphaned_contracts": {},
             "complete": True,
         },
+        "incident_family_guard": {
+            "enforcement_from": closure["incident_enforcement_from"],
+            "last_run": last_run,
+            "incident_count": len(closure["incidents"]),
+            "exactly_once_complete": True,
+            "phase_aligned": True,
+            "reciprocal_family_mapping_complete": True,
+            "entries": closure["incidents"],
+        },
         "families": families, "production_dispatch_performed": False, "release_publication_performed": False,
-        "certification_rule": "all_P0_through_P6_same_runner_sha_same_engine_sha_all_family_contracts_executed_no_orphaned_named_run_regressions",
+        "certification_rule": "all_P0_through_P6_same_runner_sha_same_engine_sha_all_family_contracts_executed_no_orphaned_named_run_regressions_exact_incident_phase_family_coverage",
     }
     _write_json(output, certificate)
     print(
