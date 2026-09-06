@@ -6,6 +6,7 @@ from scripts import planning_capacity_headroom as headroom
 from scripts import planning_stage_contract as stage_contract
 from scripts import provider_capacity_hardening as capacity
 from scripts import run125_capacity_routing_closure as run125
+from scripts import task_level_planner_router as router
 
 
 # Format-native payload caps. These are content-shape bounds, not provider quota
@@ -151,6 +152,27 @@ def install_explicit_planning_transport_projection() -> None:
     This is deliberately not a retry/router owner. It only teaches the existing
     transport adapter the names and budgets already owned by PlanningStageSpec.
     """
+    # Some direct compatibility callers reach provider_capacity_hardening before the
+    # full Stage Contract router installer swaps out the historical prompt-schema hint.
+    # When an explicit request scope is already active, prompt text must still be data
+    # only: project that scope into the legacy helper. Outside an explicit scope, retain
+    # the historical hint solely for compatibility callers. If the strict Stage Contract
+    # adapter is already installed, leave its fail-closed behavior untouched.
+    current_hint = router._legacy_schema_hint
+    if (
+        current_hint is not stage_contract._explicit_schema_adapter
+        and not getattr(current_hint, "_isco_explicit_transport_projection", False)
+    ):
+        legacy_hint = current_hint
+
+        def explicit_or_legacy_schema_hint(prompt: str):
+            if stage_contract.active_planning_completion_tokens() is not None:
+                return stage_contract._explicit_schema_adapter(prompt)
+            return legacy_hint(prompt)
+
+        explicit_or_legacy_schema_hint._isco_explicit_transport_projection = True
+        router._legacy_schema_hint = explicit_or_legacy_schema_hint
+
     canonical_budgets = dict(stage_contract.SHARD_COMPLETION_TOKEN_BUDGETS)
     canonical_budgets["editorial_outline"] = stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET
     canonical_budgets["section_repair"] = stage_contract._transport_completion_tokens(
