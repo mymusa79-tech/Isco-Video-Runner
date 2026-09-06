@@ -22,6 +22,7 @@ from scripts import m7_live_binding
 from scripts import m8_live_binding
 from scripts import m9_live_binding
 from scripts import m10_live_binding
+from scripts import run214_canonical_visual_intent
 from scripts import sfx_live_binding
 
 PORT_ID = "cinematic-runtime-port-v1"
@@ -133,6 +134,11 @@ def install_cinematic_runtime_port(
             "_isco_m7_live_binding",
             "M7/M11 live binding",
         )
+        # Run214 must bind only after M7 has installed Visual V1 + Run183/185 + the
+        # runtime scope, but before Opening Feasibility captures the final selector
+        # surfaces. That ordering makes CanonicalVisualIntent the last visual-truth
+        # owner without changing M7/M11's own responsibility or nesting.
+        run214_canonical_visual_intent.install_run214_canonical_visual_intent()
 
     return CinematicRuntimePortEvidence(
         port_id=PORT_ID,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import inspect
 import tempfile
 import unittest
@@ -7,11 +8,16 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
+import isco_video_agent.visual_selection as visual_selection
+from scripts import canonical_v4_short_child
+from scripts import orchestration_cinematic_port
 from scripts import orchestration_media_port
 from scripts import orchestration_shorts_port
 from scripts import run183_visual_retrieval_closure as run183
 from scripts import run212_visual_candidate_utilization as run212
+from scripts import run214_canonical_visual_intent as run214
 from scripts import short_cinematic_director as director
+from scripts import visual_retrieval_adjudication_v1 as visual_v1
 
 
 RUN212_BEAT3_QUERY = (
@@ -24,6 +30,11 @@ RUN213_BEAT2_QUERY = (
     "professional person at a minimalist sunlit desk in the morning, looking at everyday "
     "micro-choices, calm atmospheric lighting, documentary style, realistic. portrait "
     "vertical realistic cinematic"
+)
+
+RUN214_CORE_QUERY = (
+    "Cinematic medium shot of a tired middle aged Arab man holding coffee beside a box "
+    "of dates and a smartphone, choosing between small everyday options at a kitchen counter"
 )
 
 
@@ -241,6 +252,143 @@ class Run212VisualCandidateUtilizationTests(unittest.TestCase):
         finally:
             run212.opening_guard.stock_safe_search_query = original
             run212._SHARED_INSTALLED = original_flag
+
+    def test_run214_natural_decision_family_never_emits_broken_choos_stem(self) -> None:
+        base = run183.SemanticRetrievalFamily(
+            primary="middle aged arab coffee dates box choosing",
+            alternates=("aged arab box choos", "generic office desk"),
+            labels=frozenset(),
+        )
+
+        wrapped = run214._natural_decision_family(lambda _visual, _narration="": base)
+        family = wrapped(RUN214_CORE_QUERY, "decision fatigue from many small choices")
+        self.assertIn("decision", family.labels)
+        self.assertEqual(len(family.alternates), run183.MAX_ALTERNATE_QUERY_FANOUT)
+        self.assertTrue(any("choosing" in query or "decision" in query for query in family.alternates))
+        self.assertTrue(all("choos" not in query.split() for query in family.alternates))
+
+    def test_run214_over_specific_short_is_retrievable_but_long_keeps_existing_search(self) -> None:
+        transform = run214._short_retrievable_query(lambda query: query)
+        short_token = run214._ACTIVE_FORMAT.set("moment")
+        try:
+            self.assertEqual(transform(RUN214_CORE_QUERY), "hands choosing everyday items table")
+        finally:
+            run214._ACTIVE_FORMAT.reset(short_token)
+
+        long_token = run214._ACTIVE_FORMAT.set("film")
+        try:
+            self.assertEqual(transform(RUN214_CORE_QUERY), RUN214_CORE_QUERY)
+        finally:
+            run214._ACTIVE_FORMAT.reset(long_token)
+
+    def test_run214_canonical_intent_never_promotes_recovery_query_to_vision_truth(self) -> None:
+        captured: dict[str, str] = {}
+
+        def audit_fn(*args, **kwargs):
+            captured["intended_visual"] = kwargs["intended_visual"]
+            return {
+                "status": "block",
+                "relevance": 0.1,
+                "visual_quality": 0.8,
+                "vision_review_performed": True,
+                "semantic_verdict": True,
+            }
+
+        factory = run214._canonical_intent_audit_factory(lambda audit, _intent: audit)
+        canonical = RUN214_CORE_QUERY
+        wrapped = factory(audit_fn, canonical)
+        result = wrapped(
+            provider="pexels",
+            candidate={"id": 1},
+            narration_context="small choices drain attention",
+            intended_visual="aged arab box choos",
+        )
+        self.assertEqual(captured["intended_visual"], canonical)
+        self.assertIn("choosing", captured["intended_visual"])
+        self.assertNotIn("aged arab box choos", captured["intended_visual"])
+        self.assertEqual(result["canonical_visual_intent"], canonical)
+        self.assertEqual(result["stock_search_query"], "aged arab box choos")
+        self.assertIs(result["search_query_promoted_to_editorial_truth"], False)
+
+    def test_run214_global_rerank_compares_candidates_across_providers(self) -> None:
+        city = {
+            "id": 10,
+            "url": "https://example.test/dubai-city-skyline-10",
+            "_isco_visual_intelligence": {"tags": "dubai city skyline night tower"},
+        }
+        choice = {
+            "id": 20,
+            "url": "https://example.test/hands-choosing-everyday-options-20",
+            "_isco_visual_intelligence": {"tags": "hands decision choice everyday options"},
+        }
+        intent = visual_v1.build_visual_intent("decision choice everyday options")
+        ranked = run214._global_rerank(
+            [("pexels", city), ("pixabay", choice)],
+            intent,
+        )
+        self.assertEqual(ranked[0][0], "pixabay")
+        self.assertEqual(ranked[0][1]["id"], 20)
+        self.assertIn("global_retrieval_score_run214", ranked[0][1]["_isco_visual_intelligence"])
+
+    def test_run214_produce_scope_reaches_standalone_short_and_preserves_long(self) -> None:
+        transform = run214._short_retrievable_query(lambda query: query)
+        observations: list[tuple[str | None, str]] = []
+
+        def core(*args, **kwargs):
+            observations.append((run214._ACTIVE_FORMAT.get(), transform(RUN214_CORE_QUERY)))
+            return Path("output")
+
+        wrapped = run214._produce_scope(core)
+        wrapped(requested_format="moment")
+        wrapped(requested_format="film")
+        self.assertEqual(observations[0], ("moment", "hands choosing everyday items table"))
+        self.assertEqual(observations[1], ("film", RUN214_CORE_QUERY))
+        self.assertIsNone(run214._ACTIVE_FORMAT.get())
+
+    def test_run214_source_derived_sibling_short_uses_same_production_main_path(self) -> None:
+        child_source = inspect.getsource(canonical_v4_short_child.execute)
+        cinematic_source = inspect.getsource(orchestration_cinematic_port.install_cinematic_runtime_port)
+        self.assertIn("production.main()", child_source)
+        self.assertIn('"format": "moment"', child_source)
+        self.assertIn("install_run214_canonical_visual_intent", cinematic_source)
+
+    def test_run214_short_failure_audit_contains_real_contact_sheet_evidence_and_trace(self) -> None:
+        sheet = b"jpeg-contact-sheet-bytes"
+        sampler = run214._contact_sheet_capture(lambda _preview: [sheet])
+        run214._LAST_RANK_TRACE.set([
+            {"rank": 1, "provider": "pexels", "candidate_id": 123, "semantic_text": "hands choosing"}
+        ])
+
+        def audit_fn(*args, **kwargs):
+            sampler(Path("preview.mp4"))
+            return {
+                "status": "block",
+                "relevance": 0.1,
+                "visual_quality": 0.8,
+                "vision_review_performed": True,
+                "semantic_verdict": True,
+            }
+
+        token = run214._ACTIVE_FORMAT.set("moment")
+        attached = run214._TRACE_ATTACHED.set(False)
+        try:
+            factory = run214._canonical_intent_audit_factory(lambda audit, _intent: audit)
+            result = factory(audit_fn, RUN214_CORE_QUERY)(
+                provider="pexels",
+                candidate={"id": 123},
+                narration_context="decision fatigue",
+                intended_visual="decision choice everyday options",
+            )
+        finally:
+            run214._TRACE_ATTACHED.reset(attached)
+            run214._ACTIVE_FORMAT.reset(token)
+        self.assertEqual(base64.b64decode(result["contact_sheet_jpeg_base64"]), sheet)
+        self.assertEqual(result["contact_sheet_media_type"], "image/jpeg")
+        self.assertEqual(result["ranked_candidate_trace"][0]["candidate_id"], 123)
+
+    def test_run214_does_not_raise_existing_paid_vision_ceiling(self) -> None:
+        self.assertEqual(visual_selection.MAX_VISION_REVIEWS_PER_SECTION, 4)
+        self.assertEqual(run183.MAX_ALTERNATE_QUERY_FANOUT, 2)
 
 
 if __name__ == "__main__":
