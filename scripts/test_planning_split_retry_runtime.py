@@ -26,14 +26,16 @@ def _core_payload() -> dict:
         "closer_variant": "إغلاق",
         "transition_variants": ["أول", "ثان", "ثالث"],
         "editorial_intent": {
-            "editorial_thesis": "فكرة",
-            "viewer_starting_belief": "اعتقاد",
-            "hidden_assumption": "افتراض",
-            "editorial_turn": "تحول",
-            "stakes": "رهان",
-            "viewer_promise": "وعد",
-            "evidence_boundaries": ["حد"],
-            "earned_payoff": "عائد",
+            "editorial_thesis": "الدافع يتغير حين نفهم سبب تعثرنا بدل لوم أنفسنا",
+            "viewer_starting_belief": "يظن المشاهد أن فقدان الدافع يعني أن الإرادة ضعيفة",
+            "hidden_assumption": "يفترض أن الحماس يجب أن يسبق كل خطوة عملية",
+            "editorial_turn": "يرى أن الحركة الصغيرة قد تسبق الحماس وتعيد بناءه",
+            "stakes": "استمرار هذا الفهم يحدد هل يعود للمحاولة أم ينسحب مبكرًا",
+            "viewer_promise": "سيفهم لماذا تتعطل البداية وكيف يصنع خطوة قابلة للتكرار",
+            "evidence_boundaries": [
+                "لا نحول الفكرة إلى تشخيص طبي ولا ندعي نتيجة مضمونة"
+            ],
+            "earned_payoff": "يخرج بنموذج أبسط يربط الفعل الصغير باستعادة الزخم تدريجيًا",
         },
     }
 
