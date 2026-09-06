@@ -64,10 +64,9 @@ def _provider_visible_prompt(prompt: str, owner: object | None) -> str:
         prompt
         + "\n\n"
         + _VISIBLE_MARKER
-        + "\nThe JSON field `pillar` MUST be exactly one of: "
+        + "\n`pillar` MUST be exactly: "
         + values
-        + ". Do not translate, rename, or invent another pillar value.\n"
-        + "</PROVIDER_VISIBLE_SEMANTIC_CONTRACT>"
+        + "; do not translate/rename/invent."
     )
 
 
