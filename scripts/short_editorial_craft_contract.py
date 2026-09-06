@@ -68,22 +68,40 @@ def template_names() -> tuple[str, ...]:
     return tuple(_TEMPLATE_SPECS)
 
 
-def craft_writing_directive() -> str:
-    """Compact provider guidance folded into the existing call; zero extra generation."""
+def short_writing_directive() -> str:
+    """Compact Moment-only guidance; timeline seconds are enforced locally later."""
     return (
-        "Craft (same call; no extra generation): Moment one calm idea/beat. "
-        "why_reframe hook<=8w contrast/reframe; inner_dialogue hook<=9w inner thought->turn; "
-        "micro_story hook<=10w scene->turn; quote_reflection hook<=10w approved quote/reflection only. "
-        "First visual beat targets respectively 3.0/3.2/3.3/3.5s. "
-        f"on_screen<={SHORT_ON_SCREEN_MAX_WORDS}w; payoff<={SHORT_PAYOFF_MAX_WORDS}w; CTA<={SHORT_CTA_MAX_WORDS}w one action; reflective, no hype. "
-        f"Long: opening tension/promise ~{LONG_OPENING_PROMISE_TARGET_SECONDS:.0f}s; when feasible on_screen<={LONG_DERIVATIVE_ON_SCREEN_MAX_WORDS}w, "
+        "Craft (same call; no extra generation): Moment one calm idea/beat; "
+        "why_reframe hook<=8w contrast/reframe; inner_dialogue<=9w thought->turn; "
+        "micro_story<=10w scene->turn; quote_reflection<=10w approved quote only; "
+        f"on_screen<={SHORT_ON_SCREEN_MAX_WORDS}w; payoff<={SHORT_PAYOFF_MAX_WORDS}w; "
+        f"CTA<={SHORT_CTA_MAX_WORDS}w one action; reflective, no hype."
+    )
+
+
+def long_writing_directive() -> str:
+    """Long-only guidance kept intentionally tiny to preserve split-outline redundancy."""
+    return (
+        "Craft (same call; no extra generation): Long opening tension/promise ~"
+        f"{LONG_OPENING_PROMISE_TARGET_SECONDS:.0f}s; when feasible on_screen<={LONG_DERIVATIVE_ON_SCREEN_MAX_WORDS}w; "
         f"key_point<={LONG_DERIVATIVE_KEY_POINT_MAX_WORDS}w for source-derived Shorts."
     )
 
 
-def merge_craft_revision_note(existing: object) -> str:
+def craft_writing_directive(requested_format: object = "") -> str:
+    """Route only format-relevant craft into the existing provider call."""
+    fmt = clean(requested_format).lower()
+    if fmt == "moment":
+        return short_writing_directive()
+    if fmt in {"film", "story"}:
+        return long_writing_directive()
+    # Compatibility for callers/tests that do not yet provide format explicitly.
+    return f"{short_writing_directive()} {long_writing_directive()}"
+
+
+def merge_craft_revision_note(existing: object, requested_format: object = "") -> str:
     prior = clean(existing)
-    directive = craft_writing_directive()
+    directive = craft_writing_directive(requested_format)
     if directive in prior:
         return prior
     return f"{prior} {directive}" if prior else directive
