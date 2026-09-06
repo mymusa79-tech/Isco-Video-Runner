@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from scripts import planning_capacity_headroom as headroom
+from scripts import planning_stage_contract as stage_contract
+from scripts import provider_capacity_hardening as capacity
 from scripts import run125_capacity_routing_closure as run125
 
 
@@ -137,6 +139,35 @@ def compact_plan_payload(plan: object) -> dict[str, Any]:
     }
 
 
+def install_explicit_planning_transport_projection() -> None:
+    """Project canonical Stage Contract identities into legacy capacity adapters.
+
+    Provider-capacity hardening predates explicit Planning Stage Contracts and still
+    consumes the schema tuple name for transport-only choices such as JSON-object vs
+    strict-schema mode, reasoning effort, and completion reserve. The explicit Stage
+    Contract is the sole policy owner now, so copy its bounded transport identities and
+    budgets into that compatibility table instead of re-inferring them from prompt text.
+
+    This is deliberately not a retry/router owner. It only teaches the existing
+    transport adapter the names and budgets already owned by PlanningStageSpec.
+    """
+    canonical_budgets = dict(stage_contract.SHARD_COMPLETION_TOKEN_BUDGETS)
+    canonical_budgets["editorial_outline"] = stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET
+    canonical_budgets["section_repair"] = stage_contract._transport_completion_tokens(
+        "section_repair", 1
+    )
+    capacity._COMPLETION_TOKEN_BUDGETS.update(canonical_budgets)
+
+    # Before explicit contracts, every bounded sections/append payload was classified
+    # as full_script/append_only_repair and therefore used JSON-object transport with
+    # low/minimal reasoning. Preserve that proven transport behavior under the new
+    # explicit names; only identity/budget authority moves to PlanningStageSpec.
+    output_heavy = set(capacity._OUTPUT_HEAVY_CONTRACTS)
+    output_heavy.update(stage_contract.SHARD_COMPLETION_TOKEN_BUDGETS)
+    output_heavy.add("section_repair")
+    capacity._OUTPUT_HEAVY_CONTRACTS = frozenset(output_heavy)
+
+
 def _install_headroom_model_failover_semantics() -> None:
     """Keep model-pool failover model-scoped when a request misses safety headroom.
 
@@ -161,6 +192,7 @@ def install_planning_capacity_profile() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
+    install_explicit_planning_transport_projection()
     headroom.SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES = SHORT_EFFECTIVE_PROMPT_MAX_UTF8_BYTES
     headroom.SHORT_MAX_RESEARCH_ITEMS = SHORT_MAX_RESEARCH_ITEMS
     headroom.SHORT_MAX_RESEARCH_VALUE_CHARS = SHORT_MAX_RESEARCH_VALUE_CHARS
