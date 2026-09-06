@@ -43,6 +43,14 @@ class PlanningSplitRetryRuntimeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.cache = Path(self.tmp.name) / "checkpoint.json"
         self.old_json_text = staged.json_text
+        self.old_schema_tuple = contract._schema_tuple
+        self.old_validate_response = contract.validate_response
+        self.had_split_schema_marker = hasattr(
+            contract, "_ISCO_OUTLINE_SPLIT_SCHEMA_ADAPTER_V2"
+        )
+        self.old_split_schema_marker = getattr(
+            contract, "_ISCO_OUTLINE_SPLIT_SCHEMA_ADAPTER_V2", None
+        )
         self.cache_patch = mock.patch.object(router, "CACHE_PATH", self.cache)
         self.sleep_patch = mock.patch.object(contract.time, "sleep")
         self.router_sleep_patch = mock.patch.object(router.time, "sleep")
@@ -55,8 +63,22 @@ class PlanningSplitRetryRuntimeTests(unittest.TestCase):
         checkpoint_guard.install_checkpoint_namespace_guard()
         contract.install_planning_contract_router()
 
+        # This regression invokes a split StageSpec directly instead of booting the
+        # whole production lifecycle. Production installs this adapter last through
+        # install_planning_outline_split_contract(); install the same owner here so the
+        # retry test exercises the canonical Core/Sections OpenRouter schema boundary
+        # rather than an impossible partially-installed runtime.
+        contract._ISCO_OUTLINE_SPLIT_SCHEMA_ADAPTER_V2 = False
+        split._install_schema_and_validation_adapters()
+
     def tearDown(self) -> None:
         staged.json_text = self.old_json_text
+        contract._schema_tuple = self.old_schema_tuple
+        contract.validate_response = self.old_validate_response
+        if self.had_split_schema_marker:
+            contract._ISCO_OUTLINE_SPLIT_SCHEMA_ADAPTER_V2 = self.old_split_schema_marker
+        elif hasattr(contract, "_ISCO_OUTLINE_SPLIT_SCHEMA_ADAPTER_V2"):
+            delattr(contract, "_ISCO_OUTLINE_SPLIT_SCHEMA_ADAPTER_V2")
         self.router_sleep_patch.stop()
         self.sleep_patch.stop()
         self.cache_patch.stop()
