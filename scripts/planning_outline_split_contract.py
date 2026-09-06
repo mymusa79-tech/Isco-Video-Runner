@@ -298,13 +298,11 @@ def core_portability_prompt(prompt: str) -> str:
         prompt
         + "\n\n"
         + LOCKED_PREMISE_BUDGET_MARKER
-        + "\nKeep the downstream `LOCKED_EDITORIAL_PREMISE`—`narrative_format`, its "
-        "host-supplied definition, `pillar`, `hook`, `closing_payoff`, and "
-        "`editorial_intent`—at or below "
+        + "\n`LOCKED_EDITORIAL_PREMISE` (`narrative_format` plus its host definition, "
+        "`pillar`, `hook`, `closing_payoff`, `editorial_intent`) MUST be complete "
+        "compact JSON <= "
         + str(LOCKED_PREMISE_MAX_UTF8_BYTES)
-        + " bytes when serialized as one compact JSON object. Keep every value complete "
-        "and concise; never cut a sentence or JSON value to meet this bound.\n"
-        + "</LOCKED_PREMISE_PORTABILITY_BUDGET_V1>"
+        + " UTF-8 bytes; never truncate a sentence or JSON value."
     )
 
 
