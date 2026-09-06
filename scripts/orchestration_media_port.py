@@ -14,6 +14,7 @@ from scripts import media_prepared_live_cache
 from scripts import media_search_durable_cache
 from scripts import media_trust_boundary_v2
 from scripts import provider_capacity_v2
+from scripts import run212_visual_candidate_utilization
 
 PORT_ID = "media-runtime-port-v1"
 PORT_VERSION = 1
@@ -56,6 +57,8 @@ def install_media_runtime_port() -> MediaRuntimePortEvidence:
     - Media Trust Boundary V2 owns exact-byte provenance and Security V1 rechecks.
     - Media durable caches own their existing semantic namespaces and hit validation.
     - Provider/retry execution remains outside this orchestration port.
+    - Run212 owns only deterministic provider-query compaction; final Vision authority
+      and every Security/Cultural threshold remain in their existing owners.
     """
     provider_capacity_v2.install_provider_capacity_v2()
     if not provider_capacity_v2._INSTALLED:
@@ -70,6 +73,7 @@ def install_media_runtime_port() -> MediaRuntimePortEvidence:
     media_durable_cache.install_media_durable_cache()
     media_prepared_live_cache.install_media_prepared_live_cache()
     media_search_durable_cache.install_media_search_durable_cache()
+    run212_visual_candidate_utilization.install_shared_visual_candidate_utilization()
 
     durable_installed = bool(media_durable_cache._INSTALLED)
     prepared_installed = bool(media_prepared_live_cache._INSTALLED)
