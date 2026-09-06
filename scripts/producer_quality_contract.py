@@ -174,6 +174,28 @@ def _short_story_beats(plan: object) -> list[str]:
     ]
 
 
+def moment_direct_imperative_targets(plan: object) -> list[str]:
+    """Return the exact viewer-story field paths rejected by the Moment imperative gate.
+
+    CTA is intentionally excluded: direct calls to action are allowed. Repair guidance and
+    acceptance validation both call this helper so field ownership cannot drift.
+    """
+    sections = list(getattr(plan, "sections", []) or [])
+    candidates: list[tuple[str, object]] = [
+        ("hook", getattr(plan, "hook", "")),
+    ]
+    if sections:
+        candidates.append(
+            ("sections[0].on_screen_text", getattr(sections[0], "on_screen_text", ""))
+        )
+    candidates.append(("closing_payoff", getattr(plan, "closing_payoff", "")))
+    return [
+        path
+        for path, raw_value in candidates
+        if (value := _clean(raw_value)) and _SHORT_IMPERATIVE_RE.search(value)
+    ]
+
+
 def plan_quality_issues(
     plan: object,
     *,
@@ -215,7 +237,7 @@ def plan_quality_issues(
             _clean(getattr(sections[0], "on_screen_text", "")),
             _clean(getattr(plan, "closing_payoff", "")),
         ]
-        if any(_SHORT_IMPERATIVE_RE.search(value) for value in viewer_story_fields if value):
+        if moment_direct_imperative_targets(plan):
             issues.append("moment_direct_imperative_in_story_beat")
         joined_story = " ".join(viewer_story_fields)
         if any(phrase in joined_story for phrase in _GENERIC_SHORT_PHRASES):
