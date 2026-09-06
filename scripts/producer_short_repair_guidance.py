@@ -9,28 +9,8 @@ _DIRECT_IMPERATIVE_ISSUE = "moment_direct_imperative_in_story_beat"
 
 
 def moment_direct_imperative_targets(plan: object) -> list[str]:
-    """Return only viewer-facing story fields rejected by the authoritative Producer gate.
-
-    The predicate intentionally comes from producer_quality_contract so repair guidance
-    cannot silently drift from acceptance. CTA is intentionally absent because the gate
-    allows an imperative CTA.
-    """
-    sections = list(getattr(plan, "sections", []) or [])
-    candidates: list[tuple[str, object]] = [
-        ("hook", getattr(plan, "hook", "")),
-    ]
-    if sections:
-        candidates.append(
-            ("sections[0].on_screen_text", getattr(sections[0], "on_screen_text", ""))
-        )
-    candidates.append(("closing_payoff", getattr(plan, "closing_payoff", "")))
-
-    targets: list[str] = []
-    for path, raw_value in candidates:
-        value = producer_quality_contract._clean(raw_value)
-        if value and producer_quality_contract._SHORT_IMPERATIVE_RE.search(value):
-            targets.append(path)
-    return targets
+    """Delegate target ownership to the authoritative Producer acceptance contract."""
+    return producer_quality_contract.moment_direct_imperative_targets(plan)
 
 
 def short_producer_repair_guidance(plan: object, issues: list[str]) -> str:
