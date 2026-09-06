@@ -10,6 +10,8 @@ from typing import Any
 
 import isco_video_agent.orchestrator as orchestrator
 
+from scripts import short_editorial_craft_contract as craft
+
 
 REPORT_FILENAME = "producer-handoff-quality.json"
 SCHEMA_VERSION = 1
@@ -112,7 +114,7 @@ def _research_pack(context: dict | None) -> list[Any]:
 
 def producer_writing_directive(research_context: dict | None = None) -> str:
     evidence = "present" if _research_pack(research_context) else "EMPTY"
-    return f"{_PRODUCER_DIRECTIVE} APPROVED_RESEARCH_PACK={evidence}."
+    return f"{_PRODUCER_DIRECTIVE} {craft.craft_writing_directive()} APPROVED_RESEARCH_PACK={evidence}."
 
 
 def short_template_contract(template: object) -> str:
