@@ -3,27 +3,29 @@ from __future__ import annotations
 """Run215 weighted-RRF + Vision-feedback extension of visual family F29.
 
 Run215 proved that Run214's canonical-intent boundary and global rerank were active and
-that the core Moment visual could pass, yet Short Cinematic beat 2 still failed after a
-202-candidate recovery fusion. The recovery pool contained a materially better
-``coffee/cup/desk`` candidate, but primary-query results continued to dominate the scarce
-four Vision verdicts.
+that the core Moment visual could pass, yet Short Cinematic beat 3 still failed after a
+large recovery fusion. The recovery pool contained a materially better
+``coffee/cup/desk`` candidate at global trace rank 7, but generic primary-query results
+consumed the scarce four Vision verdicts before that candidate was reviewed.
 
 This module extends the existing Run183/Run214 owner seams instead of creating another
 selector or retry loop:
 
 * preserve every query/provider/rank source for a deduplicated candidate;
-* use weighted reciprocal-rank fusion (RRF) during recovery so corrective-query evidence
-  can outrank generic primary-query hits after the primary attempt has already failed;
-* turn severe multimodal Vision BLOCKs from the current editorial intent into bounded
+* leave the successful primary-attempt ordering untouched;
+* use weighted reciprocal-rank fusion (RRF) only when recovery-rank evidence exists so
+  corrective-query evidence can outrank generic primary-query hits after primary fails;
+* turn severe multimodal Vision BLOCKs from the current attempt into bounded
   hard-negative semantic prototypes, then penalize similar recovery candidates locally;
+* reset those hard negatives on the next primary pool so feedback cannot leak across
+  beats or requests;
 * keep Run214's exact CanonicalVisualIntent authoritative for Vision;
 * keep all Quality/Security/Cultural/Islamic thresholds and the four-review Vision ceiling
   unchanged;
 * add no dependency, model download, provider, retry, or AI call.
 
-The result applies to Long, standalone Shorts and source-derived sibling Shorts wherever
-they use the shared Run183/Run214 visual selector. Short-specific stock-query simplification
-remains owned by Run214 and is not expanded here.
+The result applies wherever the shared Run183/Run214 visual selector is used. Short-specific
+stock-query simplification remains owned by Run214 and is not expanded here.
 """
 
 import hashlib
@@ -169,12 +171,20 @@ def _rank_source(query: str, provider: str, rank: int, phase: str) -> dict:
 
 
 def _merge_with_rank_provenance(current: Callable):
-    """Preserve Run183 dedup semantics while accumulating all retrieval-rank evidence."""
+    """Preserve Run183 dedup semantics while accumulating retrieval-rank evidence.
+
+    A single pool is the beginning of a fresh primary attempt. Clear semantic hard-negative
+    memory there so feedback from an earlier beat/request cannot affect a new attempt.
+    Multi-pool recovery keeps the current attempt's primary Vision feedback available.
+    """
     if getattr(current, "_isco_run215_rank_provenance", False):
         return current
 
     @wraps(current)
     def wrapped(pools, *, excluded_pairs):
+        if isinstance(pools, (list, tuple)) and len(pools) <= 1:
+            _VISION_NEGATIVES.set({})
+
         merged = current(pools, excluded_pairs=excluded_pairs)
         if not isinstance(merged, dict):
             return merged
@@ -256,9 +266,23 @@ def _rrf_normalized(meta: dict) -> float:
         phase = str(source.get("phase") or "").casefold()
         weight = RECOVERY_STREAM_WEIGHT if phase == "recovery" else PRIMARY_STREAM_WEIGHT
         total += weight / float(RRF_K + rank)
-    # One rank-1 recovery stream maps to about 0.56; corroboration across two streams
-    # approaches 1.0. This rewards consensus without letting RRF erase semantics.
     return min(1.0, total * float(RRF_K + 1) / 1.8)
+
+
+def _has_recovery_rank_evidence(rows: list) -> bool:
+    for item in rows:
+        if not isinstance(item, tuple) or len(item) != 2:
+            continue
+        candidate = item[1]
+        if not isinstance(candidate, dict):
+            continue
+        meta = candidate.get("_isco_visual_intelligence")
+        if not isinstance(meta, dict):
+            continue
+        for source in meta.get("retrieval_rank_sources_run215") or ():
+            if isinstance(source, dict) and str(source.get("phase") or "").casefold() == "recovery":
+                return True
+    return False
 
 
 def _negative_similarity(intent: v1.VisualIntent, provider: str, candidate: dict) -> float:
@@ -270,7 +294,7 @@ def _negative_similarity(intent: v1.VisualIntent, provider: str, candidate: dict
 
 
 def _rrf_feedback_rerank(current: Callable):
-    """Compose on Run214's global rerank; do not create another selector/retry owner."""
+    """Compose on Run214's global rerank and change ordering only during recovery."""
     if getattr(current, "_isco_run215_rrf_feedback", False):
         return current
 
@@ -278,6 +302,8 @@ def _rrf_feedback_rerank(current: Callable):
     def wrapped(interleaved, intent: v1.VisualIntent):
         baseline = current(interleaved, intent)
         if not isinstance(baseline, list) or len(baseline) < 2:
+            return baseline
+        if not _has_recovery_rank_evidence(baseline):
             return baseline
 
         scored: list[tuple[float, int, str, dict]] = []
@@ -331,15 +357,11 @@ def _rrf_feedback_rerank(current: Callable):
             selected_tokens.append(v1._candidate_tokens(chosen[2], chosen[3]))
 
         ranked = [(provider, candidate) for _score, _index, provider, candidate in selected]
-        if ranked and any(
-            (candidate.get("_isco_visual_intelligence") or {}).get("retrieval_rank_sources_run215")
-            for _provider, candidate in ranked
-            if isinstance(candidate, dict)
-        ):
+        if ranked:
             top_provider, top_candidate = ranked[0]
             meta = top_candidate.get("_isco_visual_intelligence") or {}
             print(
-                "Run215 weighted-RRF Vision-feedback rerank: "
+                "Run215 recovery-only weighted-RRF Vision-feedback rerank: "
                 f"total={len(ranked)} top={top_provider}:{top_candidate.get('id')} "
                 f"rrf={meta.get('rrf_score_run215', 0)} "
                 f"negative={meta.get('vision_negative_similarity_run215', 0)} "
@@ -385,8 +407,8 @@ def _install_contract_fingerprint() -> None:
             "contract_id": CONTRACT_ID,
             "contract_version": CONTRACT_VERSION,
             "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-            "fusion": "weighted-rrf-across-query-provider-rank-sources",
-            "vision_feedback": "same-intent-severe-block-prototype-local-penalty",
+            "fusion": "recovery-only-weighted-rrf-across-query-provider-rank-sources",
+            "vision_feedback": "same-attempt-severe-block-prototype-local-penalty",
             "primary_stream_weight": PRIMARY_STREAM_WEIGHT,
             "recovery_stream_weight": RECOVERY_STREAM_WEIGHT,
             "vision_review_ceiling": visual_selection.MAX_VISION_REVIEWS_PER_SECTION,
@@ -414,15 +436,14 @@ def install_run215_visual_fusion() -> None:
     current_factory = opening_guard._stable_intent_audit
     feedback_factory = _vision_feedback_audit_factory(current_factory)
     opening_guard._stable_intent_audit = feedback_factory
-    # short_cinematic_director imports the factory by value; bind the exact same owner so
-    # standalone Short finishing receives the Run215 feedback without a parallel policy.
     short_director._stable_intent_audit = feedback_factory
 
     _install_contract_fingerprint()
     _INSTALLED = True
     print(
-        "Run215 Visual Fusion installed: dedup preserves all query/provider ranks; weighted "
-        "RRF favors corrective recovery evidence; severe same-intent Vision BLOCKs become "
-        "bounded local hard-negative prototypes; Long+Short thresholds and four-review "
-        "Vision ceiling unchanged; no extra AI call/dependency/model"
+        "Run215 Visual Fusion installed: dedup preserves query/provider ranks; primary "
+        "ordering remains unchanged; weighted RRF activates only with recovery evidence; "
+        "severe same-attempt Vision BLOCKs become bounded local hard-negative prototypes; "
+        "Long+Short thresholds and four-review Vision ceiling unchanged; no extra AI "
+        "call/dependency/model"
     )
