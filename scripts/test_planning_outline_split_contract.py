@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import importlib
+import os
+import subprocess
+import sys
+import tempfile
+import textwrap
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from scripts import planning_stage_contract as stage_contract
 from scripts import task_level_planner_router as router
 from scripts import run125_capacity_routing_closure as run125
 import isco_video_agent.resilient_planner as staged
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanningOutlineSplitSchemaTests(unittest.TestCase):
@@ -161,12 +170,14 @@ class PlanningOutlineSplitTopologyTests(unittest.TestCase):
         }
 
     def test_engine_two_calls_receive_core_then_sections_contract(self) -> None:
-        observed: list[tuple[str, str]] = []
+        observed: list[tuple[str, str, str]] = []
 
         def fake_json(api_key, prompt, model="model"):
             spec = stage_contract._ACTIVE_STAGE_SPEC.get()
             self.assertIsNotNone(spec)
-            observed.append((spec.stage_id, spec.semantic_rules["transport_profile"]))
+            observed.append(
+                (spec.stage_id, spec.semantic_rules["transport_profile"], prompt)
+            )
             return {"which": len(observed)}
 
         def fake_outline(api_key, **kwargs):
@@ -191,12 +202,14 @@ class PlanningOutlineSplitTopologyTests(unittest.TestCase):
         self.assertEqual(result["first"], {"which": 1})
         self.assertEqual(result["second"], {"which": 2})
         self.assertEqual(
-            observed,
+            [(stage_id, profile) for stage_id, profile, _prompt in observed],
             [
                 ("planning.editorial_outline_core", self.split.CORE_PROFILE),
                 ("planning.editorial_outline_sections", self.split.SECTIONS_PROFILE),
             ],
         )
+        self.assertIn(self.split.LOCKED_PREMISE_BUDGET_MARKER, observed[0][2])
+        self.assertNotIn(self.split.LOCKED_PREMISE_BUDGET_MARKER, observed[1][2])
 
     def test_engine_third_outline_model_call_fails_closed(self) -> None:
         def fake_json(api_key, prompt, model="model"):
@@ -435,6 +448,11 @@ class PlanningSplitEnvelopeTests(unittest.TestCase):
             mock.patch.object(preflight, "load_editorial_policy", return_value={}),
             mock.patch.object(preflight, "novelty_context", return_value={}),
             mock.patch.object(preflight, "learning_context", return_value={}),
+            mock.patch.object(
+                preflight,
+                "groq_capacity_estimate",
+                wraps=preflight.groq_capacity_estimate,
+            ) as capacity_estimate,
         ):
             core, sections, core_size, sections_size = preflight._split_outline_envelopes(
                 brief={"approved_topic": "كيف تستعيد تركيزك بهدوء؟"},
@@ -456,6 +474,127 @@ class PlanningSplitEnvelopeTests(unittest.TestCase):
         )
         self.assertGreater(core["estimated_request_tokens"], 0)
         self.assertGreater(sections["estimated_request_tokens"], 0)
+        core_prompt = capacity_estimate.call_args_list[0].args[0]
+        sections_prompt = capacity_estimate.call_args_list[1].args[0]
+        self.assertIn("<LOCKED_PREMISE_PORTABILITY_BUDGET_V1>", core_prompt)
+        self.assertIn("<PROVIDER_VISIBLE_SEMANTIC_CONTRACT>", core_prompt)
+        self.assertNotIn("<LOCKED_PREMISE_PORTABILITY_BUDGET_V1>", sections_prompt)
+        self.assertNotIn("<PROVIDER_VISIBLE_SEMANTIC_CONTRACT>", sections_prompt)
+
+
+class PlanningIntegratedWrapperCompositionTests(unittest.TestCase):
+    def test_canonical_lifecycle_keeps_core_and_sections_prompt_schema_aligned(self) -> None:
+        """Exercise the merged planning installers together in a clean interpreter."""
+        probe = textwrap.dedent(
+            """
+            import os
+            from pathlib import Path
+
+            import isco_video_agent.resilient_planner as staged
+            from scripts import planning_production_contract_v2 as production_contract
+            from scripts import planning_stage_contract as stage
+            from scripts import task_level_planner_router as router
+            from scripts import planning_outline_split_contract as split
+            from scripts.planning_provider_visible_semantics import _VISIBLE_MARKER
+            from scripts.planning_runtime_contract import (
+                install_entrypoint_planning_contracts,
+                install_post_runtime_planning_contracts,
+                install_runtime_planning_contracts,
+            )
+
+            observed = []
+
+            def engine_outline(api_key, **kwargs):
+                first = staged.json_text(api_key, "CORE REQUEST", model=kwargs["model"])
+                second = staged.json_text(api_key, "SECTIONS REQUEST", model=kwargs["model"])
+                return {"core": first, "sections": second}
+
+            # Install around the same two-call Engine topology Production uses while
+            # keeping this probe provider-free and independent of model output quality.
+            staged._outline = engine_outline
+            router.CACHE_PATH = Path(os.environ["ISCO_TEST_TMP"]) / "planning-checkpoint.json"
+            install_entrypoint_planning_contracts()
+            install_runtime_planning_contracts()
+            install_post_runtime_planning_contracts()
+
+            assert getattr(staged.json_text, split._SPLIT_JSON_MARKER, False)
+            assert getattr(
+                production_contract.certify_planning_handoff,
+                "_isco_exact_plan_projection_v1",
+                False,
+            )
+
+            def fake_gemini(api_key, prompt, model="gemini-2.5-flash", **kwargs):
+                contract = stage._ACTIVE_REQUEST_CONTRACT.get()
+                assert contract is not None
+                observed.append(
+                    {
+                        "stage_id": contract.stage_id,
+                        "properties": set(contract.output_schema["properties"]),
+                        "pillar_schema": contract.output_schema["properties"].get("pillar"),
+                        "prompt": prompt,
+                        "max_output_tokens": kwargs.get("max_output_tokens"),
+                    }
+                )
+                return {}
+
+            router.gemini_json_text = fake_gemini
+            stage.validate_response = lambda contract, data: data
+            split._validate_canonical_outline = lambda data, contract, expected: data
+
+            result = staged._outline(
+                "test-key",
+                topic="كيف تستعيد تركيزك؟",
+                fmt="film",
+                model="gemini-2.5-flash",
+                policy_json="{}",
+                research_json="{}",
+                avoid_json="{}",
+                learning_json="{}",
+                revision_note="",
+            )
+
+            assert result == {"core": {}, "sections": {}}
+            assert [item["stage_id"] for item in observed] == [
+                "planning.editorial_outline_core",
+                "planning.editorial_outline_sections",
+            ]
+            core, sections = observed
+            assert "pillar" in core["properties"]
+            assert core["pillar_schema"]["enum"] == ["understand", "rise", "see"]
+            assert _VISIBLE_MARKER in core["prompt"]
+            assert split.LOCKED_PREMISE_BUDGET_MARKER in core["prompt"]
+            assert sections["properties"] == {"section_briefs"}
+            assert _VISIBLE_MARKER not in sections["prompt"]
+            assert split.LOCKED_PREMISE_BUDGET_MARKER not in sections["prompt"]
+            assert core["max_output_tokens"] == split._GEMINI_COMPLETION_TOKENS
+            assert sections["max_output_tokens"] == split._GEMINI_COMPLETION_TOKENS
+            """
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ)
+            env["ISCO_TEST_TMP"] = tmp
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            for name in (
+                "ISCO_CANONICAL_RUNTIME",
+                "GITHUB_ACTIONS",
+                "GITHUB_EVENT_NAME",
+                "GITHUB_WORKFLOW_REF",
+            ):
+                env.pop(name, None)
+            completed = subprocess.run(
+                [sys.executable, "-c", probe],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=90,
+                check=False,
+            )
+
+        self.assertEqual(completed.returncode, 0, completed.stdout)
 
 
 if __name__ == "__main__":

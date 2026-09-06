@@ -157,12 +157,6 @@ def install_runtime_planning_contracts() -> None:
     # is, so loss of the explicit router remains fail-closed.
     certify_runtime_patch_contracts()
     _reassert_after_lifecycle_patch()
-    # The pinned Engine already split long-form outline transport into two model calls.
-    # Bind those exact call boundaries only after every historical provider/capacity
-    # owner is final, so the adapter cannot be overwritten by Run125/Headroom layers.
-    # This module is imported by this canonical seam and therefore enters the durable
-    # planning contract hash automatically.
-    install_planning_outline_split_contract()
 
 
 def install_post_runtime_planning_contracts() -> None:
@@ -204,3 +198,10 @@ def install_post_runtime_planning_contracts() -> None:
     # certifies exact plan.json lineage immediately before P2/P3 can begin. Keeping it
     # here avoids introducing a competing provider/router/cache owner.
     install_planning_production_contract_v2()
+    # The pinned Engine splits long-form outline transport into Core and Section Briefs.
+    # This adapter must be the final planning wrapper: it establishes the exact substage
+    # before provider-visible semantics inspect it, and it wraps the final F23 handoff
+    # owner with exact plan.json equivalence. Installing it earlier leaked Core-only
+    # pillar instructions into the Sections-only schema after all individually-green
+    # planning branches were composed.
+    install_planning_outline_split_contract()

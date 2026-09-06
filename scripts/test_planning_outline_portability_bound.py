@@ -40,11 +40,8 @@ class PlanningOutlinePortabilityBoundTests(unittest.TestCase):
     def test_preflight_fixture_tracks_same_hard_runtime_bound(self) -> None:
         premise = preflight._bounded_preflight_locked_premise()
         measured = split.locked_premise_utf8_bytes(premise)
-        self.assertLessEqual(measured, split.LOCKED_PREMISE_MAX_UTF8_BYTES)
-        self.assertGreaterEqual(
-            measured,
-            int(split.LOCKED_PREMISE_MAX_UTF8_BYTES * 0.90),
-        )
+        self.assertEqual(measured, split.LOCKED_PREMISE_MAX_UTF8_BYTES)
+        self.assertEqual(premise["pillar"], "understand")
 
     def test_oversized_core_is_rejected_not_truncated(self) -> None:
         spec = split.outline_core_stage_spec(6)

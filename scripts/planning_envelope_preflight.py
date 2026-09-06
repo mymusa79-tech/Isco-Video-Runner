@@ -13,10 +13,7 @@ from isco_video_agent.config import (
 )
 from isco_video_agent.learning import learning_context
 from isco_video_agent.orchestrator import planning_research_context
-from isco_video_agent.providers.gemini import (
-    OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES,
-    with_channel_persona,
-)
+from isco_video_agent.providers.gemini import OUTLINE_PORTABLE_MAX_PROMPT_UTF8_BYTES
 from isco_video_agent.resilient_planner import (
     build_outline_sections_prompt,
     build_outline_structure_prompt,
@@ -33,13 +30,16 @@ from scripts.native_short_planner_router import (
 from scripts.p0_runtime_master_contract import activate_p0_runtime_master
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.planning_capacity_profile import install_planning_capacity_profile
+from scripts import task_level_planner_router as planning_router
 from scripts.planning_outline_split_contract import (
     LOCKED_PREMISE_MAX_UTF8_BYTES,
+    core_portability_prompt,
     locked_premise_for_sizing,
     locked_premise_utf8_bytes,
     outline_core_stage_spec_for_format,
     outline_sections_stage_spec_for_format,
 )
+from scripts.planning_provider_visible_semantics import _provider_visible_prompt
 from scripts.producer_quality_contract import merge_producer_revision_note
 from scripts.provider_capacity_margin_audit import audit_media_capacity_margin
 
@@ -201,20 +201,19 @@ def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCert
 
 
 def _bounded_preflight_locked_premise() -> dict:
-    """Near-limit contract-valid Core after the same host enrichment as runtime.
+    """Exact-limit transport fixture after the same host enrichment as runtime.
 
     Production enforces the serialized LOCKED_EDITORIAL_PREMISE at 3.6 KiB before a
     Core response may become cache/plan authority. Engine-owned fingerprint/persona
-    metadata is part of the live Call 1b boundary, so the conservative fixture is sized
-    after that enrichment rather than before it. The authored fields are shortened by
-    only two Arabic characters each, keeping the fixture near the hard limit without
-    changing the production contract or any quality gate.
+    metadata is part of the live Call 1b boundary, so this fixture is sized after that
+    enrichment. It fills the remaining allowance exactly, preventing preflight from
+    silently certifying only a smaller happy-path sample.
     """
     long_value = "م" * 148
     boundary = "ح" * 50
     premise = {
         "narrative_format": "direct_cinematic",
-        "pillar": "ف" * 90,
+        "pillar": "understand",
         "hook": "ه" * 90,
         "closing_payoff": "خ" * 90,
         "editorial_intent": {
@@ -235,14 +234,28 @@ def _bounded_preflight_locked_premise() -> dict:
             "preflight_locked_premise_fixture_exceeds_runtime_contract "
             f"bytes={measured} limit={LOCKED_PREMISE_MAX_UTF8_BYTES}"
         )
-    # Keep the fixture meaningfully conservative: accidental shrinkage must not turn
-    # this into a happy-path estimate that misses the runtime boundary.
-    if measured < int(LOCKED_PREMISE_MAX_UTF8_BYTES * 0.90):
+
+    # ASCII padding changes compact JSON and the Engine's embedded premise by exactly
+    # one UTF-8 byte per character. Keep the schema shape at its maximum five evidence
+    # boundaries, then consume every remaining byte in one already-required text field.
+    remaining = LOCKED_PREMISE_MAX_UTF8_BYTES - measured
+    enriched["editorial_intent"]["earned_payoff"] += "x" * remaining
+    measured = locked_premise_utf8_bytes(enriched)
+    if measured != LOCKED_PREMISE_MAX_UTF8_BYTES:
         raise RuntimeError(
-            "preflight_locked_premise_fixture_not_conservative "
+            "preflight_locked_premise_fixture_not_exact "
             f"bytes={measured} limit={LOCKED_PREMISE_MAX_UTF8_BYTES}"
         )
     return enriched
+
+
+def _effective_split_provider_prompt(prompt: str, spec, *, core: bool) -> str:
+    """Mirror the final live wrapper order for capacity certification."""
+    if core:
+        prompt = core_portability_prompt(prompt)
+    prompt = _provider_visible_prompt(prompt, spec)
+    prompt = planning_router._enrich_dialogue_prompt(prompt)
+    return planning_router.with_channel_persona(prompt)
 
 
 def _split_outline_envelopes(
@@ -270,7 +283,7 @@ def _split_outline_envelopes(
         learning_json=learning_json,
         revision_note="",
     )
-    core_enriched = with_channel_persona(core_prompt)
+    core_enriched = _effective_split_provider_prompt(core_prompt, core_spec, core=True)
 
     # Call 1b is input-dependent. Size it at the exact hard runtime Core portability
     # boundary rather than the deprecated combined build_outline_prompt or an impossible
@@ -289,7 +302,11 @@ def _split_outline_envelopes(
         hook=str(premise["hook"]),
         closing_payoff=str(premise["closing_payoff"]),
     )
-    sections_enriched = with_channel_persona(sections_prompt)
+    sections_enriched = _effective_split_provider_prompt(
+        sections_prompt,
+        sections_spec,
+        core=False,
+    )
 
     core_size = len(core_enriched.encode("utf-8"))
     sections_size = len(sections_enriched.encode("utf-8"))

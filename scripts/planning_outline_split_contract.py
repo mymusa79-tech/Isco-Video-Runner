@@ -48,6 +48,7 @@ _COMPLETION_TOKENS = stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET
 _GEMINI_COMPLETION_TOKENS = _COMPLETION_TOKENS * 2
 
 LOCKED_PREMISE_MAX_UTF8_BYTES = 3_600
+LOCKED_PREMISE_BUDGET_MARKER = "<LOCKED_PREMISE_PORTABILITY_BUDGET_V1>"
 
 _PROVIDER_INTENT_FIELDS = (
     "editorial_thesis",
@@ -281,6 +282,29 @@ def locked_premise_utf8_bytes(data: dict) -> int:
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
+    )
+
+
+def core_portability_prompt(prompt: str) -> str:
+    """Expose the fail-closed Core -> Sections transport bound to the provider.
+
+    The local byte check remains authoritative. This prompt clause prevents a provider
+    from being asked to satisfy a hidden downstream constraint and is deliberately
+    Core-only: Section Briefs consume the locked premise but do not author it.
+    """
+    if LOCKED_PREMISE_BUDGET_MARKER in prompt:
+        return prompt
+    return (
+        prompt
+        + "\n\n"
+        + LOCKED_PREMISE_BUDGET_MARKER
+        + "\nKeep the downstream `LOCKED_EDITORIAL_PREMISE`—`narrative_format`, its "
+        "host-supplied definition, `pillar`, `hook`, `closing_payoff`, and "
+        "`editorial_intent`—at or below "
+        + str(LOCKED_PREMISE_MAX_UTF8_BYTES)
+        + " bytes when serialized as one compact JSON object. Keep every value complete "
+        "and concise; never cut a sentence or JSON value to meet this bound.\n"
+        + "</LOCKED_PREMISE_PORTABILITY_BUDGET_V1>"
     )
 
 
@@ -680,8 +704,10 @@ def _install_call_sequence_binding() -> None:
             index = state.call_index
             if index == 0:
                 spec = outline_core_stage_spec(state.expected_count)
+                effective_prompt = core_portability_prompt(prompt)
             elif index == 1:
                 spec = outline_sections_stage_spec(state.expected_count)
+                effective_prompt = prompt
             else:
                 raise stage_contract.PlanningStageError(
                     stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
@@ -690,7 +716,7 @@ def _install_call_sequence_binding() -> None:
                 )
             state.call_index += 1
             with stage_contract.request_stage_scope(spec):
-                return current_json(api_key, prompt, model=model)
+                return current_json(api_key, effective_prompt, model=model)
 
         setattr(split_json_text, _SPLIT_JSON_MARKER, True)
         staged.json_text = split_json_text
