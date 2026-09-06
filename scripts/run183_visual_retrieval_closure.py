@@ -1,23 +1,27 @@
 from __future__ import annotations
 
-"""Run #183 Visual Retrieval closure.
+"""Run #183 Visual Retrieval closure, extended by the Run211 recovery-pool fix.
 
 Run #183 proved that provider capacity and the final Vision judge were working, but the
 retrieval layer could still collapse a rich editorial intent into a prop-level alternate
 query (``marker closeup``) and could present the same provider asset to Vision twice across
-primary/alternate pools. This module closes that family without increasing Vision review
-caps or weakening any semantic/Security threshold.
+primary/alternate pools. Run211 exposed the remaining composition gap: once recovery
+opened, unreviewed primary candidates were stranded while the bounded Vision budget was
+spent only on alternate-query results.
 
 The production policy is:
 - preserve one bounded alternate *phase* while allowing at most two deterministic
   semantic stock queries inside that phase;
 - derive those queries from concept families, never from a single low-level prop;
-- merge/deduplicate the returned provider pools before the Engine's existing ranker;
-- exclude every asset already inspected in the current selector before alternate results
+- fuse every still-unreviewed primary candidate with the semantic alternate pools before
+  the remaining Vision budget is spent;
+- deduplicate the fused pool by provider+asset and page URL, then globally rerank it against
+  the stable editorial intent so retrieval phase/order cannot dominate semantic fit;
+- exclude every asset already inspected in the current selector before recovery results
   can reach Vision;
 - enrich V1's local retrieval intent when a literal visual phrase implies a higher-level
   relationship/boundary concept;
-- keep Vision as the mandatory final authority.
+- keep Vision as the mandatory final authority and keep the existing four-review ceiling.
 """
 
 import hashlib
@@ -38,7 +42,7 @@ from scripts import visual_retrieval_adjudication_v1 as v1
 
 
 CONTRACT_ID = "run183-visual-retrieval-closure-v1"
-CONTRACT_VERSION = 1
+CONTRACT_VERSION = 2
 MAX_ALTERNATE_QUERY_FANOUT = 2
 
 _INSTALLED = False
@@ -365,10 +369,41 @@ def _merge_candidate_pools(
                 queries = list(meta.get("retrieval_queries_v2") or ())
                 if query and query not in queries:
                     queries.append(query)
-                meta["retrieval_queries_v2"] = queries[:MAX_ALTERNATE_QUERY_FANOUT]
+                meta["retrieval_queries_v2"] = queries[: MAX_ALTERNATE_QUERY_FANOUT + 1]
                 candidate["_isco_visual_intelligence"] = meta
                 target.append(candidate)
     return merged
+
+
+def _rerank_recovery_pool(
+    merged: dict[str, list[dict]],
+    *,
+    intended_visual: str,
+    narration_context: str,
+    family: SemanticRetrievalFamily,
+) -> dict[str, list[dict]]:
+    """Globally rerank the fused primary+alternate recovery pool before Vision.
+
+    Provider searches remain bounded and Vision remains final authority. This is only a
+    deterministic/local shortlist decision: the retrieval phase that happened to return a
+    candidate must not decide whether it gets one of the remaining expensive reviews.
+    """
+    intent_text = " ".join(
+        part
+        for part in (
+            intended_visual,
+            narration_context,
+            family.primary,
+            *family.alternates,
+        )
+        if str(part or "").strip()
+    )
+    intent = _enriched_build_visual_intent(intent_text)
+    reranked: dict[str, list[dict]] = {}
+    for provider, items in merged.items():
+        if isinstance(items, list):
+            reranked[str(provider)] = v1.rerank_provider_candidates(str(provider), list(items), intent)
+    return reranked
 
 
 def _semantic_overlap(query: object, family: SemanticRetrievalFamily) -> bool:
@@ -394,6 +429,9 @@ def _wrap_selector(current, *, scope: str):
         cache = kwargs.get("cache")
         cache_before = _cache_keys(cache)
         explicit_excluded = _explicit_excluded_pairs(kwargs.get("exclude_ids"))
+        primary_candidates = args[0] if args else kwargs.get("candidates_by_provider")
+        if not isinstance(primary_candidates, dict):
+            primary_candidates = {}
 
         original_query_fn = kwargs.get("alternate_query_fn")
         if callable(original_query_fn):
@@ -430,7 +468,13 @@ def _wrap_selector(current, *, scope: str):
                 if not variants and normalized_input:
                     variants = [normalized_input]
 
+                # Run211 closure: recovery is a candidate-fusion phase, not a hard switch
+                # away from the primary retrieval result. Start with the primary pool so
+                # every unreviewed primary candidate remains eligible for the remaining
+                # Vision budget; reviewed candidates are removed below.
                 pools: list[tuple[str, dict[str, list[dict]]]] = []
+                if primary_candidates:
+                    pools.append((family.primary, primary_candidates))
                 for variant in variants:
                     result = original_search_fn(variant)
                     if isinstance(result, dict):
@@ -441,13 +485,20 @@ def _wrap_selector(current, *, scope: str):
                     pools,
                     excluded_pairs=set(explicit_excluded) | reviewed,
                 )
+                merged = _rerank_recovery_pool(
+                    merged,
+                    intended_visual=intended,
+                    narration_context=narration,
+                    family=family,
+                )
                 counts = {
                     provider: len(items) for provider, items in merged.items() if isinstance(items, list)
                 }
                 print(
-                    "Visual Retrieval Run183 alternate pool: "
-                    f"scope={scope} queries={variants} excluded_reviewed={len(reviewed)} "
-                    f"unique_total={sum(counts.values())} by_provider={counts}"
+                    "Visual Retrieval Run183 recovery fusion: "
+                    f"scope={scope} queries={variants} primary_included={bool(primary_candidates)} "
+                    f"excluded_reviewed={len(reviewed)} unique_total={sum(counts.values())} "
+                    f"by_provider={counts}"
                 )
                 return merged
 
@@ -518,6 +569,8 @@ def _install_contract_fingerprint() -> None:
             "alternate_query_fanout": MAX_ALTERNATE_QUERY_FANOUT,
             "dedup": "provider+asset-id+page-url+current-selector-reviewed",
             "query_policy": "semantic-family-no-prop-closeup",
+            "recovery_pool_policy": "fuse-unreviewed-primary+semantic-alternates-then-rerank",
+            "vision_review_ceiling": visual_selection.MAX_VISION_REVIEWS_PER_SECTION,
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -539,6 +592,7 @@ def install_run183_visual_retrieval_closure() -> None:
     _INSTALLED = True
     print(
         "Run183 Visual Retrieval closure installed: semantic query families; max-two-query "
-        "bounded alternate recall; current-selector global asset exclusion; Long+Short final "
-        "Vision/Security gates unchanged"
+        "bounded alternate recall; Run211 fused unreviewed-primary recovery pool; global local "
+        "rerank; current-selector asset exclusion; Long+Short Vision/Security gates and four-review "
+        "ceiling unchanged"
     )
