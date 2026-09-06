@@ -128,7 +128,7 @@ def compose_short_production_revision(
 ) -> tuple[dict[str, object], str]:
     """Mirror the live Producer -> native Short wrapper composition order."""
     selection = select_native_short_template(topic)
-    producer_revision = merge_producer_revision_note("", research_context)
+    producer_revision = merge_producer_revision_note("", research_context, "moment")
     revision = merge_short_template_revision(
         str(selection["template"]),
         producer_revision,
@@ -278,7 +278,7 @@ def _split_outline_envelopes(
     research_json = json.dumps(research, ensure_ascii=False)
     avoid_json = json.dumps(novelty_context(), ensure_ascii=False)
     learning_json = json.dumps(learning_context(fmt), ensure_ascii=False)
-    producer_revision = merge_producer_revision_note("", research)
+    producer_revision = merge_producer_revision_note("", research, fmt)
 
     core_spec = outline_core_stage_spec_for_format(fmt)
     sections_spec = outline_sections_stage_spec_for_format(fmt)
