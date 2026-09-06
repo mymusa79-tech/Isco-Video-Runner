@@ -9,8 +9,8 @@ from scripts.workflow_hygiene import _canonical_engine_pin
 # Historical pins are rejection sentinels only. The current Engine identity is
 # read from the canonical Production V4 workflow so this integration test cannot
 # become a second source of truth.
-OLD_ENGINE_SHA = "f3c9357098947882882ca3010b46a565c2d90460"
-STALE_ENGINE_SHA = "fe576d91f604412a010fa6cd61ff66f839e67550"
+OLD_ENGINE_SHA = "4f726df0d9dd20c68bc0c0f096320dc9c7369aeb"
+STALE_ENGINE_SHA = "f3c9357098947882882ca3010b46a565c2d90460"
 LIVE_ENGINE_WORKFLOWS = {
     "produce-resilient-v4.yml": 3,
     "telegram-editorial-control.yml": 1,
