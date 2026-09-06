@@ -52,9 +52,11 @@ HARD_NEGATIVE_RELEVANCE_MAX = 0.25
 # These words describe render/framing style that the provider API already receives via
 # orientation or that Vision can judge later. Keeping them inside an eight-token stock
 # query crowds out the semantic action/concept that should drive retrieval. Run213 added
-# the remaining aesthetic terms that consumed the live beat-2 query. "professional" is
-# deliberately retained because, once direct human nouns are safety-compacted away, it
-# remains useful business/work context and prevents generic beauty-portrait drift.
+# the remaining pure framing/style terms that consumed the live beat-2 query. Concrete
+# environmental terms such as sunlit/morning/calm are deliberately preserved because
+# historical Long retrieval uses them as meaningful stock-index context. "professional"
+# is likewise retained as useful business/work context after direct human nouns are
+# safety-compacted away.
 _SEARCH_NOISE_TERMS = {
     "cinematic",
     "shot",
@@ -72,9 +74,6 @@ _SEARCH_NOISE_TERMS = {
     "documentary",
     "style",
     "minimalist",
-    "sunlit",
-    "morning",
-    "calm",
     "their",
     "his",
     "her",
