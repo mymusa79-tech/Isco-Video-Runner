@@ -18,8 +18,8 @@ and without adding an unbounded retry/query loop:
 
 * Long + Short retrieval query compaction removes provider-irrelevant style/framing noise
   and keeps both the stable scene concept and the late corrective/beat concept.
-* Short-only request scope prioritizes deterministic beat-specific semantic recovery
-  queries before the existing shared topic fallback; the shared Run183 fanout remains two.
+* Short-only request scope prioritizes deterministic, safe-framed beat-specific semantic
+  recovery queries before the existing shared topic fallback; Run183 fanout remains two.
 * Short-only request scope quarantines severe semantic hard negatives across later beats.
 * Short-only request scope exposes at most two primary and two fused-recovery Vision
   verdicts. PASS still stops immediately, so easy beats do not pay the full ceiling.
@@ -52,7 +52,9 @@ HARD_NEGATIVE_RELEVANCE_MAX = 0.25
 # These words describe render/framing style that the provider API already receives via
 # orientation or that Vision can judge later. Keeping them inside an eight-token stock
 # query crowds out the semantic action/concept that should drive retrieval. Run213 added
-# the remaining framing/aesthetic terms that consumed half of the live beat-2 query.
+# the remaining aesthetic terms that consumed the live beat-2 query. "professional" is
+# deliberately retained because, once direct human nouns are safety-compacted away, it
+# remains useful business/work context and prevents generic beauty-portrait drift.
 _SEARCH_NOISE_TERMS = {
     "cinematic",
     "shot",
@@ -69,79 +71,83 @@ _SEARCH_NOISE_TERMS = {
     "atmospheric",
     "documentary",
     "style",
-    "professional",
+    "minimalist",
+    "sunlit",
+    "morning",
+    "calm",
     "their",
     "his",
     "her",
 }
 
-# Stock-friendly recovery phrases for the finite Short template catalog. These are
-# retrieval hints only; Vision remains the semantic authority. Every query contains a
-# human/action anchor so provider search does not collapse into abstract scenery/props.
+# Stock-friendly recovery phrases for the finite Short template catalog. Safe-framing
+# anchors (hands/back/silhouette/shadow) keep human action retrievable without forcing an
+# identifiable staged face. These are retrieval hints only; Vision remains final semantic
+# authority and every existing cultural/security gate remains unchanged.
 _SHORT_BEAT_RECOVERY: dict[str, tuple[str, str]] = {
     "immediate visual tension": (
-        "stressed person facing choices desk",
-        "person overwhelmed decisions morning desk",
+        "hands tense desk choices",
+        "hands overwhelmed paperwork desk",
     ),
     "contrasting perspective realistic": (
-        "thoughtful person comparing choices",
-        "person reconsidering decision at desk",
+        "hands choosing options desk",
+        "hands decision notebook desk",
     ),
     "person changing direction subtle action": (
-        "person changing direction walking",
-        "person choosing path crossroads",
+        "back walking crossroads direction",
+        "silhouette choosing path crossroads",
     ),
     "hopeful practical movement": (
-        "person taking practical step forward",
-        "calm person moving forward",
+        "back walking forward sunlight",
+        "hands completing task desk",
     ),
     "intimate reflective close detail": (
-        "thoughtful person reflecting indoors",
-        "quiet person thinking hands face",
+        "hands face reflection quiet",
+        "silhouette reflecting window",
     ),
     "hesitation hands subtle tension": (
-        "hesitant hands decision desk",
-        "person pausing before choice",
+        "hands hesitation desk choice",
+        "hands pause decision notebook",
     ),
     "perspective shift realistic human action": (
-        "person reconsidering decision",
-        "person changing viewpoint action",
+        "hands rearranging notes desk",
+        "back changing direction",
     ),
     "person standing moving forward hopeful": (
-        "person standing walking forward",
-        "hopeful person moving ahead",
+        "back walking forward hopeful",
+        "silhouette moving sunlight",
     ),
     "immediate establishing action": (
-        "person starting task desk",
-        "person beginning daily routine",
+        "hands starting task desk",
+        "hands opening notebook desk",
     ),
     "concrete human action detail": (
+        "hands working notebook desk",
         "hands completing task desk",
-        "person working focused action",
     ),
     "clear turning point realistic": (
-        "person making decision change",
-        "person changing direction",
+        "hands choosing option desk",
+        "back changing direction",
     ),
     "forward movement meaningful payoff": (
-        "person finishing task moving forward",
-        "person progress walking forward",
+        "hands finishing task desk",
+        "back walking forward progress",
     ),
     "calm symbolic visual detail": (
-        "thoughtful person quiet detail",
-        "person reflecting calm indoors",
+        "hands calm object desk",
+        "shadow reflective window",
     ),
     "quiet reflective pause": (
-        "thoughtful person quiet pause",
-        "person reflecting by window",
+        "hands resting desk quiet",
+        "silhouette quiet window",
     ),
     "subtle perspective shift": (
-        "person reconsidering choice",
-        "thoughtful person new perspective",
+        "hands rearranging notes desk",
+        "shadow changing perspective",
     ),
     "gentle hopeful release": (
-        "calm person relieved hopeful",
-        "person walking into daylight",
+        "back walking sunlight hopeful",
+        "hands relaxed desk",
     ),
 }
 
@@ -210,8 +216,6 @@ def _asset_pair(provider: object, asset_id: object) -> tuple[str, str]:
 def _severe_semantic_hard_negative(result: object) -> bool:
     if not isinstance(result, dict) or str(result.get("status") or "").strip().lower() != "block":
         return False
-    # Technical unavailability is not evidence about the candidate and must remain
-    # eligible for the existing bounded half-open/provider-recovery policy.
     if result.get("vision_review_performed") is not True:
         return False
     if result.get("semantic_verdict") is False:
