@@ -75,6 +75,126 @@ class ShortVoiceV2Tests(unittest.TestCase):
         self.assertEqual(result["voice"]["template"], "micro_story")
         self.assertEqual(result["voice"]["mode"], "voice_led")
 
+    def _voice_led_pre(self) -> dict:
+        return {
+            "short_template": "inner_dialogue",
+            "timed_text_events": [
+                {"text": "سؤال قصير"},
+                {"text": "خطوة صغيرة"},
+                {"text": " ".join(["تفصيل"] * 18)},
+                {"text": "ابدأ الآن"},
+            ],
+            "compensation": {},
+        }
+
+    def test_dense_narration_retries_once_and_succeeds_with_a_smaller_projection(self):
+        # Run #196: the real post-synthesis speed can exceed RUNTIME_MAX_SPEED even
+        # though build_voice_projection()'s word-rate estimate fit the padded
+        # planning budget. The bounded recovery re-projects to a smaller candidate
+        # and re-synthesizes exactly once before giving up.
+        pre = self._voice_led_pre()
+        synth_calls: list[str] = []
+
+        def fake_synthesize(_ledger, _circuit, _budget, *, task_id, **_kwargs):
+            synth_calls.append(task_id)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "final.mp4").write_bytes(b"short")
+            with (
+                mock.patch.object(short_voice_v2, "secret", return_value="key"),
+                mock.patch.object(short_voice_v2, "env", side_effect=lambda _name, default=None: default),
+                mock.patch.object(short_voice_v2.orchestrator, "_synthesize_tts_section", side_effect=fake_synthesize),
+                mock.patch.object(short_voice_v2, "consume_voice_provenance", return_value={"provider": "gemini", "fallback_used": False}),
+                mock.patch.object(short_voice_v2, "_final_duration", return_value=15.0),
+                mock.patch.object(
+                    short_voice_v2, "_fit_voice_to_video",
+                    side_effect=[RuntimeError("... too dense for the approved duration: speed_required=1.280"), root / "voice.wav"],
+                ),
+                mock.patch.object(short_voice_v2, "_mix_voice"),
+                mock.patch.object(short_voice_v2.shutil, "move"),
+                mock.patch.object(short_voice_v2, "_refresh_quality_final", return_value={"quality_measurement_stage": "post_short_voice_pre_gold"}),
+                mock.patch.object(short_voice_v2, "_record_voice_rights"),
+            ):
+                result = apply_short_voice_v2(root, {"approval_scope": "short_only"}, pre, ledger=object())
+
+        self.assertEqual(synth_calls, ["SHORT_VOICE_V2", "SHORT_VOICE_V2_RETRY"])
+        self.assertTrue(result["compensation"]["voice_dense_retry_used"])
+        self.assertEqual(result["compensation"]["voice_task_id"], "SHORT_VOICE_V2_RETRY")
+        self.assertLess(
+            result["compensation"]["voice_spoken_beat_count"],
+            result["compensation"]["voice_original_beat_count"],
+        )
+
+    def test_non_density_fit_failure_is_not_retried(self):
+        # A _fit_voice_to_video failure unrelated to narration density (e.g. a
+        # corrupt/unreadable file) must propagate immediately - the bounded retry
+        # only ever engages for the exact "too dense" signature.
+        pre = self._voice_led_pre()
+        synth_calls: list[str] = []
+
+        def fake_synthesize(_ledger, _circuit, _budget, *, task_id, **_kwargs):
+            synth_calls.append(task_id)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "final.mp4").write_bytes(b"short")
+            with (
+                mock.patch.object(short_voice_v2, "secret", return_value="key"),
+                mock.patch.object(short_voice_v2, "env", side_effect=lambda _name, default=None: default),
+                mock.patch.object(short_voice_v2.orchestrator, "_synthesize_tts_section", side_effect=fake_synthesize),
+                mock.patch.object(short_voice_v2, "consume_voice_provenance", return_value={"provider": "gemini", "fallback_used": False}),
+                mock.patch.object(short_voice_v2, "_final_duration", return_value=15.0),
+                mock.patch.object(
+                    short_voice_v2, "_fit_voice_to_video",
+                    side_effect=RuntimeError("Short Voice V2 cannot resolve final duration"),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "cannot resolve final duration"):
+                    apply_short_voice_v2(root, {"approval_scope": "short_only"}, pre, ledger=object())
+
+        self.assertEqual(synth_calls, ["SHORT_VOICE_V2"])
+
+    def test_dense_narration_retry_exhausted_raises_impossible_when_no_smaller_projection(self):
+        # Hybrid mode has only one candidate (hook+payoff); if that one comes back
+        # too dense at the real measurement there is nothing smaller left to try, so
+        # this must fail closed with the "impossible without rewriting" signature
+        # rather than looping or silently accepting an over-speed narration.
+        pre = {
+            "short_template": "why_reframe",
+            "timed_text_events": [
+                {"text": "هذا هو السؤال"},
+                {"text": "تفصيل داخلي"},
+                {"text": "وهذه هي الخلاصة"},
+            ],
+            "compensation": {},
+        }
+        synth_calls: list[str] = []
+
+        def fake_synthesize(_ledger, _circuit, _budget, *, task_id, **_kwargs):
+            synth_calls.append(task_id)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "final.mp4").write_bytes(b"short")
+            with (
+                mock.patch.object(short_voice_v2, "secret", return_value="key"),
+                mock.patch.object(short_voice_v2, "env", side_effect=lambda _name, default=None: default),
+                mock.patch.object(short_voice_v2.orchestrator, "_synthesize_tts_section", side_effect=fake_synthesize),
+                mock.patch.object(short_voice_v2, "consume_voice_provenance", return_value={"provider": "gemini", "fallback_used": False}),
+                mock.patch.object(short_voice_v2, "_final_duration", return_value=15.0),
+                mock.patch.object(
+                    short_voice_v2, "_fit_voice_to_video",
+                    side_effect=RuntimeError("... too dense for the approved duration: speed_required=1.280"),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "impossible without rewriting"):
+                    apply_short_voice_v2(root, {"approval_scope": "short_only"}, pre, ledger=object())
+
+        # Exactly one real TTS call was spent - never a second one when no smaller
+        # projection exists to justify it.
+        self.assertEqual(synth_calls, ["SHORT_VOICE_V2"])
+
     def test_non_short_scope_is_not_voiced(self):
         pre = {"short_template": "micro_story", "timed_text_events": [{"text": "أ"}, {"text": "ب"}]}
         result = apply_short_voice_v2(".", {"approval_scope": "long_only"}, pre, ledger=object())

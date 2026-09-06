@@ -57,12 +57,20 @@ def build_voice_projection(
     mode: str,
     *,
     final_seconds: float,
+    exclude_index_sets: list[list[int]] | None = None,
 ) -> dict[str, Any]:
     """Choose the richest semantic narration that can fit naturally before TTS.
 
     On-screen beats remain unchanged. This function only decides which already-approved
     semantic beats are spoken. It performs no AI rewrite and never relaxes the runtime
     1.20x hard speed ceiling.
+
+    ``exclude_index_sets`` lets a caller ask for the next-richest candidate after one
+    or more already-tried projections were found too dense at the REAL (post-synthesis)
+    measurement rather than this function's word-rate estimate - Run #196 confirmed a
+    real Gemini narration can come back denser than NATURAL_WORDS_PER_SECOND predicts.
+    Candidates remain tried in the same max-beats-first order; this only skips entries
+    a caller has already spent a real TTS call on.
     """
     texts = [
         _clean(item.get("text"))
@@ -76,11 +84,14 @@ def build_voice_projection(
 
     natural_window = final_seconds - TAIL_GUARD_SECONDS
     planning_budget = natural_window * PREFLIGHT_SPEED_HEADROOM
+    excluded = {tuple(indexes) for indexes in (exclude_index_sets or [])}
 
     chosen_indexes: list[int] | None = None
     chosen_estimate = 0.0
     candidates = _candidate_index_sets(len(texts), mode)
     for indexes in candidates:
+        if tuple(indexes) in excluded:
+            continue
         candidate = [texts[index] for index in indexes]
         estimate = _estimate_seconds(candidate)
         if estimate <= planning_budget:

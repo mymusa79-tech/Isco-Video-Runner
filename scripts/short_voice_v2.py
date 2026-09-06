@@ -204,6 +204,38 @@ def _refresh_quality_final(root: Path, final_path: Path) -> dict[str, Any]:
     return refreshed
 
 
+def _synthesize_voice(
+    *,
+    root: Path,
+    ledger: BudgetLedger,
+    task_id: str,
+    gemini: str,
+    transcript: str,
+    model: str,
+    voice: str,
+    template: str,
+    mode: str,
+    strategy: str,
+) -> tuple[Path, dict[str, Any]]:
+    voice_path = root / "short-voice-v2.wav"
+    orchestrator._synthesize_tts_section(
+        ledger,
+        TtsCircuit(),
+        TtsBudget(max_extra_attempts=1),
+        task_id=task_id,
+        api_key=gemini,
+        transcript=transcript,
+        output=voice_path,
+        model=model,
+        voice=voice,
+        style=(
+            "Warm, mature, natural Modern Standard Arabic. Calm confidence; no announcer tone. "
+            f"Short template: {template}; delivery mode: {mode}; projection: {strategy}."
+        ),
+    )
+    return voice_path, consume_voice_provenance(voice_path)
+
+
 def _record_voice_rights(
     root: Path,
     *,
@@ -263,24 +295,36 @@ def apply_short_voice_v2(
         raise RuntimeError("Short Voice V2 requires Gemini key for Voice Mesh primary")
     model = env("GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview") or "gemini-3.1-flash-tts-preview"
     voice = env("GEMINI_TTS_VOICE", "Gacrux") or "Gacrux"
-    voice_path = root / "short-voice-v2.wav"
-    orchestrator._synthesize_tts_section(
-        ledger,
-        TtsCircuit(),
-        TtsBudget(max_extra_attempts=1),
-        task_id="SHORT_VOICE_V2",
-        api_key=gemini,
-        transcript=transcript,
-        output=voice_path,
-        model=model,
-        voice=voice,
-        style=(
-            "Warm, mature, natural Modern Standard Arabic. Calm confidence; no announcer tone. "
-            f"Short template: {template}; delivery mode: {mode}; projection: {projection['strategy']}."
-        ),
+    voice_path, provenance = _synthesize_voice(
+        root=root, ledger=ledger, task_id="SHORT_VOICE_V2", gemini=gemini,
+        transcript=transcript, model=model, voice=voice, template=template, mode=mode,
+        strategy=str(projection["strategy"]),
     )
-    provenance = consume_voice_provenance(voice_path)
-    fitted_voice = _fit_voice_to_video(voice_path, final_seconds)
+    dense_retry_used = False
+    try:
+        fitted_voice = _fit_voice_to_video(voice_path, final_seconds)
+    except RuntimeError as exc:
+        if "too dense for the approved duration" not in str(exc):
+            raise
+        # Run #196: build_voice_projection()'s pre-synthesis word-rate estimate can
+        # undershoot Gemini's real pacing (natural pauses on rhetorical turns push
+        # actual duration above the estimate even though it fit the padded planning
+        # budget). Bounded, once-only recovery: fall back to the next-richest
+        # projection not yet tried and re-synthesize exactly once before failing
+        # closed - never an unbounded retry loop, and the runtime 1.20x ceiling
+        # itself is never relaxed; a genuinely undeliverable video still fails.
+        projection = build_voice_projection(
+            events, mode, final_seconds=final_seconds,
+            exclude_index_sets=[projection["spoken_beat_indexes"]],
+        )
+        transcript = str(projection["transcript"])
+        voice_path, provenance = _synthesize_voice(
+            root=root, ledger=ledger, task_id="SHORT_VOICE_V2_RETRY", gemini=gemini,
+            transcript=transcript, model=model, voice=voice, template=template, mode=mode,
+            strategy=str(projection["strategy"]),
+        )
+        fitted_voice = _fit_voice_to_video(voice_path, final_seconds)
+        dense_retry_used = True
     voiced = root / "final-short-voice-v2.mp4"
     _mix_voice(final_path, fitted_voice, voiced)
     shutil.move(str(voiced), str(final_path))
@@ -316,7 +360,7 @@ def apply_short_voice_v2(
             "voice_scope": scope,
             "voice_provider": provider,
             "voice_fallback_used": fallback_used,
-            "voice_task_id": "SHORT_VOICE_V2",
+            "voice_task_id": "SHORT_VOICE_V2_RETRY" if dense_retry_used else "SHORT_VOICE_V2",
             "voice_duration_preflight": True,
             "voice_projection_strategy": projection.get("strategy"),
             "voice_original_beat_count": projection.get("original_beat_count"),
@@ -325,6 +369,7 @@ def apply_short_voice_v2(
             "voice_estimated_natural_seconds": projection.get("estimated_natural_seconds"),
             "voice_planning_budget_seconds": projection.get("planning_budget_seconds"),
             "voice_runtime_max_speed_unchanged": projection.get("runtime_max_speed_unchanged"),
+            "voice_dense_retry_used": dense_retry_used,
             "gemini_provider_attempt_cap": 1,
             "piper_local_fallback": True,
             "extra_text_ai_calls": 0,
