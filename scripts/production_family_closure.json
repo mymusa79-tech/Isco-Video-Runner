@@ -1,8 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "historical_window": {
     "first_run": 51,
-    "last_run": 202,
+    "last_run": 209,
     "known_good_baseline": {
       "release_tag": "video-50",
       "runner_commit": "a98bc309d52159d65ef6ac65e516beaab344a32e",
@@ -28,9 +28,12 @@
   },
   "forward_guard": {
     "named_run_contract_enforcement_from": 171,
+    "incident_ledger_enforcement_from": 184,
     "require_window_not_behind_named_regressions": true,
     "require_every_named_regression_declared": true,
-    "note": "Any scripts/test_runNNN_*.py at or after the enforcement boundary must fit inside the certified historical window and be declared by at least one executable family contract."
+    "require_exact_incident_family_coverage": true,
+    "require_incident_phase_family_alignment": true,
+    "note": "Named regressions must fit the certified window and every production incident from Run184 onward must have exactly one ledger row, a real failure phase, and at least one reciprocal executable family mapping."
   },
   "audit_cohorts": [
     {"id":"C01","runs":"51-70","required_phases":["P0","P1","P2","P3","P4","P5","P6"],"purpose":"early end-to-end provider/output/media/quality/release recertification"},
@@ -54,9 +57,46 @@
     {"id":"C19","runs":"171-178","required_phases":["P0","P1","P2","P3","P4","P5","P6"],"purpose":"post-Run170 integrated production continuity before the representation/vision incident series"},
     {"id":"C20","runs":"179-186","required_phases":["P0","P1","P3","P4"],"purpose":"Short representation authority, Vision health/retrieval, QR adjudication and format-aware Final Master recertification"},
     {"id":"C21","runs":"187-192","required_phases":["P0","P1","P2","P3","P4"],"purpose":"Moment duration, finishing capability ownership, repair composition, tone representation and pre-TTS voice feasibility recertification"},
-    {"id":"C22","runs":"193-201","required_phases":["P3"],"purpose":"Short Vision runtime-scope, truthful capacity recovery, bounded 429 cooldown and QR post-core authority recertification"},
-    {"id":"C23","runs":"202","required_phases":["P0","P6"],"purpose":"production Python package-entrypoint parity plus adjacent Telegram outbox recovery-path recertification"}
+    {"id":"C22","runs":"193-195","required_phases":["P1"],"purpose":"named Short planning-operation ownership and exact stage-contract recertification"},
+    {"id":"C23","runs":"196","required_phases":["P2"],"purpose":"Voice-Owned Timeline natural-speed authority recertification"},
+    {"id":"C24","runs":"197","required_phases":["P1"],"purpose":"repair patch identity and approved-topic immutability recertification"},
+    {"id":"C25","runs":"198","required_phases":["P0","P2"],"purpose":"post-core Voice-Owned Timeline capability handoff recertification"},
+    {"id":"C26","runs":"199-201","required_phases":["P3"],"purpose":"canonical Short Vision routing, bounded 429 recovery and post-core QR authority recertification"},
+    {"id":"C27","runs":"202","required_phases":["P0","P6"],"purpose":"production Python package-entrypoint parity plus adjacent Telegram outbox recovery-path recertification"},
+    {"id":"C28","runs":"203","required_phases":["P0"],"purpose":"Long format ingress, immutable approved-brief normalization and active-state migration recertification"},
+    {"id":"C29","runs":"204-209","required_phases":["P1"],"purpose":"Long split-outline structured-output, Engine domain evolution, provider-specific output headroom and bounded Groq TPM-window recovery recertification"}
   ],
+  "incident_ledger": {
+    "enforcement_from": 184,
+    "entries": [
+      {"run":184,"format":"short","failure_phase":"P3","failure_signature":"qr_false_positive_exhausted_visual_candidates","family_ids":["F29"]},
+      {"run":185,"format":"short","failure_phase":"P3","failure_signature":"semantic_visual_candidate_exhaustion","family_ids":["F29"]},
+      {"run":186,"format":"short","failure_phase":"P4","failure_signature":"short_final_qc_required_long_visual_timeline","family_ids":["F30"]},
+      {"run":187,"format":"short","failure_phase":"P1","failure_signature":"moment_duration_rejected_after_render","family_ids":["F31"]},
+      {"run":188,"format":"short","failure_phase":"P2","failure_signature":"post_core_finishing_lost_provider_capability","family_ids":["F32"]},
+      {"run":189,"format":"short","failure_phase":"P1","failure_signature":"micro_story_event_progression_contract_mismatch","family_ids":["F33"]},
+      {"run":190,"format":"short","failure_phase":"P1","failure_signature":"micro_story_repair_contract_mismatch","family_ids":["F33"]},
+      {"run":191,"format":"short","failure_phase":"P1","failure_signature":"tone_gate_consumed_wrong_representation","family_ids":["F33"]},
+      {"run":192,"format":"short","failure_phase":"P2","failure_signature":"voice_density_required_unsafe_speed","family_ids":["F34"]},
+      {"run":193,"format":"short","failure_phase":"P1","failure_signature":"repair_call_missing_explicit_stage_contract","family_ids":["F33"]},
+      {"run":194,"format":"short","failure_phase":"P1","failure_signature":"short_planning_operation_missing","family_ids":["F33"]},
+      {"run":195,"format":"short","failure_phase":"P1","failure_signature":"short_planning_operation_missing_after_retry","family_ids":["F33"]},
+      {"run":196,"format":"short","failure_phase":"P2","failure_signature":"fixed_visual_timeline_forced_voice_speed","family_ids":["F34"]},
+      {"run":197,"format":"short","failure_phase":"P1","failure_signature":"repair_mutated_approved_topic_identity","family_ids":["F33"]},
+      {"run":198,"format":"short","failure_phase":"P2","failure_signature":"voice_owned_timeline_lost_gemini_capability","family_ids":["F32"]},
+      {"run":199,"format":"short","failure_phase":"P3","failure_signature":"short_visual_audit_bypassed_canonical_vision_mesh","family_ids":["F19"]},
+      {"run":200,"format":"short","failure_phase":"P3","failure_signature":"vision_429_collapsed_to_false_asset_exhaustion","family_ids":["F35"]},
+      {"run":201,"format":"short","failure_phase":"P3","failure_signature":"post_core_qr_authority_and_weak_relevance_gap","family_ids":["F29","F03"]},
+      {"run":202,"format":"short","failure_phase":"P0","failure_signature":"production_package_entrypoint_module_not_found","family_ids":["F36"]},
+      {"run":203,"format":"long","failure_phase":"P0","failure_signature":"stored_long_target_retained_moment_format","family_ids":["F37"]},
+      {"run":204,"format":"long","failure_phase":"P1","failure_signature":"gemini_outline_output_truncated_at_shared_budget","family_ids":["F38"]},
+      {"run":205,"format":"long","failure_phase":"P1","failure_signature":"gemini_outline_output_truncated_after_identical_retry","family_ids":["F38"]},
+      {"run":206,"format":"long","failure_phase":"P1","failure_signature":"combined_outline_schema_exhausted_all_provider_paths","family_ids":["F38"]},
+      {"run":207,"format":"long","failure_phase":"P1","failure_signature":"engine_canonical_metadata_collided_with_provider_transport_schema","family_ids":["F38"]},
+      {"run":208,"format":"long","failure_phase":"P1","failure_signature":"groq_tpm_window_recursively_sharded_and_wait_amplified","family_ids":["F39"]},
+      {"run":209,"format":"long","failure_phase":"P1","failure_signature":"split_core_gemini_output_truncated_at_shared_budget","family_ids":["F38"]}
+    ]
+  },
   "families": [
     {
       "id":"F01","name":"planning_structured_output_and_repair",
@@ -72,7 +112,7 @@
     },
     {
       "id":"F03","name":"media_visual_feasibility_stock_and_security",
-      "historical_runs":["54","82","89","92","108-110"],
+      "historical_runs":["54","82","89","92","108-110","201"],
       "required_phases":["P3","P4"],
       "contracts":["scripts.test_media_trust_boundary_v2","scripts.test_run92_opening_feasibility_guard","scripts.test_run108_stock_candidate_isolation","scripts.test_security_v1_live_binding"]
     },
@@ -102,7 +142,7 @@
     },
     {
       "id":"F08","name":"environment_preflight_and_provider_readiness",
-      "historical_runs":["111","113-126","202"],
+      "historical_runs":["111","113-126"],
       "required_phases":["P0","P1"],
       "contracts":["scripts.test_environment_preflight","scripts.test_provider_preflight","scripts.test_youtube_oauth_readonly_firewall","scripts.test_preproduction_contract"]
     },
@@ -168,7 +208,7 @@
     },
     {
       "id":"F19","name":"visual_retrieval_truth_vision_provider_and_stage_contract",
-      "historical_runs":["169"],
+      "historical_runs":["169","199"],
       "required_phases":["P3"],
       "contracts":["scripts.test_run169_visual_retrieval_truth","scripts.test_vision_provider_reliability","scripts.test_vision_stage_contract_v2","scripts.test_vision_stage_transport_v2"]
     },
@@ -228,7 +268,7 @@
     },
     {
       "id":"F29","name":"semantic_visual_retrieval_qr_and_adjudication",
-      "historical_runs":["183-185","198-201"],
+      "historical_runs":["183-185","201"],
       "required_phases":["P3"],
       "contracts":["scripts.test_run183_visual_retrieval_closure","scripts.test_run184_qr_confirmation_closure","scripts.test_run184_qr_runtime_scope","scripts.test_run185_semantic_visual_adjudication","scripts.test_run201_qr_post_core_scope"]
     },
@@ -246,21 +286,21 @@
     },
     {
       "id":"F32","name":"short_finishing_capability_ownership",
-      "historical_runs":["188"],
+      "historical_runs":["188","198"],
       "required_phases":["P0","P2","P3"],
       "contracts":["scripts.test_run188_short_capability_ownership"]
     },
     {
       "id":"F33","name":"short_repair_composition_and_tone_representation",
-      "historical_runs":["189-191"],
+      "historical_runs":["189-191","193-195","197"],
       "required_phases":["P1"],
       "contracts":["scripts.test_run189_micro_story_contract_alignment","scripts.test_run191_short_repair_composition_invariants","scripts.test_run191_tone_audit_representation_bridge"]
     },
     {
       "id":"F34","name":"short_voice_pre_tts_feasibility_and_projection_selection",
-      "historical_runs":["192"],
+      "historical_runs":["192","196"],
       "required_phases":["P2"],
-      "contracts":["scripts.test_run192_short_voice_feasibility"]
+      "contracts":["scripts.test_run192_short_voice_feasibility","scripts.test_voice_owned_timeline_v1"]
     },
     {
       "id":"F35","name":"short_vision_runtime_scope_and_capacity_recovery",
@@ -273,6 +313,24 @@
       "historical_runs":["202"],
       "required_phases":["P0","P6"],
       "contracts":["scripts.test_youtube_oauth_readonly_firewall","scripts.test_telegram_direct_entrypoints","scripts.test_telegram_outbox_runtime"]
+    },
+    {
+      "id":"F37","name":"long_format_ingress_and_active_state_migration",
+      "historical_runs":["203"],
+      "required_phases":["P0"],
+      "contracts":["scripts.test_telegram_direct_entrypoints"]
+    },
+    {
+      "id":"F38","name":"long_planning_split_transport_domain_and_output_headroom",
+      "historical_runs":["204-207","209"],
+      "required_phases":["P1"],
+      "contracts":["scripts.test_planning_outline_split_contract","scripts.test_planning_outline_portability_bound","scripts.test_engine_runner_contract_evolution","scripts.test_planning_envelope_preflight","scripts.test_planning_envelope_split_contract","scripts.test_planning_runtime_fresh_process","scripts.test_planning_stage_contract"]
+    },
+    {
+      "id":"F39","name":"long_planning_temporal_groq_window_batch_recovery",
+      "historical_runs":["208"],
+      "required_phases":["P1"],
+      "contracts":["scripts.test_run124_terminal_provider_recovery","scripts.test_run125_capacity_routing_closure","scripts.test_planning_envelope_split_contract"]
     }
   ]
 }
