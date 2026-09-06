@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts import shorts_production_binding as core
-from scripts.run200_short_vision_recovery_closure import short_vision_recovery_scope
+from scripts.run212_visual_candidate_utilization import short_candidate_utilization_scope
 from scripts.short_voice_owned_timeline import apply_voice_owned_short
 
 
@@ -34,13 +34,14 @@ def prepare_authoritative_short_for_gold(
     the natural performance and makes the visual timeline follow measured narration,
     then the caller's already-composed Final Master QC surface validates the exact bytes.
     Producer Handoff, Audio Semantic Integrity and durable Final QC remain in their
-    existing owners; no quality gate or retry budget is weakened here.
+    existing owners; no quality gate is weakened here.
     """
     pre_gold = core.prepare_short_render(output_dir, control_request)
     # Short Cinematic executes after orchestrator.produce(), so re-enter the canonical
-    # Visual Retrieval/Vision policy only for this finishing request. Run200 restores all
-    # imported-by-value Short surfaces in finally; no process-lifetime policy leaks out.
-    with short_vision_recovery_scope(output_dir):
+    # Visual Retrieval/Vision policy only for this finishing request. Run212 composes the
+    # existing Run200 availability recovery with bounded candidate-utilization headroom,
+    # then restores every imported-by-value Short surface in finally.
+    with short_candidate_utilization_scope(output_dir):
         pre_gold = apply_voice_owned_short(
             output_dir,
             control_request,
