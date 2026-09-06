@@ -35,6 +35,7 @@ from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.planning_capacity_profile import install_planning_capacity_profile
 from scripts.planning_outline_split_contract import (
     LOCKED_PREMISE_MAX_UTF8_BYTES,
+    locked_premise_for_sizing,
     locked_premise_utf8_bytes,
     outline_core_stage_spec_for_format,
     outline_sections_stage_spec_for_format,
@@ -200,15 +201,16 @@ def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCert
 
 
 def _bounded_preflight_locked_premise() -> dict:
-    """Near-limit contract-valid Core for conservative Call 1b sizing.
+    """Near-limit contract-valid Core after the same host enrichment as runtime.
 
-    Production enforces the exact serialized LOCKED_EDITORIAL_PREMISE at 3.6 KiB before
-    a Core response may become cache/plan authority. Preflight therefore sizes Call 1b
-    with a valid premise deliberately just below that same hard runtime bound instead of
-    inventing an impossible 8+ KiB Core payload. This is a shared transport invariant,
-    not an average-output guess and not a quality relaxation.
+    Production enforces the serialized LOCKED_EDITORIAL_PREMISE at 3.6 KiB before a
+    Core response may become cache/plan authority. Engine-owned fingerprint/persona
+    metadata is part of the live Call 1b boundary, so the conservative fixture is sized
+    after that enrichment rather than before it. The authored fields are shortened by
+    only two Arabic characters each, keeping the fixture near the hard limit without
+    changing the production contract or any quality gate.
     """
-    long_value = "م" * 150
+    long_value = "م" * 148
     boundary = "ح" * 50
     premise = {
         "narrative_format": "direct_cinematic",
@@ -226,7 +228,8 @@ def _bounded_preflight_locked_premise() -> dict:
             "earned_payoff": long_value,
         },
     }
-    measured = locked_premise_utf8_bytes(premise)
+    enriched = locked_premise_for_sizing(premise)
+    measured = locked_premise_utf8_bytes(enriched)
     if measured > LOCKED_PREMISE_MAX_UTF8_BYTES:
         raise RuntimeError(
             "preflight_locked_premise_fixture_exceeds_runtime_contract "
@@ -239,7 +242,7 @@ def _bounded_preflight_locked_premise() -> dict:
             "preflight_locked_premise_fixture_not_conservative "
             f"bytes={measured} limit={LOCKED_PREMISE_MAX_UTF8_BYTES}"
         )
-    return premise
+    return enriched
 
 
 def _split_outline_envelopes(

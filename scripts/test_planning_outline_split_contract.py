@@ -179,7 +179,15 @@ class PlanningOutlineSplitTopologyTests(unittest.TestCase):
         stage_contract.validate_response = lambda contract, data: data
         self.split._install_call_sequence_binding()
 
-        result = staged._outline("key", **self._outline_kwargs())
+        # This test isolates Engine-call topology. Canonical-domain validation is
+        # exercised separately against the pinned Engine's real _outline() transform.
+        with mock.patch.object(
+            self.split,
+            "_validate_canonical_outline",
+            side_effect=lambda data, contract, expected: data,
+        ) as canonical_guard:
+            result = staged._outline("key", **self._outline_kwargs())
+        canonical_guard.assert_called_once()
         self.assertEqual(result["first"], {"which": 1})
         self.assertEqual(result["second"], {"which": 2})
         self.assertEqual(
@@ -248,7 +256,13 @@ class PlanningOutlineSplitTopologyTests(unittest.TestCase):
         staged._outline = fake_outline
         stage_contract.validate_response = lambda contract, data: data
         self.split._install_call_sequence_binding()
-        staged._outline("key", **self._outline_kwargs())
+        with mock.patch.object(
+            self.split,
+            "_validate_canonical_outline",
+            side_effect=lambda data, contract, expected: data,
+        ) as canonical_guard:
+            staged._outline("key", **self._outline_kwargs())
+        canonical_guard.assert_called_once()
 
         self.assertEqual(
             observed,
