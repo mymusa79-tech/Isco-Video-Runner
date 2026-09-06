@@ -303,7 +303,7 @@ class Run212VisualCandidateUtilizationTests(unittest.TestCase):
             narration_context="small choices drain attention",
             intended_visual="aged arab box choos",
         )
-        self.assertIn("Canonical intent:", captured["intended_visual"])
+        self.assertEqual(captured["intended_visual"], canonical)
         self.assertIn("choosing", captured["intended_visual"])
         self.assertNotIn("aged arab box choos", captured["intended_visual"])
         self.assertEqual(result["canonical_visual_intent"], canonical)
