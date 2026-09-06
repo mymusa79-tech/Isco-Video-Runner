@@ -29,6 +29,11 @@ def classify_production_failure(exc: Exception) -> tuple[str, str]:
 
     name = type(exc).__name__
     detail = str(exc).lower()
+    # Run217: ProducerQualityContractError is a deterministic planning acceptance block,
+    # not an unexpected internal crash. Classify by exception type so diagnostics remain
+    # secret-free and do not depend on persisting the raw plan/error text.
+    if "producerqualitycontracterror" in name.lower():
+        return "planning", "PRODUCER_PLAN_QUALITY_BLOCK"
     # Run200: a technical Vision outage means no semantic verdict was made. Keep it in
     # the visual stage domain but give it its own stable availability code instead of
     # collapsing it into generic VISUAL_FAILURE / candidate exhaustion.
