@@ -9,22 +9,22 @@ _TEMPLATE_SPECS: dict[str, dict[str, Any]] = {
     "why_reframe": {
         "hook_max_words": 8,
         "hook_beat_max_seconds": 3.0,
-        "opening_job": "state the mistaken assumption or contrast immediately; do not spend the hook defining the topic",
+        "opening_job": "contrast/reframe",
     },
     "inner_dialogue": {
         "hook_max_words": 9,
         "hook_beat_max_seconds": 3.2,
-        "opening_job": "open on one recognisable inner thought/question, then leave room for the turn",
+        "opening_job": "inner thought then turn",
     },
     "micro_story": {
         "hook_max_words": 10,
         "hook_beat_max_seconds": 3.3,
-        "opening_job": "open inside one concrete scene/action; do not pre-explain the lesson",
+        "opening_job": "concrete scene then turn",
     },
     "quote_reflection": {
         "hook_max_words": 10,
         "hook_beat_max_seconds": 3.5,
-        "opening_job": "use only a short exact approved quote as the hook; if the quote is long, open with a source-grounded reflection and let the quote breathe later",
+        "opening_job": "approved quote/reflection only",
     },
 }
 
@@ -69,18 +69,15 @@ def template_names() -> tuple[str, ...]:
 
 
 def craft_writing_directive() -> str:
-    """Provider-visible guidance folded into the existing planning call; no new call/retry."""
-    short_rules = " ".join(
-        f"{name}: hook<={int(spec['hook_max_words'])} words, first visual beat<={float(spec['hook_beat_max_seconds']):.1f}s, {spec['opening_job']}."
-        for name, spec in _TEMPLATE_SPECS.items()
-    )
+    """Compact provider guidance folded into the existing call; zero extra generation."""
     return (
-        "Editorial craft (same call, no extra generation): Moment opens immediately and keeps one calm idea per beat. "
-        f"{short_rules} Keep on_screen_text <= {SHORT_ON_SCREEN_MAX_WORDS} words, payoff <= {SHORT_PAYOFF_MAX_WORDS} words, "
-        f"CTA <= {SHORT_CTA_MAX_WORDS} words and one concrete action; keep the channel reflective, not hyper-cut or hype-led. "
-        f"Long: expose the first tension/viewer promise in the opening sentence, roughly within {LONG_OPENING_PROMISE_TARGET_SECONDS:.0f}s, "
-        f"and when feasible keep section on_screen_text <= {LONG_DERIVATIVE_ON_SCREEN_MAX_WORDS} words and key_point <= {LONG_DERIVATIVE_KEY_POINT_MAX_WORDS} words "
-        "so approved sections remain clean source atoms for sibling Shorts."
+        "Craft (same call; no extra generation): Moment one calm idea/beat. "
+        "why_reframe hook<=8w contrast/reframe; inner_dialogue hook<=9w inner thought->turn; "
+        "micro_story hook<=10w scene->turn; quote_reflection hook<=10w approved quote/reflection only. "
+        "First visual beat targets respectively 3.0/3.2/3.3/3.5s. "
+        f"on_screen<={SHORT_ON_SCREEN_MAX_WORDS}w; payoff<={SHORT_PAYOFF_MAX_WORDS}w; CTA<={SHORT_CTA_MAX_WORDS}w one action; reflective, no hype. "
+        f"Long: opening tension/promise ~{LONG_OPENING_PROMISE_TARGET_SECONDS:.0f}s; when feasible on_screen<={LONG_DERIVATIVE_ON_SCREEN_MAX_WORDS}w, "
+        f"key_point<={LONG_DERIVATIVE_KEY_POINT_MAX_WORDS}w for source-derived Shorts."
     )
 
 
