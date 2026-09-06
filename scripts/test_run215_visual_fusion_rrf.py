@@ -39,6 +39,7 @@ class Run215VisualFusionIncidentTests(unittest.TestCase):
                 "id": candidate_id,
                 "url": f"https://example.test/{provider}/{candidate_id}",
                 "_isco_visual_intelligence": {
+                    "tags": semantic_text if provider == "pixabay" else "",
                     "semantic_text": semantic_text,
                     "global_retrieval_score_run214": score,
                     "retrieval_rank_sources_run215": [
