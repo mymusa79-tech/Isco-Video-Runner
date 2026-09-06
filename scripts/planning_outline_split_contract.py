@@ -39,6 +39,59 @@ _SPLIT_JSON_MARKER = "_isco_planning_outline_split_json_v1"
 _COMPLETION_TOKENS = stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET
 _INSTALLED = False
 
+# The second Engine call embeds accepted Core values into its prompt. Bound the
+# authorial fields in Unicode characters so a successful Core response cannot silently
+# turn Sections into a request larger than Groq's flat TPM envelope. These limits still
+# allow a distinct sentence per editorial dimension and mirror the Engine's existing
+# 220/140-character identity truncation. They are semantic constraints rather than
+# extra JSON-Schema keywords because Groq Strict supports only a documented subset.
+CORE_SCALAR_MAX_CHARS = {
+    "hook": 120,
+    "cta": 120,
+    "closing_payoff": 140,
+    "opener_variant": 220,
+    "closer_variant": 220,
+}
+CORE_ARRAY_ITEM_MAX_CHARS = {
+    "title_options": 120,
+    "thumbnail_concepts": 140,
+    "transition_variants": 120,
+}
+EDITORIAL_INTENT_VALUE_MAX_CHARS = 100
+EDITORIAL_EVIDENCE_BOUNDARY_MAX_CHARS = 80
+# UTF-8 limits make the downstream transport guarantee independent of which Unicode
+# code points a provider chooses. Twice the character allowance preserves the complete
+# Arabic budget used by this channel while bounding four-byte symbols more tightly.
+CORE_SCALAR_MAX_UTF8_BYTES = {
+    key: limit * 2 for key, limit in CORE_SCALAR_MAX_CHARS.items()
+}
+CORE_ARRAY_ITEM_MAX_UTF8_BYTES = {
+    key: limit * 2 for key, limit in CORE_ARRAY_ITEM_MAX_CHARS.items()
+}
+EDITORIAL_INTENT_VALUE_MAX_UTF8_BYTES = EDITORIAL_INTENT_VALUE_MAX_CHARS * 2
+EDITORIAL_EVIDENCE_BOUNDARY_MAX_UTF8_BYTES = (
+    EDITORIAL_EVIDENCE_BOUNDARY_MAX_CHARS * 2
+)
+CORE_OUTPUT_BOUNDS_MARKER = "<CORE_OUTPUT_BOUNDS_V1>"
+
+
+def core_output_bounded_prompt(prompt: str) -> str:
+    """Expose the same finite Core budget that local validation enforces."""
+    if CORE_OUTPUT_BOUNDS_MARKER in prompt:
+        return prompt
+    return (
+        prompt
+        + "\n\n"
+        + CORE_OUTPUT_BOUNDS_MARKER
+        + "\nMaximum Unicode characters: hook=120; cta=120; closing_payoff=140; "
+        "each title_options item=120; each thumbnail_concepts item=140; "
+        "opener_variant=220; closer_variant=220; each transition_variants item=120; "
+        "each editorial_intent text value=100; each evidence_boundaries item=80. "
+        "Every value must also fit within twice its character maximum in UTF-8 bytes. "
+        "Keep every value complete and concise; never cut a sentence mid-thought.\n"
+        "</CORE_OUTPUT_BOUNDS_V1>"
+    )
+
 
 @dataclass
 class _OutlineCallState:
@@ -105,6 +158,14 @@ def outline_core_stage_spec(expected_count: int) -> stage_contract.PlanningStage
             "transport_profile": CORE_PROFILE,
             "expected_count": expected_count,
             "narrative_identity_gates": True,
+            "core_scalar_max_characters": dict(CORE_SCALAR_MAX_CHARS),
+            "core_array_item_max_characters": dict(CORE_ARRAY_ITEM_MAX_CHARS),
+            "core_scalar_max_utf8_bytes": dict(CORE_SCALAR_MAX_UTF8_BYTES),
+            "core_array_item_max_utf8_bytes": dict(CORE_ARRAY_ITEM_MAX_UTF8_BYTES),
+            "editorial_intent_value_max_characters": EDITORIAL_INTENT_VALUE_MAX_CHARS,
+            "editorial_evidence_boundary_max_characters": EDITORIAL_EVIDENCE_BOUNDARY_MAX_CHARS,
+            "editorial_intent_value_max_utf8_bytes": EDITORIAL_INTENT_VALUE_MAX_UTF8_BYTES,
+            "editorial_evidence_boundary_max_utf8_bytes": EDITORIAL_EVIDENCE_BOUNDARY_MAX_UTF8_BYTES,
         },
         provider_policy=_split_provider_policy(),
         cache_policy=stage_contract.CachePolicy(),
@@ -156,8 +217,75 @@ def outline_sections_stage_spec_for_format(fmt: str) -> stage_contract.PlanningS
     return outline_sections_stage_spec(expected)
 
 
+def _validate_text_bound(
+    value: object,
+    contract: stage_contract.PlanningStageContract,
+    path: str,
+    *,
+    max_characters: int,
+    max_utf8_bytes: int,
+) -> None:
+    if not isinstance(value, str):
+        return
+    if len(value) > max_characters:
+        stage_contract._raise_validation(
+            stage_contract.PlanningErrorCode.STRUCTURAL_INVALID,
+            contract,
+            path,
+            f"max_characters={max_characters} actual={len(value)}",
+        )
+    actual_bytes = len(value.encode("utf-8"))
+    if actual_bytes > max_utf8_bytes:
+        stage_contract._raise_validation(
+            stage_contract.PlanningErrorCode.STRUCTURAL_INVALID,
+            contract,
+            path,
+            f"max_utf8_bytes={max_utf8_bytes} actual={actual_bytes}",
+        )
+
+
 def _validate_core(data: dict, contract: stage_contract.PlanningStageContract) -> dict:
     stage_contract._validate_schema(data, contract.output_schema, contract)
+    for key, limit in CORE_SCALAR_MAX_CHARS.items():
+        _validate_text_bound(
+            data.get(key),
+            contract,
+            f"$.{key}",
+            max_characters=limit,
+            max_utf8_bytes=CORE_SCALAR_MAX_UTF8_BYTES[key],
+        )
+    for key, limit in CORE_ARRAY_ITEM_MAX_CHARS.items():
+        values = data.get(key)
+        if isinstance(values, list):
+            for index, value in enumerate(values):
+                _validate_text_bound(
+                    value,
+                    contract,
+                    f"$.{key}[{index}]",
+                    max_characters=limit,
+                    max_utf8_bytes=CORE_ARRAY_ITEM_MAX_UTF8_BYTES[key],
+                )
+    intent = data.get("editorial_intent")
+    if isinstance(intent, dict):
+        for key, value in intent.items():
+            if key == "evidence_boundaries":
+                if isinstance(value, list):
+                    for index, boundary in enumerate(value):
+                        _validate_text_bound(
+                            boundary,
+                            contract,
+                            f"$.editorial_intent.evidence_boundaries[{index}]",
+                            max_characters=EDITORIAL_EVIDENCE_BOUNDARY_MAX_CHARS,
+                            max_utf8_bytes=EDITORIAL_EVIDENCE_BOUNDARY_MAX_UTF8_BYTES,
+                        )
+                continue
+            _validate_text_bound(
+                value,
+                contract,
+                f"$.editorial_intent.{key}",
+                max_characters=EDITORIAL_INTENT_VALUE_MAX_CHARS,
+                max_utf8_bytes=EDITORIAL_INTENT_VALUE_MAX_UTF8_BYTES,
+            )
     # Reuse the canonical full-outline semantic owner instead of cloning its narrative,
     # identity, and EditorialIntent rules here. Its only brief-specific checks are
     # unique non-empty id/purpose, so one local synthetic brief satisfies that seam.
@@ -341,8 +469,10 @@ def _install_call_sequence_binding() -> None:
             index = state.call_index
             if index == 0:
                 spec = outline_core_stage_spec(state.expected_count)
+                effective_prompt = core_output_bounded_prompt(prompt)
             elif index == 1:
                 spec = outline_sections_stage_spec(state.expected_count)
+                effective_prompt = prompt
             else:
                 raise stage_contract.PlanningStageError(
                     stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
@@ -353,7 +483,7 @@ def _install_call_sequence_binding() -> None:
             # below current_json and therefore cannot accidentally advance this state.
             state.call_index += 1
             with stage_contract.request_stage_scope(spec):
-                return current_json(api_key, prompt, model=model)
+                return current_json(api_key, effective_prompt, model=model)
 
         setattr(split_json_text, _SPLIT_JSON_MARKER, True)
         staged.json_text = split_json_text

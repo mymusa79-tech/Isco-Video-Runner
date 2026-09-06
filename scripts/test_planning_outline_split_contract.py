@@ -58,6 +58,20 @@ class PlanningOutlineSplitSchemaTests(unittest.TestCase):
         self.assertEqual(
             sections.semantic_rules["transport_profile"], self.split.SECTIONS_PROFILE
         )
+        self.assertEqual(
+            core.semantic_rules["editorial_intent_value_max_characters"],
+            self.split.EDITORIAL_INTENT_VALUE_MAX_CHARS,
+        )
+        self.assertEqual(
+            core.semantic_rules["editorial_intent_value_max_utf8_bytes"],
+            self.split.EDITORIAL_INTENT_VALUE_MAX_UTF8_BYTES,
+        )
+
+    def test_core_bounds_are_provider_visible_and_idempotent(self) -> None:
+        bounded = self.split.core_output_bounded_prompt("CORE")
+        self.assertIn(self.split.CORE_OUTPUT_BOUNDS_MARKER, bounded)
+        self.assertIn("each editorial_intent text value=100", bounded)
+        self.assertEqual(self.split.core_output_bounded_prompt(bounded), bounded)
 
     def test_sections_validation_rejects_wrong_count_and_duplicate_ids(self) -> None:
         spec = self.split.outline_sections_stage_spec(2)
@@ -139,6 +153,20 @@ class PlanningOutlineSplitSchemaTests(unittest.TestCase):
         with self.assertRaises(stage_contract.PlanningStageError) as caught:
             self.split._validate_core(broken, contract)
         self.assertEqual(caught.exception.code, stage_contract.PlanningErrorCode.SEMANTIC_INVALID)
+
+        oversized = dict(core)
+        oversized["hook"] = "ه" * (self.split.CORE_SCALAR_MAX_CHARS["hook"] + 1)
+        with self.assertRaises(stage_contract.PlanningStageError) as caught:
+            self.split._validate_core(oversized, contract)
+        self.assertEqual(caught.exception.code, stage_contract.PlanningErrorCode.STRUCTURAL_INVALID)
+        self.assertIn("max_characters=120", str(caught.exception))
+
+        multibyte = dict(core)
+        multibyte["hook"] = "😀" * 61
+        with self.assertRaises(stage_contract.PlanningStageError) as caught:
+            self.split._validate_core(multibyte, contract)
+        self.assertEqual(caught.exception.code, stage_contract.PlanningErrorCode.STRUCTURAL_INVALID)
+        self.assertIn("max_utf8_bytes=240", str(caught.exception))
 
 
 class PlanningOutlineSplitTopologyTests(unittest.TestCase):
@@ -403,6 +431,7 @@ class PlanningOutlineSplitCanonicalCompositionTests(unittest.TestCase):
             import isco_video_agent.resilient_planner as staged
             from scripts import planning_stage_contract as stage
             from scripts import task_level_planner_router as router
+            from scripts.planning_outline_split_contract import CORE_OUTPUT_BOUNDS_MARKER
             from scripts.planning_provider_visible_semantics import _VISIBLE_MARKER
             from scripts.planning_runtime_contract import (
                 install_entrypoint_planning_contracts,
@@ -465,8 +494,10 @@ class PlanningOutlineSplitCanonicalCompositionTests(unittest.TestCase):
             ], observed
             assert "pillar" in observed[0]["properties"], observed
             assert _VISIBLE_MARKER in observed[0]["prompt"], observed
+            assert CORE_OUTPUT_BOUNDS_MARKER in observed[0]["prompt"], observed
             assert observed[1]["properties"] == {"section_briefs"}, observed
             assert _VISIBLE_MARKER not in observed[1]["prompt"], observed
+            assert CORE_OUTPUT_BOUNDS_MARKER not in observed[1]["prompt"], observed
             """
         )
 

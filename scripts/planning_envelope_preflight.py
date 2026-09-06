@@ -34,9 +34,14 @@ from scripts.p0_runtime_master_contract import activate_p0_runtime_master
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.planning_capacity_profile import install_planning_capacity_profile
 from scripts.planning_outline_split_contract import (
+    CORE_SCALAR_MAX_CHARS,
+    EDITORIAL_EVIDENCE_BOUNDARY_MAX_CHARS,
+    EDITORIAL_INTENT_VALUE_MAX_CHARS,
+    core_output_bounded_prompt,
     outline_core_stage_spec_for_format,
     outline_sections_stage_spec_for_format,
 )
+from scripts.planning_provider_visible_semantics import _provider_visible_prompt
 from scripts.producer_quality_contract import merge_producer_revision_note
 from scripts.provider_capacity_margin_audit import audit_media_capacity_margin
 
@@ -201,14 +206,13 @@ def _bounded_preflight_editorial_intent() -> dict:
     """Conservative no-inference payload for sizing Engine call 1b.
 
     Call 1b cannot be built from the real Call 1a result during preflight because that
-    would itself require inference. Size it with a deliberately large, contract-valid
-    locked premise instead. The fields consumed by build_outline_sections_prompt total
-    roughly the entire 2400-token Core completion transport allowance under the same
-    4.25 UTF-8-bytes/token estimator used by live Groq admission, so the resulting
-    second-call envelope is conservative without inventing a third planning shape.
+    would itself require inference. Size it with every downstream editorial field at
+    the exact semantic maximum accepted by the Core contract. Repeated Arabic code
+    points are deliberately conservative under the same UTF-8 estimator used by live
+    Groq admission, without inventing a third planning shape.
     """
-    long_value = "م" * 400
-    boundary = "ح" * 120
+    long_value = "م" * EDITORIAL_INTENT_VALUE_MAX_CHARS
+    boundary = "ح" * EDITORIAL_EVIDENCE_BOUNDARY_MAX_CHARS
     return {
         "editorial_thesis": long_value,
         "viewer_starting_belief": long_value,
@@ -246,7 +250,11 @@ def _split_outline_envelopes(
         learning_json=learning_json,
         revision_note="",
     )
-    core_enriched = with_channel_persona(core_prompt)
+    core_effective = _provider_visible_prompt(
+        core_output_bounded_prompt(core_prompt),
+        core_spec,
+    )
+    core_enriched = with_channel_persona(core_effective)
 
     # The Engine consumes only these locked Core fields in Call 1b. Use a bounded
     # conservative payload rather than the deprecated combined build_outline_prompt.
@@ -259,11 +267,12 @@ def _split_outline_envelopes(
         revision_note="",
         narrative_format="direct_cinematic",
         editorial_intent=_bounded_preflight_editorial_intent(),
-        pillar="ف" * 250,
-        hook="ه" * 250,
-        closing_payoff="خ" * 250,
+        pillar="understand",
+        hook="ه" * CORE_SCALAR_MAX_CHARS["hook"],
+        closing_payoff="خ" * CORE_SCALAR_MAX_CHARS["closing_payoff"],
     )
-    sections_enriched = with_channel_persona(sections_prompt)
+    sections_effective = _provider_visible_prompt(sections_prompt, sections_spec)
+    sections_enriched = with_channel_persona(sections_effective)
 
     core_size = len(core_enriched.encode("utf-8"))
     sections_size = len(sections_enriched.encode("utf-8"))
