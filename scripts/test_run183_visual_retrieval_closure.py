@@ -108,6 +108,70 @@ class Run183VisualRetrievalClosureTests(unittest.TestCase):
         self.assertLessEqual(len(calls), closure.MAX_ALTERNATE_QUERY_FANOUT)
         self.assertGreaterEqual(len(calls), 1)
 
+    def test_recovery_fusion_preserves_unreviewed_primary_for_all_shared_selectors(self) -> None:
+        class Cache:
+            def __init__(self) -> None:
+                self._store = {}
+
+        for scope in ("single", "opening", "section"):
+            with self.subTest(scope=scope):
+                cache = Cache()
+                primary = {
+                    "pexels": [
+                        _candidate(1, tags="irrelevant office object"),
+                        _candidate(2, tags="irrelevant mountain view"),
+                        _candidate(3, tags="personal boundaries relationship conversation personal space"),
+                    ]
+                }
+
+                def fake_selector(*args, **kwargs):
+                    cache._store[("pexels", 1, "primary-a")] = {"status": "block"}
+                    cache._store[("pexels", 2, "primary-b")] = {"status": "block"}
+                    query = kwargs["alternate_query_fn"]()
+                    return kwargs["alternate_search_fn"](query)
+
+                wrapped = closure._wrap_selector(fake_selector, scope=scope)
+                result = wrapped(
+                    primary,
+                    narration_context="healthy personal boundaries in relationships",
+                    intended_visual=RUN183_VISUAL,
+                    cache=cache,
+                    alternate_query_fn=lambda: "personal boundaries calm conversation",
+                    alternate_search_fn=lambda _query: {
+                        "pexels": [_candidate(4, tags="calm conversation personal space")]
+                    },
+                )
+                ids = [item["id"] for item in result["pexels"]]
+                self.assertNotIn(1, ids)
+                self.assertNotIn(2, ids)
+                self.assertIn(3, ids, "unreviewed primary candidate must survive recovery fusion")
+                self.assertIn(4, ids)
+
+    def test_recovery_fusion_globally_reranks_primary_and_alternate_candidates(self) -> None:
+        class Cache:
+            def __init__(self) -> None:
+                self._store = {}
+
+        cache = Cache()
+        primary = {"pexels": [_candidate(10, tags="mountain ocean sunset landscape")]}
+
+        def fake_selector(*args, **kwargs):
+            query = kwargs["alternate_query_fn"]()
+            return kwargs["alternate_search_fn"](query)
+
+        wrapped = closure._wrap_selector(fake_selector, scope="single")
+        result = wrapped(
+            primary,
+            narration_context="healthy personal boundaries in relationships",
+            intended_visual=RUN183_VISUAL,
+            cache=cache,
+            alternate_query_fn=lambda: "personal boundaries calm conversation",
+            alternate_search_fn=lambda _query: {
+                "pexels": [_candidate(11, tags="personal boundaries relationship conversation personal space")]
+            },
+        )
+        self.assertEqual([item["id"] for item in result["pexels"]][:2], [11, 10])
+
     def test_current_selector_registry_records_cache_hit_review(self) -> None:
         reviewed: set[tuple[str, object]] = set()
         token = scope_fix._REVIEWED_CURRENT_SELECTOR.set(reviewed)
