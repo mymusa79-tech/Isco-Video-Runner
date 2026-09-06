@@ -28,6 +28,7 @@ from scripts.native_short_planner_router import (
     select_native_short_template,
 )
 from scripts.p0_runtime_master_contract import activate_p0_runtime_master
+from scripts.planner_quality_guard import apply_planner_prompt_semantics
 from scripts.planning_batch_hardening import MAX_SCRIPT_BATCH_SECTIONS
 from scripts.planning_capacity_profile import install_planning_capacity_profile
 from scripts import task_level_planner_router as planning_router
@@ -265,6 +266,13 @@ def _split_outline_envelopes(
     research: dict,
 ) -> tuple[dict, dict, int, int]:
     """Return exact Producer-enriched Core + worst-allowed Sections capacities."""
+    # The canonical runtime planner quality layer strengthens question_answer in the
+    # Engine narrative-format table before Core prompt construction. Standalone
+    # preflight is a fresh process, so apply that same narrow semantic compiler here
+    # before building the request. This closes hidden-global byte drift without
+    # installing unrelated runtime wrappers or inflating provider limits.
+    apply_planner_prompt_semantics()
+
     topic = str(brief["approved_topic"])
     policy_json = json.dumps(load_editorial_policy(), ensure_ascii=False)
     research_json = json.dumps(research, ensure_ascii=False)
