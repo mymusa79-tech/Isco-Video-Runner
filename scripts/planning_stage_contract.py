@@ -1338,7 +1338,12 @@ def install_planning_contract_router() -> None:
                         and deferred_retry_providers
                         and total_attempts < contract.provider_policy.max_total_attempts
                     ):
+                        # The deferred round owns this bounded cooldown. Clear only the
+                        # provider-local timestamps for providers explicitly authorized
+                        # for round two so the same cooldown is not enforced twice.
                         time.sleep(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
+                        for provider in deferred_retry_providers:
+                            transient_cooldown_until.pop(provider, None)
                         continue
                     break
 
