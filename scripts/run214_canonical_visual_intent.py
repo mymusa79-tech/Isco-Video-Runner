@@ -11,9 +11,9 @@ failed before the post-core Run212/213 finishing scope could help.
 This layer keeps one architecture for Long, standalone Shorts and source-derived sibling
 Shorts:
 
-* Canonical editorial intent is immutable for Vision across primary and recovery search.
-  StockSearchQuery is retrieval-only provenance; trusted semantic alternates are supplied
-  as acceptable equivalents, never promoted to editorial truth.
+* Canonical editorial intent is immutable and exact for Vision across primary and
+  recovery search. StockSearchQuery and trusted semantic alternates are retrieval/ranking
+  provenance only and are never promoted to editorial truth.
 * Decision/choice morphology is detected from natural words (choose/choosing/choice/
   decision), so a stem such as ``choos`` can never become a stock query.
 * Over-specified Short decision scenes receive one deterministic stock-retrievability
@@ -45,15 +45,13 @@ import isco_video_agent.section_visual_sequence as section_visual_sequence
 import isco_video_agent.visual_selection as visual_selection
 from scripts import opening_feasibility_guard as opening_guard
 from scripts import run183_visual_retrieval_closure as run183
-from scripts import run183_visual_retrieval_scope_fix as run183_scope
 from scripts import vision_stage_contract_v2 as vision_contract
 from scripts import visual_retrieval_adjudication_v1 as v1
 from scripts import visual_retrieval_runtime_scope_v1 as visual_scope
 
 
-CONTRACT_ID = "run214-canonical-visual-intent-v1"
-CONTRACT_VERSION = 1
-MAX_ENGINE_INTENDED_VISUAL_CHARS = 300
+CONTRACT_ID = "run214-canonical-visual-intent-v2"
+CONTRACT_VERSION = 2
 MAX_TRACE_CANDIDATES = 260
 
 _INSTALLED = False
@@ -161,21 +159,9 @@ def _short_retrievable_query(current: Callable[[str], str]):
 
 
 def _canonical_judgment_intent(canonical: object, equivalents: tuple[str, ...]) -> str:
-    core = _clean(canonical, 112)
-    safe_equivalents = [
-        _clean(item, 55)
-        for item in equivalents
-        if _clean(item, 55) and not _contains_broken_stem(item)
-    ][:2]
-    eq = "; ".join(safe_equivalents)
-    envelope = (
-        f"Canonical intent: {core}. "
-        + (f"Accept equivalents: {eq}. " if eq else "")
-        + "Search query is retrieval-only, never editorial truth. "
-          "Judge visible action/meaning; exact age, ethnicity or props are optional unless narration requires them. "
-          "Reject generic B-roll."
-    )
-    return envelope[:MAX_ENGINE_INTENDED_VISUAL_CHARS]
+    """Return the exact editorial truth; equivalents are retrieval/ranking metadata only."""
+    del equivalents
+    return str(canonical or "").strip()
 
 
 def _trace_snapshot() -> list[dict]:
@@ -183,26 +169,21 @@ def _trace_snapshot() -> list[dict]:
 
 
 def _canonical_intent_audit_factory(_historical_factory):
-    """Keep canonical intent immutable across Engine primary/recovery attempts.
+    """Keep the original editorial intent exact across Engine primary/recovery attempts.
 
-    This intentionally replaces Run185's trusted-alternate promotion behavior inside the
-    final production stack. Trusted alternates remain useful, but only as acceptable
-    semantic equivalents inside one canonical judgment envelope.
+    The pinned Engine intentionally uses the alternate search query as ``intended_visual``
+    on its recovery call so its context-aware cache remains safe. This Runner seam keeps
+    that retrieval string as provenance while restoring the original selector intent for
+    the Vision judge. Semantic alternates remain available to retrieval/reranking only.
     """
 
     def factory(audit_fn, intended_visual: str):
-        canonical = _clean(intended_visual)
+        canonical = str(intended_visual or "").strip()
 
         @wraps(audit_fn)
         def wrapped(*args, **kwargs):
             retrieval_query = _clean(kwargs.get("intended_visual"))
-            trusted = tuple(sorted(run183_scope._TRUSTED_SEMANTIC_INTENTS.get() or ()))
-            if not trusted:
-                try:
-                    trusted = tuple(run183.semantic_query_family(canonical).alternates)
-                except Exception:
-                    trusted = ()
-            kwargs["intended_visual"] = _canonical_judgment_intent(canonical, trusted)
+            kwargs["intended_visual"] = _canonical_judgment_intent(canonical, ())
             _LAST_CONTACT_SHEET.set(None)
             try:
                 result = audit_fn(*args, **kwargs)
@@ -398,7 +379,7 @@ def _install_contract_fingerprint() -> None:
             "contract_id": CONTRACT_ID,
             "contract_version": CONTRACT_VERSION,
             "module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-            "vision_truth": "canonical-intent+acceptable-equivalents;retrieval-query-never-truth",
+            "vision_truth": "canonical-intent-exact;retrieval-query-never-truth",
             "short_retrievability": "bounded-decision-safe-frame",
             "ranking": "global-cross-provider-mmr-before-vision",
             "vision_review_ceiling": visual_selection.MAX_VISION_REVIEWS_PER_SECTION,
@@ -433,8 +414,8 @@ def install_run214_canonical_visual_intent() -> None:
     _install_contract_fingerprint()
     _INSTALLED = True
     print(
-        "Run214 Canonical Visual Intent installed: canonical Vision truth separated from "
-        "StockSearchQuery; natural decision morphology; Short stock-retrievability gate; "
+        "Run214 Canonical Visual Intent installed: exact canonical Vision truth separated "
+        "from StockSearchQuery; natural decision morphology; Short stock-retrievability gate; "
         "global cross-provider rerank; existing contact sheet + full shortlist embedded in "
         "Short failure audit; Vision/Security/Cultural thresholds and four-review ceiling unchanged"
     )
