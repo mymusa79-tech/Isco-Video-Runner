@@ -435,7 +435,7 @@ def certified_non_planning_contracts() -> tuple[StageContract, ...]:
             evidence_schema="CinematicEvidenceV1",
             adapter_id="cinematic-runtime-port-v1",
             source_path="scripts/orchestration_cinematic_port.py",
-            source_sha="2760034aad3ce3ba188a6c90d933c50dd49d23be",
+            source_sha="3040482e9e613c0201aab5fdf15a5c04f23ff495",
         ),
         _contract(
             stage_id="render",
