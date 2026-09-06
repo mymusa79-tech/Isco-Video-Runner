@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
+from scripts import planning_stage_contract as contract
 from scripts import task_level_planner_router as router
 
 
@@ -26,11 +27,10 @@ class ProviderReliabilityRun113Tests(unittest.TestCase):
             patcher.stop()
 
     def test_outline_schema_is_strict_and_requires_exact_section_count(self) -> None:
-        prompt = """
-Required number of sections: exactly 8.
-Return ONLY JSON with editorial_intent and section_briefs.
-"""
-        name, schema = router._structured_schema_for_prompt(prompt)
+        # Run113 originally verified this through prompt inference. Long-form Planning
+        # now forbids prompt-owned schema identity, so assert the same invariant through
+        # the canonical explicit Stage Contract instead of reviving the retired seam.
+        name, schema = contract._schema_tuple(contract.outline_stage_spec(8))
         self.assertEqual(name, "editorial_outline")
         self.assertFalse(schema["additionalProperties"])
         briefs = schema["properties"]["section_briefs"]
@@ -41,15 +41,14 @@ Return ONLY JSON with editorial_intent and section_briefs.
         self.assertIn("section_briefs", schema["required"])
 
     def test_full_script_schema_requires_exact_entries(self) -> None:
-        prompt = (
-            'Return ONLY JSON: {"sections": [{"id": "...", "narration": "...", '
-            '"key_point": "..."}, ...]} with EXACTLY 8 entries'
-        )
-        name, schema = router._structured_schema_for_prompt(prompt)
-        self.assertEqual(name, "full_script")
+        # Writer transport is capacity-sharded (max 3) in current production. Verify
+        # the explicit bounded writer contract rather than the obsolete whole-8 prompt.
+        ids = ["s1", "s2", "s3"]
+        name, schema = contract._schema_tuple(contract.script_stage_spec("full_script", ids))
+        self.assertEqual(name, "script_writer_3")
         sections = schema["properties"]["sections"]
-        self.assertEqual(sections["minItems"], 8)
-        self.assertEqual(sections["maxItems"], 8)
+        self.assertEqual(sections["minItems"], 3)
+        self.assertEqual(sections["maxItems"], 3)
         self.assertEqual(
             sections["items"]["required"],
             ["id", "narration", "key_point"],
@@ -62,7 +61,7 @@ Return ONLY JSON with editorial_intent and section_briefs.
             "required": ["ok"],
             "additionalProperties": False,
         }
-        contract = ("test_contract", schema)
+        response_contract = ("test_contract", schema)
 
         with mock.patch.object(
             router,
@@ -72,11 +71,11 @@ Return ONLY JSON with editorial_intent and section_briefs.
             result = router._openrouter_call_with_repair(
                 "structured prompt",
                 "openrouter/free",
-                response_contract=contract,
+                response_contract=response_contract,
             )
 
         self.assertEqual(result, {"ok": True})
-        structured_request.assert_called_once_with("structured prompt", contract)
+        structured_request.assert_called_once_with("structured prompt", response_contract)
 
     def test_unknown_json_contract_keeps_legacy_two_argument_adapter_compatible(self) -> None:
         calls: list[tuple[str, str]] = []
