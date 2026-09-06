@@ -1,27 +1,32 @@
 from __future__ import annotations
 
-"""Run #212 visual candidate-utilization closure.
+"""Run #212/#213 visual candidate-utilization closure.
 
 Run212 proved that broad stock recall, semantic recovery fusion, local MMR-style
 reranking and the cloud Vision authority can all work while a Short still fails: the
 provider-search transform can discard a late beat modifier, a severe semantic BLOCK can
-be paid for again under a new beat context, and Short Cinematic exposes only one
-semantic candidate per primary/recovery attempt.
+be paid for again under a new beat context, and Short Cinematic can expose too little of
+the fused pool per attempt.
 
-This module closes those remaining gaps without weakening any Visual/Security/Cultural
-threshold and without adding an unbounded retry/query loop:
+Run213 then proved the narrower precision gap after those fixes were live: the bounded
+four-review Short window worked, but style/framing words still consumed the eight-token
+provider query and the shared semantic recovery family could prefer a topic-level concept
+(``focus``) over the current beat concept (``contrasting perspective``).
 
-* Long + Short retrieval query compaction keeps both the stable head concept and the
-  late corrective/beat concept instead of blindly keeping the first eight tokens.
+This module closes those gaps without weakening any Visual/Security/Cultural threshold
+and without adding an unbounded retry/query loop:
+
+* Long + Short retrieval query compaction removes provider-irrelevant style/framing noise
+  and keeps both the stable scene concept and the late corrective/beat concept.
+* Short-only request scope prioritizes deterministic beat-specific semantic recovery
+  queries before the existing shared topic fallback; the shared Run183 fanout remains two.
 * Short-only request scope quarantines severe semantic hard negatives across later beats.
-* Short-only request scope raises the per-attempt review window from 1 to 2. The shared
-  selector remains PASS=STOP, so easy beats still cost one Vision verdict; only honest
-  BLOCKs unlock the second candidate and the one existing recovery phase. Absolute Short
-  ceiling becomes four semantic verdicts per added beat (2 primary + 2 fused recovery).
+* Short-only request scope exposes at most two primary and two fused-recovery Vision
+  verdicts. PASS still stops immediately, so easy beats do not pay the full ceiling.
 
 The Long Opening/Section selectors already own adaptive rejection headroom (up to 8/5)
-and already exclude every reviewed asset between sequence slots, so those two policies
-remain unchanged.
+and already exclude every reviewed asset between sequence slots, so those budgets remain
+unchanged. Long receives only the shared query-precision improvement.
 """
 
 import math
@@ -32,12 +37,13 @@ from pathlib import Path
 from typing import Iterator
 
 from scripts import opening_feasibility_guard as opening_guard
+from scripts import run183_visual_retrieval_closure as run183
 from scripts import run200_short_vision_recovery_closure as run200
 from scripts import short_cinematic_director as short_director
 
 
-CONTRACT_ID = "run212-visual-candidate-utilization-v1"
-CONTRACT_VERSION = 1
+CONTRACT_ID = "run212-visual-candidate-utilization-v2"
+CONTRACT_VERSION = 2
 SHORT_VISION_REVIEWS_PER_ATTEMPT = 2
 SHORT_VISION_REVIEWS_PER_BEAT = 4
 SHORT_TOTAL_INSPECTIONS_PER_BEAT = 8
@@ -45,33 +51,111 @@ HARD_NEGATIVE_RELEVANCE_MAX = 0.25
 
 # These words describe render/framing style that the provider API already receives via
 # orientation or that Vision can judge later. Keeping them inside an eight-token stock
-# query crowds out the semantic beat modifier that should drive retrieval.
+# query crowds out the semantic action/concept that should drive retrieval. Run213 added
+# the remaining framing/aesthetic terms that consumed half of the live beat-2 query.
 _SEARCH_NOISE_TERMS = {
     "cinematic",
     "shot",
     "portrait",
     "vertical",
     "realistic",
-    "professional",
     "grounded",
     "aesthetic",
     "subtle",
+    "medium",
+    "close",
+    "closeup",
+    "lighting",
+    "atmospheric",
+    "documentary",
+    "style",
+    "professional",
     "their",
     "his",
     "her",
+}
+
+# Stock-friendly recovery phrases for the finite Short template catalog. These are
+# retrieval hints only; Vision remains the semantic authority. Every query contains a
+# human/action anchor so provider search does not collapse into abstract scenery/props.
+_SHORT_BEAT_RECOVERY: dict[str, tuple[str, str]] = {
+    "immediate visual tension": (
+        "stressed person facing choices desk",
+        "person overwhelmed decisions morning desk",
+    ),
+    "contrasting perspective realistic": (
+        "thoughtful person comparing choices",
+        "person reconsidering decision at desk",
+    ),
+    "person changing direction subtle action": (
+        "person changing direction walking",
+        "person choosing path crossroads",
+    ),
+    "hopeful practical movement": (
+        "person taking practical step forward",
+        "calm person moving forward",
+    ),
+    "intimate reflective close detail": (
+        "thoughtful person reflecting indoors",
+        "quiet person thinking hands face",
+    ),
+    "hesitation hands subtle tension": (
+        "hesitant hands decision desk",
+        "person pausing before choice",
+    ),
+    "perspective shift realistic human action": (
+        "person reconsidering decision",
+        "person changing viewpoint action",
+    ),
+    "person standing moving forward hopeful": (
+        "person standing walking forward",
+        "hopeful person moving ahead",
+    ),
+    "immediate establishing action": (
+        "person starting task desk",
+        "person beginning daily routine",
+    ),
+    "concrete human action detail": (
+        "hands completing task desk",
+        "person working focused action",
+    ),
+    "clear turning point realistic": (
+        "person making decision change",
+        "person changing direction",
+    ),
+    "forward movement meaningful payoff": (
+        "person finishing task moving forward",
+        "person progress walking forward",
+    ),
+    "calm symbolic visual detail": (
+        "thoughtful person quiet detail",
+        "person reflecting calm indoors",
+    ),
+    "quiet reflective pause": (
+        "thoughtful person quiet pause",
+        "person reflecting by window",
+    ),
+    "subtle perspective shift": (
+        "person reconsidering choice",
+        "thoughtful person new perspective",
+    ),
+    "gentle hopeful release": (
+        "calm person relieved hopeful",
+        "person walking into daylight",
+    ),
 }
 
 _SHARED_INSTALLED = False
 
 
 def _balanced_stock_query(original: object) -> str:
-    """Mirror Run92 safety semantics while retaining both query head and tail.
+    """Mirror Run92 safety semantics while retaining semantic head and tail.
 
-    The historical transform used ``compact[:8]``. Short beat modifiers are appended to
-    the base query, so Run212's decisive ``changing direction ... action`` tail vanished
-    before Pexels/Pixabay saw it. We keep the same human/safe-framing admission rule and
-    the same eight-token ceiling, but remove pure style noise and use head4 + tail4 when
-    compaction is necessary. Vision still receives the original rich intended_visual.
+    The historical transform used ``compact[:8]``. Run212 moved Short beat modifiers to
+    the front and used head4+tail4, but Run213 showed that style words such as
+    ``atmospheric lighting documentary style`` could still occupy the tail. We keep the
+    same human/safe-framing admission rule and eight-token ceiling while removing those
+    non-retrieval terms first. Vision still receives the original rich intended_visual.
     """
     raw = str(original or "").strip()
     if not raw:
@@ -98,7 +182,7 @@ def _balanced_stock_query(original: object) -> str:
 
 
 def install_shared_visual_candidate_utilization() -> None:
-    """Install tail-aware stock-query compaction for canonical Long + Short runtime."""
+    """Install semantic-noise-aware stock-query compaction for Long + Short runtime."""
     global _SHARED_INSTALLED
     current = opening_guard.stock_safe_search_query
     if getattr(current, "_isco_run212_balanced_stock_query", False):
@@ -114,7 +198,7 @@ def install_shared_visual_candidate_utilization() -> None:
     opening_guard.stock_safe_search_query = wrapped
     _SHARED_INSTALLED = True
     print(
-        "Run212 Visual Candidate Utilization installed: balanced head+tail stock query; "
+        "Run212 Visual Candidate Utilization installed: semantic head+tail stock query; "
         "Long+Short Vision/Security/Cultural verdict thresholds unchanged"
     )
 
@@ -192,25 +276,78 @@ def _beat_queries_with_priority_tail_preservation(
     )
 
 
+def _detect_short_beat_modifier(intended_visual: object) -> str:
+    raw = " ".join(str(intended_visual or "").strip().casefold().split())
+    for modifiers in short_director._TEMPLATE_QUERY_MODIFIERS.values():
+        for modifier in modifiers:
+            normalized = " ".join(modifier.casefold().split())
+            if raw.startswith(normalized):
+                return modifier
+    return ""
+
+
+def _short_semantic_query_family(
+    original_family,
+    intended_visual: object,
+    narration_context: object = "",
+):
+    """Prefer the active Short beat's concrete recovery semantics before topic fallback."""
+    family = original_family(intended_visual, narration_context)
+    modifier = _detect_short_beat_modifier(intended_visual)
+    beat_queries = _SHORT_BEAT_RECOVERY.get(modifier, ())
+    if not beat_queries:
+        return family
+
+    variants: list[str] = []
+    for query in (*beat_queries, *family.alternates):
+        normalized = _balanced_stock_query(query).strip()
+        if normalized and normalized != family.primary and normalized not in variants:
+            variants.append(normalized)
+        if len(variants) >= run183.MAX_ALTERNATE_QUERY_FANOUT:
+            break
+
+    labels = set(family.labels)
+    labels.add("short_beat")
+    print(
+        "Run213 Short beat semantic recovery: "
+        f"modifier={modifier} alternates={variants} topic_fallback_deferred=true"
+    )
+    return run183.SemanticRetrievalFamily(
+        primary=family.primary,
+        alternates=tuple(variants),
+        labels=frozenset(labels),
+    )
+
+
 @contextmanager
 def short_candidate_utilization_scope(root: Path) -> Iterator[None]:
-    """Compose Run212 only around one authoritative Short finishing request."""
+    """Compose Run212/213 only around one authoritative Short finishing request."""
     original_beat_queries = short_director.beat_queries
     original_cache = short_director.VisualCandidateCache
     original_per_attempt = short_director.MAX_VISION_REVIEWS_PER_ATTEMPT
     original_per_beat = short_director.MAX_VISION_REVIEWS_PER_BEAT
     original_inspections = short_director.MAX_TOTAL_INSPECTIONS_PER_BEAT
+    original_semantic_family = run183.semantic_query_family
+
+    def short_semantic_family(intended_visual, narration_context=""):
+        return _short_semantic_query_family(
+            original_semantic_family,
+            intended_visual,
+            narration_context,
+        )
 
     short_director.beat_queries = _beat_queries_with_priority_tail_preservation
     short_director.VisualCandidateCache = _hard_negative_cache_type(original_cache)
     short_director.MAX_VISION_REVIEWS_PER_ATTEMPT = SHORT_VISION_REVIEWS_PER_ATTEMPT
     short_director.MAX_VISION_REVIEWS_PER_BEAT = SHORT_VISION_REVIEWS_PER_BEAT
     short_director.MAX_TOTAL_INSPECTIONS_PER_BEAT = SHORT_TOTAL_INSPECTIONS_PER_BEAT
+    run183.semantic_query_family = short_semantic_family
 
     try:
         with run200.short_vision_recovery_scope(Path(root)):
             yield
     finally:
+        run183.semantic_query_family = original_semantic_family
         short_director.beat_queries = original_beat_queries
         short_director.VisualCandidateCache = original_cache
         short_director.MAX_VISION_REVIEWS_PER_ATTEMPT = original_per_attempt
