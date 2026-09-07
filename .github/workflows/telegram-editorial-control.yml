@@ -323,7 +323,7 @@ jobs:
           openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
             -pass env:STATE_ENCRYPTION_KEY -in "$fresh_enc" -out "$fresh_state"
           chmod 600 "$fresh_state"
-          python - <<'PY'
+          FRESH_STATE="$fresh_state" python - <<'PY'
           import os
           from pathlib import Path
           from scripts.telegram_control_panel import load_state, save_state
@@ -355,11 +355,6 @@ jobs:
           fi
           git commit -m "state: compensate failed Telegram Gold dispatch"
           git push origin HEAD:control-plane-state
-        env:
-          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
-          REQUEST_ID: ${{ steps.reserve_gold.outputs.request_id }}
-          AUTHORIZATION_ID: ${{ steps.reserve_gold.outputs.authorization_id }}
-          FRESH_STATE: ${{ runner.temp }}/isco-control/gold-dispatch-failed-latest.json
 
       - name: Reserve explicit production dispatch
         id: reserve
