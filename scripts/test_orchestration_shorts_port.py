@@ -32,12 +32,13 @@ class ShortsStablePortTests(unittest.TestCase):
         self.assertIs(raised.exception, error)
         prepare.assert_called_once_with(out, request)
 
-    def test_authoritative_pre_gold_seam_orders_prepare_voice_then_re_qc(self) -> None:
+    def test_authoritative_pre_gold_seam_orders_prepare_voice_retention_then_re_qc(self) -> None:
         out = Path("output/run")
         request = {"kind": "short", "request_id": "req-1"}
         ledger = object()
         prepared = {"stage": "pre_gold"}
         voiced = {"stage": "pre_gold", "voice": {"generated": True}}
+        retention = {"status": "pass"}
         order: list[str] = []
 
         def prepare(_out, _request):
@@ -50,13 +51,20 @@ class ShortsStablePortTests(unittest.TestCase):
             order.append("voice")
             return voiced
 
+        def retention_contract(_out, _request, pre_gold):
+            self.assertIs(pre_gold, voiced)
+            order.append("retention")
+            return retention
+
         def qc(_out):
             order.append("qc")
             return {"status": "pass", "final_media_mutated": False}
 
         with patch.object(core, "prepare_short_render", side_effect=prepare) as prepare_mock, patch.object(
             port, "apply_voice_owned_short", side_effect=voice
-        ) as voice_mock:
+        ) as voice_mock, patch.object(
+            port, "require_short_retention_contract", side_effect=retention_contract
+        ) as retention_mock:
             result = port.prepare_authoritative_short_for_gold(
                 out,
                 request,
@@ -65,16 +73,20 @@ class ShortsStablePortTests(unittest.TestCase):
             )
 
         self.assertIs(result, voiced)
+        self.assertIs(result["short_retention_contract"], retention)
         self.assertTrue(result["authoritative_final_master_qc_rerun"])
-        self.assertEqual(order, ["prepare", "voice", "qc"])
+        self.assertEqual(order, ["prepare", "voice", "retention", "qc"])
         prepare_mock.assert_called_once()
         voice_mock.assert_called_once()
+        retention_mock.assert_called_once_with(out, request, voiced)
 
     def test_authoritative_pre_gold_seam_blocks_failed_re_qc(self) -> None:
         out = Path("output/run")
         request = {"kind": "short", "request_id": "req-1"}
         with patch.object(core, "prepare_short_render", return_value={"stage": "pre_gold"}), patch.object(
             port, "apply_voice_owned_short", return_value={"stage": "pre_gold"}
+        ), patch.object(
+            port, "require_short_retention_contract", return_value={"status": "pass"}
         ):
             with self.assertRaisesRegex(RuntimeError, "authoritative Final Master QC did not pass"):
                 port.prepare_authoritative_short_for_gold(
@@ -166,6 +178,7 @@ class ShortsStablePortTests(unittest.TestCase):
         )
         self.assertIn("apply_voice_owned_short(", source)
         self.assertNotIn("apply_short_voice_v2(", source)
+        self.assertIn("require_short_retention_contract(", source)
         self.assertIn("run_final_master_qc(output_dir)", source)
         self.assertIn('PROVIDER_OWNER = "canonical-short-child-core"', source)
         self.assertIn('RETRY_OWNER = "canonical-short-child-core"', source)

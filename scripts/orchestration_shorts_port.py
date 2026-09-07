@@ -6,6 +6,7 @@ from typing import Any
 
 from scripts import shorts_production_binding as core
 from scripts.run212_visual_candidate_utilization import short_candidate_utilization_scope
+from scripts.short_retention_contract import require_short_retention_contract
 from scripts.short_voice_owned_timeline import apply_voice_owned_short
 
 
@@ -32,7 +33,8 @@ def prepare_authoritative_short_for_gold(
 
     The core builds the progressive visual candidate, Voice-Owned Timeline V1 synthesizes
     the natural performance and makes the visual timeline follow measured narration,
-    then the caller's already-composed Final Master QC surface validates the exact bytes.
+    then the retention contract certifies the actual retimed copy/payoff visual binding.
+    The caller's already-composed Final Master QC surface validates those exact bytes.
     Producer Handoff, Audio Semantic Integrity and durable Final QC remain in their
     existing owners; no quality gate is weakened here.
     """
@@ -48,6 +50,10 @@ def prepare_authoritative_short_for_gold(
             pre_gold,
             ledger=ledger,
         )
+    # Retention copy/visual evidence must inspect the Voice-Owned Timeline result, not
+    # stale pre-voice timing. The contract adds no provider call and never mutates media.
+    retention = require_short_retention_contract(output_dir, control_request, pre_gold)
+    pre_gold["short_retention_contract"] = retention
     master_qc = run_final_master_qc(output_dir)
     if master_qc.get("status") != "pass" or master_qc.get("final_media_mutated") is not False:
         raise RuntimeError("Voice-Owned Short authoritative Final Master QC did not pass")

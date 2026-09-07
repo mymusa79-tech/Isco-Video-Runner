@@ -75,6 +75,22 @@ class AudioProducerFinalCertificateTests(unittest.TestCase):
             receipt = certificate.require_audio_producer_certificate(root)
             self.assertEqual(receipt["decision"], "not_applicable")
 
+    def test_silent_moment_retention_records_exact_byte_not_applicable_without_decode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            final = self._base(root, fmt="moment", audio_streams=0)
+            receipt = self._receipt(final, phase="core_mux", decision="not_applicable", attempts=0)
+            old_retention = certificate.require_audio_retention_qc
+            try:
+                certificate.require_audio_retention_qc = lambda _out: self.fail("silent Moment must not decode missing audio")
+                report = certificate._require_retention_for_certified_state(root, receipt)
+            finally:
+                certificate.require_audio_retention_qc = old_retention
+            self.assertEqual(report["status"], "not_applicable")
+            self.assertEqual(report["scope"], "unfinished_silent_moment")
+            self.assertEqual(report["final"]["sha256"], certificate._sha256_file(final))
+            self.assertTrue((root / certificate.RETENTION_REPORT_FILENAME).is_file())
+
     def test_stale_pass_receipt_is_rejected_after_final_byte_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -113,23 +129,32 @@ class AudioProducerFinalCertificateTests(unittest.TestCase):
             with self.assertRaisesRegex(certificate.AudioProducerCertificateError, "schema_mismatch"):
                 certificate.require_audio_producer_certificate(root)
 
-    def test_wrapper_certifies_contract_before_existing_final_qc_chain_and_is_idempotent(self) -> None:
+    def test_wrapper_certifies_retention_before_semantic_contract_and_existing_final_qc(self) -> None:
         events: list[str] = []
         production = SimpleNamespace(run_final_master_qc=lambda out: events.append("existing") or {"decision": "pass"})
         original = production.run_final_master_qc
         old_require = certificate.require_audio_producer_certificate
+        old_retention_state = certificate._require_retention_for_certified_state
         old_contract = certificate.require_audio_production_contract_v2
         try:
-            certificate.require_audio_producer_certificate = lambda out: events.append("audio-producer") or {}
+            receipt = {"decision": "pass"}
+            certificate.require_audio_producer_certificate = lambda out: events.append("audio-producer") or receipt
+            certificate._require_retention_for_certified_state = lambda out, current: (
+                events.append("audio-retention-qc") or self.assertIs(current, receipt) or {}
+            )
             certificate.require_audio_production_contract_v2 = lambda out: events.append("audio-contract-v2") or {}
             certificate.install_audio_producer_final_certificate([production])
             first = production.run_final_master_qc
             certificate.install_audio_producer_final_certificate([production])
             self.assertIs(production.run_final_master_qc, first)
             production.run_final_master_qc(Path("output/x"))
-            self.assertEqual(events, ["audio-producer", "audio-contract-v2", "existing"])
+            self.assertEqual(
+                events,
+                ["audio-producer", "audio-retention-qc", "audio-contract-v2", "existing"],
+            )
         finally:
             certificate.require_audio_producer_certificate = old_require
+            certificate._require_retention_for_certified_state = old_retention_state
             certificate.require_audio_production_contract_v2 = old_contract
             production.run_final_master_qc = original
 
