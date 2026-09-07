@@ -4,9 +4,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from scripts import human_editorial_montage_v1 as human_montage
 from scripts import shorts_production_binding as core
 from scripts.run212_visual_candidate_utilization import short_candidate_utilization_scope
-from scripts.short_voice_owned_timeline import apply_voice_owned_short
+from scripts.short_voice_owned_timeline import apply_voice_owned_short as base_apply_voice_owned_short
 
 
 PORT_ID = "shorts-runtime-port-v1"
@@ -31,10 +32,12 @@ def prepare_authoritative_short_for_gold(
     """Own the one Short finishing seam that must complete before Gold.
 
     The core builds the progressive visual candidate, Voice-Owned Timeline V1 synthesizes
-    the natural performance and makes the visual timeline follow measured narration,
-    then the caller's already-composed Final Master QC surface validates the exact bytes.
-    Producer Handoff, Audio Semantic Integrity and durable Final QC remain in their
-    existing owners; no quality gate is weakened here.
+    the natural performance and makes the visual timeline follow measured narration.
+    Human Editorial Montage V1 then composes zero-provider-call microtiming, local visual
+    continuity, restrained text choreography and the existing single SFX accent inside
+    that certified owner. The caller's already-composed Final Master QC surface validates
+    the exact final bytes. Producer Handoff, Audio Semantic Integrity and durable Final
+    QC remain in their existing owners; no quality gate is weakened here.
     """
     pre_gold = core.prepare_short_render(output_dir, control_request)
     # Short Cinematic executes after orchestrator.produce(), so re-enter the canonical
@@ -42,7 +45,8 @@ def prepare_authoritative_short_for_gold(
     # existing Run200 availability recovery with bounded candidate-utilization headroom,
     # then restores every imported-by-value Short surface in finally.
     with short_candidate_utilization_scope(output_dir):
-        pre_gold = apply_voice_owned_short(
+        pre_gold = human_montage.apply_voice_owned_short_human(
+            base_apply_voice_owned_short,
             output_dir,
             control_request,
             pre_gold,
