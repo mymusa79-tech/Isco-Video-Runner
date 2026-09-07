@@ -55,13 +55,15 @@ class EngineCandidateVerifierContractTests(unittest.TestCase):
 
         candidate = CANDIDATE_MANIFEST.read_text(encoding="utf-8").strip()
         self.assertRegex(candidate, r"^[0-9a-f]{40}$")
-        # Candidate verification is explicitly non-production. The production pin is
-        # intentionally updated only after paired review/green evidence and before an
-        # approved merge, never as a side effect of opening this Draft PR.
+        # The verifier remains non-production authority even after an explicitly
+        # approved promotion. Once promotion occurs, the canonical V4 production
+        # pin must match the exact Engine SHA that was fully certified as candidate.
         production = (ROOT / ".github" / "workflows" / "produce-resilient-v4.yml").read_text(
             encoding="utf-8"
         )
-        self.assertNotIn(f"EXPECTED_ENGINE_SHA: {candidate}", production)
+        self.assertIn(f"EXPECTED_ENGINE_SHA: {candidate}", production)
+        self.assertIn(f"ISCO_ENGINE_SHA: {candidate}", production)
+        self.assertIn(f"ref: {candidate}", production)
 
     def test_adaptive_cross_repo_paths_trigger_candidate_regression(self) -> None:
         for path in (
