@@ -28,11 +28,11 @@ jobs:
           file=.github/workflows/produce-resilient-v4.yml
           old=928ee95a1d5209a52ee7b50c2d0b65079771cfcd
           new=ece86a6aefe87901c8771a7cb2cec1a08523e704
-          before="$(grep -o "$old" "$file" | wc -l | tr -d ' ')"
+          before="$(awk -v s="$old" 'BEGIN{n=0} {while(index($0,s)){n++; $0=substr($0,index($0,s)+length(s))}} END{print n}' "$file")"
           test "$before" = "3"
           sed -i "s/$old/$new/g" "$file"
-          after_new="$(grep -o "$new" "$file" | wc -l | tr -d ' ')"
-          after_old="$(grep -o "$old" "$file" | wc -l | tr -d ' ')"
+          after_new="$(awk -v s="$new" 'BEGIN{n=0} {while(index($0,s)){n++; $0=substr($0,index($0,s)+length(s))}} END{print n}' "$file")"
+          after_old="$(awk -v s="$old" 'BEGIN{n=0} {while(index($0,s)){n++; $0=substr($0,index($0,s)+length(s))}} END{print n}' "$file")"
           test "$after_new" = "3"
           test "$after_old" = "0"
           grep -F "EXPECTED_ENGINE_SHA: $new" "$file"
