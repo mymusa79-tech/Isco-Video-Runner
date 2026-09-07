@@ -15,9 +15,11 @@ from scripts.short_finishing_capabilities import (
     bind_short_finishing_capabilities,
 )
 from scripts.source_derived_short_planner import install_source_derived_short_planner
+from scripts.source_derived_visual_capsule import build_parent_visual_capsule
 
 
 SOURCE = "canonical_v4_approved_brief"
+PARENT_VISUAL_ROOT_ENV = "ISCO_SOURCE_PARENT_OUTPUT_DIR"
 
 
 def _canonical_hash(document: dict[str, Any]) -> str:
@@ -48,6 +50,9 @@ def validate_request(request: dict[str, Any], expected_sha256: str) -> dict[str,
         raise RuntimeError("Canonical V4 sibling request attempted to change manual YouTube publication")
     if not str(request.get("parent_approved_brief_sha256") or "").strip():
         raise RuntimeError("Canonical V4 sibling request lacks parent approved-brief provenance")
+    excerpt = request.get("source_episode_excerpt")
+    if not isinstance(excerpt, dict) or not str(excerpt.get("source_section_id") or "").strip():
+        raise RuntimeError("Canonical V4 sibling request lacks exact parent section provenance")
     return request
 
 
@@ -84,14 +89,32 @@ def _materialize_brief(request: dict[str, Any], path: Path) -> tuple[Path, str]:
     return path, str(brief["approved_hash"])
 
 
+def _resolve_parent_visual_root() -> Path:
+    """Capture the source long output before the child replaces its approved-brief env."""
+    explicit = str(os.environ.get(PARENT_VISUAL_ROOT_ENV) or "").strip()
+    if explicit:
+        root = Path(explicit).resolve()
+    else:
+        source_brief = str(os.environ.get("ISCO_APPROVED_BRIEF_PATH") or "").strip()
+        if not source_brief:
+            raise RuntimeError("Canonical sibling Short cannot resolve the source long output directory")
+        root = Path(source_brief).resolve().parent
+    required = (root / "picture.mp4", root / "final.mp4", root / "visual-timeline.json", root / "rights-manifest.json")
+    if not all(path.is_file() for path in required):
+        raise RuntimeError("Canonical sibling Short source long output lacks certified video inheritance artifacts")
+    return root
+
+
 def execute(request: dict[str, Any], *, runtime_dir: Path) -> Path:
     # Import the full production graph only when an actual child execution begins.
-    # Request validation and unit-contract imports must remain side-effect free and
-    # must not depend on script-mode sys.path behavior used by the production entrypoint.
     import scripts.planning_runtime_contract as planning_runtime_contract
     import scripts.run_v3_voice as production
 
     validate_request(request, str(request.get("request_sha256") or ""))
+    parent_visual_root = _resolve_parent_visual_root()
+    source_section_id = str((request.get("source_episode_excerpt") or {}).get("source_section_id") or "").strip()
+    visual_capsule = build_parent_visual_capsule(parent_visual_root, source_section_id)
+
     runtime_dir = Path(runtime_dir)
     runtime_dir.mkdir(parents=True, exist_ok=True)
     brief_path, brief_sha = _materialize_brief(request, runtime_dir / "approved-brief.json")
@@ -103,23 +126,27 @@ def execute(request: dict[str, Any], *, runtime_dir: Path) -> Path:
 
     previous_env = {
         key: os.environ.get(key)
-        for key in ("ISCO_APPROVED_BRIEF_PATH", "ISCO_APPROVED_BRIEF_SHA256", "REQUEST_FILE", "ISCO_CONTROL_REQUEST_ID")
+        for key in (
+            "ISCO_APPROVED_BRIEF_PATH",
+            "ISCO_APPROVED_BRIEF_SHA256",
+            "REQUEST_FILE",
+            "ISCO_CONTROL_REQUEST_ID",
+            PARENT_VISUAL_ROOT_ENV,
+        )
     }
     os.environ["ISCO_APPROVED_BRIEF_PATH"] = str(brief_path.resolve())
     os.environ["ISCO_APPROVED_BRIEF_SHA256"] = brief_sha
     os.environ["REQUEST_FILE"] = str(request_file.resolve())
     os.environ["ISCO_CONTROL_REQUEST_ID"] = str(request.get("request_id") or "")
+    os.environ[PARENT_VISUAL_ROOT_ENV] = str(parent_visual_root)
 
     original_gold = production.run_gold_enforce_phase4
-    # production.main() resolves install_router from scripts.planning_runtime_contract's
-    # own module globals (via install_entrypoint_planning_contracts()), not from a
-    # scripts.run_v3_voice.install_router attribute - that name no longer exists there
-    # since the planning seam consolidation. Patch the name actually looked up.
     original_install_router = planning_runtime_contract.install_router
     original_resolve_plan_source = production._resolve_plan_source
     original_budget_factory = production._production_budget_ledger
     runtime_request = dict(request)
     runtime_request["production_dispatch_authorized"] = True
+    runtime_request["source_visual_capsule"] = visual_capsule
     short_pre: dict[str, Any] | None = None
     ledger_box: dict[str, Any] = {}
     before = _output_dirs()
@@ -150,8 +177,8 @@ def execute(request: dict[str, Any], *, runtime_dir: Path) -> Path:
 
     production.run_gold_enforce_phase4 = controlled_gold
     production._production_budget_ledger = captured_budget_factory
-    planning_runtime_contract.install_router = lambda: install_source_derived_short_planner(request)
-    production._resolve_plan_source = lambda: "source_derived_long_episode_short"
+    planning_runtime_contract.install_router = lambda: install_source_derived_short_planner(runtime_request)
+    production._resolve_plan_source = lambda: "source_derived_long_episode_video_short"
     try:
         production.main()
         return _new_output_dir(before)
