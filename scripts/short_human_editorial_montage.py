@@ -10,6 +10,7 @@ from scripts import short_cinematic_director as base
 
 
 PROFILE = "short_human_editorial_montage_v1"
+MAX_SOURCE_SAFE_REFRAMES = 1
 
 _STRONG_TURN_MARKERS = (
     "لكن",
@@ -39,9 +40,10 @@ def _decision_for_boundary(
 ) -> tuple[str, str]:
     """Return a deterministic editorial decision before the current semantic beat.
 
-    boundary_index is one-based between events: 1 means event 1 -> event 2.  We never
-    invent semantic content and never call a provider here.  The final payoff remains a
-    real cut so every standalone Short retains at least two independently audited assets.
+    boundary_index is one-based between events: 1 means event 1 -> event 2. We never
+    invent semantic content and never call a provider here. The final payoff remains a
+    real cut for standalone Shorts so they retain at least two independently audited
+    visual assets.
     """
     if total_events < 2:
         raise base.ShortCinematicError("Human editorial montage requires at least two semantic beats")
@@ -55,7 +57,7 @@ def _decision_for_boundary(
     if any(marker in text for marker in _STRONG_TURN_MARKERS):
         return "CUT", "explicit_semantic_turn"
 
-    # Micro stories benefit from one early scene/action change.  Other templates are
+    # Micro stories benefit from one early scene/action change. Other templates are
     # deliberately more restrained and keep the opening image when meaning continues.
     if template == "micro_story" and boundary_index == 1:
         return "CUT", "micro_story_scene_progression"
@@ -72,7 +74,12 @@ def plan_editorial_boundaries(
     events: list[dict[str, Any]],
     template: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Collapse HOLD/REFRAME beats into visual segments while preserving all text beats."""
+    """Collapse HOLD/REFRAME beats into standalone visual segments.
+
+    CUT boundaries spend an independently audited asset through the existing Short
+    Cinematic owner. HOLD/REFRAME boundaries reuse the current visual and preserve all
+    authored text beats for the final rich-text pass.
+    """
     if template not in base._TEMPLATE_QUERY_MODIFIERS:
         raise base.ShortCinematicError("Human editorial montage received unsupported Short template")
     if len(events) < 2:
@@ -115,11 +122,70 @@ def plan_editorial_boundaries(
             current.setdefault("_reframe_beat_ids", []).append(f"b{event_index:02d}")
 
     if len(segments) < base.MIN_SHORT_SHOTS:
-        # The payoff boundary above should make this unreachable for a valid Short.
+        # The standalone payoff boundary above should keep this unreachable.
         raise base.ShortCinematicError("Human editorial montage restraint removed required visual coverage")
     if len(segments) > base.MAX_SHORT_SHOTS:
         raise base.ShortCinematicError("Human editorial montage exceeded Short shot ceiling")
     return segments, decisions
+
+
+def plan_source_safe_boundaries(
+    events: list[dict[str, Any]],
+    template: str,
+) -> list[dict[str, Any]]:
+    """Choose at most one local emphasis for a Short derived from a Long episode.
+
+    Source-derived Shorts are not allowed to spend a new stock asset at this finishing
+    seam. We still use the same semantic boundary reasoning, but convert the strongest
+    justified visual change into one local SUBTLE_REFRAME and keep every other boundary
+    as a true HOLD. This preserves the parent's visual language and adds zero provider
+    calls, zero stock searches and zero Vision reviews.
+    """
+    if template not in base._TEMPLATE_QUERY_MODIFIERS:
+        raise base.ShortCinematicError("Source-safe human montage received unsupported Short template")
+    if len(events) < 2:
+        raise base.ShortCinematicError("Source-safe human montage requires at least two semantic beats")
+
+    candidates: list[tuple[int, int, str]] = []
+    reasons: dict[int, str] = {}
+    priority = {
+        "explicit_semantic_turn": 3,
+        "micro_story_scene_progression": 2,
+        "continuity_with_emphasis": 2,
+        "payoff_boundary": 1,
+        "semantic_continuity": 0,
+    }
+    for event_index, event in enumerate(events[1:], 2):
+        boundary_index = event_index - 1
+        _decision, reason = _decision_for_boundary(template, boundary_index, len(events), event)
+        reasons[boundary_index] = reason
+        score = priority.get(reason, 0)
+        if score > 0:
+            candidates.append((score, boundary_index, reason))
+
+    # Prefer a real semantic turn over a decorative payoff nudge. Ties keep the earlier
+    # boundary, which gives the payoff room to settle instead of stacking effects late.
+    candidates.sort(key=lambda item: (-item[0], item[1]))
+    selected = {item[1] for item in candidates[:MAX_SOURCE_SAFE_REFRAMES]}
+
+    decisions: list[dict[str, Any]] = []
+    for boundary_index in range(1, len(events)):
+        event_index = boundary_index + 1
+        if boundary_index in selected:
+            decision = "SUBTLE_REFRAME"
+            reason = f"source_safe_{reasons.get(boundary_index, 'semantic_emphasis')}"
+        else:
+            decision = "HOLD"
+            reason = "source_safe_semantic_continuity"
+        decisions.append(
+            {
+                "from_beat_id": f"b{event_index - 1:02d}",
+                "to_beat_id": f"b{event_index:02d}",
+                "decision": decision,
+                "reason": reason,
+            }
+        )
+    return decisions
 
 
 def _video_dimensions(path: Path) -> tuple[int, int]:
@@ -161,34 +227,66 @@ def _subtle_reframe(source: Path, output: Path) -> Path:
     return output
 
 
+def _visual_treatment_spans(
+    events: list[dict[str, Any]],
+    decisions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Group contiguous beats by local treatment, never by a HOLD text boundary."""
+    reframe_beats = {
+        str(item.get("to_beat_id") or "")
+        for item in decisions
+        if item.get("decision") == "SUBTLE_REFRAME"
+    }
+    spans: list[dict[str, Any]] = []
+    for index, event in enumerate(events, 1):
+        beat_id = f"b{index:02d}"
+        treatment = "reframe" if beat_id in reframe_beats else "normal"
+        try:
+            start = float(event.get("start") or 0.0)
+            end = float(event.get("end") or 0.0)
+        except (TypeError, ValueError) as exc:
+            raise base.ShortCinematicError("Human editorial montage received invalid treatment timing") from exc
+        if end <= start:
+            raise base.ShortCinematicError("Human editorial montage received non-positive treatment timing")
+        if spans and spans[-1]["treatment"] == treatment:
+            spans[-1]["end"] = end
+            spans[-1]["beat_ids"].append(beat_id)
+        else:
+            spans.append(
+                {
+                    "treatment": treatment,
+                    "start": start,
+                    "end": end,
+                    "beat_ids": [beat_id],
+                }
+            )
+    return spans
+
+
 def _apply_reframes(
     picture: Path,
     events: list[dict[str, Any]],
     decisions: list[dict[str, Any]],
     work: Path,
 ) -> Path:
-    reframe_beats = {
-        item["to_beat_id"]
-        for item in decisions
-        if item.get("decision") == "SUBTLE_REFRAME"
-    }
-    if not reframe_beats:
+    spans = _visual_treatment_spans(events, decisions)
+    if not any(item["treatment"] == "reframe" for item in spans):
         return picture
 
     pieces: list[Path] = []
     piece_root = work / "editorial-pieces"
     piece_root.mkdir(parents=True, exist_ok=True)
-    for index, event in enumerate(events, 1):
-        start = float(event.get("start") or 0.0)
-        seconds = base._event_duration(event)
+    for index, span in enumerate(spans, 1):
+        start = float(span["start"])
+        seconds = float(span["end"]) - start
         raw_piece = base._trim_video(
             picture,
-            piece_root / f"beat-{index:02d}-raw.mp4",
+            piece_root / f"span-{index:02d}-raw.mp4",
             start,
             seconds,
         )
-        if f"b{index:02d}" in reframe_beats:
-            piece = _subtle_reframe(raw_piece, piece_root / f"beat-{index:02d}-reframe.mp4")
+        if span["treatment"] == "reframe":
+            piece = _subtle_reframe(raw_piece, piece_root / f"span-{index:02d}-reframe.mp4")
         else:
             piece = raw_piece
         pieces.append(piece)
@@ -202,6 +300,49 @@ def _apply_reframes(
             f"Human editorial montage duration drift: expected={expected:.3f} actual={actual:.3f}"
         )
     return output
+
+
+def render_source_safe_sibling_picture(
+    root: Path,
+    staged_picture: Path,
+    events: list[dict[str, Any]],
+    template: str,
+) -> tuple[Path, dict[str, Any]]:
+    """Apply source-safe local restraint and re-render exact progressive text."""
+    root = Path(root)
+    decisions = plan_source_safe_boundaries(events, template)
+    work = root / "short-human-editorial-sibling-v1"
+    work.mkdir(parents=True, exist_ok=True)
+    editorial_picture = _apply_reframes(staged_picture, events, decisions, work)
+    progressive_picture = work / "picture-source-safe-human-editorial-text-v1.mp4"
+    base.render_progressive_text(
+        video=editorial_picture,
+        events=events,
+        srt_path=root / "short-progressive-source-safe.srt",
+        output=progressive_picture,
+    )
+    report = {
+        "schema_version": 1,
+        "profile": PROFILE,
+        "scope": "short_sibling",
+        "status": "applied",
+        "source_safe": True,
+        "semantic_beat_count": len(events),
+        "boundary_decisions": decisions,
+        "hold_count": sum(item["decision"] == "HOLD" for item in decisions),
+        "subtle_reframe_count": sum(item["decision"] == "SUBTLE_REFRAME" for item in decisions),
+        "cut_count": 0,
+        "max_source_safe_reframes": MAX_SOURCE_SAFE_REFRAMES,
+        "new_stock_assets": 0,
+        "extra_stock_queries": 0,
+        "extra_vision_ai_calls": 0,
+        "extra_text_ai_calls": 0,
+        "approved_text_preserved": True,
+    }
+    (root / "short-sibling-human-editorial-montage.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return progressive_picture, report
 
 
 def _patch_receipts(
@@ -284,11 +425,12 @@ def upgrade_short_cinematic(
     *,
     ledger: Any,
 ) -> dict[str, Any]:
-    """Human editorial boundary layer over the certified Short cinematic director.
+    """Human editorial boundary layer over the certified standalone cinematic owner.
 
     CUT still delegates to the existing audited stock/Visual-QA/M8/rights pipeline.
-    HOLD and SUBTLE_REFRAME consume no new provider call.  All original text events are
+    HOLD and SUBTLE_REFRAME consume no new provider call. All original text events are
     restored after visual composition so editorial restraint never removes approved copy.
+    Source-derived siblings are handled separately by render_source_safe_sibling_picture.
     """
     if control_request.get("kind") != "short" or _clean(control_request.get("approval_scope")) != "short_only":
         return base.upgrade_short_cinematic(output_dir, control_request, pre_gold, ledger=ledger)
