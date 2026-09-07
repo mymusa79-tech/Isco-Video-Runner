@@ -11,6 +11,12 @@ from typing import Any
 import isco_video_agent.orchestrator as orchestrator
 
 from scripts import short_editorial_craft_contract as craft
+from scripts.short_editorial_craft_contract import ShortEditorialCraftError
+from scripts.short_voice_feasibility import (
+    INTER_BEAT_PAUSE_SECONDS,
+    NATURAL_WORDS_PER_SECOND,
+    PREFLIGHT_SPEED_HEADROOM,
+)
 
 
 REPORT_FILENAME = "producer-handoff-quality.json"
@@ -86,6 +92,17 @@ _EMPTY_RESEARCH_HIGH_RISK_PATTERNS = (
     re.compile(r"(?:يعالج|علاج|تشخيص)\s+.{0,40}(?:اضطراب|اكتئاب|قلق|مرض|حالة)", re.IGNORECASE),
 )
 
+# Engine orchestrator._duration_limits() returns a flat (7.0, 25.0) ceiling for the
+# "moment" format regardless of channel config (unlike film/story, which scale from
+# the configured target_seconds) - test_producer_short_natural_duration_preflight.py
+# pins this constant against the real Engine function so drift breaks the suite loudly.
+# Duplicated here (short_voice_v2.py and short_voice_owned_timeline.py each already
+# carry their own 25.0 fallback, for the same reason: quality-final.json does not
+# exist yet at Planning time) so an over-long narration is caught before any real TTS
+# call is spent on it, not after Voice-Owned Timeline fails closed downstream.
+_SHORT_NATURAL_DURATION_MAX_SECONDS = 25.0
+_SHORT_NARRATION_TOO_LONG_ISSUE = "moment_narration_likely_exceeds_natural_duration"
+
 _INSTALLED_PLANNING = False
 _INSTALLED_HANDOFF = False
 
@@ -136,6 +153,12 @@ def producer_writing_directive(
 
 def short_template_contract(template: object) -> str:
     return _SHORT_TEMPLATE_CONTRACTS.get(_clean(template), "")
+
+
+def resolve_short_template(plan: object) -> str:
+    """Public wrapper so repair-guidance composers can resolve the same template
+    plan_quality_issues() uses, without reaching into a private helper."""
+    return _template_from_plan(plan)
 
 
 def _template_from_plan(plan: object) -> str:
@@ -191,6 +214,90 @@ def _short_story_beats(plan: object) -> list[str]:
         or _clean(getattr(first, "key_point", "") if first is not None else ""),
         _clean(getattr(plan, "closing_payoff", "")),
     ]
+
+
+def _short_spoken_beats(plan: object, mode: str) -> list[str]:
+    """The subset of _short_story_beats() that voice actually speaks.
+
+    Mirrors short_voice_owned_timeline._performance_script(): hybrid templates speak
+    only the hook and closing_payoff beats (the middle beats stay visual/on-screen-only
+    and never reach TTS), voice_led templates speak every approved beat.
+    """
+    beats = [value for value in _short_story_beats(plan) if value]
+    if mode == "hybrid":
+        return [beats[0], beats[-1]] if len(beats) > 1 else beats
+    return beats
+
+
+def estimate_short_natural_seconds(texts: list[str]) -> float:
+    """Same word-rate formula short_voice_feasibility._estimate_seconds() uses,
+    reusing its exact constants so this Planning-time estimate and the real TTS-time
+    feasibility check never silently drift apart."""
+    words = sum(len(text.split()) for text in texts)
+    pauses = max(0, len(texts) - 1) * INTER_BEAT_PAUSE_SECONDS
+    return words / NATURAL_WORDS_PER_SECOND + pauses
+
+
+_SHORT_BEAT_FIELD_PATHS = (
+    "hook",
+    "title_options[0] (or topic)",
+    "sections[0].on_screen_text (or key_point)",
+    "closing_payoff",
+)
+
+
+def short_narration_duration_guidance(plan: object, template: object) -> str:
+    """Concrete, field-scoped repair guidance for _SHORT_NARRATION_TOO_LONG_ISSUE.
+
+    Leads with narrowing the IDEA, not cutting words: a verbose retelling of a simple
+    idea can be trimmed safely, but a genuinely rich idea forced into a rough word count
+    either gets truncated (loses meaning) or gets its clauses chained back together
+    (reads as rushed even at fully natural TTS pace) - the same practical failure Run
+    #196 hit, just moved from the audio layer to the writing layer. The word count below
+    is offered only as a rough calibration aid, explicitly subordinate to keeping the
+    result one complete, natural, unhurried thought.
+
+    Names exactly which fields voice actually speaks for this template's mode (hybrid
+    templates never speak the middle beats at all - shortening them would not help and
+    could wrongly cut a visual-only field). Explicitly rules out the one change this
+    must never become: Voice-Owned Timeline never speeds up or compresses narration, so
+    the only lever here is narrowing what idea is told, never how fast it is told.
+    """
+    try:
+        mode = craft.template_voice_mode(template)
+    except ShortEditorialCraftError:
+        return ""
+    beats = _short_story_beats(plan)
+    spoken = _short_spoken_beats(plan, mode)
+    if not spoken:
+        return ""
+    estimate = estimate_short_natural_seconds(spoken)
+    pause_seconds = max(0, len(spoken) - 1) * INTER_BEAT_PAUSE_SECONDS
+    target_seconds = _SHORT_NATURAL_DURATION_MAX_SECONDS / PREFLIGHT_SPEED_HEADROOM
+    target_words = max(1, int((target_seconds - pause_seconds) * NATURAL_WORDS_PER_SECOND))
+    if mode == "hybrid":
+        spoken_paths = [_SHORT_BEAT_FIELD_PATHS[0], _SHORT_BEAT_FIELD_PATHS[-1]]
+    else:
+        spoken_paths = list(_SHORT_BEAT_FIELD_PATHS[: len(beats)])
+    return (
+        "DETERMINISTIC_ACCEPTANCE_RULE moment_narration_likely_exceeds_natural_duration: "
+        f"the spoken fields ({', '.join(spoken_paths)}) currently carry an idea that needs "
+        f"an estimated {estimate:.1f}s of natural, unhurried narration - more than this "
+        "Short's natural-duration ceiling allows even with the video timeline fully "
+        "extended to match. Rewrite ONLY those spoken fields by narrowing the IDEA itself "
+        "to its single clearest angle, keeping it a complete, natural, unhurried thought. "
+        "Do not simply delete words from the existing sentences to force a rough word "
+        "count, and do not chain the remaining clauses back together to stay "
+        "\"technically\" complete while it reads as rushed. If narrowing to one clear "
+        "angle still cannot be said naturally within an unhurried delivery, keep the idea "
+        "complete and pick an even narrower framing of the topic rather than forcing "
+        f"artificial brevity. As a rough guide only (not a strict target to hit at the "
+        f"cost of a rushed or truncated result), a spoken idea near {target_words} words "
+        "tends to fit naturally. Voice is always synthesized and played back at natural, "
+        "unhurried pace - nothing downstream ever speeds up or time-compresses narration, "
+        "so there is no need to write as if it will be sped up. Any non-spoken field "
+        "listed above is visual/on-screen only and unrelated to this rule."
+    )
 
 
 def moment_direct_imperative_targets(plan: object) -> list[str]:
@@ -267,6 +374,23 @@ def plan_quality_issues(
             post_hook = " ".join(_short_story_beats(plan)[1:])
             if not any(marker in post_hook for marker in _WHY_REFRAME_MARKERS):
                 issues.append("why_reframe_missing_explicit_contrast_or_reframe")
+
+        # Voice-Owned Timeline never speed-compresses voice (that is exactly what Run
+        # #196 proved unsafe) - it extends the video to the measured narration instead,
+        # and fails closed with zero retry if that narration is too long to fit the
+        # Short duration ceiling even with the video fully extended. Catch an
+        # over-long narration here, before Planning ever hands it off, so a real TTS
+        # call and a terminal production failure are never spent discovering it late.
+        try:
+            mode = craft.template_voice_mode(template)
+        except ShortEditorialCraftError:
+            mode = ""
+        if mode:
+            spoken = _short_spoken_beats(plan, mode)
+            if spoken:
+                estimate = estimate_short_natural_seconds(spoken)
+                if estimate * PREFLIGHT_SPEED_HEADROOM > _SHORT_NATURAL_DURATION_MAX_SECONDS:
+                    issues.append(_SHORT_NARRATION_TOO_LONG_ISSUE)
 
     if fmt in {"film", "story"}:
         keys = [_semantic_key(getattr(section, "key_point", "")) for section in sections]

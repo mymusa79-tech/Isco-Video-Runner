@@ -5,26 +5,36 @@ from typing import Any
 
 # Run219 editorial closure. These are zero-provider-call craft targets: they shape the
 # existing Producer request and the local post-voice visual timeline only.
+# voice_mode mirrors the spoken-beat selection short_voice_v2.decide_voice_mode() and
+# short_voice_owned_timeline._performance_script() both use: "hybrid" speaks only the
+# hook+payoff beats (the middle beats stay visual/on-screen-only), "voice_led" speaks
+# every approved beat. This is the single source of truth both modules delegate to -
+# duplicating this mapping caused exactly the kind of drift risk this contract exists
+# to prevent.
 _TEMPLATE_SPECS: dict[str, dict[str, Any]] = {
     "why_reframe": {
         "hook_max_words": 8,
         "hook_beat_max_seconds": 3.0,
         "opening_job": "contrast/reframe",
+        "voice_mode": "hybrid",
     },
     "inner_dialogue": {
         "hook_max_words": 9,
         "hook_beat_max_seconds": 3.2,
         "opening_job": "inner thought then turn",
+        "voice_mode": "voice_led",
     },
     "micro_story": {
         "hook_max_words": 10,
         "hook_beat_max_seconds": 3.3,
         "opening_job": "concrete scene then turn",
+        "voice_mode": "voice_led",
     },
     "quote_reflection": {
         "hook_max_words": 10,
         "hook_beat_max_seconds": 3.5,
         "opening_job": "approved quote/reflection only",
+        "voice_mode": "hybrid",
     },
 }
 
@@ -62,6 +72,10 @@ def template_hook_word_limit(template: object) -> int:
 
 def template_hook_beat_max_seconds(template: object) -> float:
     return float(template_spec(template)["hook_beat_max_seconds"])
+
+
+def template_voice_mode(template: object) -> str:
+    return str(template_spec(template)["voice_mode"])
 
 
 def template_names() -> tuple[str, ...]:

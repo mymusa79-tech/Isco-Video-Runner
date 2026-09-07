@@ -40,6 +40,7 @@ _REPAIRABLE_SHORT_PRODUCER_ISSUES = frozenset(
         "moment_direct_imperative_in_story_beat",
         "moment_generic_motivation_phrase",
         "why_reframe_missing_explicit_contrast_or_reframe",
+        "moment_narration_likely_exceeds_natural_duration",
     }
 )
 _REPAIRABLE_SHORT_SECTION_SUFFIXES = (
