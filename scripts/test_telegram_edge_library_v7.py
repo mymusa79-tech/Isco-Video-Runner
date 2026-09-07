@@ -66,6 +66,34 @@ class TelegramEdgeLibraryV7Tests(unittest.TestCase):
         self.assertNotIn("enqueue", self.text.casefold())
         self.assertNotIn("production_target", self.text)
 
+    def test_production_library_has_three_contract_bound_categories(self):
+        self.assertIn('scope === "short_only"', self.text)
+        self.assertIn('scope === "long_only"', self.text)
+        self.assertIn('scope === "long_plus_sibling_shorts"', self.text)
+        self.assertIn('callback_data: "cmd:productions-short"', self.text)
+        self.assertIn('callback_data: "cmd:productions-long"', self.text)
+        self.assertIn('callback_data: "cmd:productions-bundle"', self.text)
+        self.assertIn('value === "cmd:productions" || value === "cmd:last_delivery"', self.text)
+        self.assertIn("showProductionMenu(env", self.text)
+        self.assertIn("showProductionPage(env", self.text)
+        self.assertIn("showProductionItem(env", self.text)
+
+    def test_gold_resume_button_is_per_video_qc_pending_only_and_falls_through(self):
+        self.assertIn('item.entry.status === "qc_pending"', self.text)
+        self.assertIn('text: "▶️ تابع Gold"', self.text)
+        self.assertIn('callback_data: `cmd:goldresume-${item.requestId}`', self.text)
+        self.assertIn("فشل عادي وليس QC_PENDING", self.text)
+        # V7 owns only the read/navigation surface. The state-changing Gold resume
+        # callback must fall through to the prior Control Plane stack.
+        self.assertNotIn('/^cmd:goldresume-', self.text)
+        self.assertNotIn('value.startsWith("cmd:goldresume-")', self.text)
+        self.assertNotIn("resume_gold_qc_pending_v1", self.text)
+
+    def test_per_video_callbacks_stay_compact_for_telegram_callback_data_limit(self):
+        self.assertIn("[A-Za-z0-9_-]{1,40}", self.text)
+        self.assertIn('callback_data: `cmd:production-item-${item.requestId}`', self.text)
+        self.assertNotIn('callback_data: `cmd:production-item-${item.title}`', self.text)
+
     def test_edge_reads_existing_encrypted_authoritative_state_with_short_cache(self):
         self.assertIn("STATE_ENCRYPTION_KEY", self.text)
         self.assertIn("control-plane-state/state/control-panel.json.enc", self.text)
