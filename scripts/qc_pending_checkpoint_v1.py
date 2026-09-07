@@ -7,10 +7,10 @@ already passed Final Master Acceptance before the Gold provider mesh became unav
 Only the explicit VisionProviderMeshUnavailableError taxonomy is eligible; similarly
 worded runtime errors are never promoted to a resumable state.
 
-V2 additionally binds the exact pre-Gold ``core_complete`` learning row. Gold correctly
-removes that row from durable success memory on failure; a later Gold-only resume can
-therefore inject the bound row into a temporary history copy and persist it only after
-Gold succeeds. Failed resume attempts never contaminate durable accepted-memory state.
+V2 additionally binds the exact pre-Gold production-history row. Gold correctly removes
+that row from durable success memory on failure; a later Gold-only resume can therefore
+inject the bound row into a temporary history copy and persist it only after Gold succeeds.
+Failed resume attempts never contaminate durable accepted-memory state.
 """
 
 import hashlib
@@ -65,8 +65,8 @@ def _validate_pending_production_record(record: object, *, output_key: str) -> d
     normalized_output = str(record.get("output") or "").strip()
     if not output_key or normalized_output != output_key:
         raise RuntimeError("QC_PENDING refused: pre-Gold production record output mismatch")
-    if str(record.get("status") or "").strip() != "core_complete":
-        raise RuntimeError("QC_PENDING refused: pre-Gold production record is not core_complete")
+    if str(record.get("release_status") or "").strip() == "accepted_after_final_critic":
+        raise RuntimeError("QC_PENDING refused: pre-Gold production record was already accepted")
     # JSON round-trip gives the checkpoint an immutable, serialization-safe copy instead
     # of retaining a mutable reference to Engine learning state.
     try:
@@ -89,6 +89,12 @@ def capture_qc_pending_checkpoint(
     if not _is_gold_vision_mesh_exhaustion(exc):
         return None
     root = Path(output_dir)
+    # The Runner's outer failure handler may call us after Gold already captured the
+    # authoritative checkpoint with the pre-cleanup history row. Revalidate rather than
+    # overwriting it with a record that is no longer available after fail-closed cleanup.
+    if production_record is None and (root / FILENAME).is_file():
+        return verify_qc_pending_checkpoint(root)
+
     final_path = root / "final.mp4"
     qc_path = root / "final-master-qc.json"
     if not final_path.is_file() or not qc_path.is_file():
@@ -169,8 +175,6 @@ def capture_qc_pending_checkpoint(
     diagnostics_path = root / "production-failure-diagnostics.json"
     diagnostics = _read_json(diagnostics_path)
     if diagnostics is not None:
-        # Diagnostics receive only identity/provenance, not a duplicate of the full
-        # production row. The authoritative row stays in the SHA-bound checkpoint.
         diagnostics["qc_pending_checkpoint"] = {
             key: value for key, value in document.items() if key != "production_state"
         }
