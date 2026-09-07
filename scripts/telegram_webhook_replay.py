@@ -25,6 +25,7 @@ def _install_v5_after_active() -> None:
     def install_with_v5() -> None:
         original_install()
         from scripts import telegram_creator_control_center_v5 as creator_v5
+        from scripts import telegram_gold_resume_control as gold_resume_control
         from scripts import telegram_long_format_policy as long_format_policy
         from scripts import telegram_operator_mission_control as operator_mission_control
         from scripts import telegram_scope_first_modern as scope_first
@@ -38,14 +39,17 @@ def _install_v5_after_active() -> None:
         # Production authority remains the existing exact typed-confirmation seam.
         operator_mission_control.install()
         # Run #203 closure: webhook replay must bind the same Long outer-format
-        # policy as the certified fallback-polling entrypoint. Install it last over
-        # the final approval owner so a live webhook approval cannot bypass
+        # policy as the certified fallback-polling entrypoint. Install it over the
+        # final approval owner so a live webhook approval cannot bypass
         # ``long -> auto -> film/story`` or the canonical research-pack contract.
         long_format_policy.install(panel=core.panel)
-        # Scope-first is installed over the final webhook handler/poll owners. It
-        # only binds research intent and translates a scoped pick into the existing
-        # canonical scope: callback; Production authority remains unchanged.
+        # Scope-first binds research intent and translates scoped picks into the
+        # existing canonical scope callback without owning Production authority.
         scope_first.install(panel=core.panel, creator_v5=creator_v5)
+        # Gold resume is deliberately installed last because it is a separate,
+        # state-changing authority. It can only create a one-time authorization for
+        # an already persisted QC_PENDING render and never aliases full Production.
+        gold_resume_control.install(active=core.active, panel=core.panel)
 
     core.active._install = install_with_v5
     core.active._isco_v5_replay_hooked = True
