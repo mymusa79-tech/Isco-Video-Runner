@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.short_human_editorial_montage import plan_editorial_boundaries
+from scripts.short_human_editorial_montage import (
+    _visual_treatment_spans,
+    plan_editorial_boundaries,
+    plan_source_safe_boundaries,
+)
 
 
 def _events(texts: list[str]) -> list[dict]:
@@ -15,7 +19,7 @@ def _events(texts: list[str]) -> list[dict]:
                 "start": start,
                 "end": end,
                 "text": text,
-                "role": "hook" if index == 1 else "beat",
+                "role": "hook" if index == 1 else ("payoff" if index == len(texts) else "beat"),
             }
         )
         start = end
@@ -47,10 +51,7 @@ class ShortHumanEditorialMontageTests(unittest.TestCase):
             ]),
             "inner_dialogue",
         )
-        self.assertEqual(
-            [item["decision"] for item in decisions],
-            ["HOLD", "SUBTLE_REFRAME", "CUT"],
-        )
+        self.assertEqual([item["decision"] for item in decisions], ["HOLD", "SUBTLE_REFRAME", "CUT"])
         self.assertEqual(len(segments), 2)
         self.assertEqual(segments[0]["_covered_beat_ids"], ["b01", "b02", "b03"])
         self.assertEqual(segments[0]["_reframe_beat_ids"], ["b03"])
@@ -65,19 +66,55 @@ class ShortHumanEditorialMontageTests(unittest.TestCase):
             ]),
             "micro_story",
         )
-        self.assertEqual(
-            [item["decision"] for item in decisions],
-            ["CUT", "SUBTLE_REFRAME", "CUT"],
-        )
+        self.assertEqual([item["decision"] for item in decisions], ["CUT", "SUBTLE_REFRAME", "CUT"])
         self.assertEqual(len(segments), 3)
 
-    def test_two_beat_short_preserves_independent_payoff_asset(self) -> None:
+    def test_two_beat_standalone_preserves_independent_payoff_asset(self) -> None:
         segments, decisions = plan_editorial_boundaries(
             _events(["تبدأ الفكرة هنا", "وهنا تصل إلى معناها"]),
             "quote_reflection",
         )
         self.assertEqual([item["decision"] for item in decisions], ["CUT"])
         self.assertEqual(len(segments), 2)
+
+    def test_source_derived_sibling_never_spends_new_cut_or_stock_boundary(self) -> None:
+        decisions = plan_source_safe_boundaries(
+            _events([
+                "تظن أن المشكلة في المهمة نفسها",
+                "تفاصيل صغيرة تستهلك انتباهك",
+                "لكن المشكلة في عدد القرارات",
+                "خفف ما تضطر إلى تقريره",
+            ]),
+            "why_reframe",
+        )
+        values = [item["decision"] for item in decisions]
+        self.assertNotIn("CUT", values)
+        self.assertLessEqual(values.count("SUBTLE_REFRAME"), 1)
+        self.assertIn("SUBTLE_REFRAME", values)
+
+    def test_source_derived_sibling_uses_payoff_only_if_no_stronger_turn_exists(self) -> None:
+        decisions = plan_source_safe_boundaries(
+            _events([
+                "أراقب الفكرة بهدوء",
+                "تتضح التفاصيل قليلًا",
+                "أترك المعنى يستقر",
+            ]),
+            "why_reframe",
+        )
+        self.assertEqual([item["decision"] for item in decisions], ["HOLD", "SUBTLE_REFRAME"])
+        self.assertIn("source_safe_payoff_boundary", decisions[-1]["reason"])
+
+    def test_hold_boundaries_remain_one_continuous_visual_treatment_span(self) -> None:
+        events = _events(["أ", "ب", "ج", "د"])
+        decisions = [
+            {"to_beat_id": "b02", "decision": "HOLD"},
+            {"to_beat_id": "b03", "decision": "SUBTLE_REFRAME"},
+            {"to_beat_id": "b04", "decision": "HOLD"},
+        ]
+        spans = _visual_treatment_spans(events, decisions)
+        self.assertEqual([item["treatment"] for item in spans], ["normal", "reframe", "normal"])
+        self.assertEqual(spans[0]["beat_ids"], ["b01", "b02"])
+        self.assertEqual(spans[-1]["beat_ids"], ["b04"])
 
 
 if __name__ == "__main__":
