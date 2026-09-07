@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "verify-engine-candidate.yml"
+CANDIDATE_MANIFEST = ROOT / ".github" / "ENGINE_CANDIDATE_SHA"
 
 
 class EngineCandidateVerifierContractTests(unittest.TestCase):
@@ -44,11 +45,32 @@ class EngineCandidateVerifierContractTests(unittest.TestCase):
         self.assertIn('"certification_ref_published": False', self.text)
         self.assertIn('"production_dispatch_performed": False', self.text)
 
-    def test_pull_request_mode_self_tests_only_against_canonical_pin(self) -> None:
+    def test_pull_request_mode_accepts_exact_branch_scoped_candidate_manifest(self) -> None:
+        self.assertIn('.github/ENGINE_CANDIDATE_SHA', self.text)
+        self.assertIn('source = "runner_pr_candidate_manifest"', self.text)
         self.assertIn('source = "canonical_pr_self_test"', self.text)
         self.assertIn('.github/workflows/produce-resilient-v4.yml', self.text)
         self.assertIn("Canonical V4 Engine pin mismatch", self.text)
         self.assertNotIn("push:\n    branches: [\"main\"]", self.text)
+
+        candidate = CANDIDATE_MANIFEST.read_text(encoding="utf-8").strip()
+        self.assertRegex(candidate, r"^[0-9a-f]{40}$")
+        # Candidate verification is explicitly non-production. The production pin is
+        # intentionally updated only after paired review/green evidence and before an
+        # approved merge, never as a side effect of opening this Draft PR.
+        production = (ROOT / ".github" / "workflows" / "produce-resilient-v4.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn(f"EXPECTED_ENGINE_SHA: {candidate}", production)
+
+    def test_adaptive_cross_repo_paths_trigger_candidate_regression(self) -> None:
+        for path in (
+            '".github/ENGINE_CANDIDATE_SHA"',
+            '"scripts/planning_outline_adaptive_sharding.py"',
+            '"scripts/test_planning_outline_adaptive_sharding.py"',
+            '"scripts/planning_runtime_contract.py"',
+        ):
+            self.assertIn(path, self.text)
 
 
 if __name__ == "__main__":

@@ -11,13 +11,17 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/verify-engine-candidate.yml"
+      - ".github/ENGINE_CANDIDATE_SHA"
       - "scripts/test_engine_candidate_verifier_contract.py"
+      - "scripts/planning_outline_adaptive_sharding.py"
+      - "scripts/test_planning_outline_adaptive_sharding.py"
+      - "scripts/planning_runtime_contract.py"
 
 permissions:
   contents: read
 
 concurrency:
-  group: verify-engine-candidate-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.engine_sha || 'canonical-self-test' }}
+  group: verify-engine-candidate-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.engine_sha || 'pr-candidate-or-canonical-self-test' }}
   cancel-in-progress: false
 
 jobs:
@@ -49,12 +53,21 @@ jobs:
           from pathlib import Path
 
           requested = (os.environ.get("REQUESTED_ENGINE_SHA") or "").strip()
+          candidate_manifest = Path(".github/ENGINE_CANDIDATE_SHA")
           if requested:
               sha = requested
               source = "workflow_dispatch"
+          elif candidate_manifest.is_file() and candidate_manifest.read_text(encoding="utf-8").strip():
+              # Cross-repo architecture PRs bind the Runner branch to one exact Engine
+              # candidate without changing production authority before review. The
+              # manifest is branch-scoped evidence only; produce-resilient-v4 remains
+              # pinned to the currently certified Engine until merge approval.
+              sha = candidate_manifest.read_text(encoding="utf-8").strip()
+              source = "runner_pr_candidate_manifest"
           else:
-              # PR self-test: exercise the permanent verifier against the exact
-              # currently certified production Engine without inventing a candidate.
+              # Ordinary verifier PR self-test: exercise the permanent verifier against
+              # the exact currently certified production Engine without inventing a
+              # candidate.
               text = Path(".github/workflows/produce-resilient-v4.yml").read_text(encoding="utf-8")
               checkout = re.findall(r"^\s+ref:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
               env_pin = re.findall(r"^\s+ISCO_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
