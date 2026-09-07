@@ -13,6 +13,8 @@ runtime_closure.py. Add them here in the correct lifecycle phase instead; doing 
 activates them and automatically enters them into the planning contract hash.
 """
 
+import importlib
+
 from scripts.append_retry_guard import install_append_retry_guard
 from scripts.attempt10_append_bound_recovery import install_attempt10_append_bound_recovery
 from scripts.attempt9_schema_normalizer import install_attempt9_schema_normalizer
@@ -28,7 +30,6 @@ from scripts.planning_batch_hardening import install_planning_batch_hardening
 from scripts.planning_capacity_headroom import install_planning_capacity_headroom
 from scripts.planning_capacity_profile import install_planning_capacity_profile
 from scripts.planning_legacy_authority_guard import install_legacy_planning_authority_guard
-from scripts.planning_outline_adaptive_sharding import install_planning_outline_adaptive_sharding
 from scripts.planning_production_contract_v2 import install_planning_production_contract_v2
 from scripts.planning_provider_visible_semantics import install_planning_provider_visible_semantics
 from scripts.planning_stage_contract import (
@@ -58,6 +59,36 @@ from scripts.task_level_planner_router import install_router
 from scripts.tone_audit_representation_bridge import install_tone_audit_representation_bridge
 
 
+# The production Runner can be reviewed/merged before the newly certified Engine pin is
+# activated. During that transition the currently certified Engine intentionally has no
+# adaptive_outline_contract module. Probe that one exact optional Engine port lazily so
+# importing the canonical runtime never breaks the old production pin. Any unrelated
+# import failure still propagates. Once the candidate Engine is pinned, the adaptive
+# owner is selected automatically in the same process.
+def _install_long_outline_topology_contract() -> None:
+    try:
+        importlib.import_module("isco_video_agent.adaptive_outline_contract")
+    except ModuleNotFoundError as exc:
+        if exc.name != "isco_video_agent.adaptive_outline_contract":
+            raise
+        from scripts.planning_outline_split_contract import (
+            install_planning_outline_split_contract,
+        )
+
+        install_planning_outline_split_contract()
+        print(
+            "Planning outline topology transition: certified Engine has no adaptive "
+            "port; legacy two-call split contract remains authoritative"
+        )
+        return
+
+    from scripts.planning_outline_adaptive_sharding import (
+        install_planning_outline_adaptive_sharding,
+    )
+
+    install_planning_outline_adaptive_sharding()
+
+
 # runtime_closure is intentionally unit-testable in isolation. Such a test must not
 # fabricate an entrypoint contract that production would normally install earlier.
 # Once the canonical entrypoint has bootstrapped the explicit Stage Contract, however,
@@ -67,8 +98,6 @@ _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED = False
 
 
 def _reassert_after_lifecycle_patch() -> None:
-    # Reassert both halves of the contract. json_text may still contain the routed
-    # wrapper while a later installer has replaced only the compatibility schema seam.
     install_planning_contract_router()
     install_planning_stage_boundaries()
     if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
@@ -79,9 +108,6 @@ def install_entrypoint_planning_contracts() -> None:
     """Install the planning stack that precedes runtime_closure in canonical V4."""
     global _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED
 
-    # Keep the provider/router composition order identical to the historical seam.
-    # The explicit Stage Contract then replaces the legacy prompt-inferred json_text
-    # owner before any Planning call can occur.
     install_run123_budget_closure()
     install_schema_guard()
     install_provider_capacity_hardening()
@@ -90,40 +116,23 @@ def install_entrypoint_planning_contracts() -> None:
     install_planning_batch_hardening()
     install_schema_repair_policy()
     install_run120_dossier_repair_hardening()
-    # Moment uses Engine's native one-section schema instead of the long-form resilient
-    # planner. Install its in-place Dossier transport immediately after the long-form
-    # repair owner so both formats share the same explicit repair lifecycle without
-    # prompt inference or full-plan regeneration.
     install_short_planning_repair()
     install_run120_schema_policy_bridge()
     install_planner_quality_guard()
     install_attempt9_schema_normalizer()
     install_append_retry_guard()
-    # These wrappers are deliberately installed after batch/repair/append owners so
-    # stage identity is attached to the final live call boundaries, never prompt text.
     install_planning_stage_boundaries()
     assert_planning_stage_contract_installed()
-    # Standalone Moment does not enter resilient_planner's long-form stage functions.
-    # Bind its Draft/Review/Repair model calls explicitly *after* the canonical router
-    # exists, so it can never retain the historical pre-contract compatibility router.
     install_native_short_stage_contract()
     _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED = True
 
 
 def install_runtime_planning_contracts() -> None:
     """Install the planning/recovery portion historically owned by runtime_closure."""
-    # Workflow bootstrap materializes the immutable brief snapshot in an earlier
-    # process. Rebind those verified bytes inside the live production process before
-    # any runtime planning patch can build durable checkpoint identity.
     if canonical_runtime_enabled():
         install_runtime_snapshot_binding()
 
-    # Run187 family closure: make Film/Story planning word ranges, the post-TTS
-    # pre-visual feasibility gate and final duration QC consume one versioned contract.
-    # This is planning-affecting by design, so it lives inside this canonical seam and
-    # therefore enters durable planning checkpoint identity automatically.
     install_production_feasibility_contract()
-
     install_attempt10_append_bound_recovery()
     install_bounded_output_recovery()
     install_schema_repair_policy()
@@ -132,29 +141,10 @@ def install_runtime_planning_contracts() -> None:
     install_run125_capacity_routing_closure()
     install_dynamic_planning_capacity()
     install_run125_cache_prefix_contract()
-    # Final planning-capacity layer is intentionally after the historical Run125/128
-    # ownership stack. It adds operational headroom, a format-native Moment envelope,
-    # all-path OpenRouter preflight enforcement, and a bounded native-Short terminal
-    # reset owner without replacing the existing long-form shard recovery semantics.
     install_planning_capacity_profile()
     install_planning_capacity_headroom()
-    # Capacity remains the transport owner, but logical standalone-Short lifecycle
-    # ownership belongs to the Engine public port. Install the compatibility adapter
-    # immediately after Capacity has established its bounded build wrapper so the live
-    # wrapper resolves Draft/Review through the Engine contract rather than an ordinal
-    # or Runner-private lifecycle.
     install_short_planning_port_adapter()
-    # Runs #158/#160 reached the compact Moment RepairDossier after Draft/Review, but
-    # that transport sat outside the native-Short reset owner. Reuse the exact same
-    # evidence-backed <=60s wait + one retry for the surgical repair call only; Dossier
-    # max_attempts and all semantic/quality gates remain unchanged.
     install_short_repair_reset_recovery()
-
-    # Certify the historical routing/capacity composition first. No provider call is
-    # made by certification. Then rebind explicit stage wrappers around any function
-    # a runtime installer replaced. In an isolated runtime_closure unit test there is
-    # deliberately no entrypoint bootstrap to assert. In canonical production there
-    # is, so loss of the explicit router remains fail-closed.
     certify_runtime_patch_contracts()
     _reassert_after_lifecycle_patch()
 
@@ -163,44 +153,18 @@ def install_post_runtime_planning_contracts() -> None:
     """Install final plan-level guards, then the producer pre-audit lifecycle owner."""
     install_brand_anchor_guard()
     install_product_proof_fallback()
-    # Plan-level wrappers may replace build/repair surfaces. Reassert the explicit
-    # Planning contract at the final canonical seam. The final seal then removes the
-    # dormant prompt-hash checkpoint loader/writer from runtime authority entirely.
     _reassert_after_lifecycle_patch()
-    # Run168 closure: install only after the final Stage-router reassertion. This owner
-    # does not infer stage identity or route providers; it makes the already-authoritative
-    # finite semantic contract visible to every provider and validates it before cache
-    # authority. Long and Standalone Short therefore share one pillar contract.
     install_planning_provider_visible_semantics()
     if _ENTRYPOINT_STAGE_CONTRACT_BOOTSTRAPPED:
         install_legacy_planning_authority_guard()
-    # Producer Quality Contract still owns writing constraints and deterministic
-    # acceptance. Run #164 adds a lifecycle owner immediately after it so only the
-    # explicitly repairable Short presentation/template defects can use the existing
-    # one-call surgical transport before final Producer revalidation. Safety/factuality
-    # and structural defects remain fail-closed, and an active RepairDossier cannot nest
-    # a second Producer repair.
     install_planning_producer_quality_contract()
     install_producer_planning_lifecycle()
-    # Run191 closure: Engine Tone QA predates standalone Moment and explicitly reasons
-    # about narration. Bind its *input* to the authoritative viewer-facing representation
-    # before the final representation wrapper is installed. The later wrapper therefore
-    # still receives the untouched production plan for deterministic normalization, while
-    # the provider sees a deep-copy audit projection. No Tone verdict is filtered here.
     install_tone_audit_representation_bridge()
-    # Run179 closure: after Producer has final ownership of the plan, bind generic
-    # Engine audits to the representation that is authoritative for the selected
-    # format. Long remains narration-authoritative; standalone Moment is screen-text
-    # authoritative. This adapter does not weaken substantive Tone/Safety gates.
     install_production_text_representation_contract()
-    # F23 is deliberately last. It records the already-authoritative Stage Contract
-    # outputs and Producer lifecycle result, adds deadline/taxonomy ownership, and
-    # certifies exact plan.json lineage immediately before P2/P3 can begin. Keeping it
-    # here avoids introducing a competing provider/router/cache owner.
     install_planning_production_contract_v2()
-    # The pinned Engine still presents the same two-task long-form seam.  This final
-    # adapter augments Core with the compact Global Skeleton and adaptively shards only
-    # a certified failed Sections request; retry/failover remains solely owned by the
-    # explicit Stage Contract router and the global provider-attempt ceiling is
-    # fail-closed.
-    install_planning_outline_adaptive_sharding()
+
+    # The certified old Engine keeps the exact legacy two-call split contract until the
+    # candidate pin is explicitly activated. The candidate exposes the adaptive port and
+    # therefore upgrades this final topology owner to Core+Skeleton -> Sections[all]
+    # with bounded failed-branch sharding. No production pin is changed here.
+    _install_long_outline_topology_contract()
