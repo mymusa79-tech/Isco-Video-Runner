@@ -1003,12 +1003,28 @@ def _provider_failure(
         "rate limit",
         "quota",
     )
+    # Run #210 (Long/film): Groq's own rolling-per-minute-TPM preflight blocked the
+    # request locally (required=7216 limit=8000, an 8% deficit) before any real Groq API
+    # call was made. Unlike the other capacity_markers above - which are permanent for
+    # the exact same request content (a payload/context/token ceiling retrying can never
+    # change) - a TPM *window* block is time-bound: the identical request can succeed
+    # once the rolling window ages forward, which is exactly what the existing
+    # second-pass sweep's cooldown (TRANSIENT_PROVIDER_COOLDOWN_SECONDS, 30s) already
+    # waits out for other providers. Mirrors provider_capacity_hardening.py's own
+    # GROQ_TPM_CAPACITY_PREFLIGHT vs GROQ_ACTUAL_TPM_BELOW_REQUEST distinction - the
+    # latter's own comment there says it "can never heal with time" and is deliberately
+    # excluded here, since only a real TPM ceiling (not a window preflight) is genuinely
+    # permanent.
+    time_window_capacity_markers = ("tpm_capacity_preflight", "tpm_window")
     code = (
         PlanningErrorCode.CAPACITY
         if any(marker in lower for marker in capacity_markers)
         else PlanningErrorCode.PROVIDER_TRANSIENT
     )
     retryable = (
+        code == PlanningErrorCode.CAPACITY
+        and any(marker in lower for marker in time_window_capacity_markers)
+    ) or (
         code == PlanningErrorCode.PROVIDER_TRANSIENT
         and (
             failure.telemetry_result in router._TRANSIENT_RESULTS

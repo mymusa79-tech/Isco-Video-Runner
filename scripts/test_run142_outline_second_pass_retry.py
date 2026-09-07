@@ -142,6 +142,54 @@ class Run142OutlineSecondPassRetryTests(unittest.TestCase):
         self.assertEqual(openrouter_calls, 1)
         self.contract_sleep_mock.assert_any_call(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
 
+    def test_run210_groq_tpm_window_block_now_gets_a_real_second_sweep_chance(self) -> None:
+        # Run #210 (produce-resilient-v4.yml, post the Run #209 Gemini-truncation fix):
+        # Gemini hit a genuine network timeout, Groq's local TPM-window preflight blocked
+        # the identical request (required=7216 limit=8000 - the model's real ceiling was
+        # never exceeded, only the rolling window's current headroom), and OpenRouter's
+        # spend cap was already exhausted. Before this fix, Groq's TPM-window block was
+        # classified identically to a permanently-oversized payload, so the second sweep
+        # never engaged for it and the whole request failed even though a real Groq TPM
+        # window quite plausibly ages forward across the same 30s cooldown the second
+        # sweep already pays for other providers. This reproduces that exact shape and
+        # proves Groq now gets - and can use - a real second chance.
+        valid = _script(["s1"])
+        gemini_calls = 0
+        groq_calls = 0
+        openrouter_calls = 0
+
+        def fake_gemini(*_args, **_kwargs):
+            nonlocal gemini_calls
+            gemini_calls += 1
+            raise RuntimeError(_GEMINI_TIMEOUT)
+
+        def fake_groq(_prompt):
+            nonlocal groq_calls
+            groq_calls += 1
+            if groq_calls == 1:
+                raise RuntimeError(
+                    "GROQ_TPM_CAPACITY_PREFLIGHT model=openai/gpt-oss-120b "
+                    "required=7216 limit=8000"
+                )
+            return valid
+
+        def fake_openrouter(*_args, **_kwargs):
+            nonlocal openrouter_calls
+            openrouter_calls += 1
+            raise RuntimeError(_OPENROUTER_SPEND_BLOCKED)
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini), \
+                patch.object(router, "_groq_call", side_effect=fake_groq), \
+                patch.object(router, "_openrouter_call_with_repair", side_effect=fake_openrouter), \
+                contract.request_stage_scope(self._second_pass_spec()):
+            result = staged.json_text("unused", "prompt")
+
+        self.assertEqual(result, valid)
+        self.assertEqual(gemini_calls, 2)
+        self.assertEqual(groq_calls, 2)
+        self.assertEqual(openrouter_calls, 1)
+        self.contract_sleep_mock.assert_any_call(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
+
     def test_terminal_failure_is_local_and_does_not_veto_other_transient_retry(self) -> None:
         invalid = _script(["s1"])
         del invalid["sections"][0]["key_point"]
