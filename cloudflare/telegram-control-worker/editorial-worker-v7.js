@@ -160,6 +160,66 @@ function usedItems(state, kind = "") {
   return items.sort((a, b) => String(b.used_at || "").localeCompare(String(a.used_at || "")));
 }
 
+function productionCategory(entry, request) {
+  const kind = String((request && request.kind) || (entry && entry.kind) || "");
+  const scope = String((request && request.approval_scope) || (entry && entry.approval_scope) || "");
+  if (kind === "short" || scope === "short_only") return "short";
+  if (kind === "long" && scope === "long_only") return "long";
+  if (kind === "long" && scope === "long_plus_sibling_shorts") return "bundle";
+  return "";
+}
+
+function productionTimestamp(entry) {
+  for (const key of ["completed_at", "qc_pending_at", "failed_at", "consumed_at", "reserved_at", "requested_at"]) {
+    const value = String((entry && entry[key]) || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function productionItems(state, category = "") {
+  const queue = Array.isArray(state && state.production_queue) ? state.production_queue : [];
+  const requests = state && state.requests && typeof state.requests === "object" ? state.requests : {};
+  const seen = new Set();
+  const items = [];
+  for (let index = queue.length - 1; index >= 0; index -= 1) {
+    const entry = queue[index];
+    if (!entry || typeof entry !== "object") continue;
+    const requestId = String(entry.request_id || "").trim();
+    if (!requestId || seen.has(requestId)) continue;
+    const request = requests[requestId];
+    if (!request || typeof request !== "object") continue;
+    const itemCategory = productionCategory(entry, request);
+    if (!itemCategory) continue;
+    seen.add(requestId);
+    if (category && itemCategory !== category) continue;
+    items.push({
+      requestId,
+      entry,
+      request,
+      category: itemCategory,
+      title: String(request.approved_topic || "").trim() || requestId,
+      timestamp: productionTimestamp(entry),
+    });
+  }
+  return items.sort((a, b) => `${b.timestamp}|${b.requestId}`.localeCompare(`${a.timestamp}|${a.requestId}`));
+}
+
+function productionCategoryMeta(category) {
+  if (category === "short") return ["⚡", "شورت مستقل"];
+  if (category === "long") return ["🎬", "فيديو"];
+  return ["🎬➕⚡", "فيديو + Shorts"];
+}
+
+function productionStatus(entry) {
+  const status = String((entry && entry.status) || "");
+  if (status === "completed") return ["✅", "مكتمل"];
+  if (status === "qc_pending") return ["🟠", "ينتظر Gold"];
+  if (["pending_dispatch", "dispatch_reserved", "dispatch_consumed"].includes(status)) return ["🔵", "قيد الإنتاج"];
+  if (status === "failed") return ["❌", "فشل"];
+  return ["⚪", status || "غير معروف"];
+}
+
 function formatLabel(kind) {
   return kind === "long" ? ["🎬", "طويل"] : ["⚡", "شورت"];
 }
@@ -223,6 +283,124 @@ async function showUsedMenu(env, target, state) {
     [{ text: `⚡ شورت (${shortCount})`, callback_data: "cmd:used-short" }],
     [{ text: "↩️ المواضيع", callback_data: "cmd:library_menu" }],
   ]);
+}
+
+async function showProductionMenu(env, target, state) {
+  const shortCount = productionItems(state, "short").length;
+  const longCount = productionItems(state, "long").length;
+  const bundleCount = productionItems(state, "bundle").length;
+  const pending = productionItems(state).filter((item) => item.entry.status === "qc_pending").length;
+  const text = [
+    "🎞️ مكتبة الإنتاجات",
+    "",
+    "اختر نوع الإنتاج أولًا، ثم الفيديو نفسه. كل فيديو يحتفظ بإجراءاته وحالته منفصلة.",
+    "",
+    `⚡ شورت مستقل — ${shortCount}`,
+    `🎬 فيديو — ${longCount}`,
+    `🎬➕⚡ فيديو + Shorts — ${bundleCount}`,
+    pending ? `\n🟠 ينتظر Gold حاليًا: ${pending}` : "",
+    "",
+    "🔐 فتح القوائم لا يبدأ Production ولا يتجاوز Gold.",
+  ].filter(Boolean).join("\n");
+  await updatePanel(env, target, text, [
+    [{ text: `⚡ شورت مستقل (${shortCount})`, callback_data: "cmd:productions-short" }],
+    [{ text: `🎬 فيديو (${longCount})`, callback_data: "cmd:productions-long" }],
+    [{ text: `🎬➕⚡ فيديو + Shorts (${bundleCount})`, callback_data: "cmd:productions-bundle" }],
+    [{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }],
+  ]);
+}
+
+async function showProductionPage(env, target, state, category, requestedPage) {
+  const [icon, label] = productionCategoryMeta(category);
+  const items = productionItems(state, category);
+  if (!items.length) {
+    await updatePanel(env, target, `🎞️ ${label}\n\nلا توجد إنتاجات في هذه القائمة حتى الآن.`, [
+      [{ text: "↩️ مكتبة الإنتاجات", callback_data: "cmd:productions" }],
+      [{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }],
+    ]);
+    return;
+  }
+  const pages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const page = pageNumber(requestedPage, pages);
+  const current = items.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+  const rows = [];
+  const lines = [
+    `🎞️ ${icon} ${label}`,
+    "",
+    `${items.length} إنتاجًا — صفحة ${page + 1}/${pages}.`,
+    "اضغط على الفيديو لعرض حالته وإجراءاته.",
+    "",
+  ];
+  current.forEach((item) => {
+    const [statusIcon, statusLabel] = productionStatus(item.entry);
+    const shortTitle = item.title.length <= 36 ? item.title : `${item.title.slice(0, 33).trim()}…`;
+    lines.push(`${statusIcon} ${item.title}`);
+    rows.push([{
+      text: `${statusIcon} ${shortTitle}`,
+      callback_data: `cmd:production-item-${item.requestId}`,
+    }]);
+    if (statusLabel === "ينتظر Gold") lines.push("   تابع Gold متاح داخل الفيديو فقط.");
+  });
+  const nav = [];
+  if (page > 0) nav.push({ text: "⬅️ أحدث", callback_data: `cmd:productions-${category}-page-${page - 1}` });
+  if (page + 1 < pages) nav.push({ text: "أقدم ➡️", callback_data: `cmd:productions-${category}-page-${page + 1}` });
+  if (nav.length) rows.push(nav);
+  rows.push([{ text: "↩️ مكتبة الإنتاجات", callback_data: "cmd:productions" }]);
+  await updatePanel(env, target, lines.join("\n"), rows);
+}
+
+async function showProductionItem(env, target, state, requestId) {
+  const item = productionItems(state).find((candidate) => candidate.requestId === requestId);
+  if (!item) {
+    await updatePanel(env, target, "⚠️ لم يعد هذا الإنتاج موجودًا في السجل الحالي.", [
+      [{ text: "↩️ مكتبة الإنتاجات", callback_data: "cmd:productions" }],
+    ]);
+    return;
+  }
+  const [icon, label] = productionCategoryMeta(item.category);
+  const [statusIcon, statusLabel] = productionStatus(item.entry);
+  const date = String(item.timestamp || "").slice(0, 10);
+  const lines = [
+    `${icon} ${item.title}`,
+    "",
+    `النوع: ${label}`,
+    `الحالة: ${statusIcon} ${statusLabel}`,
+    `المعرّف: ${item.requestId}`,
+  ];
+  if (date) lines.push(`التاريخ: ${date}`);
+  if (item.entry.status === "qc_pending") {
+    const pending = item.entry.qc_pending || {};
+    lines.push(
+      "",
+      "Final Master موجود ومثبت، لكن Gold لم يُقبل بعد بسبب سعة مزود الرؤية.",
+      "«تابع Gold» يعيد Gold فقط على نفس البايتات؛ لا تخطيط، لا بحث بصري، لا TTS، ولا رندر جديد.",
+    );
+    if (pending.source_run_id) lines.push(`Source Run: ${String(pending.source_run_id)}`);
+  } else if (item.entry.status === "failed") {
+    lines.push("", "هذا فشل عادي وليس QC_PENDING؛ لذلك لا يظهر خيار «تابع Gold».");
+  } else if (item.entry.status === "completed") {
+    lines.push("", "Gold والحزمة النهائية مكتملان.");
+  }
+
+  const rows = [];
+  if (item.entry.status === "qc_pending") {
+    rows.push([{ text: "▶️ تابع Gold", callback_data: `cmd:goldresume-${item.requestId}` }]);
+    const runId = String((item.entry.qc_pending || {}).source_run_id || "");
+    if (/^[1-9][0-9]*$/.test(runId)) {
+      const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
+      rows.push([{ text: "📋 Source Run", url: `https://github.com/${repo}/actions/runs/${runId}` }]);
+    }
+  }
+  if (item.entry.status === "completed") {
+    const tag = String(item.entry.completed_release_tag || item.entry.release_tag || "").trim();
+    if (tag) {
+      const repo = String(env.GITHUB_REPO || DEFAULT_REPO).trim();
+      rows.push([{ text: "📦 فتح الحزمة", url: `https://github.com/${repo}/releases/tag/${encodeURIComponent(tag)}` }]);
+    }
+  }
+  rows.push([{ text: `↩️ ${label}`, callback_data: `cmd:productions-${item.category}` }]);
+  rows.push([{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }]);
+  await updatePanel(env, target, lines.join("\n"), rows);
 }
 
 async function showSavedPage(env, target, state, kind, requestedPage) {
@@ -300,10 +478,15 @@ function libraryRoute(data) {
   if (value === "cmd:search_menu") return { kind: "scope_search", format: "", page: 0 };
   if (value === "cmd:saved") return { kind: "saved_menu", format: "", page: 0 };
   if (value === "cmd:used") return { kind: "used_menu", format: "", page: 0 };
+  if (value === "cmd:productions" || value === "cmd:last_delivery") return { kind: "production_menu", format: "", page: 0 };
   let match = /^cmd:saved-(long|short)(?:-page-(\d+))?$/.exec(value);
   if (match) return { kind: "saved_page", format: match[1], page: Number(match[2] || 0) };
   match = /^cmd:used-(long|short)(?:-page-(\d+))?$/.exec(value);
   if (match) return { kind: "used_page", format: match[1], page: Number(match[2] || 0) };
+  match = /^cmd:productions-(short|long|bundle)(?:-page-(\d+))?$/.exec(value);
+  if (match) return { kind: "production_page", format: match[1], page: Number(match[2] || 0) };
+  match = /^cmd:production-item-([A-Za-z0-9_-]{1,40})$/.exec(value);
+  if (match) return { kind: "production_item", requestId: match[1], format: "", page: 0 };
   return null;
 }
 
@@ -312,6 +495,9 @@ async function handleLibraryRoute(env, target, route) {
   const state = await controlState(env);
   if (route.kind === "saved_menu") return showSavedMenu(env, target, state);
   if (route.kind === "used_menu") return showUsedMenu(env, target, state);
+  if (route.kind === "production_menu") return showProductionMenu(env, target, state);
+  if (route.kind === "production_page") return showProductionPage(env, target, state, route.format, route.page);
+  if (route.kind === "production_item") return showProductionItem(env, target, state, route.requestId);
   if (route.kind === "saved_page") return showSavedPage(env, target, state, route.format, route.page);
   return showUsedPage(env, target, state, route.format, route.page);
 }
@@ -338,13 +524,18 @@ export default {
     if (!route) return priorWorker.fetch(request, env, ctx);
 
     ctx.waitUntil((async () => {
-      await ack(env, target.callbackId, route.kind === "scope_search" ? "🔎 اختر نطاق البحث…" : "⚡ أفتح القائمة مباشرة…");
+      const ackText = route.kind === "scope_search"
+        ? "🔎 اختر نطاق البحث…"
+        : route.kind.startsWith("production_")
+          ? "🎞️ أفتح الإنتاجات…"
+          : "⚡ أفتح القائمة مباشرة…";
+      await ack(env, target.callbackId, ackText);
       try {
         await handleLibraryRoute(env, target, route);
       } catch (error) {
         console.error("Telegram Edge library/search read failed", String((error && error.message) || error || "unknown"));
         await updatePanel(env, target, "⚠️ تعذر فتح هذه القراءة الآن. لم يتغير أي اختيار أو Production Run.", [
-          [{ text: "↩️ المواضيع", callback_data: "cmd:library_menu" }],
+          [{ text: "🎞️ الإنتاجات", callback_data: "cmd:productions" }],
           [{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }],
         ]);
       }
