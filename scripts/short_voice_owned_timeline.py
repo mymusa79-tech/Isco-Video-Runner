@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -14,12 +15,21 @@ from isco_video_agent.tts_budget import TtsBudget, TtsCircuit
 
 from scripts import short_editorial_craft_contract as craft
 from scripts import short_voice_v2
-from scripts.short_cinematic_director import apply_short_sfx, upgrade_short_cinematic
+from scripts.short_cinematic_director import apply_short_sfx
+from scripts.short_human_editorial_montage import (
+    render_source_safe_sibling_picture,
+    upgrade_short_cinematic,
+)
 from scripts.short_voice_v2 import (
     _final_duration,
     _has_audio,
     _record_voice_rights,
     decide_voice_mode,
+)
+from scripts.source_derived_visual_capsule import (
+    inherit_parent_visual_evidence,
+    materialize_inherited_parent_visual,
+    validate_parent_visual_capsule,
 )
 from scripts.voice_mesh import consume_voice_provenance
 from scripts.voice_owned_timeline import (
@@ -30,9 +40,8 @@ from scripts.voice_owned_timeline import (
 )
 
 
-# Keep the historical task identity so Voice Mesh/TTS cache/observability continuity
-# is preserved while the timeline ownership contract changes underneath it.
 VOICE_TASK_ID = "SHORT_VOICE_V2"
+PARENT_VISUAL_ROOT_ENV = "ISCO_SOURCE_PARENT_OUTPUT_DIR"
 
 _PERFORMANCE_STYLE_BY_TEMPLATE = {
     "why_reframe": (
@@ -61,12 +70,7 @@ def _clean(value: object) -> str:
 
 
 def _performance_script(events: list[dict[str, Any]], mode: str, template: str) -> str:
-    """Preserve approved words while giving Gemini sentence/beat breathing cues.
-
-    This is punctuation-only performance shaping: no beat is rewritten, summarized or
-    invented. Voice-led templates speak every approved beat; hybrid templates speak the
-    hook and payoff while the intermediate beats remain visual/on-screen information.
-    """
+    """Preserve approved words while giving Gemini sentence/beat breathing cues."""
     texts = [_clean(item.get("text")) for item in events if isinstance(item, dict) and _clean(item.get("text"))]
     if len(texts) < 2:
         raise RuntimeError("Voice-Owned Timeline requires at least two semantic beats")
@@ -74,7 +78,6 @@ def _performance_script(events: list[dict[str, Any]], mode: str, template: str) 
         texts = [texts[0], texts[-1]]
     elif mode != "voice_led":
         raise RuntimeError("Voice-Owned Timeline received unsupported voice mode")
-
     cleaned = [text.rstrip(" .،!?؟…") for text in texts]
     if template in {"inner_dialogue", "quote_reflection"}:
         separator = "… "
@@ -102,11 +105,9 @@ def _stage_visual_duration(source: Path, output: Path, target_seconds: float) ->
     target_seconds = float(target_seconds)
     if target_seconds <= 0:
         raise RuntimeError("Voice-Owned Timeline target duration is invalid")
-
     if abs(target_seconds - source_seconds) <= 0.03:
         shutil.copy2(source, output)
         return output
-
     if target_seconds < source_seconds:
         command = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
@@ -120,8 +121,7 @@ def _stage_visual_duration(source: Path, output: Path, target_seconds: float) ->
         extra = target_seconds - source_seconds
         if _has_audio(source):
             command = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                "-i", str(source),
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(source),
                 "-filter_complex",
                 f"[0:v:0]tpad=stop_mode=clone:stop_duration={extra:.3f},fps=30,setsar=1,format=yuv420p[v];"
                 f"[0:a:0]apad=pad_dur={extra:.3f}[a]",
@@ -132,11 +132,9 @@ def _stage_visual_duration(source: Path, output: Path, target_seconds: float) ->
             ]
         else:
             command = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                "-i", str(source),
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(source),
                 "-vf", f"tpad=stop_mode=clone:stop_duration={extra:.3f},fps=30,setsar=1,format=yuv420p",
-                "-t", f"{target_seconds:.3f}", "-an",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                "-t", f"{target_seconds:.3f}", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
                 "-movflags", "+faststart", str(output),
             ]
     subprocess.run(command, check=True, capture_output=True)
@@ -161,8 +159,8 @@ def _mix_natural_voice(visual: Path, voice_path: Path, output: Path, target_seco
             "[0:a:0]volume=0.24[bed];[1:a:0]volume=1.0[voice];"
             "[bed][voice]amix=inputs=2:duration=first:dropout_transition=0,"
             "loudnorm=I=-16:TP=-1.5:LRA=11[aout]",
-            "-map", "0:v:0", "-map", "[aout]",
-            "-c:v", "copy", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k",
+            "-map", "0:v:0", "-map", "[aout]", "-c:v", "copy",
+            "-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k",
             "-t", f"{target_seconds:.3f}", "-movflags", "+faststart", str(output),
         ]
     else:
@@ -181,7 +179,6 @@ def _mix_natural_voice(visual: Path, voice_path: Path, output: Path, target_seco
 
 
 def _write_provisional_timeline_quality(root: Path, target_seconds: float) -> None:
-    """Expose target duration to the cinematic director; authoritative measurement happens later."""
     path = root / "quality-final.json"
     quality = _read_quality(root)
     minimum = float(quality.get("duration_expected_min") or 7.0)
@@ -212,6 +209,21 @@ def _performance_style(template: str, control_request: dict[str, Any], mode: str
     return f"{base} Delivery mode: {mode}.{inherited} Natural timing is authoritative; do not rush to hit a duration."
 
 
+def _source_parent_visual_context(control_request: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    root_text = str(os.environ.get(PARENT_VISUAL_ROOT_ENV) or "").strip()
+    if not root_text:
+        raise RuntimeError("SOURCE_DERIVED_PARENT_VISUAL_ROOT_MISSING")
+    parent_root = Path(root_text).resolve()
+    capsule = control_request.get("source_visual_capsule")
+    if not isinstance(capsule, dict):
+        raise RuntimeError("SOURCE_DERIVED_PARENT_VISUAL_CAPSULE_MISSING")
+    certified = validate_parent_visual_capsule(parent_root, capsule)
+    excerpt = control_request.get("source_episode_excerpt") if isinstance(control_request.get("source_episode_excerpt"), dict) else {}
+    if _clean(certified.get("source_section_id")) != _clean(excerpt.get("source_section_id")):
+        raise RuntimeError("SOURCE_DERIVED_PARENT_VISUAL_SECTION_MISMATCH")
+    return parent_root, certified
+
+
 def apply_voice_owned_short(
     output_dir: Path,
     control_request: dict[str, Any],
@@ -235,7 +247,14 @@ def apply_voice_owned_short(
     final_path = root / "final.mp4"
     if not final_path.is_file():
         raise RuntimeError("Voice-Owned Timeline requires final.mp4")
-    source_seconds = _final_duration(final_path)
+    child_event_seconds = _final_duration(final_path)
+    parent_root: Path | None = None
+    parent_capsule: dict[str, Any] | None = None
+    source_visual_seconds = child_event_seconds
+    if scope == "short_sibling":
+        parent_root, parent_capsule = _source_parent_visual_context(control_request)
+        source_visual_seconds = float(parent_capsule["source_duration_seconds"])
+
     quality_before = _read_quality(root)
     minimum = float(quality_before.get("duration_expected_min") or 7.0)
     maximum = float(quality_before.get("duration_expected_max") or 25.0)
@@ -264,7 +283,7 @@ def apply_voice_owned_short(
     try:
         timeline = build_voice_owned_timeline(
             voice_seconds=measured_voice_seconds,
-            source_visual_seconds=source_seconds,
+            source_visual_seconds=source_visual_seconds,
             minimum_seconds=minimum,
             maximum_seconds=maximum,
             mode=mode,
@@ -278,7 +297,7 @@ def apply_voice_owned_short(
     hook_beat_max = craft.template_hook_beat_max_seconds(template)
     retimed_events = retime_events(
         events,
-        source_seconds=source_seconds,
+        source_seconds=child_event_seconds,
         target_seconds=target_seconds,
         first_event_max_seconds=hook_beat_max,
     )
@@ -291,39 +310,60 @@ def apply_voice_owned_short(
             "hook_visual_beat_capped_after_voice": hook_beat_actual <= hook_beat_max + 0.001,
         }
     )
-    staged = root / "voice-owned-visual-stage.mp4"
-    _stage_visual_duration(final_path, staged, target_seconds)
-    voiced = root / "final-voice-owned-v1.mp4"
-    _mix_natural_voice(staged, voice_path, voiced, target_seconds)
-    shutil.move(str(voiced), str(final_path))
-    staged.unlink(missing_ok=True)
 
     updated = dict(pre_gold)
     updated["timed_text_events"] = retimed_events
     _write_provisional_timeline_quality(root, target_seconds)
 
-    # Standalone Shorts can use audited additional B-roll to express the measured
-    # natural performance. Source-derived Shorts never add unrelated stock here: if
-    # their inherited visual budget is materially too short, the contract fails closed
-    # and asks for source-safe reprovisioning instead of compressing the voice.
+    inherited_report: dict[str, Any] | None = None
+    sibling_montage: dict[str, Any] | None = None
+    if scope == "short_sibling":
+        assert parent_root is not None and parent_capsule is not None
+        inherited_picture, inherited_report = materialize_inherited_parent_visual(
+            parent_root,
+            parent_capsule,
+            root,
+            target_seconds=target_seconds,
+        )
+        voice_visual, sibling_montage = render_source_safe_sibling_picture(
+            root,
+            inherited_picture,
+            retimed_events,
+            template,
+        )
+        evidence = inherit_parent_visual_evidence(parent_root, parent_capsule, root, inherited_report)
+        updated["source_derived_parent_visual"] = {**inherited_report, "evidence": evidence}
+        updated["source_safe_human_montage"] = sibling_montage
+        timeline.update(
+            {
+                "source_parent_video_inherited": True,
+                "source_parent_visual_capsule_sha256": parent_capsule["capsule_sha256"],
+                "source_parent_section_id": parent_capsule["source_section_id"],
+                "visual_query_used_as_final_visual_authority": False,
+            }
+        )
+    else:
+        staged = root / "voice-owned-visual-stage.mp4"
+        _stage_visual_duration(final_path, staged, target_seconds)
+        voice_visual = staged
+
+    voiced = root / "final-voice-owned-v1.mp4"
+    _mix_natural_voice(voice_visual, voice_path, voiced, target_seconds)
+    shutil.move(str(voiced), str(final_path))
+    if scope == "short_only":
+        (root / "voice-owned-visual-stage.mp4").unlink(missing_ok=True)
+
+    # Standalone Shorts can introduce additional independently audited B-roll. A sibling
+    # may never do that here: its exact parent-video capsule is already the visual owner.
     if control_request.get("kind") == "short" and scope == "short_only":
         updated = upgrade_short_cinematic(root, control_request, updated, ledger=ledger)
     updated = apply_short_sfx(root, updated)
 
-    # F20 / Run219 recurrence closure: late-bind the module-owned refresh after every
-    # final Short media mutation. Production installs the Audio Producer wrapper at
-    # runtime; importing this callable by value before installation can retain the
-    # historical function and skip the exact-byte short_finished certificate.
+    # F20 / Run219 recurrence closure: late-bind after every final Short media mutation.
     quality = short_voice_v2._refresh_quality_final(root, final_path)
     provider = str(provenance.get("provider") or "unknown")
     fallback_used = provenance.get("fallback_used")
-    _record_voice_rights(
-        root,
-        provider=provider,
-        fallback_used=fallback_used,
-        model=model,
-        voice=voice,
-    )
+    _record_voice_rights(root, provider=provider, fallback_used=fallback_used, model=model, voice=voice)
 
     compensation = dict(updated.get("compensation") or {})
     compensation.update(
@@ -352,8 +392,19 @@ def apply_voice_owned_short(
             "extra_text_ai_calls": 0,
             "quality_final_refreshed_after_voice": True,
             "quality_final_refreshed_after_short_finishing": True,
+            "source_parent_video_inherited": scope == "short_sibling",
+            "source_visual_query_is_final_authority": False if scope == "short_sibling" else None,
         }
     )
+    if inherited_report is not None:
+        compensation.update(
+            {
+                "source_parent_visual_capsule_sha256": inherited_report["capsule_sha256"],
+                "source_parent_shots_used": inherited_report["used_parent_shot_count"],
+                "source_parent_new_stock_assets": 0,
+                "source_parent_extra_vision_ai_calls": 0,
+            }
+        )
     updated["compensation"] = compensation
     updated["voice"] = {
         "contract_id": CONTRACT_ID,
@@ -371,11 +422,8 @@ def apply_voice_owned_short(
         "generated_before_authoritative_final_master_qc": True,
         "quality_final_stage": quality.get("quality_measurement_stage"),
         "rights_provenance_recorded": True,
+        "actual_parent_video_inherited": scope == "short_sibling",
     }
-    (root / "voice-owned-timeline.json").write_text(
-        json.dumps(timeline, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    (root / "short-intelligence-pre-gold.json").write_text(
-        json.dumps(updated, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    (root / "voice-owned-timeline.json").write_text(json.dumps(timeline, ensure_ascii=False, indent=2), encoding="utf-8")
+    (root / "short-intelligence-pre-gold.json").write_text(json.dumps(updated, ensure_ascii=False, indent=2), encoding="utf-8")
     return updated
