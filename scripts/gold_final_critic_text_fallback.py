@@ -309,6 +309,35 @@ def _ensure_final_critic_provider_budget() -> None:
 
 
 @contextmanager
+def _final_critic_provider_budget_scope() -> Iterator[None]:
+    """Temporarily expose the Run222 release reserve without leaking global budget state."""
+    formats = tuple(run123.RUN123_PROVIDER_ATTEMPT_HARD_CAP)
+    hard_cap_before = {
+        fmt: (fmt in ai_budget.PROVIDER_ATTEMPT_HARD_CAP, ai_budget.PROVIDER_ATTEMPT_HARD_CAP.get(fmt))
+        for fmt in formats
+    }
+    reserve_before = {
+        fmt: (fmt in ai_budget.P1_AND_P0_RESERVED_BUFFER, ai_budget.P1_AND_P0_RESERVED_BUFFER.get(fmt))
+        for fmt in formats
+    }
+    _ensure_final_critic_provider_budget()
+    try:
+        yield
+    finally:
+        for fmt in formats:
+            hard_existed, hard_value = hard_cap_before[fmt]
+            if hard_existed:
+                ai_budget.PROVIDER_ATTEMPT_HARD_CAP[fmt] = hard_value
+            else:
+                ai_budget.PROVIDER_ATTEMPT_HARD_CAP.pop(fmt, None)
+            reserve_existed, reserve_value = reserve_before[fmt]
+            if reserve_existed:
+                ai_budget.P1_AND_P0_RESERVED_BUFFER[fmt] = reserve_value
+            else:
+                ai_budget.P1_AND_P0_RESERVED_BUFFER.pop(fmt, None)
+
+
+@contextmanager
 def gold_final_critic_text_fallback() -> Iterator[None]:
     """Bind enforced Gold Final Critic to the shared provider meshes.
 
@@ -317,7 +346,6 @@ def gold_final_critic_text_fallback() -> Iterator[None]:
     existing Gemini->Groq->OpenRouter Vision mesh, with one bounded provider-directed
     Gemini Retry-After retry. Semantic BLOCK remains final on both modalities.
     """
-    _ensure_final_critic_provider_budget()
     original_call_status = production_pipeline._ledger_call_status
 
     def routed_call_status(ledger, spec, provider, resolved_model, fn, *args, **kwargs):
@@ -346,8 +374,9 @@ def gold_final_critic_text_fallback() -> Iterator[None]:
             **kwargs,
         )
 
-    production_pipeline._ledger_call_status = routed_call_status
-    try:
-        yield
-    finally:
-        production_pipeline._ledger_call_status = original_call_status
+    with _final_critic_provider_budget_scope():
+        production_pipeline._ledger_call_status = routed_call_status
+        try:
+            yield
+        finally:
+            production_pipeline._ledger_call_status = original_call_status
