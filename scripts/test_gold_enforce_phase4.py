@@ -21,7 +21,17 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
             "decision": "pass",
         }
 
-    def test_success_enforces_one_gold_critic_and_packaging_seal_before_state_acceptance(self) -> None:
+    @staticmethod
+    def _fake_viewer_report() -> dict:
+        return {
+            "contract_id": "viewer-quality.v1",
+            "verdict": "pass",
+            "viewer_score_10": 9.0,
+            "minimum_viewer_score_10": 8.5,
+            "release_profile": "film",
+        }
+
+    def test_success_enforces_critic_viewer_packaging_then_state_acceptance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "output"
             root.mkdir()
@@ -32,6 +42,7 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
             critic_kwargs: list[dict] = []
             fake_plan = type("Plan", (), {"format": "film"})()
             acceptance = self._fake_acceptance()
+            viewer_report = self._fake_viewer_report()
 
             def fake_critic(**kwargs):
                 order.append("critic")
@@ -41,6 +52,13 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
                     "hard_blocks": [],
                     "model_review": {"status": "pass", "summary": "ok"},
                 }
+
+            def fake_viewer(output_dir: Path, **_kwargs):
+                order.append("viewer")
+                (Path(output_dir) / "viewer-quality-contract.json").write_text(
+                    json.dumps(viewer_report), encoding="utf-8"
+                )
+                return viewer_report
 
             def fake_seal(output_dir: Path, **_kwargs):
                 order.append("seal")
@@ -59,6 +77,8 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
                 phase4, "build_budgeted_thumbnail_package", return_value={"status": "ready", "candidates": []}
             ), patch.object(phase4, "_augment_rights"), patch.object(
                 phase4, "_run_final_critic", side_effect=fake_critic
+            ), patch.object(
+                phase4, "enforce_viewer_quality_contract", side_effect=fake_viewer
             ), patch.object(phase4, "seal_gold_packaging_acceptance", side_effect=fake_seal), patch.object(
                 phase4, "gold_packaging_acceptance_sha256", return_value="a" * 64
             ), patch.object(
@@ -73,7 +93,7 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
                     ledger=BudgetLedger("film", enforce=True),
                 )
 
-            self.assertEqual(order, ["critic", "seal", "accept"])
+            self.assertEqual(order, ["critic", "viewer", "seal", "accept"])
             self.assertEqual(len(critic_kwargs), 1)
             self.assertEqual(critic_kwargs[0]["release_mode"], "enforce")
             self.assertEqual(critic_kwargs[0]["task_prefix"], "GOLD_")
@@ -86,6 +106,9 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
             self.assertTrue(report["gold"]["accepted"])
             self.assertFalse(report["same_render"]["artifact_divergence"])
             self.assertEqual(report["release_authority"], "gold")
+            self.assertEqual(report["viewer_quality"]["verdict"], "pass")
+            self.assertTrue(report["viewer_quality"]["evaluated_before_packaging_and_state_acceptance"])
+            self.assertTrue(report["packaging_acceptance"]["sealed_after_viewer_quality"])
             self.assertTrue(report["packaging_acceptance"]["sealed_before_state_acceptance"])
             self.assertEqual(report["packaging_acceptance"]["certificate_sha256"], "a" * 64)
             self.assertEqual(report["packaging_acceptance"]["embedded_certificate"], acceptance)
@@ -95,14 +118,25 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
             root = Path(tmp) / "output"
             root.mkdir()
             (root / "final.mp4").write_bytes(b"immutable-render")
+            fake_plan = type("Plan", (), {"format": "film"})()
+            viewer_report = self._fake_viewer_report()
+
+            def fake_viewer(output_dir: Path, **_kwargs):
+                (Path(output_dir) / "viewer-quality-contract.json").write_text(
+                    json.dumps(viewer_report), encoding="utf-8"
+                )
+                return viewer_report
+
             with patch.object(phase4, "_output_key", return_value="output/test/final.mp4"), patch.object(
-                phase4, "_plan_from_json", return_value=object()
+                phase4, "_plan_from_json", return_value=fake_plan
             ), patch.object(
                 phase4, "build_budgeted_thumbnail_package", return_value={"status": "ready", "candidates": []}
             ), patch.object(phase4, "_augment_rights"), patch.object(
                 phase4,
                 "_run_final_critic",
                 return_value={"status": "pass", "hard_blocks": [], "model_review": {"summary": "ok"}},
+            ), patch.object(
+                phase4, "enforce_viewer_quality_contract", side_effect=fake_viewer
             ), patch.object(
                 phase4, "seal_gold_packaging_acceptance", side_effect=RuntimeError("seal blocked")
             ), patch.object(phase4, "mark_production_accepted") as mark, patch.object(
@@ -200,7 +234,7 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
             ), patch.object(phase4, "mark_production_accepted") as mark, patch.object(
                 phase4, "remove_production_record"
             ) as remove, patch.object(phase4, "_sync_state_snapshot") as sync:
-                with self.assertRaisesRegex(RuntimeError, "final.mp4 mutation before state acceptance"):
+                with self.assertRaisesRegex(RuntimeError, "final.mp4 mutation before Viewer Quality"):
                     phase4.run_gold_enforce_phase4(
                         output_dir=root,
                         gemini="g",
@@ -226,6 +260,7 @@ class Phase4RunnerContracts(unittest.TestCase):
         ]
         self.assertEqual(order, sorted(order))
         self.assertIn('"release_authority": "gold_enforced"', inspect.getsource(runner._write_production_manifest))
+        self.assertNotIn("enforce_viewer_quality_contract(", source)
 
 
 if __name__ == "__main__":
