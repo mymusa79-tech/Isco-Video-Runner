@@ -19,6 +19,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.head_ref }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           persist-credentials: true
           fetch-depth: 1
       - name: Replace the three canonical production Engine pins
