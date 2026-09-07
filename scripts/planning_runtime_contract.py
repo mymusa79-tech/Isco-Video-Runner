@@ -55,6 +55,7 @@ from scripts.schema_repair_policy import install_schema_repair_policy
 from scripts.short_planning_port_adapter import install_short_planning_port_adapter
 from scripts.short_planning_repair import install_short_planning_repair
 from scripts.short_repair_reset_recovery import install_short_repair_reset_recovery
+from scripts.structural_editorial_contract import install_structural_editorial_contract
 from scripts.task_level_planner_router import install_router
 from scripts.tone_audit_representation_bridge import install_tone_audit_representation_bridge
 
@@ -119,6 +120,7 @@ def install_entrypoint_planning_contracts() -> None:
     install_short_planning_repair()
     install_run120_schema_policy_bridge()
     install_planner_quality_guard()
+    install_structural_editorial_contract()
     install_attempt9_schema_normalizer()
     install_append_retry_guard()
     install_planning_stage_boundaries()
