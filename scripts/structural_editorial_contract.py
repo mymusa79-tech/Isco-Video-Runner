@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 """Promote Engine structural editorial flags into the existing bounded Script Doctor.
 
 Run #109 showed that ``editorial_room.structural_ai_flags`` could correctly identify
-formulaic narration while remaining advisory.  The historical repair branch solved that
-with a second, Runner-owned provider loop.  The current planner already owns a single
+formulaic narration while remaining advisory. The historical repair branch solved that
+with a second, Runner-owned provider loop. The current planner already owns a single
 consolidated Script Doctor, so creating another provider/retry owner would regress the
 architecture.
 
@@ -16,6 +14,8 @@ This contract therefore does only two things:
 
 No provider call, retry loop, schema, threshold, or detector is implemented here.
 """
+
+from __future__ import annotations
 
 from functools import wraps
 
