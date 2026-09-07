@@ -6,18 +6,47 @@ from typing import Any
 
 from scripts import short_cinematic_director as base
 from scripts.short_human_editorial_montage import (
-    MAX_SOURCE_SAFE_REFRAMES,
     PROFILE,
     _apply_reframes,
+    _visual_treatment_spans,
     plan_editorial_boundaries,
 )
 
 
-SOURCE_VISUAL_PROFILE = "source_derived_parent_visual_montage_v1"
+SOURCE_VISUAL_PROFILE = "source_derived_parent_visual_montage_v2"
+MAX_SOURCE_DERIVED_REFRAMES = 2
+SOURCE_DERIVED_SECOND_REFRAME_MIN_SECONDS = 12.0
+SOURCE_DERIVED_SECOND_REFRAME_MIN_BEATS = 4
 
 
 def _clean(value: object) -> str:
     return " ".join(str(value or "").strip().split())
+
+
+def _source_duration(events: list[dict[str, Any]]) -> float:
+    if not events:
+        return 0.0
+    try:
+        start = float(events[0].get("start") or 0.0)
+        end = float(events[-1].get("end") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, end - start)
+
+
+def _source_reframe_budget(events: list[dict[str, Any]]) -> int:
+    """Return a bounded local-only reframe budget for a source-derived Short.
+
+    A second local treatment is justified only when the derivative has enough semantic
+    structure and screen time for it to read as an editorial beat rather than decorative
+    motion. This never authorizes another stock search or Vision/Text provider call.
+    """
+    if (
+        len(events) >= SOURCE_DERIVED_SECOND_REFRAME_MIN_BEATS
+        and _source_duration(events) >= SOURCE_DERIVED_SECOND_REFRAME_MIN_SECONDS
+    ):
+        return MAX_SOURCE_DERIVED_REFRAMES
+    return 1
 
 
 def _source_inherited_decisions(
@@ -27,12 +56,14 @@ def _source_inherited_decisions(
 ) -> list[dict[str, Any]]:
     """Keep human semantic cuts only when another certified parent asset exists.
 
-    A desired CUT never triggers a new stock search. When the parent section has only one
-    usable visual, the strongest unserved turn may become one local reframe; every other
-    boundary becomes a HOLD. This makes the derivative video-led without inventing B-roll.
+    A desired CUT never triggers a new stock search. When the parent section has too few
+    usable visuals for the Short's semantic turns, the strongest unserved turns become
+    bounded local reframes. A long four-beat derivative may use at most two local
+    reframes; shorter derivatives stay at one. Every other boundary remains a HOLD.
     """
     _segments, desired = plan_editorial_boundaries(events, template)
     available_cuts = max(0, min(base.MAX_SHORT_SHOTS, int(asset_count)) - 1)
+    reframe_budget = _source_reframe_budget(events)
     used_cuts = 0
     used_reframes = 0
     result: list[dict[str, Any]] = []
@@ -43,7 +74,7 @@ def _source_inherited_decisions(
             used_cuts += 1
             final_decision = "CUT"
             final_reason = f"parent_asset_{reason}"
-        elif decision in {"CUT", "SUBTLE_REFRAME"} and used_reframes < MAX_SOURCE_SAFE_REFRAMES:
+        elif decision in {"CUT", "SUBTLE_REFRAME"} and used_reframes < reframe_budget:
             used_reframes += 1
             final_decision = "SUBTLE_REFRAME"
             final_reason = f"parent_asset_local_{reason}"
@@ -256,8 +287,13 @@ def render_parent_inherited_picture(
         used_count=len(segments),
         boundary_decisions=decisions,
     )
+    spans = _visual_treatment_spans(events, decisions)
+    max_treatment_span = max(
+        (float(item["end"]) - float(item["start"]) for item in spans),
+        default=0.0,
+    )
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": PROFILE,
         "source_visual_profile": SOURCE_VISUAL_PROFILE,
         "scope": "short_sibling",
@@ -267,6 +303,10 @@ def render_parent_inherited_picture(
         "source_section_id": inheritance.get("source_section_id"),
         "semantic_beat_count": len(events),
         "visual_segment_count": len(segments),
+        "visual_treatment_span_count": len(spans),
+        "max_visual_treatment_span_seconds": round(max_treatment_span, 3),
+        "source_safe_reframe_budget": _source_reframe_budget(events),
+        "independent_short_beat_mapping": True,
         "parent_asset_count_available": len(assets),
         "parent_asset_count_used": len(segments),
         "boundary_decisions": decisions,

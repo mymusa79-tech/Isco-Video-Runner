@@ -35,9 +35,12 @@ from scripts.opening_feasibility_guard import (
 )
 
 
-PROFILE = "short_cinematic_director_v1"
+PROFILE = "short_cinematic_director_v2"
 MAX_SHORT_SHOTS = 4
 MIN_SHORT_SHOTS = 2
+SHORT_VISUAL_DENSITY_3_SHOT_MIN_SECONDS = 12.0
+SHORT_VISUAL_DENSITY_4_SHOT_MIN_SECONDS = 18.0
+SHORT_MAX_SHOT_HOLD_SECONDS = 8.5
 # One cloud Vision verdict on the primary retrieval and at most one on the deterministic
 # alternate retrieval. This keeps a four-beat Short to <=6 *additional* Vision calls in
 # the absolute worst case (three added beats x two reviews), while local preflight may
@@ -86,6 +89,14 @@ _SHORT_SFX_BY_TEMPLATE = {
     "micro_story": "air_whoosh_02",
 }
 
+_GENERIC_VISUAL_QUERY_TERMS = frozenset(
+    {
+        "person", "people", "man", "woman", "walking", "standing", "sitting",
+        "cinematic", "realistic", "portrait", "vertical", "video", "scene", "shot",
+        "background", "aesthetic", "human", "closeup", "close", "detail", "movement",
+    }
+)
+
 
 class ShortCinematicError(RuntimeError):
     pass
@@ -116,13 +127,51 @@ def _event_duration(event: dict[str, Any]) -> float:
     return end - start
 
 
+def _minimum_shots_for_duration(duration_seconds: float) -> int:
+    try:
+        seconds = float(duration_seconds)
+    except (TypeError, ValueError) as exc:
+        raise ShortCinematicError("Short visual density contract received invalid duration") from exc
+    if seconds <= 0:
+        raise ShortCinematicError("Short visual density contract received non-positive duration")
+    if seconds >= SHORT_VISUAL_DENSITY_4_SHOT_MIN_SECONDS:
+        return 4
+    if seconds >= SHORT_VISUAL_DENSITY_3_SHOT_MIN_SECONDS:
+        return 3
+    return 2
+
+
 def required_shot_count(events: list[dict[str, Any]], duration_seconds: float) -> int:
-    """One semantic beat per shot, bounded to a professional 2-4 shot Short."""
-    del duration_seconds
+    """Require enough semantic shots for the actual Short duration, capped at four.
+
+    This does not raise the provider ceiling. It rejects an under-authored long Short
+    before any additional stock/Vision work can begin instead of stretching two visuals
+    across a 15-25 second master.
+    """
     count = len(events)
+    minimum = _minimum_shots_for_duration(duration_seconds)
     if count < MIN_SHORT_SHOTS:
         raise ShortCinematicError("Short cinematic director requires at least two semantic beats")
+    if count < minimum:
+        raise ShortCinematicError(
+            "short_visual_density_contract: "
+            f"{duration_seconds:.3f}s requires at least {minimum} semantic shots, got {count}"
+        )
     return min(MAX_SHORT_SHOTS, count)
+
+
+def _validate_base_visual_query(base_query: str) -> str:
+    base = _clean(base_query, 200)
+    if not base:
+        raise ShortCinematicError("Short cinematic director requires an English visual query")
+    normalized = "".join(char.lower() if char.isalnum() else " " for char in base)
+    terms = [term for term in normalized.split() if len(term) >= 3]
+    specific = [term for term in terms if term not in _GENERIC_VISUAL_QUERY_TERMS]
+    if len(terms) < 4 or len(specific) < 2:
+        raise ShortCinematicError(
+            "short_visual_query_specificity_contract: approved visual query is too generic"
+        )
+    return base
 
 
 def beat_queries(base_query: str, template: str, index: int) -> tuple[str, str]:
@@ -131,9 +180,7 @@ def beat_queries(base_query: str, template: str, index: int) -> tuple[str, str]:
     modifiers = _TEMPLATE_QUERY_MODIFIERS[template]
     alternates = _TEMPLATE_ALT_MODIFIERS[template]
     slot = min(max(0, int(index)), len(modifiers) - 1)
-    base = _clean(base_query, 200)
-    if not base:
-        raise ShortCinematicError("Short cinematic director requires an English visual query")
+    base = _validate_base_visual_query(base_query)
     return (
         _clean(f"{base} {modifiers[slot]} portrait vertical realistic cinematic", 260),
         _clean(f"{base} {alternates[slot]} portrait vertical realistic cinematic", 260),
@@ -300,9 +347,7 @@ def upgrade_short_cinematic(
     plan = _read_json(root / "plan.json", dict)
     sections = plan.get("sections") if isinstance(plan.get("sections"), list) else []
     first_section = sections[0] if sections and isinstance(sections[0], dict) else {}
-    base_query = _clean(first_section.get("visual_query"), 260)
-    if not base_query:
-        raise ShortCinematicError("Short cinematic director requires the approved visual query")
+    base_query = _validate_base_visual_query(first_section.get("visual_query"))
 
     picture = root / "picture.mp4"
     final_path = root / "final.mp4"
@@ -524,6 +569,12 @@ def upgrade_short_cinematic(
         raise ShortCinematicError(
             f"Short cinematic timeline duration drift: expected={expected:.3f} actual={actual:.3f}"
         )
+    max_shot_hold = max((_event_duration(item) for item in events), default=0.0)
+    if max_shot_hold > SHORT_MAX_SHOT_HOLD_SECONDS + 0.01:
+        raise ShortCinematicError(
+            "short_visual_density_contract: "
+            f"final shot hold {max_shot_hold:.3f}s exceeds {SHORT_MAX_SHOT_HOLD_SECONDS:.3f}s"
+        )
 
     progressive_picture = work / "picture-short-cinematic-text-v1.mp4"
     render_progressive_text(
@@ -537,7 +588,7 @@ def upgrade_short_cinematic(
     shutil.move(str(cinematic_final), str(final_path))
 
     timeline = {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": PROFILE,
         "status": "applied",
         "template": template,
@@ -550,6 +601,14 @@ def upgrade_short_cinematic(
         "multi_asset_broll_generated": len(timeline_shots) >= 2,
         "beat_to_shot_binding": "one_semantic_beat_per_distinct_audited_asset",
         "transition_policy": "hard_cut_default_for_short_retention",
+        "visual_density_contract": {
+            "duration_3_shot_min_seconds": SHORT_VISUAL_DENSITY_3_SHOT_MIN_SECONDS,
+            "duration_4_shot_min_seconds": SHORT_VISUAL_DENSITY_4_SHOT_MIN_SECONDS,
+            "max_shot_hold_seconds": SHORT_MAX_SHOT_HOLD_SECONDS,
+            "actual_max_shot_hold_seconds": round(max_shot_hold, 3),
+            "duration_required_shot_count": _minimum_shots_for_duration(expected),
+            "visual_query_specificity_required": True,
+        },
         "recent_visual_history_exclusion": True,
         "max_vision_reviews_per_additional_beat": MAX_VISION_REVIEWS_PER_BEAT,
         "short_visual_quality_floor_contract": SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
@@ -579,6 +638,7 @@ def upgrade_short_cinematic(
         "short_visual_quality_floor_contract": SHORT_VISUAL_QUALITY_FLOOR_CONTRACT,
         "short_visual_relevance_minimum": SHORT_VISUAL_RELEVANCE_MINIMUM,
         "short_visual_quality_minimum": SHORT_VISUAL_QUALITY_MINIMUM,
+        "visual_density_contract": dict(timeline["visual_density_contract"]),
         "transition_policy": timeline["transition_policy"],
     }
     _append_rights(root, credits, new_credits, rights_metadata)
@@ -594,6 +654,7 @@ def upgrade_short_cinematic(
             "beat_driven_visual_reframe_applied": False,
             "beat_driven_multi_shot_applied": True,
             "short_visual_timeline": "short-visual-timeline.json",
+            "short_visual_density_contract": dict(timeline["visual_density_contract"]),
             "additional_visual_ai_calls_bounded": True,
             "max_vision_reviews_per_additional_beat": MAX_VISION_REVIEWS_PER_BEAT,
             "vision_reviews_per_retrieval_attempt": MAX_VISION_REVIEWS_PER_ATTEMPT,
