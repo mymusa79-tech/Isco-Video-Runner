@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 VALID_LONG_SCOPES = frozenset({"bundle", "long"})
@@ -133,14 +133,27 @@ def _install_handler(panel, creator_v5) -> None:
 
     def handle(kind, client, state, releases, chat_id):
         if kind in _SCOPE_COMMANDS:
-            before = pending_long_ids(state)
-            base_handler("topic", client, state, releases, chat_id)
-            bind_scope_to_new_long_request(
-                state,
-                requested_scope=_SCOPE_COMMANDS[kind],
-                before_ids=before,
-            )
-            return
+            requested_scope = _SCOPE_COMMANDS[kind]
+            base_queue = panel._queue_research
+
+            def queue_with_scope(queue_state, queue_kind, queue_chat_id):
+                before = pending_long_ids(queue_state)
+                queued = base_queue(queue_state, queue_kind, queue_chat_id)
+                if queued and queue_kind == "long":
+                    bind_scope_to_new_long_request(
+                        queue_state,
+                        requested_scope=requested_scope,
+                        before_ids=before,
+                    )
+                return queued
+
+            # Bind the scope at the exact queue mutation, before any Telegram
+            # notification can fail. A pre-existing pending request is untouched.
+            panel._queue_research = queue_with_scope
+            try:
+                return base_handler("topic", client, state, releases, chat_id)
+            finally:
+                panel._queue_research = base_queue
         if isinstance(kind, str) and kind.startswith("choices-"):
             session_id = kind.removeprefix("choices-").strip()
             session = panel._session(state, session_id)
@@ -211,6 +224,7 @@ def _install_research(panel, research_core) -> None:
             return
 
         base_keyboard = research_core._candidate_keyboard
+        base_save_state = panel.save_state
 
         def candidate_keyboard(session_id: str, kind: str, count: int):
             rows = base_keyboard(session_id, kind, count)
@@ -218,19 +232,23 @@ def _install_research(panel, research_core) -> None:
                 return _rewrite_refresh_rows(rows, requested_scope=scope)
             return rows
 
+        def save_state_with_scope(path: Path, state: dict[str, Any]) -> None:
+            active_id = str(state.get("active_research_session_id") or "").strip()
+            sessions = state.get("sessions")
+            session = sessions.get(active_id) if active_id and isinstance(sessions, dict) else None
+            if isinstance(session, dict) and session.get("kind") == "long":
+                session["requested_scope"] = scope
+            base_save_state(path, state)
+
+        # Persist requested_scope in the same write that makes the successful
+        # research session visible, before its actionable Telegram card is sent.
         research_core._candidate_keyboard = candidate_keyboard
+        panel.save_state = save_state_with_scope
         try:
             base_research(state_path)
         finally:
             research_core._candidate_keyboard = base_keyboard
-
-        after = panel.load_state(state_path)
-        active_id = str(after.get("active_research_session_id") or "").strip()
-        sessions = after.get("sessions")
-        session = sessions.get(active_id) if active_id and isinstance(sessions, dict) else None
-        if isinstance(session, dict) and session.get("kind") == "long":
-            session["requested_scope"] = scope
-            panel.save_state(state_path, after)
+            panel.save_state = base_save_state
 
     panel.research = research
 
