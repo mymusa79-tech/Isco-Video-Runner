@@ -14,6 +14,7 @@ from scripts.analytics_observer_status import observe_post_acceptance_analytics
 from scripts.orchestration_qc_port import run_final_master_qc
 from scripts.director_phase_a_resilience import install_director_phase_a_resilience
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
+from scripts.gold_vision_capacity_reserve_v1 import install_gold_vision_capacity_reserve_v1
 from scripts.opening_feasibility_guard import install_opening_feasibility_guard
 from scripts.orchestration_cinematic_port import (
     CinematicInstallPhase,
@@ -30,9 +31,11 @@ from scripts.production_failure_diagnostics import (
     write_production_failure_diagnostics,
 )
 from scripts.production_model_contract import install_production_model_contract
+from scripts.qc_pending_checkpoint_v1 import capture_qc_pending_checkpoint
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
 from scripts.task_level_planner_router import get_used_providers, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
+from scripts.viewer_quality_contract_v1 import enforce_viewer_quality_contract
 
 # Production-proof trigger only: no runtime behavior change.
 # Run36 trigger only: no runtime behavior change.
@@ -121,6 +124,23 @@ def _attach_voice_audit_to_telemetry(telemetry_path: Path, output_dir: Path) -> 
         print(f"Voice Identity Observer telemetry attachment skipped ({type(exc).__name__})")
 
 
+def _attach_viewer_quality_to_telemetry(telemetry_path: Path, output_dir: Path) -> None:
+    """Persist the deterministic 8.5+ release envelope in existing durable telemetry."""
+    path = output_dir / "viewer-quality-contract.json"
+    if not path.is_file() or not telemetry_path.is_file():
+        return
+    try:
+        telemetry = json.loads(telemetry_path.read_text(encoding="utf-8"))
+        report = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(telemetry, dict) or not isinstance(report, dict):
+            return
+        telemetry["viewer_quality_contract"] = report
+        telemetry_path.write_text(json.dumps(telemetry, ensure_ascii=False, indent=2), encoding="utf-8")
+        print("Viewer Quality Contract evidence attached to planning telemetry")
+    except Exception as exc:
+        print(f"Viewer Quality Contract telemetry attachment skipped ({type(exc).__name__})")
+
+
 def _production_id() -> str:
     run_id = (os.environ.get("GITHUB_RUN_ID") or "local").strip()
     attempt = (os.environ.get("GITHUB_RUN_ATTEMPT") or "1").strip()
@@ -156,6 +176,20 @@ def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> di
     if not release_tag and run_number:
         release_tag = f"video-{run_number}"
     verified = bool(video_id and binding_source)
+    viewer_quality = None
+    viewer_path = out / "viewer-quality-contract.json"
+    if viewer_path.is_file():
+        try:
+            candidate = json.loads(viewer_path.read_text(encoding="utf-8"))
+            if isinstance(candidate, dict):
+                viewer_quality = {
+                    "contract_id": candidate.get("contract_id"),
+                    "verdict": candidate.get("verdict"),
+                    "viewer_score_10": candidate.get("viewer_score_10"),
+                    "minimum_viewer_score_10": candidate.get("minimum_viewer_score_10"),
+                }
+        except Exception:
+            viewer_quality = None
     manifest = {
         "schema_version": 1,
         "production_id": production_id,
@@ -167,7 +201,8 @@ def _write_production_manifest(out: Path, *, production_id: str, fmt: str) -> di
         "release_tag": release_tag or None,
         "format": fmt,
         "final_sha256": _sha256_file(final_path),
-        "release_authority": "gold_enforced",
+        "release_authority": "gold_enforced+viewer_quality_v1",
+        "viewer_quality": viewer_quality,
         "youtube_video_id": video_id or None,
         "publication_binding": "verified" if verified else "unbound",
         "binding_source": binding_source or None,
@@ -214,6 +249,11 @@ def _attach_observer_evidence_to_telemetry(
         master_qc = json.loads(master_qc_path.read_text(encoding="utf-8"))
         if isinstance(master_qc, dict):
             data["final_master_qc"] = master_qc
+    viewer_path = output_dir / "viewer-quality-contract.json"
+    if viewer_path.exists():
+        viewer_quality = json.loads(viewer_path.read_text(encoding="utf-8"))
+        if isinstance(viewer_quality, dict):
+            data["viewer_quality_contract"] = viewer_quality
     telemetry_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -228,6 +268,10 @@ def main() -> None:
     # instead of accidentally depending on unrelated production code in this file.
     install_entrypoint_planning_contracts()
     install_runtime_closure()
+    # Compose the release-priority Vision rule only after the canonical V1 transport and
+    # provider-health owners are installed. It patches their existing seams, not network
+    # transport globally, and is shared by film/moment/story plus sibling Short re-entry.
+    install_gold_vision_capacity_reserve_v1()
     install_post_runtime_planning_contracts()
 
     # L7.1 stable port owns only the TTS installation topology. L7.3 now does the same
@@ -291,6 +335,7 @@ def main() -> None:
             ledger.write(out_dir / "ai-budget.json")
             telemetry_path = write_planning_telemetry(out_dir)
             _attach_voice_audit_to_telemetry(telemetry_path, out_dir)
+            _attach_viewer_quality_to_telemetry(telemetry_path, out_dir)
         raise
     finally:
         if previous_defer is None:
@@ -315,9 +360,34 @@ def main() -> None:
         # same-ledger evidence and Voice Observer diagnostics first. No manifest,
         # analytics, release, or accepted publication evidence is written on failure.
         _write_failure_diagnostics_safely(out, exc)
+        try:
+            capture_qc_pending_checkpoint(out, exc)
+        except Exception as checkpoint_exc:
+            print(
+                "QC_PENDING capture skipped without masking Gold failure "
+                f"({type(checkpoint_exc).__name__}: {str(checkpoint_exc)[:180]})"
+            )
         ledger.write(out / "ai-budget.json")
         telemetry_path = write_planning_telemetry(out)
         _attach_voice_audit_to_telemetry(telemetry_path, out)
+        _attach_viewer_quality_to_telemetry(telemetry_path, out)
+        raise
+
+    try:
+        # Stronger release margin over already-enforced evidence. No additional model
+        # call is permitted here; film, standalone Short and sibling Short share it.
+        enforce_viewer_quality_contract(
+            out,
+            fmt=plan.format,
+            critic=critic,
+            gold_enforce=gold_enforce,
+        )
+    except Exception as exc:
+        _write_failure_diagnostics_safely(out, exc)
+        ledger.write(out / "ai-budget.json")
+        telemetry_path = write_planning_telemetry(out)
+        _attach_voice_audit_to_telemetry(telemetry_path, out)
+        _attach_viewer_quality_to_telemetry(telemetry_path, out)
         raise
 
     run_post_gold_observers(out)
