@@ -1,0 +1,103 @@
+name: Verify Human Editorial Intent M7
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  combined-regression:
+    name: Human Editorial Intent M7 Focused Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ENGINE_SHA: ece86a6aefe87901c8771a7cb2cec1a08523e704
+    steps:
+      - name: Checkout Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Checkout exact private Engine candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine checkout
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install media dependencies
+        run: |
+          set -euo pipefail
+          APT_OPTS=(
+            -o Acquire::Retries=3
+            -o Acquire::http::Timeout=30
+            -o Acquire::https::Timeout=30
+            -o DPkg::Lock::Timeout=60
+          )
+          sudo timeout --signal=TERM --kill-after=15s 180s apt-get "${APT_OPTS[@]}" update
+          sudo timeout --signal=TERM --kill-after=15s 240s apt-get "${APT_OPTS[@]}" install -y ffmpeg fonts-noto-core
+
+      - name: Install locked Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      # Generic dependency audit, Full Engine and Full Runner ownership lives only
+      # in verify-private-engine.yml (Canonical Full Regression). This workflow
+      # owns only M7-specific evidence.
+      - name: Focused Human Editorial Intent and current-main compatibility tests
+        working-directory: engine
+        env:
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m7-focused-engine-history.json
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_human_editorial_intent -v
+          python -m unittest tests.test_editorial_room_director_m7_binding_current_main -v
+
+      - name: Certify Engine source after focused M7 Engine tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_focused_engine")'
+
+      - name: Focused Runner HEI plus existing M7 and Security contracts
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          ISCO_HISTORY_PATH: ${{ runner.temp }}/m7-focused-runner-history.json
+        run: |
+          set -euo pipefail
+          python -m unittest scripts.test_human_editorial_intent_binding -v
+          python -m unittest scripts.test_m7_live_binding -v
+
+      - name: Certify Engine source after focused M7 Runner tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -c 'from scripts.engine_source_hermeticity import certify_engine_source_hermeticity; certify_engine_source_hermeticity("m7_after_focused_runner")'
+
+      - name: Diff and verifier sanity
+        run: |
+          set -euo pipefail
+          git diff --check origin/main...HEAD
+          test -f .github/workflows/verify-human-editorial-intent-m7.yml
+          test -f scripts/m7_live_binding.py
+          test -f scripts/test_human_editorial_intent_binding.py
+          grep -F 'install_security_v1_live_binding()' scripts/m7_live_binding.py >/dev/null
+          grep -F 'with live_m7_binding_scope(' scripts/m7_live_binding.py >/dev/null
+          grep -F 'with _human_editorial_intent_scope():' scripts/m7_live_binding.py >/dev/null
