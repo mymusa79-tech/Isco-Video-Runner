@@ -447,6 +447,68 @@ def mark_dispatch_qc_pending(
     raise RuntimeError("Exact Telegram dispatch authorization was not found for QC_PENDING transition")
 
 
+def mark_qc_pending_completed_after_gold(
+    state: dict[str, Any],
+    request_id: str,
+    request_sha256: str,
+    *,
+    source_run_id: str,
+    final_sha256: str,
+    gold_authorization_id: str,
+    release_tag: str,
+) -> dict[str, Any]:
+    """Resolve one exact QC_PENDING production only after an authorized Gold resume."""
+    source_run_id = _positive_run_id(source_run_id, label="Gold completion source run id")
+    final_sha256 = _sha256(final_sha256, label="Gold completion final hash")
+    gold_authorization_id = str(gold_authorization_id or "").strip().lower()
+    if len(gold_authorization_id) != 32 or any(ch not in "0123456789abcdef" for ch in gold_authorization_id):
+        raise RuntimeError("Gold completion requires an exact 32-hex authorization id")
+    release_tag = str(release_tag or "").strip()
+    if not release_tag:
+        raise RuntimeError("Gold completion requires a release tag")
+
+    matches = [
+        item for item in _queue(state)
+        if isinstance(item, dict)
+        and item.get("request_id") == request_id
+        and item.get("request_sha256") == request_sha256
+    ]
+    if not matches:
+        raise RuntimeError("QC_PENDING production was not found for Gold completion")
+    item = matches[-1]
+    expected_resolution = {
+        "status": "gold_accepted",
+        "source_run_id": source_run_id,
+        "final_sha256": final_sha256,
+        "gold_authorization_id": gold_authorization_id,
+        "release_tag": release_tag,
+    }
+    if item.get("status") == "completed":
+        existing = item.get("qc_pending_resolution")
+        if existing != expected_resolution:
+            raise RuntimeError("Completed QC_PENDING production Gold resolution identity changed")
+        return item
+    if item.get("status") != "qc_pending":
+        raise RuntimeError("Only QC_PENDING production can complete through Gold resume")
+    pending = item.get("qc_pending")
+    if not isinstance(pending, dict):
+        raise RuntimeError("QC_PENDING production provenance is missing")
+    if str(pending.get("source_run_id") or "") != source_run_id:
+        raise RuntimeError("Gold completion source run does not match QC_PENDING production")
+    if str(pending.get("final_sha256") or "").strip().lower() != final_sha256:
+        raise RuntimeError("Gold completion final hash does not match QC_PENDING production")
+
+    completed_at = _now()
+    item["status"] = "completed"
+    item["completed_at"] = completed_at
+    item["completed_release_tag"] = release_tag
+    item["completed_via_gold_resume"] = True
+    item["qc_pending_resolution"] = expected_resolution
+    item.pop("failure_reason", None)
+    state["last_event_at"] = completed_at
+    return item
+
+
 def mark_dispatch_failed(
     state: dict[str, Any],
     request_id: str,
