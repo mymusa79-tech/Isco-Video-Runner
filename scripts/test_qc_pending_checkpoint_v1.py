@@ -7,15 +7,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from scripts import vision_stage_contract_v2 as vision_contract
 from scripts.qc_pending_checkpoint_v1 import (
     CONTRACT_ID,
     capture_qc_pending_checkpoint,
     verify_qc_pending_checkpoint,
 )
-
-
-class VisionProviderMeshUnavailableError(RuntimeError):
-    pass
 
 
 def _sha(path: Path) -> str:
@@ -51,21 +48,34 @@ class QCPendingCheckpointV1Tests(unittest.TestCase):
             }
         }
 
+    def _mesh_error(self) -> BaseException:
+        return vision_contract.legacy.VisionProviderMeshUnavailableError("mesh exhausted")
+
     def test_mesh_exhaustion_captures_fail_closed_exact_sha(self) -> None:
         root = self._root()
         with patch(
             "scripts.qc_pending_checkpoint_v1.require_final_master_acceptance",
             return_value=self._acceptance(root),
         ):
-            report = capture_qc_pending_checkpoint(root, VisionProviderMeshUnavailableError("mesh"))
+            report = capture_qc_pending_checkpoint(root, self._mesh_error())
         self.assertIsNotNone(report)
         self.assertEqual(report["contract_id"], CONTRACT_ID)
         self.assertFalse(report["release_allowed"])
+        self.assertEqual(report["failure_taxonomy"], "VisionProviderMeshUnavailableError")
         self.assertEqual(report["final"]["sha256"], _sha(root / "final.mp4"))
         diagnostics = json.loads(
             (root / "production-failure-diagnostics.json").read_text(encoding="utf-8")
         )
         self.assertEqual(diagnostics["qc_pending_checkpoint"]["contract_id"], CONTRACT_ID)
+
+    def test_similarly_worded_runtime_error_never_creates_pending_marker(self) -> None:
+        root = self._root()
+        report = capture_qc_pending_checkpoint(
+            root,
+            RuntimeError("Gold vision provider mesh unavailable due to capacity"),
+        )
+        self.assertIsNone(report)
+        self.assertFalse((root / "qc-pending.json").exists())
 
     def test_unrelated_failure_never_creates_pending_marker(self) -> None:
         root = self._root()
@@ -80,7 +90,7 @@ class QCPendingCheckpointV1Tests(unittest.TestCase):
             "scripts.qc_pending_checkpoint_v1.require_final_master_acceptance",
             return_value=acceptance,
         ):
-            capture_qc_pending_checkpoint(root, VisionProviderMeshUnavailableError("mesh"))
+            capture_qc_pending_checkpoint(root, self._mesh_error())
         (root / "final.mp4").write_bytes(b"mutated")
         with patch(
             "scripts.qc_pending_checkpoint_v1.require_final_master_acceptance",
