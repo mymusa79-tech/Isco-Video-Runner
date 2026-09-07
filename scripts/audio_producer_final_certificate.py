@@ -8,6 +8,10 @@ from typing import Any
 
 from scripts.audio_producer_repair_lifecycle import REPORT_FILENAME, SCHEMA_VERSION
 from scripts.audio_production_contract_v2 import require_audio_production_contract_v2
+from scripts.audio_retention_qc import (
+    REPORT_FILENAME as RETENTION_REPORT_FILENAME,
+    require_audio_retention_qc,
+)
 
 
 class AudioProducerCertificateError(RuntimeError):
@@ -86,8 +90,46 @@ def require_audio_producer_certificate(output_dir: Path) -> dict[str, Any]:
     return receipt
 
 
+def _require_retention_for_certified_state(output_dir: Path, receipt: dict[str, Any]) -> dict[str, Any]:
+    """Keep the pre-finishing silent Moment state legal without weakening finished media.
+
+    A core Moment may legitimately have no audio before Short Voice-Owned Timeline runs.
+    The Producer certificate and semantic audio contract already model that state as
+    not_applicable. Retention QC therefore records the same exact-byte state instead of
+    trying to decode a stream that is intentionally absent. Finished Shorts and all
+    long-form media still execute the full retention detector.
+    """
+    root = Path(output_dir)
+    if str(receipt.get("decision") or "").strip() != "not_applicable":
+        return require_audio_retention_qc(root)
+
+    final_path = root / "final.mp4"
+    report = {
+        "schema_version": 1,
+        "contract": "audio.retention.qc.v1",
+        "status": "not_applicable",
+        "production_stage": "exact_byte_audio_preflight_before_semantic_audit",
+        "format": "moment",
+        "scope": "unfinished_silent_moment",
+        "final": {"file": final_path.name, "sha256": _sha256_file(final_path)},
+        "reason": "moment_has_no_finished_short_voice_contract_yet",
+        "blocking_findings": [],
+        "warnings": [],
+        "policy": {
+            "objective_dropouts_and_sustained_clipping": "fail_closed_when_audio_exists",
+            "media_mutation": "forbidden",
+            "repair_attempts_added": 0,
+            "ai_calls_added": 0,
+        },
+    }
+    (root / RETENTION_REPORT_FILENAME).write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return report
+
+
 def install_audio_producer_final_certificate(production_modules: list[Any]) -> None:
-    """Place exact-byte Producer evidence and Audio Production V2 outside final gates."""
+    """Place exact-byte Producer, retention and semantic evidence outside final gates."""
     installed = 0
     already_installed = 0
     for production in production_modules:
@@ -101,11 +143,13 @@ def install_audio_producer_final_certificate(production_modules: list[Any]) -> N
         def make_wrapper(original):
             @wraps(original)
             def wrapped(output_dir: Path, *args, **kwargs):
-                # Order is deliberate: first prove the bounded producer repair receipt
-                # belongs to the exact current bytes, then verify spoken semantic fidelity
-                # on those same bytes, then hand them unchanged to the existing independent
-                # Audio Semantic Integrity / Final Master QC chain.
-                require_audio_producer_certificate(Path(output_dir))
+                # Order is deliberate. First prove the bounded producer repair receipt
+                # belongs to the exact current bytes. Then run the zero-AI retention
+                # preflight so obvious dropouts/clipping fail before provider-backed
+                # semantic transcription. Finally verify spoken semantic fidelity and
+                # hand the same bytes unchanged to the independent Final Master QC.
+                receipt = require_audio_producer_certificate(Path(output_dir))
+                _require_retention_for_certified_state(Path(output_dir), receipt)
                 require_audio_production_contract_v2(Path(output_dir))
                 return original(output_dir, *args, **kwargs)
 
