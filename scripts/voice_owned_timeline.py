@@ -92,13 +92,61 @@ def build_voice_owned_timeline(
     }
 
 
+def _cap_first_event_window(
+    retimed: list[dict[str, Any]],
+    *,
+    target_seconds: float,
+    maximum_seconds: float,
+) -> list[dict[str, Any]]:
+    """Cap only the opening visual beat and redistribute its freed time downstream.
+
+    This never changes narration speed, beat text, beat order, or total duration. It fixes
+    the Run219 failure mode where proportional scaling expanded a 20% opening beat from
+    ~2.8s to ~4.2s merely because natural voice lengthened the overall Short.
+    """
+    if len(retimed) < 2:
+        return retimed
+    cap = max(0.5, min(float(maximum_seconds), target_seconds - 0.10))
+    old_boundary = float(retimed[0]["end"])
+    if old_boundary <= cap + 1e-6:
+        return retimed
+
+    old_remaining = max(0.0, target_seconds - old_boundary)
+    new_remaining = target_seconds - cap
+    mapped = [dict(item) for item in retimed]
+    mapped[0]["end"] = round(cap, 3)
+    previous_end = cap
+
+    for index in range(1, len(mapped)):
+        old_start = float(retimed[index]["start"])
+        old_end = float(retimed[index]["end"])
+        if old_remaining > 0.05:
+            ratio = new_remaining / old_remaining
+            start = cap + max(0.0, old_start - old_boundary) * ratio
+            end = cap + max(0.0, old_end - old_boundary) * ratio
+        else:
+            remaining_events = len(mapped) - 1
+            slot = new_remaining / max(1, remaining_events)
+            start = cap + slot * (index - 1)
+            end = cap + slot * index
+        start = max(previous_end, min(start, target_seconds))
+        end = min(target_seconds, max(start + 0.05, end))
+        if index == len(mapped) - 1:
+            end = target_seconds
+        mapped[index]["start"] = round(start, 3)
+        mapped[index]["end"] = round(end, 3)
+        previous_end = end
+    return mapped
+
+
 def retime_events(
     events: list[dict[str, Any]],
     *,
     source_seconds: float,
     target_seconds: float,
+    first_event_max_seconds: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Scale approved semantic windows to the measured final timeline without reordering."""
+    """Scale approved semantic windows without reordering; optionally cap opening beat."""
     source_seconds = _positive_float(source_seconds, 0.0)
     target_seconds = _positive_float(target_seconds, 0.0)
     if source_seconds <= 0 or target_seconds <= 0:
@@ -126,6 +174,16 @@ def retime_events(
         item["end"] = round(end, 3)
         retimed.append(item)
         previous_end = end
+
+    if first_event_max_seconds is not None:
+        cap = _positive_float(first_event_max_seconds, 0.0)
+        if cap <= 0:
+            raise VoiceOwnedTimelineError("VOICE_TIMELINE_HOOK_WINDOW_INVALID")
+        retimed = _cap_first_event_window(
+            retimed,
+            target_seconds=target_seconds,
+            maximum_seconds=cap,
+        )
     return retimed
 
 

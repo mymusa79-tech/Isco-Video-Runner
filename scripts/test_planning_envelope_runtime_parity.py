@@ -15,7 +15,7 @@ class PlanningEnvelopeRuntimeParityTests(unittest.TestCase):
             "approved_research_pack": [{"claim": "approved"}],
             "content_boundaries": ["stay within approved evidence"],
         }
-        expected_revision = producer.merge_producer_revision_note("", research)
+        expected_revision = producer.merge_producer_revision_note("", research, "film")
         seen: dict[str, str] = {}
 
         def core_builder(**kwargs):

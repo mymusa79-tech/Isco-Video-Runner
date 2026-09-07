@@ -2,7 +2,7 @@
   "schema_version": 2,
   "historical_window": {
     "first_run": 51,
-    "last_run": 215,
+    "last_run": 217,
     "known_good_baseline": {
       "release_tag": "video-50",
       "runner_commit": "a98bc309d52159d65ef6ac65e516beaab344a32e",
@@ -66,7 +66,8 @@
     {"id":"C28","runs":"203","required_phases":["P0"],"purpose":"Long format ingress, immutable approved-brief normalization and active-state migration recertification"},
     {"id":"C29","runs":"204-209","required_phases":["P1"],"purpose":"Long split-outline structured-output, Engine domain evolution, provider-specific output headroom and bounded Groq TPM-window recovery recertification"},
     {"id":"C30","runs":"210","required_phases":["P1"],"purpose":"Producer-enriched planning envelope parity and provider-specific bounded transient retry recertification"},
-    {"id":"C31","runs":"211-215","required_phases":["P3"],"purpose":"semantic visual recovery fusion, bounded candidate-utilization, active-beat precision, canonical intent/search separation, weighted recovery-rank fusion and attempt-scoped Vision feedback recertification"}
+    {"id":"C31","runs":"211-215","required_phases":["P3"],"purpose":"semantic visual recovery fusion, bounded candidate-utilization, active-beat precision, canonical intent/search separation, weighted recovery-rank fusion and attempt-scoped Vision feedback recertification"},
+    {"id":"C32","runs":"216-217","required_phases":["P1"],"purpose":"Text Audit availability continuity and Short Producer repair acceptance-guidance recertification"}
   ],
   "incident_ledger": {
     "enforcement_from": 184,
@@ -102,7 +103,9 @@
       {"run":212,"format":"short","failure_phase":"P3","failure_signature":"short_visual_candidate_utilization_query_compaction_and_hard_negative_reuse","family_ids":["F29"]},
       {"run":213,"format":"short","failure_phase":"P3","failure_signature":"short_visual_recovery_prioritized_topic_over_active_beat_semantics","family_ids":["F29"]},
       {"run":214,"format":"short","failure_phase":"P3","failure_signature":"core_short_visual_recovery_promoted_search_query_over_canonical_intent","family_ids":["F29"]},
-      {"run":215,"format":"short","failure_phase":"P3","failure_signature":"bounded_vision_window_exhausted_before_stronger_recovery_candidate","family_ids":["F29"]}
+      {"run":215,"format":"short","failure_phase":"P3","failure_signature":"bounded_vision_window_exhausted_before_stronger_recovery_candidate","family_ids":["F29"]},
+      {"run":216,"format":"short","failure_phase":"P1","failure_signature":"text_audit_provider_pool_unavailable_after_planning","family_ids":["F15"]},
+      {"run":217,"format":"short","failure_phase":"P1","failure_signature":"moment_direct_imperative_survived_single_short_repair","family_ids":["F33"]}
     ]
   },
   "families": [
@@ -192,7 +195,7 @@
     },
     {
       "id":"F15","name":"text_audit_provider_pool_and_capacity_ownership",
-      "historical_runs":["157","167"],
+      "historical_runs":["157","167","216"],
       "required_phases":["P1"],
       "contracts":["scripts.test_run157_text_audit_pool_isolation","scripts.test_run167_text_audit_capacity_ownership"]
     },
@@ -300,7 +303,7 @@
     },
     {
       "id":"F33","name":"short_repair_composition_and_tone_representation",
-      "historical_runs":["189-191","193-195","197"],
+      "historical_runs":["189-191","193-195","197","217"],
       "required_phases":["P1"],
       "contracts":["scripts.test_run189_micro_story_contract_alignment","scripts.test_run191_short_repair_composition_invariants","scripts.test_run191_tone_audit_representation_bridge"]
     },

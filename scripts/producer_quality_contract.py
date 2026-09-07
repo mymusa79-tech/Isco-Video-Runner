@@ -10,16 +10,20 @@ from typing import Any
 
 import isco_video_agent.orchestrator as orchestrator
 
+from scripts import short_editorial_craft_contract as craft
+
 
 REPORT_FILENAME = "producer-handoff-quality.json"
 SCHEMA_VERSION = 1
 
 # Provider-facing guidance is deliberately compact because the deterministic acceptance
-# rules below remain the authority. Keep every semantic obligation visible to the model
-# without paying twice for prose that the schema/validators already enforce.
-_PRODUCER_DIRECTIVE = (
+# rules below remain the authority. Format-specific craft must never consume another
+# format's planning envelope or provider redundancy.
+_PRODUCER_COMMON_DIRECTIVE = (
     "Producer pre-gate: precise/high-risk claims require APPROVED_RESEARCH_PACK; else modest wording. "
-    "Natural MSA; non-diagnostic, non-preachy; avoid generic AI motivation. Keep narrative/template; distinct beats. "
+    "Natural MSA; non-diagnostic, non-preachy; avoid generic AI motivation. Keep narrative/template; distinct beats."
+)
+_PRODUCER_SHORT_DIRECTIVE = (
     "Moment: avoid direct commands/list on_screen_text; show template progression."
 )
 
@@ -94,6 +98,12 @@ def _clean(value: object) -> str:
     return " ".join(str(value or "").strip().split())
 
 
+def _requested_format(args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+    if len(args) > 2:
+        return _clean(args[2]).lower()
+    return _clean(kwargs.get("requested_format")).lower()
+
+
 def _semantic_key(value: object) -> str:
     text = _clean(value).casefold()
     text = re.sub(r"[\u064b-\u065f\u0670\u0640]", "", text)
@@ -110,9 +120,18 @@ def _research_pack(context: dict | None) -> list[Any]:
     return []
 
 
-def producer_writing_directive(research_context: dict | None = None) -> str:
+def producer_writing_directive(
+    research_context: dict | None = None,
+    requested_format: object = "",
+) -> str:
     evidence = "present" if _research_pack(research_context) else "EMPTY"
-    return f"{_PRODUCER_DIRECTIVE} APPROVED_RESEARCH_PACK={evidence}."
+    fmt = _clean(requested_format).lower()
+    format_directive = craft.craft_writing_directive(fmt)
+    short_guard = f" {_PRODUCER_SHORT_DIRECTIVE}" if fmt == "moment" or not fmt else ""
+    return (
+        f"{_PRODUCER_COMMON_DIRECTIVE}{short_guard} {format_directive} "
+        f"APPROVED_RESEARCH_PACK={evidence}."
+    )
 
 
 def short_template_contract(template: object) -> str:
@@ -174,6 +193,28 @@ def _short_story_beats(plan: object) -> list[str]:
     ]
 
 
+def moment_direct_imperative_targets(plan: object) -> list[str]:
+    """Return the exact viewer-story field paths rejected by the Moment imperative gate.
+
+    CTA is intentionally excluded: direct calls to action are allowed. Repair guidance and
+    acceptance validation both call this helper so field ownership cannot drift.
+    """
+    sections = list(getattr(plan, "sections", []) or [])
+    candidates: list[tuple[str, object]] = [
+        ("hook", getattr(plan, "hook", "")),
+    ]
+    if sections:
+        candidates.append(
+            ("sections[0].on_screen_text", getattr(sections[0], "on_screen_text", ""))
+        )
+    candidates.append(("closing_payoff", getattr(plan, "closing_payoff", "")))
+    return [
+        path
+        for path, raw_value in candidates
+        if (value := _clean(raw_value)) and _SHORT_IMPERATIVE_RE.search(value)
+    ]
+
+
 def plan_quality_issues(
     plan: object,
     *,
@@ -215,7 +256,7 @@ def plan_quality_issues(
             _clean(getattr(sections[0], "on_screen_text", "")),
             _clean(getattr(plan, "closing_payoff", "")),
         ]
-        if any(_SHORT_IMPERATIVE_RE.search(value) for value in viewer_story_fields if value):
+        if moment_direct_imperative_targets(plan):
             issues.append("moment_direct_imperative_in_story_beat")
         joined_story = " ".join(viewer_story_fields)
         if any(phrase in joined_story for phrase in _GENERIC_SHORT_PHRASES):
@@ -252,10 +293,14 @@ def validate_plan_for_producer_handoff(
     return plan
 
 
-def merge_producer_revision_note(existing: object, research_context: dict | None) -> str:
-    """Compose the Producer pre-gate with any existing planning requirement."""
+def merge_producer_revision_note(
+    existing: object,
+    research_context: dict | None,
+    requested_format: object = "",
+) -> str:
+    """Compose only the format-relevant Producer pre-gate with existing requirements."""
     prior = _clean(existing)
-    directive = producer_writing_directive(research_context)
+    directive = producer_writing_directive(research_context, requested_format)
     if directive in prior:
         return prior
     return f"{prior} Producer pre-gate requirement: {directive}" if prior else directive
@@ -276,10 +321,12 @@ def install_planning_producer_quality_contract() -> None:
     @wraps(current)
     def wrapped(*args, **kwargs):
         research_context = kwargs.get("research_context")
+        requested_format = _requested_format(args, kwargs)
         updated = dict(kwargs)
         updated["revision_note"] = merge_producer_revision_note(
             updated.get("revision_note", ""),
             research_context,
+            requested_format,
         )
         plan = current(*args, **updated)
         return validate_plan_for_producer_handoff(plan, research_context=research_context)
