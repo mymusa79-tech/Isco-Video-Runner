@@ -43,6 +43,8 @@ class ViewerQualityContractV1Tests(unittest.TestCase):
                 [
                     {
                         "status": "pass",
+                        "is_selected": True,
+                        "section": "s1",
                         "provider": "pexels",
                         "candidate_id": "a",
                         "relevance": visual_relevance,
@@ -50,6 +52,9 @@ class ViewerQualityContractV1Tests(unittest.TestCase):
                     },
                     {
                         "status": "pass",
+                        "is_final_cut_auxiliary": True,
+                        "section": "s1",
+                        "opening_slot": "cold_open",
                         "provider": "pixabay",
                         "candidate_id": "b",
                         "relevance": 0.90,
@@ -83,6 +88,10 @@ class ViewerQualityContractV1Tests(unittest.TestCase):
         self.assertEqual(report["provider_calls_added"], 0)
         self.assertEqual(report["acceptance_phase"], "pre_state_acceptance")
         self.assertEqual(report["release_profile"], "standalone_short")
+        self.assertEqual(
+            report["dimensions"]["visual_semantics"]["coverage_semantics"],
+            "canonical_final_cut_selected_audits_only_v2",
+        )
 
     def test_weak_visual_semantics_cannot_be_hidden_by_technical_pass(self) -> None:
         root = self._base_dir(visual_relevance=0.79, visual_quality=1.0)
@@ -95,6 +104,93 @@ class ViewerQualityContractV1Tests(unittest.TestCase):
         report = json.loads((root / "viewer-quality-contract.json").read_text(encoding="utf-8"))
         self.assertEqual(report["verdict"], "block")
         self.assertFalse(report["non_compensable_gates"]["visual_semantics"])
+
+    def test_historical_pass_candidate_cannot_inflate_final_cut_score(self) -> None:
+        root = self._base_dir(visual_relevance=0.79, visual_quality=1.0)
+        audits = json.loads((root / "visual-audit.json").read_text(encoding="utf-8"))
+        audits.append(
+            {
+                "status": "pass",
+                "is_selected": False,
+                "section": "s1",
+                "candidate_id": "historical-perfect",
+                "relevance": 1.0,
+                "visual_quality": 1.0,
+            }
+        )
+        (root / "visual-audit.json").write_text(json.dumps(audits), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "Viewer Quality Contract V1 blocked release"):
+            enforce_viewer_quality_contract(
+                root,
+                fmt="moment",
+                critic={"status": "pass", "hard_blocks": []},
+            )
+        report = json.loads((root / "viewer-quality-contract.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["dimensions"]["visual_semantics"]["final_cut_records"], 2)
+        self.assertEqual(report["dimensions"]["visual_semantics"]["semantic_min"], 0.79)
+
+    def test_long_sequence_composite_uses_member_floor_not_historical_candidates(self) -> None:
+        root = self._base_dir()
+        (root / "plan.json").write_text(json.dumps({"format": "film"}), encoding="utf-8")
+        (root / "short-visual-timeline.json").unlink()
+        (root / "visual-audit.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "status": "pass",
+                        "is_selected": False,
+                        "is_section_sequence_member": True,
+                        "section": "s1",
+                        "candidate_id": "member-a",
+                        "relevance": 0.99,
+                        "visual_quality": 0.99,
+                    },
+                    {
+                        "status": "pass",
+                        "is_selected": False,
+                        "is_section_sequence_member": True,
+                        "section": "s1",
+                        "candidate_id": "member-b",
+                        "relevance": 0.86,
+                        "visual_quality": 0.91,
+                    },
+                    {
+                        "status": "pass",
+                        "is_selected": True,
+                        "is_section_sequence": True,
+                        "sequence_member_count": 2,
+                        "section": "s1",
+                        "candidate_id": "sequence-composite",
+                        "relevance": 0.86,
+                        "visual_quality": 0.91,
+                    },
+                ]
+            ),
+            encoding="utf-8",
+        )
+        report = enforce_viewer_quality_contract(
+            root,
+            fmt="film",
+            critic={"status": "pass", "hard_blocks": []},
+        )
+        visual = report["dimensions"]["visual_semantics"]
+        self.assertEqual(visual["final_cut_records"], 1)
+        self.assertEqual(visual["semantic_min"], 0.86)
+        self.assertGreaterEqual(report["viewer_score_10"], 8.5)
+
+    def test_missing_final_cut_selection_fails_closed(self) -> None:
+        root = self._base_dir()
+        audits = json.loads((root / "visual-audit.json").read_text(encoding="utf-8"))
+        for audit in audits:
+            audit.pop("is_selected", None)
+            audit.pop("is_final_cut_auxiliary", None)
+        (root / "visual-audit.json").write_text(json.dumps(audits), encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "final-cut visual-audit evidence"):
+            enforce_viewer_quality_contract(
+                root,
+                fmt="moment",
+                critic={"status": "pass", "hard_blocks": []},
+            )
 
     def test_long_uses_film_profile_without_short_timeline(self) -> None:
         root = self._base_dir()
