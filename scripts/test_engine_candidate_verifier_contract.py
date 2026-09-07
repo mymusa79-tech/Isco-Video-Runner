@@ -63,7 +63,13 @@ class EngineCandidateVerifierContractTests(unittest.TestCase):
         )
         self.assertIn(f"EXPECTED_ENGINE_SHA: {candidate}", production)
         self.assertIn(f"ISCO_ENGINE_SHA: {candidate}", production)
-        self.assertIn(f"ref: {candidate}", production)
+        # YAML formatting may align scalar values with extra spaces. Require the
+        # checkout binding semantically as a complete ref line instead of relying
+        # on one exact whitespace rendering.
+        self.assertRegex(
+            production,
+            rf"(?m)^\s*ref:\s*{re.escape(candidate)}\s*$",
+        )
 
     def test_adaptive_cross_repo_paths_trigger_candidate_regression(self) -> None:
         for path in (
