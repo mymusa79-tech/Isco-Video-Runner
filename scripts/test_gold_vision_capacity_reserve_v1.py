@@ -8,7 +8,7 @@ from scripts import gold_vision_capacity_reserve_v1 as reserve
 
 
 class GoldVisionCapacityReserveV1Tests(unittest.TestCase):
-    def test_reserve_is_bounded_and_scales_with_request(self) -> None:
+    def test_priority_margin_is_bounded_and_scales_with_request(self) -> None:
         self.assertEqual(reserve._gold_reserve_tokens(1000), reserve.GOLD_RESERVE_MIN_TOKENS)
         self.assertEqual(reserve._gold_reserve_tokens(10000), reserve.GOLD_RESERVE_MAX_TOKENS)
         mid = reserve._gold_reserve_tokens(4142)
@@ -25,20 +25,18 @@ class GoldVisionCapacityReserveV1Tests(unittest.TestCase):
         ):
             self.assertFalse(reserve._groq_is_last_live_vision_provider())
 
-    def test_installer_expands_gold_physical_vision_budget_to_five(self) -> None:
+    def test_gold_physical_retry_budget_is_scoped_and_restored(self) -> None:
         before_vision = gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS
         before_total = gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS
-        try:
-            reserve._expand_truthful_gold_attempt_budget()
+        with reserve._scoped_gold_attempt_budget():
             self.assertGreaterEqual(gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS, 5)
             self.assertEqual(
                 gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS,
                 gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS
                 + gold_fallback._FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS,
             )
-        finally:
-            gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = before_vision
-            gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS = before_total
+        self.assertEqual(gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS, before_vision)
+        self.assertEqual(gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS, before_total)
 
 
 if __name__ == "__main__":
