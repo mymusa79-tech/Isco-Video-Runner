@@ -122,7 +122,51 @@ class PlanningSplitRetryRuntimeTests(unittest.TestCase):
         self.assertEqual(calls, {"gemini": 2, "groq": 1, "openrouter": 1})
         self.assertEqual(order, ["gemini", "groq", "openrouter", "gemini"])
 
-    def test_capacity_failure_is_not_retried_for_same_provider(self) -> None:
+    def test_tpm_window_capacity_failure_now_gets_a_second_sweep_retry_for_same_provider(self) -> None:
+        # Run #210: a Groq TPM *window* preflight block (required=7216 limit=8000 - the
+        # model's real ceiling was never exceeded, only the rolling window's current
+        # headroom) is time-bound, not permanent, so it is now eligible for the same
+        # bounded second-sweep retry every other transient failure already gets. This
+        # was previously indistinguishable from a permanently-oversized payload and
+        # never got a second try even in a single-provider mesh.
+        calls = {"groq": 0}
+        base = split.outline_core_stage_spec_for_format("film")
+        policy = contract.ProviderPolicy(
+            providers=("groq",),
+            max_attempts_per_provider=1,
+            max_total_attempts=2,
+            completion_tokens=base.provider_policy.completion_tokens,
+            max_prompt_utf8_bytes=base.provider_policy.max_prompt_utf8_bytes,
+            second_pass_after_full_exhaustion=True,
+        )
+        spec = contract.PlanningStageSpec(
+            stage_id=base.stage_id,
+            contract_id=base.contract_id,
+            output_schema=base.output_schema,
+            semantic_rules=base.semantic_rules,
+            provider_policy=policy,
+            cache_policy=base.cache_policy,
+        )
+        payload = _core_payload()
+
+        def groq(_prompt):
+            calls["groq"] += 1
+            if calls["groq"] == 1:
+                raise RuntimeError("GROQ_TPM_WINDOW_BUSY_PRECHECK tpm_capacity")
+            return payload
+
+        with mock.patch.object(router, "_groq_call", side_effect=groq), \
+                contract.request_stage_scope(spec):
+            result = staged.json_text("request-key", "opaque")
+
+        self.assertEqual(result, payload)
+        self.assertEqual(calls["groq"], 2)
+
+    def test_permanently_oversized_capacity_failure_still_never_retries_same_provider(self) -> None:
+        # Regression guard: only the TPM-*window* family became retryable above. A
+        # request that is genuinely too large for the provider's ceiling must still
+        # never be retried - identical content can never fit on a second try, and
+        # retrying it would only waste the bounded total-attempts budget.
         calls = {"groq": 0}
         base = split.outline_core_stage_spec_for_format("film")
         policy = contract.ProviderPolicy(
@@ -144,7 +188,7 @@ class PlanningSplitRetryRuntimeTests(unittest.TestCase):
 
         def groq(_prompt):
             calls["groq"] += 1
-            raise RuntimeError("GROQ_TPM_WINDOW_BUSY_PRECHECK tpm_capacity")
+            raise RuntimeError("GROQ_PAYLOAD_TOO_LARGE_PREFLIGHT prompt_bytes=50000 limit=32000")
 
         with mock.patch.object(router, "_groq_call", side_effect=groq), \
                 contract.request_stage_scope(spec):

@@ -385,5 +385,63 @@ class ProviderFailureBookkeepingResilienceTests(unittest.TestCase):
         self.assertEqual(policy.completion_tokens_for("openrouter"), 2400)
 
 
+class Run210GroqTpmWindowRetryClassificationTests(unittest.TestCase):
+    """Run #210 (Long/film, post the Run #209 Gemini-truncation fix): Gemini failed with
+    a genuine network timeout, Groq's local TPM-window preflight blocked the identical
+    request (required=7216 limit=8000, an 8% deficit - the model's real ceiling was
+    never exceeded), and OpenRouter's spend cap was already exhausted. The bounded
+    second-pass sweep (PR #453) never engaged for Groq because a TPM *window* preflight
+    block was classified identically to a permanently-oversized payload, even though the
+    rolling window genuinely ages forward across the same 30s cooldown the second pass
+    already waits out for other providers. This proves the narrower fix: only the
+    time-window family of capacity markers becomes retryable, and every genuinely
+    permanent capacity marker this project already depends on stays exactly as
+    non-retryable as before."""
+
+    class _FakeContract:
+        stage_id = "planning.editorial_outline_core"
+
+    def test_groq_tpm_capacity_preflight_is_capacity_but_now_retryable(self) -> None:
+        stage_error, retryable, _retry_after, _failure = contract._provider_failure(
+            self._FakeContract(),
+            "groq",
+            RuntimeError(
+                "GROQ_TPM_CAPACITY_PREFLIGHT model=openai/gpt-oss-120b "
+                "required=7216 limit=8000"
+            ),
+        )
+        self.assertEqual(stage_error.code, contract.PlanningErrorCode.CAPACITY)
+        self.assertTrue(retryable)
+
+    def test_groq_tpm_window_busy_precheck_is_capacity_but_now_retryable(self) -> None:
+        stage_error, retryable, _retry_after, _failure = contract._provider_failure(
+            self._FakeContract(),
+            "groq",
+            RuntimeError(
+                "GROQ_TPM_WINDOW_BUSY_PRECHECK model=openai/gpt-oss-120b "
+                "required=7216 remaining=1200 reset_in=unknown"
+            ),
+        )
+        self.assertEqual(stage_error.code, contract.PlanningErrorCode.CAPACITY)
+        self.assertTrue(retryable)
+
+    def test_permanently_oversized_capacity_failures_stay_non_retryable(self) -> None:
+        # Regression guard: a request that genuinely cannot fit the provider's ceiling
+        # must never be retried, no matter how this fix's markers are worded - retrying
+        # identical oversized content can never succeed and would only waste the bounded
+        # total-attempts budget other providers still need.
+        permanent_capacity_messages = (
+            "GROQ_PAYLOAD_TOO_LARGE_PREFLIGHT prompt_bytes=50000 limit=32000",
+            "OPENROUTER_HTTP_413 status=413 message=context_length_exceeded",
+        )
+        for message in permanent_capacity_messages:
+            with self.subTest(message=message):
+                stage_error, retryable, _retry_after, _failure = contract._provider_failure(
+                    self._FakeContract(), "groq", RuntimeError(message)
+                )
+                self.assertEqual(stage_error.code, contract.PlanningErrorCode.CAPACITY)
+                self.assertFalse(retryable)
+
+
 if __name__ == "__main__":
     unittest.main()
