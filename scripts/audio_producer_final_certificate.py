@@ -8,6 +8,7 @@ from typing import Any
 
 from scripts.audio_producer_repair_lifecycle import REPORT_FILENAME, SCHEMA_VERSION
 from scripts.audio_production_contract_v2 import require_audio_production_contract_v2
+from scripts.audio_retention_qc import require_audio_retention_qc
 
 
 class AudioProducerCertificateError(RuntimeError):
@@ -87,7 +88,7 @@ def require_audio_producer_certificate(output_dir: Path) -> dict[str, Any]:
 
 
 def install_audio_producer_final_certificate(production_modules: list[Any]) -> None:
-    """Place exact-byte Producer evidence and Audio Production V2 outside final gates."""
+    """Place exact-byte Producer, retention and semantic evidence outside final gates."""
     installed = 0
     already_installed = 0
     for production in production_modules:
@@ -101,11 +102,13 @@ def install_audio_producer_final_certificate(production_modules: list[Any]) -> N
         def make_wrapper(original):
             @wraps(original)
             def wrapped(output_dir: Path, *args, **kwargs):
-                # Order is deliberate: first prove the bounded producer repair receipt
-                # belongs to the exact current bytes, then verify spoken semantic fidelity
-                # on those same bytes, then hand them unchanged to the existing independent
-                # Audio Semantic Integrity / Final Master QC chain.
+                # Order is deliberate. First prove the bounded producer repair receipt
+                # belongs to the exact current bytes. Then run the zero-AI retention
+                # preflight so obvious dropouts/clipping fail before provider-backed
+                # semantic transcription. Finally verify spoken semantic fidelity and
+                # hand the same bytes unchanged to the independent Final Master QC.
                 require_audio_producer_certificate(Path(output_dir))
+                require_audio_retention_qc(Path(output_dir))
                 require_audio_production_contract_v2(Path(output_dir))
                 return original(output_dir, *args, **kwargs)
 
