@@ -30,7 +30,11 @@ _PLATFORM_ACTION_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     "comment": (
         re.compile(r"\bعل[ّ]?ق\b", re.IGNORECASE),
         re.compile(r"\b(?:اكتب|اكتبي|اكتبوا)\b.{0,28}\b(?:تعليق|التعليقات)\b", re.IGNORECASE),
-        re.compile(r"\b(?:اترك|اتركي|اتركوا|ضع|ضعي|ضعوا)\b.{0,28}\b(?:تعليق(?:ًا|ا)?|التعليقات)\b", re.IGNORECASE),
+        re.compile(
+            r"(?:^|[\s،؛,.!?؟])(?:و|ف)?(?:اترك|اتركي|اتركوا|ضع|ضعي|ضعوا)"
+            r"\s+(?:تعليق(?:ًا|ا)?|التعليقات)(?=$|[\s،؛,.!?؟])",
+            re.IGNORECASE,
+        ),
         re.compile(r"\bcomment\b", re.IGNORECASE),
     ),
     "share": (
