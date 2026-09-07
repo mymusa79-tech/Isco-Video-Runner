@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import tempfile
 import unittest
@@ -7,6 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from scripts import audio_producer_final_certificate as certificate
+from scripts import short_voice_owned_timeline
+from scripts import short_voice_v2
 from scripts.audio_producer_repair_lifecycle import REPORT_FILENAME, SCHEMA_VERSION
 from scripts.test_audio_production_contract_v2 import AudioProductionContractV2Tests
 from scripts.test_audio_production_runtime_v2 import AudioProductionRuntimeV2Tests
@@ -50,6 +53,19 @@ class AudioProducerFinalCertificateTests(unittest.TestCase):
             self._report(root, [self._receipt(final, phase="core_mux", decision="pass", attempts=0)])
             with self.assertRaisesRegex(certificate.AudioProducerCertificateError, "missing_phase:short_finished"):
                 certificate.require_audio_producer_certificate(root)
+
+    def test_finished_short_refresh_observes_live_runtime_wrapper(self) -> None:
+        source = inspect.getsource(short_voice_owned_timeline.apply_voice_owned_short)
+        self.assertIn("short_voice_v2._refresh_quality_final(root, final_path)", source)
+        self.assertNotIn("quality = _refresh_quality_final(root, final_path)", source)
+
+        original = short_voice_v2._refresh_quality_final
+        sentinel = object()
+        try:
+            short_voice_v2._refresh_quality_final = sentinel  # type: ignore[assignment]
+            self.assertIs(short_voice_owned_timeline.short_voice_v2._refresh_quality_final, sentinel)
+        finally:
+            short_voice_v2._refresh_quality_final = original
 
     def test_unfinished_silent_moment_may_be_not_applicable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

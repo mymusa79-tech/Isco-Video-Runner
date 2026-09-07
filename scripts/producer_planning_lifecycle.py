@@ -381,10 +381,12 @@ def install_producer_planning_lifecycle() -> None:
     @wraps(current)
     def wrapped(*args, **kwargs):
         research_context = kwargs.get("research_context")
+        requested_format = _planner_arg(args, kwargs, 2, "requested_format")
         updated = dict(kwargs)
         updated["revision_note"] = merge_producer_revision_note(
             updated.get("revision_note", ""),
             research_context,
+            requested_format,
         )
         plan = original(*args, **updated)
 

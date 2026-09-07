@@ -133,7 +133,7 @@ class PlanningCapacityHeadroomTests(unittest.TestCase):
                     )
                     expected_revision = short_router.merge_short_template_revision(
                         expected_template,
-                        producer.merge_producer_revision_note("", research),
+                        producer.merge_producer_revision_note("", research, "moment"),
                     )
                     self.assertEqual(selection["template"], expected_template)
                     self.assertEqual(revision, expected_revision)

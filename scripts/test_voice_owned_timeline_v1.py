@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import inspect
 import unittest
 
 from scripts import orchestration_shorts_port as port
+from scripts import producer_quality_contract
+from scripts import short_editorial_craft_contract as craft
 from scripts import short_voice_owned_timeline as runtime
+from scripts.source_derived_short_planner import _distinct_source_texts
 from scripts.voice_owned_timeline import (
     VoiceOwnedTimelineError,
     build_voice_owned_timeline,
@@ -96,6 +100,74 @@ class VoiceOwnedTimelineV1Tests(unittest.TestCase):
         self.assertEqual(retimed[0]["start"], 0.0)
         self.assertAlmostEqual(retimed[-1]["end"], 18.05, places=2)
         self.assertLess(retimed[0]["end"], retimed[1]["end"])
+
+    def test_template_aware_hook_window_caps_run219_like_voice_extension(self):
+        events = [
+            {"role": "hook", "text": "hook", "start": 0.0, "end": 2.8},
+            {"role": "development", "text": "development", "start": 2.8, "end": 7.0},
+            {"role": "turn", "text": "turn", "start": 7.0, "end": 11.0},
+            {"role": "payoff", "text": "payoff", "start": 11.0, "end": 14.0},
+        ]
+        expected_caps = {
+            "why_reframe": 3.0,
+            "inner_dialogue": 3.2,
+            "micro_story": 3.3,
+            "quote_reflection": 3.5,
+        }
+        self.assertEqual(craft.template_names(), tuple(expected_caps))
+        for template, cap in expected_caps.items():
+            with self.subTest(template=template):
+                self.assertEqual(craft.template_hook_beat_max_seconds(template), cap)
+                retimed = retime_events(
+                    events,
+                    source_seconds=14.0,
+                    target_seconds=20.97,
+                    first_event_max_seconds=cap,
+                )
+                self.assertLessEqual(float(retimed[0]["end"]), cap + 0.001)
+                self.assertAlmostEqual(float(retimed[-1]["end"]), 20.97, places=2)
+                self.assertEqual([item["text"] for item in retimed], [item["text"] for item in events])
+                self.assertEqual([item["role"] for item in retimed], [item["role"] for item in events])
+
+    def test_producer_craft_is_format_scoped_without_extra_generation(self):
+        short_directive = producer_quality_contract.producer_writing_directive({}, "moment")
+        for template in craft.template_names():
+            self.assertIn(template, short_directive)
+        self.assertNotIn("Long opening", short_directive)
+        self.assertIn("no extra generation", short_directive)
+        self.assertIn("APPROVED_RESEARCH_PACK=EMPTY", short_directive)
+
+        for long_format in ("film", "story"):
+            with self.subTest(long_format=long_format):
+                long_directive = producer_quality_contract.producer_writing_directive({}, long_format)
+                self.assertIn("Long opening", long_directive)
+                for template in craft.template_names():
+                    self.assertNotIn(template, long_directive)
+                self.assertNotIn("Moment:", long_directive)
+                self.assertIn("no extra generation", long_directive)
+                self.assertIn("APPROVED_RESEARCH_PACK=EMPTY", long_directive)
+
+    def test_source_derived_short_keeps_compact_atoms_from_long_source_only(self):
+        narration = (
+            "هذه جملة افتتاحية طويلة من الحلقة الأصلية تشرح الفكرة بهدوء ومن دون اختراع نص جديد. "
+            "ثم تأتي جملة ختامية أخرى من المصدر نفسه لتثبيت المعنى للمشاهد."
+        )
+        on_screen = "واحد اثنان ثلاثة اربعة خمسة ستة سبعة ثمانية تسعة عشرة احد عشر اثنا عشر"
+        key_point = "واحد اثنان ثلاثة اربعة خمسة ستة سبعة ثمانية تسعة عشرة احد عشر اثنا عشر ثلاثة عشر اربعة عشر خمسة عشر"
+        excerpt = {
+            "source_narration": narration,
+            "source_narration_sha256": hashlib.sha256(narration.encode("utf-8")).hexdigest(),
+            "source_on_screen_text": on_screen,
+            "source_key_point": key_point,
+        }
+        texts = _distinct_source_texts(excerpt)
+        self.assertEqual(texts[0], " ".join(on_screen.split()[:10]))
+        self.assertEqual(texts[1], " ".join(key_point.split()[:14]))
+        self.assertLessEqual(len(texts[0].split()), craft.LONG_DERIVATIVE_ON_SCREEN_MAX_WORDS)
+        self.assertLessEqual(len(texts[1].split()), craft.LONG_DERIVATIVE_KEY_POINT_MAX_WORDS)
+        source_words = set((on_screen + " " + key_point + " " + narration).split())
+        for text in texts:
+            self.assertTrue(set(text.split()).issubset(source_words))
 
     def test_source_derived_short_never_hides_large_visual_gap_with_speed(self):
         with self.assertRaisesRegex(VoiceOwnedTimelineError, "source_safe_reprovision_required=true"):
