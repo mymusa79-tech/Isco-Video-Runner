@@ -1,16 +1,15 @@
 from __future__ import annotations
 
-"""Gold Vision capacity reserve shared by Long, standalone Short and sibling Short.
+"""Gold Vision priority-admission policy shared by Long and Shorts.
 
 Visual Retrieval & Adjudication V1 remains the sole owner of Groq header parsing and
-TPM pacing.  This module composes one release-priority rule above that owner:
+TPM pacing. This module does not reserve provider capacity at Groq; it applies a local
+priority-admission margin so non-Gold calls avoid consuming the last observed token
+window when Gemini and OpenRouter are already unavailable.
 
-* when Gemini and OpenRouter are already unavailable, non-Gold Groq calls preserve
-  enough of the current token window for one terminal Gold visual audit;
-* the Gold Groq route may honor the already-observed provider cooldown once;
-* every physical retry still passes through the existing BudgetLedger authorizer and
-  recorder; no provider attempt is hidden;
-* no semantic/quality/security threshold is changed.
+The one provider-directed Groq retry is exposed truthfully to BudgetLedger and the
+expanded physical-attempt allowance exists only while the Gold fallback context is
+active. No semantic, quality, or security threshold is changed.
 """
 
 import math
@@ -28,6 +27,7 @@ from scripts import visual_retrieval_adjudication_v1 as capacity
 
 CONTRACT_ID = "gold-vision-capacity-reserve-v1"
 CONTRACT_VERSION = 1
+POLICY_NAME = "gold-vision-priority-admission-v1"
 GOLD_RESERVE_FRACTION = 0.80
 GOLD_RESERVE_MIN_TOKENS = 3200
 GOLD_RESERVE_MAX_TOKENS = 4200
@@ -63,6 +63,23 @@ def _groq_is_last_live_vision_provider() -> bool:
     return _gemini_unavailable() and _openrouter_unavailable()
 
 
+@contextmanager
+def _scoped_gold_attempt_budget():
+    """Temporarily allow one truthful provider-directed Groq retry during Gold only."""
+    before_vision = int(gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS)
+    before_total = int(gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS)
+    try:
+        gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = max(5, before_vision)
+        gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS = (
+            int(gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS)
+            + int(gold_fallback._FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS)
+        )
+        yield
+    finally:
+        gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = before_vision
+        gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS = before_total
+
+
 def _install_reserve_admission() -> None:
     current = capacity._admit_groq
     if getattr(current, "_isco_gold_capacity_reserve_v1", False):
@@ -84,14 +101,11 @@ def _install_reserve_admission() -> None:
             ):
                 bounded = min(float(reset), capacity.GROQ_MAX_BOUNDED_WAIT_SECONDS)
                 print(
-                    "Gold Vision Capacity Reserve V1: preserving terminal Groq window "
+                    "Gold Vision Priority Admission V1: delaying non-Gold Groq call "
                     f"remaining_tokens={remaining} next_estimate={estimate} "
-                    f"gold_reserve={reserve} wait_seconds={bounded:.2f}"
+                    f"priority_margin={reserve} wait_seconds={bounded:.2f}"
                 )
                 time.sleep(bounded)
-                # Only discard the stale token count when the complete provider reset
-                # interval was actually honored.  Any longer cooldown remains owned by
-                # the existing V1 next_allowed_monotonic boundary.
                 if float(reset) <= capacity.GROQ_MAX_BOUNDED_WAIT_SECONDS:
                     state.remaining_tokens = None
                     state.reset_tokens_seconds = None
@@ -123,12 +137,10 @@ def _install_gold_groq_retry() -> None:
             if delay <= 0.01 or delay > GOLD_GROQ_RETRY_MAX_WAIT_SECONDS:
                 raise
             print(
-                "Gold Vision Capacity Reserve V1: honoring Groq provider cooldown once; "
+                "Gold Vision Priority Admission V1: honoring Groq cooldown once; "
                 f"delay_seconds={delay:.3f}"
             )
             time.sleep(delay)
-            # `current` performs a fresh ledger authorization + record, so the retry is
-            # a truthful physical provider attempt rather than a hidden transport loop.
             return current(*args, **kwargs)
 
     gold_retry_once._isco_gold_groq_retry_v1 = True
@@ -137,8 +149,6 @@ def _install_gold_groq_retry() -> None:
 
 
 def _install_gold_scope() -> None:
-    # Gold Phase 4 imported the context manager by name, so bind the scope at that exact
-    # consumer rather than replacing provider or semantic ownership globally.
     from scripts import gold_enforce_phase4 as gold_enforce
 
     current = gold_enforce.gold_final_critic_text_fallback
@@ -149,7 +159,7 @@ def _install_gold_scope() -> None:
     def scoped_gold_fallback():
         token = _GOLD_ACTIVE.set(True)
         try:
-            with current():
+            with _scoped_gold_attempt_budget(), current():
                 yield
         finally:
             _GOLD_ACTIVE.reset(token)
@@ -159,31 +169,16 @@ def _install_gold_scope() -> None:
     gold_enforce.gold_final_critic_text_fallback = scoped_gold_fallback
 
 
-def _expand_truthful_gold_attempt_budget() -> None:
-    # Existing policy allows Gemini + provider-directed Gemini retry + Groq +
-    # OpenRouter = four physical Vision attempts.  This closure adds at most one
-    # provider-directed Groq retry, therefore the explicit Vision ceiling becomes five.
-    gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = max(
-        5,
-        int(gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS),
-    )
-    gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS = (
-        int(gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS)
-        + int(gold_fallback._FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS)
-    )
-
-
 def install_gold_vision_capacity_reserve_v1() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
-    _expand_truthful_gold_attempt_budget()
     _install_reserve_admission()
     _install_gold_groq_retry()
     _install_gold_scope()
     _INSTALLED = True
     print(
-        "Gold Vision Capacity Reserve V1 installed: shared Long+Short terminal reserve; "
-        "last-live-provider protection; one bounded Groq provider cooldown retry; "
-        "Gold physical Vision cap=5; semantic/quality/security gates unchanged"
+        "Gold Vision Priority Admission V1 installed: shared Long+Short local capacity margin; "
+        "one bounded provider-directed Groq retry; Gold-only physical Vision cap=5; "
+        "semantic/quality/security gates unchanged"
     )
