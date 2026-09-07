@@ -42,7 +42,7 @@ class PlanningEndToEndCompositionTests(unittest.TestCase):
                 "approved_research_pack": [{"claim": "approved"}],
                 "content_boundaries": ["stay within approved evidence"],
             }
-            revision = producer.merge_producer_revision_note("", research)
+            revision = producer.merge_producer_revision_note("", research, "film")
             policy = {}
             avoid = {}
             learning = {}
