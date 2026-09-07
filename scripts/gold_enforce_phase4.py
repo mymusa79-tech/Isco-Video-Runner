@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 import os
 from pathlib import Path
 
 from isco_video_agent.ai_budget import BudgetLedger
+from isco_video_agent.anti_repetition import load_history
 from isco_video_agent.gold_finalizer import finalize_gold_output
 from isco_video_agent.learning import mark_production_accepted, remove_production_record
 from isco_video_agent.production_pipeline import (
@@ -27,6 +29,7 @@ from scripts.packaging_delivery_contract import (
     gold_packaging_acceptance_sha256,
     seal_gold_packaging_acceptance,
 )
+from scripts.qc_pending_checkpoint_v1 import capture_qc_pending_checkpoint
 from scripts.run123_budget_closure import enforcing_final_critic_as_p0
 from scripts.viewer_quality_contract_v1 import enforce_viewer_quality_contract
 
@@ -37,6 +40,24 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _snapshot_pending_production_record(output_key: str) -> dict | None:
+    """Capture the core history row before Gold's fail-closed cleanup can remove it."""
+    try:
+        data = load_history()
+    except Exception:
+        return None
+    videos = data.get("videos") if isinstance(data, dict) else None
+    if not isinstance(videos, list):
+        return None
+    for item in reversed(videos):
+        if not isinstance(item, dict) or str(item.get("output") or "").strip() != output_key:
+            continue
+        if str(item.get("release_status") or "").strip() == "accepted_after_final_critic":
+            return None
+        return deepcopy(item)
+    return None
 
 
 def _augment_rights_budget_aware(output_dir: Path, package: dict) -> dict:
@@ -116,6 +137,8 @@ def run_gold_enforce_phase4(
     if not final_path.is_file():
         raise RuntimeError("Final video missing before Gold enforcement")
     final_sha_before = _sha256_file(final_path)
+    output_key = _output_key(output_dir)
+    pending_production_record = _snapshot_pending_production_record(output_key)
 
     p4_acceptance: dict | None = None
     qc_path = output_dir / "final-master-qc.json"
@@ -177,7 +200,7 @@ def run_gold_enforce_phase4(
     try:
         plan, critic = finalize_gold_output(
             output_dir=output_dir,
-            output_key=_output_key(output_dir),
+            output_key=output_key,
             gemini=gemini,
             pexels=pexels,
             plan_from_json=_plan_from_json,
@@ -282,6 +305,7 @@ def run_gold_enforce_phase4(
             "mutation_expected_on_success": True,
             "acceptance_is_terminal_mutation": True,
             "failure_cleanup_expected": error is not None,
+            "pending_record_captured_before_gold": pending_production_record is not None,
         },
         "budget": {
             "same_ledger": True,
@@ -306,6 +330,18 @@ def run_gold_enforce_phase4(
         pass
 
     if error is not None:
+        try:
+            capture_qc_pending_checkpoint(
+                output_dir,
+                error,
+                production_record=pending_production_record,
+                output_key=output_key,
+            )
+        except Exception as checkpoint_exc:
+            print(
+                "QC_PENDING capture skipped without masking Gold failure "
+                f"({type(checkpoint_exc).__name__}: {str(checkpoint_exc)[:180]})"
+            )
         raise error
     if final_sha_after != final_sha_before:
         raise RuntimeError("Gold enforcement final.mp4 invariant failed after acceptance")
