@@ -25,7 +25,7 @@ permissions:
   contents: write
 
 env:
-  EXPECTED_ENGINE_SHA: ece86a6aefe87901c8771a7cb2cec1a08523e704
+  EXPECTED_ENGINE_SHA: aae29dabd43743dcec832fdf6a12fc9240474592
 
 jobs:
   admit:
