@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import importlib.util
 import unittest
 
-from isco_video_agent import adaptive_outline_contract as engine_contract
 
-from scripts import planning_outline_adaptive_sharding as adaptive
-from scripts import planning_stage_contract as stage_contract
+_ADAPTIVE_ENGINE_AVAILABLE = (
+    importlib.util.find_spec("isco_video_agent.adaptive_outline_contract") is not None
+)
+
+if _ADAPTIVE_ENGINE_AVAILABLE:
+    from isco_video_agent import adaptive_outline_contract as engine_contract
+
+    from scripts import planning_outline_adaptive_sharding as adaptive
+    from scripts import planning_stage_contract as stage_contract
+else:
+    engine_contract = None
+    adaptive = None
+    stage_contract = None
 
 
 def _skeleton() -> list[dict]:
@@ -42,6 +53,10 @@ def _payload_for_active_spec(skeleton: list[dict]) -> dict:
     }
 
 
+@unittest.skipUnless(
+    _ADAPTIVE_ENGINE_AVAILABLE,
+    "adaptive outline tests require the adaptive Engine contract candidate",
+)
 class AdaptiveOutlineShardingTests(unittest.TestCase):
     def _state(self) -> adaptive._AdaptiveOutlineState:
         state = adaptive._AdaptiveOutlineState(fmt="film", expected_count=8)
@@ -59,6 +74,13 @@ class AdaptiveOutlineShardingTests(unittest.TestCase):
         self.assertEqual(adaptive._section_completion_tokens(4), 1200)
         self.assertEqual(adaptive._section_completion_tokens(2), 800)
         self.assertEqual(adaptive._section_completion_tokens(1), 600)
+
+        root = adaptive._sections_stage_spec(
+            _skeleton(), tuple(f"s{i}" for i in range(1, 9)), root=True
+        )
+        self.assertEqual(root.provider_policy.completion_tokens, 1800)
+        self.assertEqual(root.provider_policy.completion_tokens_for("groq"), 1800)
+        self.assertEqual(root.provider_policy.completion_tokens_for("gemini"), 3600)
 
     def test_core_schema_requires_global_skeleton_without_section_briefs(self) -> None:
         schema = adaptive.outline_core_schema(8)
@@ -258,6 +280,9 @@ class AdaptiveOutlineShardingTests(unittest.TestCase):
         )
         self.assertFalse(shard.provider_policy.second_pass_after_full_exhaustion)
         self.assertEqual(shard.provider_policy.max_total_attempts, 3)
+        self.assertEqual(shard.provider_policy.completion_tokens, 1200)
+        self.assertEqual(shard.provider_policy.completion_tokens_for("groq"), 1200)
+        self.assertEqual(shard.provider_policy.completion_tokens_for("gemini"), 2400)
 
 
 if __name__ == "__main__":
