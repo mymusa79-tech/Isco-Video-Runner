@@ -10,6 +10,7 @@ provider-call ordinal never select Draft, Review or Repair.
 """
 
 import functools
+import json
 from contextvars import ContextVar
 from typing import Any
 
@@ -23,6 +24,7 @@ from scripts.short_planning_repair import active_short_repair_context
 
 
 _INSTALLED = False
+_PILLARS = ("understand", "rise", "see")
 _LIFECYCLE_STATE: ContextVar[dict[str, Any] | None] = ContextVar(
     "isco_native_short_stage_lifecycle_state", default=None
 )
@@ -77,7 +79,7 @@ def _moment_schema() -> dict:
     return _strict_object(
         {
             "topic": {"type": "string"},
-            "pillar": {"type": "string"},
+            "pillar": {"type": "string", "enum": list(_PILLARS)},
             "format": {"type": "string"},
             "hook": {"type": "string"},
             "title_options": _string_array(exact=3),
@@ -139,6 +141,7 @@ def moment_stage_spec(stage_kind: str, topic: str) -> stage_contract.PlanningSta
             "kind": "native_short",
             "transport_profile": "native_short",
             "approved_topic": normalized_topic,
+            "allowed_pillars": list(_PILLARS),
             "format": "moment",
             "section_count": 1,
             "narration_must_be_empty": True,
@@ -151,6 +154,33 @@ def moment_stage_spec(stage_kind: str, topic: str) -> stage_contract.PlanningSta
         provider_policy=stage_contract._provider_policy(2200),
         cache_policy=stage_contract.CachePolicy(),
     )
+
+
+def _provider_contract_prompt(prompt: object, spec: stage_contract.PlanningStageSpec) -> str:
+    """Expose Stage-owned native-Short invariants before provider generation.
+
+    The Stage Contract remains authoritative after provider return. This block mirrors
+    the same machine-owned constraints into Draft/Review/Repair so a valid wire attempt
+    is not wasted on a value that downstream validation deterministically rejects.
+    Stage identity still comes only from the explicit Engine operation context.
+    """
+    text = _provider_visible_moment_duration_contract(prompt)
+    topic = str(spec.semantic_rules.get("approved_topic") or "")
+    allowed = tuple(str(item) for item in spec.semantic_rules.get("allowed_pillars") or _PILLARS)
+    contract = (
+        "NATIVE_SHORT_STAGE_CONTRACT (mandatory; generated from the active Stage Contract):\n"
+        f"- top-level topic MUST exactly equal {json.dumps(topic, ensure_ascii=False)}.\n"
+        f"- top-level pillar MUST be exactly one of: {' | '.join(allowed)}. "
+        "Use these literal English enum values; do not translate or invent another pillar.\n"
+        "- top-level format MUST be exactly: moment.\n"
+        "- sections MUST contain exactly one item.\n"
+        "- sections[0].narration MUST be the empty string.\n"
+        "- sections[0].expected_seconds MUST be between 12 and 20 inclusive.\n"
+        "These constraints do not select the stage; the Python call boundary already owns stage identity."
+    )
+    if contract not in text:
+        text = f"{text.rstrip()}\n\n{contract}"
+    return text
 
 
 def _validate_short_semantics(
@@ -173,7 +203,7 @@ def _validate_short_semantics(
             "$.format",
             "requires_moment",
         )
-    if str(data.get("pillar") or "").strip() not in {"understand", "rise", "see"}:
+    if str(data.get("pillar") or "").strip() not in set(_PILLARS):
         stage_contract._raise_validation(
             stage_contract.PlanningErrorCode.SEMANTIC_INVALID,
             contract,
@@ -300,7 +330,7 @@ def install_native_short_stage_contract() -> None:
             # is explicitly scoped at its own capability boundary.
             return staged.json_text(api_key, prompt, model=model)
         spec = _stage_for_operation(state)
-        effective_prompt = _provider_visible_moment_duration_contract(prompt)
+        effective_prompt = _provider_contract_prompt(prompt, spec)
         with stage_contract.request_stage_scope(spec):
             return staged.json_text(api_key, effective_prompt, model=model)
 
@@ -348,5 +378,5 @@ def install_native_short_stage_contract() -> None:
     print(
         "Native Short Stage Contract installed: draft=explicit review=explicit "
         "repair=explicit operation_source=engine_context prompt_inference=false "
-        "ordinal_inference=false cache_revalidate=true"
+        "ordinal_inference=false cache_revalidate=true provider_semantics=visible"
     )
