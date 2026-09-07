@@ -17,9 +17,29 @@ class ShortCinematicDirectorTests(unittest.TestCase):
                 for i in range(beats)
             ]
             with self.subTest(beats=beats):
-                self.assertEqual(director.required_shot_count(events, 15.0), expected)
+                self.assertEqual(director.required_shot_count(events, 10.0), expected)
         with self.assertRaisesRegex(director.ShortCinematicError, "at least two"):
             director.required_shot_count([{"start": 0, "end": 1}], 8.0)
+
+    def test_duration_aware_density_rejects_under_authored_long_shorts(self):
+        two = [
+            {"start": 0.0, "end": 6.0, "text": "hook"},
+            {"start": 6.0, "end": 15.0, "text": "payoff"},
+        ]
+        three = [*two[:1], {"start": 6.0, "end": 10.0, "text": "turn"}, {"start": 10.0, "end": 15.0, "text": "payoff"}]
+        four = [
+            {"start": 0.0, "end": 4.0, "text": "hook"},
+            {"start": 4.0, "end": 8.0, "text": "beat"},
+            {"start": 8.0, "end": 13.0, "text": "turn"},
+            {"start": 13.0, "end": 20.0, "text": "payoff"},
+        ]
+        with self.assertRaisesRegex(director.ShortCinematicError, "short_visual_density_contract"):
+            director.required_shot_count(two, 15.0)
+        self.assertEqual(director.required_shot_count(three, 15.0), 3)
+        with self.assertRaisesRegex(director.ShortCinematicError, "short_visual_density_contract"):
+            director.required_shot_count(three, 20.0)
+        self.assertEqual(director.required_shot_count(four, 20.0), 4)
+        self.assertEqual(director.SHORT_MAX_SHOT_HOLD_SECONDS, 8.5)
 
     def test_all_four_templates_have_distinct_primary_and_alternate_visual_intents(self):
         for template in ("why_reframe", "inner_dialogue", "micro_story", "quote_reflection"):
@@ -34,6 +54,17 @@ class ShortCinematicDirectorTests(unittest.TestCase):
                 self.assertIn("portrait vertical realistic cinematic", alternate)
                 self.assertLessEqual(len(primary), 260)
                 self.assertLessEqual(len(alternate), 260)
+
+    def test_overly_generic_visual_query_is_rejected_before_retrieval(self):
+        with self.assertRaisesRegex(director.ShortCinematicError, "short_visual_query_specificity_contract"):
+            director.beat_queries("person walking cinematic scene", "why_reframe", 1)
+        primary, _alternate = director.beat_queries(
+            "person writing in notebook beside rainy window",
+            "why_reframe",
+            1,
+        )
+        self.assertIn("notebook", primary)
+        self.assertIn("rainy", primary)
 
     def test_visual_review_budget_is_two_semantic_calls_max_per_added_beat(self):
         self.assertEqual(director.MAX_VISION_REVIEWS_PER_ATTEMPT, 1)
@@ -92,6 +123,8 @@ class ShortCinematicDirectorTests(unittest.TestCase):
         self.assertIn("distinct_asset_count", source)
         self.assertIn("hard_cut_default_for_short_retention", source)
         self.assertIn("SHORT_VISUAL_AUDIT", source)
+        self.assertIn("SHORT_MAX_SHOT_HOLD_SECONDS", source)
+        self.assertIn("visual_density_contract", source)
 
     def test_visual_audit_provenance_keeps_editorial_intent_separate_from_retrieval_hint(self):
         source = inspect.getsource(director.upgrade_short_cinematic)
