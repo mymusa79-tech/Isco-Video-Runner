@@ -139,6 +139,7 @@ def _durable_pending_research_exists() -> bool:
 def replay_update(state_path, update):
     _install_v5_after_active()
     from scripts import telegram_creator_control_center_v5 as creator_v5
+    from scripts import telegram_scope_first_modern as scope_first
 
     # Direct adapter callers use this wrapper rather than core.main(). Keep the same
     # pre-replay state migration that the CLI path performs below.
@@ -148,6 +149,17 @@ def replay_update(state_path, update):
         from scripts.telegram_used_history_reconcile import reconcile_file
 
         reconcile_file(durable_path)
+        # webhook_replay_core injects the received update and then calls active._poll
+        # directly, bypassing panel.poll wrappers. Translate only this authenticated
+        # update before replay so scoped sessions reach the existing canonical scope:
+        # branch without changing update_id/idempotency or any approval authority.
+        rewritten = scope_first._rewrite_scoped_picks(
+            core.panel,
+            core.panel.load_state(durable_path),
+            [update],
+        )
+        if isinstance(rewritten, list) and rewritten:
+            update = rewritten[0]
 
     # The replay core substitutes getUpdates with the already-authorized webhook
     # update. Preserve that callback's message identity as a class-level fallback
