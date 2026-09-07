@@ -209,9 +209,9 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
             return_value=None,
         ), patch.object(
             fallback.vision_mesh,
-            "_run_groq_attempt",
+            "_groq_visual_call",
             return_value={"status": "pass"},
-        ) as groq, patch.object(
+        ) as groq_wire, patch.object(
             fallback.time,
             "sleep",
         ) as sleep:
@@ -230,7 +230,7 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "pass")
         self.assertEqual(gemini.call_count, 1)
-        groq.assert_called_once()
+        groq_wire.assert_called_once()
         sleep.assert_not_called()
         summary = ledger.to_summary()
         self.assertEqual(summary["provider_attempts"]["total"], 2)
@@ -250,9 +250,9 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
             return_value=None,
         ), patch.object(
             fallback.vision_mesh,
-            "_run_groq_attempt",
+            "_groq_visual_call",
             return_value={"status": "pass"},
-        ) as groq, patch.object(fallback.time, "sleep"):
+        ) as groq_wire, patch.object(fallback.time, "sleep"):
             result = fallback._opening_vision_with_mesh(
                 Mock(side_effect=AssertionError("must use Vision mesh")),
                 ledger,
@@ -268,7 +268,7 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "pass")
         self.assertEqual(gemini.call_count, 2)
-        groq.assert_called_once()
+        groq_wire.assert_called_once()
         summary = ledger.to_summary()
         self.assertEqual(summary["provider_attempts"]["total"], 3)
         self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 2, "groq": 1})
@@ -305,27 +305,38 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         openrouter.assert_not_called()
         self.assertTrue(ledger.is_task_closed("GOLD_FINAL_CRITIC_OPENING_VISUAL"))
 
-    def test_release_budget_expands_by_only_the_new_reachable_final_critic_delta(self) -> None:
-        fallback._ensure_final_critic_provider_budget()
+    def test_release_budget_expands_only_inside_scope_and_restores_exact_state(self) -> None:
+        hard_before = dict(ai_budget.PROVIDER_ATTEMPT_HARD_CAP)
+        reserve_before = dict(ai_budget.P1_AND_P0_RESERVED_BUFFER)
         baseline_attempts = int(fallback.run123._FINAL_CRITIC_PROVIDER_ATTEMPTS)
         expected_delta = max(0, fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS - baseline_attempts)
-        for fmt, baseline_cap in fallback.run123.RUN123_PROVIDER_ATTEMPT_HARD_CAP.items():
-            self.assertGreaterEqual(
-                ai_budget.PROVIDER_ATTEMPT_HARD_CAP[fmt],
-                int(baseline_cap) + expected_delta,
-            )
-            self.assertGreaterEqual(
-                ai_budget.P1_AND_P0_RESERVED_BUFFER[fmt],
-                fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS,
-            )
 
-    def test_context_manager_restores_engine_ledger_wrapper(self) -> None:
+        with fallback._final_critic_provider_budget_scope():
+            for fmt, baseline_cap in fallback.run123.RUN123_PROVIDER_ATTEMPT_HARD_CAP.items():
+                self.assertGreaterEqual(
+                    ai_budget.PROVIDER_ATTEMPT_HARD_CAP[fmt],
+                    int(baseline_cap) + expected_delta,
+                )
+                self.assertGreaterEqual(
+                    ai_budget.P1_AND_P0_RESERVED_BUFFER[fmt],
+                    fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS,
+                )
+
+        self.assertEqual(ai_budget.PROVIDER_ATTEMPT_HARD_CAP, hard_before)
+        self.assertEqual(ai_budget.P1_AND_P0_RESERVED_BUFFER, reserve_before)
+
+    def test_context_manager_restores_engine_ledger_wrapper_and_budget_state(self) -> None:
         import isco_video_agent.production_pipeline as pipeline
 
         original = pipeline._ledger_call_status
+        hard_before = dict(ai_budget.PROVIDER_ATTEMPT_HARD_CAP)
+        reserve_before = dict(ai_budget.P1_AND_P0_RESERVED_BUFFER)
         with fallback.gold_final_critic_text_fallback():
             self.assertIsNot(pipeline._ledger_call_status, original)
+            self.assertNotEqual(ai_budget.PROVIDER_ATTEMPT_HARD_CAP, hard_before)
         self.assertIs(pipeline._ledger_call_status, original)
+        self.assertEqual(ai_budget.PROVIDER_ATTEMPT_HARD_CAP, hard_before)
+        self.assertEqual(ai_budget.P1_AND_P0_RESERVED_BUFFER, reserve_before)
 
 
 if __name__ == "__main__":
