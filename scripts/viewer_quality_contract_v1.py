@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-"""Deterministic viewer-quality release envelope for every canonical V4 format.
+"""Deterministic viewer-quality release envelope for canonical V4 outputs.
 
-This contract adds no model calls.  It composes evidence that the current pipeline has
-already paid to obtain: Final Master QC, audio/A-V measurements, accepted visual audits,
-short cinematic pacing when applicable, and Gold acceptance.  It cannot turn a failed
-upstream gate into PASS; it can only require a stronger release margin.
+This contract adds no model calls. It composes evidence already paid for by the
+pipeline: Final Master QC, audio/A-V measurements, accepted visual audits, short
+cinematic pacing when applicable, and the enforcing Gold critic result.
 
-The score is a 0-10 engineering confidence score, not a promise of YouTube performance.
-A canonical release requires >=8.5 overall plus non-compensable sub-gates, so perfect
-technical encoding cannot hide weak visual semantics or poor short pacing.
+The score is a 0-10 engineering release-confidence score, not a human MOS and not a
+forecast of YouTube performance. A canonical release requires >=8.5 overall plus
+non-compensable sub-gates. The contract is deliberately safe to run before production
+state acceptance; it never mutates final.mp4 or publication state.
 """
 
 import json
-import math
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -39,6 +38,20 @@ def _read_object(path: Path) -> dict[str, Any]:
 
 def _bounded(value: float) -> float:
     return max(0.0, min(10.0, float(value)))
+
+
+def _release_profile(root: Path, fmt: str) -> str:
+    normalized = str(fmt or "").strip().lower()
+    if normalized == "film":
+        return "film"
+    try:
+        plan = _read_object(root / "plan.json")
+    except Exception:
+        plan = {}
+    source = str(plan.get("plan_source") or "").strip()
+    if source == "source_derived_long_episode_video_short":
+        return "derived_short"
+    return "standalone_short"
 
 
 def _accepted_visual_records(root: Path) -> list[dict[str, Any]]:
@@ -89,8 +102,6 @@ def _visual_score(records: list[dict[str, Any]]) -> tuple[float, dict[str, Any]]
     if not records:
         raise RuntimeError("Viewer Quality Contract requires accepted visual-audit evidence")
     semantic = [float(item["semantic_floor"]) for item in records]
-    # A trimmed/upper-compensating average would let many excellent shots hide one weak
-    # editorial placeholder.  Use the ordinary mean plus an explicit weakest-shot floor.
     mean = sum(semantic) / len(semantic)
     weakest = min(semantic)
     score = _bounded(10.0 * mean)
@@ -101,6 +112,7 @@ def _visual_score(records: list[dict[str, Any]]) -> tuple[float, dict[str, Any]]
         "score_10": round(score, 3),
         "minimum_required_score_10": MIN_VISUAL_SEMANTIC_SCORE,
         "weakest_final_visual_floor": 0.80,
+        "coverage_semantics": "accepted_audit_records_only_v1",
         "pass": score >= MIN_VISUAL_SEMANTIC_SCORE and weakest >= 0.80,
     }
 
@@ -157,19 +169,19 @@ def _audio_score(quality: dict[str, Any]) -> tuple[float, dict[str, Any]]:
     }
 
 
-def _short_pacing_score(root: Path, fmt: str, qc: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+def _pacing_score(root: Path, fmt: str, profile: str, qc: dict[str, Any]) -> tuple[float, dict[str, Any]]:
     if fmt not in {"moment", "story"}:
         freeze_events = list(((qc.get("detectors") or {}).get("exact_freeze") or {}).get("events") or ())
         score = 10.0 if not freeze_events else 8.0
         return score, {
+            "release_profile": profile,
             "format_class": "long",
             "exact_freeze_events": len(freeze_events),
             "score_10": score,
             "pass": not freeze_events,
         }
 
-    path = root / "short-visual-timeline.json"
-    timeline = _read_object(path)
+    timeline = _read_object(root / "short-visual-timeline.json")
     try:
         max_hold = float((timeline.get("visual_density_contract") or {}).get("actual_max_shot_hold_seconds"))
         shot_count = int(timeline.get("shot_count") or 0)
@@ -177,8 +189,6 @@ def _short_pacing_score(root: Path, fmt: str, qc: dict[str, Any]) -> tuple[float
     except (TypeError, ValueError):
         raise RuntimeError("Viewer Quality Contract requires Short visual pacing evidence")
 
-    # Human-facing pacing margin.  The existing hard max remains authoritative; this
-    # stronger release envelope rewards purposeful cuts without forcing hyperactive edits.
     if max_hold <= 4.5:
         hold_score = 10.0
     elif max_hold <= 6.0:
@@ -192,6 +202,7 @@ def _short_pacing_score(root: Path, fmt: str, qc: dict[str, Any]) -> tuple[float
     density_score = 10.0 if shot_count >= 3 or semantic_beats <= 2 else 9.0 if shot_count >= 2 else 7.0
     score = _bounded(0.75 * hold_score + 0.25 * density_score)
     return score, {
+        "release_profile": profile,
         "format_class": "short",
         "max_shot_hold_seconds": round(max_hold, 3),
         "shot_count": shot_count,
@@ -209,9 +220,17 @@ def enforce_viewer_quality_contract(
     *,
     fmt: str,
     critic: dict[str, Any],
-    gold_enforce: dict[str, Any],
+    gold_enforce: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Evaluate the final rendered bytes before production state acceptance.
+
+    ``gold_enforce`` is accepted for backward compatibility with the first branch
+    implementation and post-Gold diagnostic revalidation, but it is not an authority.
+    The enforcing Gold critic itself is the pre-acceptance evidence used here.
+    """
     root = Path(output_dir)
+    normalized_fmt = str(fmt).strip().lower()
+    profile = _release_profile(root, normalized_fmt)
     qc = _read_object(root / "final-master-qc.json")
     quality = _read_object(root / "quality-final.json")
     visual_records = _accepted_visual_records(root)
@@ -219,12 +238,14 @@ def enforce_viewer_quality_contract(
     technical_score, technical = _technical_score(qc, quality)
     visual_score, visual = _visual_score(visual_records)
     audio_score, audio = _audio_score(quality)
-    pacing_score, pacing = _short_pacing_score(root, str(fmt).strip().lower(), qc)
+    pacing_score, pacing = _pacing_score(root, normalized_fmt, profile, qc)
 
-    gold = gold_enforce.get("gold") if isinstance(gold_enforce, dict) else None
-    gold_pass = isinstance(gold, dict) and gold.get("accepted") is True
-    if isinstance(critic, dict) and critic.get("hard_blocks"):
-        gold_pass = False
+    gold_pass = (
+        isinstance(critic, dict)
+        and str(critic.get("status") or "").lower() == "pass"
+        and not list(critic.get("hard_blocks") or ())
+        and str(critic.get("observation_status") or "ok").lower() != "failed_observation"
+    )
     gold_score = 10.0 if gold_pass else 0.0
 
     weights = {
@@ -252,18 +273,21 @@ def enforce_viewer_quality_contract(
     document = {
         "schema_version": CONTRACT_VERSION,
         "contract_id": CONTRACT_ID,
-        "format": str(fmt).strip().lower(),
+        "format": normalized_fmt,
+        "release_profile": profile,
         "viewer_score_10": round(_bounded(overall), 3),
         "minimum_viewer_score_10": MIN_VIEWER_SCORE,
         "verdict": verdict,
-        "score_meaning": "deterministic release-confidence envelope; not a forecast of YouTube performance",
+        "acceptance_phase": "pre_state_acceptance",
+        "score_meaning": "deterministic engineering release-confidence envelope; not human MOS or YouTube forecast",
+        "calibration_status": "not_yet_calibrated_against_blind_human_panel",
         "weights": weights,
         "dimensions": {
             "visual_semantics": visual,
             "pacing": pacing,
             "audio_av": audio,
             "technical": technical,
-            "gold": {"score_10": gold_score, "pass": gold_pass},
+            "gold": {"score_10": gold_score, "candidate_pass": gold_pass, "pass": gold_pass},
         },
         "non_compensable_gates": non_compensable,
         "provider_calls_added": 0,
@@ -276,8 +300,8 @@ def enforce_viewer_quality_contract(
             f"score={overall:.3f} required={MIN_VIEWER_SCORE:.1f} failed={','.join(failed) or 'score'}"
         )
     print(
-        "Viewer Quality Contract V1 PASS: "
-        f"format={fmt} score={overall:.3f}/10 visual={visual_score:.3f} "
-        f"pacing={pacing_score:.3f} audio={audio_score:.3f}"
+        "Viewer Quality Contract V1 PASS before state acceptance: "
+        f"profile={profile} format={normalized_fmt} score={overall:.3f}/10 "
+        f"visual={visual_score:.3f} pacing={pacing_score:.3f} audio={audio_score:.3f}"
     )
     return document
