@@ -190,8 +190,6 @@ class PlanningOutlineSplitTopologyTests(unittest.TestCase):
         stage_contract.validate_response = lambda contract, data: data
         self.split._install_call_sequence_binding()
 
-        # This test isolates Engine-call topology. Canonical-domain validation is
-        # exercised separately against the pinned Engine's real _outline() transform.
         with mock.patch.object(
             self.split,
             "_validate_canonical_outline",
@@ -255,7 +253,6 @@ class PlanningOutlineSplitTopologyTests(unittest.TestCase):
         observed: list[str] = []
 
         def fake_json(api_key, prompt, model="model"):
-            # Simulate multiple provider-level contacts beneath ONE Engine json_text call.
             spec = stage_contract._ACTIVE_STAGE_SPEC.get()
             observed.extend([spec.stage_id, spec.stage_id, spec.stage_id])
             return {"ok": True}
@@ -396,9 +393,6 @@ class PlanningSplitGeminiHeadroomTests(unittest.TestCase):
                     policy.completion_tokens,
                 )
                 self.assertEqual(policy.completion_tokens_for("gemini"), self.split._GEMINI_COMPLETION_TOKENS)
-                # Groq's own TPM admission math must never move: it is already
-                # razor-thin for Film (Run #208: GROQ_TPM_WINDOW_BUSY_PRECHECK at
-                # this exact budget), so only Gemini gets real headroom here.
                 self.assertEqual(policy.completion_tokens_for("groq"), stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET)
                 self.assertEqual(
                     policy.completion_tokens_for("openrouter"), stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET
@@ -434,8 +428,6 @@ class PlanningSplitGeminiHeadroomTests(unittest.TestCase):
         self.assertEqual(captured.get("max_output_tokens"), contract.provider_policy.completion_tokens)
 
     def test_groq_admission_math_is_untouched_by_the_gemini_override(self) -> None:
-        # planning_envelope_preflight.py's Groq TPM sizing must keep reading the base
-        # completion_tokens field, never the per-provider override.
         core = self.split.outline_core_stage_spec(6)
         self.assertEqual(core.provider_policy.completion_tokens, stage_contract.OUTLINE_COMPLETION_TOKEN_BUDGET)
 
@@ -484,9 +476,10 @@ class PlanningSplitEnvelopeTests(unittest.TestCase):
 
 class PlanningIntegratedWrapperCompositionTests(unittest.TestCase):
     def test_canonical_lifecycle_keeps_core_and_sections_prompt_schema_aligned(self) -> None:
-        """Exercise the merged planning installers together in a clean interpreter."""
+        """Exercise legacy or adaptive final outline ownership in a clean interpreter."""
         probe = textwrap.dedent(
             """
+            import importlib.util
             import os
             from pathlib import Path
 
@@ -502,22 +495,50 @@ class PlanningIntegratedWrapperCompositionTests(unittest.TestCase):
                 install_runtime_planning_contracts,
             )
 
+            adaptive_available = (
+                importlib.util.find_spec("isco_video_agent.adaptive_outline_contract")
+                is not None
+            )
+            if adaptive_available:
+                from isco_video_agent import adaptive_outline_contract as engine_adaptive
+                from scripts import planning_outline_adaptive_sharding as adaptive
+
             observed = []
+            skeleton = [
+                {"id": f"s{i}", "purpose": f"غرض القسم {i}", "arc_position": i}
+                for i in range(1, 9)
+            ]
+            briefs = [
+                {
+                    "id": item["id"],
+                    "purpose": item["purpose"],
+                    "visual_query": "quiet room",
+                    "on_screen_text": "نص",
+                    "emotion": "calm",
+                    "expected_seconds": 30,
+                }
+                for item in skeleton
+            ]
 
             def engine_outline(api_key, **kwargs):
                 first = staged.json_text(api_key, "CORE REQUEST", model=kwargs["model"])
                 second = staged.json_text(api_key, "SECTIONS REQUEST", model=kwargs["model"])
+                if adaptive_available:
+                    merged = dict(first)
+                    merged.update(second)
+                    return merged
                 return {"core": first, "sections": second}
 
-            # Install around the same two-call Engine topology Production uses while
-            # keeping this probe provider-free and independent of model output quality.
             staged._outline = engine_outline
             router.CACHE_PATH = Path(os.environ["ISCO_TEST_TMP"]) / "planning-checkpoint.json"
             install_entrypoint_planning_contracts()
             install_runtime_planning_contracts()
             install_post_runtime_planning_contracts()
 
-            assert getattr(staged.json_text, split._SPLIT_JSON_MARKER, False)
+            if adaptive_available:
+                assert getattr(staged.json_text, adaptive._ADAPTIVE_JSON_MARKER, False)
+            else:
+                assert getattr(staged.json_text, split._SPLIT_JSON_MARKER, False)
             assert getattr(
                 production_contract.certify_planning_handoff,
                 "_isco_exact_plan_projection_v1",
@@ -536,7 +557,33 @@ class PlanningIntegratedWrapperCompositionTests(unittest.TestCase):
                         "max_output_tokens": kwargs.get("max_output_tokens"),
                     }
                 )
-                return {}
+                if not adaptive_available:
+                    return {}
+                if contract.stage_id == "planning.editorial_outline_core":
+                    return {
+                        "pillar": "understand",
+                        "hook": "hook",
+                        "title_options": ["a", "b", "c"],
+                        "thumbnail_concepts": ["a", "b", "c"],
+                        "cta": "cta",
+                        "closing_payoff": "payoff",
+                        "narrative_format": next(iter(staged._NARRATIVE_FORMATS)),
+                        "opener_variant": "fresh opener",
+                        "closer_variant": "fresh closer",
+                        "transition_variants": ["t1", "t2", "t3"],
+                        "editorial_intent": {
+                            "editorial_thesis": "thesis",
+                            "viewer_starting_belief": "belief",
+                            "hidden_assumption": "assumption",
+                            "editorial_turn": "turn",
+                            "stakes": "stakes",
+                            "viewer_promise": "promise",
+                            "evidence_boundaries": ["boundary"],
+                            "earned_payoff": "earned",
+                        },
+                        engine_adaptive.GLOBAL_SECTION_SKELETON_FIELD: skeleton,
+                    }
+                return {"section_briefs": briefs}
 
             router.gemini_json_text = fake_gemini
             stage.validate_response = lambda contract, data: data
@@ -554,7 +601,6 @@ class PlanningIntegratedWrapperCompositionTests(unittest.TestCase):
                 revision_note="",
             )
 
-            assert result == {"core": {}, "sections": {}}
             assert [item["stage_id"] for item in observed] == [
                 "planning.editorial_outline_core",
                 "planning.editorial_outline_sections",
@@ -565,10 +611,22 @@ class PlanningIntegratedWrapperCompositionTests(unittest.TestCase):
             assert _VISIBLE_MARKER in core["prompt"]
             assert split.LOCKED_PREMISE_BUDGET_MARKER in core["prompt"]
             assert sections["properties"] == {"section_briefs"}
-            assert _VISIBLE_MARKER not in sections["prompt"]
             assert split.LOCKED_PREMISE_BUDGET_MARKER not in sections["prompt"]
-            assert core["max_output_tokens"] == split._GEMINI_COMPLETION_TOKENS
-            assert sections["max_output_tokens"] == split._GEMINI_COMPLETION_TOKENS
+
+            if adaptive_available:
+                assert engine_adaptive.GLOBAL_SECTION_SKELETON_FIELD in core["properties"]
+                assert engine_adaptive.GLOBAL_SECTION_SKELETON_MARKER in core["prompt"]
+                assert engine_adaptive.SECTION_SHARD_MARKER in sections["prompt"]
+                assert [item["id"] for item in result["section_briefs"]] == [
+                    f"s{i}" for i in range(1, 9)
+                ]
+                assert core["max_output_tokens"] == split._GEMINI_COMPLETION_TOKENS
+                assert sections["max_output_tokens"] == 3600
+            else:
+                assert result == {"core": {}, "sections": {}}
+                assert _VISIBLE_MARKER not in sections["prompt"]
+                assert core["max_output_tokens"] == split._GEMINI_COMPLETION_TOKENS
+                assert sections["max_output_tokens"] == split._GEMINI_COMPLETION_TOKENS
             """
         )
 
