@@ -47,12 +47,44 @@ _COMPACT_QUESTION_ANSWER_PROVIDER_RULE = (
     "do not collapse to metadata-only FAQ. Each exchange advances the argument."
 )
 
+# The Engine Core prompt deliberately repeats a few lifecycle facts in prose. Once the
+# exact Stage schema, locked-premise budget, and Global Skeleton contract are visible,
+# those repetitions spend TPM without adding provider constraints. Compact only these
+# exact canonical fragments. If Engine wording drifts, a replacement simply stops
+# matching and the existing preflight capacity gate fails closed rather than deleting
+# unknown text. Standalone preflight and live runtime both call this same projection.
+_CORE_PROMPT_COMPACTIONS = (
+    (
+        "Create ONLY the editorial premise and identity for this episode. Do not write section\n"
+        "content or narration yet - the section-by-section breakdown is a separate follow-up\n"
+        "request that will receive your locked narrative_format and editorial_intent as fixed\n"
+        "context, so make them concrete and unambiguous enough to brief a second writer who will\n"
+        "never see this reasoning.",
+        "Create ONLY episode premise/identity; no section content/narration yet. "
+        "Lock narrative_format+editorial_intent concretely for the section writer.",
+    ),
+    (
+        " sections in that follow-up request; keep\n"
+        "pillar, hook, title_options, thumbnail_concepts, cta and closing_payoff scoped to a premise\n"
+        "that can be fulfilled across that many sections - neither thinner nor more sprawling.",
+        " sections; scope all Core fields to that size.",
+    ),
+    (
+        "The section purposes written\n"
+        "in the follow-up request must also stay truthful to this same editorial_intent and narrative_format.",
+        "Section purposes stay truthful to the same editorial_intent+narrative_format.",
+    ),
+)
+
 
 def _compact_provider_prompt(prompt: str) -> str:
-    return str(prompt).replace(
+    compact = str(prompt).replace(
         _QUESTION_ANSWER_RUNTIME_RULE,
         _COMPACT_QUESTION_ANSWER_PROVIDER_RULE,
     )
+    for verbose, concise in _CORE_PROMPT_COMPACTIONS:
+        compact = compact.replace(verbose, concise)
+    return compact
 
 
 def _has_pillar_field(owner: object) -> bool:

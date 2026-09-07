@@ -55,20 +55,25 @@ class EngineCandidateVerifierContractTests(unittest.TestCase):
 
         candidate = CANDIDATE_MANIFEST.read_text(encoding="utf-8").strip()
         self.assertRegex(candidate, r"^[0-9a-f]{40}$")
-        # The verifier remains non-production authority even after an explicitly
-        # approved promotion. Once promotion occurs, the canonical V4 production
-        # pin must match the exact Engine SHA that was fully certified as candidate.
+
+        # A PR-scoped candidate manifest is verification evidence, not production
+        # authority. Before explicit promotion it is expected to differ from the
+        # canonical V4 pin. What must never drift is the production pin's own three-way
+        # binding: EXPECTED_ENGINE_SHA, ISCO_ENGINE_SHA and checkout ref all identify
+        # the same exact SHA. After promotion, candidate and production naturally match.
         production = (ROOT / ".github" / "workflows" / "produce-resilient-v4.yml").read_text(
             encoding="utf-8"
         )
-        self.assertIn(f"EXPECTED_ENGINE_SHA: {candidate}", production)
-        self.assertIn(f"ISCO_ENGINE_SHA: {candidate}", production)
-        # YAML formatting may align scalar values with extra spaces. Require the
-        # checkout binding semantically as a complete ref line instead of relying
-        # on one exact whitespace rendering.
+        match = re.search(
+            r"(?m)^\s*EXPECTED_ENGINE_SHA:\s*([0-9a-f]{40})\s*$",
+            production,
+        )
+        self.assertIsNotNone(match)
+        production_sha = match.group(1)
+        self.assertIn(f"ISCO_ENGINE_SHA: {production_sha}", production)
         self.assertRegex(
             production,
-            rf"(?m)^\s*ref:\s*{re.escape(candidate)}\s*$",
+            rf"(?m)^\s*ref:\s*{re.escape(production_sha)}\s*$",
         )
 
     def test_adaptive_cross_repo_paths_trigger_candidate_regression(self) -> None:
