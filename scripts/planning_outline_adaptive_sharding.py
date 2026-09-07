@@ -210,6 +210,12 @@ def _sections_stage_spec(
             stage_contract.OUTLINE_MAX_TOTAL_ATTEMPTS if root else SHARD_MAX_TOTAL_ATTEMPTS
         ),
         second_pass_after_full_exhaustion=root,
+        # Preserve the established provider asymmetry from split v2: Groq's reserve is
+        # deliberately constrained by its shared 8K TPM window, while Gemini previously
+        # proved it needs 2x completion headroom to avoid truncating valid Film output.
+        # Scaling both sides by shard size keeps that protection without increasing
+        # Groq TPM pressure or changing the #579 rolling-window recovery contract.
+        completion_tokens_by_provider=(("gemini", completion_tokens * 2),),
     )
     purpose_by_id = {item["id"]: item["purpose"] for item in skeleton}
     return stage_contract.PlanningStageSpec(
