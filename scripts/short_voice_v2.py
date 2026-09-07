@@ -13,23 +13,21 @@ from isco_video_agent.media.ffmpeg import duration, measure_audio_loudness, prob
 from isco_video_agent.tts_budget import TtsBudget, TtsCircuit
 
 from scripts.short_cinematic_director import apply_short_sfx, upgrade_short_cinematic
+from scripts.short_editorial_craft_contract import ShortEditorialCraftError, template_voice_mode
 from scripts.short_voice_feasibility import RUNTIME_MAX_SPEED, build_voice_projection
 from scripts.voice_mesh import consume_voice_provenance
 
 
-VOICE_MODE_BY_TEMPLATE = {
-    "why_reframe": "hybrid",
-    "inner_dialogue": "voice_led",
-    "micro_story": "voice_led",
-    "quote_reflection": "hybrid",
-}
 MIX_DURATION_TOLERANCE_SECONDS = 0.15
 
 
 def decide_voice_mode(template: str) -> str:
+    """Delegate to short_editorial_craft_contract's single source of truth for the
+    template->voice_mode mapping - producer_quality_contract's Planning-time duration
+    pre-flight check needs the exact same mapping, and duplicating it risked drift."""
     try:
-        return VOICE_MODE_BY_TEMPLATE[str(template).strip()]
-    except KeyError as exc:
+        return template_voice_mode(template)
+    except ShortEditorialCraftError as exc:
         raise RuntimeError("Short Voice V2 received unsupported template") from exc
 
 
