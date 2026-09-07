@@ -75,6 +75,17 @@ def _normalize_asset_map(value: object) -> dict[str, dict[str, Any]]:
     return normalized
 
 
+def _assert_release_candidate_identity(manifest: dict[str, Any], release_tag: str) -> None:
+    """Bind terminal Delivery truth to the candidate namespace reviewed before Release."""
+    candidate = str(manifest.get("release_candidate_tag") or "").strip()
+    requested = str(release_tag or "").strip()
+    if candidate and requested and candidate != requested:
+        raise RuntimeError(
+            "Delivery release candidate identity does not match the completed Release transaction: "
+            f"candidate={candidate} released={requested}"
+        )
+
+
 def require_staged_delivery_manifest(path: Path) -> dict[str, Any]:
     manifest = _read_object(path)
     if manifest.get("schema_version") != 2:
@@ -158,6 +169,7 @@ def seal_delivery_acceptance(
         raise RuntimeError("Delivery acceptance target SHA must be an exact 40-character commit SHA")
 
     manifest = require_staged_delivery_manifest(delivery_manifest)
+    _assert_release_candidate_identity(manifest, release_tag)
     receipt = _read_object(release_receipt)
     journal = _read_object(release_journal)
 

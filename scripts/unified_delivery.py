@@ -53,6 +53,30 @@ def _request_summary(request: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _production_release_tag(production: dict[str, Any]) -> str | None:
+    value = str(production.get("release_tag") or "").strip()
+    return value or None
+
+
+def _assert_release_candidate_identity(production: dict[str, Any], release_tag: str | None) -> None:
+    """Keep Production and staged Delivery bound to one candidate Release identity.
+
+    The production manifest is written against the exact reviewed final bytes. A
+    non-empty release tag there is therefore authoritative provenance for the staged
+    candidate namespace. Legacy/local fixtures may omit it, but a conflicting tag is
+    never silently rewritten by Delivery.
+    """
+    candidate_tag = str(release_tag or "").strip()
+    if not candidate_tag:
+        return
+    production_tag = _production_release_tag(production)
+    if production_tag and production_tag != candidate_tag:
+        raise RuntimeError(
+            "Release candidate identity mismatch between production-manifest.json and Delivery: "
+            f"production={production_tag} delivery={candidate_tag}"
+        )
+
+
 def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if short_assets and not 2 <= len(short_assets) <= 3:
         raise RuntimeError("Unified long-form delivery must contain 2–3 sibling Shorts")
@@ -125,6 +149,7 @@ def build_delivery_manifest(
     plan = _read_object(root / "plan.json")
     quality = _read_object(root / "quality-final.json")
     production = _read_object(root / "production-manifest.json")
+    _assert_release_candidate_identity(production, release_tag)
     packaging = _read_object(root / "thumbnail-plan.json", required=False)
     final = root / "final.mp4"
     if not final.is_file():
@@ -236,6 +261,7 @@ def finalize_release_manifest(path: Path, *, repository: str, release_tag: str) 
     evidence outrun the GitHub Release boundary. Terminal ``released`` truth belongs to
     the completed Release transaction / durable receipt and delivery.acceptance.v2.
     """
+    path = Path(path)
     manifest = _read_object(path)
     if manifest.get("release_state") != "staged":
         raise RuntimeError("Delivery manifest must remain staged before the Release transaction")
@@ -243,14 +269,23 @@ def finalize_release_manifest(path: Path, *, repository: str, release_tag: str) 
     repo = str(repository or "").strip()
     if not tag or not repo:
         raise RuntimeError("Release candidate identity is incomplete")
+    existing_candidate = str(manifest.get("release_candidate_tag") or "").strip()
+    if existing_candidate and existing_candidate != tag:
+        raise RuntimeError(
+            "Delivery manifest release candidate changed during finalization: "
+            f"existing={existing_candidate} requested={tag}"
+        )
+    production = _read_object(path.parent / "production-manifest.json", required=False)
+    if production:
+        _assert_release_candidate_identity(production, tag)
     manifest["release_state"] = "staged"
     manifest["release_tag"] = None
     manifest["delivery_url"] = None
     manifest["release_candidate_tag"] = tag
     manifest["release_candidate_url"] = f"https://github.com/{repo}/releases/tag/{tag}"
     manifest["publication_performed"] = False
-    Path(path).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    return Path(path)
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
 
 
 def main() -> None:
