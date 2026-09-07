@@ -28,7 +28,7 @@ from scripts.planning_batch_hardening import install_planning_batch_hardening
 from scripts.planning_capacity_headroom import install_planning_capacity_headroom
 from scripts.planning_capacity_profile import install_planning_capacity_profile
 from scripts.planning_legacy_authority_guard import install_legacy_planning_authority_guard
-from scripts.planning_outline_split_contract import install_planning_outline_split_contract
+from scripts.planning_outline_adaptive_sharding import install_planning_outline_adaptive_sharding
 from scripts.planning_production_contract_v2 import install_planning_production_contract_v2
 from scripts.planning_provider_visible_semantics import install_planning_provider_visible_semantics
 from scripts.planning_stage_contract import (
@@ -198,10 +198,9 @@ def install_post_runtime_planning_contracts() -> None:
     # certifies exact plan.json lineage immediately before P2/P3 can begin. Keeping it
     # here avoids introducing a competing provider/router/cache owner.
     install_planning_production_contract_v2()
-    # The pinned Engine splits long-form outline transport into Core and Section Briefs.
-    # This adapter must be the final planning wrapper: it establishes the exact substage
-    # before provider-visible semantics inspect it, and it wraps the final F23 handoff
-    # owner with exact plan.json equivalence. Retry/failover remains owned solely by the
-    # explicit Stage Contract router, so wrapper composition cannot create a second
-    # retry layer.
-    install_planning_outline_split_contract()
+    # The pinned Engine still presents the same two-task long-form seam.  This final
+    # adapter augments Core with the compact Global Skeleton and adaptively shards only
+    # a certified failed Sections request; retry/failover remains solely owned by the
+    # explicit Stage Contract router and the global provider-attempt ceiling is
+    # fail-closed.
+    install_planning_outline_adaptive_sharding()
