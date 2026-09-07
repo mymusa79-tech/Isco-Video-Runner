@@ -15,6 +15,13 @@ def _skeleton() -> list[dict]:
     ]
 
 
+def _sections_base(count: int = 8) -> str:
+    return (
+        f"Required number of sections: exactly {count}.\n"
+        f"section_briefs (exactly {count})."
+    )
+
+
 def _payload_for_active_spec(skeleton: list[dict]) -> dict:
     spec = stage_contract._ACTIVE_STAGE_SPEC.get()
     assert spec is not None
@@ -127,7 +134,7 @@ class AdaptiveOutlineShardingTests(unittest.TestCase):
             fake_json,
             api_key="k",
             model="m",
-            base_prompt="BASE",
+            base_prompt=_sections_base(),
             state=state,
             requested_ids=all_ids,
             root=True,
@@ -158,7 +165,7 @@ class AdaptiveOutlineShardingTests(unittest.TestCase):
             fake_json,
             api_key="k",
             model="m",
-            base_prompt="BASE",
+            base_prompt=_sections_base(),
             state=state,
             requested_ids=all_ids,
             root=True,
@@ -193,7 +200,7 @@ class AdaptiveOutlineShardingTests(unittest.TestCase):
             fake_json,
             api_key="k",
             model="m",
-            base_prompt="BASE",
+            base_prompt=_sections_base(),
             state=state,
             requested_ids=all_ids,
             root=True,
@@ -229,7 +236,7 @@ class AdaptiveOutlineShardingTests(unittest.TestCase):
                 fake_json,
                 api_key="k",
                 model="m",
-                base_prompt="BASE",
+                base_prompt=_sections_base(),
                 state=state,
                 requested_ids=all_ids,
                 root=True,
