@@ -2,11 +2,10 @@ from __future__ import annotations
 
 """Fail-closed post-render checkpoint for temporary Gold Vision provider exhaustion.
 
-The checkpoint never authorizes release.  It records that the exact rendered bytes had
+The checkpoint never authorizes release. It records that the exact rendered bytes had
 already passed Final Master Acceptance before the Gold provider mesh became unavailable.
-The normal durable render cache remains the byte owner across reruns; this document is
-the exact provenance/control-plane evidence required to prove that a later retry refers
-to the same final render rather than silently accepting different bytes.
+Only the explicit VisionProviderMeshUnavailableError taxonomy is eligible; similarly
+worded runtime errors are never promoted to a resumable state.
 """
 
 import hashlib
@@ -16,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.final_master_acceptance_v2 import require_final_master_acceptance
+from scripts import vision_stage_contract_v2 as vision_contract
 
 
 CONTRACT_ID = "gold.qc-pending.v1"
@@ -32,12 +32,7 @@ def _sha256_file(path: Path) -> str:
 
 
 def _is_gold_vision_mesh_exhaustion(exc: BaseException) -> bool:
-    if type(exc).__name__ == "VisionProviderMeshUnavailableError":
-        return True
-    text = str(exc or "").casefold()
-    return "visionprovidermeshunavailableerror" in text or (
-        "gold" in text and "vision" in text and "provider" in text and "mesh" in text
-    )
+    return isinstance(exc, vision_contract.legacy.VisionProviderMeshUnavailableError)
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -49,7 +44,7 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 
 def capture_qc_pending_checkpoint(output_dir: Path, exc: BaseException) -> dict[str, Any] | None:
-    """Write a pending marker only for provider exhaustion after exact Final QC PASS."""
+    """Write a pending marker only for exact provider-mesh exhaustion after Final QC PASS."""
     if not _is_gold_vision_mesh_exhaustion(exc):
         return None
     root = Path(output_dir)
@@ -58,8 +53,6 @@ def capture_qc_pending_checkpoint(output_dir: Path, exc: BaseException) -> dict[
     if not final_path.is_file() or not qc_path.is_file():
         return None
 
-    # This is intentionally stronger than trusting `status: pass`: the acceptance helper
-    # verifies the final-file hash and its upstream evidence contract.
     acceptance = require_final_master_acceptance(root)
     acceptance_contract = acceptance.get("acceptance_contract") or {}
     sources = acceptance_contract.get("sources") or {}
@@ -101,6 +94,7 @@ def capture_qc_pending_checkpoint(output_dir: Path, exc: BaseException) -> dict[
         "runner_sha": str(os.environ.get("GITHUB_SHA") or "").strip() or None,
         "engine_sha": str(os.environ.get("ISCO_ENGINE_SHA") or "").strip() or None,
         "failure_type": type(exc).__name__,
+        "failure_taxonomy": "VisionProviderMeshUnavailableError",
         "retry_policy": {
             "rerender_required": False,
             "gold_revalidation_required": True,
@@ -110,9 +104,6 @@ def capture_qc_pending_checkpoint(output_dir: Path, exc: BaseException) -> dict[
     path = root / FILENAME
     path.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # The diagnostics artifact already uploads this file on every production failure.
-    # Embed the marker there too so current workflows preserve QC_PENDING evidence even
-    # before a dedicated Gold-only resume workflow is introduced.
     diagnostics_path = root / "production-failure-diagnostics.json"
     diagnostics = _read_json(diagnostics_path)
     if diagnostics is not None:
@@ -134,6 +125,8 @@ def verify_qc_pending_checkpoint(output_dir: Path) -> dict[str, Any]:
         raise RuntimeError("QC_PENDING checkpoint missing or invalid")
     if document.get("release_allowed") is not False:
         raise RuntimeError("QC_PENDING checkpoint cannot authorize release")
+    if document.get("failure_taxonomy") != "VisionProviderMeshUnavailableError":
+        raise RuntimeError("QC_PENDING checkpoint has unsupported failure taxonomy")
     final_path = root / str((document.get("final") or {}).get("file") or "final.mp4")
     if not final_path.is_file():
         raise RuntimeError("QC_PENDING final render missing")
