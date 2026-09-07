@@ -30,6 +30,7 @@ _PLATFORM_ACTION_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     "comment": (
         re.compile(r"\bعل[ّ]?ق\b", re.IGNORECASE),
         re.compile(r"\b(?:اكتب|اكتبي|اكتبوا)\b.{0,28}\b(?:تعليق|التعليقات)\b", re.IGNORECASE),
+        re.compile(r"\b(?:اترك|اتركي|اتركوا|ضع|ضعي|ضعوا)\b.{0,28}\b(?:تعليق(?:ًا|ا)?|التعليقات)\b", re.IGNORECASE),
         re.compile(r"\bcomment\b", re.IGNORECASE),
     ),
     "share": (
@@ -317,10 +318,12 @@ def require_short_retention_contract(
                 "new_visual_ai_calls": 0,
             },
         }
+        root.mkdir(parents=True, exist_ok=True)
         (root / REPORT_FILENAME).write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         raise
+    root.mkdir(parents=True, exist_ok=True)
     (root / REPORT_FILENAME).write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )
