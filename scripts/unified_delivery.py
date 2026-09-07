@@ -53,6 +53,35 @@ def _request_summary(request: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _production_release_tag(production: dict[str, Any]) -> str | None:
+    value = str(production.get("release_tag") or "").strip()
+    return value or None
+
+
+def _assert_release_candidate_identity(
+    production: dict[str, Any],
+    release_tag: str | None,
+) -> None:
+    """Keep staged Delivery on the exact release identity chosen before packaging.
+
+    ``production-manifest.json`` is written against the accepted final bytes. Telegram
+    ingress may bind those bytes to a deterministic request-scoped tag, while manual V4
+    uses ``video-<run_number>``. Once that manifest carries a tag, later Delivery staging
+    must never silently switch to another candidate namespace. A missing production tag
+    remains compatible with legacy/local fixtures; terminal ``released`` authority is
+    still owned exclusively by release_transaction + delivery.acceptance.v2.
+    """
+    candidate = str(release_tag or "").strip()
+    if not candidate:
+        return
+    production_tag = _production_release_tag(production)
+    if production_tag and production_tag != candidate:
+        raise RuntimeError(
+            "Release candidate identity mismatch between production-manifest.json and Delivery: "
+            f"production={production_tag} delivery={candidate}"
+        )
+
+
 def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if short_assets and not 2 <= len(short_assets) <= 3:
         raise RuntimeError("Unified long-form delivery must contain 2–3 sibling Shorts")
@@ -136,8 +165,11 @@ def build_delivery_manifest(
     final_master_qc_path = root / "final-master-qc.json"
     final_master_qc_identity = _file_identity(final_master_qc_path)
 
+    candidate_tag = str(release_tag or "").strip() or None
+    _assert_release_candidate_identity(production, candidate_tag)
+
     fmt = str(plan.get("format") or quality.get("format") or production.get("format") or "")
-    kind = "short" if fmt == "moment" or str(release_tag or "").startswith("short-") else "long"
+    kind = "short" if fmt == "moment" or str(candidate_tag or "").startswith("short-") else "long"
 
     title_thumbnail_pairs: list[dict[str, Any]] = []
     raw_candidates = packaging.get("candidates") if isinstance(packaging, dict) else None
@@ -159,7 +191,6 @@ def build_delivery_manifest(
             )
 
     shorts = _validate_short_assets(root, list(short_assets or []))
-    candidate_tag = str(release_tag or "").strip() or None
     candidate_url = f"https://github.com/{repository}/releases/tag/{candidate_tag}" if candidate_tag else None
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
@@ -236,6 +267,7 @@ def finalize_release_manifest(path: Path, *, repository: str, release_tag: str) 
     evidence outrun the GitHub Release boundary. Terminal ``released`` truth belongs to
     the completed Release transaction / durable receipt and delivery.acceptance.v2.
     """
+    path = Path(path)
     manifest = _read_object(path)
     if manifest.get("release_state") != "staged":
         raise RuntimeError("Delivery manifest must remain staged before the Release transaction")
@@ -243,14 +275,22 @@ def finalize_release_manifest(path: Path, *, repository: str, release_tag: str) 
     repo = str(repository or "").strip()
     if not tag or not repo:
         raise RuntimeError("Release candidate identity is incomplete")
+    production = _read_object(path.parent / "production-manifest.json", required=False)
+    _assert_release_candidate_identity(production, tag)
+    existing_candidate = str(manifest.get("release_candidate_tag") or "").strip()
+    if existing_candidate and existing_candidate != tag:
+        raise RuntimeError(
+            "Delivery manifest release candidate changed during finalization: "
+            f"existing={existing_candidate} requested={tag}"
+        )
     manifest["release_state"] = "staged"
     manifest["release_tag"] = None
     manifest["delivery_url"] = None
     manifest["release_candidate_tag"] = tag
     manifest["release_candidate_url"] = f"https://github.com/{repo}/releases/tag/{tag}"
     manifest["publication_performed"] = False
-    Path(path).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    return Path(path)
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
 
 
 def main() -> None:
