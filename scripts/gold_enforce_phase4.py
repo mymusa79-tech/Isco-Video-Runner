@@ -28,6 +28,7 @@ from scripts.packaging_delivery_contract import (
     seal_gold_packaging_acceptance,
 )
 from scripts.run123_budget_closure import enforcing_final_critic_as_p0
+from scripts.viewer_quality_contract_v1 import enforce_viewer_quality_contract
 
 
 def _sha256_file(path: Path) -> str:
@@ -83,6 +84,17 @@ def _augment_rights_budget_aware(output_dir: Path, package: dict) -> dict:
     return rights
 
 
+def _read_viewer_quality_report(output_dir: Path) -> dict | None:
+    path = Path(output_dir) / "viewer-quality-contract.json"
+    if not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def run_gold_enforce_phase4(
     *,
     output_dir: Path,
@@ -91,7 +103,14 @@ def run_gold_enforce_phase4(
     ledger: BudgetLedger,
     pixabay: str | None = None,
 ) -> tuple[object, dict, dict]:
-    """Enforce Gold over the same exact P4-certified render and seal the reviewed package."""
+    """Enforce Gold over the same P4-certified render and accept state only last.
+
+    The enforcing Gold critic runs first. Viewer Quality then evaluates the exact same
+    final bytes before packaging is sealed and before ``mark_production_accepted`` can
+    mutate history. Any Viewer Quality failure therefore flows through the existing Gold
+    rejection cleanup in ``finalize_gold_output`` instead of creating an accepted-but-
+    unreleasable production state.
+    """
     output_dir = Path(output_dir)
     final_path = output_dir / "final.mp4"
     if not final_path.is_file():
@@ -132,7 +151,20 @@ def run_gold_enforce_phase4(
             )
         critic_box["critic"] = critic
         if _sha256_file(final_path) != final_sha_before:
-            raise RuntimeError("Gold enforcement detected final.mp4 mutation before state acceptance")
+            raise RuntimeError("Gold enforcement detected final.mp4 mutation before Viewer Quality")
+
+        plan = kwargs.get("plan")
+        fmt = str(getattr(plan, "format", "") or "").strip().lower()
+        if not fmt:
+            raise RuntimeError("Gold enforcement lost format before Viewer Quality")
+        enforce_viewer_quality_contract(
+            output_dir,
+            fmt=fmt,
+            critic=critic,
+        )
+        if _sha256_file(final_path) != final_sha_before:
+            raise RuntimeError("Viewer Quality mutated final.mp4 before state acceptance")
+
         packaging_acceptance_box["acceptance"] = seal_gold_packaging_acceptance(
             output_dir,
             critic=critic,
@@ -181,8 +213,9 @@ def run_gold_enforce_phase4(
             certificate_sha256 = gold_packaging_acceptance_sha256(output_dir)
         except Exception:
             certificate_sha256 = None
+    viewer_quality = _read_viewer_quality_report(output_dir)
     report = {
-        "schema_version": 3,
+        "schema_version": 4,
         "phase": "4",
         "mode": "enforce",
         "release_authority": "gold",
@@ -202,6 +235,16 @@ def run_gold_enforce_phase4(
                 else None
             ),
         },
+        "viewer_quality": {
+            "required": True,
+            "present": isinstance(viewer_quality, dict),
+            "contract_id": viewer_quality.get("contract_id") if isinstance(viewer_quality, dict) else None,
+            "verdict": viewer_quality.get("verdict") if isinstance(viewer_quality, dict) else None,
+            "score_10": viewer_quality.get("viewer_score_10") if isinstance(viewer_quality, dict) else None,
+            "minimum_score_10": viewer_quality.get("minimum_viewer_score_10") if isinstance(viewer_quality, dict) else None,
+            "release_profile": viewer_quality.get("release_profile") if isinstance(viewer_quality, dict) else None,
+            "evaluated_before_packaging_and_state_acceptance": True,
+        },
         "packaging_acceptance": {
             "required": True,
             "present": isinstance(packaging_acceptance, dict),
@@ -218,6 +261,7 @@ def run_gold_enforce_phase4(
             "certificate_file": ACCEPTANCE_FILENAME,
             "certificate_sha256": certificate_sha256,
             "embedded_certificate": packaging_acceptance if isinstance(packaging_acceptance, dict) else None,
+            "sealed_after_viewer_quality": True,
             "sealed_before_state_acceptance": True,
         },
         "same_render": {
@@ -236,6 +280,7 @@ def run_gold_enforce_phase4(
             "before": state_before,
             "after": state_after,
             "mutation_expected_on_success": True,
+            "acceptance_is_terminal_mutation": True,
             "failure_cleanup_expected": error is not None,
         },
         "budget": {
@@ -264,6 +309,8 @@ def run_gold_enforce_phase4(
         raise error
     if final_sha_after != final_sha_before:
         raise RuntimeError("Gold enforcement final.mp4 invariant failed after acceptance")
+    if not isinstance(viewer_quality, dict) or viewer_quality.get("verdict") != "pass":
+        raise RuntimeError("Gold enforcement Viewer Quality evidence missing after acceptance")
     if certificate_sha256 is None:
         raise RuntimeError("Gold enforcement packaging acceptance certificate is missing after acceptance")
     return plan, critic, report
