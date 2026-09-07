@@ -14,7 +14,8 @@ from isco_video_agent.tts_budget import TtsBudget, TtsCircuit
 
 from scripts import short_editorial_craft_contract as craft
 from scripts import short_voice_v2
-from scripts.short_cinematic_director import apply_short_sfx, upgrade_short_cinematic
+from scripts.short_cinematic_director import apply_short_sfx
+from scripts.short_human_editorial_montage import upgrade_short_cinematic
 from scripts.short_voice_v2 import (
     _final_duration,
     _has_audio,
