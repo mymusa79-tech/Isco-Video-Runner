@@ -27,6 +27,7 @@ def _install_v5_after_active() -> None:
         from scripts import telegram_creator_control_center_v5 as creator_v5
         from scripts import telegram_long_format_policy as long_format_policy
         from scripts import telegram_operator_mission_control as operator_mission_control
+        from scripts import telegram_scope_first_modern as scope_first
         from scripts import telegram_session_continuity as session_continuity
 
         creator_v5.install()
@@ -41,6 +42,10 @@ def _install_v5_after_active() -> None:
         # the final approval owner so a live webhook approval cannot bypass
         # ``long -> auto -> film/story`` or the canonical research-pack contract.
         long_format_policy.install(panel=core.panel)
+        # Scope-first is installed over the final webhook handler/poll owners. It
+        # only binds research intent and translates a scoped pick into the existing
+        # canonical scope: callback; Production authority remains unchanged.
+        scope_first.install(panel=core.panel, creator_v5=creator_v5)
 
     core.active._install = install_with_v5
     core.active._isco_v5_replay_hooked = True
@@ -134,6 +139,7 @@ def _durable_pending_research_exists() -> bool:
 def replay_update(state_path, update):
     _install_v5_after_active()
     from scripts import telegram_creator_control_center_v5 as creator_v5
+    from scripts import telegram_scope_first_modern as scope_first
 
     # Direct adapter callers use this wrapper rather than core.main(). Keep the same
     # pre-replay state migration that the CLI path performs below.
@@ -143,6 +149,17 @@ def replay_update(state_path, update):
         from scripts.telegram_used_history_reconcile import reconcile_file
 
         reconcile_file(durable_path)
+        # webhook_replay_core injects the received update and then calls active._poll
+        # directly, bypassing panel.poll wrappers. Translate only this authenticated
+        # update before replay so scoped sessions reach the existing canonical scope:
+        # branch without changing update_id/idempotency or any approval authority.
+        rewritten = scope_first._rewrite_scoped_picks(
+            core.panel,
+            core.panel.load_state(durable_path),
+            [update],
+        )
+        if isinstance(rewritten, list) and rewritten:
+            update = rewritten[0]
 
     # The replay core substitutes getUpdates with the already-authorized webhook
     # update. Preserve that callback's message identity as a class-level fallback

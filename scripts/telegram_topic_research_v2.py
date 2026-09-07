@@ -104,6 +104,7 @@ def main() -> None:
     from scripts import telegram_operator_mission_control as operator_mission_control
     from scripts import telegram_persistent_control_ui as persistent_ui
     from scripts import telegram_rich_integration as rich_integration
+    from scripts import telegram_scope_first_modern as scope_first
     from scripts import telegram_session_continuity as session_continuity
 
     persistent_ui.install()
@@ -134,6 +135,10 @@ def main() -> None:
     # Long approvals from the legacy UI default to `auto`, re-hashes that immutable
     # request, and leaves Shorts plus explicit human format locks unchanged.
     long_format_policy.install(panel=core.panel)
+    # Scope-first is presentation/editorial intent only. Install it over the final
+    # V5 handler/poll/research owners so webhook replay and fallback polling share
+    # exactly one scope-binding policy while canonical scope: approval stays intact.
+    scope_first.install(panel=core.panel, creator_v5=creator_v5, research_core=core)
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     core.memory_ui._require_poll_identity(mode)
     if _claim_pending_scheduler_retry_without_polling(mode):

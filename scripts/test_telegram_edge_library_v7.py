@@ -51,6 +51,15 @@ class TelegramEdgeLibraryV7Tests(unittest.TestCase):
         self.assertIn("showUsedMenu(env", self.text)
         self.assertIn("showUsedPage(env", self.text)
 
+    def test_scope_first_search_is_edge_local_but_stateful_actions_fall_through(self):
+        self.assertIn('value === "cmd:search_menu"', self.text)
+        self.assertIn("showScopeSearch(env", self.text)
+        for callback in ("cmd:topic_bundle", "cmd:topic_long", "cmd:short"):
+            self.assertIn(callback, self.text)
+        self.assertNotIn('value === "cmd:topic_bundle"', self.text)
+        self.assertNotIn('value === "cmd:topic_long"', self.text)
+        self.assertIn('kind === "long" ? "cmd:search_menu" : "cmd:short"', self.text)
+
     def test_saved_pick_remains_stateful_and_is_not_executed_at_edge(self):
         self.assertIn("cmd:savedpick-", self.text)
         self.assertNotIn('value.startsWith("cmd:savedpick-")', self.text)

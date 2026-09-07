@@ -170,6 +170,25 @@ function pageNumber(value, pages) {
   return Math.min(Math.max(number, 0), Math.max(0, pages - 1));
 }
 
+async function showScopeSearch(env, target) {
+  const text = [
+    "🔎 بحث جديد",
+    "",
+    "اختر النتيجة التي تريدها قبل البحث:",
+    "🎬➕⚡ حلقة + Shorts — الفكرة المختارة تُعتمد مع 2–3 Shorts مختلفة حسب المادة.",
+    "🎬 حلقة فقط — الفكرة المختارة تُعتمد كحلقة فقط.",
+    "⚡ Short فقط — بحث Short مستقل.",
+    "",
+    "هذا يحدد نطاق القرار فقط؛ لا يبدأ Production.",
+  ].join("\n");
+  await updatePanel(env, target, text, [
+    [{ text: "🎬➕⚡ حلقة + Shorts", callback_data: "cmd:topic_bundle" }],
+    [{ text: "🎬 حلقة فقط", callback_data: "cmd:topic_long" }],
+    [{ text: "⚡ Short فقط", callback_data: "cmd:short" }],
+    [{ text: "↩️ الرئيسية", callback_data: "cmd:menu" }],
+  ]);
+}
+
 async function showSavedMenu(env, target, state) {
   const longCount = savedItems(state, "long").length;
   const shortCount = savedItems(state, "short").length;
@@ -210,7 +229,7 @@ async function showSavedPage(env, target, state, kind, requestedPage) {
   const [icon, label] = formatLabel(kind);
   const items = savedItems(state, kind);
   if (!items.length) {
-    const searchCallback = kind === "long" ? "cmd:topic" : "cmd:short";
+    const searchCallback = kind === "long" ? "cmd:search_menu" : "cmd:short";
     const searchLabel = kind === "long" ? "🎬 بحث حلقة" : "⚡ بحث شورت";
     await updatePanel(env, target, `📚 المحفوظة — ${icon} ${label}\n\nلا توجد مواضيع ${label} محفوظة حاليًا.`, [
       [{ text: searchLabel, callback_data: searchCallback }],
@@ -278,6 +297,7 @@ async function showUsedPage(env, target, state, kind, requestedPage) {
 
 function libraryRoute(data) {
   const value = String(data || "");
+  if (value === "cmd:search_menu") return { kind: "scope_search", format: "", page: 0 };
   if (value === "cmd:saved") return { kind: "saved_menu", format: "", page: 0 };
   if (value === "cmd:used") return { kind: "used_menu", format: "", page: 0 };
   let match = /^cmd:saved-(long|short)(?:-page-(\d+))?$/.exec(value);
@@ -288,6 +308,7 @@ function libraryRoute(data) {
 }
 
 async function handleLibraryRoute(env, target, route) {
+  if (route.kind === "scope_search") return showScopeSearch(env, target);
   const state = await controlState(env);
   if (route.kind === "saved_menu") return showSavedMenu(env, target, state);
   if (route.kind === "used_menu") return showUsedMenu(env, target, state);
@@ -317,12 +338,12 @@ export default {
     if (!route) return priorWorker.fetch(request, env, ctx);
 
     ctx.waitUntil((async () => {
-      await ack(env, target.callbackId, "⚡ أفتح القائمة مباشرة…");
+      await ack(env, target.callbackId, route.kind === "scope_search" ? "🔎 اختر نطاق البحث…" : "⚡ أفتح القائمة مباشرة…");
       try {
         await handleLibraryRoute(env, target, route);
       } catch (error) {
-        console.error("Telegram Edge library read failed", String((error && error.message) || error || "unknown"));
-        await updatePanel(env, target, "⚠️ تعذر فتح مكتبة المواضيع الآن. لم يتغير أي اختيار أو Production Run.", [
+        console.error("Telegram Edge library/search read failed", String((error && error.message) || error || "unknown"));
+        await updatePanel(env, target, "⚠️ تعذر فتح هذه القراءة الآن. لم يتغير أي اختيار أو Production Run.", [
           [{ text: "↩️ المواضيع", callback_data: "cmd:library_menu" }],
           [{ text: "🏠 الرئيسية", callback_data: "cmd:menu" }],
         ]);
