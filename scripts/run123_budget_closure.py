@@ -6,7 +6,7 @@ from typing import Iterator
 
 import isco_video_agent.ai_budget as ai_budget
 import isco_video_agent.production_pipeline as production_pipeline
-from isco_video_agent.ai_budget import BudgetLedger, Priority
+from isco_video_agent.ai_budget import BudgetLedger, Capability, Priority
 from isco_video_agent.visual_selection import MAX_VISION_REVIEWS_PER_SECTION
 
 
@@ -148,7 +148,13 @@ assert SUCCESSFUL_ATTEMPT_ENVELOPES["story"].to_dict() == {
 
 
 def install_run123_budget_closure() -> None:
-    """Install the recalculated production envelope before BudgetLedger construction."""
+    """Install the recalculated production envelope before BudgetLedger construction.
+
+    The Final-Critic wrapper is certified on every install call before provider work.
+    This catches Engine/Runner call-shape drift (for example a newly added keyword such
+    as task_prefix) in milliseconds instead of after Vision/TTS/render expenditure.
+    """
+    certify_enforcing_final_critic_p0_contract()
     if getattr(ai_budget, "_ISCO_RUN123_BUDGET_CLOSURE_INSTALLED", False):
         return
 
@@ -197,14 +203,77 @@ def enforcing_final_critic_as_p0() -> Iterator[None]:
     Observe-only/shadow critics retain their historical P2 semantics. The Runner calls
     this context only around release_mode="enforce", where a missing critic cannot be
     treated as an optional enhancement: it is the authoritative final release gate.
+
+    Keep this wrapper call-compatible with Engine._final_critic_spec. Explicit keyword
+    forwarding is intentional: swallowing unknown kwargs would hide future contract
+    drift, while the early certification below turns such drift into a fail-fast error.
     """
     original = production_pipeline._final_critic_spec
 
-    def p0_spec(task_id: str, capability):
-        return replace(original(task_id, capability), priority=Priority.P0)
+    def p0_spec(
+        task_id: str,
+        capability: Capability,
+        *,
+        task_prefix: str = "",
+        task_kind: str = "FINAL_CRITIC",
+    ):
+        return replace(
+            original(
+                task_id,
+                capability,
+                task_prefix=task_prefix,
+                task_kind=task_kind,
+            ),
+            priority=Priority.P0,
+        )
 
     production_pipeline._final_critic_spec = p0_spec
     try:
         yield
     finally:
         production_pipeline._final_critic_spec = original
+
+
+def certify_enforcing_final_critic_p0_contract() -> dict[str, object]:
+    """Provider-free probe of the exact enforced Gold Final-Critic call shape.
+
+    This deliberately executes only TaskSpec construction. It does not touch Gemini,
+    Vision, FFmpeg, TTS, files, or the ledger, so it is safe at process bootstrap.
+    """
+    original = production_pipeline._final_critic_spec
+    try:
+        with enforcing_final_critic_as_p0():
+            probe = production_pipeline._final_critic_spec(
+                "FINAL_CRITIC_CONTRACT_PROBE",
+                Capability.TEXT,
+                task_prefix="GOLD_",
+                task_kind="GOLD_FINAL_CRITIC",
+            )
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "FINAL_CRITIC_P0_CALL_CONTRACT_MISMATCH "
+            f"detail={type(exc).__name__}: {exc}"
+        ) from exc
+
+    if production_pipeline._final_critic_spec is not original:
+        raise RuntimeError("FINAL_CRITIC_P0_PATCH_RESTORE_MISMATCH")
+    if probe.task_id != "GOLD_FINAL_CRITIC_CONTRACT_PROBE":
+        raise RuntimeError(
+            "FINAL_CRITIC_P0_SEMANTIC_CONTRACT_MISMATCH target=task_prefix"
+        )
+    if probe.kind != "GOLD_FINAL_CRITIC":
+        raise RuntimeError(
+            "FINAL_CRITIC_P0_SEMANTIC_CONTRACT_MISMATCH target=task_kind"
+        )
+    if probe.priority is not Priority.P0:
+        raise RuntimeError(
+            "FINAL_CRITIC_P0_SEMANTIC_CONTRACT_MISMATCH target=priority"
+        )
+
+    return {
+        "status": "pass",
+        "task_prefix_forwarded": True,
+        "task_kind_forwarded": True,
+        "priority": "P0",
+        "provider_calls": 0,
+    }
