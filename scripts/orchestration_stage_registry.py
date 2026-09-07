@@ -412,7 +412,7 @@ def certified_non_planning_contracts() -> tuple[StageContract, ...]:
             evidence_schema="MediaEvidenceV1",
             adapter_id="media-runtime-port-v1",
             source_path="scripts/orchestration_media_port.py",
-            source_sha="cfafbe33cc1ca5db92a74c2087156851b6ced731",
+            source_sha="dca6c60613235fd28327e1609ab6b12c17590087",
         ),
         _contract(
             stage_id="cinematic",
