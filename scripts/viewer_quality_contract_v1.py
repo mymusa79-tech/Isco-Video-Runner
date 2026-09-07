@@ -3,7 +3,7 @@ from __future__ import annotations
 """Deterministic viewer-quality release envelope for canonical V4 outputs.
 
 This contract adds no model calls. It composes evidence already paid for by the
-pipeline: Final Master QC, audio/A-V measurements, accepted visual audits, short
+pipeline: Final Master QC, audio/A-V measurements, final-cut visual audits, short
 cinematic pacing when applicable, and the enforcing Gold critic result.
 
 The score is a 0-10 engineering release-confidence score, not a human MOS and not a
@@ -14,7 +14,7 @@ state acceptance; it never mutates final.mp4 or publication state.
 
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 CONTRACT_ID = "viewer-quality.v1"
@@ -54,65 +54,74 @@ def _release_profile(root: Path, fmt: str) -> str:
     return "standalone_short"
 
 
-def _accepted_visual_records(root: Path) -> list[dict[str, Any]]:
+def _final_cut_visual_records(root: Path) -> list[dict[str, Any]]:
+    """Return only visual evidence that actually survived into the final cut.
+
+    ``visual-audit.json`` is the canonical final-release visual evidence used by the
+    Engine Final Critic. It contains both forensic candidate history and final-cut
+    selections, so a generic ``status == pass`` filter would let rejected historical
+    candidates inflate the release score. Keep the exact same authority boundary as
+    the Final Critic: one selected section audit plus explicitly marked final-cut
+    opening auxiliaries. Long multi-shot sections are represented by their selected
+    composite audit whose relevance/quality floors are derived from every member.
+    """
+    path = root / "visual-audit.json"
+    if not path.is_file():
+        raise RuntimeError("Viewer Quality Contract requires visual-audit.json")
+    payload = _read_json(path)
+    if isinstance(payload, list):
+        items = payload
+    elif isinstance(payload, dict):
+        items = payload.get("audits") or payload.get("results") or payload.get("entries") or ()
+    else:
+        raise RuntimeError("Viewer Quality Contract requires visual-audit evidence array")
+
     records: list[dict[str, Any]] = []
-    for name in (
-        "visual-audit.json",
-        "short-cinematic-visual-audit.json",
-        "short-cinematic-visual-audit.partial.json",
-    ):
-        path = root / name
-        if not path.is_file():
+    for item in items:
+        if not isinstance(item, dict):
             continue
+        if item.get("is_selected") is not True and item.get("is_final_cut_auxiliary") is not True:
+            continue
+        if str(item.get("status") or "").lower() != "pass":
+            raise RuntimeError("Viewer Quality Contract final-cut visual evidence did not pass")
         try:
-            payload = _read_json(path)
-        except Exception:
-            continue
-        items: Iterable[Any]
-        if isinstance(payload, list):
-            items = payload
-        elif isinstance(payload, dict):
-            items = payload.get("audits") or payload.get("results") or payload.get("entries") or ()
-        else:
-            items = ()
-        for item in items:
-            if not isinstance(item, dict) or str(item.get("status") or "").lower() != "pass":
-                continue
-            try:
-                relevance = float(item.get("relevance"))
-                quality = float(item.get("visual_quality"))
-            except (TypeError, ValueError):
-                continue
-            if not (0.0 <= relevance <= 1.0 and 0.0 <= quality <= 1.0):
-                continue
-            records.append(
-                {
-                    "source": name,
-                    "provider": item.get("provider"),
-                    "candidate_id": item.get("candidate_id"),
-                    "relevance": relevance,
-                    "visual_quality": quality,
-                    "semantic_floor": min(relevance, quality),
-                }
-            )
+            relevance = float(item.get("relevance"))
+            quality = float(item.get("visual_quality"))
+        except (TypeError, ValueError):
+            raise RuntimeError("Viewer Quality Contract final-cut visual evidence lacks scores")
+        if not (0.0 <= relevance <= 1.0 and 0.0 <= quality <= 1.0):
+            raise RuntimeError("Viewer Quality Contract final-cut visual scores are out of range")
+        records.append(
+            {
+                "source": "visual-audit.json",
+                "section": item.get("section"),
+                "provider": item.get("provider"),
+                "candidate_id": item.get("candidate_id"),
+                "is_section_sequence": item.get("is_section_sequence") is True,
+                "sequence_member_count": item.get("sequence_member_count"),
+                "relevance": relevance,
+                "visual_quality": quality,
+                "semantic_floor": min(relevance, quality),
+            }
+        )
     return records
 
 
 def _visual_score(records: list[dict[str, Any]]) -> tuple[float, dict[str, Any]]:
     if not records:
-        raise RuntimeError("Viewer Quality Contract requires accepted visual-audit evidence")
+        raise RuntimeError("Viewer Quality Contract requires final-cut visual-audit evidence")
     semantic = [float(item["semantic_floor"]) for item in records]
     mean = sum(semantic) / len(semantic)
     weakest = min(semantic)
     score = _bounded(10.0 * mean)
     return score, {
-        "accepted_records": len(records),
+        "final_cut_records": len(records),
         "semantic_mean": round(mean, 4),
         "semantic_min": round(weakest, 4),
         "score_10": round(score, 3),
         "minimum_required_score_10": MIN_VISUAL_SEMANTIC_SCORE,
         "weakest_final_visual_floor": 0.80,
-        "coverage_semantics": "accepted_audit_records_only_v1",
+        "coverage_semantics": "canonical_final_cut_selected_audits_only_v2",
         "pass": score >= MIN_VISUAL_SEMANTIC_SCORE and weakest >= 0.80,
     }
 
@@ -233,7 +242,7 @@ def enforce_viewer_quality_contract(
     profile = _release_profile(root, normalized_fmt)
     qc = _read_object(root / "final-master-qc.json")
     quality = _read_object(root / "quality-final.json")
-    visual_records = _accepted_visual_records(root)
+    visual_records = _final_cut_visual_records(root)
 
     technical_score, technical = _technical_score(qc, quality)
     visual_score, visual = _visual_score(visual_records)
