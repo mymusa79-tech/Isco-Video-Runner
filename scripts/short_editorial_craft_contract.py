@@ -95,13 +95,15 @@ def craft_writing_directive(requested_format: object = "") -> str:
         return short_writing_directive()
     if fmt in {"film", "story"}:
         return long_writing_directive()
-    # Compatibility for callers/tests that do not yet provide format explicitly.
-    return f"{short_writing_directive()} {long_writing_directive()}"
+    # Unknown/legacy callers must not receive mutually unrelated Short+Long craft.
+    # The Producer's common deterministic guidance remains available, while live
+    # production always supplies the requested format before provider transport.
+    return ""
 
 
 def merge_craft_revision_note(existing: object, requested_format: object = "") -> str:
     prior = clean(existing)
     directive = craft_writing_directive(requested_format)
-    if directive in prior:
+    if not directive or directive in prior:
         return prior
     return f"{prior} {directive}" if prior else directive
