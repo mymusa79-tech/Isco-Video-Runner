@@ -243,7 +243,11 @@ def install(*, active, panel) -> None:
     if getattr(panel, "_isco_gold_resume_installed", False):
         return
     prior_handle = panel._handle_command
-    prior_poll = panel.poll
+    # webhook_replay_core invokes active._poll directly after active._install(), while
+    # fallback CLI paths invoke panel.poll. Wrap the canonical active owner and bind
+    # the same wrapper to both entrypoints so the authorization cannot disappear on
+    # webhook ingress.
+    prior_poll = active._poll
 
     def handle(kind, client, state, releases, chat_id):
         if isinstance(kind, str) and kind.startswith("goldresume-"):
@@ -309,5 +313,6 @@ def install(*, active, panel) -> None:
             panel._github_output(key, str(action.get(field) or "") if action else "")
 
     panel._handle_command = handle
+    active._poll = poll
     panel.poll = poll
     panel._isco_gold_resume_installed = True
