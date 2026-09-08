@@ -1,0 +1,470 @@
+name: Resume Audio QC Pending
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Exact failed Production V4 run id containing AUDIO_QC_PENDING"
+        required: true
+        type: string
+      source_run_attempt:
+        description: "Exact failed Production V4 run attempt"
+        required: true
+        type: string
+
+concurrency:
+  group: isco-video-resilient-v4
+  cancel-in-progress: false
+
+env:
+  EXPECTED_ENGINE_SHA: b42350e00e6038a2aa8b41871e8b4810709138f2
+
+jobs:
+  resume:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Checkout current Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify exact current certified resume runtime
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python scripts/production_certification_gate.py \
+            --output "$RUNNER_TEMP/audio-resume-runtime-certification.json"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Checkout current certified Engine pin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: b42350e00e6038a2aa8b41871e8b4810709138f2
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine pin
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_ENGINE_SHA"
+
+      - name: Install locked post-render runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg fonts-noto-core openssl unzip tesseract-ocr tesseract-ocr-ara
+          cd engine
+          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py lock --lock requirements-lock.txt
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+          cd ..
+          python -m pip install 'piper-tts==1.4.2'
+          mkdir -p "$RUNNER_TEMP/piper-voices"
+          for attempt in 1 2; do
+            if python -m piper.download_voices --data-dir "$RUNNER_TEMP/piper-voices" ar_JO-kareem-medium; then
+              break
+            fi
+            if [ "$attempt" -eq 2 ]; then exit 1; fi
+            sleep 4
+          done
+          test -f "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx"
+
+      - name: Resolve exact failed source run identity
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$SOURCE_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}")"
+          test "$(printf '%s' "$run" | jq -r '.run_attempt')" = "$SOURCE_RUN_ATTEMPT"
+          test "$(printf '%s' "$run" | jq -r '.path')" = '.github/workflows/produce-resilient-v4.yml'
+          test "$(printf '%s' "$run" | jq -r '.event')" = 'workflow_dispatch'
+          test "$(printf '%s' "$run" | jq -r '.head_branch')" = 'main'
+          test "$(printf '%s' "$run" | jq -r '.status')" = 'completed'
+          test "$(printf '%s' "$run" | jq -r '.conclusion')" = 'failure'
+          source_runner_sha="$(printf '%s' "$run" | jq -r '.head_sha')"
+          source_run_number="$(printf '%s' "$run" | jq -r '.run_number')"
+          [[ "$source_runner_sha" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$source_run_number" =~ ^[1-9][0-9]*$ ]]
+          echo "source_runner_sha=$source_runner_sha" >> "$GITHUB_OUTPUT"
+          echo "source_run_number=$source_run_number" >> "$GITHUB_OUTPUT"
+
+      - name: Certify historical protected-main source
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUNNER_SHA: ${{ steps.source.outputs.source_runner_sha }}
+        run: |
+          set -euo pipefail
+          python scripts/qc_pending_resume_source_gate.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-runner-sha "$SOURCE_RUNNER_SHA" \
+            --token "$GITHUB_TOKEN" \
+            --output "$RUNNER_TEMP/audio-resume-source-certification.json"
+
+      - name: Download exact failed diagnostics attempt
+        id: diagnostics
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          SOURCE_RUN_NUMBER: ${{ steps.source.outputs.source_run_number }}
+          SOURCE_RUNNER_SHA: ${{ steps.source.outputs.source_runner_sha }}
+        run: |
+          set -euo pipefail
+          json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100")"
+          name="isco-resilient-v4-diagnostics-${SOURCE_RUN_NUMBER}"
+          mapfile -t ids < <(printf '%s' "$json" | jq -r --arg name "$name" '.artifacts[] | select(.name == $name and .expired == false) | .id')
+          test "${#ids[@]}" -ge 1
+          matches=0
+          selected_id=''
+          selected_root=''
+          mkdir -p "$RUNNER_TEMP/audio-source-candidates"
+          for id in "${ids[@]}"; do
+            candidate="$RUNNER_TEMP/audio-source-candidates/$id"
+            mkdir -p "$candidate"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "$candidate.zip"
+            unzip -q "$candidate.zip" -d "$candidate"
+            while IFS= read -r checkpoint; do
+              [ -n "$checkpoint" ] || continue
+              run_id="$(jq -r '.source.run_id // empty' "$checkpoint")"
+              attempt="$(jq -r '.source.run_attempt // empty' "$checkpoint")"
+              runner_sha="$(jq -r '.source.runner_sha // empty' "$checkpoint")"
+              engine_sha="$(jq -r '.source.engine_sha // empty' "$checkpoint")"
+              status="$(jq -r '.status // empty' "$checkpoint")"
+              if [ "$run_id" = "$SOURCE_RUN_ID" ] && [ "$attempt" = "$SOURCE_RUN_ATTEMPT" ] && [ "$runner_sha" = "$SOURCE_RUNNER_SHA" ] && [ "$engine_sha" = "$EXPECTED_ENGINE_SHA" ] && [ "$status" = 'AUDIO_QC_PENDING_PROVIDER_AUDIT' ]; then
+                matches=$((matches + 1))
+                selected_id="$id"
+                selected_root="$(dirname "$checkpoint")"
+              fi
+            done < <(find "$candidate" -type f -name audio-qc-pending.json -print)
+          done
+          test "$matches" = "1"
+          test -n "$selected_id"
+          test -n "$selected_root"
+          echo "artifact_id=$selected_id" >> "$GITHUB_OUTPUT"
+          echo "source_output_dir=$selected_root" >> "$GITHUB_OUTPUT"
+
+      - name: Build and verify minimal Audio recovery bundle
+        id: bundle
+        env:
+          SOURCE_OUTPUT_DIR: ${{ steps.diagnostics.outputs.source_output_dir }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUNNER_SHA: ${{ steps.source.outputs.source_runner_sha }}
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/audio-qc-pending-bundle"
+          PYTHONPATH="${GITHUB_WORKSPACE}/engine/src:${GITHUB_WORKSPACE}" python scripts/audio_qc_pending_resume_bundle_v1.py build \
+            --output-dir "$SOURCE_OUTPUT_DIR" \
+            --bundle "$bundle" > "$RUNNER_TEMP/audio-resume-bundle-build.json"
+          PYTHONPATH="${GITHUB_WORKSPACE}/engine/src:${GITHUB_WORKSPACE}" python scripts/audio_qc_pending_resume_bundle_v1.py verify \
+            --bundle "$bundle" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --runner-sha "$SOURCE_RUNNER_SHA" \
+            --engine-sha "$EXPECTED_ENGINE_SHA" > "$RUNNER_TEMP/audio-resume-bundle-verify.json"
+          echo "bundle_dir=$bundle" >> "$GITHUB_OUTPUT"
+
+      - name: Restore original Engine output path
+        id: restore_bundle
+        env:
+          BUNDLE_DIR: ${{ steps.bundle.outputs.bundle_dir }}
+        run: |
+          set -euo pipefail
+          BUNDLE_DIR="$BUNDLE_DIR" python - <<'PY'
+          import json, os, shutil
+          from pathlib import Path
+          bundle = Path(os.environ['BUNDLE_DIR']).resolve()
+          manifest = json.loads((bundle / 'resume-manifest.json').read_text(encoding='utf-8'))
+          name = str((manifest.get('source') or {}).get('output_directory_name') or '').strip()
+          if not name or name in {'.', '..'} or '/' in name or '\\' in name:
+              raise SystemExit('Audio resume output directory name is unsafe')
+          dest = Path('engine/output') / name
+          if dest.exists():
+              raise SystemExit('Audio resume destination already exists')
+          dest.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copytree(bundle, dest)
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as fh:
+              fh.write(f"output_dir={dest.resolve()}\n")
+              fh.write(f"release_tag={manifest.get('release_tag') or ''}\n")
+              fh.write(f"final_sha256={manifest.get('final_sha256') or ''}\n")
+          PY
+
+      - name: Restore healthy encrypted cross-run memory
+        id: restore_memory
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/isco-state"
+          python scripts/persistent_memory.py restore \
+            --repo . \
+            --plain "$RUNNER_TEMP/isco-state/history.json" \
+            --branch agent-state \
+            --legacy-state state/history.json.enc \
+            --github-output "$GITHUB_OUTPUT"
+          test "$(sed -n 's/^save_allowed=//p' "$GITHUB_OUTPUT" | tail -n 1)" = "true"
+          test -f "$RUNNER_TEMP/isco-state/history.json"
+          chmod 600 "$RUNNER_TEMP/isco-state/history.json"
+
+      - name: Materialize one-time resume capabilities
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          test -n "$GROQ_API_KEY"
+          test -n "$OPENROUTER_API_KEY"
+          test -n "$PEXELS_API_KEY"
+          test -n "$PIXABAY_API_KEY"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/audio-resume-secrets"
+          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/audio-resume-secrets/gemini"
+          printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/audio-resume-secrets/groq"
+          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/audio-resume-secrets/openrouter"
+          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/audio-resume-secrets/pexels"
+          printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/audio-resume-secrets/pixabay"
+
+      - name: Consume the single Audio resume execution
+        id: consume_once
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_run_attempt }}
+          SOURCE_RUNNER_SHA: ${{ steps.source.outputs.source_runner_sha }}
+        run: |
+          set -euo pipefail
+          tag="audio-qc-resume-consumed-${SOURCE_RUN_ID}-${SOURCE_RUN_ATTEMPT}"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            echo "Audio QC resume was already consumed for this exact source attempt" >&2
+            exit 1
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${tag}" \
+            -f sha="$SOURCE_RUNNER_SHA" >/dev/null
+          echo "consumption_tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Execute bounded Audio resume over exact source final
+        id: resume_audio
+        env:
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/audio-resume-secrets/gemini
+          GROQ_API_KEY_FILE: ${{ runner.temp }}/audio-resume-secrets/groq
+          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/audio-resume-secrets/openrouter
+          PEXELS_API_KEY_FILE: ${{ runner.temp }}/audio-resume-secrets/pexels
+          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/audio-resume-secrets/pixabay
+          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
+          ISCO_ENGINE_SHA: b42350e00e6038a2aa8b41871e8b4810709138f2
+          GEMINI_CONTENT_MODEL: gemini-3.7-flash
+          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          OUTPUT_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_RUNNER_SHA: ${{ steps.source.outputs.source_runner_sha }}
+        run: |
+          set -euo pipefail
+          python scripts/resume_audio_qc_pending_v1.py \
+            --bundle "$OUTPUT_DIR" \
+            --durable-history "$RUNNER_TEMP/isco-state/history.json" \
+            --accepted-history-output "$RUNNER_TEMP/isco-state/history.accepted.json" \
+            --result "$RUNNER_TEMP/audio-resume-result.json" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-runner-sha "$SOURCE_RUNNER_SHA" \
+            --source-engine-sha "$EXPECTED_ENGINE_SHA" \
+            --runtime-runner-sha "$GITHUB_SHA" \
+            --runtime-engine-sha "$EXPECTED_ENGINE_SHA"
+
+      - name: Build chained Gold QC_PENDING bundle if Gold alone became unavailable
+        id: chained_gold
+        if: failure() && steps.resume_audio.outcome == 'failure'
+        env:
+          OUTPUT_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$OUTPUT_DIR/qc-pending.json" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          bundle="$RUNNER_TEMP/chained-gold-qc-pending"
+          PYTHONPATH="${GITHUB_WORKSPACE}/engine/src:${GITHUB_WORKSPACE}" python scripts/qc_pending_resume_bundle_v1.py build \
+            --output-dir "$OUTPUT_DIR" \
+            --bundle "$bundle" > "$RUNNER_TEMP/chained-gold-bundle-build.json"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "bundle_dir=$bundle" >> "$GITHUB_OUTPUT"
+
+      - name: Upload chained Gold recovery evidence
+        if: always() && steps.chained_gold.outputs.available == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: isco-gold-qc-pending-from-audio-${{ inputs.source_run_id }}-${{ inputs.source_run_attempt }}-${{ github.run_id }}
+          path: ${{ steps.chained_gold.outputs.bundle_dir }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Validate resumed exact bytes and release evidence
+        if: success()
+        env:
+          OUTPUT_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
+          EXPECTED_FINAL_SHA: ${{ steps.restore_bundle.outputs.final_sha256 }}
+        run: |
+          set -euo pipefail
+          OUTPUT_DIR="$OUTPUT_DIR" EXPECTED_FINAL_SHA="$EXPECTED_FINAL_SHA" python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ['OUTPUT_DIR'])
+          final = root / 'final.mp4'
+          digest = hashlib.sha256(final.read_bytes()).hexdigest()
+          if digest != os.environ['EXPECTED_FINAL_SHA']:
+              raise SystemExit('Audio resume mutated final.mp4')
+          audio = json.loads((root / 'audio-production-contract-v2.json').read_text(encoding='utf-8'))
+          master = json.loads((root / 'final-master-qc.json').read_text(encoding='utf-8'))
+          gold = json.loads((root / 'gold-enforce-report.json').read_text(encoding='utf-8'))
+          viewer = json.loads((root / 'viewer-quality-contract.json').read_text(encoding='utf-8'))
+          manifest = json.loads((root / 'production-manifest.json').read_text(encoding='utf-8'))
+          if audio.get('decision') != 'pass':
+              raise SystemExit('Audio resume lacks Audio Production V2 PASS')
+          if master.get('status') != 'pass' or master.get('final_media_mutated') is not False:
+              raise SystemExit('Audio resume lacks Final Master PASS')
+          if (gold.get('gold') or {}).get('accepted') is not True or viewer.get('verdict') != 'pass':
+              raise SystemExit('Audio resume lacks Gold/Viewer PASS')
+          if manifest.get('final_sha256') != digest:
+              raise SystemExit('Audio resume manifest final identity mismatch')
+          print(f'Audio resume validation PASS final_sha256={digest}')
+          PY
+
+      - name: Upload resumed delivery bundle
+        id: upload_resumed
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: isco-audio-resumed-${{ steps.restore_bundle.outputs.release_tag }}
+          path: |
+            ${{ steps.restore_bundle.outputs.output_dir }}/final.mp4
+            ${{ steps.restore_bundle.outputs.output_dir }}/quality-final.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/plan.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/audio-production-contract-v2.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/audio-semantic-integrity.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/final-master-qc.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/final-critic.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/viewer-quality-contract.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/gold-enforce-report.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/production-manifest.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/delivery-manifest.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/thumbnail-plan.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/thumbnail-*.jpg
+            ${{ steps.restore_bundle.outputs.output_dir }}/rights-manifest.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/short-*
+            ${{ steps.restore_bundle.outputs.output_dir }}/sibling-short-*.json
+            ${{ runner.temp }}/audio-resume-result.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Request existing delivery approval policy
+        id: publish_approval
+        if: success()
+        working-directory: engine
+        env:
+          REQUIRE_PUBLISH_APPROVAL: ${{ vars.REQUIRE_PUBLISH_APPROVAL || 'false' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_OUTBOX_REF: ${{ github.ref_name }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: python ../scripts/telegram_publish_gate.py
+
+      - name: Create GitHub Release from Audio-resumed reviewed bytes
+        id: create_release
+        if: success() && steps.publish_approval.outputs.effective_decision == 'approved'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTPUT_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
+          RELEASE_TAG: ${{ steps.restore_bundle.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_TAG"
+          if [ -f "$OUTPUT_DIR/delivery-manifest.json" ]; then
+            RELEASE_TAG="$RELEASE_TAG" OUTPUT_DIR="$OUTPUT_DIR" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.unified_delivery import finalize_release_manifest
+          finalize_release_manifest(
+              Path(os.environ['OUTPUT_DIR']) / 'delivery-manifest.json',
+              repository=os.environ['GITHUB_REPOSITORY'],
+              release_tag=os.environ['RELEASE_TAG'],
+          )
+          PY
+          fi
+          assets=(
+            "$OUTPUT_DIR/final.mp4"
+            "$OUTPUT_DIR/quality-final.json"
+            "$OUTPUT_DIR/plan.json"
+            "$OUTPUT_DIR/audio-production-contract-v2.json"
+            "$OUTPUT_DIR/final-master-qc.json"
+            "$OUTPUT_DIR/final-critic.json"
+            "$OUTPUT_DIR/viewer-quality-contract.json"
+            "$OUTPUT_DIR/production-manifest.json"
+            "$OUTPUT_DIR/gold-enforce-report.json"
+            "$OUTPUT_DIR/thumbnail-plan.json"
+            "$OUTPUT_DIR/thumbnail-1.jpg"
+            "$OUTPUT_DIR/thumbnail-2.jpg"
+            "$OUTPUT_DIR/thumbnail-3.jpg"
+            "$OUTPUT_DIR/rights-manifest.json"
+          )
+          [ -f "$OUTPUT_DIR/delivery-manifest.json" ] && assets+=("$OUTPUT_DIR/delivery-manifest.json")
+          for candidate in "$OUTPUT_DIR"/short-* "$OUTPUT_DIR"/sibling-short-*.json; do
+            [ -f "$candidate" ] && assets+=("$candidate")
+          done
+          cmd=(
+            python scripts/release_transaction.py
+            --repository "$GITHUB_REPOSITORY"
+            --tag "$RELEASE_TAG"
+            --target-sha "$GITHUB_SHA"
+            --title "Isco Audio-Resumed Bundle ${RELEASE_TAG}"
+            --notes "AUDIO_QC_PENDING recovered on exact parent bytes through current certified Audio/Final Master/Gold. YouTube publication remains manual."
+            --journal "$RUNNER_TEMP/audio-resume-release-transaction.json"
+          )
+          for asset in "${assets[@]}"; do test -f "$asset" && cmd+=(--asset "$asset"); done
+          "${cmd[@]}"
+
+      - name: Persist accepted cross-run memory after release success
+        id: persist_memory
+        if: steps.create_release.outcome == 'success' && steps.restore_memory.outputs.save_allowed == 'true'
+        run: |
+          set -euo pipefail
+          test -f "$RUNNER_TEMP/isco-state/history.accepted.json"
+          python scripts/persistent_memory.py encrypt \
+            --plain "$RUNNER_TEMP/isco-state/history.accepted.json" \
+            --encrypted "$RUNNER_TEMP/isco-state/history.accepted.json.enc"
+          git fetch --no-tags origin agent-state:refs/remotes/origin/agent-state || true
+          python scripts/state_persistence_strict.py \
+            --repo . \
+            --encrypted "$RUNNER_TEMP/isco-state/history.accepted.json.enc" \
+            --branch agent-state \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --report "$RUNNER_TEMP/audio-resume-state-persistence.json"
+
+      - name: Remove plaintext resume secrets and state
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/audio-resume-secrets" || true
+          rm -rf "$RUNNER_TEMP/isco-state" || true
+          rm -rf "$RUNNER_TEMP/piper-voices" || true
+          rm -rf "$RUNNER_TEMP/audio-source-candidates" || true
