@@ -84,15 +84,17 @@ def terminal_delivery_status(env: dict[str, str] | None = None) -> str:
     """Classify the user-visible terminal state by the durable delivery boundary.
 
     Once GitHub Release creation succeeded, a later state/notification housekeeping
-    failure must never be presented as if production itself failed. The Release is the
-    durable delivery boundary; later failures are degraded-success evidence that should
-    be repaired without re-running production.
+    failure must never be presented as if production itself failed. A durable
+    QC_PENDING state is likewise not a generic failure: the exact Final Master bytes
+    are retained, release stays blocked, and the only permitted continuation is Gold.
     """
     values = env if env is not None else os.environ
     job_status = str(values.get("JOB_STATUS") or "failure").strip().lower()
     release_outcome = str(values.get("CREATE_RELEASE_OUTCOME") or "").strip().lower()
     if release_outcome == "success":
         return "success" if job_status == "success" else "released_degraded"
+    if str(values.get("QC_PENDING_DURABLE") or "").strip().lower() == "true":
+        return "qc_pending"
     return "success" if job_status == "success" else "failure"
 
 
@@ -155,6 +157,18 @@ def build_failure_message(*, run_number: str, elapsed_seconds: int, env: dict[st
         duration=format_duration(elapsed_seconds),
         reason=reason,
         impact=failure_impact(stage),
+    )
+
+
+def build_qc_pending_message(*, run_number: str, elapsed_seconds: int) -> str:
+    return (
+        f"🟠 الإنتاج #{run_number} ينتظر Gold\n\n"
+        "✅ Final Master نجح، وتم حفظ نفس الفيديو وحزمة الاستئناف بأمان.\n"
+        "⏸️ توقف Gold فقط لأن مزوّدي Vision لم يكونوا متاحين.\n"
+        "🔒 لا نشر ولا Release قبل نجاح Gold.\n\n"
+        "اضغط «▶️ تابع Gold» لإعادة Gold فقط على نفس الفيديو؛ "
+        "لن يُعاد التخطيط أو البحث أو الصوت أو الرندر.\n\n"
+        f"المدة: {format_duration(elapsed_seconds)}"
     )
 
 
@@ -225,13 +239,19 @@ def terminal_keyboard(
     results_url: str = "",
     run_id: str = "",
     progress_message_id: str = "",
+    request_id: str = "",
 ) -> dict[str, list[list[dict[str, str]]]]:
     rows: list[list[dict[str, str]]] = []
     run_value = str(run_url or "").strip()
     results_value = str(results_url or "").strip()
     run_id_value = str(run_id or "").strip()
     message_id_value = str(progress_message_id or "").strip()
+    request_id_value = str(request_id or "").strip()
     release_ready = job_status in {"success", "released_degraded"}
+    if job_status == "qc_pending" and request_id_value:
+        callback = f"cmd:goldresume-{request_id_value}"
+        if len(callback.encode("utf-8")) <= 64:
+            rows.append([ops_ui.callback_button("▶️ تابع Gold", callback)])
     if run_id_value and message_id_value:
         try:
             details_data = ops_ui.operations_callback_data(ops_ui.ACTION_DETAILS, run_id_value, message_id_value)
@@ -270,8 +290,6 @@ def deliver_terminal_message(
         if _telegram_request(token, "editMessageText", edit_payload):
             print("TELEGRAM_TERMINAL_DELIVERY=edited")
             return True
-        # A terminal state is more important than preserving one-message aesthetics.
-        # Fall back exactly once so a stale lifecycle card cannot be the final visible state.
         print("Telegram notify: terminal edit failed; bounded sendMessage fallback")
         if _telegram_request(token, "sendMessage", base_payload):
             print("TELEGRAM_TERMINAL_DELIVERY=fallback_sent")
@@ -344,6 +362,8 @@ def main() -> int:
             request_path=runner_temp / "isco-request.json",
             additional_warning=released_degraded_warning(env) if terminal_status == "released_degraded" else "",
         )
+    elif terminal_status == "qc_pending":
+        text = build_qc_pending_message(run_number=run_number, elapsed_seconds=elapsed)
     else:
         text = build_failure_message(
             run_number=run_number,
@@ -366,6 +386,7 @@ def main() -> int:
         results_url=_results_url(env),
         run_id=str(env.get("GITHUB_RUN_ID") or "").strip(),
         progress_message_id=progress_message_id,
+        request_id=str(env.get("TELEGRAM_REQUEST_ID") or "").strip(),
     )
     delivered = deliver_terminal_message(
         token=token,
@@ -374,9 +395,6 @@ def main() -> int:
         progress_message_id=progress_message_id,
         reply_markup=keyboard,
     )
-    # The workflow step is continue-on-error. Returning non-zero therefore records
-    # notification delivery failure as an observable step outcome without changing
-    # the already-determined production result.
     return 0 if delivered else 1
 
 
