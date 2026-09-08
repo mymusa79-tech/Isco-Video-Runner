@@ -56,6 +56,7 @@ from scripts.planning_capacity_headroom import (  # noqa: E402
     groq_operational_headroom_tokens,
     worst_case_short_review_capacity,
 )
+from scripts.native_short_stage_contract import moment_stage_spec  # noqa: E402
 from scripts.planning_stage_contract import script_stage_spec  # noqa: E402
 from scripts.provider_capacity_hardening import (  # noqa: E402
     groq_capacity_estimate,
@@ -65,6 +66,7 @@ from scripts.provider_capacity_hardening import (  # noqa: E402
 
 P0_OUTLINE_MIN_PROVIDER_FAMILIES = 2
 P0_SHORT_MIN_PROVIDER_FAMILIES = 2
+_SHORT_STAGE_KINDS = ("short_draft", "short_review", "short_repair")
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,52 @@ def _require_provider_redundancy(
     return viable, families
 
 
+def _short_stage_provider_parity(
+    topic: object,
+    viable_families: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Intersect preflight readiness with the exact live Short Stage provider policies.
+
+    Run #227 made a global-readiness vs stage-route ambiguity visible: preflight certified
+    Gemini+Groq, while the terminal repair trace only showed the providers still admitted
+    at that later point in the run. The live Moment Stage Contract is the route authority,
+    so preflight must never count a provider family that Draft, Review, or Repair cannot
+    actually route. This check is static/provider-policy only; runtime circuits/cooldowns
+    remain dynamic and continue to fail closed.
+    """
+    normalized_topic = " ".join(str(topic or "").strip().split())
+    stage_routes: list[tuple[str, tuple[str, ...]]] = []
+    common: set[str] | None = None
+    for stage_kind in _SHORT_STAGE_KINDS:
+        spec = moment_stage_spec(stage_kind, normalized_topic)
+        families = tuple(viable_provider_families(list(spec.provider_policy.providers)))
+        stage_routes.append((stage_kind, families))
+        common = set(families) if common is None else common.intersection(families)
+
+    common = common or set()
+    effective = tuple(family for family in viable_families if family in common)
+    routes_text = ";".join(
+        f"{stage}={','.join(families) if families else 'none'}"
+        for stage, families in stage_routes
+    )
+    print(
+        "Short planning provider parity: "
+        f"preflight={','.join(viable_families) if viable_families else 'none'} "
+        f"common_stage_families={','.join(sorted(common)) if common else 'none'} "
+        f"effective={','.join(effective) if effective else 'none'} "
+        f"routes={routes_text}"
+    )
+    if len(effective) < P0_SHORT_MIN_PROVIDER_FAMILIES:
+        raise RuntimeError(
+            "SHORT_STAGE_PROVIDER_REDUNDANCY_REQUIRED "
+            f"viable_preflight={','.join(viable_families) if viable_families else 'none'} "
+            f"effective_stage_families={','.join(effective) if effective else 'none'} "
+            f"required_families={P0_SHORT_MIN_PROVIDER_FAMILIES} "
+            f"routes={routes_text}"
+        )
+    return effective
+
+
 def compose_short_production_revision(
     topic: object,
     research_context: dict | None,
@@ -168,6 +216,7 @@ def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCert
         phase="preproduction_short_envelope",
         required_families=P0_SHORT_MIN_PROVIDER_FAMILIES,
     )
+    families = _short_stage_provider_parity(topic, families)
 
     groq_limit = initial_capacity.get("provider_tpm_limit")
     raw_headroom = (
@@ -196,7 +245,8 @@ def _certify_short_envelope(brief: dict, research: dict) -> PlanningEnvelopeCert
         required_provider_families=P0_SHORT_MIN_PROVIDER_FAMILIES,
         runtime_token_admission=(
             "p0_two_provider_families+groq_operational_headroom+"
-            "format_native_short_envelope+single_reset_recovery"
+            "format_native_short_envelope+short_stage_provider_intersection+"
+            "single_reset_recovery"
         ),
     )
 
