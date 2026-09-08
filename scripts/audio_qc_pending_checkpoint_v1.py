@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from isco_video_agent.anti_repetition import load_history
+from isco_video_agent.brief_approval_binding import verify_brief_approval
 from isco_video_agent.production_pipeline import _output_key
 
 from scripts.audio_producer_final_certificate import require_audio_producer_certificate
@@ -163,6 +164,26 @@ def _approved_control_request_snapshot(control_path: str) -> dict[str, Any] | No
     return deepcopy(request)
 
 
+def _approved_brief_snapshot() -> tuple[dict[str, Any], str]:
+    raw_path = str(os.environ.get("ISCO_APPROVED_BRIEF_PATH") or "").strip()
+    approved_sha = str(os.environ.get("ISCO_APPROVED_BRIEF_SHA256") or "").strip().lower()
+    if not raw_path or not _SHA64.fullmatch(approved_sha):
+        raise AudioQCPendingCheckpointError("audio_qc_pending_manual_long_approved_brief_binding_missing")
+    path = Path(raw_path)
+    if not path.is_file():
+        raise AudioQCPendingCheckpointError("audio_qc_pending_manual_long_approved_brief_missing")
+    brief = _read_object(path)
+    if brief.get("approved_by_user") is not True:
+        raise AudioQCPendingCheckpointError("audio_qc_pending_manual_long_brief_not_user_approved")
+    try:
+        verified = str(verify_brief_approval(brief, approved_sha)).strip().lower()
+    except Exception as exc:
+        raise AudioQCPendingCheckpointError("audio_qc_pending_manual_long_brief_verification_failed") from exc
+    if verified != approved_sha:
+        raise AudioQCPendingCheckpointError("audio_qc_pending_manual_long_brief_hash_mismatch")
+    return deepcopy(brief), approved_sha
+
+
 def _attach_diagnostics_summary(root: Path, checkpoint: dict[str, Any]) -> None:
     path = root / "production-failure-diagnostics.json"
     if not path.is_file():
@@ -230,6 +251,11 @@ def capture_audio_qc_pending_checkpoint(
     control_path = str(os.environ.get("ISCO_CONTROL_REQUEST_PATH") or "").strip()
     control_request = _approved_control_request_snapshot(control_path)
     ingress = "telegram" if control_request is not None else "manual"
+    approved_brief: dict[str, Any] | None = None
+    approved_brief_sha256: str | None = None
+    if ingress == "manual" and fmt in {"film", "story"}:
+        approved_brief, approved_brief_sha256 = _approved_brief_snapshot()
+
     checkpoint = {
         "schema_version": SCHEMA_VERSION,
         "contract_id": CONTRACT_ID,
@@ -240,6 +266,8 @@ def capture_audio_qc_pending_checkpoint(
         "ingress": ingress,
         "release_tag": release_tag,
         "control_request": control_request,
+        "approved_brief": approved_brief,
+        "approved_brief_sha256": approved_brief_sha256,
         "source": source,
         "final": {
             "path": "final.mp4",
