@@ -21,6 +21,7 @@ from typing import Any, Iterator
 
 import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.ai_budget import BudgetLedger
+from isco_video_agent.brief_approval_binding import verify_brief_approval
 from isco_video_agent.config import secret
 from isco_video_agent.production_pipeline import _output_key
 
@@ -100,6 +101,35 @@ def _materialize_control_request(checkpoint: dict[str, Any], directory: Path) ->
         raise AudioQCPendingResumeError("audio_resume_control_request_not_user_approved")
     path = Path(directory) / "approved-control-request.json"
     path.write_text(json.dumps(request, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+    return path
+
+
+def _materialize_manual_approved_brief(checkpoint: dict[str, Any], directory: Path) -> Path | None:
+    ingress = str(checkpoint.get("ingress") or "").strip()
+    fmt = str(checkpoint.get("format") or "").strip().lower()
+    brief = checkpoint.get("approved_brief")
+    approved_sha = str(checkpoint.get("approved_brief_sha256") or "").strip().lower()
+    if ingress != "manual":
+        if brief is not None or approved_sha:
+            raise AudioQCPendingResumeError("audio_resume_telegram_checkpoint_contains_manual_brief")
+        return None
+    if fmt == "moment":
+        if brief is not None or approved_sha:
+            raise AudioQCPendingResumeError("audio_resume_manual_moment_unexpected_brief_snapshot")
+        return None
+    if fmt not in {"film", "story"} or not isinstance(brief, dict) or len(approved_sha) != 64:
+        raise AudioQCPendingResumeError("audio_resume_manual_long_approved_brief_missing")
+    if brief.get("approved_by_user") is not True:
+        raise AudioQCPendingResumeError("audio_resume_manual_long_brief_not_user_approved")
+    try:
+        verified = str(verify_brief_approval(brief, approved_sha)).strip().lower()
+    except Exception as exc:
+        raise AudioQCPendingResumeError("audio_resume_manual_long_brief_revalidation_failed") from exc
+    if verified != approved_sha:
+        raise AudioQCPendingResumeError("audio_resume_manual_long_brief_hash_mismatch")
+    path = Path(directory) / "approved-brief.json"
+    path.write_text(json.dumps(brief, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     path.chmod(0o600)
     return path
 
@@ -241,15 +271,23 @@ def execute_audio_resume(
     release_tag = str(manifest.get("release_tag") or checkpoint.get("release_tag") or "").strip()
     if not release_tag:
         raise AudioQCPendingResumeError("audio_resume_release_tag_missing")
-    control_request_path: Path | None
     with tempfile.TemporaryDirectory(prefix="isco-audio-resume-control-") as temp_dir:
-        control_request_path = _materialize_control_request(checkpoint, Path(temp_dir))
+        temporary_control_root = Path(temp_dir)
+        control_request_path = _materialize_control_request(checkpoint, temporary_control_root)
+        approved_brief_path = _materialize_manual_approved_brief(checkpoint, temporary_control_root)
         if control_request_path is None:
             # Manual production uses the same post-manifest canonical bundle wrapper as
-            # the normal V4 path.  Explicit activation is scoped to this already-Gold
-            # continuation and never enables orchestrator.produce().
+            # the normal V4 path. Explicit activation is scoped to this already-Gold
+            # continuation and never enables orchestrator.produce(). Long-form also gets
+            # the exact source Approved Brief rebound so sibling Shorts cannot drift.
             os.environ["ISCO_CANONICAL_V4_BUNDLE_ENABLED"] = "1"
             os.environ.pop("ISCO_CONTROL_REQUEST_ID", None)
+            if approved_brief_path is not None:
+                os.environ["ISCO_APPROVED_BRIEF_PATH"] = str(approved_brief_path)
+                os.environ["ISCO_APPROVED_BRIEF_SHA256"] = str(checkpoint["approved_brief_sha256"])
+            else:
+                os.environ.pop("ISCO_APPROVED_BRIEF_PATH", None)
+                os.environ.pop("ISCO_APPROVED_BRIEF_SHA256", None)
             run_post_gold_observers(root)
             production_manifest = _write_resume_production_manifest(
                 root,
@@ -263,18 +301,20 @@ def execute_audio_resume(
                 "status": "manual_delivery_staged" if delivery_path else "manual_release_evidence_ready",
                 "production_manifest": str(root / "production-manifest.json"),
                 "delivery_manifest": delivery_path,
+                "source_approved_brief_rebound": approved_brief_path is not None,
             }
         else:
             from scripts.finalize_gold_resume_delivery_v1 import finalize_after_gold_resume
 
             os.environ["ISCO_CONTROL_REQUEST_ID"] = str(checkpoint["control_request"].get("request_id") or "")
             continuation_result = root / "audio-resume-delivery-result.json"
+            child_runtime_root = Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / "isco-audio-resume-children"
             continuation = finalize_after_gold_resume(
                 output_dir=root,
                 request_path=control_request_path,
                 resume_manifest_path=root / "resume-manifest.json",
                 release_tag=release_tag,
-                runtime_root=runner_root,
+                runtime_root=child_runtime_root,
                 result_output=continuation_result,
             )
             production_manifest = _read_object(root / "production-manifest.json")
