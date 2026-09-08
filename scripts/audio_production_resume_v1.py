@@ -3,7 +3,7 @@ from __future__ import annotations
 """One bounded, approval-shopping-safe resume of Audio Production Contract V2.
 
 If a prior audit has one semantic review and one provider technical failure, only the
-failed independent provider is retried.  The semantic review is immutable evidence for
+failed independent provider is retried. The semantic review is immutable evidence for
 this recovery attempt; it is never re-rolled looking for a more convenient answer.
 If both prior providers failed technically, both may be attempted once in normal order.
 A newly confirmed second semantic review is terminal SEMANTIC_MISMATCH.
@@ -107,6 +107,7 @@ def resume_audio_production_contract_v2(
     extractor: Callable[[Path, Path], None] = contract.extract_final_audio,
     groq_transcriber: Callable[[Path], str] = contract._groq_transcribe,
     gemini_transcriber: Callable[[Path], str] = contract._gemini_transcribe,
+    max_provider_attempts: int = MAX_RESUME_PROVIDER_ATTEMPTS,
 ) -> dict[str, Any]:
     root = Path(output_dir)
     audit_path = root / contract.AUDIT_FILENAME
@@ -115,6 +116,15 @@ def resume_audio_production_contract_v2(
         raise AudioProductionResumeError("audio_resume_prior_contract_not_blocked_v2")
     if prior.get("error_code") != contract.AudioContractErrorCode.AUDIT_UNAVAILABLE.value:
         raise AudioProductionResumeError("audio_resume_prior_failure_not_audit_unavailable")
+
+    try:
+        bounded_max = int(max_provider_attempts)
+    except (TypeError, ValueError) as exc:
+        raise AudioProductionResumeError("audio_resume_provider_budget_invalid") from exc
+    if bounded_max < 0 or bounded_max > MAX_RESUME_PROVIDER_ATTEMPTS:
+        raise AudioProductionResumeError("audio_resume_provider_budget_out_of_range")
+    if bounded_max == 0:
+        raise AudioProductionResumeError("audio_resume_provider_budget_exhausted")
 
     final_path = root / "final.mp4"
     if not final_path.is_file() or final_path.stat().st_size <= 1024:
@@ -141,15 +151,18 @@ def resume_audio_production_contract_v2(
         raise AudioProductionResumeError("audio_resume_requires_prior_technical_failure")
 
     # When a semantic review already exists, it is frozen and only its failed independent
-    # counterpart may be retried.  With no semantic evidence yet, retry each technically
-    # failed provider at most once in canonical Groq -> Gemini order.
+    # counterpart may be retried. With no semantic evidence yet, retry each technically
+    # failed provider at most once in canonical Groq -> Gemini order. The caller may
+    # further reduce that count to the source video's inherited run-wide budget balance.
     if len(semantic) == 1:
         retry_order = [provider for provider in ("groq-whisper", "gemini-audio") if provider in technical]
         if len(retry_order) != 1:
             raise AudioProductionResumeError("audio_resume_independent_failed_provider_ambiguous")
     else:
         retry_order = [provider for provider in ("groq-whisper", "gemini-audio") if provider in technical]
-    retry_order = retry_order[:MAX_RESUME_PROVIDER_ATTEMPTS]
+    retry_order = retry_order[:bounded_max]
+    if not retry_order:
+        raise AudioProductionResumeError("audio_resume_provider_budget_exhausted")
 
     document = dict(prior)
     document["decision"] = "block"
@@ -159,7 +172,8 @@ def resume_audio_production_contract_v2(
         "approval_shopping_forbidden": True,
         "existing_semantic_review_is_immutable": bool(semantic),
         "retry_only_prior_technical_failure": True,
-        "max_provider_attempts_this_resume": MAX_RESUME_PROVIDER_ATTEMPTS,
+        "max_provider_attempts_this_resume": bounded_max,
+        "inherits_source_run_provider_budget": True,
     }
     document["resume_provider_attempts"] = 0
     latest = {provider: dict(item) for provider, item in prior_by_provider.items()}
