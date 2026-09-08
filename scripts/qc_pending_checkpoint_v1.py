@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any
 
 from scripts.final_master_acceptance_v2 import require_final_master_acceptance
-from scripts import vision_stage_contract_v2 as vision_contract
 
 
 CONTRACT_ID = "gold.qc-pending.v1"
@@ -48,6 +47,11 @@ def _canonical_sha256(value: object) -> str:
 
 
 def _is_gold_vision_mesh_exhaustion(exc: BaseException) -> bool:
+    # Keep the dependency lazy so read-only/research entrypoints that intentionally load
+    # only a reduced Runner surface do not acquire the production Vision stack merely by
+    # importing run_v3_voice. The runtime decision remains exact-type fail-closed.
+    from scripts import vision_stage_contract_v2 as vision_contract
+
     return isinstance(exc, vision_contract.legacy.VisionProviderMeshUnavailableError)
 
 
@@ -209,9 +213,9 @@ def verify_qc_pending_checkpoint(output_dir: Path) -> dict[str, Any]:
         raise RuntimeError("QC_PENDING final render missing")
     expected_final_sha = str((document.get("final") or {}).get("sha256") or "")
     if _sha256_file(final_path) != expected_final_sha:
-        raise RuntimeError("QC_PENDING final render hash mismatch")
+        raise RuntimeError("QC_PENDING hash mismatch: final.mp4")
     if final_path.stat().st_size != int((document.get("final") or {}).get("byte_length") or -1):
-        raise RuntimeError("QC_PENDING final render byte length mismatch")
+        raise RuntimeError("QC_PENDING byte length mismatch: final.mp4")
 
     acceptance = require_final_master_acceptance(root)
     acceptance_contract = acceptance.get("acceptance_contract") or {}
