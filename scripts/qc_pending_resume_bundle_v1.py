@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Persist and verify the exact-byte evidence needed to resume from Gold onward.
 
-The bundle never authorizes release by itself.  It preserves the already-rendered media,
+The bundle never authorizes release by itself. It preserves the already-rendered media,
 pre-Gold quality evidence and the minimum post-Gold inputs needed to finish the *same
 approved scope* without replanning, researching, retrieving media, resynthesizing the
 parent voice, or rerendering the parent final.
@@ -49,6 +49,15 @@ OPTIONAL_FILES = (
     "voice-identity-audit.json",
     "production-failure-diagnostics.json",
     "planning-telemetry.json",
+    # Chained Audio-QC -> Gold recovery evidence. These are optional so ordinary
+    # Run #225-style Gold checkpoints remain byte-for-byte compatible. When present,
+    # they preserve the first recovery's provenance/budget without changing Gold's
+    # release authority or required source contract.
+    "audio-qc-pending.json",
+    "audio-production-contract-v2.json",
+    "audio-semantic-resume-state.json",
+    "audio-resume-budget-envelope.json",
+    "ai-budget-audio-resume.json",
 )
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 _RUN_ID = re.compile(r"^[1-9][0-9]*$")

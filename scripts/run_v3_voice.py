@@ -11,6 +11,7 @@ from isco_video_agent.config import secret
 from isco_video_agent.text_audit_router import text_audit_circuit_scope
 from isco_video_agent.youtube_analytics import collect_latest_video_metrics_from_env
 from scripts.analytics_observer_status import observe_post_acceptance_analytics
+from scripts.audio_qc_pending_checkpoint_v1 import capture_audio_qc_pending_checkpoint
 from scripts.orchestration_qc_port import run_final_master_qc
 from scripts.director_phase_a_resilience import install_director_phase_a_resilience
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
@@ -319,10 +320,17 @@ def main() -> None:
             ledger=ledger,
         )
     except Exception as exc:
-        # Preserve the enforcing failure as the workflow result, but flush the exact
-        # same-ledger evidence and Voice Observer diagnostics first. No manifest,
-        # analytics, release, or accepted publication evidence is written on failure.
+        # Preserve the enforcing failure as the workflow result, but flush exact recovery
+        # evidence first. Audio unavailability and Gold Vision unavailability have
+        # separate typed checkpoint owners; neither promotes semantic quality failures.
         _write_failure_diagnostics_safely(out, exc)
+        try:
+            capture_audio_qc_pending_checkpoint(out, exc)
+        except Exception as checkpoint_exc:
+            print(
+                "AUDIO_QC_PENDING capture skipped without masking production failure "
+                f"({type(checkpoint_exc).__name__}: {str(checkpoint_exc)[:180]})"
+            )
         try:
             capture_qc_pending_checkpoint(out, exc)
         except Exception as checkpoint_exc:

@@ -543,6 +543,7 @@ jobs:
         with:
           name: isco-resilient-v4-diagnostics-${{ github.run_number }}
           path: |
+            engine/output/*/final.mp4
             engine/output/*/quality-final.json
             engine/output/*/quality-precheck.json
             engine/output/*/plan.json
@@ -550,6 +551,19 @@ jobs:
             engine/output/*/research.json
             engine/output/*/planning-telemetry.json
             engine/output/*/visual-audit.json
+            engine/output/*/factuality-audit.json
+            engine/output/*/content-quality-audit.json
+            engine/output/*/tone-quality-audit.json
+            engine/output/*/monetization-check.json
+            engine/output/*/audio-producer-repair.json
+            engine/output/*/audio-retention-qc.json
+            engine/output/*/audio-production-contract-v2.json
+            engine/output/*/audio-semantic-resume-state.json
+            engine/output/*/audio-qc-pending.json
+            engine/output/*/audio-mastering.json
+            engine/output/*/audio/*.wav
+            engine/output/*/narration.wav
+            engine/output/*/short-intelligence-pre-gold.json
             engine/output/*/short-cinematic-visual-audit.partial.json
             engine/output/*/short-visual-timeline.json
             engine/output/*/short-cinematic-v1/prepared/*.m8.json
