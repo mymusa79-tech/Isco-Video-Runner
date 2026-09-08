@@ -48,10 +48,32 @@ class AudioQCPendingWorkflowContractTests(unittest.TestCase):
         self.assertIn("--runtime-runner-sha \"$GITHUB_SHA\"", text)
         self.assertIn("--runtime-engine-sha \"$EXPECTED_ENGINE_SHA\"", text)
         self.assertIn("qc_pending_resume_bundle_v1.py build", text)
+        self.assertIn("--destination \"$bundle\"", text)
         self.assertIn("--target-sha \"$GITHUB_SHA\"", text)
         self.assertNotIn("run_v3_voice.py", text)
         self.assertNotIn("run_telegram_control_production.py", text)
         self.assertNotIn("orchestrator.produce", text)
+
+    def test_resume_workflow_retains_and_validates_inherited_budget_evidence(self) -> None:
+        text = RESUME_WORKFLOW.read_text(encoding="utf-8")
+        for value in (
+            "ai-budget.json",
+            "ai-budget-audio-resume.json",
+            "audio-resume-budget-envelope.json",
+            "source_budget_inherited",
+            "combined_provider_attempts_after_gold",
+            "Audio resume exceeded inherited provider hard cap",
+        ):
+            with self.subTest(value=value):
+                self.assertIn(value, text)
+
+    def test_memory_persistence_has_encryption_key_scope(self) -> None:
+        text = RESUME_WORKFLOW.read_text(encoding="utf-8")
+        marker = "- name: Persist accepted cross-run memory after release success"
+        start = text.index(marker)
+        block = text[start : start + 700]
+        self.assertIn("STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}", block)
+        self.assertIn("persistent_memory.py encrypt", block)
 
     def test_manual_long_brief_is_revalidated_and_materialized_only_for_continuation(self) -> None:
         brief = {
