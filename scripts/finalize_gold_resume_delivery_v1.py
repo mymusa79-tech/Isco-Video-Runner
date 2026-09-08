@@ -81,8 +81,29 @@ def _write_resume_production_manifest(
 ) -> dict[str, Any]:
     source_run_id = str(source.get("run_id") or "").strip()
     source_attempt = str(source.get("run_attempt") or "").strip()
+    source_runner_sha = str(source.get("runner_sha") or "").strip().lower()
+    source_engine_sha = str(source.get("engine_sha") or "").strip().lower()
     if not source_run_id or not source_attempt:
         raise RuntimeError("Post-Gold continuation lost source production identity")
+    if len(source_runner_sha) != 40 or any(ch not in "0123456789abcdef" for ch in source_runner_sha):
+        raise RuntimeError("Post-Gold continuation lost exact source Runner SHA")
+    if len(source_engine_sha) != 40 or any(ch not in "0123456789abcdef" for ch in source_engine_sha):
+        raise RuntimeError("Post-Gold continuation lost exact source Engine SHA")
+
+    # production-manifest.v1 has an implicit identity invariant on the ordinary path:
+    # production_id, github_run_id/attempt and Runner/Engine SHAs all describe the same
+    # production that created final.mp4. A Gold-only resume must preserve that historical
+    # identity at the top level; the current workflow is an acceptance execution, not a
+    # new media production. Keep its identity separately under resume_execution.
+    resume_execution = {
+        "run_id": str(os.environ.get("GITHUB_RUN_ID") or "").strip() or None,
+        "run_number": str(os.environ.get("GITHUB_RUN_NUMBER") or "").strip() or None,
+        "run_attempt": str(os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip() or None,
+        "runner_sha": str(os.environ.get("GITHUB_SHA") or "").strip().lower() or None,
+        "engine_sha": str(os.environ.get("ISCO_ENGINE_SHA") or "").strip().lower() or None,
+        "parent_media_rebuilt": False,
+    }
+
     old_tag = os.environ.get("ISCO_RELEASE_TAG_OVERRIDE")
     try:
         os.environ["ISCO_RELEASE_TAG_OVERRIDE"] = release_tag
@@ -96,18 +117,22 @@ def _write_resume_production_manifest(
             os.environ.pop("ISCO_RELEASE_TAG_OVERRIDE", None)
         else:
             os.environ["ISCO_RELEASE_TAG_OVERRIDE"] = old_tag
+
+    manifest["github_run_id"] = source_run_id
+    # The v2 resume bundle intentionally did not persist source run_number. Never copy
+    # the current resume run number into historical production provenance; release_tag is
+    # already explicitly bound to the original candidate by the resume authorization.
+    manifest["github_run_number"] = None
+    manifest["github_run_attempt"] = source_attempt
+    manifest["runner_sha"] = source_runner_sha
+    manifest["engine_sha"] = source_engine_sha
     manifest["resume_source"] = {
         "run_id": source_run_id,
         "run_attempt": source_attempt,
-        "runner_sha": str(source.get("runner_sha") or "").strip().lower() or None,
-        "engine_sha": str(source.get("engine_sha") or "").strip().lower() or None,
+        "runner_sha": source_runner_sha,
+        "engine_sha": source_engine_sha,
     }
-    manifest["resume_execution"] = {
-        "run_id": str(os.environ.get("GITHUB_RUN_ID") or "").strip() or None,
-        "runner_sha": str(os.environ.get("GITHUB_SHA") or "").strip().lower() or None,
-        "engine_sha": str(os.environ.get("ISCO_ENGINE_SHA") or "").strip().lower() or None,
-        "parent_media_rebuilt": False,
-    }
+    manifest["resume_execution"] = resume_execution
     (root / "production-manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
