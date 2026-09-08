@@ -52,7 +52,12 @@ class GoldPixabayBridgeTests(unittest.TestCase):
                     model="model",
                 )
                 self.assertEqual(package["status"], "ready")
-                critic = kwargs["run_final_critic"]()
+                critic = kwargs["run_final_critic"](
+                    output_dir=root,
+                    plan=fake_plan,
+                    gemini="g",
+                    content_model="model",
+                )
                 return fake_plan, critic
 
             def fake_seal(output_dir: Path, **_kwargs):
@@ -70,10 +75,32 @@ class GoldPixabayBridgeTests(unittest.TestCase):
                 "_run_final_critic",
                 return_value={"status": "pass", "hard_blocks": [], "model_review": {"summary": "ok"}},
             ), patch.object(
+                phase4,
+                "enforce_viewer_quality_contract",
+                return_value={
+                    "contract_id": "viewer-quality.v1",
+                    "verdict": "pass",
+                    "viewer_score_10": 9.0,
+                    "minimum_viewer_score_10": 8.5,
+                    "release_profile": "film",
+                },
+            ), patch.object(
                 phase4, "seal_gold_packaging_acceptance", side_effect=fake_seal
             ), patch.object(
                 phase4, "gold_packaging_acceptance_sha256", return_value="a" * 64
             ):
+                (root / "viewer-quality-contract.json").write_text(
+                    json.dumps(
+                        {
+                            "contract_id": "viewer-quality.v1",
+                            "verdict": "pass",
+                            "viewer_score_10": 9.0,
+                            "minimum_viewer_score_10": 8.5,
+                            "release_profile": "film",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
                 plan, critic, report = phase4.run_gold_enforce_phase4(
                     output_dir=root,
                     gemini="g",
