@@ -63,15 +63,18 @@ class TelegramEditorialControlWorkflowTests(unittest.TestCase):
         self.assertLess(reservation, dispatch)
         self.assertLess(dispatch, generic_persist)
 
-    def test_polling_is_read_only_while_gateway_or_v4_is_active(self):
+    def test_polling_is_read_only_while_gateway_v4_or_gold_resume_is_active(self):
         self.assertIn("produce-resilient-v4.yml/runs?per_page=20", self.text)
         self.assertIn("telegram-production-request.yml/runs?per_page=20", self.text)
-        self.assertIn('active=$((active_v4 + active_telegram))', self.text)
+        self.assertIn("resume-gold-qc-pending.yml/runs?per_page=20", self.text)
+        self.assertIn('active=$((active_v4 + active_telegram + active_gold))', self.text)
         self.assertIn('select(.status != "completed")', self.text)
         self.assertIn("stateful Telegram control remains read-only", self.text)
+        self.assertIn("A production or Gold-resume workflow is active", self.text)
         self.assertIn('echo "production_active=true"', self.text)
         self.assertIn('echo "production_active=false"', self.text)
         self.assertIn('echo "needs_production=false"', self.text)
+        self.assertIn('echo "needs_gold_resume=false"', self.text)
 
     def test_sanitized_projection_is_refreshed_while_production_is_active(self):
         start = self.text.index("Build sanitized Telegram read projection")
