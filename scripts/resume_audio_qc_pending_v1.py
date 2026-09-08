@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Resume an AUDIO_QC_PENDING parent without replaying production.
 
-The source render is immutable.  The executor revalidates only the missing Audio
+The source render is immutable. The executor revalidates only the missing Audio
 Production V2 auditor evidence, then sends the same bytes through the already-certified
 Producer Handoff -> Audio Semantic Integrity -> Final Master QC -> Gold/Viewer chain.
 Planning, research, stock retrieval, TTS and parent rendering have no entrypoints here.
@@ -20,7 +20,12 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import isco_video_agent.orchestrator as orchestrator
-from isco_video_agent.ai_budget import BudgetLedger
+from isco_video_agent.ai_budget import (
+    AttemptOutcome,
+    BudgetLedger,
+    Capability,
+    PROVIDER_ATTEMPT_HARD_CAP,
+)
 from isco_video_agent.brief_approval_binding import verify_brief_approval
 from isco_video_agent.config import secret
 from isco_video_agent.production_pipeline import _output_key
@@ -28,6 +33,7 @@ from isco_video_agent.production_pipeline import _output_key
 import scripts.audio_producer_final_certificate as producer_certificate
 import scripts.run_v3_voice as production
 from scripts.audio_production_resume_v1 import (
+    MAX_RESUME_PROVIDER_ATTEMPTS,
     require_existing_audio_production_pass,
     resume_audio_production_contract_v2,
 )
@@ -42,6 +48,7 @@ from scripts.runtime_closure import install_runtime_closure, run_post_gold_obser
 
 
 CONTRACT_ID = "audio.qc-pending.resume-execution.v1"
+BUDGET_ENVELOPE_FILENAME = "audio-resume-budget-envelope.json"
 
 
 class AudioQCPendingResumeError(RuntimeError):
@@ -75,6 +82,71 @@ def _git_head(root: Path) -> str:
         stderr=subprocess.PIPE,
         text=True,
     ).stdout.strip()
+
+
+def _source_provider_attempt_total(root: Path) -> int:
+    budget = _read_object(root / "ai-budget.json")
+    attempts = budget.get("provider_attempts")
+    if not isinstance(attempts, dict):
+        raise AudioQCPendingResumeError("audio_resume_source_ai_budget_attempts_missing")
+    try:
+        total = int(attempts.get("total"))
+    except (TypeError, ValueError) as exc:
+        raise AudioQCPendingResumeError("audio_resume_source_ai_budget_attempt_total_invalid") from exc
+    if total < 0:
+        raise AudioQCPendingResumeError("audio_resume_source_ai_budget_attempt_total_negative")
+    return total
+
+
+def _source_audio_attempt_count(checkpoint: dict[str, Any]) -> int:
+    audit = checkpoint.get("audio_audit")
+    attempts = audit.get("attempts") if isinstance(audit, dict) else None
+    if not isinstance(attempts, list) or not 1 <= len(attempts) <= 2:
+        raise AudioQCPendingResumeError("audio_resume_source_audio_attempt_count_invalid")
+    if not all(isinstance(item, dict) for item in attempts):
+        raise AudioQCPendingResumeError("audio_resume_source_audio_attempt_evidence_invalid")
+    return len(attempts)
+
+
+def _max_audio_resume_attempts(fmt: str, source_provider_attempts: int, source_audio_attempts: int) -> int:
+    hard_cap = PROVIDER_ATTEMPT_HARD_CAP.get(fmt)
+    if hard_cap is None:
+        return MAX_RESUME_PROVIDER_ATTEMPTS
+    consumed = source_provider_attempts + source_audio_attempts
+    if consumed > hard_cap:
+        raise AudioQCPendingResumeError("audio_resume_source_provider_budget_already_exceeded")
+    return max(0, min(MAX_RESUME_PROVIDER_ATTEMPTS, hard_cap - consumed))
+
+
+def _preload_provider_attempt_count(
+    ledger: BudgetLedger,
+    *,
+    count: int,
+    provider: str,
+    prefix: str,
+) -> None:
+    if count < 0:
+        raise AudioQCPendingResumeError("audio_resume_historical_budget_count_negative")
+    for index in range(1, count + 1):
+        ledger.record_attempt(
+            f"{prefix}_{index:03d}",
+            provider=provider,
+            requested_model="historical-count-only",
+            resolved_model="historical-count-only",
+            capability=Capability.TEXT,
+            outcome=AttemptOutcome.SUCCESS,
+            detail=(
+                "Count-only inherited provider attempt for run-wide budget enforcement; "
+                f"see {BUDGET_ENVELOPE_FILENAME} for provenance."
+            ),
+        )
+
+
+def _write_budget_envelope(root: Path, payload: dict[str, Any]) -> None:
+    (root / BUDGET_ENVELOPE_FILENAME).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 @contextlib.contextmanager
@@ -161,6 +233,33 @@ def execute_audio_resume(
     if retry_policy.get("semantic_mismatch_is_resumable") is not False:
         raise AudioQCPendingResumeError("audio_resume_semantic_mismatch_policy_invalid")
 
+    fmt = str(checkpoint.get("format") or "").strip().lower()
+    if fmt not in {"film", "story", "moment"}:
+        raise AudioQCPendingResumeError("audio_resume_format_invalid")
+    source_provider_attempts = _source_provider_attempt_total(root)
+    source_audio_attempts = _source_audio_attempt_count(checkpoint)
+    audio_resume_max = _max_audio_resume_attempts(
+        fmt,
+        source_provider_attempts,
+        source_audio_attempts,
+    )
+    hard_cap = PROVIDER_ATTEMPT_HARD_CAP.get(fmt)
+    budget_envelope: dict[str, Any] = {
+        "schema_version": 1,
+        "contract_id": "audio.qc-pending.inherited-provider-budget.v1",
+        "format": fmt,
+        "source_budget_inherited": True,
+        "provider_attempt_hard_cap": hard_cap,
+        "source_ai_budget_provider_attempts": source_provider_attempts,
+        "source_audio_provider_attempts": source_audio_attempts,
+        "audio_resume_max_authorized": audio_resume_max,
+        "resume_audio_provider_attempts": 0,
+        "combined_provider_attempts_before_gold": None,
+        "combined_provider_attempts_after_gold": None,
+        "gold_provider_attempt_delta": None,
+    }
+    _write_budget_envelope(root, budget_envelope)
+
     runner_root = Path(__file__).resolve().parents[1]
     engine_root = Path(orchestrator.__file__).resolve().parents[2]
     runtime_runner_head = _git_head(runner_root)
@@ -209,7 +308,7 @@ def execute_audio_resume(
     os.environ["ISCO_PRODUCTION_ID"] = source_production_id
     os.environ["ISCO_AI_BUDGET_ENFORCE"] = "1"
 
-    # No produce() call occurs.  Runtime Closure is installed only to reconstruct the
+    # No produce() call occurs. Runtime Closure is installed only to reconstruct the
     # same certified post-render wrapper topology that the source run would have used.
     install_production_model_contract(orchestrator)
     install_runtime_closure()
@@ -226,11 +325,18 @@ def execute_audio_resume(
         raise AudioQCPendingResumeError("audio_resume_requires_gemini_and_pexels_credentials")
 
     # Retry only the failed independent auditor (or both if neither produced semantic
-    # evidence), then force the normal wrapper chain to *validate* that PASS without a
-    # second provider request.
-    resumed_audio = resume_audio_production_contract_v2(root)
+    # evidence). The retry count is additionally bounded by the source video's remaining
+    # run-wide provider budget; a resume never receives a fresh production allowance.
+    resumed_audio = resume_audio_production_contract_v2(
+        root,
+        max_provider_attempts=audio_resume_max,
+    )
     if resumed_audio.get("decision") != "pass":
         raise AudioQCPendingResumeError("audio_resume_audio_contract_returned_without_pass")
+    resume_audio_attempts = int(resumed_audio.get("resume_provider_attempts") or 0)
+    if resume_audio_attempts < 1 or resume_audio_attempts > audio_resume_max:
+        raise AudioQCPendingResumeError("audio_resume_provider_attempt_evidence_out_of_bounds")
+    budget_envelope["resume_audio_provider_attempts"] = resume_audio_attempts
     final_sha_after_audio = _sha256_file(final_path)
     if final_sha_after_audio != final_sha_before:
         raise AudioQCPendingResumeError("audio_resume_audio_revalidation_mutated_parent")
@@ -244,17 +350,44 @@ def execute_audio_resume(
     ):
         raise AudioQCPendingResumeError("audio_resume_final_master_revalidation_failed")
 
-    fmt = str(checkpoint.get("format") or "").strip().lower()
-    if fmt not in {"film", "story", "moment"}:
-        raise AudioQCPendingResumeError("audio_resume_format_invalid")
     ledger = BudgetLedger(fmt, enforce=True)
-    plan, critic, gold_report = run_gold_enforce_phase4(
-        output_dir=root,
-        gemini=gemini,
-        pexels=pexels,
-        pixabay=pixabay,
-        ledger=ledger,
+    _preload_provider_attempt_count(
+        ledger,
+        count=source_provider_attempts,
+        provider="historical-production",
+        prefix="SOURCE_PROVIDER_ATTEMPT",
     )
+    _preload_provider_attempt_count(
+        ledger,
+        count=source_audio_attempts,
+        provider="source-audio-audit",
+        prefix="SOURCE_AUDIO_ATTEMPT",
+    )
+    _preload_provider_attempt_count(
+        ledger,
+        count=resume_audio_attempts,
+        provider="resume-audio-audit",
+        prefix="RESUME_AUDIO_ATTEMPT",
+    )
+    before_gold = int(ledger.to_summary()["provider_attempts"]["total"])
+    budget_envelope["combined_provider_attempts_before_gold"] = before_gold
+    _write_budget_envelope(root, budget_envelope)
+
+    try:
+        plan, critic, gold_report = run_gold_enforce_phase4(
+            output_dir=root,
+            gemini=gemini,
+            pexels=pexels,
+            pixabay=pixabay,
+            ledger=ledger,
+        )
+    finally:
+        after_gold = int(ledger.to_summary()["provider_attempts"]["total"])
+        budget_envelope["combined_provider_attempts_after_gold"] = after_gold
+        budget_envelope["gold_provider_attempt_delta"] = max(0, after_gold - before_gold)
+        _write_budget_envelope(root, budget_envelope)
+        ledger.write(root / "ai-budget-audio-resume.json")
+
     if _sha256_file(final_path) != final_sha_before:
         raise AudioQCPendingResumeError("audio_resume_gold_mutated_parent")
     if gold_report.get("gold", {}).get("accepted") is not True:
@@ -266,7 +399,6 @@ def execute_audio_resume(
     accepted_history_output.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(temporary_history, accepted_history_output)
     accepted_history_output.chmod(0o600)
-    ledger.write(root / "ai-budget-audio-resume.json")
 
     release_tag = str(manifest.get("release_tag") or checkpoint.get("release_tag") or "").strip()
     if not release_tag:
@@ -338,8 +470,12 @@ def execute_audio_resume(
         "final_sha256_before": final_sha_before,
         "final_sha256_after": _sha256_file(final_path),
         "final_media_mutated": False,
-        "audio_resume_provider_attempts": int(resumed_audio.get("resume_provider_attempts") or 0),
+        "audio_resume_provider_attempts": resume_audio_attempts,
         "audio_contract_decision": resumed_audio.get("decision"),
+        "source_provider_budget_inherited": True,
+        "provider_attempt_hard_cap": hard_cap,
+        "combined_provider_attempts_before_gold": before_gold,
+        "combined_provider_attempts_after_gold": budget_envelope["combined_provider_attempts_after_gold"],
         "final_master_qc_reexecuted": True,
         "viewer_score_10": gold_report.get("viewer_quality", {}).get("score_10"),
         "production_history_release_status": accepted_row.get("release_status"),
