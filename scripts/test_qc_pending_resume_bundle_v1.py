@@ -17,20 +17,30 @@ def _sha(path: Path) -> str:
 
 
 class QCPendingResumeBundleV1Tests(unittest.TestCase):
-    def _source(self) -> tuple[Path, dict]:
+    def _source(self, *, fmt: str = "film") -> tuple[Path, dict]:
         root = Path(tempfile.mkdtemp(prefix="qc-resume-source-"))
         (root / "final.mp4").write_bytes(b"exact-video" * 500)
-        for name, value in {
-            "plan.json": {"format": "film", "topic": "resume"},
-            "quality-final.json": {"duration_ok": True, "audio_ok": True},
+        documents = {
+            "plan.json": {"format": fmt, "topic": "resume"},
+            "quality-final.json": {"format": fmt, "duration_ok": True, "audio_ok": True},
             "visual-audit.json": [{"status": "pass", "is_selected": True}],
             "rights-manifest.json": {"visuals": [{"provider": "pexels", "provider_asset_id": 1}]},
             "monetization-check.json": {"status": "PASS"},
+            "factuality-audit.json": {"status": "pass"},
+            "content-quality-audit.json": {"status": "pass"},
+            "tone-quality-audit.json": {"status": "pass"},
             "opening-visual-audit.json": {"status": "pass"},
             "final-master-qc.json": {},
-            "ai-budget.json": {"format": "film"},
+            "ai-budget.json": {"format": fmt},
             "production-failure-diagnostics.json": {"failure": "gold"},
-        }.items():
+        }
+        if fmt == "moment":
+            documents["short-intelligence-pre-gold.json"] = {
+                "stage": "pre_gold",
+                "short_template": "why_reframe",
+                "timed_text_events": [{"text": "hook", "start": 0, "end": 1}],
+            }
+        for name, value in documents.items():
             (root / name).write_text(json.dumps(value), encoding="utf-8")
         acceptance = {
             "acceptance_contract": {
@@ -42,7 +52,7 @@ class QCPendingResumeBundleV1Tests(unittest.TestCase):
         record = {
             "created_at": "2026-09-07T20:00:00+00:00",
             "topic": "resume",
-            "format": "film",
+            "format": fmt,
             "output": "output/resume/final.mp4",
         }
         with patch(
@@ -83,9 +93,30 @@ class QCPendingResumeBundleV1Tests(unittest.TestCase):
             )
         self.assertEqual(manifest, verified)
         self.assertFalse(manifest["release_allowed"])
+        self.assertFalse(manifest["parent_media_rebuild_allowed"])
         self.assertEqual(manifest["source"]["run_id"], "99123")
         self.assertEqual(manifest["final_sha256"], _sha(bundle / "final.mp4"))
         self.assertIn("qc-pending.json", manifest["files"])
+        self.assertIn("factuality-audit.json", manifest["files"])
+        self.assertIn("content-quality-audit.json", manifest["files"])
+        self.assertIn("tone-quality-audit.json", manifest["files"])
+
+    def test_moment_bundle_requires_pre_gold_short_intelligence(self) -> None:
+        source, acceptance = self._source(fmt="moment")
+        bundle = Path(tempfile.mkdtemp(prefix="qc-resume-short-")) / "bundle"
+        with patch(
+            "scripts.qc_pending_checkpoint_v1.require_final_master_acceptance",
+            return_value=acceptance,
+        ):
+            manifest = build_resume_bundle(source, bundle)
+        self.assertIn("short-intelligence-pre-gold.json", manifest["files"])
+        (bundle / "short-intelligence-pre-gold.json").unlink()
+        with patch(
+            "scripts.qc_pending_checkpoint_v1.require_final_master_acceptance",
+            return_value=acceptance,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "bundle file missing: short-intelligence-pre-gold.json"):
+                validate_resume_bundle(bundle)
 
     def test_mutated_video_is_rejected_before_gold(self) -> None:
         source, acceptance = self._source()
