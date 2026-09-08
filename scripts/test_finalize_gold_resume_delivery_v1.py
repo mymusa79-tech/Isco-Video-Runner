@@ -13,6 +13,8 @@ from scripts import finalize_gold_resume_delivery_v1 as resume_delivery
 
 RUNNER_SHA = "c" * 40
 ENGINE_SHA = "d" * 40
+SOURCE_RUNNER_SHA = "a" * 40
+SOURCE_ENGINE_SHA = "b" * 40
 
 
 def _sha(path: Path) -> str:
@@ -64,8 +66,8 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
                     "source": {
                         "run_id": "99123",
                         "run_attempt": "1",
-                        "runner_sha": "a" * 40,
-                        "engine_sha": "b" * 40,
+                        "runner_sha": SOURCE_RUNNER_SHA,
+                        "engine_sha": SOURCE_ENGINE_SHA,
                     },
                     "final_sha256": _sha(root / "final.mp4"),
                 }
@@ -98,6 +100,58 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
             patch.object(resume_delivery, "run_post_gold_observers", return_value={"decision": "pass"}),
             patch.object(resume_delivery.production, "_write_production_manifest", side_effect=fake_manifest),
             patch.object(resume_delivery, "write_delivery_manifest", side_effect=fake_delivery),
+        )
+
+    def test_resume_manifest_preserves_source_production_identity(self) -> None:
+        root = self._root(fmt="film")
+        source = {
+            "run_id": "99123",
+            "run_attempt": "2",
+            "runner_sha": SOURCE_RUNNER_SHA,
+            "engine_sha": SOURCE_ENGINE_SHA,
+        }
+        env = {
+            "GITHUB_RUN_ID": "77777",
+            "GITHUB_RUN_NUMBER": "333",
+            "GITHUB_RUN_ATTEMPT": "4",
+            "GITHUB_SHA": RUNNER_SHA,
+            "ISCO_ENGINE_SHA": ENGINE_SHA,
+        }
+        with patch.dict(os.environ, env, clear=False):
+            manifest = resume_delivery._write_resume_production_manifest(
+                root,
+                fmt="film",
+                release_tag="video-225",
+                source=source,
+            )
+
+        self.assertEqual(manifest["production_id"], "v4:99123:2")
+        self.assertEqual(manifest["github_run_id"], "99123")
+        self.assertIsNone(manifest["github_run_number"])
+        self.assertEqual(manifest["github_run_attempt"], "2")
+        self.assertEqual(manifest["runner_sha"], SOURCE_RUNNER_SHA)
+        self.assertEqual(manifest["engine_sha"], SOURCE_ENGINE_SHA)
+        self.assertEqual(manifest["release_tag"], "video-225")
+        self.assertEqual(manifest["final_sha256"], _sha(root / "final.mp4"))
+        self.assertEqual(
+            manifest["resume_source"],
+            {
+                "run_id": "99123",
+                "run_attempt": "2",
+                "runner_sha": SOURCE_RUNNER_SHA,
+                "engine_sha": SOURCE_ENGINE_SHA,
+            },
+        )
+        self.assertEqual(
+            manifest["resume_execution"],
+            {
+                "run_id": "77777",
+                "run_number": "333",
+                "run_attempt": "4",
+                "runner_sha": RUNNER_SHA,
+                "engine_sha": ENGINE_SHA,
+                "parent_media_rebuilt": False,
+            },
         )
 
     def test_standalone_short_finishes_quality_without_parent_media_rebuild(self) -> None:
