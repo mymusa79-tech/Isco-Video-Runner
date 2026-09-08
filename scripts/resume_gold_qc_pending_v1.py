@@ -2,11 +2,17 @@ from __future__ import annotations
 
 """Execute Gold only over an exact SHA-bound QC_PENDING bundle.
 
+The source render and its historical certification remain immutable evidence, while the
+resume itself runs on the *current certified* Runner/Engine Gold runtime. This is the
+important distinction: replaying the historical Runner would reproduce the capacity bug
+that created QC_PENDING in the first place and would not benefit from the closure that
+made resume possible.
+
 No planner, research, stock retrieval, TTS, render, or Final Master QC entrypoint is
-called here. The existing Final Master Acceptance is revalidated, durable history is
-copied to a temporary file, the checkpointed core row is injected only into that copy,
-and Gold remains the sole authority that may mark it accepted. Callers may persist the
-accepted history copy only after this script exits successfully.
+called here. Existing Final Master Acceptance is revalidated, durable history is copied
+to a temporary file, the checkpointed core row is injected only into that copy, and Gold
+remains the sole authority that may mark it accepted. Callers may persist the accepted
+history copy only after this script exits successfully.
 """
 
 import argparse
@@ -30,7 +36,7 @@ from scripts.qc_pending_resume_bundle_v1 import validate_resume_bundle
 from scripts.runtime_closure import install_runtime_closure
 
 
-CONTRACT_ID = "gold.qc-pending.resume-execution.v1"
+CONTRACT_ID = "gold.qc-pending.resume-execution.v2"
 
 
 def _sha256_file(path: Path) -> str:
@@ -113,15 +119,17 @@ def execute_gold_resume(
     accepted_history_output: Path,
     result_output: Path,
     expected_source_run_id: str,
-    expected_runner_sha: str,
-    expected_engine_sha: str,
+    expected_source_runner_sha: str,
+    expected_source_engine_sha: str,
+    expected_runtime_runner_sha: str,
+    expected_runtime_engine_sha: str,
 ) -> dict[str, Any]:
     root = Path(bundle_dir).resolve()
     manifest = validate_resume_bundle(
         root,
         expected_source_run_id=expected_source_run_id,
-        expected_runner_sha=expected_runner_sha,
-        expected_engine_sha=expected_engine_sha,
+        expected_runner_sha=expected_source_runner_sha,
+        expected_engine_sha=expected_source_engine_sha,
     )
     source = manifest["source"]
     checkpoint = _read_object(root / "qc-pending.json")
@@ -133,12 +141,14 @@ def execute_gold_resume(
 
     engine_root = Path(orchestrator.__file__).resolve().parents[2]
     runner_root = Path(__file__).resolve().parents[1]
-    runner_head = _git_head(runner_root)
-    engine_head = _git_head(engine_root)
-    if runner_head != expected_runner_sha:
-        raise RuntimeError("Gold resume runtime Runner checkout is not the certified source SHA")
-    if engine_head != expected_engine_sha:
-        raise RuntimeError("Gold resume runtime Engine checkout is not the checkpoint Engine SHA")
+    runtime_runner_head = _git_head(runner_root)
+    runtime_engine_head = _git_head(engine_root)
+    if runtime_runner_head != expected_runtime_runner_sha:
+        raise RuntimeError("Gold resume runtime Runner checkout is not the certified resume SHA")
+    if runtime_engine_head != expected_runtime_engine_sha:
+        raise RuntimeError("Gold resume runtime Engine checkout is not the certified resume Engine SHA")
+    if str(os.environ.get("GITHUB_SHA") or "").strip().lower() != expected_runtime_runner_sha:
+        raise RuntimeError("Gold resume GITHUB_SHA does not match certified runtime Runner")
     if _output_key(root) != output_key:
         raise RuntimeError("Gold resume bundle is not restored at its original Engine output path")
 
@@ -155,15 +165,16 @@ def execute_gold_resume(
         output_key=output_key,
     )
 
-    # Recreate the original production identity inside this Python process only. GitHub's
-    # resume workflow has its own run id/SHA, but Gold provenance and any repeated
-    # QC_PENDING checkpoint must remain bound to the source render and source code.
+    # Preserve the logical production identity while making runtime provenance explicit.
+    # The current workflow run/SHA remain untouched so provider telemetry and any failure
+    # diagnostics truthfully identify the resume execution rather than impersonating the
+    # historical production run.
     os.environ["ISCO_HISTORY_PATH"] = str(temporary_history)
-    os.environ["GITHUB_SHA"] = expected_runner_sha
-    os.environ["GITHUB_REF"] = "refs/heads/main"
-    os.environ["GITHUB_RUN_ID"] = str(source["run_id"])
-    os.environ["GITHUB_RUN_ATTEMPT"] = str(source["run_attempt"])
-    os.environ["ISCO_ENGINE_SHA"] = expected_engine_sha
+    os.environ["ISCO_ENGINE_SHA"] = expected_runtime_engine_sha
+    os.environ["ISCO_SOURCE_RUNNER_SHA"] = expected_source_runner_sha
+    os.environ["ISCO_SOURCE_ENGINE_SHA"] = expected_source_engine_sha
+    os.environ["ISCO_SOURCE_RUN_ID"] = str(source["run_id"])
+    os.environ["ISCO_SOURCE_RUN_ATTEMPT"] = str(source["run_attempt"])
     os.environ["ISCO_PRODUCTION_ID"] = f"v4:{source['run_id']}:{source['run_attempt']}"
     os.environ["ISCO_AI_BUDGET_ENFORCE"] = "1"
 
@@ -204,13 +215,16 @@ def execute_gold_resume(
     ledger.write(root / "ai-budget-gold-resume.json")
 
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "contract_id": CONTRACT_ID,
         "status": "gold_accepted",
         "release_authority": "gold",
         "source_run_id": str(source["run_id"]),
-        "source_runner_sha": expected_runner_sha,
-        "source_engine_sha": expected_engine_sha,
+        "source_runner_sha": expected_source_runner_sha,
+        "source_engine_sha": expected_source_engine_sha,
+        "runtime_runner_sha": expected_runtime_runner_sha,
+        "runtime_engine_sha": expected_runtime_engine_sha,
+        "source_and_runtime_both_certified": True,
         "format": str(getattr(plan, "format", fmt)),
         "final_sha256_before": final_sha_before,
         "final_sha256_after": final_sha_after,
@@ -244,8 +258,10 @@ def main() -> int:
     parser.add_argument("--accepted-history-output", required=True, type=Path)
     parser.add_argument("--result", required=True, type=Path)
     parser.add_argument("--source-run-id", required=True)
-    parser.add_argument("--runner-sha", required=True)
-    parser.add_argument("--engine-sha", required=True)
+    parser.add_argument("--source-runner-sha", required=True)
+    parser.add_argument("--source-engine-sha", required=True)
+    parser.add_argument("--runtime-runner-sha", required=True)
+    parser.add_argument("--runtime-engine-sha", required=True)
     args = parser.parse_args()
     execute_gold_resume(
         bundle_dir=args.bundle,
@@ -253,8 +269,10 @@ def main() -> int:
         accepted_history_output=args.accepted_history_output,
         result_output=args.result,
         expected_source_run_id=args.source_run_id,
-        expected_runner_sha=args.runner_sha,
-        expected_engine_sha=args.engine_sha,
+        expected_source_runner_sha=args.source_runner_sha,
+        expected_source_engine_sha=args.source_engine_sha,
+        expected_runtime_runner_sha=args.runtime_runner_sha,
+        expected_runtime_engine_sha=args.runtime_engine_sha,
     )
     return 0
 
