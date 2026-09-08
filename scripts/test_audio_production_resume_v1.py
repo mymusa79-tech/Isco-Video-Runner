@@ -7,6 +7,7 @@ from pathlib import Path
 
 from scripts import audio_production_contract_v2 as contract
 from scripts.audio_production_resume_v1 import (
+    AudioProductionResumeError,
     require_existing_audio_production_pass,
     resume_audio_production_contract_v2,
 )
@@ -149,6 +150,86 @@ class AudioProductionResumeV1Tests(unittest.TestCase):
         self.assertEqual(result["resume_provider_attempts"], 1)
         self.assertEqual(calls["gemini"], 0)
         self.assertLessEqual(result["resume_provider_attempts"], 2)
+
+    def test_inherited_budget_of_one_never_falls_through_to_second_provider(self) -> None:
+        temp, root, transcript = self._root()
+        self.addCleanup(temp.cleanup)
+        self._write_prior(
+            root,
+            transcript,
+            [
+                {"provider": "groq-whisper", "status": "technical_failure", "error_code": "PROVIDER_CAPACITY"},
+                {"provider": "gemini-audio", "status": "technical_failure", "error_code": "PROVIDER_TRANSIENT"},
+            ],
+        )
+        calls: list[str] = []
+
+        def groq(_audio: Path) -> str:
+            calls.append("groq")
+            raise RuntimeError("429 quota")
+
+        def gemini(_audio: Path) -> str:
+            calls.append("gemini")
+            return transcript
+
+        with self.assertRaises(contract.AudioProductionContractError) as caught:
+            resume_audio_production_contract_v2(
+                root,
+                extractor=self._extractor,
+                groq_transcriber=groq,
+                gemini_transcriber=gemini,
+                max_provider_attempts=1,
+            )
+        self.assertIs(caught.exception.code, contract.AudioContractErrorCode.AUDIT_UNAVAILABLE)
+        self.assertEqual(calls, ["groq"])
+        saved = json.loads((root / contract.AUDIT_FILENAME).read_text(encoding="utf-8"))
+        self.assertEqual(saved["resume_provider_attempts"], 1)
+        self.assertEqual(saved["resume_policy"]["max_provider_attempts_this_resume"], 1)
+        self.assertTrue(saved["resume_policy"]["inherits_source_run_provider_budget"])
+
+    def test_zero_inherited_budget_makes_zero_provider_calls(self) -> None:
+        temp, root, transcript = self._root()
+        self.addCleanup(temp.cleanup)
+        self._write_prior(
+            root,
+            transcript,
+            [
+                {"provider": "groq-whisper", "status": "technical_failure", "error_code": "PROVIDER_CAPACITY"},
+                {"provider": "gemini-audio", "status": "technical_failure", "error_code": "PROVIDER_TRANSIENT"},
+            ],
+        )
+        calls: list[str] = []
+
+        def forbidden(name: str):
+            def inner(_audio: Path) -> str:
+                calls.append(name)
+                return transcript
+            return inner
+
+        with self.assertRaisesRegex(AudioProductionResumeError, "provider_budget_exhausted"):
+            resume_audio_production_contract_v2(
+                root,
+                extractor=self._extractor,
+                groq_transcriber=forbidden("groq"),
+                gemini_transcriber=forbidden("gemini"),
+                max_provider_attempts=0,
+            )
+        self.assertEqual(calls, [])
+
+    def test_provider_budget_above_absolute_resume_bound_is_refused(self) -> None:
+        temp, root, transcript = self._root()
+        self.addCleanup(temp.cleanup)
+        self._write_prior(
+            root,
+            transcript,
+            [{"provider": "groq-whisper", "status": "technical_failure", "error_code": "PROVIDER_CAPACITY"}],
+        )
+        with self.assertRaisesRegex(AudioProductionResumeError, "provider_budget_out_of_range"):
+            resume_audio_production_contract_v2(
+                root,
+                extractor=self._extractor,
+                max_provider_attempts=3,
+            )
 
 
 if __name__ == "__main__":
