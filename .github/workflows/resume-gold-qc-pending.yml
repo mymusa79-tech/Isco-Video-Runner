@@ -1,0 +1,639 @@
+name: Resume Gold QC Pending
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: "Exact Telegram request id in QC_PENDING"
+        required: true
+        type: string
+      authorization_id:
+        description: "One-time Telegram Gold resume authorization"
+        required: true
+        type: string
+
+concurrency:
+  group: isco-video-resilient-v4
+  cancel-in-progress: false
+
+env:
+  EXPECTED_ENGINE_SHA: b42350e00e6038a2aa8b41871e8b4810709138f2
+
+jobs:
+  resume:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Checkout current Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify exact current certified resume runtime
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python scripts/production_certification_gate.py \
+            --output "$RUNNER_TEMP/gold-resume-runtime-certification.json"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Checkout current certified Engine pin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: b42350e00e6038a2aa8b41871e8b4810709138f2
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine pin
+        working-directory: engine
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_ENGINE_SHA"
+
+      - name: Install locked Gold runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg fonts-noto-core openssl unzip
+          cd engine
+          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py lock --lock requirements-lock.txt
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-deps -e .
+          python -m pip check
+
+      - name: Checkout latest encrypted Telegram control state
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: control-plane-state
+          path: control-gold
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Consume exact Gold resume authorization
+        id: consume
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gold-control"
+          encrypted="control-gold/state/control-panel.json.enc"
+          state="$RUNNER_TEMP/gold-control/control-panel.json"
+          request="$RUNNER_TEMP/gold-control/approved-request.json"
+          test -f "$encrypted"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+          chmod 600 "$state"
+          STATE="$state" REQUEST_OUT="$request" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from scripts.telegram_control_panel import _github_output, load_state, save_state
+          from scripts.telegram_gold_resume_control import consume_gold_resume
+          from scripts.telegram_production_queue import release_tag_for
+
+          path = Path(os.environ['STATE'])
+          state = load_state(path)
+          action = consume_gold_resume(
+              state,
+              os.environ['REQUEST_ID'],
+              os.environ['AUTHORIZATION_ID'],
+              runner_sha=os.environ['GITHUB_SHA'],
+              workflow_run_id=os.environ['GITHUB_RUN_ID'],
+          )
+          request = (state.get('requests') or {}).get(os.environ['REQUEST_ID'])
+          if not isinstance(request, dict):
+              raise SystemExit('Gold resume approved request disappeared from control state')
+          if str(request.get('request_sha256') or '') != str(action.get('request_sha256') or ''):
+              raise SystemExit('Gold resume request hash changed after authorization')
+          Path(os.environ['REQUEST_OUT']).write_text(
+              json.dumps(request, ensure_ascii=False, indent=2), encoding='utf-8'
+          )
+          Path(os.environ['REQUEST_OUT']).chmod(0o600)
+          save_state(path, state)
+          for key, value in {
+              'request_sha256': action.get('request_sha256'),
+              'source_run_id': action.get('source_run_id'),
+              'source_run_attempt': action.get('source_run_attempt'),
+              'artifact_name': action.get('artifact_name'),
+              'source_runner_sha': action.get('source_runner_sha'),
+              'source_engine_sha': action.get('source_engine_sha'),
+              'final_sha256': action.get('final_sha256'),
+              'format': action.get('format'),
+              'kind': request.get('kind'),
+              'approval_scope': request.get('approval_scope'),
+              'release_tag': release_tag_for(request),
+              'request_path': os.environ['REQUEST_OUT'],
+          }.items():
+              _github_output(key, str(value or ''))
+          PY
+
+      - name: Persist consumed Gold authorization before external work
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          encrypted="control-gold/state/control-panel.json.enc"
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY \
+            -in "$RUNNER_TEMP/gold-control/control-panel.json" -out "$encrypted"
+          cd control-gold
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "Gold resume consumption produced no durable state delta" >&2
+            exit 1
+          fi
+          git commit -m "state: consume exact Gold resume authorization"
+          git push origin HEAD:control-plane-state
+
+      - name: Certify historical QC_PENDING source
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ steps.consume.outputs.source_run_id }}
+          SOURCE_RUNNER_SHA: ${{ steps.consume.outputs.source_runner_sha }}
+        run: |
+          set -euo pipefail
+          python scripts/qc_pending_resume_source_gate.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-runner-sha "$SOURCE_RUNNER_SHA" \
+            --token "$GITHUB_TOKEN" \
+            --output "$RUNNER_TEMP/gold-resume-source-certification.json"
+
+      - name: Download exact QC_PENDING recovery artifact
+        id: download_source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ steps.consume.outputs.source_run_id }}
+          ARTIFACT_NAME: ${{ steps.consume.outputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100")"
+          count="$(printf '%s' "$json" | jq --arg name "$ARTIFACT_NAME" '[.artifacts[] | select(.name == $name and .expired == false)] | length')"
+          test "$count" = "1"
+          artifact_id="$(printf '%s' "$json" | jq -r --arg name "$ARTIFACT_NAME" '.artifacts[] | select(.name == $name and .expired == false) | .id')"
+          test -n "$artifact_id"
+          archive="$RUNNER_TEMP/qc-pending.zip"
+          mkdir -p "$RUNNER_TEMP/qc-pending-download"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$archive"
+          unzip -q "$archive" -d "$RUNNER_TEMP/qc-pending-download"
+          manifest="$(find "$RUNNER_TEMP/qc-pending-download" -type f -name resume-manifest.json -print -quit)"
+          test -n "$manifest"
+          bundle="$(dirname "$manifest")"
+          echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
+          echo "bundle_dir=$bundle" >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact recovery bundle and restore original output path
+        id: restore_bundle
+        env:
+          BUNDLE_DIR: ${{ steps.download_source.outputs.bundle_dir }}
+          SOURCE_RUN_ID: ${{ steps.consume.outputs.source_run_id }}
+          SOURCE_RUNNER_SHA: ${{ steps.consume.outputs.source_runner_sha }}
+          SOURCE_ENGINE_SHA: ${{ steps.consume.outputs.source_engine_sha }}
+          EXPECTED_FINAL_SHA: ${{ steps.consume.outputs.final_sha256 }}
+        run: |
+          set -euo pipefail
+          PYTHONPATH="${GITHUB_WORKSPACE}/engine/src:${GITHUB_WORKSPACE}" python scripts/qc_pending_resume_bundle_v1.py verify \
+            --bundle "$BUNDLE_DIR" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --runner-sha "$SOURCE_RUNNER_SHA" \
+            --engine-sha "$SOURCE_ENGINE_SHA" > "$RUNNER_TEMP/resume-manifest-verify.json"
+          BUNDLE_DIR="$BUNDLE_DIR" EXPECTED_FINAL_SHA="$EXPECTED_FINAL_SHA" python - <<'PY'
+          import hashlib, json, os, shutil
+          from pathlib import Path
+          bundle = Path(os.environ['BUNDLE_DIR']).resolve()
+          manifest = json.loads((bundle / 'resume-manifest.json').read_text(encoding='utf-8'))
+          if manifest.get('final_sha256') != os.environ['EXPECTED_FINAL_SHA']:
+              raise SystemExit('Gold resume final hash differs from Telegram authorization')
+          name = str((manifest.get('source') or {}).get('output_directory_name') or '').strip()
+          if not name or name in {'.', '..'} or '/' in name or '\\' in name:
+              raise SystemExit('Gold resume source output directory name is unsafe')
+          dest = Path('engine/output') / name
+          if dest.exists():
+              raise SystemExit('Gold resume destination output directory already exists')
+          dest.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copytree(bundle, dest)
+          digest = hashlib.sha256((dest / 'final.mp4').read_bytes()).hexdigest()
+          if digest != os.environ['EXPECTED_FINAL_SHA']:
+              raise SystemExit('Gold resume restored final hash mismatch')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as fh:
+              fh.write(f"output_dir={dest.resolve()}\n")
+              fh.write(f"resume_manifest={(dest / 'resume-manifest.json').resolve()}\n")
+          PY
+
+      - name: Restore healthy encrypted cross-run memory
+        id: restore_memory
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/isco-state"
+          python scripts/persistent_memory.py restore \
+            --repo . \
+            --plain "$RUNNER_TEMP/isco-state/history.json" \
+            --branch agent-state \
+            --legacy-state state/history.json.enc \
+            --github-output "$GITHUB_OUTPUT"
+          test "$(sed -n 's/^save_allowed=//p' "$GITHUB_OUTPUT" | tail -n 1)" = "true"
+          test -f "$RUNNER_TEMP/isco-state/history.json"
+          chmod 600 "$RUNNER_TEMP/isco-state/history.json"
+
+      - name: Materialize one-time Gold provider capabilities
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          test -n "$GROQ_API_KEY"
+          test -n "$OPENROUTER_API_KEY"
+          test -n "$PEXELS_API_KEY"
+          test -n "$PIXABAY_API_KEY"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/gold-secrets"
+          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/gold-secrets/gemini"
+          printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/gold-secrets/groq"
+          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/gold-secrets/openrouter"
+          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/gold-secrets/pexels"
+          printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/gold-secrets/pixabay"
+
+      - name: Execute current certified Gold over exact source final
+        id: gold
+        env:
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/gold-secrets/gemini
+          GROQ_API_KEY_FILE: ${{ runner.temp }}/gold-secrets/groq
+          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/gold-secrets/openrouter
+          PEXELS_API_KEY_FILE: ${{ runner.temp }}/gold-secrets/pexels
+          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/gold-secrets/pixabay
+          ISCO_ENGINE_SHA: b42350e00e6038a2aa8b41871e8b4810709138f2
+          GEMINI_CONTENT_MODEL: gemini-3.7-flash
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          BUNDLE_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
+          SOURCE_RUN_ID: ${{ steps.consume.outputs.source_run_id }}
+          SOURCE_RUNNER_SHA: ${{ steps.consume.outputs.source_runner_sha }}
+          SOURCE_ENGINE_SHA: ${{ steps.consume.outputs.source_engine_sha }}
+        run: |
+          set -euo pipefail
+          python scripts/resume_gold_qc_pending_v1.py \
+            --bundle "$BUNDLE_DIR" \
+            --durable-history "$RUNNER_TEMP/isco-state/history.json" \
+            --accepted-history-output "$RUNNER_TEMP/isco-state/history.accepted.json" \
+            --result "$RUNNER_TEMP/gold-resume-result.json" \
+            --source-run-id "$SOURCE_RUN_ID" \
+            --source-runner-sha "$SOURCE_RUNNER_SHA" \
+            --source-engine-sha "$SOURCE_ENGINE_SHA" \
+            --runtime-runner-sha "$GITHUB_SHA" \
+            --runtime-engine-sha "$EXPECTED_ENGINE_SHA"
+
+      - name: Prepare sibling Short runtime when approved
+        if: steps.consume.outputs.approval_scope == 'long_plus_sibling_shorts'
+        env:
+          PIPER_MODEL_DIR: ${{ runner.temp }}/piper-voices
+        run: |
+          set -euo pipefail
+          python -m pip install 'piper-tts==1.4.2'
+          mkdir -p "$PIPER_MODEL_DIR"
+          for attempt in 1 2; do
+            if python -m piper.download_voices --data-dir "$PIPER_MODEL_DIR" ar_JO-kareem-medium; then
+              break
+            fi
+            if [ "$attempt" -eq 2 ]; then exit 1; fi
+            sleep 4
+          done
+          test -f "$PIPER_MODEL_DIR/ar_JO-kareem-medium.onnx"
+
+      - name: Rematerialize post-Gold provider capabilities
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          rm -rf "$RUNNER_TEMP/post-gold-secrets"
+          mkdir -p "$RUNNER_TEMP/post-gold-secrets"
+          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/post-gold-secrets/gemini"
+          printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/post-gold-secrets/groq"
+          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/post-gold-secrets/openrouter"
+          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/post-gold-secrets/pexels"
+          printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/post-gold-secrets/pixabay"
+
+      - name: Finish exact approved scope after Gold
+        id: finish_scope
+        env:
+          CONTROL_PLANE_PRODUCTION_ENABLED: "true"
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/gemini
+          GROQ_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/groq
+          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/openrouter
+          PEXELS_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/pexels
+          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/pixabay
+          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
+          ISCO_ENGINE_SHA: b42350e00e6038a2aa8b41871e8b4810709138f2
+          ISCO_CONTROL_REQUEST_ID: ${{ inputs.request_id }}
+          ISCO_RELEASE_TAG_OVERRIDE: ${{ steps.consume.outputs.release_tag }}
+          GEMINI_CONTENT_MODEL: gemini-3.7-flash
+          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          OUTPUT_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
+          REQUEST_PATH: ${{ steps.consume.outputs.request_path }}
+          RESUME_MANIFEST: ${{ steps.restore_bundle.outputs.resume_manifest }}
+          RELEASE_TAG: ${{ steps.consume.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          python scripts/finalize_gold_resume_delivery_v1.py \
+            --output-dir "$OUTPUT_DIR" \
+            --request "$REQUEST_PATH" \
+            --resume-manifest "$RESUME_MANIFEST" \
+            --release-tag "$RELEASE_TAG" \
+            --runtime-root "$RUNNER_TEMP/gold-resume-children" \
+            --result "$RUNNER_TEMP/post-gold-delivery-result.json"
+
+      - name: Validate resumed Master and delivery
+        env:
+          OUTPUT_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
+          EXPECTED_FINAL_SHA: ${{ steps.consume.outputs.final_sha256 }}
+        run: |
+          set -euo pipefail
+          OUTPUT_DIR="$OUTPUT_DIR" EXPECTED_FINAL_SHA="$EXPECTED_FINAL_SHA" PYTHONPATH="${GITHUB_WORKSPACE}/engine/src:${GITHUB_WORKSPACE}" python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          from scripts.packaging_delivery_contract import validate_packaging_delivery
+          root = Path(os.environ['OUTPUT_DIR'])
+          final = root / 'final.mp4'
+          digest = hashlib.sha256(final.read_bytes()).hexdigest()
+          if digest != os.environ['EXPECTED_FINAL_SHA']:
+              raise SystemExit('Resumed Master mutated parent final.mp4')
+          for name in ('final-master-qc.json', 'final-critic.json', 'viewer-quality-contract.json', 'gold-enforce-report.json', 'production-manifest.json', 'delivery-manifest.json'):
+              if not (root / name).is_file():
+                  raise SystemExit(f'Resumed Master missing {name}')
+          gold = json.loads((root / 'gold-enforce-report.json').read_text(encoding='utf-8'))
+          viewer = json.loads((root / 'viewer-quality-contract.json').read_text(encoding='utf-8'))
+          delivery = json.loads((root / 'delivery-manifest.json').read_text(encoding='utf-8'))
+          if (gold.get('gold') or {}).get('accepted') is not True or viewer.get('verdict') != 'pass':
+              raise SystemExit('Resumed Master lacks Gold/Viewer Quality PASS')
+          if delivery.get('release_state') != 'staged' or delivery.get('publication_performed') is not False:
+              raise SystemExit('Resumed delivery escaped staged/manual publication contract')
+          validate_packaging_delivery(root)
+          print(f'Resumed Master PASS final_sha256={digest} delivery_kind={delivery.get("delivery_kind")}')
+          PY
+
+      - name: Upload resumed delivery bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: isco-gold-resumed-${{ steps.consume.outputs.release_tag }}
+          path: |
+            ${{ steps.restore_bundle.outputs.output_dir }}/final.mp4
+            ${{ steps.restore_bundle.outputs.output_dir }}/quality-final.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/plan.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/final-critic.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/viewer-quality-contract.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/gold-enforce-report.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/production-manifest.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/delivery-manifest.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/final-master-qc.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/thumbnail-plan.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/thumbnail-*.jpg
+            ${{ steps.restore_bundle.outputs.output_dir }}/rights-manifest.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/short-*
+            ${{ steps.restore_bundle.outputs.output_dir }}/sibling-short-*.json
+            ${{ runner.temp }}/gold-resume-result.json
+            ${{ runner.temp }}/post-gold-delivery-result.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Request existing delivery approval policy
+        id: publish_approval
+        working-directory: engine
+        env:
+          REQUIRE_PUBLISH_APPROVAL: ${{ vars.REQUIRE_PUBLISH_APPROVAL || 'false' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_OUTBOX_REF: ${{ github.ref_name }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: python ../scripts/telegram_publish_gate.py
+
+      - name: Create GitHub Release from resumed reviewed bytes
+        id: create_release
+        if: steps.publish_approval.outputs.effective_decision == 'approved'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTPUT_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
+          RELEASE_TAG: ${{ steps.consume.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="$RELEASE_TAG" OUTPUT_DIR="$OUTPUT_DIR" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.unified_delivery import finalize_release_manifest
+          finalize_release_manifest(
+              Path(os.environ['OUTPUT_DIR']) / 'delivery-manifest.json',
+              repository=os.environ['GITHUB_REPOSITORY'],
+              release_tag=os.environ['RELEASE_TAG'],
+          )
+          PY
+          assets=(
+            "$OUTPUT_DIR/final.mp4"
+            "$OUTPUT_DIR/quality-final.json"
+            "$OUTPUT_DIR/plan.json"
+            "$OUTPUT_DIR/final-critic.json"
+            "$OUTPUT_DIR/viewer-quality-contract.json"
+            "$OUTPUT_DIR/ai-budget.json"
+            "$OUTPUT_DIR/ai-budget-gold-resume.json"
+            "$OUTPUT_DIR/production-manifest.json"
+            "$OUTPUT_DIR/delivery-manifest.json"
+            "$OUTPUT_DIR/final-master-qc.json"
+            "$OUTPUT_DIR/thumbnail-plan.json"
+            "$OUTPUT_DIR/thumbnail-1.jpg"
+            "$OUTPUT_DIR/thumbnail-2.jpg"
+            "$OUTPUT_DIR/thumbnail-3.jpg"
+            "$OUTPUT_DIR/rights-manifest.json"
+            "$OUTPUT_DIR/gold-enforce-report.json"
+          )
+          for candidate in "$OUTPUT_DIR"/short-* "$OUTPUT_DIR"/sibling-short-*.json; do
+            if [ -f "$candidate" ]; then assets+=("$candidate"); fi
+          done
+          cmd=(
+            python scripts/release_transaction.py
+            --repository "$GITHUB_REPOSITORY"
+            --tag "$RELEASE_TAG"
+            --target-sha "$GITHUB_SHA"
+            --title "Isco Gold-Resumed Bundle ${RELEASE_TAG}"
+            --notes "QC_PENDING recovered through current certified Gold. Parent final media SHA remained unchanged. YouTube publication remains manual."
+            --journal "$RUNNER_TEMP/release-transaction.json"
+          )
+          for asset in "${assets[@]}"; do test -f "$asset" && cmd+=(--asset "$asset"); done
+          "${cmd[@]}"
+
+      - name: Persist Gold-accepted cross-run memory
+        id: persist_memory
+        if: steps.create_release.outcome == 'success' && steps.restore_memory.outputs.save_allowed == 'true'
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          test -f "$RUNNER_TEMP/isco-state/history.accepted.json"
+          python scripts/persistent_memory.py encrypt \
+            --plain "$RUNNER_TEMP/isco-state/history.accepted.json" \
+            --encrypted "$RUNNER_TEMP/isco-state/history.accepted.json.enc"
+          git fetch --no-tags origin agent-state:refs/remotes/origin/agent-state || true
+          python scripts/state_persistence_strict.py \
+            --repo . \
+            --encrypted "$RUNNER_TEMP/isco-state/history.accepted.json.enc" \
+            --branch agent-state \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --report "$RUNNER_TEMP/gold-resume-state-persistence.json"
+
+      - name: Reconcile Telegram QC_PENDING as completed
+        id: reconcile_success
+        if: steps.create_release.outcome == 'success' && steps.persist_memory.outcome == 'success'
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+          REQUEST_SHA256: ${{ steps.consume.outputs.request_sha256 }}
+          SOURCE_RUN_ID: ${{ steps.consume.outputs.source_run_id }}
+          FINAL_SHA256: ${{ steps.consume.outputs.final_sha256 }}
+          RELEASE_TAG: ${{ steps.consume.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/gold-control-success"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          encrypted="$worktree/state/control-panel.json.enc"
+          state="$RUNNER_TEMP/gold-control/completed.json"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+          chmod 600 "$state"
+          STATE="$state" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.telegram_control_panel import load_state, save_state
+          from scripts.telegram_gold_resume_control import mark_gold_resume_completed
+          from scripts.telegram_production_queue import mark_qc_pending_completed_after_gold
+          path = Path(os.environ['STATE'])
+          state = load_state(path)
+          mark_gold_resume_completed(
+              state,
+              os.environ['REQUEST_ID'],
+              os.environ['AUTHORIZATION_ID'],
+              release_tag=os.environ['RELEASE_TAG'],
+          )
+          mark_qc_pending_completed_after_gold(
+              state,
+              os.environ['REQUEST_ID'],
+              os.environ['REQUEST_SHA256'],
+              source_run_id=os.environ['SOURCE_RUN_ID'],
+              final_sha256=os.environ['FINAL_SHA256'],
+              gold_authorization_id=os.environ['AUTHORIZATION_ID'],
+              release_tag=os.environ['RELEASE_TAG'],
+          )
+          save_state(path, state)
+          PY
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          git commit -m "state: complete QC_PENDING through Gold resume"
+          git push origin HEAD:control-plane-state
+
+      - name: Delete consumed QC_PENDING artifact after complete success
+        if: steps.reconcile_success.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACT_ID: ${{ steps.download_source.outputs.artifact_id }}
+        run: |
+          set -euo pipefail
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}"
+
+      - name: Mark failed Gold resume attempt without consuming source
+        if: always() && steps.consume.outcome == 'success' && steps.reconcile_success.outcome != 'success'
+        continue-on-error: true
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          worktree="$RUNNER_TEMP/gold-control-failed"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          encrypted="$worktree/state/control-panel.json.enc"
+          state="$RUNNER_TEMP/gold-control/failed.json"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+          chmod 600 "$state"
+          STATE="$state" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.telegram_control_panel import load_state, save_state
+          from scripts.telegram_gold_resume_control import mark_gold_resume_failed
+          path = Path(os.environ['STATE'])
+          state = load_state(path)
+          mark_gold_resume_failed(
+              state,
+              os.environ['REQUEST_ID'],
+              os.environ['AUTHORIZATION_ID'],
+              reason='gold_resume_failed',
+          )
+          save_state(path, state)
+          PY
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "state: record failed Gold resume attempt"
+          git push origin HEAD:control-plane-state
+
+      - name: Notify Telegram about Gold resume outcome
+        if: always()
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RELEASE_TAG: ${{ steps.consume.outputs.release_tag }}
+          SUCCESS: ${{ steps.reconcile_success.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          test -n "$TELEGRAM_BOT_TOKEN"
+          test -n "$TELEGRAM_CHAT_ID"
+          if [ "$SUCCESS" = "true" ]; then
+            text="✅ تابع Gold اكتمل\n${RELEASE_TAG}\nتم إكمال نفس النطاق المعتمد دون إعادة بناء فيديو الأب."
+          else
+            text="🟠 تابع Gold لم يكتمل\nبقي الفيديو في QC_PENDING ويمكن إعادة المحاولة من «🎞️ إنتاجاتي»."
+          fi
+          curl --fail --silent --show-error \
+            --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${text}" >/dev/null
+
+      - name: Remove plaintext resume state and provider material
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/gold-control" || true
+          rm -rf "$RUNNER_TEMP/gold-secrets" || true
+          rm -rf "$RUNNER_TEMP/post-gold-secrets" || true
+          rm -rf "$RUNNER_TEMP/isco-state" || true
+          rm -rf "$RUNNER_TEMP/qc-pending-download" || true
+          rm -rf "$RUNNER_TEMP/gold-resume-children" || true
+          rm -f "$RUNNER_TEMP/qc-pending.zip" || true

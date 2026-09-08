@@ -14,6 +14,7 @@ from scripts.analytics_observer_status import observe_post_acceptance_analytics
 from scripts.orchestration_qc_port import run_final_master_qc
 from scripts.director_phase_a_resilience import install_director_phase_a_resilience
 from scripts.gold_enforce_phase4 import run_gold_enforce_phase4
+from scripts.gold_vision_capacity_reserve_v1 import install_gold_vision_capacity_reserve_v1
 from scripts.opening_feasibility_guard import install_opening_feasibility_guard
 from scripts.orchestration_cinematic_port import (
     CinematicInstallPhase,
@@ -30,6 +31,7 @@ from scripts.production_failure_diagnostics import (
     write_production_failure_diagnostics,
 )
 from scripts.production_model_contract import install_production_model_contract
+from scripts.qc_pending_checkpoint_v1 import capture_qc_pending_checkpoint
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
 from scripts.task_level_planner_router import get_used_providers, write_planning_telemetry
 from scripts.telegram_progress import install_progress_hooks, start_progress
@@ -214,6 +216,11 @@ def _attach_observer_evidence_to_telemetry(
         master_qc = json.loads(master_qc_path.read_text(encoding="utf-8"))
         if isinstance(master_qc, dict):
             data["final_master_qc"] = master_qc
+    viewer_path = output_dir / "viewer-quality-contract.json"
+    if viewer_path.exists():
+        viewer_quality = json.loads(viewer_path.read_text(encoding="utf-8"))
+        if isinstance(viewer_quality, dict):
+            data["viewer_quality_contract"] = viewer_quality
     telemetry_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -228,6 +235,7 @@ def main() -> None:
     # instead of accidentally depending on unrelated production code in this file.
     install_entrypoint_planning_contracts()
     install_runtime_closure()
+    install_gold_vision_capacity_reserve_v1()
     install_post_runtime_planning_contracts()
 
     # L7.1 stable port owns only the TTS installation topology. L7.3 now does the same
@@ -315,6 +323,13 @@ def main() -> None:
         # same-ledger evidence and Voice Observer diagnostics first. No manifest,
         # analytics, release, or accepted publication evidence is written on failure.
         _write_failure_diagnostics_safely(out, exc)
+        try:
+            capture_qc_pending_checkpoint(out, exc)
+        except Exception as checkpoint_exc:
+            print(
+                "QC_PENDING capture skipped without masking Gold failure "
+                f"({type(checkpoint_exc).__name__}: {str(checkpoint_exc)[:180]})"
+            )
         ledger.write(out / "ai-budget.json")
         telemetry_path = write_planning_telemetry(out)
         _attach_voice_audit_to_telemetry(telemetry_path, out)

@@ -151,7 +151,7 @@ jobs:
       - name: P5 current Gold same-render replay
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
-        run: python scripts/production_stage_ladder.py phase P5 --evidence-dir "$EVIDENCE_DIR" --staging "$STAGING_DIR"
+        run: python scripts/production_stage_ladder_p5_viewer_boundary.py phase P5 --evidence-dir "$EVIDENCE_DIR" --staging "$STAGING_DIR"
 
       - name: P6 current packaging delivery release dry replay
         env:

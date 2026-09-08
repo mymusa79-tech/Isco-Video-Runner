@@ -19,6 +19,7 @@ LIVE_DISPATCH_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved"})
 ACTIVE_PRODUCTION_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved", "dispatch_consumed"})
 FAILABLE_DISPATCH_STATUSES = frozenset({"dispatch_reserved", "dispatch_consumed"})
 DISPATCH_FAILURE_REASONS = frozenset({"workflow_dispatch_failed", "production_failed", "production_cancelled"})
+QC_PENDING_FAILURE_REASON = "gold_vision_provider_capacity"
 
 
 def _now() -> str:
@@ -40,6 +41,27 @@ def _runner_sha(value: str) -> str:
     value = str(value or "").strip().lower()
     if len(value) != 40 or any(ch not in "0123456789abcdef" for ch in value):
         raise RuntimeError("Telegram dispatch reservation requires an exact 40-hex Runner SHA")
+    return value
+
+
+def _engine_sha(value: str) -> str:
+    value = str(value or "").strip().lower()
+    if len(value) != 40 or any(ch not in "0123456789abcdef" for ch in value):
+        raise RuntimeError("QC_PENDING requires an exact 40-hex Engine SHA")
+    return value
+
+
+def _sha256(value: str, *, label: str) -> str:
+    value = str(value or "").strip().lower()
+    if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
+        raise RuntimeError(f"{label} must be an exact lowercase SHA-256")
+    return value
+
+
+def _positive_run_id(value: str, *, label: str) -> str:
+    value = str(value or "").strip()
+    if not value.isdigit() or int(value) < 1:
+        raise RuntimeError(f"{label} must be a positive GitHub run integer")
     return value
 
 
@@ -186,6 +208,8 @@ def _enqueue_ready_request(
     for item in reversed(matches):
         if item.get("status") == "completed":
             return "already_completed", item
+        if item.get("status") == "qc_pending":
+            return "qc_pending", item
         if item.get("status") == "pending_dispatch" and dispatch_entry_is_live(item):
             return "already_queued", item
         if item.get("status") == "dispatch_reserved" and _age_seconds(str(item.get("reserved_at") or "")) < RECENT_DISPATCH_SECONDS:
@@ -196,7 +220,7 @@ def _enqueue_ready_request(
     attempt = 1 + sum(
         1
         for item in matches
-        if item.get("status") in {"dispatch_reserved", "dispatch_consumed", "completed", "failed"}
+        if item.get("status") in {"dispatch_reserved", "dispatch_consumed", "completed", "failed", "qc_pending"}
     )
     requested_at = _now()
     action = {
@@ -364,6 +388,127 @@ def mark_dispatch_completed(
     raise RuntimeError("Exact Telegram dispatch authorization was not found for completion transition")
 
 
+def mark_dispatch_qc_pending(
+    state: dict[str, Any],
+    request_id: str,
+    request_sha256: str,
+    authorization_id: str,
+    *,
+    source_run_id: str,
+    source_run_attempt: str,
+    artifact_name: str,
+    runner_sha: str,
+    engine_sha: str,
+    final_sha256: str,
+    fmt: str,
+) -> dict[str, Any]:
+    source_run_id = _positive_run_id(source_run_id, label="QC_PENDING source run id")
+    source_run_attempt = _positive_run_id(source_run_attempt, label="QC_PENDING source run attempt")
+    runner_sha = _runner_sha(runner_sha)
+    engine_sha = _engine_sha(engine_sha)
+    final_sha256 = _sha256(final_sha256, label="QC_PENDING final hash")
+    artifact_name = str(artifact_name or "").strip()
+    if not artifact_name.startswith("isco-qc-pending-") or len(artifact_name) > 160:
+        raise RuntimeError("QC_PENDING artifact name is invalid")
+    fmt = str(fmt or "").strip().lower()
+    if fmt not in {"film", "story", "moment"}:
+        raise RuntimeError("QC_PENDING format is unsupported")
+
+    for item in _queue(state):
+        if not isinstance(item, dict):
+            continue
+        if (
+            item.get("request_id") == request_id
+            and item.get("request_sha256") == request_sha256
+            and item.get("authorization_id") == str(authorization_id or "").strip()
+        ):
+            expected = {
+                "source_run_id": source_run_id,
+                "source_run_attempt": source_run_attempt,
+                "artifact_name": artifact_name,
+                "runner_sha": runner_sha,
+                "engine_sha": engine_sha,
+                "final_sha256": final_sha256,
+                "format": fmt,
+            }
+            if item.get("status") == "qc_pending":
+                if item.get("qc_pending") != expected:
+                    raise RuntimeError("QC_PENDING identity changed for an existing ledger item")
+                return item
+            if item.get("status") != "dispatch_consumed":
+                raise RuntimeError("Telegram dispatch is not consumed and cannot become QC_PENDING")
+            pending_at = _now()
+            item["status"] = "qc_pending"
+            item["qc_pending_at"] = pending_at
+            item["failure_reason"] = QC_PENDING_FAILURE_REASON
+            item["qc_pending"] = expected
+            state["last_event_at"] = pending_at
+            return item
+    raise RuntimeError("Exact Telegram dispatch authorization was not found for QC_PENDING transition")
+
+
+def mark_qc_pending_completed_after_gold(
+    state: dict[str, Any],
+    request_id: str,
+    request_sha256: str,
+    *,
+    source_run_id: str,
+    final_sha256: str,
+    gold_authorization_id: str,
+    release_tag: str,
+) -> dict[str, Any]:
+    """Resolve one exact QC_PENDING production only after an authorized Gold resume."""
+    source_run_id = _positive_run_id(source_run_id, label="Gold completion source run id")
+    final_sha256 = _sha256(final_sha256, label="Gold completion final hash")
+    gold_authorization_id = str(gold_authorization_id or "").strip().lower()
+    if len(gold_authorization_id) != 32 or any(ch not in "0123456789abcdef" for ch in gold_authorization_id):
+        raise RuntimeError("Gold completion requires an exact 32-hex authorization id")
+    release_tag = str(release_tag or "").strip()
+    if not release_tag:
+        raise RuntimeError("Gold completion requires a release tag")
+
+    matches = [
+        item for item in _queue(state)
+        if isinstance(item, dict)
+        and item.get("request_id") == request_id
+        and item.get("request_sha256") == request_sha256
+    ]
+    if not matches:
+        raise RuntimeError("QC_PENDING production was not found for Gold completion")
+    item = matches[-1]
+    expected_resolution = {
+        "status": "gold_accepted",
+        "source_run_id": source_run_id,
+        "final_sha256": final_sha256,
+        "gold_authorization_id": gold_authorization_id,
+        "release_tag": release_tag,
+    }
+    if item.get("status") == "completed":
+        existing = item.get("qc_pending_resolution")
+        if existing != expected_resolution:
+            raise RuntimeError("Completed QC_PENDING production Gold resolution identity changed")
+        return item
+    if item.get("status") != "qc_pending":
+        raise RuntimeError("Only QC_PENDING production can complete through Gold resume")
+    pending = item.get("qc_pending")
+    if not isinstance(pending, dict):
+        raise RuntimeError("QC_PENDING production provenance is missing")
+    if str(pending.get("source_run_id") or "") != source_run_id:
+        raise RuntimeError("Gold completion source run does not match QC_PENDING production")
+    if str(pending.get("final_sha256") or "").strip().lower() != final_sha256:
+        raise RuntimeError("Gold completion final hash does not match QC_PENDING production")
+
+    completed_at = _now()
+    item["status"] = "completed"
+    item["completed_at"] = completed_at
+    item["completed_release_tag"] = release_tag
+    item["completed_via_gold_resume"] = True
+    item["qc_pending_resolution"] = expected_resolution
+    item.pop("failure_reason", None)
+    state["last_event_at"] = completed_at
+    return item
+
+
 def mark_dispatch_failed(
     state: dict[str, Any],
     request_id: str,
@@ -385,8 +530,8 @@ def mark_dispatch_failed(
         ):
             if item.get("status") == "failed":
                 return item
-            if item.get("status") == "completed":
-                raise RuntimeError("Completed Telegram dispatch cannot transition back to failed")
+            if item.get("status") in {"completed", "qc_pending"}:
+                raise RuntimeError("Terminal/recoverable Telegram dispatch cannot transition back to failed")
             if item.get("status") not in FAILABLE_DISPATCH_STATUSES:
                 raise RuntimeError("Telegram dispatch is not in a fail-able state")
             failed_at = _now()
@@ -443,6 +588,19 @@ def main() -> None:
     complete.add_argument("--authorization-id", required=True)
     complete.add_argument("--release-tag", required=True)
 
+    qc_pending = sub.add_parser("qc-pending")
+    qc_pending.add_argument("--state", required=True, type=Path)
+    qc_pending.add_argument("--request-id", required=True)
+    qc_pending.add_argument("--sha256", required=True)
+    qc_pending.add_argument("--authorization-id", required=True)
+    qc_pending.add_argument("--source-run-id", required=True)
+    qc_pending.add_argument("--source-run-attempt", required=True)
+    qc_pending.add_argument("--artifact-name", required=True)
+    qc_pending.add_argument("--runner-sha", required=True)
+    qc_pending.add_argument("--engine-sha", required=True)
+    qc_pending.add_argument("--final-sha256", required=True)
+    qc_pending.add_argument("--format", required=True)
+
     fail = sub.add_parser("fail")
     fail.add_argument("--state", required=True, type=Path)
     fail.add_argument("--request-id", required=True)
@@ -482,6 +640,22 @@ def main() -> None:
             args.sha256,
             args.authorization_id,
             release_tag=args.release_tag,
+        )
+        _save(args.state, state)
+        print(json.dumps(item, ensure_ascii=False, sort_keys=True))
+    elif args.command == "qc-pending":
+        item = mark_dispatch_qc_pending(
+            state,
+            args.request_id,
+            args.sha256,
+            args.authorization_id,
+            source_run_id=args.source_run_id,
+            source_run_attempt=args.source_run_attempt,
+            artifact_name=args.artifact_name,
+            runner_sha=args.runner_sha,
+            engine_sha=args.engine_sha,
+            final_sha256=args.final_sha256,
+            fmt=args.format,
         )
         _save(args.state, state)
         print(json.dumps(item, ensure_ascii=False, sort_keys=True))

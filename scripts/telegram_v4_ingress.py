@@ -19,6 +19,7 @@ from scripts.telegram_production_queue import (
     consume_dispatch_authorization,
     mark_dispatch_completed,
     mark_dispatch_failed,
+    mark_dispatch_qc_pending,
     release_tag_for,
     validate_dispatch_authorization,
     validate_ready_request,
@@ -167,6 +168,53 @@ def complete(
     _save(state_path, state)
 
 
+def qc_pending(
+    *,
+    state_path: Path,
+    request_id: str,
+    request_sha256: str,
+    authorization_id: str,
+    checkpoint_path: Path,
+    artifact_name: str,
+) -> None:
+    """Reconcile an exact post-render Gold-capacity pause without classifying it as failure."""
+    state = _load(state_path)
+    _request(state, request_id, request_sha256)
+    checkpoint = _load(Path(checkpoint_path))
+    if checkpoint.get("contract_id") != "gold.qc-pending.v1" or checkpoint.get("schema_version") != 2:
+        raise RuntimeError("Telegram QC_PENDING reconciliation requires checkpoint V2")
+    if checkpoint.get("status") != "GOLD_VISION_PENDING_PROVIDER_CAPACITY":
+        raise RuntimeError("Telegram QC_PENDING reconciliation received a non-pending checkpoint")
+    if checkpoint.get("release_allowed") is not False or checkpoint.get("resumable") is not True:
+        raise RuntimeError("Telegram QC_PENDING checkpoint is not fail-closed resumable evidence")
+    if checkpoint.get("failure_taxonomy") != "VisionProviderMeshUnavailableError":
+        raise RuntimeError("Telegram QC_PENDING reconciliation refuses unsupported failure taxonomy")
+    runner_sha = str(checkpoint.get("runner_sha") or "").strip().lower()
+    if runner_sha != _current_runner_sha():
+        raise RuntimeError("Telegram QC_PENDING checkpoint Runner SHA does not match source workflow")
+    source_run_id = str(checkpoint.get("source_run_id") or "").strip()
+    source_run_attempt = str(checkpoint.get("source_run_attempt") or "").strip()
+    if source_run_id != str(os.environ.get("GITHUB_RUN_ID") or "").strip():
+        raise RuntimeError("Telegram QC_PENDING checkpoint run id does not match source workflow")
+    if source_run_attempt != str(os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip():
+        raise RuntimeError("Telegram QC_PENDING checkpoint attempt does not match source workflow")
+    final_sha256 = str((checkpoint.get("final") or {}).get("sha256") or "").strip().lower()
+    mark_dispatch_qc_pending(
+        state,
+        request_id,
+        request_sha256,
+        authorization_id,
+        source_run_id=source_run_id,
+        source_run_attempt=source_run_attempt,
+        artifact_name=artifact_name,
+        runner_sha=runner_sha,
+        engine_sha=str(checkpoint.get("engine_sha") or "").strip().lower(),
+        final_sha256=final_sha256,
+        fmt=str(checkpoint.get("format") or "").strip().lower(),
+    )
+    _save(state_path, state)
+
+
 def fail(
     *,
     state_path: Path,
@@ -210,6 +258,14 @@ def main() -> int:
     complete_cmd.add_argument("--authorization-id", required=True)
     complete_cmd.add_argument("--release-tag", required=True)
 
+    pending_cmd = sub.add_parser("qc-pending")
+    pending_cmd.add_argument("--state", required=True, type=Path)
+    pending_cmd.add_argument("--request-id", required=True)
+    pending_cmd.add_argument("--sha256", required=True)
+    pending_cmd.add_argument("--authorization-id", required=True)
+    pending_cmd.add_argument("--checkpoint", required=True, type=Path)
+    pending_cmd.add_argument("--artifact-name", required=True)
+
     fail_cmd = sub.add_parser("fail")
     fail_cmd.add_argument("--state", required=True, type=Path)
     fail_cmd.add_argument("--request-id", required=True)
@@ -243,6 +299,15 @@ def main() -> int:
             request_sha256=args.sha256,
             authorization_id=args.authorization_id,
             release_tag=args.release_tag,
+        )
+    elif args.command == "qc-pending":
+        qc_pending(
+            state_path=args.state,
+            request_id=args.request_id,
+            request_sha256=args.sha256,
+            authorization_id=args.authorization_id,
+            checkpoint_path=args.checkpoint,
+            artifact_name=args.artifact_name,
         )
     else:
         fail(
