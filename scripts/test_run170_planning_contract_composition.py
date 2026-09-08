@@ -69,6 +69,7 @@ class Run170PlanningContractCompositionTests(unittest.TestCase):
 
     def test_short_recovery_uses_new_stage_contract_evidence_and_retries_once(self) -> None:
         closure.install_planning_contract_composition_closure()
+        retry_composition.install_short_stage_retry_composition()
         calls = 0
         sentinel = {"ok": True}
 
@@ -80,6 +81,10 @@ class Run170PlanningContractCompositionTests(unittest.TestCase):
             return sentinel
 
         with patch.object(short_headroom.time, "sleep") as sleep, patch.object(
+            retry_composition.time,
+            "monotonic",
+            side_effect=[100.0, 100.0],
+        ), patch.object(
             short_headroom,
             "_clear_model_window",
         ) as clear:
@@ -90,7 +95,9 @@ class Run170PlanningContractCompositionTests(unittest.TestCase):
 
         self.assertIs(result, sentinel)
         self.assertEqual(calls, 2)
-        sleep.assert_called_once_with(43.94)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertAlmostEqual(sleep.call_args_list[0].args[0], 43.94, places=2)
+        self.assertAlmostEqual(sleep.call_args_list[1].args[0], 30.10, places=2)
         clear.assert_called_once_with("openai/gpt-oss-120b")
 
     def test_long_recovery_reads_same_stage_contract_evidence(self) -> None:
@@ -310,11 +317,16 @@ class Run172ShortStageRetryCompositionTests(unittest.TestCase):
             except RuntimeError:
                 return call()
 
-        result = retry_composition._recovery_with_retry_identity(
-            bounded_owner,
-            target,
-            phase="repair",
-        )
+        with patch.object(
+            retry_composition.time,
+            "monotonic",
+            side_effect=[100.0, 130.0],
+        ):
+            result = retry_composition._recovery_with_retry_identity(
+                bounded_owner,
+                target,
+                phase="repair",
+            )
         self.assertEqual(result, {"ok": True})
         self.assertEqual(observed, [False, True])
 
@@ -357,12 +369,17 @@ class Run172ShortStageRetryCompositionTests(unittest.TestCase):
                     pass
             return call()
 
-        with self.assertRaises(stage_contract.PlanningStageError) as captured:
-            retry_composition._recovery_with_retry_identity(
-                broken_owner,
-                always_fails,
-                phase="repair",
-            )
+        with patch.object(
+            retry_composition.time,
+            "monotonic",
+            side_effect=[100.0, 130.0],
+        ):
+            with self.assertRaises(stage_contract.PlanningStageError) as captured:
+                retry_composition._recovery_with_retry_identity(
+                    broken_owner,
+                    always_fails,
+                    phase="repair",
+                )
         self.assertEqual(
             captured.exception.code,
             stage_contract.PlanningErrorCode.INTERNAL_CONTRACT_ERROR,

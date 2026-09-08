@@ -7,18 +7,28 @@ correct but disagreed on what a retry means: recovery may invoke the same
 Draft/Review/Repair transport a second time after trustworthy Groq reset evidence, while
 the Stage Contract must still treat both transport attempts as one logical operation.
 
+Run227 exposed a second composition edge: the evidence-backed outer recovery waited for
+the Groq TPM window reset, but the explicit Stage router retained its independent generic
+transient-provider cooldown. The already-authorized second transport could therefore be
+rejected before any provider contact. Preserve Stage ownership instead of mutating its
+private state: when transport #2 is authorized, wait out any remainder of the Stage
+cooldown before replaying the exact same logical operation. Permanent circuits, provider
+budgets, prompt contracts, and quality gates remain untouched.
+
 This module does not add retries, change provider budgets, infer identity from call order,
 or inspect prompt text. It marks only the already-authorized second attempt and reuses
 the exact previous Stage Contract only when the currently active named operation matches
 the operation that owned the first attempt.
 """
 
+import time
 from contextvars import ContextVar
 from typing import Any, Callable, TypeVar
 
 from scripts import native_short_stage_contract as short_stage
 from scripts import planning_capacity_headroom as headroom
 from scripts import planning_stage_contract as stage_contract
+from scripts import task_level_planner_router as router
 
 
 _T = TypeVar("_T")
@@ -29,6 +39,7 @@ _AUTHORIZED_RETRY: ContextVar[bool] = ContextVar(
 )
 _LAST_STAGE_KEY = "_isco_short_stage_retry_previous_stage"
 _LAST_OPERATION_KEY = "_isco_short_stage_retry_previous_operation"
+_STAGE_COOLDOWN_SAFETY_SECONDS = 0.10
 
 
 def authorized_terminal_retry_active() -> bool:
@@ -42,6 +53,31 @@ def _active_operation_name() -> str | None:
     return str(operation).strip() if operation is not None else None
 
 
+def _wait_out_stage_transient_cooldown(first_failure_at: float | None, *, phase: str) -> None:
+    """Honor the Stage router's own transient cooldown before certified transport #2.
+
+    The outer recovery owns Groq TPM reset evidence and its reset wait. The Stage router
+    separately owns a generic provider cooldown. We do not clear or shorten either one;
+    we only ensure the second transport cannot start until the generic cooldown interval
+    has also elapsed since the first transport returned its retryable failure.
+    """
+    if first_failure_at is None:
+        return
+    cooldown_seconds = max(0.0, float(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS))
+    elapsed = max(0.0, time.monotonic() - first_failure_at)
+    remaining = max(0.0, cooldown_seconds - elapsed)
+    if remaining <= 0.0:
+        return
+    wait_seconds = remaining + _STAGE_COOLDOWN_SAFETY_SECONDS
+    print(
+        "Short planning terminal retry Stage cooldown coordination: "
+        f"phase={phase} elapsed_since_failure={elapsed:.2f}s "
+        f"stage_cooldown={cooldown_seconds:.2f}s wait={wait_seconds:.2f}s "
+        "action=honor_existing_cooldown retry_budget=unchanged"
+    )
+    time.sleep(wait_seconds)
+
+
 def _recovery_with_retry_identity(
     original_recovery: Callable[..., _T],
     call: Callable[[], _T],
@@ -49,9 +85,10 @@ def _recovery_with_retry_identity(
     phase: str,
 ) -> _T:
     attempts = 0
+    first_failure_at: float | None = None
 
     def tracked_call() -> _T:
-        nonlocal attempts
+        nonlocal attempts, first_failure_at
         attempts += 1
         if attempts > 2:
             raise stage_contract.PlanningStageError(
@@ -60,7 +97,16 @@ def _recovery_with_retry_identity(
                 stage_id=f"planning.short_{phase}",
             )
         if attempts == 1:
-            return call()
+            try:
+                return call()
+            except RuntimeError:
+                first_failure_at = time.monotonic()
+                raise
+
+        # Reaching transport #2 is itself the authorization proof: the wrapped recovery
+        # invokes it only after _terminal_reset_evidence() accepted Groq TPM reset data,
+        # slept the bounded reset interval, and cleared the model-scoped capacity window.
+        _wait_out_stage_transient_cooldown(first_failure_at, phase=phase)
         token = _AUTHORIZED_RETRY.set(True)
         try:
             return call()
@@ -137,5 +183,6 @@ def install_short_stage_retry_composition() -> None:
     print(
         "Short Stage/retry composition installed: "
         "named_operation_reused_on_authorized_terminal_retry=true "
+        "stage_transient_cooldown_honored=true permanent_circuit_untouched=true "
         "ordinal_inference=false retry_budget=unchanged max_transport_attempts=2"
     )

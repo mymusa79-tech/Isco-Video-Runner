@@ -6,10 +6,11 @@ from unittest.mock import patch
 
 from scripts import planning_runtime_contract as runtime_contract
 from scripts import short_repair_reset_recovery as recovery
+from scripts import short_stage_retry_composition as retry_composition
 
 
 class Run158160ShortRepairResetRecoveryTests(unittest.TestCase):
-    def test_run160_trustworthy_reset_waits_once_and_retries_once(self):
+    def test_run160_trustworthy_reset_waits_for_both_temporal_gates_and_retries_once(self):
         calls: list[int] = []
         sleeps: list[float] = []
         cleared: list[str] = []
@@ -29,10 +30,15 @@ class Run158160ShortRepairResetRecoveryTests(unittest.TestCase):
                 )
             return sentinel
 
+        retry_composition.install_short_stage_retry_composition()
         with patch.object(
             recovery.headroom.time,
             "sleep",
             side_effect=lambda value: sleeps.append(value),
+        ), patch.object(
+            retry_composition.time,
+            "monotonic",
+            side_effect=[100.0, 100.0],
         ), patch.object(
             recovery.headroom,
             "_clear_model_window",
@@ -43,8 +49,9 @@ class Run158160ShortRepairResetRecoveryTests(unittest.TestCase):
         self.assertIs(result, sentinel)
         self.assertEqual(len(calls), 2)
         self.assertEqual(cleared, ["openai/gpt-oss-120b"])
-        self.assertEqual(len(sleeps), 1)
+        self.assertEqual(len(sleeps), 2)
         self.assertAlmostEqual(sleeps[0], 51.24, places=2)
+        self.assertAlmostEqual(sleeps[1], 30.10, places=2)
 
     def test_reset_above_certified_limit_does_not_retry(self):
         calls: list[int] = []
