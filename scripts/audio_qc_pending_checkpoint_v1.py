@@ -38,6 +38,7 @@ SCHEMA_VERSION = 1
 FILENAME = "audio-qc-pending.json"
 STATUS = "AUDIO_QC_PENDING_PROVIDER_AUDIT"
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
+_SHA64 = re.compile(r"^[0-9a-f]{64}$")
 
 
 class AudioQCPendingCheckpointError(RuntimeError):
@@ -146,6 +147,22 @@ def _require_retention_binding(root: Path, final_sha: str) -> dict[str, Any]:
     return report
 
 
+def _approved_control_request_snapshot(control_path: str) -> dict[str, Any] | None:
+    if not control_path:
+        return None
+    path = Path(control_path)
+    if not path.is_file():
+        raise AudioQCPendingCheckpointError("audio_qc_pending_control_request_missing")
+    request = _read_object(path)
+    if request.get("approved_by_user") is not True:
+        raise AudioQCPendingCheckpointError("audio_qc_pending_control_request_not_user_approved")
+    request_id = str(request.get("request_id") or "").strip()
+    request_sha = str(request.get("request_sha256") or "").strip().lower()
+    if not request_id or not _SHA64.fullmatch(request_sha):
+        raise AudioQCPendingCheckpointError("audio_qc_pending_control_request_identity_invalid")
+    return deepcopy(request)
+
+
 def _attach_diagnostics_summary(root: Path, checkpoint: dict[str, Any]) -> None:
     path = root / "production-failure-diagnostics.json"
     if not path.is_file():
@@ -211,7 +228,8 @@ def capture_audio_qc_pending_checkpoint(
     if not release_tag:
         release_tag = f"video-{source['run_number']}"
     control_path = str(os.environ.get("ISCO_CONTROL_REQUEST_PATH") or "").strip()
-    ingress = "telegram" if control_path else "manual"
+    control_request = _approved_control_request_snapshot(control_path)
+    ingress = "telegram" if control_request is not None else "manual"
     checkpoint = {
         "schema_version": SCHEMA_VERSION,
         "contract_id": CONTRACT_ID,
@@ -221,6 +239,7 @@ def capture_audio_qc_pending_checkpoint(
         "format": fmt,
         "ingress": ingress,
         "release_tag": release_tag,
+        "control_request": control_request,
         "source": source,
         "final": {
             "path": "final.mp4",
@@ -266,6 +285,7 @@ def capture_audio_qc_pending_checkpoint(
             "gold_revalidation_required": True,
             "semantic_mismatch_is_resumable": False,
             "provider_attempts_per_audio_revalidation_max": 2,
+            "resume_execution_limit": 1,
         },
     }
     target = root / FILENAME
