@@ -7,7 +7,8 @@
   "stage": "mux",
   "completed_stages": [
     "planning",
-    "visuals"
+    "visuals",
+    "mux"
   ],
-  "updated_at": "2026-09-08T22:38:37.524671Z"
+  "updated_at": "2026-09-08T22:38:39.461519Z"
 }
