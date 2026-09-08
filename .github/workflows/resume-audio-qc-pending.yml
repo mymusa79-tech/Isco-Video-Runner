@@ -308,7 +308,7 @@ jobs:
           bundle="$RUNNER_TEMP/chained-gold-qc-pending"
           PYTHONPATH="${GITHUB_WORKSPACE}/engine/src:${GITHUB_WORKSPACE}" python scripts/qc_pending_resume_bundle_v1.py build \
             --output-dir "$OUTPUT_DIR" \
-            --bundle "$bundle" > "$RUNNER_TEMP/chained-gold-bundle-build.json"
+            --destination "$bundle" > "$RUNNER_TEMP/chained-gold-bundle-build.json"
           echo "available=true" >> "$GITHUB_OUTPUT"
           echo "bundle_dir=$bundle" >> "$GITHUB_OUTPUT"
 
@@ -341,6 +341,7 @@ jobs:
           gold = json.loads((root / 'gold-enforce-report.json').read_text(encoding='utf-8'))
           viewer = json.loads((root / 'viewer-quality-contract.json').read_text(encoding='utf-8'))
           manifest = json.loads((root / 'production-manifest.json').read_text(encoding='utf-8'))
+          budget = json.loads((root / 'audio-resume-budget-envelope.json').read_text(encoding='utf-8'))
           if audio.get('decision') != 'pass':
               raise SystemExit('Audio resume lacks Audio Production V2 PASS')
           if master.get('status') != 'pass' or master.get('final_media_mutated') is not False:
@@ -349,6 +350,12 @@ jobs:
               raise SystemExit('Audio resume lacks Gold/Viewer PASS')
           if manifest.get('final_sha256') != digest:
               raise SystemExit('Audio resume manifest final identity mismatch')
+          if budget.get('source_budget_inherited') is not True:
+              raise SystemExit('Audio resume did not inherit source provider budget')
+          cap = budget.get('provider_attempt_hard_cap')
+          combined = budget.get('combined_provider_attempts_after_gold')
+          if cap is not None and (not isinstance(combined, int) or combined > int(cap)):
+              raise SystemExit('Audio resume exceeded inherited provider hard cap')
           print(f'Audio resume validation PASS final_sha256={digest}')
           PY
 
@@ -362,6 +369,9 @@ jobs:
             ${{ steps.restore_bundle.outputs.output_dir }}/final.mp4
             ${{ steps.restore_bundle.outputs.output_dir }}/quality-final.json
             ${{ steps.restore_bundle.outputs.output_dir }}/plan.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/ai-budget.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/ai-budget-audio-resume.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/audio-resume-budget-envelope.json
             ${{ steps.restore_bundle.outputs.output_dir }}/audio-production-contract-v2.json
             ${{ steps.restore_bundle.outputs.output_dir }}/audio-semantic-integrity.json
             ${{ steps.restore_bundle.outputs.output_dir }}/final-master-qc.json
@@ -416,6 +426,9 @@ jobs:
             "$OUTPUT_DIR/final.mp4"
             "$OUTPUT_DIR/quality-final.json"
             "$OUTPUT_DIR/plan.json"
+            "$OUTPUT_DIR/ai-budget.json"
+            "$OUTPUT_DIR/ai-budget-audio-resume.json"
+            "$OUTPUT_DIR/audio-resume-budget-envelope.json"
             "$OUTPUT_DIR/audio-production-contract-v2.json"
             "$OUTPUT_DIR/final-master-qc.json"
             "$OUTPUT_DIR/final-critic.json"
