@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import isco_video_agent.content_quality as content_quality
+import isco_video_agent.factuality as factuality
+import isco_video_agent.text_audit_router as engine_audit_router
+import isco_video_agent.tone_quality as tone_quality
 from isco_video_agent.ai_budget import get_active_budget_task
 
 from scripts import provider_capacity_hardening as capacity
@@ -14,15 +18,24 @@ from scripts import text_audit_provider_mesh as mesh
 # evidence in 0.08s, but the local admission rejection was surfaced as a provider
 # failure even though no HTTP request had happened.
 #
+# Run #229 exposed two remaining topology gaps in that closure:
+# - a later Groq model already circuit-open for the current production run was still
+#   considered a better bounded route, so a waitable 120b reset was rejected locally;
+# - after model-scoped Groq routes were injected, the legacy generic ``groq`` alias was
+#   still present and could backtrack to an earlier Planning model.
+#
 # Ownership rule:
 # - Planning keeps its existing fast-failover policy unchanged.
 # - Text Audit Mesh keeps its canonical model order and route width unchanged.
 # - A busy audit route never waits when a later route that is already part of the
-#   bounded audit mesh is immediately admissible or has a strictly nearer trustworthy
-#   reset. This preserves Run #157's 120b -> Qwen failover semantics.
+#   bounded audit mesh is both actually routable in this run and immediately admissible
+#   or has a strictly nearer trustworthy reset. Circuit-open routes are not candidates.
 # - When the current route is the best bounded option, a mandatory audit may wait once
 #   on trustworthy exact-model reset evidence <=60s before its existing single wire
-#   attempt. This closes Run #167 without adding provider attempts.
+#   attempt. This closes Run #167/#229 without adding provider attempts.
+# - The generic Groq provider alias is removed only from the canonical Gemini + Groq +
+#   OpenRouter audit topology; model-scoped routes remain the sole Groq representation,
+#   preventing backtracking while preserving non-mesh standalone callers.
 # - Missing/untrusted/long reset evidence keeps the old failover-without-HTTP behavior.
 
 _TEXT_AUDIT_TASK_KINDS = frozenset(
@@ -77,6 +90,23 @@ def _trusted_reset_in_seconds(model_name: str) -> float | None:
     return max(0.0, float(reset_at_epoch) - capacity.time.time())
 
 
+def _audit_route_circuit_open(model_name: str) -> bool:
+    """Return whether this exact model-scoped Groq route is dead for the run.
+
+    The Engine owns the circuit set. Reading it here does not mutate routing state and
+    lets capacity look-ahead distinguish a real fallback from a route the Engine will
+    immediately skip without a provider attempt.
+    """
+    try:
+        cooldown = engine_audit_router._RUN_COOLDOWN.get()
+    except Exception:
+        # Be transparent if an older Engine does not expose run-scoped circuit state.
+        return False
+    if not cooldown:
+        return False
+    return mesh._groq_route_label(str(model_name)) in cooldown
+
+
 def _later_bounded_route_is_better(
     *,
     model_name: str,
@@ -87,8 +117,8 @@ def _later_bounded_route_is_better(
 
     OpenRouter-healthy audits intentionally own only one Groq route, so there is no
     Groq look-ahead in that topology. When OpenRouter is blocked the existing mesh owns
-    up to two Groq routes. We inspect only the next *eligible* route in the canonical
-    active pool and never reorder or widen that pool.
+    up to two Groq routes. We inspect only the next *eligible and routable* route in the
+    canonical active pool and never reorder or widen that pool.
     """
     if not run125.openrouter_preflight_blocked():
         return False
@@ -100,6 +130,12 @@ def _later_bounded_route_is_better(
         return False
 
     for later_model in tail[current_index + 1 :]:
+        # Run #229: a model already rate-limited earlier in this run is not a usable
+        # escape hatch. Treating it as "better" only rejects the current wait, after
+        # which Engine skips the later route as circuit-open and capacity is lost.
+        if _audit_route_circuit_open(later_model):
+            continue
+
         try:
             decision = capacity.groq_admission_decision(later_model, required)
         except Exception:
@@ -167,10 +203,9 @@ def _audit_wait_pacing(
             reset_in=reset_in,
         )
 
-    # Preserve canonical order while still choosing the cheapest admission decision:
-    # fail over from a 38.40s 120b reset to Run167's later 0.08s Qwen route, or from a
-    # busy model to an immediately admissible later route. The later route itself then
-    # owns the only bounded wait if it still needs one.
+    # Preserve canonical order while still choosing the cheapest *routable* admission
+    # decision. A healthy nearer Qwen reset still wins (Run #167); a circuit-open Qwen
+    # cannot disqualify a bounded 120b wait (Run #229).
     if _later_bounded_route_is_better(
         model_name=model,
         required=required,
@@ -209,6 +244,49 @@ def _audit_wait_pacing(
     return wait_seconds
 
 
+def _canonical_audit_providers(
+    providers: list[tuple[str, object]],
+) -> list[tuple[str, object]]:
+    """Remove the legacy generic Groq alias only when the model mesh owns Groq.
+
+    Standalone/non-mesh routes remain byte-for-byte unchanged. In the canonical audit
+    topology, model-scoped Groq routes are injected by mesh._mesh_route, so retaining
+    the original generic alias creates an extra hidden route that can backtrack to an
+    earlier Planning model after the bounded model pool has already been considered.
+    """
+    names = {str(name) for name, _call in providers}
+    if "gemini" not in names or "openrouter" not in names:
+        return list(providers)
+    return [(name, call) for name, call in providers if str(name) != "groq"]
+
+
+def _canonical_audit_route(
+    providers,
+    prompt: str,
+    *,
+    cooldown: set[str] | None = None,
+):
+    return mesh._mesh_route(
+        _canonical_audit_providers(list(providers)),
+        prompt,
+        cooldown=cooldown,
+    )
+
+
+def _install_no_generic_groq_backtracking() -> None:
+    """Bind canonical audits to model-scoped Groq routes with no generic backtracking."""
+    for audit_module in (factuality, content_quality, tone_quality):
+        current = getattr(audit_module, "route_text_audit", None)
+        if getattr(current, "_isco_run229_no_generic_groq_backtracking", False):
+            continue
+        # Provider Mesh is the route owner. Do not replace unrelated/custom callers.
+        if current is not mesh._mesh_route:
+            continue
+        audit_module.route_text_audit = _canonical_audit_route
+
+    _canonical_audit_route._isco_run229_no_generic_groq_backtracking = True
+
+
 def install_text_audit_capacity_ownership() -> None:
     """Give mandatory text audits their own bounded admission policy on shared Groq."""
     global _INSTALLED
@@ -231,11 +309,15 @@ def install_text_audit_capacity_ownership() -> None:
 
     # Deliberately do NOT replace mesh._groq_route_models. Run #157 established that
     # model order/pool width belong to Text Audit Mesh itself. This owner only changes
-    # what a selected busy route may do before its wire boundary.
+    # what a selected busy route may do before its wire boundary, and Run #229 removes
+    # only the obsolete generic alias after Mesh owns model-scoped Groq routing.
+    _install_no_generic_groq_backtracking()
     mesh._ISCO_TEXT_AUDIT_CAPACITY_OWNERSHIP_V1 = True
+    mesh._ISCO_RUN229_NO_GENERIC_GROQ_BACKTRACKING_V1 = True
     _INSTALLED = True
     print(
         "Text Audit capacity ownership installed: "
         "planning=fast_failover_preserved audit=single_bounded_reset_wait<=60s "
-        "groq_order=mesh_preserved prewire_wait=zero_provider_attempts"
+        "groq_order=mesh_preserved prewire_wait=zero_provider_attempts "
+        "circuit_open_lookahead=false generic_groq_backtracking=false"
     )
