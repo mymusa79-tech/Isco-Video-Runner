@@ -447,6 +447,8 @@ jobs:
       - name: Persist accepted cross-run memory after release success
         id: persist_memory
         if: steps.create_release.outcome == 'success' && steps.restore_memory.outputs.save_allowed == 'true'
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
         run: |
           set -euo pipefail
           test -f "$RUNNER_TEMP/isco-state/history.accepted.json"
