@@ -32,7 +32,6 @@ COMMON_REQUIRED_FILES = (
     "factuality-audit.json",
     "content-quality-audit.json",
     "tone-quality-audit.json",
-    "opening-visual-audit.json",
     "final-master-qc.json",
     "ai-budget.json",
     "qc-pending.json",
@@ -41,6 +40,10 @@ SHORT_REQUIRED_FILES = (
     "short-intelligence-pre-gold.json",
 )
 OPTIONAL_FILES = (
+    # Gold may pause while producing this audit. A missing pre-resume opening audit is
+    # therefore expected for the exact Run #230 failure shape; current Gold re-runs the
+    # opening/viewer checks and remains the only authority that may accept the render.
+    "opening-visual-audit.json",
     "short-visual-timeline.json",
     "short-retention-contract.json",
     "short-compensation-plan.json",
