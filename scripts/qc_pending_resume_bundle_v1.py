@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-"""Persist and verify the minimal exact-byte bundle needed for Gold-only resume."""
+"""Persist and verify the exact-byte evidence needed to resume from Gold onward.
+
+The bundle never authorizes release by itself.  It preserves the already-rendered media,
+pre-Gold quality evidence and the minimum post-Gold inputs needed to finish the *same
+approved scope* without replanning, researching, retrieving media, resynthesizing the
+parent voice, or rerendering the parent final.
+"""
 
 import argparse
 import hashlib
@@ -13,24 +19,36 @@ from typing import Any
 from scripts.qc_pending_checkpoint_v1 import verify_qc_pending_checkpoint
 
 
-CONTRACT_ID = "gold.qc-pending.resume-bundle.v1"
-CONTRACT_VERSION = 1
+CONTRACT_ID = "gold.qc-pending.resume-bundle.v2"
+CONTRACT_VERSION = 2
 MANIFEST_FILENAME = "resume-manifest.json"
-REQUIRED_FILES = (
+COMMON_REQUIRED_FILES = (
     "final.mp4",
     "plan.json",
     "quality-final.json",
     "visual-audit.json",
     "rights-manifest.json",
     "monetization-check.json",
+    "factuality-audit.json",
+    "content-quality-audit.json",
+    "tone-quality-audit.json",
     "opening-visual-audit.json",
     "final-master-qc.json",
     "ai-budget.json",
     "qc-pending.json",
 )
+SHORT_REQUIRED_FILES = (
+    "short-intelligence-pre-gold.json",
+)
 OPTIONAL_FILES = (
     "short-visual-timeline.json",
+    "short-retention-contract.json",
+    "short-compensation-plan.json",
+    "short-progressive.srt",
+    "audio-mastering.json",
+    "voice-identity-audit.json",
     "production-failure-diagnostics.json",
+    "planning-telemetry.json",
 )
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 _RUN_ID = re.compile(r"^[1-9][0-9]*$")
@@ -67,18 +85,32 @@ def _identity(checkpoint: dict[str, Any]) -> tuple[str, str, str, str]:
     return runner_sha, engine_sha, source_run_id, source_run_attempt
 
 
+def _format(checkpoint: dict[str, Any]) -> str:
+    fmt = str(checkpoint.get("format") or "").strip().lower()
+    if fmt not in {"film", "story", "moment"}:
+        raise RuntimeError("Resume bundle checkpoint format is unsupported")
+    return fmt
+
+
+def _required_files(checkpoint: dict[str, Any]) -> tuple[str, ...]:
+    fmt = _format(checkpoint)
+    return COMMON_REQUIRED_FILES + (SHORT_REQUIRED_FILES if fmt == "moment" else ())
+
+
 def build_resume_bundle(output_dir: Path, destination: Path) -> dict[str, Any]:
     source = Path(output_dir).resolve()
     destination = Path(destination).resolve()
     checkpoint = verify_qc_pending_checkpoint(source)
     runner_sha, engine_sha, source_run_id, source_run_attempt = _identity(checkpoint)
+    fmt = _format(checkpoint)
+    required_files = _required_files(checkpoint)
 
     if destination.exists():
         shutil.rmtree(destination)
     destination.mkdir(parents=True, exist_ok=False)
 
     copied: dict[str, dict[str, Any]] = {}
-    for name in REQUIRED_FILES:
+    for name in required_files:
         path = source / name
         if not path.is_file():
             raise RuntimeError(f"QC_PENDING resume bundle missing required file: {name}")
@@ -90,6 +122,8 @@ def build_resume_bundle(output_dir: Path, destination: Path) -> dict[str, Any]:
             "required": True,
         }
     for name in OPTIONAL_FILES:
+        if name in copied:
+            continue
         path = source / name
         if not path.is_file():
             continue
@@ -111,7 +145,7 @@ def build_resume_bundle(output_dir: Path, destination: Path) -> dict[str, Any]:
         "schema_version": CONTRACT_VERSION,
         "contract_id": CONTRACT_ID,
         "release_allowed": False,
-        "resume_scope": "gold_enforcement_only_no_replan_no_retrieval_no_rerender_no_tts",
+        "resume_scope": "from_gold_to_same_approved_delivery_no_parent_rebuild",
         "source": {
             "runner_sha": runner_sha,
             "engine_sha": engine_sha,
@@ -119,6 +153,9 @@ def build_resume_bundle(output_dir: Path, destination: Path) -> dict[str, Any]:
             "run_attempt": source_run_attempt,
             "output_directory_name": source.name,
         },
+        "format": fmt,
+        "parent_media_rebuild_allowed": False,
+        "post_gold_approved_scope_continuation_allowed": True,
         "final_sha256": final_sha,
         "checkpoint_sha256": copied["qc-pending.json"]["sha256"],
         "files": copied,
@@ -144,6 +181,8 @@ def validate_resume_bundle(
         raise RuntimeError("QC_PENDING resume manifest contract mismatch")
     if manifest.get("release_allowed") is not False:
         raise RuntimeError("QC_PENDING resume manifest cannot authorize release")
+    if manifest.get("parent_media_rebuild_allowed") is not False:
+        raise RuntimeError("QC_PENDING resume manifest attempted to authorize parent media rebuild")
 
     source = manifest.get("source") or {}
     runner_sha = str(source.get("runner_sha") or "").strip().lower()
@@ -156,14 +195,20 @@ def validate_resume_bundle(
     if expected_engine_sha is not None and engine_sha != str(expected_engine_sha).strip().lower():
         raise RuntimeError("QC_PENDING resume Engine SHA mismatch")
 
+    checkpoint = verify_qc_pending_checkpoint(root)
+    required_files = _required_files(checkpoint)
+    if str(manifest.get("format") or "") != _format(checkpoint):
+        raise RuntimeError("QC_PENDING resume manifest/checkpoint format mismatch")
+
     files = manifest.get("files")
     if not isinstance(files, dict):
         raise RuntimeError("QC_PENDING resume manifest file map missing")
-    for name in REQUIRED_FILES:
+    for name in required_files:
         if name not in files:
             raise RuntimeError(f"QC_PENDING resume manifest omitted required file: {name}")
+    allowed = set(COMMON_REQUIRED_FILES) | set(SHORT_REQUIRED_FILES) | set(OPTIONAL_FILES)
     for name, evidence in files.items():
-        if name not in REQUIRED_FILES and name not in OPTIONAL_FILES:
+        if name not in allowed:
             raise RuntimeError(f"QC_PENDING resume manifest contains unexpected file: {name}")
         if not isinstance(evidence, dict):
             raise RuntimeError(f"QC_PENDING resume manifest evidence malformed: {name}")
@@ -175,7 +220,6 @@ def validate_resume_bundle(
         if path.stat().st_size != int(evidence.get("byte_length") or -1):
             raise RuntimeError(f"QC_PENDING resume bundle size mismatch: {name}")
 
-    checkpoint = verify_qc_pending_checkpoint(root)
     if str((checkpoint.get("final") or {}).get("sha256") or "") != str(manifest.get("final_sha256") or ""):
         raise RuntimeError("QC_PENDING resume checkpoint/final identity mismatch")
     if _sha256_file(root / "qc-pending.json") != str(manifest.get("checkpoint_sha256") or ""):
