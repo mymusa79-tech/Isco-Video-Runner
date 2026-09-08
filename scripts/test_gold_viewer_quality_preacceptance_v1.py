@@ -54,7 +54,9 @@ class GoldViewerQualityPreAcceptanceV1Tests(unittest.TestCase):
             acceptance_file.write_text("{}", encoding="utf-8")
             return {"contract_id": "gold.packaging", "profile": "test"}
 
-        with patch.object(gold, "finalize_gold_output", side_effect=fake_finalize), patch.object(
+        with patch.object(gold, "_output_key", return_value="output/test/final.mp4"), patch.object(
+            gold, "finalize_gold_output", side_effect=fake_finalize
+        ), patch.object(
             gold, "_run_final_critic", side_effect=fake_critic
         ), patch.object(
             gold, "enforce_viewer_quality_contract", side_effect=fake_viewer
@@ -114,7 +116,9 @@ class GoldViewerQualityPreAcceptanceV1Tests(unittest.TestCase):
             (root / "viewer-quality-contract.json").write_text(json.dumps(report), encoding="utf-8")
             raise RuntimeError("Viewer Quality Contract V1 blocked release")
 
-        with patch.object(gold, "finalize_gold_output", side_effect=fake_finalize), patch.object(
+        with patch.object(gold, "_output_key", return_value="output/test/final.mp4"), patch.object(
+            gold, "finalize_gold_output", side_effect=fake_finalize
+        ), patch.object(
             gold, "_run_final_critic", side_effect=fake_critic
         ), patch.object(
             gold, "enforce_viewer_quality_contract", side_effect=fake_viewer
