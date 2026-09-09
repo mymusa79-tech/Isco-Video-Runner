@@ -21,10 +21,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout exact PR head
+      - name: Checkout exact PR head with workflow-capable source token
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           persist-credentials: true
           fetch-depth: 4
 
