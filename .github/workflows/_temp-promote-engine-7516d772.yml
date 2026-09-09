@@ -21,13 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout exact PR head with workflow-capable source token
+      - name: Checkout exact PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
-          persist-credentials: true
-          fetch-depth: 4
+          persist-credentials: false
+          fetch-depth: 5
 
       - name: Require certified ancestor and green candidate regression
         env:
@@ -41,7 +40,7 @@ jobs:
           test "$conclusion" = "success"
           test "$(tr -d '\r\n' < .github/ENGINE_CANDIDATE_SHA)" = "$TARGET_ENGINE_SHA"
 
-      - name: Promote exact Engine pin set
+      - name: Promote exact Engine pin set locally
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -83,12 +82,15 @@ jobs:
               raise SystemExit("Old Engine SHA remains after promotion: " + ", ".join(leftovers))
           PY
 
-      - name: Commit promoted pins to PR branch
+      - name: Build detached promotion commit object
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git config user.name "isco-activation-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add \
+          parent="$(git rev-parse HEAD)"
+          base_tree="$(git rev-parse HEAD^{tree})"
+          entries='[]'
+          for path in \
             .github/workflows/produce-resilient-v4.yml \
             .github/workflows/resume-audio-qc-pending.yml \
             .github/workflows/resume-gold-qc-pending.yml \
@@ -96,6 +98,21 @@ jobs:
             .github/workflows/telegram-production-request.yml \
             .github/workflows/verify-human-editorial-intent-m7.yml \
             .github/workflows/verify-m11-live-integration.yml
-          test -n "$(git diff --cached --name-only)"
-          git commit -m "Activate Engine 7516d772 across production pins"
-          git push origin HEAD:${GITHUB_HEAD_REF}
+          do
+            payload="$(jq -n --arg content "$(base64 -w0 "$path")" '{content:$content, encoding:"base64"}')"
+            blob_sha="$(printf '%s' "$payload" | gh api --method POST \
+              "repos/${GITHUB_REPOSITORY}/git/blobs" --input - --jq .sha)"
+            entries="$(jq -c --arg path "$path" --arg sha "$blob_sha" \
+              '. + [{path:$path, mode:"100644", type:"blob", sha:$sha}]' <<<"$entries")"
+          done
+          tree_payload="$(jq -n --arg base_tree "$base_tree" --argjson tree "$entries" \
+            '{base_tree:$base_tree, tree:$tree}')"
+          tree_sha="$(printf '%s' "$tree_payload" | gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/git/trees" --input - --jq .sha)"
+          commit_payload="$(jq -n --arg message 'Activate Engine 7516d772 across production pins' \
+            --arg tree "$tree_sha" --arg parent "$parent" \
+            '{message:$message, tree:$tree, parents:[$parent]}')"
+          commit_sha="$(printf '%s' "$commit_payload" | gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/git/commits" --input - --jq .sha)"
+          echo "PROMOTION_COMMIT_SHA=$commit_sha"
+          echo "PROMOTION_PARENT_SHA=$parent"
