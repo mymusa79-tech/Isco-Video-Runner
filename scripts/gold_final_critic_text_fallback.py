@@ -4,6 +4,7 @@ import re
 import time
 from contextlib import contextmanager
 from dataclasses import replace
+from pathlib import Path
 from typing import Iterator
 
 import isco_video_agent.ai_budget as ai_budget
@@ -13,6 +14,7 @@ from isco_video_agent.ai_budget import AttemptOutcome, Capability, TaskSpec
 from isco_video_agent.orchestrator import _ledger_authorize, _ledger_record
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
 from isco_video_agent.text_audit_router import _classify_exception
+from scripts import gold_cloudflare_vision_fallback as cloudflare_vision
 from scripts import run123_budget_closure as run123
 from scripts import run181_vision_mesh_closure as vision_mesh
 from scripts.retry_after_policy import retry_delay_decision
@@ -21,7 +23,10 @@ from scripts.retry_after_policy import retry_delay_decision
 _GOLD_RELEASE_TASK = "GOLD_FINAL_CRITIC_RELEASE_REVIEW"
 _GOLD_OPENING_VISION_TASK = "GOLD_FINAL_CRITIC_OPENING_VISUAL"
 _OPENROUTER_MODEL = "openrouter/free"
-_FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = 4
+# Physical opening-Vision ceiling on Gold only:
+# Gemini + one explicit provider-directed Gemini retry + Groq + OpenRouter +
+# Cloudflare Workers AI (free-only proof required) = 5.
+_FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = 5
 _FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS = 2
 _FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS = (
     _FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS + _FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS
@@ -236,6 +241,16 @@ def _gemini_with_retry_after_once(
     return call
 
 
+def _cloudflare_mesh_unavailable(
+    original: BaseException,
+    cloudflare_error: BaseException,
+) -> Exception:
+    detail = vision_mesh.contract.legacy._safe_exception_detail(cloudflare_error)
+    return vision_mesh.contract.legacy.VisionProviderMeshUnavailableError(
+        f"{str(original)} | cloudflare={detail}"
+    )
+
+
 def _opening_vision_with_mesh(
     original_call_status,
     ledger,
@@ -255,9 +270,10 @@ def _opening_vision_with_mesh(
             ledger, spec, provider, resolved_model, audit_fn, *args, **kwargs
         )
 
-    # Adapt only the call contract. Provider choice, health aggregation, schema,
-    # Engine visual normalizer, semantic-BLOCK finality, Groq/OpenRouter fallback and
-    # circuit behavior remain owned by Run181's shared Long+Short Vision router.
+    # Adapt only the call contract. Shared Gemini/Groq/OpenRouter behavior remains
+    # owned by Run181. Cloudflare is a Gold-only fourth provider and is reached only
+    # after that entire mesh is technically unavailable. It never participates after
+    # a valid semantic BLOCK and never changes the Engine visual normalizer/thresholds.
     routed_spec = replace(
         spec,
         kind="VISUAL_AUDIT",
@@ -273,25 +289,61 @@ def _opening_vision_with_mesh(
         resolved_model,
         audit_fn,
     )
-    return vision_mesh._route_visual_audit_v3(
-        ledger,
-        routed_spec,
-        provider,
-        resolved_model,
-        retrying_gemini,
-        *args,
-        **kwargs,
-    )
+    try:
+        return vision_mesh._route_visual_audit_v3(
+            ledger,
+            routed_spec,
+            provider,
+            resolved_model,
+            retrying_gemini,
+            *args,
+            **kwargs,
+        )
+    except vision_mesh.contract.legacy.VisionProviderMeshUnavailableError as mesh_error:
+        if len(args) < 2:
+            raise vision_mesh.contract.VisionStageError(
+                vision_mesh.contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
+                "Gold Cloudflare fallback received no preview argument",
+                provider="internal",
+            ) from mesh_error
+        preview = Path(args[1])
+        narration_context = str(kwargs.get("narration_context") or "")
+        intended_visual = str(kwargs.get("intended_visual") or "")
+        try:
+            result = cloudflare_vision.run_gold_cloudflare_attempt(
+                ledger,
+                routed_spec,
+                preview=preview,
+                narration_context=narration_context,
+                intended_visual=intended_visual,
+            )
+            print(
+                "Gold Final Critic Vision: zero-cost Cloudflare fourth provider selected "
+                f"model={cloudflare_vision.CLOUDFLARE_VISION_MODEL}"
+            )
+            return result
+        except cloudflare_vision.CloudflareGoldVisionUnavailable as cloudflare_error:
+            # Disabled/missing/free-plan-proof-unavailable is still a provider-mesh
+            # outage, not a semantic quality failure. Preserve QC_PENDING taxonomy.
+            raise _cloudflare_mesh_unavailable(mesh_error, cloudflare_error) from cloudflare_error
+        except vision_mesh.contract.VisionStageError as cloudflare_error:
+            if cloudflare_error.code is vision_mesh.contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
+                raise
+            # Any technical/capacity/structural Cloudflare failure remains the exact
+            # VisionProviderMeshUnavailableError family so Final Master can stay
+            # immutable and Gold can enter QC_PENDING rather than being misclassified.
+            raise _cloudflare_mesh_unavailable(mesh_error, cloudflare_error) from cloudflare_error
 
 
 def _ensure_final_critic_provider_budget() -> None:
     """Expand only the release reserve required by the newly reachable provider path.
 
-    Run123 budgeted three Final-Critic attempts: opening Vision=1 plus text=2. The
-    Run222 closure makes opening Vision truthfully bounded at four physical provider
-    attempts (Gemini + one explicit Retry-After retry + Groq + OpenRouter), so the
-    enforcing release path needs six total slots. Keep the old P2 ceiling unchanged by
-    increasing the run hard cap and the P1+P0 reserve by the same delta.
+    Run123 budgeted three Final-Critic attempts: opening Vision=1 plus text=2. Gold now
+    permits at most five physical opening-Vision attempts: Gemini + one explicit
+    Retry-After retry + Groq + OpenRouter + one free-only Cloudflare attempt. Text
+    remains capped at two, so the enforcing release path needs seven total slots. Keep
+    the old P2 ceiling unchanged by increasing only the run hard cap and P1+P0 reserve
+    by the exact newly reachable delta.
     """
     baseline = int(getattr(run123, "_FINAL_CRITIC_PROVIDER_ATTEMPTS", 3))
     delta = max(0, _FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS - baseline)
@@ -310,7 +362,7 @@ def _ensure_final_critic_provider_budget() -> None:
 
 @contextmanager
 def _final_critic_provider_budget_scope() -> Iterator[None]:
-    """Temporarily expose the Run222 release reserve without leaking global budget state."""
+    """Temporarily expose the Gold release reserve without leaking global budget state."""
     formats = tuple(run123.RUN123_PROVIDER_ATTEMPT_HARD_CAP)
     hard_cap_before = {
         fmt: (fmt in ai_budget.PROVIDER_ATTEMPT_HARD_CAP, ai_budget.PROVIDER_ATTEMPT_HARD_CAP.get(fmt))
@@ -339,14 +391,15 @@ def _final_critic_provider_budget_scope() -> Iterator[None]:
 
 @contextmanager
 def gold_final_critic_text_fallback() -> Iterator[None]:
-    """Bind enforced Gold Final Critic to the shared provider meshes.
+    """Bind enforced Gold Final Critic to bounded provider meshes.
 
-    The public context-manager name is retained for compatibility. Text keeps its
-    existing Gemini->OpenRouter technical fallback. Opening Vision now enters the
-    existing Gemini->Groq->OpenRouter Vision mesh, with one bounded provider-directed
-    Gemini Retry-After retry. Semantic BLOCK remains final on both modalities.
+    Text keeps its existing Gemini->OpenRouter technical fallback. Opening Vision uses
+    the existing Gemini->Groq->OpenRouter mesh plus one Gold-only Cloudflare Workers AI
+    attempt after technical exhaustion. Cloudflare must independently prove free-only
+    eligibility before inference. Semantic BLOCK remains final on every provider.
     """
     original_call_status = production_pipeline._ledger_call_status
+    cloudflare_vision.reset_attempt_scope()
 
     def routed_call_status(ledger, spec, provider, resolved_model, fn, *args, **kwargs):
         if (
@@ -380,3 +433,4 @@ def gold_final_critic_text_fallback() -> Iterator[None]:
             yield
         finally:
             production_pipeline._ledger_call_status = original_call_status
+            cloudflare_vision.reset_attempt_scope()

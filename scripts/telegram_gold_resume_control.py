@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.telegram_production_queue import validate_ready_request
+from scripts.telegram_qc_pending_bridge_v1 import is_supported_qc_pending_artifact
 
 GOLD_RESUME_QUEUE_KEY = "gold_resume_queue"
 LIVE_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved", "dispatch_consumed"})
@@ -44,6 +45,12 @@ def _queue(state: dict[str, Any]) -> list[dict[str, Any]]:
     return value
 
 
+def _valid_recovery_artifact(value: object) -> bool:
+    artifact = str(value or "").strip()
+    legacy = artifact.startswith("isco-qc-pending-") and len(artifact) <= 160
+    return legacy or is_supported_qc_pending_artifact(artifact)
+
+
 def _pending_source(state: dict[str, Any], request_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
     requests = state.get("requests")
     if not isinstance(requests, dict):
@@ -77,7 +84,7 @@ def _pending_source(state: dict[str, Any], request_id: str) -> tuple[dict[str, A
     _sha40(pending.get("engine_sha"), "Gold resume Engine SHA")
     _sha256(pending.get("final_sha256"), "Gold resume final hash")
     artifact = str(pending.get("artifact_name") or "").strip()
-    if not artifact.startswith("isco-qc-pending-") or len(artifact) > 160:
+    if not _valid_recovery_artifact(artifact):
         raise RuntimeError("QC_PENDING artifact identity is invalid")
     if str(pending.get("format") or "") not in {"film", "story", "moment"}:
         raise RuntimeError("QC_PENDING format is unsupported")

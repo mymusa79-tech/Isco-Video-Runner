@@ -16,8 +16,6 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from scripts.qc_pending_checkpoint_v1 import verify_qc_pending_checkpoint
-
 
 CONTRACT_ID = "gold.qc-pending.resume-bundle.v2"
 CONTRACT_VERSION = 2
@@ -32,7 +30,6 @@ COMMON_REQUIRED_FILES = (
     "factuality-audit.json",
     "content-quality-audit.json",
     "tone-quality-audit.json",
-    "opening-visual-audit.json",
     "final-master-qc.json",
     "ai-budget.json",
     "qc-pending.json",
@@ -41,6 +38,10 @@ SHORT_REQUIRED_FILES = (
     "short-intelligence-pre-gold.json",
 )
 OPTIONAL_FILES = (
+    # Gold Vision can fail before this file is written (the exact Run #230 shape).
+    # It is post-checkpoint work that Gold-only resume re-executes, not pre-Gold
+    # evidence required to preserve the exact rendered media.
+    "opening-visual-audit.json",
     "short-visual-timeline.json",
     "short-retention-contract.json",
     "short-compensation-plan.json",
@@ -61,6 +62,18 @@ OPTIONAL_FILES = (
 )
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 _RUN_ID = re.compile(r"^[1-9][0-9]*$")
+
+
+def _verify_qc_pending_checkpoint(path: Path) -> dict[str, Any]:
+    """Load Engine-dependent checkpoint verification only at the recovery boundary.
+
+    Telegram/Edge UI imports this module in lightweight jobs that intentionally do not
+    install the private Engine.  Keeping the import lazy preserves that hermeticity while
+    production and Gold-resume runtimes still execute the exact authoritative verifier.
+    """
+    from scripts.qc_pending_checkpoint_v1 import verify_qc_pending_checkpoint
+
+    return verify_qc_pending_checkpoint(path)
 
 
 def _sha256_file(path: Path) -> str:
@@ -109,7 +122,7 @@ def _required_files(checkpoint: dict[str, Any]) -> tuple[str, ...]:
 def build_resume_bundle(output_dir: Path, destination: Path) -> dict[str, Any]:
     source = Path(output_dir).resolve()
     destination = Path(destination).resolve()
-    checkpoint = verify_qc_pending_checkpoint(source)
+    checkpoint = _verify_qc_pending_checkpoint(source)
     runner_sha, engine_sha, source_run_id, source_run_attempt = _identity(checkpoint)
     fmt = _format(checkpoint)
     required_files = _required_files(checkpoint)
@@ -204,7 +217,7 @@ def validate_resume_bundle(
     if expected_engine_sha is not None and engine_sha != str(expected_engine_sha).strip().lower():
         raise RuntimeError("QC_PENDING resume Engine SHA mismatch")
 
-    checkpoint = verify_qc_pending_checkpoint(root)
+    checkpoint = _verify_qc_pending_checkpoint(root)
     required_files = _required_files(checkpoint)
     if str(manifest.get("format") or "") != _format(checkpoint):
         raise RuntimeError("QC_PENDING resume manifest/checkpoint format mismatch")

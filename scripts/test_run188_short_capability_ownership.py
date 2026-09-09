@@ -182,6 +182,9 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
         self.assertIn('"GEMINI_API_KEY_FILE"', child_env)
         self.assertIn('"PEXELS_API_KEY"', child_env)
         self.assertIn('"PIXABAY_API_KEY_FILE"', child_env)
+        self.assertIn('"CLOUDFLARE_API_TOKEN"', child_env)
+        self.assertIn('"CLOUDFLARE_ACCOUNT_ID"', child_env)
+        self.assertIn("Cloudflare's read-only *_FILE lease", child_env)
 
     def test_capability_adapter_has_no_source_secret_reader_or_direct_env_reinjection(self) -> None:
         from scripts import short_finishing_capabilities as adapter
