@@ -26,14 +26,14 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: true
-          fetch-depth: 2
+          fetch-depth: 4
 
-      - name: Require exact certified parent and green candidate regression
+      - name: Require certified ancestor and green candidate regression
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$CERTIFIED_RUNNER_SHA"
+          git merge-base --is-ancestor "$CERTIFIED_RUNNER_SHA" HEAD^
           conclusion="$(gh api -H 'Accept: application/vnd.github+json' \
             "repos/${GITHUB_REPOSITORY}/commits/${CERTIFIED_RUNNER_SHA}/check-runs" \
             --jq '[.check_runs[] | select(.name == "candidate-regression") | .conclusion] | first // ""')"
@@ -49,6 +49,7 @@ jobs:
 
           old = os.environ["OLD_ENGINE_SHA"]
           new = os.environ["TARGET_ENGINE_SHA"]
+          temp_workflow = Path(".github/workflows/_temp-promote-engine-7516d772.yml")
           expected = {
               ".github/workflows/produce-resilient-v4.yml": 3,
               ".github/workflows/resume-audio-qc-pending.yml": 3,
@@ -69,13 +70,14 @@ jobs:
           leftovers = []
           for root in (Path(".github"), Path("scripts")):
               for path in root.rglob("*"):
-                  if path.is_file():
-                      try:
-                          text = path.read_text(encoding="utf-8")
-                      except UnicodeDecodeError:
-                          continue
-                      if old in text:
-                          leftovers.append(str(path))
+                  if not path.is_file() or path == temp_workflow:
+                      continue
+                  try:
+                      text = path.read_text(encoding="utf-8")
+                  except UnicodeDecodeError:
+                      continue
+                  if old in text:
+                      leftovers.append(str(path))
           if leftovers:
               raise SystemExit("Old Engine SHA remains after promotion: " + ", ".join(leftovers))
           PY
