@@ -15,6 +15,7 @@ if __package__ in {None, ""}:
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
 
+from scripts.qc_pending_resume_bundle_v1 import validate_resume_bundle
 from scripts.telegram_production_queue import (
     consume_dispatch_authorization,
     mark_dispatch_completed,
@@ -24,6 +25,9 @@ from scripts.telegram_production_queue import (
     validate_dispatch_authorization,
     validate_ready_request,
 )
+from scripts.telegram_qc_pending_bridge_v1 import mark_dispatch_qc_pending_diagnostics
+
+_QC_PENDING_BUNDLE_DIRNAME = "short-circuit-gold-resume-v2"
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -63,6 +67,56 @@ def _current_runner_sha() -> str:
     if len(value) != 40 or any(ch not in "0123456789abcdef" for ch in value):
         raise RuntimeError("V4 Telegram ingress requires exact current GITHUB_SHA")
     return value
+
+
+def _latest_current_qc_pending() -> tuple[Path, dict[str, Any], Path] | None:
+    """Return only a fully verified current-run Gold recovery bundle.
+
+    The Production workflow reaches this code after the failure diagnostics artifact has
+    already been uploaded.  A mere `qc-pending.json` marker is insufficient: the exact
+    self-contained bundle must validate before Telegram is allowed to expose Gold resume.
+    """
+    engine_output = Path("engine/output")
+    candidates = sorted(
+        (path for path in engine_output.glob("*/qc-pending.json") if path.is_file()),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        return None
+    checkpoint_path = candidates[0]
+    checkpoint = _load(checkpoint_path)
+    if checkpoint.get("contract_id") != "gold.qc-pending.v1" or checkpoint.get("schema_version") != 2:
+        raise RuntimeError("Current QC_PENDING checkpoint contract is invalid")
+    if checkpoint.get("status") != "GOLD_VISION_PENDING_PROVIDER_CAPACITY":
+        raise RuntimeError("Current QC_PENDING checkpoint status is invalid")
+    if checkpoint.get("release_allowed") is not False or checkpoint.get("resumable") is not True:
+        raise RuntimeError("Current QC_PENDING checkpoint is not fail-closed resumable evidence")
+    if checkpoint.get("failure_taxonomy") != "VisionProviderMeshUnavailableError":
+        raise RuntimeError("Current QC_PENDING checkpoint taxonomy is unsupported")
+
+    source_run_id = str(checkpoint.get("source_run_id") or "").strip()
+    source_attempt = str(checkpoint.get("source_run_attempt") or "").strip()
+    if source_run_id != str(os.environ.get("GITHUB_RUN_ID") or "").strip():
+        raise RuntimeError("Current QC_PENDING checkpoint belongs to another workflow run")
+    if source_attempt != str(os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip():
+        raise RuntimeError("Current QC_PENDING checkpoint belongs to another workflow attempt")
+    runner_sha = str(checkpoint.get("runner_sha") or "").strip().lower()
+    if runner_sha != _current_runner_sha():
+        raise RuntimeError("Current QC_PENDING checkpoint Runner SHA mismatch")
+    engine_sha = str(checkpoint.get("engine_sha") or "").strip().lower()
+
+    bundle = checkpoint_path.parent / _QC_PENDING_BUNDLE_DIRNAME
+    manifest = validate_resume_bundle(
+        bundle,
+        expected_source_run_id=source_run_id,
+        expected_runner_sha=runner_sha,
+        expected_engine_sha=engine_sha,
+    )
+    final_sha = str((checkpoint.get("final") or {}).get("sha256") or "").strip().lower()
+    if str(manifest.get("final_sha256") or "").strip().lower() != final_sha:
+        raise RuntimeError("Current QC_PENDING recovery bundle final hash mismatch")
+    return checkpoint_path, checkpoint, bundle
 
 
 def prepare(
@@ -224,6 +278,41 @@ def fail(
     reason: str,
 ) -> None:
     state = _load(state_path)
+
+    # Run #230 closure: a provider-capacity pause after exact Final Master PASS is not
+    # a generic production failure. The producer must have emitted the strict V2
+    # checkpoint *and* a validated exact-byte recovery bundle before we promote it.
+    # Any missing/malformed evidence falls back to the historical fail-closed path.
+    if reason == "production_failed":
+        try:
+            pending = _latest_current_qc_pending()
+        except Exception as exc:
+            print(
+                "QC_PENDING terminal promotion refused; preserving generic failure: "
+                f"{type(exc).__name__}: {str(exc)[:220]}",
+                file=sys.stderr,
+            )
+            pending = None
+        if pending is not None:
+            _checkpoint_path, checkpoint, _bundle = pending
+            artifact_name = f"isco-resilient-v4-diagnostics-{str(os.environ.get('GITHUB_RUN_NUMBER') or '').strip()}"
+            mark_dispatch_qc_pending_diagnostics(
+                state,
+                request_id,
+                request_sha256,
+                authorization_id,
+                source_run_id=str(checkpoint.get("source_run_id") or ""),
+                source_run_attempt=str(checkpoint.get("source_run_attempt") or ""),
+                artifact_name=artifact_name,
+                runner_sha=str(checkpoint.get("runner_sha") or ""),
+                engine_sha=str(checkpoint.get("engine_sha") or ""),
+                final_sha256=str((checkpoint.get("final") or {}).get("sha256") or ""),
+                fmt=str(checkpoint.get("format") or ""),
+            )
+            _save(state_path, state)
+            print(f"Telegram terminal reconciliation: QC_PENDING artifact={artifact_name}")
+            return
+
     mark_dispatch_failed(
         state,
         request_id,
