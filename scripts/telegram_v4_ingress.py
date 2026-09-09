@@ -15,6 +15,8 @@ if __package__ in {None, ""}:
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
 
+from scripts.qc_pending_checkpoint_v1 import RECOVERY_BUNDLE_DIRNAME
+from scripts.qc_pending_resume_bundle_v1 import validate_resume_bundle
 from scripts.telegram_production_queue import (
     consume_dispatch_authorization,
     mark_dispatch_completed,
@@ -58,11 +60,73 @@ def _github_output(path: Path | None, **values: object) -> None:
             handle.write(f"{key}={value}\n")
 
 
+def _github_env(**values: object) -> None:
+    path = str(os.environ.get("GITHUB_ENV") or "").strip()
+    if not path:
+        return
+    with Path(path).open("a", encoding="utf-8") as handle:
+        for key, value in values.items():
+            handle.write(f"{key}={value}\n")
+
+
 def _current_runner_sha() -> str:
     value = str(os.environ.get("GITHUB_SHA") or "").strip().lower()
     if len(value) != 40 or any(ch not in "0123456789abcdef" for ch in value):
         raise RuntimeError("V4 Telegram ingress requires exact current GITHUB_SHA")
     return value
+
+
+def _current_qc_pending_recovery() -> tuple[Path, str] | None:
+    """Return one exact current-run recovery bundle, never a text-matched failure.
+
+    Canonical V4 uploads `short-*` output paths in its existing failure diagnostics.
+    The QC_PENDING capture writes a verified bundle under that allowlist before the
+    process unwinds. Terminal reconciliation may promote the dispatch only when that
+    exact bundle revalidates against current run/Runner/Engine provenance.
+    """
+    run_id = str(os.environ.get("GITHUB_RUN_ID") or "").strip()
+    run_attempt = str(os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip()
+    run_number = str(os.environ.get("GITHUB_RUN_NUMBER") or "").strip()
+    runner_sha = _current_runner_sha()
+    if not run_id.isdigit() or int(run_id) < 1:
+        return None
+    if not run_attempt.isdigit() or int(run_attempt) < 1:
+        return None
+    if not run_number.isdigit() or int(run_number) < 1:
+        return None
+
+    output_parent = Path("engine") / "output"
+    if not output_parent.is_dir():
+        return None
+    matches: list[Path] = []
+    for bundle in output_parent.glob(f"*/{RECOVERY_BUNDLE_DIRNAME}"):
+        if not bundle.is_dir():
+            continue
+        try:
+            manifest = validate_resume_bundle(
+                bundle,
+                expected_source_run_id=run_id,
+                expected_runner_sha=runner_sha,
+            )
+        except RuntimeError:
+            continue
+        source = manifest.get("source") or {}
+        if str(source.get("run_attempt") or "").strip() != run_attempt:
+            continue
+        checkpoint = bundle.parent / "qc-pending.json"
+        if not checkpoint.is_file():
+            continue
+        matches.append(checkpoint)
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise RuntimeError("Multiple exact QC_PENDING recovery bundles matched one production run")
+
+    # This is a logical locator accepted by the production ledger. The Gold-resume
+    # queue resolves it to the already-uploaded diagnostics artifact name; no second
+    # artifact upload or production retry is needed.
+    artifact_locator = f"isco-qc-pending-diagnostics-{run_number}"
+    return matches[0], artifact_locator
 
 
 def prepare(
@@ -223,6 +287,29 @@ def fail(
     authorization_id: str,
     reason: str,
 ) -> None:
+    if reason == "production_failed":
+        recovery = _current_qc_pending_recovery()
+        if recovery is not None:
+            checkpoint_path, artifact_locator = recovery
+            qc_pending(
+                state_path=state_path,
+                request_id=request_id,
+                request_sha256=request_sha256,
+                authorization_id=authorization_id,
+                checkpoint_path=checkpoint_path,
+                artifact_name=artifact_locator,
+            )
+            _github_env(
+                ISCO_QC_PENDING="true",
+                ISCO_QC_PENDING_REQUEST_ID=request_id,
+                ISCO_QC_PENDING_ARTIFACT_LOCATOR=artifact_locator,
+            )
+            print(
+                "Telegram terminal reconciliation: exact Gold QC_PENDING promoted before generic failure; "
+                f"checkpoint={checkpoint_path} artifact_locator={artifact_locator}"
+            )
+            return
+
     state = _load(state_path)
     mark_dispatch_failed(
         state,
