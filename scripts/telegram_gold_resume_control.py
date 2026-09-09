@@ -10,6 +10,8 @@ from scripts.telegram_production_queue import validate_ready_request
 GOLD_RESUME_QUEUE_KEY = "gold_resume_queue"
 LIVE_STATUSES = frozenset({"pending_dispatch", "dispatch_reserved", "dispatch_consumed"})
 TERMINAL_STATUSES = frozenset({"completed", "failed"})
+_DIAGNOSTIC_LOCATOR_PREFIX = "isco-qc-pending-diagnostics-"
+_DIAGNOSTIC_ARTIFACT_PREFIX = "isco-resilient-v4-diagnostics-"
 
 
 def _now() -> str:
@@ -35,6 +37,26 @@ def _run_id(value: object, label: str) -> str:
     if not text.isdigit() or int(text) < 1:
         raise RuntimeError(f"{label} must be a positive GitHub run integer")
     return text
+
+
+def _resolved_artifact_name(value: object) -> str:
+    """Resolve the fail-closed production ledger locator to a real Actions artifact.
+
+    Run #230 proved that the existing V4 diagnostics artifact is the durable upload that
+    survives a Gold provider-capacity failure. QC_PENDING capture now places the exact
+    verified resume bundle inside that artifact's already-whitelisted `short-*` tree.
+    The production ledger keeps its historical `isco-qc-pending-*` validation surface,
+    while the one-time Gold action resolves only this explicit diagnostics locator.
+    """
+    artifact = str(value or "").strip()
+    if artifact.startswith(_DIAGNOSTIC_LOCATOR_PREFIX):
+        suffix = artifact.removeprefix(_DIAGNOSTIC_LOCATOR_PREFIX)
+        if not suffix.isdigit() or int(suffix) < 1:
+            raise RuntimeError("QC_PENDING diagnostics artifact locator is invalid")
+        return f"{_DIAGNOSTIC_ARTIFACT_PREFIX}{suffix}"
+    if artifact.startswith("isco-qc-pending-") and len(artifact) <= 160:
+        return artifact
+    raise RuntimeError("QC_PENDING artifact identity is invalid")
 
 
 def _queue(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -76,9 +98,7 @@ def _pending_source(state: dict[str, Any], request_id: str) -> tuple[dict[str, A
     _sha40(pending.get("runner_sha"), "Gold resume Runner SHA")
     _sha40(pending.get("engine_sha"), "Gold resume Engine SHA")
     _sha256(pending.get("final_sha256"), "Gold resume final hash")
-    artifact = str(pending.get("artifact_name") or "").strip()
-    if not artifact.startswith("isco-qc-pending-") or len(artifact) > 160:
-        raise RuntimeError("QC_PENDING artifact identity is invalid")
+    _resolved_artifact_name(pending.get("artifact_name"))
     if str(pending.get("format") or "") not in {"film", "story", "moment"}:
         raise RuntimeError("QC_PENDING format is unsupported")
     return request, entry
@@ -121,7 +141,7 @@ def enqueue_gold_resume(
         "approval_scope": str(request.get("approval_scope") or ""),
         "source_run_id": source_run_id,
         "source_run_attempt": str(pending["source_run_attempt"]),
-        "artifact_name": str(pending["artifact_name"]),
+        "artifact_name": _resolved_artifact_name(pending["artifact_name"]),
         "source_runner_sha": str(pending["runner_sha"]),
         "source_engine_sha": str(pending["engine_sha"]),
         "final_sha256": final_sha,
@@ -163,7 +183,7 @@ def reserve_gold_resume(
             if (
                 str(pending.get("source_run_id")) != str(item.get("source_run_id"))
                 or str(pending.get("final_sha256")) != str(item.get("final_sha256"))
-                or str(pending.get("artifact_name")) != str(item.get("artifact_name"))
+                or _resolved_artifact_name(pending.get("artifact_name")) != str(item.get("artifact_name"))
             ):
                 raise RuntimeError("Gold resume source identity changed before reservation")
             item["status"] = "dispatch_reserved"
