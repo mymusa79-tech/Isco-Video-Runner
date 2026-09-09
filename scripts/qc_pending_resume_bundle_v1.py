@@ -32,7 +32,6 @@ COMMON_REQUIRED_FILES = (
     "factuality-audit.json",
     "content-quality-audit.json",
     "tone-quality-audit.json",
-    "opening-visual-audit.json",
     "final-master-qc.json",
     "ai-budget.json",
     "qc-pending.json",
@@ -41,6 +40,10 @@ SHORT_REQUIRED_FILES = (
     "short-intelligence-pre-gold.json",
 )
 OPTIONAL_FILES = (
+    # Gold Vision can fail before this file is written (the exact Run #230 shape).
+    # It is post-checkpoint work that Gold-only resume re-executes, not pre-Gold
+    # evidence required to preserve the exact rendered media.
+    "opening-visual-audit.json",
     "short-visual-timeline.json",
     "short-retention-contract.json",
     "short-compensation-plan.json",
