@@ -32,6 +32,12 @@ from scripts.final_master_acceptance_v2 import require_final_master_acceptance
 CONTRACT_ID = "gold.qc-pending.v1"
 CONTRACT_VERSION = 2
 FILENAME = "qc-pending.json"
+# Canonical V4 diagnostics already includes output-root `short-*` paths recursively.
+# Keeping the recovery bundle under that existing allowlist lets the failure artifact
+# carry exact Gold-resume evidence without widening the production workflow or adding
+# another upload attempt after provider exhaustion. The name is transport plumbing only;
+# film/story bundles are valid and remain format-bound by the manifest/checkpoint.
+RECOVERY_BUNDLE_DIRNAME = "short-qc-pending-resume"
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -255,9 +261,22 @@ def capture_qc_pending_checkpoint(
         diagnostics_path.write_text(
             json.dumps(diagnostics, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+
+    # Build and validate the exact recovery payload *before* the production process
+    # unwinds. Canonical V4's existing diagnostics upload already carries `short-*`
+    # directories, so this bundle rides the same bounded failure artifact rather than
+    # depending on a later upload step that might never execute. Failure to build the
+    # bundle is fail-closed: no Telegram QC_PENDING state may point at incomplete media.
+    from scripts.qc_pending_resume_bundle_v1 import build_resume_bundle
+
+    recovery_dir = root / RECOVERY_BUNDLE_DIRNAME
+    manifest = build_resume_bundle(root, recovery_dir)
+    if str(manifest.get("final_sha256") or "") != final_sha:
+        raise RuntimeError("QC_PENDING recovery bundle final identity changed during capture")
+
     print(
         "QC_PENDING V2 captured: exact Final Master PASS + core state retained; Gold release remains blocked; "
-        f"final_sha256={final_sha[:12]} record_sha256={record_sha[:12]}"
+        f"final_sha256={final_sha[:12]} record_sha256={record_sha[:12]} recovery_bundle={recovery_dir.name}"
     )
     return document
 
