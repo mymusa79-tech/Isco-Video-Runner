@@ -30,8 +30,17 @@ from scripts.packaging_delivery_contract import (
     seal_gold_packaging_acceptance,
 )
 from scripts.qc_pending_checkpoint_v1 import capture_qc_pending_checkpoint
+from scripts.qc_pending_resume_bundle_v1 import build_resume_bundle
 from scripts.run123_budget_closure import enforcing_final_critic_as_p0
 from scripts.viewer_quality_contract_v1 import enforce_viewer_quality_contract
+
+
+# The Production V4 failure artifact already uploads `engine/output/*/short-*`
+# recursively. `short-circuit` here means the Gold recovery short-circuit (not a
+# YouTube Short): keeping the bundle under this stable transport namespace lets the
+# exact source run carry its own immutable recovery bytes without a second renderer or
+# a later cross-run artifact copy.
+QC_PENDING_DIAGNOSTIC_BUNDLE_DIRNAME = "short-circuit-gold-resume-v2"
 
 
 def _sha256_file(path: Path) -> str:
@@ -331,15 +340,22 @@ def run_gold_enforce_phase4(
 
     if error is not None:
         try:
-            capture_qc_pending_checkpoint(
+            checkpoint = capture_qc_pending_checkpoint(
                 output_dir,
                 error,
                 production_record=pending_production_record,
                 output_key=output_key,
             )
+            if checkpoint is not None:
+                bundle_dir = output_dir / QC_PENDING_DIAGNOSTIC_BUNDLE_DIRNAME
+                manifest = build_resume_bundle(output_dir, bundle_dir)
+                print(
+                    "QC_PENDING recovery bundle sealed before workflow teardown: "
+                    f"dir={bundle_dir.name} final_sha256={str(manifest.get('final_sha256') or '')[:12]}"
+                )
         except Exception as checkpoint_exc:
             print(
-                "QC_PENDING capture skipped without masking Gold failure "
+                "QC_PENDING capture/bundle skipped without masking Gold failure "
                 f"({type(checkpoint_exc).__name__}: {str(checkpoint_exc)[:180]})"
             )
         raise error
