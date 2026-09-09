@@ -18,6 +18,7 @@ from scripts import gold_cloudflare_vision_fallback as cloudflare_vision
 from scripts import run123_budget_closure as run123
 from scripts import run181_vision_mesh_closure as vision_mesh
 from scripts.retry_after_policy import retry_delay_decision
+from scripts.telegram_progress import update_stage
 
 
 _GOLD_RELEASE_TASK = "GOLD_FINAL_CRITIC_RELEASE_REVIEW"
@@ -235,7 +236,12 @@ def _gemini_with_retry_after_once(
                 "Gold Final Critic Vision: honoring Gemini Retry-After once; "
                 f"delay_seconds={decision.delay_seconds:.3f}"
             )
+            # Provider-directed waiting is a distinct truthful state.  Publish it now,
+            # then restore Gold Vision immediately before the retry; no 55-second
+            # throttle is allowed to hide either transition.
+            update_stage("provider_wait")
             time.sleep(decision.delay_seconds)
+            update_stage("gold_vision")
             return audit_fn(*args, **kwargs)
 
     return call

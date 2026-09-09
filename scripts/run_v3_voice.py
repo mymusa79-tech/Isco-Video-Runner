@@ -35,7 +35,7 @@ from scripts.production_model_contract import install_production_model_contract
 from scripts.qc_pending_checkpoint_v1 import capture_qc_pending_checkpoint
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
 from scripts.task_level_planner_router import get_used_providers, write_planning_telemetry
-from scripts.telegram_progress import install_progress_hooks, start_progress
+from scripts.telegram_progress import advance_stage, install_progress_hooks, start_progress, update_stage
 
 # Production-proof trigger only: no runtime behavior change.
 # Run36 trigger only: no runtime behavior change.
@@ -311,7 +311,9 @@ def main() -> None:
     try:
         # Final Master QC is the last media-integrity gate on the exact rendered file.
         # It runs before Gold can accept/mutate state and never changes final.mp4.
+        advance_stage("final_master")
         run_final_master_qc(out)
+        advance_stage("gold_started")
         plan, critic, gold_enforce = run_gold_enforce_phase4(
             output_dir=out,
             gemini=gemini,
@@ -332,7 +334,10 @@ def main() -> None:
                 f"({type(checkpoint_exc).__name__}: {str(checkpoint_exc)[:180]})"
             )
         try:
-            capture_qc_pending_checkpoint(out, exc)
+            checkpoint = capture_qc_pending_checkpoint(out, exc)
+            if checkpoint is not None:
+                # QC_PENDING is a pause, not a completed Gold Vision milestone.
+                update_stage("qc_pending")
         except Exception as checkpoint_exc:
             print(
                 "QC_PENDING capture skipped without masking Gold failure "

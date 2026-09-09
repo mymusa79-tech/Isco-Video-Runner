@@ -38,6 +38,47 @@ class GoldVisionCapacityReserveV1Tests(unittest.TestCase):
         self.assertEqual(gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS, before_vision)
         self.assertEqual(gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS, before_total)
 
+    def test_gold_groq_cooldown_reports_wait_then_returns_to_vision(self) -> None:
+        original = reserve.vision_mesh._run_groq_attempt
+        transient = reserve.vision_contract.VisionStageError(
+            reserve.vision_contract.VisionErrorCode.PROVIDER_TRANSIENT,
+            "HTTP 429 rate limit",
+            provider="groq",
+        )
+        calls = {"count": 0}
+
+        def wire(*_args, **_kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise transient
+            return {"status": "pass"}
+
+        try:
+            reserve.vision_mesh._run_groq_attempt = wire
+            with patch.object(reserve, "_GOLD_ACTIVE") as active, patch.object(
+                active, "get", return_value=True
+            ), patch.object(
+                reserve.capacity, "_capacity_state"
+            ) as state, patch.object(
+                reserve.time, "monotonic", return_value=10.0
+            ), patch.object(
+                reserve.time, "sleep"
+            ) as sleep, patch.object(
+                reserve, "update_stage"
+            ) as progress:
+                state.return_value.next_allowed_monotonic = 10.5
+                reserve._install_gold_groq_retry()
+                result = reserve.vision_mesh._run_groq_attempt()
+
+            self.assertEqual(result, {"status": "pass"})
+            sleep.assert_called_once_with(0.5)
+            self.assertEqual(
+                [call.args[0] for call in progress.call_args_list],
+                ["provider_wait", "gold_vision"],
+            )
+        finally:
+            reserve.vision_mesh._run_groq_attempt = original
+
 
 if __name__ == "__main__":
     unittest.main()

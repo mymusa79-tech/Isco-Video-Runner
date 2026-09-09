@@ -85,7 +85,7 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
                 phase4, "mark_production_accepted", side_effect=fake_mark
             ) as mark, patch.object(phase4, "remove_production_record") as remove, patch.object(
                 phase4, "_sync_state_snapshot"
-            ) as sync:
+            ) as sync, patch.object(phase4, "advance_stage") as progress:
                 plan, critic, report = phase4.run_gold_enforce_phase4(
                     output_dir=root,
                     gemini="g",
@@ -94,6 +94,10 @@ class GoldEnforcePhase4Tests(unittest.TestCase):
                 )
 
             self.assertEqual(order, ["critic", "viewer", "seal", "accept"])
+            self.assertEqual(
+                [call.args[0] for call in progress.call_args_list],
+                ["gold_vision", "viewer_quality", "packaging", "gold_pass"],
+            )
             self.assertEqual(len(critic_kwargs), 1)
             self.assertEqual(critic_kwargs[0]["release_mode"], "enforce")
             self.assertEqual(critic_kwargs[0]["task_prefix"], "GOLD_")

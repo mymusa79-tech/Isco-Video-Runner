@@ -168,9 +168,9 @@ class EdgeObservabilityContractTests(unittest.TestCase):
             'PROGRESS_PATH = "state/production-progress.json"',
             'ref=${encodeURIComponent(PROGRESS_REF)}',
             'String(value.run_id || "") !== String(run.id)',
-            'INTERNAL_STAGE_ORDER = ["planning", "voice", "visuals", "mux"]',
+            '"gold_vision", "provider_wait", "viewer_quality", "packaging", "gold_pass", "qc_pending"',
             'المرحلة الداخلية:',
-            'cmd:progress_stage:(planning|voice|visuals|mux)',
+            'cmd:progress_stage:(planning|voice|visuals|mux|final_master|gold_started|gold_vision|provider_wait|viewer_quality|packaging|gold_pass|qc_pending)',
         ):
             self.assertIn(marker, self.live)
         self.assertNotIn("Math.round((100", self.live)

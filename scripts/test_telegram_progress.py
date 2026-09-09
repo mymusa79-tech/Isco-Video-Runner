@@ -138,6 +138,36 @@ class TelegramRequestDiagnosticLoggingTests(unittest.TestCase):
         self.assertIn("Telegram notify: editMessageText (stage=voice)", buf.getvalue())
         self.assertIn("Telegram editMessageText succeeded", buf.getvalue())
 
+    def test_real_stage_change_edits_immediately_without_a_time_throttle(self) -> None:
+        tp._state["message_id"] = 7
+        tp._state["current_stage"] = "mux"
+        tp._state["completed"] = {"planning", "voice", "visuals"}
+        with patch.object(tp, "_enqueue_progress_snapshot") as snapshot, patch.object(
+            tp, "_telegram_request", return_value={"ok": True}
+        ) as request:
+            tp.advance_stage("final_master")
+
+        self.assertEqual(tp._state["current_stage"], "final_master")
+        self.assertIn("mux", tp._state["completed"])
+        snapshot.assert_called_once_with("final_master")
+        request.assert_called_once()
+        self.assertEqual(request.call_args.args[0], "editMessageText")
+
+    def test_gold_runtime_stages_are_part_of_the_live_contract(self) -> None:
+        self.assertEqual(
+            tp._STAGE_KEYS[-8:],
+            [
+                "final_master",
+                "gold_started",
+                "gold_vision",
+                "provider_wait",
+                "viewer_quality",
+                "packaging",
+                "gold_pass",
+                "qc_pending",
+            ],
+        )
+
 
 class StartProgressNoOpTests(unittest.TestCase):
     """A Telegram outage or absent secrets must never fail production."""
