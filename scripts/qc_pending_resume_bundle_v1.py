@@ -32,7 +32,6 @@ COMMON_REQUIRED_FILES = (
     "factuality-audit.json",
     "content-quality-audit.json",
     "tone-quality-audit.json",
-    "opening-visual-audit.json",
     "final-master-qc.json",
     "ai-budget.json",
     "qc-pending.json",
@@ -41,6 +40,10 @@ SHORT_REQUIRED_FILES = (
     "short-intelligence-pre-gold.json",
 )
 OPTIONAL_FILES = (
+    # Gold Vision capacity can fail while the opening audit is being created. It is
+    # therefore post-Final-Master Gold evidence, not a prerequisite for a Gold-only
+    # resume. When present it is retained; when absent Gold re-creates it on resume.
+    "opening-visual-audit.json",
     "short-visual-timeline.json",
     "short-retention-contract.json",
     "short-compensation-plan.json",
