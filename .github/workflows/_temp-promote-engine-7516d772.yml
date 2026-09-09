@@ -1,0 +1,98 @@
+name: TEMP Promote Engine 7516d772
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: write
+  checks: read
+
+env:
+  TARGET_PR: "606"
+  TARGET_BRANCH: "chore/activate-engine-7516d772"
+  CERTIFIED_RUNNER_SHA: "7dae52da2e7f7f4fffb5ab4932e8b454581fed6f"
+  TARGET_ENGINE_SHA: "7516d772445ee5156fe4b4f47851f2f4e5bff3d0"
+  OLD_ENGINE_SHA: "dfb9f010c3ba49bf2ab25f341a4ff596eb262449"
+
+jobs:
+  promote:
+    if: github.event.pull_request.number == 606 && github.event.pull_request.head.ref == 'chore/activate-engine-7516d772' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: true
+          fetch-depth: 2
+
+      - name: Require exact certified parent and green candidate regression
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$CERTIFIED_RUNNER_SHA"
+          conclusion="$(gh api -H 'Accept: application/vnd.github+json' \
+            "repos/${GITHUB_REPOSITORY}/commits/${CERTIFIED_RUNNER_SHA}/check-runs" \
+            --jq '[.check_runs[] | select(.name == "candidate-regression") | .conclusion] | first // ""')"
+          test "$conclusion" = "success"
+          test "$(tr -d '\r\n' < .github/ENGINE_CANDIDATE_SHA)" = "$TARGET_ENGINE_SHA"
+
+      - name: Promote exact Engine pin set
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          old = os.environ["OLD_ENGINE_SHA"]
+          new = os.environ["TARGET_ENGINE_SHA"]
+          expected = {
+              ".github/workflows/produce-resilient-v4.yml": 3,
+              ".github/workflows/resume-audio-qc-pending.yml": 3,
+              ".github/workflows/resume-gold-qc-pending.yml": 4,
+              ".github/workflows/telegram-editorial-control.yml": 1,
+              ".github/workflows/telegram-production-request.yml": 1,
+              ".github/workflows/verify-human-editorial-intent-m7.yml": 1,
+              ".github/workflows/verify-m11-live-integration.yml": 1,
+          }
+          for name, count in expected.items():
+              path = Path(name)
+              text = path.read_text(encoding="utf-8")
+              actual = text.count(old)
+              if actual != count:
+                  raise SystemExit(f"{name}: expected {count} old Engine pins, found {actual}")
+              path.write_text(text.replace(old, new), encoding="utf-8")
+
+          leftovers = []
+          for root in (Path(".github"), Path("scripts")):
+              for path in root.rglob("*"):
+                  if path.is_file():
+                      try:
+                          text = path.read_text(encoding="utf-8")
+                      except UnicodeDecodeError:
+                          continue
+                      if old in text:
+                          leftovers.append(str(path))
+          if leftovers:
+              raise SystemExit("Old Engine SHA remains after promotion: " + ", ".join(leftovers))
+          PY
+
+      - name: Commit promoted pins to PR branch
+        run: |
+          set -euo pipefail
+          git config user.name "isco-activation-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add \
+            .github/workflows/produce-resilient-v4.yml \
+            .github/workflows/resume-audio-qc-pending.yml \
+            .github/workflows/resume-gold-qc-pending.yml \
+            .github/workflows/telegram-editorial-control.yml \
+            .github/workflows/telegram-production-request.yml \
+            .github/workflows/verify-human-editorial-intent-m7.yml \
+            .github/workflows/verify-m11-live-integration.yml
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "Activate Engine 7516d772 across production pins"
+          git push origin HEAD:${GITHUB_HEAD_REF}
