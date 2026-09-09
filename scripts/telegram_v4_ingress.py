@@ -15,8 +15,6 @@ if __package__ in {None, ""}:
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
 
-from scripts.qc_pending_checkpoint_v1 import RECOVERY_BUNDLE_DIRNAME
-from scripts.qc_pending_resume_bundle_v1 import validate_resume_bundle
 from scripts.telegram_production_queue import (
     consume_dispatch_authorization,
     mark_dispatch_completed,
@@ -83,6 +81,9 @@ def _current_qc_pending_recovery() -> tuple[Path, str] | None:
     The QC_PENDING capture writes a verified bundle under that allowlist before the
     process unwinds. Terminal reconciliation may promote the dispatch only when that
     exact bundle revalidates against current run/Runner/Engine provenance.
+
+    Gold/Final-Master modules stay lazy here so normal prepare/complete/fail paths keep
+    the historical dependency-light Telegram ingress boundary.
     """
     run_id = str(os.environ.get("GITHUB_RUN_ID") or "").strip()
     run_attempt = str(os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip()
@@ -98,6 +99,10 @@ def _current_qc_pending_recovery() -> tuple[Path, str] | None:
     output_parent = Path("engine") / "output"
     if not output_parent.is_dir():
         return None
+
+    from scripts.qc_pending_checkpoint_v1 import RECOVERY_BUNDLE_DIRNAME
+    from scripts.qc_pending_resume_bundle_v1 import validate_resume_bundle
+
     matches: list[Path] = []
     for bundle in output_parent.glob(f"*/{RECOVERY_BUNDLE_DIRNAME}"):
         if not bundle.is_dir():
