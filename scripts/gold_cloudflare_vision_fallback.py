@@ -2,20 +2,23 @@ from __future__ import annotations
 
 """Gold-only fourth Vision provider using the existing Cloudflare account.
 
-This route is deliberately narrower than the shared Run181 Vision mesh.  It is only
+This route is deliberately narrower than the shared Run181 Vision mesh. It is only
 eligible after Gemini -> Groq -> OpenRouter are technically unavailable for the
-GOLD_FINAL_CRITIC_OPENING_VISUAL task.  It never participates in normal production
+GOLD_FINAL_CRITIC_OPENING_VISUAL task. It never participates in normal production
 Vision and it never authorizes a paid Cloudflare path.
 
 Zero-cost safety is fail-closed:
 * the existing Cloudflare token/account secrets must be present;
-* the same token must prove that no active Workers Paid subscription exists;
-* the token must prove Workers AI access through the model-schema endpoint;
-* only the Cloudflare-hosted @cf/qwen/qwen3.8-27b model is allowed;
+* the same token must prove there is no active billable account subscription;
+* the token must prove Workers AI access to the exact Cloudflare-hosted model;
+* only @cf/qwen/qwen3.8-27b is allowed; no third-party paid/unified-billing route;
 * one inference attempt maximum per Gold opening-Vision task;
-* 403 paid-plan requirements, daily-free-allocation exhaustion and capacity errors
-  are terminal provider-unavailable outcomes.  No billing/upgrade/AI-Gateway endpoint
-  is ever called.
+* paid-plan requirements, daily-free-allocation exhaustion and capacity errors are
+  provider-unavailable outcomes. No billing/upgrade/subscription/AI-Gateway write is
+  ever performed.
+
+Cloudflare's free Workers AI allocation is provider-owned capacity. When it is gone,
+this adapter stops and lets the existing Gold QC_PENDING flow preserve Final Master.
 """
 
 import base64
@@ -34,13 +37,15 @@ from scripts import vision_stage_contract_v2 as contract
 
 CLOUDFLARE_VISION_MODEL = "@cf/qwen/qwen3.8-27b"
 CLOUDFLARE_VISION_PROVIDER = "cloudflare_workers_ai"
-CLOUDFLARE_AI_QUOTA_DOMAIN = "gold_vision_free_only"
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CLOUDFLARE_TIMEOUT_SECONDS = 60
 CLOUDFLARE_PROBE_TIMEOUT_SECONDS = 15
 GOLD_OPENING_TASK_ID = "GOLD_FINAL_CRITIC_OPENING_VISUAL"
 
-_ATTEMPTED: ContextVar[bool] = ContextVar("isco_gold_cloudflare_vision_attempted", default=False)
+_ATTEMPTED: ContextVar[bool] = ContextVar(
+    "isco_gold_cloudflare_vision_attempted",
+    default=False,
+)
 
 
 class CloudflareGoldVisionUnavailable(RuntimeError):
@@ -71,92 +76,145 @@ def _credentials() -> tuple[str, str]:
 
 
 def _enabled() -> bool:
-    return str(os.environ.get("CLOUDFLARE_GOLD_VISION_FREE_ONLY") or "").strip().lower() == "true"
+    return (
+        str(os.environ.get("CLOUDFLARE_GOLD_VISION_FREE_ONLY") or "")
+        .strip()
+        .lower()
+        == "true"
+    )
+
+
+def _error_parts(body: object) -> tuple[int | None, str]:
+    if not isinstance(body, dict):
+        return None, "unknown Cloudflare API error"
+    errors = body.get("errors")
+    parts: list[str] = []
+    first_code: int | None = None
+    if isinstance(errors, list):
+        for item in errors[:3]:
+            if not isinstance(item, dict):
+                continue
+            raw_code = item.get("code")
+            code: int | None = None
+            try:
+                code = int(raw_code) if raw_code is not None else None
+            except (TypeError, ValueError):
+                code = None
+            if first_code is None and code is not None:
+                first_code = code
+            message = str(item.get("message") or "").replace("\n", " ").strip()[:180]
+            parts.append(f"{code}:{message}" if code is not None else message)
+    detail = " | ".join(part for part in parts if part)
+    if not detail:
+        detail = str(body.get("message") or "unknown Cloudflare API error")[:180]
+    return first_code, detail
 
 
 def _error_text(body: object) -> str:
-    if not isinstance(body, dict):
-        return "unknown Cloudflare API error"
-    errors = body.get("errors")
-    parts: list[str] = []
-    if isinstance(errors, list):
-        for item in errors[:3]:
-            if isinstance(item, dict):
-                code = item.get("code")
-                message = str(item.get("message") or "").strip()
-                parts.append(f"{code}:{message}" if code is not None else message)
-    return " | ".join(part for part in parts if part) or str(body.get("message") or "unknown Cloudflare API error")
+    return _error_parts(body)[1]
 
 
-def _active_workers_paid_subscription(item: object) -> bool:
+def _subscription_is_active(item: object) -> bool:
     if not isinstance(item, dict):
         return False
     state = str(item.get("state") or "").strip().lower()
-    if state in {"cancelled", "canceled", "expired", "failed"}:
+    return state not in {"cancelled", "canceled", "expired", "failed"}
+
+
+def _subscription_is_proven_free(item: object) -> bool:
+    """Accept only account subscription evidence that cannot create usage charges.
+
+    The Cloudflare account-subscription API is broader than Workers. We therefore use
+    a deliberately conservative rule: an active subscription must have a zero price
+    and an explicit free rate-plan id. Any paid/unknown active subscription disables
+    the fourth provider rather than guessing that Workers AI overage cannot bill.
+    """
+    if not isinstance(item, dict):
+        return False
+    if not _subscription_is_active(item):
+        return True
+    price = item.get("price")
+    try:
+        if price is not None and float(price) != 0.0:
+            return False
+    except (TypeError, ValueError):
         return False
     rate_plan = item.get("rate_plan")
-    plan_id = ""
-    public_name = ""
-    if isinstance(rate_plan, dict):
-        plan_id = str(rate_plan.get("id") or "").strip().upper()
-        public_name = str(rate_plan.get("public_name") or "").strip().upper()
-    if not plan_id:
-        plan_id = str(item.get("rate_plan_id") or "").strip().upper()
-    text = f"{plan_id} {public_name}"
-    if "WORKERS" not in text:
+    if not isinstance(rate_plan, dict):
         return False
-    return not any(marker in text for marker in ("WORKERS_FREE", "PARTNERS_WORKERS_FREE"))
+    plan_id = str(rate_plan.get("id") or "").strip().lower()
+    return plan_id in {"free", "partners_free"}
 
 
 def _prove_workers_free(token: str, account_id: str) -> None:
-    """Require billing-read evidence that this account cannot meter paid Workers AI.
+    """Require Billing Read evidence before any Workers AI inference.
 
     If the existing Telegram deploy token lacks Billing Read, the fourth provider is
-    simply unavailable.  This is intentional: inability to prove zero-cost must never
-    be converted into a potentially billable inference.
+    simply unavailable. This is intentional: inability to prove zero-cost must never
+    be converted into a potentially billable request.
     """
     url = f"{CLOUDFLARE_API_BASE}/accounts/{account_id}/subscriptions"
     try:
         response = requests.get(
             url,
-            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            headers={
+                "Authorization": "Bearer " + token,
+                "Content-Type": "application/json",
+            },
             params={"per_page": 100},
             timeout=CLOUDFLARE_PROBE_TIMEOUT_SECONDS,
         )
     except requests.Timeout as exc:
-        raise CloudflareGoldVisionUnavailable("Cloudflare free-plan proof timed out") from exc
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare zero-cost subscription proof timed out"
+        ) from exc
     except requests.RequestException as exc:
         raise CloudflareGoldVisionUnavailable(
-            f"Cloudflare free-plan proof transport failure type={type(exc).__name__}"
+            f"Cloudflare zero-cost subscription proof transport failure type={type(exc).__name__}"
         ) from exc
     try:
         body = response.json()
     except Exception as exc:
-        raise CloudflareGoldVisionUnavailable("Cloudflare free-plan proof returned non-JSON") from exc
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare zero-cost subscription proof returned non-JSON"
+        ) from exc
     if not response.ok or not isinstance(body, dict) or body.get("success") is not True:
         raise CloudflareGoldVisionUnavailable(
-            "Cloudflare free-plan proof unavailable; Billing Read may be missing: " + _error_text(body)
+            "Cloudflare zero-cost subscription proof unavailable; Billing Read may be missing: "
+            + _error_text(body)
         )
     result = body.get("result")
     if not isinstance(result, list):
-        raise CloudflareGoldVisionUnavailable("Cloudflare subscription proof has invalid shape")
-    if any(_active_workers_paid_subscription(item) for item in result):
         raise CloudflareGoldVisionUnavailable(
-            "Cloudflare Workers Paid subscription detected; zero-cost Gold route disabled"
+            "Cloudflare subscription proof has invalid shape"
+        )
+    unproven = [
+        item for item in result
+        if _subscription_is_active(item) and not _subscription_is_proven_free(item)
+    ]
+    if unproven:
+        raise CloudflareGoldVisionUnavailable(
+            "Active paid/unknown Cloudflare subscription detected; zero-cost Gold route disabled"
         )
 
 
 def _prove_model_access(token: str, account_id: str) -> None:
+    """Read the exact model schema; this performs no inference and no billing write."""
     url = f"{CLOUDFLARE_API_BASE}/accounts/{account_id}/ai/models/schema"
     try:
         response = requests.get(
             url,
-            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            headers={
+                "Authorization": "Bearer " + token,
+                "Content-Type": "application/json",
+            },
             params={"model": CLOUDFLARE_VISION_MODEL},
             timeout=CLOUDFLARE_PROBE_TIMEOUT_SECONDS,
         )
     except requests.Timeout as exc:
-        raise CloudflareGoldVisionUnavailable("Cloudflare Workers AI schema probe timed out") from exc
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare Workers AI schema probe timed out"
+        ) from exc
     except requests.RequestException as exc:
         raise CloudflareGoldVisionUnavailable(
             f"Cloudflare Workers AI schema probe transport failure type={type(exc).__name__}"
@@ -164,19 +222,25 @@ def _prove_model_access(token: str, account_id: str) -> None:
     try:
         body = response.json()
     except Exception as exc:
-        raise CloudflareGoldVisionUnavailable("Cloudflare Workers AI schema probe returned non-JSON") from exc
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare Workers AI schema probe returned non-JSON"
+        ) from exc
     if not response.ok or not isinstance(body, dict) or body.get("success") is not True:
         raise CloudflareGoldVisionUnavailable(
             "Cloudflare Workers AI permission/model probe failed: " + _error_text(body)
         )
     result = body.get("result")
     if not isinstance(result, dict) or not isinstance(result.get("input"), dict):
-        raise CloudflareGoldVisionUnavailable("Cloudflare Workers AI model schema is invalid")
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare Workers AI model schema is invalid"
+        )
 
 
 def _parse_normalized_response(body: object) -> dict[str, Any]:
     if not isinstance(body, dict) or body.get("success") is not True:
-        raise CloudflareGoldVisionUnavailable("Cloudflare Workers AI inference failed: " + _error_text(body))
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare Workers AI inference failed: " + _error_text(body)
+        )
     result = body.get("result")
     raw: object = None
     if isinstance(result, dict):
@@ -219,6 +283,19 @@ def _parse_normalized_response(body: object) -> dict[str, Any]:
     return contract.gemini_provider._normalize_visual_audit(data)
 
 
+def _cloudflare_http_code(status: int, body: object) -> contract.VisionErrorCode:
+    internal_code, detail = _error_parts(body)
+    if internal_code in {3036, 5035}:
+        # Daily free allocation exhausted or model requires Paid. Never buy/upgrade.
+        return contract.VisionErrorCode.CAPACITY
+    if internal_code == 3040:
+        return contract.VisionErrorCode.PROVIDER_TRANSIENT
+    if internal_code == 5016:
+        # Model agreement required: do not accept a third-party license automatically.
+        return contract.VisionErrorCode.AUTH_CONFIG
+    return contract._classify_http(status, detail)
+
+
 def _wire_call(
     token: str,
     account_id: str,
@@ -236,7 +313,9 @@ def _wire_call(
     content.extend(
         {
             "type": "image_url",
-            "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(frame).decode("ascii")},
+            "image_url": {
+                "url": "data:image/jpeg;base64," + base64.b64encode(frame).decode("ascii")
+            },
         }
         for frame in frames
     )
@@ -246,12 +325,17 @@ def _wire_call(
         "max_completion_tokens": 700,
         "response_format": contract._strict_response_format(),
     }
-    encoded_model = "/".join(quote(part, safe="@") for part in CLOUDFLARE_VISION_MODEL.split("/"))
+    encoded_model = "/".join(
+        quote(part, safe="@") for part in CLOUDFLARE_VISION_MODEL.split("/")
+    )
     url = f"{CLOUDFLARE_API_BASE}/accounts/{account_id}/ai/run/{encoded_model}"
     try:
         response = requests.post(
             url,
-            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            headers={
+                "Authorization": "Bearer " + token,
+                "Content-Type": "application/json",
+            },
             json=payload,
             timeout=CLOUDFLARE_TIMEOUT_SECONDS,
         )
@@ -273,18 +357,19 @@ def _wire_call(
         body = response.json()
     except Exception as exc:
         raise contract.VisionStageError(
-            contract.VisionErrorCode.PROVIDER_TRANSIENT if not response.ok else contract.VisionErrorCode.STRUCTURAL_INVALID,
+            (
+                contract.VisionErrorCode.PROVIDER_TRANSIENT
+                if not response.ok
+                else contract.VisionErrorCode.STRUCTURAL_INVALID
+            ),
             "Cloudflare Gold Vision response envelope is not valid JSON",
             provider=CLOUDFLARE_VISION_PROVIDER,
             requested_model=CLOUDFLARE_VISION_MODEL,
         ) from exc
     if not response.ok:
         detail = _error_text(body)
-        # Cloudflare codes 3036 (free allocation exhausted), 3040 (capacity), and
-        # 5035 (paid-plan-required) are provider availability outcomes.  We never
-        # upgrade or purchase capacity; Gold remains QC_PENDING instead.
         raise contract.VisionStageError(
-            contract._classify_http(int(response.status_code), detail),
+            _cloudflare_http_code(int(response.status_code), body),
             f"Cloudflare Workers AI HTTP_{response.status_code} {detail}",
             provider=CLOUDFLARE_VISION_PROVIDER,
             requested_model=CLOUDFLARE_VISION_MODEL,
@@ -303,9 +388,13 @@ def run_gold_cloudflare_attempt(
     if getattr(spec, "task_id", "") != GOLD_OPENING_TASK_ID:
         raise CloudflareGoldVisionUnavailable("Cloudflare Vision is Gold-opening-only")
     if not _enabled():
-        raise CloudflareGoldVisionUnavailable("Cloudflare zero-cost Gold Vision route is disabled")
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare zero-cost Gold Vision route is disabled"
+        )
     if _ATTEMPTED.get():
-        raise CloudflareGoldVisionUnavailable("Cloudflare Gold Vision already attempted for this scope")
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare Gold Vision already attempted for this scope"
+        )
 
     token, account_id = _credentials()
     _prove_workers_free(token, account_id)
@@ -338,7 +427,11 @@ def run_gold_cloudflare_attempt(
         provider=CLOUDFLARE_VISION_PROVIDER,
         requested_model=CLOUDFLARE_VISION_MODEL,
         resolved_model=CLOUDFLARE_VISION_MODEL,
-        outcome=(AttemptOutcome.CONTENT_BLOCKED if result.get("status") == "block" else AttemptOutcome.SUCCESS),
+        outcome=(
+            AttemptOutcome.CONTENT_BLOCKED
+            if result.get("status") == "block"
+            else AttemptOutcome.SUCCESS
+        ),
     )
     return result
 
