@@ -19,6 +19,7 @@ concurrency:
 env:
   EXPECTED_ENGINE_SHA: dfb9f010c3ba49bf2ab25f341a4ff596eb262449
   CLOUDFLARE_GOLD_VISION_FREE_ONLY: "true"
+  CLOUDFLARE_GOLD_VISION_MAX_CALLS_PER_WORKFLOW: "5"
 
 jobs:
   resume:
@@ -287,6 +288,7 @@ jobs:
           PIXABAY_API_KEY_FILE: ${{ runner.temp }}/gold-secrets/pixabay
           CLOUDFLARE_API_TOKEN_FILE: ${{ runner.temp }}/gold-secrets/cloudflare-api-token
           CLOUDFLARE_ACCOUNT_ID_FILE: ${{ runner.temp }}/gold-secrets/cloudflare-account-id
+          CLOUDFLARE_GOLD_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-gold-vision-quota-v1.json
           ISCO_ENGINE_SHA: dfb9f010c3ba49bf2ab25f341a4ff596eb262449
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
@@ -357,6 +359,7 @@ jobs:
           PIXABAY_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/pixabay
           CLOUDFLARE_API_TOKEN_FILE: ${{ runner.temp }}/post-gold-secrets/cloudflare-api-token
           CLOUDFLARE_ACCOUNT_ID_FILE: ${{ runner.temp }}/post-gold-secrets/cloudflare-account-id
+          CLOUDFLARE_GOLD_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-gold-vision-quota-v1.json
           PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
           ISCO_ENGINE_SHA: dfb9f010c3ba49bf2ab25f341a4ff596eb262449
           ISCO_CONTROL_REQUEST_ID: ${{ inputs.request_id }}

@@ -334,7 +334,9 @@ def _isolated_child_process_env(child_request: dict[str, Any], request_path: Pat
         env.pop(key, None)
     # Provider capability isolation: parent direct values and any stale one-time paths
     # are never inherited. execute_child_subprocess installs fresh child-only *_FILE
-    # paths immediately before process creation.
+    # paths immediately before process creation. Cloudflare's read-only *_FILE lease
+    # and workflow quota path deliberately remain shared so every sibling can reach the
+    # same Gold-only fallback without inheriting direct secret values or a fresh quota.
     for key in (
         "GEMINI_API_KEY",
         "GEMINI_API_KEY_FILE",
@@ -342,6 +344,8 @@ def _isolated_child_process_env(child_request: dict[str, Any], request_path: Pat
         "PEXELS_API_KEY_FILE",
         "PIXABAY_API_KEY",
         "PIXABAY_API_KEY_FILE",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_ACCOUNT_ID",
     ):
         env.pop(key, None)
     return env

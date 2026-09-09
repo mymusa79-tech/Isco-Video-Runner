@@ -11,8 +11,9 @@ Zero-cost safety is fail-closed:
 * the existing Cloudflare token/account secrets must be present;
 * the same token must prove there is no active billable account subscription;
 * the token must prove Workers AI access to the exact Cloudflare-hosted model;
-* only @cf/qwen/qwen3.8-27b is allowed; no third-party paid/unified-billing route;
+* only @cf/google/gemma-4-26b-a4b-it is allowed; no paid/unified-billing route;
 * one inference attempt maximum per Gold opening-Vision task;
+* one workflow (Long plus sibling Shorts included) can reserve at most five calls;
 * paid-plan requirements, daily-free-allocation exhaustion and capacity errors are
   provider-unavailable outcomes. No billing/upgrade/subscription/AI-Gateway write is
   ever performed.
@@ -22,9 +23,11 @@ this adapter stops and lets the existing Gold QC_PENDING flow preserve Final Mas
 """
 
 import base64
+import fcntl
 import json
 import os
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -35,11 +38,13 @@ from isco_video_agent.ai_budget import AttemptOutcome
 from scripts import vision_stage_contract_v2 as contract
 
 
-CLOUDFLARE_VISION_MODEL = "@cf/qwen/qwen3.8-27b"
+CLOUDFLARE_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 CLOUDFLARE_VISION_PROVIDER = "cloudflare_workers_ai"
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CLOUDFLARE_TIMEOUT_SECONDS = 60
 CLOUDFLARE_PROBE_TIMEOUT_SECONDS = 15
+CLOUDFLARE_MAX_CALLS_PER_WORKFLOW = 5
+CLOUDFLARE_QUOTA_FILENAME = "cloudflare-gold-vision-quota-v1.json"
 GOLD_OPENING_TASK_ID = "GOLD_FINAL_CRITIC_OPENING_VISUAL"
 
 _ATTEMPTED: ContextVar[bool] = ContextVar(
@@ -70,7 +75,9 @@ def _credentials() -> tuple[str, str]:
     account_id = _read_secret("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID_FILE")
     if not token or not account_id:
         raise CloudflareGoldVisionUnavailable("Cloudflare credentials are unavailable")
-    if not all(ch.isalnum() for ch in account_id) or len(account_id) > 64:
+    if len(account_id) != 32 or any(
+        ch not in "0123456789abcdefABCDEF" for ch in account_id
+    ):
         raise CloudflareGoldVisionUnavailable("Cloudflare account id is malformed")
     return token, account_id
 
@@ -82,6 +89,100 @@ def _enabled() -> bool:
         .lower()
         == "true"
     )
+
+
+def _quota_path() -> Path:
+    explicit = str(os.environ.get("CLOUDFLARE_GOLD_VISION_QUOTA_FILE") or "").strip()
+    if explicit:
+        return Path(explicit)
+    runner_temp = str(os.environ.get("RUNNER_TEMP") or "").strip()
+    if not runner_temp:
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare workflow quota state path is unavailable"
+        )
+    return Path(runner_temp) / CLOUDFLARE_QUOTA_FILENAME
+
+
+def _max_calls_per_workflow() -> int:
+    raw = str(
+        os.environ.get("CLOUDFLARE_GOLD_VISION_MAX_CALLS_PER_WORKFLOW")
+        or CLOUDFLARE_MAX_CALLS_PER_WORKFLOW
+    ).strip()
+    try:
+        requested = int(raw)
+    except ValueError as exc:
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare workflow call ceiling is malformed"
+        ) from exc
+    if requested < 1 or requested > CLOUDFLARE_MAX_CALLS_PER_WORKFLOW:
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare workflow call ceiling must stay within 1..5"
+        )
+    return requested
+
+
+def _reserve_workflow_call() -> None:
+    """Reserve one inference slot shared by the parent and isolated Short children.
+
+    GitHub's RUNNER_TEMP is inherited by the sequential sibling subprocesses, so this
+    file lock caps a complete Long+Short bundle rather than each Python process alone.
+    Separate workflow runs are still bounded by Workers Free's provider-enforced daily
+    allocation; this local ceiling prevents one approved bundle from consuming more
+    than the agreed five Gold fallback calls.
+    """
+    try:
+        path = _quota_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        maximum = _max_calls_per_workflow()
+        today = datetime.now(timezone.utc).date().isoformat()
+        descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        with os.fdopen(descriptor, "r+", encoding="utf-8") as handle:
+            os.chmod(path, 0o600)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            raw = handle.read().strip()
+            if raw:
+                try:
+                    state = json.loads(raw)
+                except json.JSONDecodeError as exc:
+                    raise CloudflareGoldVisionUnavailable(
+                        "Cloudflare workflow quota state is invalid"
+                    ) from exc
+                if not isinstance(state, dict):
+                    raise CloudflareGoldVisionUnavailable(
+                        "Cloudflare workflow quota state is invalid"
+                    )
+            else:
+                state = {}
+            count = state.get("count", 0) if state.get("utc_date") == today else 0
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise CloudflareGoldVisionUnavailable(
+                    "Cloudflare workflow quota count is invalid"
+                )
+            if count >= maximum:
+                raise CloudflareGoldVisionUnavailable(
+                    f"Cloudflare workflow call ceiling exhausted ({maximum})"
+                )
+            handle.seek(0)
+            handle.truncate()
+            json.dump(
+                {
+                    "schema_version": 1,
+                    "utc_date": today,
+                    "count": count + 1,
+                    "maximum": maximum,
+                },
+                handle,
+                sort_keys=True,
+            )
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except CloudflareGoldVisionUnavailable:
+        raise
+    except OSError as exc:
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare workflow quota state is unavailable"
+        ) from exc
 
 
 def _error_parts(body: object) -> tuple[int | None, str]:
@@ -309,8 +410,9 @@ def _wire_call(
         intended_visual=intended_visual,
     )
     frames = contract.legacy._sample_preview_frames(Path(preview))
-    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
-    content.extend(
+    # Gemma 4's model card recommends placing images before text for multimodal
+    # understanding. Keep the same three bounded frames and unchanged Gold schema.
+    content: list[dict[str, Any]] = [
         {
             "type": "image_url",
             "image_url": {
@@ -318,11 +420,14 @@ def _wire_call(
             },
         }
         for frame in frames
-    )
+    ]
+    content.append({"type": "text", "text": prompt})
     payload = {
         "messages": [{"role": "user", "content": content}],
         "temperature": 0,
         "max_completion_tokens": 700,
+        "service_tier": "default",
+        "store": False,
         "response_format": contract._strict_response_format(),
     }
     encoded_model = "/".join(
@@ -396,11 +501,15 @@ def run_gold_cloudflare_attempt(
             "Cloudflare Gold Vision already attempted for this scope"
         )
 
+    # Mark the scope before network preflights so a failed eligibility probe cannot be
+    # retried blindly and turn a provider outage into additional delay.
+    _ATTEMPTED.set(True)
+
     token, account_id = _credentials()
     _prove_workers_free(token, account_id)
     _prove_model_access(token, account_id)
 
-    _ATTEMPTED.set(True)
+    _reserve_workflow_call()
     contract._authorize(ledger, spec)
     try:
         result = _wire_call(

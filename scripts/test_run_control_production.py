@@ -187,6 +187,35 @@ class ControlRequestProductionTests(unittest.TestCase):
             self.assertNotIn("REQUEST_FILE", child_env)
             self.assertNotIn("ISCO_CONTROL_REQUEST_ID", child_env)
 
+    def test_sibling_child_shares_cloudflare_file_lease_and_bundle_quota_only(self):
+        request = self._sibling_request()
+        with tempfile.TemporaryDirectory() as temp:
+            request_path = Path(temp) / "child.json"
+            request_path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
+            parent_env = {
+                "CLOUDFLARE_API_TOKEN": "must-not-cross-process",
+                "CLOUDFLARE_ACCOUNT_ID": "must-not-cross-process",
+                "CLOUDFLARE_API_TOKEN_FILE": "/run/secrets/cloudflare-token",
+                "CLOUDFLARE_ACCOUNT_ID_FILE": "/run/secrets/cloudflare-account",
+                "CLOUDFLARE_GOLD_VISION_QUOTA_FILE": "/run/state/cloudflare-quota.json",
+            }
+            with patch.dict(os.environ, parent_env, clear=True):
+                child_env = control._isolated_child_process_env(request, request_path)
+        self.assertNotIn("CLOUDFLARE_API_TOKEN", child_env)
+        self.assertNotIn("CLOUDFLARE_ACCOUNT_ID", child_env)
+        self.assertEqual(
+            child_env["CLOUDFLARE_API_TOKEN_FILE"],
+            "/run/secrets/cloudflare-token",
+        )
+        self.assertEqual(
+            child_env["CLOUDFLARE_ACCOUNT_ID_FILE"],
+            "/run/secrets/cloudflare-account",
+        )
+        self.assertEqual(
+            child_env["CLOUDFLARE_GOLD_VISION_QUOTA_FILE"],
+            "/run/state/cloudflare-quota.json",
+        )
+
     def test_isolated_sibling_child_has_no_cross_run_checkpoint_persistence_authority(self):
         class DummyOrchestrator:
             @staticmethod
