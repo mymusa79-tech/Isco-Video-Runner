@@ -66,6 +66,7 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
     def setUp(self) -> None:
         health.reset_provider_health()
         fallback.vision_mesh._GROQ_MODEL_CERTIFIED.set(None)
+        fallback.cloudflare_vision.reset_attempt_scope()
 
     def test_gemini_timeout_switches_once_to_openrouter_and_accounts_both(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
@@ -130,14 +131,18 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         self.assertEqual(result["status"], "block")
         self.assertEqual(ledger.to_summary()["provider_attempts"]["total"], 2)
 
-    def test_opening_vision_enters_existing_run181_mesh_with_four_attempt_task_cap(self) -> None:
+    def test_opening_vision_enters_existing_run181_mesh_with_five_attempt_task_cap(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
         expected = {"status": "pass"}
         with patch.object(
             fallback.vision_mesh,
             "_route_visual_audit_v3",
             return_value=expected,
-        ) as route:
+        ) as route, patch.object(
+            fallback.cloudflare_vision,
+            "run_gold_cloudflare_attempt",
+            side_effect=AssertionError("healthy shared mesh must not reach Cloudflare"),
+        ):
             result = fallback._opening_vision_with_mesh(
                 Mock(side_effect=AssertionError("Gold opening must use shared Vision mesh")),
                 ledger,
@@ -155,9 +160,108 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         routed_spec = route.call_args.args[1]
         self.assertEqual(routed_spec.task_id, "GOLD_FINAL_CRITIC_OPENING_VISUAL")
         self.assertEqual(routed_spec.kind, "VISUAL_AUDIT")
-        self.assertEqual(routed_spec.max_provider_attempts, 4)
+        self.assertEqual(routed_spec.max_provider_attempts, 5)
         self.assertTrue(routed_spec.semantic_block_is_final)
         self.assertIs(routed_spec.priority, Priority.P0)
+
+    def test_shared_mesh_exhaustion_uses_cloudflare_once(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        mesh_error = fallback.vision_mesh.contract.legacy.VisionProviderMeshUnavailableError(
+            "Vision provider mesh unavailable: gemini=429 | groq=429 | openrouter=capacity"
+        )
+        expected = {"status": "pass"}
+        with tempfile.TemporaryDirectory() as root, patch.object(
+            fallback.vision_mesh,
+            "_route_visual_audit_v3",
+            side_effect=mesh_error,
+        ), patch.object(
+            fallback.cloudflare_vision,
+            "run_gold_cloudflare_attempt",
+            return_value=expected,
+        ) as cloudflare:
+            preview = _preview(root)
+            result = fallback._opening_vision_with_mesh(
+                Mock(),
+                ledger,
+                _opening_spec(),
+                "gemini",
+                "gemini-3.7-flash",
+                Mock(),
+                "gem-key",
+                preview,
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+
+        self.assertIs(result, expected)
+        cloudflare.assert_called_once()
+        self.assertEqual(cloudflare.call_args.kwargs["preview"], preview)
+        self.assertEqual(cloudflare.call_args.kwargs["narration_context"], "ctx")
+        self.assertEqual(cloudflare.call_args.kwargs["intended_visual"], "intent")
+
+    def test_cloudflare_semantic_block_is_final_after_mesh_exhaustion(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        mesh_error = fallback.vision_mesh.contract.legacy.VisionProviderMeshUnavailableError(
+            "Vision provider mesh unavailable"
+        )
+        block = {"status": "block"}
+        with tempfile.TemporaryDirectory() as root, patch.object(
+            fallback.vision_mesh,
+            "_route_visual_audit_v3",
+            side_effect=mesh_error,
+        ), patch.object(
+            fallback.cloudflare_vision,
+            "run_gold_cloudflare_attempt",
+            return_value=block,
+        ) as cloudflare:
+            result = fallback._opening_vision_with_mesh(
+                Mock(),
+                ledger,
+                _opening_spec(),
+                "gemini",
+                "gemini-3.7-flash",
+                Mock(),
+                "gem-key",
+                _preview(root),
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+        self.assertEqual(result["status"], "block")
+        cloudflare.assert_called_once()
+
+    def test_cloudflare_unavailable_preserves_exact_qc_pending_taxonomy(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        mesh_error = fallback.vision_mesh.contract.legacy.VisionProviderMeshUnavailableError(
+            "Vision provider mesh unavailable"
+        )
+        with tempfile.TemporaryDirectory() as root, patch.object(
+            fallback.vision_mesh,
+            "_route_visual_audit_v3",
+            side_effect=mesh_error,
+        ), patch.object(
+            fallback.cloudflare_vision,
+            "run_gold_cloudflare_attempt",
+            side_effect=fallback.cloudflare_vision.CloudflareGoldVisionUnavailable(
+                "Billing Read proof unavailable"
+            ),
+        ):
+            with self.assertRaises(
+                fallback.vision_mesh.contract.legacy.VisionProviderMeshUnavailableError
+            ) as raised:
+                fallback._opening_vision_with_mesh(
+                    Mock(),
+                    ledger,
+                    _opening_spec(),
+                    "gemini",
+                    "gemini-3.7-flash",
+                    Mock(),
+                    "gem-key",
+                    _preview(root),
+                    narration_context="ctx",
+                    intended_visual="intent",
+                )
+        self.assertIn("cloudflare=", str(raised.exception))
+        self.assertIn("Billing Read proof unavailable", str(raised.exception))
 
     def test_short_provider_retry_after_is_honored_once_and_accounted(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
@@ -178,7 +282,11 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         ), patch.object(
             fallback.time,
             "sleep",
-        ) as sleep:
+        ) as sleep, patch.object(
+            fallback.cloudflare_vision,
+            "run_gold_cloudflare_attempt",
+            side_effect=AssertionError("successful Gemini retry must not reach Cloudflare"),
+        ):
             result = fallback._opening_vision_with_mesh(
                 Mock(side_effect=AssertionError("must use Vision mesh")),
                 ledger,
@@ -214,7 +322,11 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         ) as groq_wire, patch.object(
             fallback.time,
             "sleep",
-        ) as sleep:
+        ) as sleep, patch.object(
+            fallback.cloudflare_vision,
+            "run_gold_cloudflare_attempt",
+            side_effect=AssertionError("Groq success must not reach Cloudflare"),
+        ):
             result = fallback._opening_vision_with_mesh(
                 Mock(side_effect=AssertionError("must use Vision mesh")),
                 ledger,
@@ -252,7 +364,11 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
             fallback.vision_mesh,
             "_groq_visual_call",
             return_value={"status": "pass"},
-        ) as groq_wire, patch.object(fallback.time, "sleep"):
+        ) as groq_wire, patch.object(fallback.time, "sleep"), patch.object(
+            fallback.cloudflare_vision,
+            "run_gold_cloudflare_attempt",
+            side_effect=AssertionError("Groq success must not reach Cloudflare"),
+        ):
             result = fallback._opening_vision_with_mesh(
                 Mock(side_effect=AssertionError("must use Vision mesh")),
                 ledger,
@@ -273,7 +389,7 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         self.assertEqual(summary["provider_attempts"]["total"], 3)
         self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 2, "groq": 1})
 
-    def test_visual_semantic_block_is_final_and_never_shops_groq_or_openrouter(self) -> None:
+    def test_visual_semantic_block_is_final_and_never_shops_other_providers(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
         block = {"status": "block"}
         with tempfile.TemporaryDirectory() as root, fallback.vision_mesh.contract.legacy.vision_provider_circuit_scope(), patch.object(
@@ -286,7 +402,10 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         ) as groq, patch.object(
             fallback.vision_mesh.contract,
             "_run_openrouter_attempt",
-        ) as openrouter:
+        ) as openrouter, patch.object(
+            fallback.cloudflare_vision,
+            "run_gold_cloudflare_attempt",
+        ) as cloudflare:
             result = fallback._opening_vision_with_mesh(
                 Mock(side_effect=AssertionError("must use Vision mesh")),
                 ledger,
@@ -303,6 +422,7 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         self.assertEqual(result["status"], "block")
         groq.assert_not_called()
         openrouter.assert_not_called()
+        cloudflare.assert_not_called()
         self.assertTrue(ledger.is_task_closed("GOLD_FINAL_CRITIC_OPENING_VISUAL"))
 
     def test_release_budget_expands_only_inside_scope_and_restores_exact_state(self) -> None:
@@ -311,6 +431,8 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         baseline_attempts = int(fallback.run123._FINAL_CRITIC_PROVIDER_ATTEMPTS)
         expected_delta = max(0, fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS - baseline_attempts)
 
+        self.assertEqual(fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS, 5)
+        self.assertEqual(fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS, 7)
         with fallback._final_critic_provider_budget_scope():
             for fmt, baseline_cap in fallback.run123.RUN123_PROVIDER_ATTEMPT_HARD_CAP.items():
                 self.assertGreaterEqual(
@@ -325,18 +447,21 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         self.assertEqual(ai_budget.PROVIDER_ATTEMPT_HARD_CAP, hard_before)
         self.assertEqual(ai_budget.P1_AND_P0_RESERVED_BUFFER, reserve_before)
 
-    def test_context_manager_restores_engine_ledger_wrapper_and_budget_state(self) -> None:
+    def test_context_manager_restores_engine_ledger_wrapper_budget_and_cloudflare_scope(self) -> None:
         import isco_video_agent.production_pipeline as pipeline
 
         original = pipeline._ledger_call_status
         hard_before = dict(ai_budget.PROVIDER_ATTEMPT_HARD_CAP)
         reserve_before = dict(ai_budget.P1_AND_P0_RESERVED_BUFFER)
+        fallback.cloudflare_vision._ATTEMPTED.set(True)
         with fallback.gold_final_critic_text_fallback():
             self.assertIsNot(pipeline._ledger_call_status, original)
             self.assertNotEqual(ai_budget.PROVIDER_ATTEMPT_HARD_CAP, hard_before)
+            self.assertFalse(fallback.cloudflare_vision._ATTEMPTED.get())
         self.assertIs(pipeline._ledger_call_status, original)
         self.assertEqual(ai_budget.PROVIDER_ATTEMPT_HARD_CAP, hard_before)
         self.assertEqual(ai_budget.P1_AND_P0_RESERVED_BUFFER, reserve_before)
+        self.assertFalse(fallback.cloudflare_vision._ATTEMPTED.get())
 
 
 if __name__ == "__main__":
