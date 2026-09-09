@@ -101,6 +101,28 @@ class QCPendingResumeBundleV1Tests(unittest.TestCase):
         self.assertIn("content-quality-audit.json", manifest["files"])
         self.assertIn("tone-quality-audit.json", manifest["files"])
 
+    def test_run230_opening_vision_exhaustion_does_not_require_unwritten_audit(self) -> None:
+        source, acceptance = self._source(fmt="moment")
+        # Exact Run #230 shape: the opening Vision provider mesh failed before
+        # opening-visual-audit.json could be written, while Final Master had passed.
+        (source / "opening-visual-audit.json").unlink()
+        bundle = Path(tempfile.mkdtemp(prefix="qc-resume-run230-")) / "bundle"
+        with patch(
+            "scripts.qc_pending_checkpoint_v1.require_final_master_acceptance",
+            return_value=acceptance,
+        ):
+            manifest = build_resume_bundle(source, bundle)
+            verified = validate_resume_bundle(
+                bundle,
+                expected_source_run_id="99123",
+                expected_runner_sha="a" * 40,
+                expected_engine_sha="b" * 40,
+            )
+        self.assertEqual(manifest, verified)
+        self.assertNotIn("opening-visual-audit.json", manifest["files"])
+        self.assertEqual(manifest["final_sha256"], _sha(bundle / "final.mp4"))
+        self.assertIn("short-intelligence-pre-gold.json", manifest["files"])
+
     def test_moment_bundle_requires_pre_gold_short_intelligence(self) -> None:
         source, acceptance = self._source(fmt="moment")
         bundle = Path(tempfile.mkdtemp(prefix="qc-resume-short-")) / "bundle"
