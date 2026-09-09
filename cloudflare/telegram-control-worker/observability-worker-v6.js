@@ -6,7 +6,10 @@ const CANONICAL_PRODUCTION_WORKFLOW = "produce-resilient-v4.yml";
 const CANONICAL_PRODUCTION_PATH = ".github/workflows/produce-resilient-v4.yml";
 const PROGRESS_REF = "control-plane-state";
 const PROGRESS_PATH = "state/production-progress.json";
-const INTERNAL_STAGE_ORDER = ["planning", "voice", "visuals", "mux"];
+const INTERNAL_STAGE_ORDER = [
+  "planning", "voice", "visuals", "mux", "final_master", "gold_started",
+  "gold_vision", "provider_wait", "viewer_quality", "packaging", "gold_pass", "qc_pending",
+];
 const DETAIL_STAGE_ORDER = [
   ["authorization", "التحقق من التفويض"],
   ["setup", "تهيئة الإنتاج"],
@@ -16,6 +19,14 @@ const DETAIL_STAGE_ORDER = [
   ["visuals", "المشاهد"],
   ["render", "التجميع والتصدير"],
   ["final_qc", "الفحص النهائي"],
+  ["final_master", "Final Master"],
+  ["gold_started", "بدء Gold"],
+  ["gold_vision", "Gold Vision"],
+  ["provider_wait", "انتظار المزوّد"],
+  ["viewer_quality", "Viewer Quality"],
+  ["packaging", "التغليف"],
+  ["gold_pass", "Gold PASS"],
+  ["qc_pending", "QC_PENDING"],
   ["delivery", "الحزمة النهائية"],
 ];
 
@@ -244,6 +255,10 @@ function detailedInternalStage(progress) {
   if (stage === "voice") return completed.has("voice") ? "visuals" : "voice";
   if (stage === "visuals") return completed.has("visuals") ? "render" : "visuals";
   if (stage === "mux") return completed.has("mux") ? "final_qc" : "render";
+  if ([
+    "final_master", "gold_started", "gold_vision", "provider_wait", "viewer_quality",
+    "packaging", "gold_pass", "qc_pending",
+  ].includes(stage)) return stage;
   return "";
 }
 
@@ -471,7 +486,7 @@ function liveRoute(data) {
   if (match) return { kind: "details", stage: "", runId: match[1] };
   match = /^cmd:stage_details_refresh:(\d+)$/.exec(String(data || ""));
   if (match) return { kind: "details_refresh", stage: "", runId: match[1] };
-  match = /^cmd:progress_stage:(planning|voice|visuals|mux)$/.exec(String(data || ""));
+  match = /^cmd:progress_stage:(planning|voice|visuals|mux|final_master|gold_started|gold_vision|provider_wait|viewer_quality|packaging|gold_pass|qc_pending)$/.exec(String(data || ""));
   if (match) return { kind: "status", stage: match[1], runId: "" };
   return null;
 }

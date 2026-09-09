@@ -283,6 +283,9 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
             fallback.time,
             "sleep",
         ) as sleep, patch.object(
+            fallback,
+            "update_stage",
+        ) as progress, patch.object(
             fallback.cloudflare_vision,
             "run_gold_cloudflare_attempt",
             side_effect=AssertionError("successful Gemini retry must not reach Cloudflare"),
@@ -303,6 +306,10 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         self.assertEqual(result["status"], "pass")
         self.assertEqual(gemini.call_count, 2)
         sleep.assert_called_once_with(0.01)
+        self.assertEqual(
+            [call.args[0] for call in progress.call_args_list],
+            ["provider_wait", "gold_vision"],
+        )
         summary = ledger.to_summary()
         self.assertEqual(summary["provider_attempts"]["total"], 2)
         self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 2})

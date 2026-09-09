@@ -29,6 +29,14 @@ STAGE_LABELS = {
     "voice": status_label("voice"),
     "visuals": status_label("visuals"),
     "mux": status_label("mux"),
+    "final_master": status_label("final_master"),
+    "gold_started": status_label("gold_started"),
+    "gold_vision": status_label("gold_vision"),
+    "provider_wait": status_label("provider_wait"),
+    "viewer_quality": status_label("viewer_quality"),
+    "packaging": status_label("packaging"),
+    "gold_pass": status_label("gold_pass"),
+    "qc_pending": status_label("qc_pending"),
 }
 
 ACTION_VIEW_GITHUB = "view_github"

@@ -32,6 +32,7 @@ from scripts.packaging_delivery_contract import (
 from scripts.qc_pending_checkpoint_v1 import capture_qc_pending_checkpoint
 from scripts.qc_pending_resume_bundle_v1 import build_resume_bundle
 from scripts.run123_budget_closure import enforcing_final_critic_as_p0
+from scripts.telegram_progress import advance_stage
 from scripts.viewer_quality_contract_v1 import enforce_viewer_quality_contract
 
 
@@ -172,6 +173,7 @@ def run_gold_enforce_phase4(
         return build_budgeted_thumbnail_package(**kwargs, ledger=ledger, pixabay_key=pixabay)
 
     def enforced_critic(**kwargs):
+        advance_stage("gold_vision")
         with enforcing_final_critic_as_p0(), gold_final_critic_text_fallback():
             critic = _run_final_critic(
                 **kwargs,
@@ -189,6 +191,7 @@ def run_gold_enforce_phase4(
         fmt = str(getattr(plan, "format", "") or "").strip().lower()
         if not fmt:
             raise RuntimeError("Gold enforcement lost format before Viewer Quality")
+        advance_stage("viewer_quality")
         enforce_viewer_quality_contract(
             output_dir,
             fmt=fmt,
@@ -197,6 +200,7 @@ def run_gold_enforce_phase4(
         if _sha256_file(final_path) != final_sha_before:
             raise RuntimeError("Viewer Quality mutated final.mp4 before state acceptance")
 
+        advance_stage("packaging")
         packaging_acceptance_box["acceptance"] = seal_gold_packaging_acceptance(
             output_dir,
             critic=critic,
@@ -365,4 +369,5 @@ def run_gold_enforce_phase4(
         raise RuntimeError("Gold enforcement Viewer Quality evidence missing after acceptance")
     if certificate_sha256 is None:
         raise RuntimeError("Gold enforcement packaging acceptance certificate is missing after acceptance")
+    advance_stage("gold_pass")
     return plan, critic, report

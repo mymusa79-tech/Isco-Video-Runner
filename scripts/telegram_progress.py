@@ -268,6 +268,23 @@ def update_stage(stage: str) -> None:
     )
 
 
+def advance_stage(stage: str) -> None:
+    """Move to a new real stage and publish that boundary immediately.
+
+    There is deliberately no time throttle here.  A stage transition is user-visible
+    truth and always edits the lifecycle card at once; any future same-stage heartbeat
+    may be rate-limited independently without delaying this boundary.
+    """
+    if stage not in _STAGE_KEYS:
+        return
+    previous = _state.get("current_stage")
+    if previous in _STAGE_KEYS and previous != stage:
+        # Fold completion into the new-stage snapshot so the durable observer receives
+        # one coherent boundary rather than two racing control-plane commits.
+        _state["completed"].add(previous)
+    update_stage(stage)
+
+
 def mark_stage_done(stage: str) -> None:
     if stage not in _STAGE_KEYS:
         return

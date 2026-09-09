@@ -23,6 +23,7 @@ from scripts import provider_health_registry as health
 from scripts import run181_vision_mesh_closure as vision_mesh
 from scripts import vision_stage_contract_v2 as vision_contract
 from scripts import visual_retrieval_adjudication_v1 as capacity
+from scripts.telegram_progress import update_stage
 
 
 CONTRACT_ID = "gold-vision-capacity-reserve-v1"
@@ -140,7 +141,9 @@ def _install_gold_groq_retry() -> None:
                 "Gold Vision Priority Admission V1: honoring Groq cooldown once; "
                 f"delay_seconds={delay:.3f}"
             )
+            update_stage("provider_wait")
             time.sleep(delay)
+            update_stage("gold_vision")
             return current(*args, **kwargs)
 
     gold_retry_once._isco_gold_groq_retry_v1 = True
