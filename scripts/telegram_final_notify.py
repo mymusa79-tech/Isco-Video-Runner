@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts import telegram_operations_ui as ops_ui
+from scripts.qc_pending_resume_bundle_v1 import validate_resume_bundle
 
 _FAILURE_STAGES = (
     ("CHECKOUT_RUNNER_OUTCOME", "Checkout Runner"),
@@ -31,6 +32,7 @@ _FAILURE_STAGES = (
 _EXCEPTION_PREFIX = re.compile(
     r"^(?:[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception)|RuntimeError|ValueError|SystemExit):\s*"
 )
+_QC_PENDING_BUNDLE_DIRNAME = "short-circuit-gold-resume-v2"
 
 
 def _telegram_request(token: str, method: str, payload: dict[str, str]) -> bool:
@@ -66,6 +68,66 @@ def _path_optional(value: str) -> Path | None:
     return Path(text) if text else None
 
 
+def _current_qc_pending() -> dict[str, Any] | None:
+    """Return only a complete current-run Gold recovery contract.
+
+    A local checkpoint alone is not enough to advertise a button.  The exact-byte
+    bundle must also validate, so Telegram never offers a resume action that would
+    require replanning, rerendering, or weakening Gold.
+    """
+    roots = sorted(
+        (path for path in Path("engine/output").glob("*") if path.is_dir()),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for root in roots:
+        checkpoint_path = root / "qc-pending.json"
+        if not checkpoint_path.is_file():
+            continue
+        checkpoint = _read_json_optional(checkpoint_path)
+        if (
+            checkpoint.get("contract_id") != "gold.qc-pending.v1"
+            or checkpoint.get("schema_version") != 2
+            or checkpoint.get("status") != "GOLD_VISION_PENDING_PROVIDER_CAPACITY"
+            or checkpoint.get("release_allowed") is not False
+            or checkpoint.get("resumable") is not True
+            or checkpoint.get("failure_taxonomy") != "VisionProviderMeshUnavailableError"
+        ):
+            return None
+        source_run_id = str(checkpoint.get("source_run_id") or "").strip()
+        source_attempt = str(checkpoint.get("source_run_attempt") or "").strip()
+        runner_sha = str(checkpoint.get("runner_sha") or "").strip().lower()
+        engine_sha = str(checkpoint.get("engine_sha") or "").strip().lower()
+        if source_run_id != str(os.environ.get("GITHUB_RUN_ID") or "").strip():
+            return None
+        if source_attempt != str(os.environ.get("GITHUB_RUN_ATTEMPT") or "").strip():
+            return None
+        if runner_sha != str(os.environ.get("GITHUB_SHA") or "").strip().lower():
+            return None
+        bundle = root / _QC_PENDING_BUNDLE_DIRNAME
+        try:
+            manifest = validate_resume_bundle(
+                bundle,
+                expected_source_run_id=source_run_id,
+                expected_runner_sha=runner_sha,
+                expected_engine_sha=engine_sha,
+            )
+        except Exception:
+            return None
+        if str(manifest.get("final_sha256") or "") != str((checkpoint.get("final") or {}).get("sha256") or ""):
+            return None
+        return checkpoint
+    return None
+
+
+def _approved_request_id(runner_temp: Path) -> str:
+    request = _read_json_optional(runner_temp / "isco-control" / "approved-request.json")
+    value = str(request.get("request_id") or "").strip()
+    if not value or len(value) > 48 or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for ch in value):
+        return ""
+    return value
+
+
 def format_duration(seconds: int | float) -> str:
     total = max(0, int(seconds))
     minutes, secs = divmod(total, 60)
@@ -81,13 +143,7 @@ def detect_failure_stage(env: dict[str, str] | None = None) -> str:
 
 
 def terminal_delivery_status(env: dict[str, str] | None = None) -> str:
-    """Classify the user-visible terminal state by the durable delivery boundary.
-
-    Once GitHub Release creation succeeded, a later state/notification housekeeping
-    failure must never be presented as if production itself failed. The Release is the
-    durable delivery boundary; later failures are degraded-success evidence that should
-    be repaired without re-running production.
-    """
+    """Classify the user-visible terminal state by the durable delivery boundary."""
     values = env if env is not None else os.environ
     job_status = str(values.get("JOB_STATUS") or "failure").strip().lower()
     release_outcome = str(values.get("CREATE_RELEASE_OUTCOME") or "").strip().lower()
@@ -126,14 +182,8 @@ def read_failure_reason(runner_temp: Path, stage: str) -> str:
 
 def failure_impact(stage: str) -> str:
     if stage in {
-        "Checkout Runner",
-        "Checkout Engine",
-        "Setup Python",
-        "Install Engine",
-        "Restore Memory",
-        "Voice Preflight",
-        "Environment Preflight",
-        "Prepare Request",
+        "Checkout Runner", "Checkout Engine", "Setup Python", "Install Engine",
+        "Restore Memory", "Voice Preflight", "Environment Preflight", "Prepare Request",
         "Provider Readiness",
     }:
         return "توقفت المحاولة قبل اكتمال إنتاج الفيديو."
@@ -155,6 +205,21 @@ def build_failure_message(*, run_number: str, elapsed_seconds: int, env: dict[st
         duration=format_duration(elapsed_seconds),
         reason=reason,
         impact=failure_impact(stage),
+    )
+
+
+def build_qc_pending_message(*, run_number: str, elapsed_seconds: int, checkpoint: dict[str, Any]) -> str:
+    final_sha = str((checkpoint.get("final") or {}).get("sha256") or "").strip()
+    return (
+        f"🟠 Final Master محفوظ — Gold بانتظار سعة Vision\n\n"
+        f"التشغيل: #{run_number}\n"
+        f"المدة: {format_duration(elapsed_seconds)}\n\n"
+        "✅ Final Master: PASS\n"
+        "✅ نفس final.mp4 محفوظ بدون إعادة رندر\n"
+        "⏸️ Gold Vision: توقف مؤقت بسبب عدم توفر مزودي الرؤية\n"
+        "🔒 النشر ما زال محجوبًا حتى ينجح Gold\n\n"
+        "اضغط «▶️ تابع Gold» لاستكمال Gold فقط؛ لن يُعاد التخطيط أو البحث أو الصوت أو الرندر."
+        + (f"\n\nSHA: {final_sha[:12]}" if final_sha else "")
     )
 
 
@@ -225,13 +290,19 @@ def terminal_keyboard(
     results_url: str = "",
     run_id: str = "",
     progress_message_id: str = "",
+    request_id: str = "",
 ) -> dict[str, list[list[dict[str, str]]]]:
     rows: list[list[dict[str, str]]] = []
     run_value = str(run_url or "").strip()
     results_value = str(results_url or "").strip()
     run_id_value = str(run_id or "").strip()
     message_id_value = str(progress_message_id or "").strip()
+    request_id_value = str(request_id or "").strip()
     release_ready = job_status in {"success", "released_degraded"}
+    if job_status == "qc_pending" and request_id_value:
+        callback = f"cmd:goldresume-{request_id_value}"
+        if len(callback.encode("utf-8")) <= 64:
+            rows.append([ops_ui.callback_button("▶️ تابع Gold", callback)])
     if run_id_value and message_id_value:
         try:
             details_data = ops_ui.operations_callback_data(ops_ui.ACTION_DETAILS, run_id_value, message_id_value)
@@ -253,11 +324,7 @@ def terminal_url_keyboard(*, job_status: str, run_url: str, results_url: str = "
 
 
 def deliver_terminal_message(
-    *,
-    token: str,
-    chat_id: str,
-    text: str,
-    progress_message_id: str = "",
+    *, token: str, chat_id: str, text: str, progress_message_id: str = "",
     reply_markup: dict[str, Any] | None = None,
 ) -> bool:
     base_payload: dict[str, str] = {"chat_id": chat_id, "text": text}
@@ -270,8 +337,6 @@ def deliver_terminal_message(
         if _telegram_request(token, "editMessageText", edit_payload):
             print("TELEGRAM_TERMINAL_DELIVERY=edited")
             return True
-        # A terminal state is more important than preserving one-message aesthetics.
-        # Fall back exactly once so a stale lifecycle card cannot be the final visible state.
         print("Telegram notify: terminal edit failed; bounded sendMessage fallback")
         if _telegram_request(token, "sendMessage", base_payload):
             print("TELEGRAM_TERMINAL_DELIVERY=fallback_sent")
@@ -292,7 +357,6 @@ def _elapsed_seconds(env: dict[str, str]) -> int:
     if start <= 0:
         return 0
     import time
-
     return max(0, int(time.time()) - start)
 
 
@@ -333,8 +397,17 @@ def main() -> int:
     run_number = str(env.get("GITHUB_RUN_NUMBER") or "").strip()
     runner_temp = Path(str(env.get("RUNNER_TEMP") or "."))
     elapsed = _elapsed_seconds(env)
-    terminal_status = terminal_delivery_status(env)
-    if terminal_status in {"success", "released_degraded"}:
+    checkpoint = _current_qc_pending()
+    terminal_status = "qc_pending" if checkpoint is not None else terminal_delivery_status(env)
+    request_id = _approved_request_id(runner_temp) if terminal_status == "qc_pending" else ""
+
+    if terminal_status == "qc_pending":
+        text = build_qc_pending_message(
+            run_number=run_number,
+            elapsed_seconds=elapsed,
+            checkpoint=checkpoint or {},
+        )
+    elif terminal_status in {"success", "released_degraded"}:
         text = build_success_message(
             run_number=run_number,
             elapsed_seconds=elapsed,
@@ -366,6 +439,7 @@ def main() -> int:
         results_url=_results_url(env),
         run_id=str(env.get("GITHUB_RUN_ID") or "").strip(),
         progress_message_id=progress_message_id,
+        request_id=request_id,
     )
     delivered = deliver_terminal_message(
         token=token,
@@ -374,9 +448,6 @@ def main() -> int:
         progress_message_id=progress_message_id,
         reply_markup=keyboard,
     )
-    # The workflow step is continue-on-error. Returning non-zero therefore records
-    # notification delivery failure as an observable step outcome without changing
-    # the already-determined production result.
     return 0 if delivered else 1
 
 
