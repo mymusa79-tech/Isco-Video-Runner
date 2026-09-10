@@ -2,6 +2,9 @@ name: Mistral API Smoke Test
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - test/mistral-api-smoke
 
 permissions:
   contents: read
