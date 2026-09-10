@@ -4,11 +4,61 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from scripts import viewer_quality_contract_v1 as viewer_contract
 from scripts.viewer_quality_contract_v1 import enforce_viewer_quality_contract
 
 
 class ViewerQualityContractV1Tests(unittest.TestCase):
+    @staticmethod
+    def _accepted_final_master_receipt(output_dir: Path) -> dict:
+        """Isolate Viewer unit tests from Final Master's own integration contract.
+
+        Final Master exact-byte/SHA behavior is covered by its dedicated tests. Viewer
+        unit tests need a stable already-accepted receipt so they continue exercising
+        Viewer semantics rather than failing earlier at the new provenance boundary.
+        """
+        root = Path(output_dir)
+        sources = {
+            "final": {
+                "file": "final.mp4",
+                "sha256": "a" * 64,
+                "byte_length": 12345,
+            },
+            "plan": {
+                "file": "plan.json",
+                "sha256": "b" * 64,
+                "byte_length": 100,
+            },
+            "quality_final": {
+                "file": "quality-final.json",
+                "sha256": "c" * 64,
+                "byte_length": 100,
+            },
+        }
+        if (root / "short-visual-timeline.json").is_file():
+            sources["short_visual_timeline"] = {
+                "file": "short-visual-timeline.json",
+                "sha256": "d" * 64,
+                "byte_length": 200,
+            }
+        return {
+            "acceptance_contract": {
+                "contract_id": "final.master.acceptance.v2",
+                "sources": sources,
+            }
+        }
+
+    def setUp(self) -> None:
+        self._final_master_patch = patch.object(
+            viewer_contract,
+            "require_final_master_acceptance",
+            side_effect=self._accepted_final_master_receipt,
+        )
+        self._final_master_patch.start()
+        self.addCleanup(self._final_master_patch.stop)
+
     def _base_dir(self, *, visual_relevance: float = 0.90, visual_quality: float = 0.90) -> Path:
         root = Path(tempfile.mkdtemp(prefix="viewer-quality-v1-"))
         (root / "plan.json").write_text(json.dumps({"format": "moment"}), encoding="utf-8")
