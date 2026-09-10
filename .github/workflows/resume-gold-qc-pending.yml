@@ -551,7 +551,7 @@ jobs:
           set -euo pipefail
           gh workflow run resume-deferred-sibling-shorts.yml \
             --repo "$GITHUB_REPOSITORY" \
-            --ref "$GITHUB_SHA" \
+            --ref main \
             -f parent_release_tag="$RELEASE_TAG"
 
       - name: Delete consumed QC_PENDING artifact after complete parent success
