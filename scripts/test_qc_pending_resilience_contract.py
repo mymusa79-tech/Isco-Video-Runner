@@ -32,7 +32,16 @@ class Run232ResilienceContractTests(unittest.TestCase):
         self.assertNotIn("requests.get", source)
         self.assertNotIn("requests.post", source)
 
-    def test_provider_preflight_invokes_cloudflare_before_returning(self) -> None:
+    def test_optional_cloudflare_preflight_disables_only_provider_unavailability(self) -> None:
+        source = (ROOT / "cloudflare_gold_preflight.py").read_text(encoding="utf-8")
+        start = source.index("def preflight_optional_gold_cloudflare_from_runner_temp()")
+        block = source[start:]
+        self.assertIn("except CloudflareGoldVisionUnavailable as exc:", block)
+        self.assertIn("_disable_optional_route_for_following_steps()", block)
+        self.assertIn("production continues without Cloudflare Gold fallback", block)
+        self.assertNotIn("except Exception", block)
+
+    def test_provider_preflight_invokes_optional_cloudflare_before_returning(self) -> None:
         source = (ROOT / "provider_preflight.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         main = next(
@@ -44,7 +53,8 @@ class Run232ResilienceContractTests(unittest.TestCase):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         ]
         self.assertIn("_original_main", calls)
-        self.assertIn("preflight_gold_cloudflare_from_runner_temp", calls)
+        self.assertIn("preflight_optional_gold_cloudflare_from_runner_temp", calls)
+        self.assertNotIn("preflight_gold_cloudflare_from_runner_temp", calls)
 
     def test_telegram_progress_attests_before_persisting_message_id(self) -> None:
         source = (ROOT / "telegram_progress.py").read_text(encoding="utf-8")
