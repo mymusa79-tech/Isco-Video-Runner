@@ -17,17 +17,77 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: fix/visual-family-closure-run228
-          persist-credentials: true
+          persist-credentials: false
           fetch-depth: 1
 
-      - name: Patch canonical V4 workflow exactly once
+      - name: Build canonical V4 patch as detached Git object
+        env:
+          GH_PATCH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           python scripts/_patch_visual_failure_transport.py
-          git config user.name "isco-maintenance-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add .github/workflows/produce-resilient-v4.yml .github/workflows/_patch-visual-failure-memory-transport.yml scripts/_patch_visual_failure_transport.py
-          git diff --cached --check
-          git diff --cached --quiet && { echo "No patch delta" >&2; exit 1; }
-          git commit -m "Wire failed-run visual learning state transport"
-          git push origin HEAD:fix/visual-family-closure-run228
+          git diff --check
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import urllib.request
+          from pathlib import Path
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GH_PATCH_TOKEN']
+          api = f'https://api.github.com/repos/{repo}'
+
+          def post(path: str, payload: dict) -> dict:
+              request = urllib.request.Request(
+                  api + path,
+                  data=json.dumps(payload).encode('utf-8'),
+                  method='POST',
+                  headers={
+                      'Accept': 'application/vnd.github+json',
+                      'Authorization': f'Bearer {token}',
+                      'X-GitHub-Api-Version': '2022-11-28',
+                      'Content-Type': 'application/json',
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  value = json.loads(response.read().decode('utf-8'))
+              if not isinstance(value, dict):
+                  raise SystemExit(f'Unexpected GitHub response for {path}')
+              return value
+
+          parent = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          base_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          workflow = Path('.github/workflows/produce-resilient-v4.yml').read_text(encoding='utf-8')
+          blob = post('/git/blobs', {'content': workflow, 'encoding': 'utf-8'})['sha']
+          tree = post('/git/trees', {
+              'base_tree': base_tree,
+              'tree': [
+                  {
+                      'path': '.github/workflows/produce-resilient-v4.yml',
+                      'mode': '100644',
+                      'type': 'blob',
+                      'sha': blob,
+                  },
+                  {
+                      'path': '.github/workflows/_patch-visual-failure-memory-transport.yml',
+                      'mode': '100644',
+                      'type': 'blob',
+                      'sha': None,
+                  },
+                  {
+                      'path': 'scripts/_patch_visual_failure_transport.py',
+                      'mode': '100644',
+                      'type': 'blob',
+                      'sha': None,
+                  },
+              ],
+          })['sha']
+          commit = post('/git/commits', {
+              'message': 'Wire failed-run visual learning state transport',
+              'tree': tree,
+              'parents': [parent],
+          })['sha']
+          print(f'PATCH_COMMIT_SHA={commit}')
+          print(f'PATCH_WORKFLOW_BLOB_SHA={blob}')
+          PY
