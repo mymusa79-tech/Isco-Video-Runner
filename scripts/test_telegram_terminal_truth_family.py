@@ -17,6 +17,10 @@ class TelegramTerminalTruthFamilyTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.worker = LIVE_WORKER.read_text(encoding="utf-8")
 
+    @staticmethod
+    def _message(message_id: int) -> dict:
+        return {"ok": True, "result": {"chat": {"id": 123}, "message_id": message_id}}
+
     def test_terminal_github_state_is_resolved_before_runtime_progress(self) -> None:
         start = self.worker.index("function productionView(value)")
         end = self.worker.index("function detailedStageState(value)", start)
@@ -40,16 +44,17 @@ class TelegramTerminalTruthFamilyTests(unittest.TestCase):
     def test_successful_terminal_edit_does_not_emit_duplicate_fallback_message(self) -> None:
         calls: list[str] = []
 
-        def fake_request(token: str, method: str, payload: dict[str, object]) -> bool:
+        def fake_request(token: str, method: str, payload: dict[str, object]) -> dict:
             calls.append(method)
-            return True
+            return self._message(42)
 
         original = final_notify._telegram_request
         final_notify._telegram_request = fake_request
         try:
             ok = final_notify.deliver_terminal_message(
                 token="tok",
-                chat_id="chat",
+                chat_id="123",
+                allowed_user_id="123",
                 text="terminal",
                 progress_message_id="42",
             )
@@ -61,17 +66,19 @@ class TelegramTerminalTruthFamilyTests(unittest.TestCase):
 
     def test_failed_terminal_edit_has_one_send_fallback(self) -> None:
         calls: list[str] = []
+        responses = [None, self._message(43)]
 
-        def fake_request(token: str, method: str, payload: dict[str, object]) -> bool:
+        def fake_request(token: str, method: str, payload: dict[str, object]):
             calls.append(method)
-            return method == "sendMessage"
+            return responses.pop(0)
 
         original = final_notify._telegram_request
         final_notify._telegram_request = fake_request
         try:
             ok = final_notify.deliver_terminal_message(
                 token="tok",
-                chat_id="chat",
+                chat_id="123",
+                allowed_user_id="123",
                 text="terminal",
                 progress_message_id="42",
             )
