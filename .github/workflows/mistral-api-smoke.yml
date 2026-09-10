@@ -26,7 +26,7 @@ jobs:
           fi
           echo "MISTRAL_API_KEY is present"
 
-      - name: Call official Free-mode verification model
+      - name: Diagnose Free-mode API access safely
         shell: bash
         run: |
           set -euo pipefail
@@ -64,8 +64,28 @@ jobs:
                   status = response.status
                   body = response.read().decode("utf-8")
           except urllib.error.HTTPError as exc:
+              raw = exc.read().decode("utf-8", errors="replace")
               print(f"Mistral HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
-              for name in ("x-ratelimit-limit-req", "x-ratelimit-remaining-req", "x-ratelimit-limit-tokens", "x-ratelimit-remaining-tokens", "retry-after"):
+              try:
+                  error_data = json.loads(raw)
+              except Exception:
+                  error_data = {}
+              if isinstance(error_data, dict):
+                  safe = {}
+                  for key in ("message", "detail", "type", "code", "object"):
+                      value = error_data.get(key)
+                      if isinstance(value, (str, int, float, bool)) or value is None:
+                          if value is not None:
+                              safe[key] = value
+                  if safe:
+                      print("Mistral error details: " + json.dumps(safe, ensure_ascii=False), file=sys.stderr)
+              for name in (
+                  "x-ratelimit-limit-req",
+                  "x-ratelimit-remaining-req",
+                  "x-ratelimit-limit-tokens",
+                  "x-ratelimit-remaining-tokens",
+                  "retry-after",
+              ):
                   value = exc.headers.get(name)
                   if value is not None:
                       print(f"{name}: {value}", file=sys.stderr)
