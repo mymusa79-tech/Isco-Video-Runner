@@ -3,12 +3,21 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable
+
+# This module is imported by certification-resume code and is also executed
+# directly by the Telegram production workflow. Direct execution of a file
+# under scripts/ makes sys.path[0] point at scripts/ rather than the repository
+# root, which breaks absolute imports from the scripts package. Bootstrap only
+# that direct-CLI case so package imports and `python -m` execution are unchanged.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.production_certification_gate import (
     _REQUIRED_TAG_PREFIXES,
