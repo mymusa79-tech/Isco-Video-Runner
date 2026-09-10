@@ -1,33 +1,22 @@
 from __future__ import annotations
 
-"""Zero-provider contract tests for the visual family closure.
+"""Zero-provider integration-contract tests for the visual family closure.
 
-Run directly from repository root:
-    python scripts/test_visual_family_closure_contract.py
-
-The tests intentionally stub Final Master verification only at the Viewer import seam;
-Final Master's own exact SHA/byte validation remains covered by its existing contract.
-Here we verify that Viewer *requires* that fresh receipt, binds Short timeline presence,
-keeps Story on the Long path, and applies Run #228 only to Shorts.
+These tests run under ``unittest discover``. Final Master's own exact SHA/byte
+validator is covered by its dedicated suite; here we patch only the Viewer import
+seam to prove that Viewer requires a fresh acceptance receipt, requires the Short
+timeline in that receipt, detects receipt drift, keeps Story on the Long path, and
+never gives Run #228 authority over Long.
 """
 
 import json
-import sys
 import tempfile
+import unittest
 from pathlib import Path
-from types import ModuleType
+from unittest.mock import patch
 
-
-_ROOT = Path(__file__).resolve().parents[1]
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
-
-_stub_final_master = ModuleType("scripts.final_master_acceptance_v2")
-_stub_final_master.require_final_master_acceptance = lambda output_dir: {}
-sys.modules["scripts.final_master_acceptance_v2"] = _stub_final_master
-
-from scripts import viewer_quality_contract_v1 as viewer  # noqa: E402
-from scripts.viewer_regression_run228 import enforce_run_228_viewer_regression  # noqa: E402
+from scripts import viewer_quality_contract_v1 as viewer
+from scripts.viewer_regression_run228 import enforce_run_228_viewer_regression
 
 
 def _write(path: Path, value: object) -> None:
@@ -111,90 +100,70 @@ def _critic() -> dict:
     return {"status": "pass", "hard_blocks": [], "observation_status": "ok"}
 
 
-def test_standalone_short_requires_timeline_in_final_master_receipt() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        _viewer_fixture(root, fmt="moment")
-        viewer.require_final_master_acceptance = lambda output_dir: _p4(bind_short=False)
-        try:
-            viewer.enforce_viewer_quality_contract(root, fmt="moment", critic=_critic())
-        except RuntimeError as exc:
-            assert "short-visual-timeline.json to be sealed by Final Master" in str(exc)
-        else:
-            raise AssertionError("Standalone Short accepted without timeline binding")
+class VisualFamilyClosureContractTests(unittest.TestCase):
+    def test_standalone_short_requires_timeline_in_final_master_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _viewer_fixture(root, fmt="moment")
+            with patch.object(viewer, "require_final_master_acceptance", return_value=_p4(bind_short=False)):
+                with self.assertRaisesRegex(RuntimeError, "short-visual-timeline.json to be sealed by Final Master"):
+                    viewer.enforce_viewer_quality_contract(root, fmt="moment", critic=_critic())
 
+    def test_derived_short_uses_same_timeline_binding_and_short_regression(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _viewer_fixture(root, fmt="moment", derived=True)
+            with patch.object(viewer, "require_final_master_acceptance", return_value=_p4(bind_short=True)):
+                result = viewer.enforce_viewer_quality_contract(root, fmt="moment", critic=_critic())
+            self.assertEqual(result["release_profile"], "derived_short")
+            self.assertTrue(result["final_master_binding"]["short_visual_timeline_bound"])
+            self.assertEqual(result["viewer_regression"]["status"], "pass")
+            regression = json.loads((root / "viewer-regression-run-228.json").read_text(encoding="utf-8"))
+            self.assertEqual(regression["release_profile"], "derived_short")
+            self.assertEqual(regression["status"], "pass")
 
-def test_derived_short_uses_same_timeline_binding_and_run228_gate() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        _viewer_fixture(root, fmt="moment", derived=True)
-        viewer.require_final_master_acceptance = lambda output_dir: _p4(bind_short=True)
-        result = viewer.enforce_viewer_quality_contract(root, fmt="moment", critic=_critic())
-        assert result["release_profile"] == "derived_short"
-        assert result["final_master_binding"]["short_visual_timeline_bound"] is True
-        assert result["viewer_regression"]["status"] == "pass"
-        regression = json.loads((root / "viewer-regression-run-228.json").read_text(encoding="utf-8"))
-        assert regression["release_profile"] == "derived_short"
-        assert regression["status"] == "pass"
-
-
-def test_final_master_binding_drift_during_viewer_fails_closed() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        _viewer_fixture(root, fmt="moment")
-        receipts = iter([
-            _p4(bind_short=True, final_sha="a" * 64),
-            _p4(bind_short=True, final_sha="e" * 64),
-        ])
-        viewer.require_final_master_acceptance = lambda output_dir: next(receipts)
-        try:
-            viewer.enforce_viewer_quality_contract(root, fmt="moment", critic=_critic())
-        except RuntimeError as exc:
-            assert "Final Master binding drift" in str(exc)
-        else:
-            raise AssertionError("Viewer accepted drifted Final Master binding")
-
-
-def test_story_is_long_and_never_consumes_short_timeline_or_run228_floor() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        _viewer_fixture(root, fmt="story", short_timeline=False)
-        viewer.require_final_master_acceptance = lambda output_dir: _p4(bind_short=False)
-        result = viewer.enforce_viewer_quality_contract(root, fmt="story", critic=_critic())
-        assert result["release_profile"] == "story"
-        assert result["dimensions"]["pacing"]["format_class"] == "long"
-        assert result["dimensions"]["pacing"]["long_specific_regression_calibration"] == "not_yet_calibrated"
-        assert result["viewer_regression"]["status"] == "not_applicable"
-        assert not (root / "short-visual-timeline.json").exists()
-
-
-def test_run228_returns_before_baseline_read_for_long_profiles() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        for profile in ("film", "story"):
-            report = {"release_profile": profile}
-            result = enforce_run_228_viewer_regression(
-                root,
-                viewer_report=report,
-                baseline_path=root / "does-not-exist.json",
+    def test_final_master_binding_drift_during_viewer_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _viewer_fixture(root, fmt="moment")
+            receipts = iter(
+                [
+                    _p4(bind_short=True, final_sha="a" * 64),
+                    _p4(bind_short=True, final_sha="e" * 64),
+                ]
             )
-            assert result["status"] == "not_applicable"
-            assert result["release_profile"] == profile
+            with patch.object(viewer, "require_final_master_acceptance", side_effect=lambda output_dir: next(receipts)):
+                with self.assertRaisesRegex(RuntimeError, "Final Master binding drift"):
+                    viewer.enforce_viewer_quality_contract(root, fmt="moment", critic=_critic())
 
+    def test_story_is_long_and_never_consumes_short_timeline_or_run228_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _viewer_fixture(root, fmt="story", short_timeline=False)
+            with patch.object(viewer, "require_final_master_acceptance", return_value=_p4(bind_short=False)):
+                result = viewer.enforce_viewer_quality_contract(root, fmt="story", critic=_critic())
+            self.assertEqual(result["release_profile"], "story")
+            self.assertEqual(result["dimensions"]["pacing"]["format_class"], "long")
+            self.assertEqual(
+                result["dimensions"]["pacing"]["long_specific_regression_calibration"],
+                "not_yet_calibrated",
+            )
+            self.assertEqual(result["viewer_regression"]["status"], "not_applicable")
+            self.assertFalse((root / "short-visual-timeline.json").exists())
 
-def main() -> None:
-    tests = [
-        test_standalone_short_requires_timeline_in_final_master_receipt,
-        test_derived_short_uses_same_timeline_binding_and_run228_gate,
-        test_final_master_binding_drift_during_viewer_fails_closed,
-        test_story_is_long_and_never_consumes_short_timeline_or_run228_floor,
-        test_run228_returns_before_baseline_read_for_long_profiles,
-    ]
-    for test in tests:
-        test()
-        print(f"PASS {test.__name__}")
-    print(f"PASS visual family closure contract: {len(tests)} tests, provider_calls=0")
+    def test_run228_returns_before_baseline_read_for_long_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for profile in ("film", "story"):
+                with self.subTest(profile=profile):
+                    result = enforce_run_228_viewer_regression(
+                        root,
+                        viewer_report={"release_profile": profile},
+                        baseline_path=root / "does-not-exist.json",
+                    )
+                    self.assertEqual(result["status"], "not_applicable")
+                    self.assertEqual(result["release_profile"], profile)
 
 
 if __name__ == "__main__":
-    main()
+    unittest.main()
