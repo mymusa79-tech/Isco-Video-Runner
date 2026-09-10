@@ -55,7 +55,7 @@ jobs:
           print("ministral-8b-latest visible: True")
           PY
 
-      - name: Verify Arabic structured output on Ministral 8B
+      - name: Verify Arabic JSON mode on Ministral 8B
         shell: bash
         run: |
           set -euo pipefail
@@ -69,17 +69,17 @@ jobs:
           api_key = os.environ["MISTRAL_API_KEY"]
           model = "ministral-8b-latest"
           prompt = (
-              "حلّل الجملة العربية التالية لمهمة مونتاج فيديو قصيرة: "
+              "أعد JSON فقط. حلّل الجملة العربية التالية لمهمة مونتاج فيديو قصيرة: "
               "'حين ينطفئ الدافع، لا تنتظر الشعور المناسب؛ ابدأ بخطوة صغيرة.' "
-              "أعد JSON فقط بهذه المفاتيح بالضبط: "
-              "intent, tone, visual_query, decision. "
-              "اجعل decision واحدة من PASS أو BLOCK، ولا تضف أي مفاتيح أخرى."
+              "استخدم هذه المفاتيح فقط: intent, tone, visual_query, decision. "
+              "اجعل كل قيمة نصية قصيرة جدًا، وdecision إما PASS أو BLOCK فقط."
           )
           payload = json.dumps({
               "model": model,
               "messages": [{"role": "user", "content": prompt}],
               "temperature": 0,
-              "max_tokens": 180,
+              "max_tokens": 320,
+              "response_format": {"type": "json_object"},
           }, ensure_ascii=False).encode("utf-8")
 
           request = urllib.request.Request(
@@ -99,7 +99,7 @@ jobs:
                   data = json.loads(response.read().decode("utf-8"))
           except urllib.error.HTTPError as exc:
               raw = exc.read().decode("utf-8", errors="replace")
-              print(f"Structured-output HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
+              print(f"JSON-mode HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
               try:
                   error = json.loads(raw)
               except Exception:
@@ -115,26 +115,17 @@ jobs:
           choices = data.get("choices") if isinstance(data, dict) else None
           if not isinstance(choices, list) or not choices:
               raise SystemExit("No choices returned")
-          message = choices[0].get("message") if isinstance(choices[0], dict) else None
+          choice = choices[0]
+          message = choice.get("message") if isinstance(choice, dict) else None
           content = message.get("content") if isinstance(message, dict) else None
+          finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
           if not isinstance(content, str) or not content.strip():
               raise SystemExit("Empty content")
 
-          text = content.strip()
-          if text.startswith("```"):
-              lines = text.splitlines()
-              if lines and lines[0].startswith("```"):
-                  lines = lines[1:]
-              if lines and lines[-1].strip() == "```":
-                  lines = lines[:-1]
-              text = "\n".join(lines).strip()
-              if text.lower().startswith("json"):
-                  text = text[4:].lstrip()
-
           try:
-              obj = json.loads(text)
+              obj = json.loads(content)
           except Exception as exc:
-              raise SystemExit(f"Structured output is not valid JSON: {exc}")
+              raise SystemExit(f"JSON mode returned invalid JSON: {exc}; finish_reason={finish_reason}")
 
           expected = {"intent", "tone", "visual_query", "decision"}
           if set(obj) != expected:
@@ -145,9 +136,10 @@ jobs:
               if not isinstance(obj.get(key), str) or not obj[key].strip():
                   raise SystemExit(f"Missing non-empty string: {key}")
 
-          print("Arabic structured-output probe: PASS")
+          print("Arabic JSON-mode probe: PASS")
           print(f"HTTP status: {status}")
           print(f"Model requested: {model}")
+          print(f"Finish reason: {finish_reason}")
           print("Valid JSON: True")
           print("Exact keys: True")
           print("Decision enum valid: True")
