@@ -82,7 +82,10 @@ class CanonicalV4FinalMasterQCDeliveryTests(unittest.TestCase):
             progress_message_block.count('_telegram_request(token, "sendMessage", base_payload)'),
             1,
         )
-        self.assertIn("Telegram notify: terminal edit failed; bounded sendMessage fallback", progress_message_block)
+        self.assertIn(
+            "Telegram notify: terminal edit failed or untrusted; bounded sendMessage fallback",
+            progress_message_block,
+        )
         self.assertIn("TELEGRAM_TERMINAL_DELIVERY=fallback_sent", progress_message_block)
         self.assertIn("TELEGRAM_TERMINAL_DELIVERY=failed", progress_message_block)
         self.assertEqual(
