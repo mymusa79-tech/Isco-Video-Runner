@@ -9,6 +9,7 @@ from isco_video_agent.ai_budget import get_active_budget_task
 from scripts import provider_capacity_hardening as capacity
 from scripts import run125_capacity_routing_closure as run125
 from scripts import text_audit_provider_mesh as mesh
+from scripts.provider_wire_attempt_contract import install_provider_wire_attempt_contract
 
 
 # Run #167 exposed a capability-ownership leak rather than a real provider outage.
@@ -334,6 +335,11 @@ def install_text_audit_capacity_ownership() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
+
+    # Install the cross-capability accounting invariant before Text Audit/Vision route
+    # composition. It changes only whether a proven local pre-wire event is counted as
+    # an inference attempt; semantic gates and provider order remain untouched.
+    install_provider_wire_attempt_contract()
 
     planning_pacing = capacity._proactive_groq_pacing
 
