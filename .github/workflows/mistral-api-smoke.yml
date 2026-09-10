@@ -1,0 +1,99 @@
+name: Mistral API Smoke Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+    steps:
+      - name: Verify secret is present
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${MISTRAL_API_KEY:-}" ]; then
+            echo "MISTRAL_API_KEY is not available to this workflow" >&2
+            exit 1
+          fi
+          echo "MISTRAL_API_KEY is present"
+
+      - name: Call pinned Mistral Medium 3.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          api_key = os.environ.get("MISTRAL_API_KEY", "")
+          if not api_key:
+              raise SystemExit("MISTRAL_API_KEY missing")
+
+          payload = {
+              "model": "mistral-medium-3-5",
+              "messages": [
+                  {
+                      "role": "user",
+                      "content": "Reply with exactly: OK",
+                  }
+              ],
+              "max_tokens": 8,
+              "temperature": 0,
+          }
+
+          request = urllib.request.Request(
+              "https://api.mistral.ai/v1/chat/completions",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Authorization": f"Bearer {api_key}",
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+              },
+              method="POST",
+          )
+
+          try:
+              with urllib.request.urlopen(request, timeout=45) as response:
+                  status = response.status
+                  body = response.read().decode("utf-8")
+          except urllib.error.HTTPError as exc:
+              print(f"Mistral HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
+              raise SystemExit(1)
+          except Exception as exc:
+              print(f"Mistral request failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+              raise SystemExit(1)
+
+          if status != 200:
+              raise SystemExit(f"Unexpected HTTP status: {status}")
+
+          try:
+              data = json.loads(body)
+              choices = data.get("choices") or []
+              model = str(data.get("model") or "")
+              if not choices:
+                  raise ValueError("missing choices")
+              message = choices[0].get("message") or {}
+              content = message.get("content")
+              if not isinstance(content, str) or not content.strip():
+                  raise ValueError("missing assistant text content")
+          except Exception as exc:
+              print(f"Mistral response validation failed: {exc}", file=sys.stderr)
+              raise SystemExit(1)
+
+          usage = data.get("usage") or {}
+          print("Mistral API smoke test: PASS")
+          print(f"HTTP status: {status}")
+          print(f"Requested model: mistral-medium-3-5")
+          print(f"Returned model: {model or 'unknown'}")
+          print(f"Prompt tokens: {usage.get('prompt_tokens', 'unknown')}")
+          print(f"Completion tokens: {usage.get('completion_tokens', 'unknown')}")
+          PY
