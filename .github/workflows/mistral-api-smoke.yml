@@ -26,7 +26,7 @@ jobs:
           fi
           echo "MISTRAL_API_KEY is present"
 
-      - name: Verify Mistral authentication and target models
+      - name: Verify Mistral authentication and diagnostic models
         shell: bash
         run: |
           set -euo pipefail
@@ -50,18 +50,16 @@ jobs:
               raise SystemExit("Mistral models check failed")
 
           ids = {str(item.get("id")) for item in models if isinstance(item, dict) and item.get("id")}
-          for required in ("mistral-small-latest", "ministral-3b-latest"):
-              if required not in ids:
-                  raise SystemExit(f"Required diagnostic model is not visible: {required}")
-
           print("Mistral authentication test: PASS")
           print(f"HTTP status: {status}")
           print(f"Visible models: {len(ids)}")
-          print("mistral-small-latest visible: True")
-          print("ministral-3b-latest visible: True")
+          for model in ("mistral-small-latest", "ministral-3b-latest", "ministral-8b-latest"):
+              print(f"{model} visible: {model in ids}")
+          if "ministral-8b-latest" not in ids:
+              raise SystemExit("ministral-8b-latest is not visible to this API key")
           PY
 
-      - name: Probe lowest-cost text generation
+      - name: Probe Ministral 8B generation
         shell: bash
         run: |
           set -euo pipefail
@@ -73,12 +71,12 @@ jobs:
           import urllib.request
 
           api_key = os.environ["MISTRAL_API_KEY"]
-          model = "ministral-3b-latest"
+          model = "ministral-8b-latest"
           payload = json.dumps({
               "model": model,
-              "messages": [{"role": "user", "content": "Reply: OK"}],
+              "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
               "temperature": 0,
-              "max_tokens": 4,
+              "max_tokens": 6,
           }).encode("utf-8")
 
           request = urllib.request.Request(
@@ -98,7 +96,7 @@ jobs:
                   body = response.read().decode("utf-8")
           except urllib.error.HTTPError as exc:
               raw = exc.read().decode("utf-8", errors="replace")
-              print(f"Diagnostic generation HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
+              print(f"Ministral 8B HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
               try:
                   data = json.loads(raw)
               except Exception:
@@ -116,13 +114,12 @@ jobs:
           choices = data.get("choices") if isinstance(data, dict) else None
           if not isinstance(choices, list) or not choices:
               raise SystemExit("Generation response contains no choices")
-
           message = choices[0].get("message") if isinstance(choices[0], dict) else None
           content = message.get("content") if isinstance(message, dict) else None
           if not isinstance(content, str) or not content.strip():
               raise SystemExit("Generation returned empty content")
 
-          print("Lowest-cost generation probe: PASS")
+          print("Ministral 8B generation probe: PASS")
           print(f"HTTP status: {status}")
           print(f"Model requested: {model}")
           print("Non-empty response: True")
