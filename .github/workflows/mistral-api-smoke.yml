@@ -26,7 +26,7 @@ jobs:
           fi
           echo "MISTRAL_API_KEY is present"
 
-      - name: Call pinned Mistral Medium 3.5
+      - name: Call official Free-mode verification model
         shell: bash
         run: |
           set -euo pipefail
@@ -41,18 +41,13 @@ jobs:
           if not api_key:
               raise SystemExit("MISTRAL_API_KEY missing")
 
+          requested_model = "mistral-small-latest"
           payload = {
-              "model": "mistral-medium-3-5",
-              "messages": [
-                  {
-                      "role": "user",
-                      "content": "Reply with exactly: OK",
-                  }
-              ],
+              "model": requested_model,
+              "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
               "max_tokens": 8,
               "temperature": 0,
           }
-
           request = urllib.request.Request(
               "https://api.mistral.ai/v1/chat/completions",
               data=json.dumps(payload).encode("utf-8"),
@@ -70,6 +65,10 @@ jobs:
                   body = response.read().decode("utf-8")
           except urllib.error.HTTPError as exc:
               print(f"Mistral HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
+              for name in ("x-ratelimit-limit-req", "x-ratelimit-remaining-req", "x-ratelimit-limit-tokens", "x-ratelimit-remaining-tokens", "retry-after"):
+                  value = exc.headers.get(name)
+                  if value is not None:
+                      print(f"{name}: {value}", file=sys.stderr)
               raise SystemExit(1)
           except Exception as exc:
               print(f"Mistral request failed: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -78,25 +77,20 @@ jobs:
           if status != 200:
               raise SystemExit(f"Unexpected HTTP status: {status}")
 
-          try:
-              data = json.loads(body)
-              choices = data.get("choices") or []
-              model = str(data.get("model") or "")
-              if not choices:
-                  raise ValueError("missing choices")
-              message = choices[0].get("message") or {}
-              content = message.get("content")
-              if not isinstance(content, str) or not content.strip():
-                  raise ValueError("missing assistant text content")
-          except Exception as exc:
-              print(f"Mistral response validation failed: {exc}", file=sys.stderr)
-              raise SystemExit(1)
+          data = json.loads(body)
+          choices = data.get("choices") or []
+          if not choices:
+              raise SystemExit("Mistral response missing choices")
+          message = choices[0].get("message") or {}
+          content = message.get("content")
+          if not isinstance(content, str) or not content.strip():
+              raise SystemExit("Mistral response missing assistant text")
 
           usage = data.get("usage") or {}
           print("Mistral API smoke test: PASS")
           print(f"HTTP status: {status}")
-          print(f"Requested model: mistral-medium-3-5")
-          print(f"Returned model: {model or 'unknown'}")
+          print(f"Requested model: {requested_model}")
+          print(f"Returned model: {data.get('model', 'unknown')}")
           print(f"Prompt tokens: {usage.get('prompt_tokens', 'unknown')}")
           print(f"Completion tokens: {usage.get('completion_tokens', 'unknown')}")
           PY
