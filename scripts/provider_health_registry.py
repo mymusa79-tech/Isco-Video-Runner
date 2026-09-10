@@ -17,7 +17,8 @@ Important invariants:
 - STRUCTURAL failures are observable but never poison the whole provider;
 - TRANSIENT failures get at most two half-open recovery probes after the initial failed
   call in one Vision scope, with bounded candidate-level backoff and no hidden sleep;
-- RATE_LIMITED evidence is never bypassed before its retry time;
+- RATE_LIMITED evidence is never bypassed before its retry time and gets the same bounded
+  half-open ceiling;
 - a successful half-open probe closes the consecutive-failure family on the next lookup
   (or immediately through ``record_provider_success`` when a caller can report success);
 - a new Vision scope clears all evidence, counters and pending probes.
@@ -532,6 +533,11 @@ def _recover_unpublished_legacy_gemini_transient(
     if failure_class != FAILURE_TRANSIENT:
         return False
 
+    # If a previous half-open probe ended by reopening the legacy circuit, that pending
+    # lease failed. Close the lease before counting the next failure; otherwise the
+    # generic no-evidence path could mistake a failed probe for success and reset the
+    # counter, enabling an unbounded retry family.
+    _set_pending(key, False)
     count = int(_CONSECUTIVE_FAILURES.get().get(key, 0)) + 1
     _set_counter(key, count)
     if count > MAX_TRANSIENT_HALF_OPEN_PROBES:
@@ -598,6 +604,11 @@ def provider_unavailable(
         return entry
 
     if entry.failure_class == FAILURE_RATE_LIMITED:
+        # A short-window throttle may recover, but it still receives only the same two
+        # half-open recovery probes as other transient provider failures. Repeated 429s
+        # therefore cannot create an unbounded wait/retry loop across visual candidates.
+        if entry.failure_count >= 1 + MAX_TRANSIENT_HALF_OPEN_PROBES:
+            return entry
         if entry.retry_at is None or time.monotonic() < entry.retry_at:
             return entry
         _remove_exact_evidence(key)
