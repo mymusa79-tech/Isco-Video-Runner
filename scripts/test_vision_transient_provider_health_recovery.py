@@ -53,6 +53,21 @@ class ProviderFailureTaxonomyTests(unittest.TestCase):
         health.reset_provider_health()
         closure._GROQ_MODEL_CERTIFIED.set(None)
 
+    def test_health_lookup_outside_scope_does_not_create_legacy_circuit(self) -> None:
+        token = legacy._VISION_CIRCUIT.set(None)
+        try:
+            self.assertIsNone(legacy._VISION_CIRCUIT.get())
+            self.assertIsNone(
+                health.provider_unavailable(
+                    "gemini",
+                    model="gemini-3.7-flash",
+                    quota_domain=closure.GEMINI_GENERATION_QUOTA_DOMAIN,
+                )
+            )
+            self.assertIsNone(legacy._VISION_CIRCUIT.get())
+        finally:
+            legacy._VISION_CIRCUIT.reset(token)
+
     def test_structural_invalid_is_observable_but_never_provider_unavailable(self) -> None:
         health.publish_provider_unavailable(
             "groq",
@@ -151,6 +166,32 @@ class ProviderFailureTaxonomyTests(unittest.TestCase):
             )
         self.assertIsNotNone(blocked)
         self.assertIsNone(admitted)
+
+    def test_rate_limit_half_open_is_bounded_after_repeated_429(self) -> None:
+        now = 100.0
+        for failure_number in (1, 2, 3):
+            with mock.patch.object(health.time, "monotonic", return_value=now):
+                health.publish_provider_failure(
+                    "groq",
+                    model=closure.GROQ_VISION_MODEL,
+                    quota_domain=closure.GROQ_VISION_QUOTA_DOMAIN,
+                    reason="HTTP_429 retry-after=1",
+                    source="vision_stage",
+                    failure_class=health.FAILURE_RATE_LIMITED,
+                    retry_after_seconds=1.0,
+                )
+            with mock.patch.object(health.time, "monotonic", return_value=now + 2.0):
+                evidence = health.provider_unavailable(
+                    "groq",
+                    model=closure.GROQ_VISION_MODEL,
+                    quota_domain=closure.GROQ_VISION_QUOTA_DOMAIN,
+                )
+            if failure_number < 3:
+                self.assertIsNone(evidence)
+            else:
+                self.assertIsNotNone(evidence)
+                self.assertEqual(evidence.failure_count, 3)
+            now += 10.0
 
     def test_runtime_openrouter_wildcard_503_is_recoverable_not_run_hard(self) -> None:
         health.publish_provider_unavailable(
@@ -308,6 +349,11 @@ class Run181TransientRecoveryIntegrationTests(unittest.TestCase):
     def test_legacy_gemini_503_gets_only_two_half_open_probes(self) -> None:
         with legacy.vision_provider_circuit_scope():
             state = legacy._state()
+            key = (
+                "gemini",
+                "gemini-3.7-flash",
+                closure.GEMINI_GENERATION_QUOTA_DOMAIN,
+            )
             for expected_probe in (1, 2):
                 state.gemini_open = True
                 state.gemini_reason = "PROVIDER_TRANSIENT HTTP_503 service unavailable"
@@ -320,22 +366,22 @@ class Run181TransientRecoveryIntegrationTests(unittest.TestCase):
                 )
                 self.assertFalse(state.gemini_open)
                 self.assertEqual(
-                    health._CONSECUTIVE_FAILURES.get()[
-                        ("gemini", "gemini-3.7-flash", closure.GEMINI_GENERATION_QUOTA_DOMAIN)
-                    ],
+                    health._CONSECUTIVE_FAILURES.get()[key],
                     expected_probe,
                 )
 
             state.gemini_open = True
             state.gemini_reason = "PROVIDER_TRANSIENT HTTP_503 service unavailable"
-            self.assertIsNone(
-                health.provider_unavailable(
-                    "gemini",
-                    model="gemini-3.7-flash",
-                    quota_domain=closure.GEMINI_GENERATION_QUOTA_DOMAIN,
+            for _ in range(4):
+                self.assertIsNone(
+                    health.provider_unavailable(
+                        "gemini",
+                        model="gemini-3.7-flash",
+                        quota_domain=closure.GEMINI_GENERATION_QUOTA_DOMAIN,
+                    )
                 )
-            )
-            self.assertTrue(state.gemini_open)
+                self.assertTrue(state.gemini_open)
+                self.assertEqual(health._CONSECUTIVE_FAILURES.get()[key], 3)
 
 
 if __name__ == "__main__":
