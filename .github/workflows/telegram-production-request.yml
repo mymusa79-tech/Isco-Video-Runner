@@ -166,9 +166,49 @@ jobs:
           git commit -m "state: reconcile completed Telegram release"
           git push origin HEAD:control-plane-state
 
+      - name: Wait for exact-SHA production certification readiness
+        id: certification
+        if: steps.duplicate.outputs.already_released == 'false'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/production-certification-readiness.json"
+          set +e
+          python scripts/production_certification_readiness.py \
+            --output "$output" \
+            --max-attempts 25 \
+            --poll-seconds 5
+          rc=$?
+          set -e
+          status="$(jq -r '.status // empty' "$output" 2>/dev/null || true)"
+          case "$rc:$status" in
+            0:ready)
+              echo "ready=true" >> "$GITHUB_OUTPUT"
+              echo "pending=false" >> "$GITHUB_OUTPUT"
+              ;;
+            3:pending)
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              echo "pending=true" >> "$GITHUB_OUTPUT"
+              echo "Exact-SHA certification is still pending after bounded wait; reservation remains durable for workflow_run resume"
+              ;;
+            2:failed|2:stale)
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              echo "pending=false" >> "$GITHUB_OUTPUT"
+              echo "Terminal certification state: $status" >&2
+              cat "$output" >&2
+              exit 1
+              ;;
+            *)
+              echo "Certification readiness probe failed unexpectedly: rc=$rc status=$status" >&2
+              test ! -f "$output" || cat "$output" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Admission gate — never queue behind an active V4 run
         id: capacity
-        if: steps.duplicate.outputs.already_released == 'false'
+        if: steps.duplicate.outputs.already_released == 'false' && steps.certification.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -184,7 +224,7 @@ jobs:
 
       - name: Dispatch exact reservation to the single V4 owner
         id: dispatch
-        if: steps.duplicate.outputs.already_released == 'false' && steps.capacity.outputs.available == 'true'
+        if: steps.duplicate.outputs.already_released == 'false' && steps.certification.outputs.ready == 'true' && steps.capacity.outputs.available == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REQUEST_ID: ${{ inputs.request_id }}
@@ -261,10 +301,12 @@ jobs:
         if: >-
           always() &&
           steps.duplicate_reconcile.outcome != 'success' &&
+          steps.certification.outputs.pending != 'true' &&
           (
             steps.admission.outcome == 'failure' ||
             steps.duplicate.outcome == 'failure' ||
             steps.duplicate_reconcile.outcome == 'failure' ||
+            steps.certification.outcome == 'failure' ||
             steps.capacity.outputs.available == 'false' ||
             steps.dispatch.outcome == 'failure' ||
             steps.race_guard.outcome == 'failure' ||

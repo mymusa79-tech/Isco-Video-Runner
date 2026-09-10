@@ -1,0 +1,228 @@
+name: Resume Telegram Production After Certification
+
+on:
+  workflow_run:
+    workflows:
+      - Verify Private Engine
+      - Verify Production Stage Ladder
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: telegram-production-certification-resume
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE_RUNNER_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Checkout current protected main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Restore encrypted Telegram control state
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          mkdir -p "$RUNNER_TEMP/isco-control"
+          encrypted="$RUNNER_TEMP/isco-control/control-panel.json.enc"
+          state="$RUNNER_TEMP/isco-control/control-panel.json"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          git show origin/control-plane-state:state/control-panel.json.enc > "$encrypted"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+          chmod 600 "$state"
+          echo "CONTROL_STATE_PATH=$state" >> "$GITHUB_ENV"
+
+      - name: Select exact reservation bound to the certified Runner SHA
+        id: reservation
+        run: |
+          set -euo pipefail
+          python scripts/telegram_certification_resume.py \
+            --state "$CONTROL_STATE_PATH" \
+            --runner-sha "$SOURCE_RUNNER_SHA" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Re-evaluate exact-SHA certification readiness
+        id: readiness
+        if: steps.reservation.outputs.found == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/production-certification-resume-readiness.json"
+          SOURCE_RUNNER_SHA="$SOURCE_RUNNER_SHA" OUTPUT_PATH="$output" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from scripts.production_certification_readiness import inspect_production_certification_readiness
+
+          result = inspect_production_certification_readiness(
+              repository=os.environ["GITHUB_REPOSITORY"],
+              runner_sha=os.environ["SOURCE_RUNNER_SHA"],
+              git_ref="refs/heads/main",
+              token=os.environ["GITHUB_TOKEN"],
+          )
+          Path(os.environ["OUTPUT_PATH"]).write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              handle.write(f"status={result['status']}\n")
+          print(json.dumps(result, sort_keys=True))
+          PY
+
+      - name: Release reservation on terminal certification failure or stale main
+        id: release_terminal
+        if: steps.reservation.outputs.found == 'true' && (steps.readiness.outputs.status == 'failed' || steps.readiness.outputs.status == 'stale')
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ steps.reservation.outputs.request_id }}
+          REQUEST_SHA256: ${{ steps.reservation.outputs.request_sha256 }}
+          AUTHORIZATION_ID: ${{ steps.reservation.outputs.authorization_id }}
+        run: |
+          set -euo pipefail
+          fresh_enc="$RUNNER_TEMP/isco-control/certification-terminal-latest.json.enc"
+          fresh_state="$RUNNER_TEMP/isco-control/certification-terminal-latest.json"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          git show origin/control-plane-state:state/control-panel.json.enc > "$fresh_enc"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_enc" -out "$fresh_state"
+          python scripts/telegram_v4_ingress.py fail \
+            --state "$fresh_state" \
+            --request-id "$REQUEST_ID" \
+            --sha256 "$REQUEST_SHA256" \
+            --authorization-id "$AUTHORIZATION_ID" \
+            --reason workflow_dispatch_failed
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_state" -out "$fresh_enc"
+          worktree="$RUNNER_TEMP/isco-control-certification-terminal-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$fresh_enc" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "Certification terminal reconciliation produced no state delta" >&2
+            exit 1
+          fi
+          git commit -m "state: release terminal production certification reservation"
+          git push origin HEAD:control-plane-state
+
+      - name: Resolve current canonical Engine pin
+        id: engine
+        if: steps.readiness.outputs.status == 'ready'
+        run: |
+          set -euo pipefail
+          engine_sha="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path(".github/workflows/telegram-production-request.yml").read_text(encoding="utf-8")
+          matches = re.findall(r"^\s+EXPECTED_ENGINE_SHA:\s+([0-9a-f]{40})\s*$", text, flags=re.MULTILINE)
+          if len(matches) != 1:
+              raise SystemExit(f"Expected exactly one Telegram Production Engine pin, got {matches}")
+          print(matches[0])
+          PY
+          )"
+          [[ "$engine_sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "engine_sha=$engine_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Avoid duplicate certification resume while the gateway is already active
+        id: duplicate_guard
+        if: steps.readiness.outputs.status == 'ready'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          active="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/telegram-production-request.yml/runs?per_page=20" \
+            --jq '[.workflow_runs[] | select(.status != "completed")] | length')"
+          if [ "$active" -gt 0 ]; then
+            echo "dispatch=false" >> "$GITHUB_OUTPUT"
+            echo "An explicit Telegram gateway is already active; duplicate certification resume suppressed"
+          else
+            echo "dispatch=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch exact durable reservation after certification becomes ready
+        id: dispatch
+        if: steps.readiness.outputs.status == 'ready' && steps.duplicate_guard.outputs.dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_ID: ${{ steps.reservation.outputs.request_id }}
+          REQUEST_SHA256: ${{ steps.reservation.outputs.request_sha256 }}
+          AUTHORIZATION_ID: ${{ steps.reservation.outputs.authorization_id }}
+          ENGINE_SHA: ${{ steps.engine.outputs.engine_sha }}
+        run: |
+          set -euo pipefail
+          payload="$(jq -cn \
+            --arg request_id "$REQUEST_ID" \
+            --arg request_sha256 "$REQUEST_SHA256" \
+            --arg authorization_id "$AUTHORIZATION_ID" \
+            --arg engine_sha "$ENGINE_SHA" \
+            '{ref:"main",return_run_details:true,inputs:{request_id:$request_id,request_sha256:$request_sha256,authorization_id:$authorization_id,engine_sha:$engine_sha}}')"
+          response="$(gh api --method POST \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/telegram-production-request.yml/dispatches" \
+            --input - <<<"$payload")"
+          gateway_run_id="$(jq -r '.workflow_run_id // empty' <<<"$response")"
+          gateway_run_url="$(jq -r '.html_url // empty' <<<"$response")"
+          [[ "$gateway_run_id" =~ ^[0-9]+$ ]]
+          test -n "$gateway_run_url"
+          echo "workflow_run_id=$gateway_run_id" >> "$GITHUB_OUTPUT"
+          echo "workflow_run_url=$gateway_run_url" >> "$GITHUB_OUTPUT"
+
+      - name: Release reservation if certified gateway dispatch failed
+        if: always() && steps.readiness.outputs.status == 'ready' && steps.duplicate_guard.outputs.dispatch == 'true' && steps.dispatch.outcome == 'failure'
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ steps.reservation.outputs.request_id }}
+          REQUEST_SHA256: ${{ steps.reservation.outputs.request_sha256 }}
+          AUTHORIZATION_ID: ${{ steps.reservation.outputs.authorization_id }}
+        run: |
+          set -euo pipefail
+          fresh_enc="$RUNNER_TEMP/isco-control/certified-dispatch-failed-latest.json.enc"
+          fresh_state="$RUNNER_TEMP/isco-control/certified-dispatch-failed-latest.json"
+          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
+          git show origin/control-plane-state:state/control-panel.json.enc > "$fresh_enc"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_enc" -out "$fresh_state"
+          python scripts/telegram_v4_ingress.py fail \
+            --state "$fresh_state" \
+            --request-id "$REQUEST_ID" \
+            --sha256 "$REQUEST_SHA256" \
+            --authorization-id "$AUTHORIZATION_ID" \
+            --reason workflow_dispatch_failed
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$fresh_state" -out "$fresh_enc"
+          worktree="$RUNNER_TEMP/isco-control-certified-dispatch-failed-worktree"
+          git worktree add --detach "$worktree" origin/control-plane-state
+          mkdir -p "$worktree/state"
+          cp "$fresh_enc" "$worktree/state/control-panel.json.enc"
+          cd "$worktree"
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "Certified dispatch failure reconciliation produced no state delta" >&2
+            exit 1
+          fi
+          git commit -m "state: release failed certified Telegram gateway dispatch"
+          git push origin HEAD:control-plane-state
+
+      - name: Remove plaintext control state
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/isco-control" || true
