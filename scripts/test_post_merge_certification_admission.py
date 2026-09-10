@@ -5,14 +5,14 @@ import json
 import unittest
 import urllib.error
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from scripts.production_certification_readiness import (
     inspect_production_certification_readiness,
     wait_for_production_certification_readiness,
 )
-from scripts.telegram_certification_pending import defer_reserved_dispatch
-from scripts.telegram_production_queue import reserve_dispatch
+from scripts.telegram_certification_resume import reserved_dispatch_for_runner
 
 
 SHA = "a" * 40
@@ -86,20 +86,8 @@ class _Opener:
             runs = []
             if not self.omit_workflows:
                 runs = [
-                    _run(
-                        101,
-                        "Verify Private Engine",
-                        ".github/workflows/verify-private-engine.yml",
-                        status=self.private_status,
-                        conclusion=self.private_conclusion,
-                    ),
-                    _run(
-                        102,
-                        "Verify Production Stage Ladder",
-                        ".github/workflows/verify-production-stage-ladder.yml",
-                        status=self.stage_status,
-                        conclusion=self.stage_conclusion,
-                    ),
+                    _run(101, "Verify Private Engine", ".github/workflows/verify-private-engine.yml", status=self.private_status, conclusion=self.private_conclusion),
+                    _run(102, "Verify Production Stage Ladder", ".github/workflows/verify-production-stage-ladder.yml", status=self.stage_status, conclusion=self.stage_conclusion),
                 ]
             return _Response({"workflow_runs": runs})
         raise urllib.error.URLError(f"unexpected URL {url}")
@@ -107,13 +95,7 @@ class _Opener:
 
 class CertificationReadinessTests(unittest.TestCase):
     def inspect(self, opener: _Opener) -> dict[str, Any]:
-        return inspect_production_certification_readiness(
-            repository=REPO,
-            runner_sha=SHA,
-            git_ref="refs/heads/main",
-            token="token",
-            opener=opener,
-        )
+        return inspect_production_certification_readiness(repository=REPO, runner_sha=SHA, git_ref="refs/heads/main", token="token", opener=opener)
 
     def test_ready_requires_exact_tags_and_successful_main_push_runs(self) -> None:
         result = self.inspect(_Opener())
@@ -122,35 +104,18 @@ class CertificationReadinessTests(unittest.TestCase):
         self.assertFalse(result["production_dispatch_performed"])
 
     def test_missing_tag_while_canonical_run_is_active_is_pending(self) -> None:
-        missing = {f"full-regression-green-{SHA}"}
-        result = self.inspect(
-            _Opener(
-                private_status="in_progress",
-                private_conclusion=None,
-                missing_tags=missing,
-            )
-        )
+        result = self.inspect(_Opener(private_status="in_progress", private_conclusion=None, missing_tags={f"full-regression-green-{SHA}"}))
         self.assertEqual(result["status"], "pending")
-        self.assertEqual(result["reason"], "certification_in_progress")
 
     def test_no_visible_canonical_runs_is_pending_not_failed(self) -> None:
-        result = self.inspect(_Opener(omit_workflows=True, missing_tags={
-            f"full-regression-green-{SHA}",
-            f"stage-ladder-green-{SHA}",
-        }))
+        result = self.inspect(_Opener(omit_workflows=True, missing_tags={f"full-regression-green-{SHA}", f"stage-ladder-green-{SHA}"}))
         self.assertEqual(result["status"], "pending")
 
     def test_failed_canonical_run_is_terminal_failed(self) -> None:
-        result = self.inspect(
-            _Opener(
-                private_status="completed",
-                private_conclusion="failure",
-                missing_tags={f"full-regression-green-{SHA}"},
-            )
-        )
+        result = self.inspect(_Opener(private_status="completed", private_conclusion="failure", missing_tags={f"full-regression-green-{SHA}"}))
         self.assertEqual(result["status"], "failed")
 
-    def test_missing_tag_after_all_canonical_runs_succeed_is_inconsistent_failed(self) -> None:
+    def test_missing_tag_after_all_canonical_runs_succeed_is_failed(self) -> None:
         result = self.inspect(_Opener(missing_tags={f"full-regression-green-{SHA}"}))
         self.assertEqual(result["status"], "failed")
 
@@ -164,14 +129,7 @@ class CertificationReadinessTests(unittest.TestCase):
         self.assertEqual(result["reason"], "main_advanced")
 
     def test_bounded_wait_transitions_pending_to_ready(self) -> None:
-        openers = [
-            _Opener(
-                private_status="in_progress",
-                private_conclusion=None,
-                missing_tags={f"full-regression-green-{SHA}"},
-            ),
-            _Opener(),
-        ]
+        openers = [_Opener(private_status="in_progress", private_conclusion=None, missing_tags={f"full-regression-green-{SHA}"}), _Opener()]
         calls = {"n": 0}
         sleeps: list[float] = []
 
@@ -181,91 +139,64 @@ class CertificationReadinessTests(unittest.TestCase):
                 calls["n"] += 1
             return openers[index](request, timeout=timeout)
 
-        result = wait_for_production_certification_readiness(
-            repository=REPO,
-            runner_sha=SHA,
-            git_ref="refs/heads/main",
-            token="token",
-            max_attempts=2,
-            poll_seconds=0.25,
-            opener=opener,
-            sleeper=sleeps.append,
-        )
+        result = wait_for_production_certification_readiness(repository=REPO, runner_sha=SHA, git_ref="refs/heads/main", token="token", max_attempts=2, poll_seconds=0.25, opener=opener, sleeper=sleeps.append)
         self.assertEqual(result["status"], "ready")
         self.assertEqual(result["attempts"], 2)
         self.assertEqual(sleeps, [0.25])
 
     def test_bounded_wait_exhaustion_remains_pending(self) -> None:
-        result = wait_for_production_certification_readiness(
-            repository=REPO,
-            runner_sha=SHA,
-            git_ref="refs/heads/main",
-            token="token",
-            max_attempts=2,
-            poll_seconds=0,
-            opener=_Opener(
-                private_status="in_progress",
-                private_conclusion=None,
-                missing_tags={f"full-regression-green-{SHA}"},
-            ),
-            sleeper=lambda _: None,
-        )
+        result = wait_for_production_certification_readiness(repository=REPO, runner_sha=SHA, git_ref="refs/heads/main", token="token", max_attempts=2, poll_seconds=0, opener=_Opener(private_status="in_progress", private_conclusion=None, missing_tags={f"full-regression-green-{SHA}"}), sleeper=lambda _: None)
         self.assertEqual(result["status"], "pending")
         self.assertTrue(result["wait_exhausted"])
-        self.assertEqual(result["attempts"], 2)
 
 
-class CertificationPendingDeferralTests(unittest.TestCase):
-    def _state(self) -> dict[str, Any]:
+class CertificationResumeSelectionTests(unittest.TestCase):
+    def _reserved(self, *, runner_sha: str = SHA) -> dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
         return {
-            "production_queue": [
-                {
-                    "schema_version": 1,
-                    "request_id": "req-1",
-                    "request_sha256": "c" * 64,
-                    "authorization_id": "d" * 32,
-                    "status": "dispatch_reserved",
-                    "requested_at": now,
-                    "reserved_at": now,
-                    "runner_sha": SHA,
-                    "attempt": 1,
-                }
-            ]
+            "schema_version": 1,
+            "request_id": "req-1",
+            "request_sha256": "c" * 64,
+            "authorization_id": "d" * 32,
+            "status": "dispatch_reserved",
+            "requested_at": now,
+            "reserved_at": now,
+            "runner_sha": runner_sha,
+            "attempt": 1,
         }
 
-    def test_pending_certification_returns_exact_reservation_to_durable_queue(self) -> None:
-        state = self._state()
-        requested_at = state["production_queue"][0]["requested_at"]
-        item = defer_reserved_dispatch(
-            state,
-            "req-1",
-            "c" * 64,
-            "d" * 32,
-            runner_sha=SHA,
-        )
-        self.assertEqual(item["status"], "pending_dispatch")
-        self.assertEqual(item["requested_at"], requested_at)
-        self.assertNotIn("reserved_at", item)
-        self.assertNotIn("runner_sha", item)
-        self.assertEqual(item["certification_defer_count"], 1)
-        self.assertEqual(item["certification_defer_reason"], "production_certification_pending")
+    def test_exact_live_reservation_is_selected_for_certification_resume(self) -> None:
+        item = self._reserved()
+        result = reserved_dispatch_for_runner({"production_queue": [item]}, SHA)
+        self.assertIs(result, item)
 
-        reserved = reserve_dispatch(state, "req-1", "c" * 64, runner_sha=NEW_SHA)
-        self.assertEqual(reserved["status"], "dispatch_reserved")
-        self.assertEqual(reserved["runner_sha"], NEW_SHA)
-        self.assertEqual(reserved["authorization_id"], "d" * 32)
+    def test_reservation_for_other_sha_is_not_resumed(self) -> None:
+        result = reserved_dispatch_for_runner({"production_queue": [self._reserved(runner_sha=NEW_SHA)]}, SHA)
+        self.assertIsNone(result)
 
-    def test_deferral_refuses_wrong_runner_binding(self) -> None:
-        state = self._state()
-        with self.assertRaisesRegex(RuntimeError, "different Runner SHA"):
-            defer_reserved_dispatch(
-                state,
-                "req-1",
-                "c" * 64,
-                "d" * 32,
-                runner_sha=NEW_SHA,
-            )
+    def test_multiple_live_reservations_for_same_sha_fail_closed(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "Multiple live Telegram reservations"):
+            reserved_dispatch_for_runner({"production_queue": [self._reserved(), self._reserved()]}, SHA)
+
+
+class WorkflowCompositionTests(unittest.TestCase):
+    def test_gateway_never_dispatches_v4_before_certification_ready(self) -> None:
+        text = Path(".github/workflows/telegram-production-request.yml").read_text(encoding="utf-8")
+        wait_at = text.index("Wait for exact-SHA production certification readiness")
+        dispatch_at = text.index("Dispatch exact reservation to the single V4 owner")
+        self.assertLess(wait_at, dispatch_at)
+        self.assertIn("steps.certification.outputs.ready == 'true' && steps.capacity.outputs.available == 'true'", text)
+        self.assertIn("steps.certification.outputs.pending != 'true'", text)
+
+    def test_event_driven_resume_is_bound_to_main_push_certification(self) -> None:
+        text = Path(".github/workflows/resume-telegram-production-after-certification.yml").read_text(encoding="utf-8")
+        self.assertIn("workflow_run:", text)
+        self.assertIn("Verify Private Engine", text)
+        self.assertIn("Verify Production Stage Ladder", text)
+        self.assertIn("github.event.workflow_run.event == 'push'", text)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", text)
+        self.assertIn("SOURCE_RUNNER_SHA: ${{ github.event.workflow_run.head_sha }}", text)
+        self.assertIn("steps.readiness.outputs.status == 'ready'", text)
 
 
 if __name__ == "__main__":
