@@ -1,0 +1,32 @@
+{
+  "schema": "isco.viewer-regression-baseline.v1",
+  "baseline_run": 228,
+  "baseline_format": "moment",
+  "purpose": "Machine-consumed regression floor derived from the fixed independent-viewer review of Run #228. This is a release floor, not a human-MOS conversion and not a target style.",
+  "human_observation": {
+    "overall_score_range_10": [6.5, 7.0],
+    "enforced": false,
+    "reason": "The historical 6.5-7.0 score was a human qualitative observation and must not be converted into a deterministic engineering score."
+  },
+  "observed_weaknesses": [
+    "hook_to_body_quality_cliff",
+    "generic_mood_visual_instead_of_exact_meaning",
+    "payoff_too_general_for_practical_topic"
+  ],
+  "machine_regression_floor": {
+    "viewer_score_10": 8.5,
+    "visual_semantics_score_10": 8.5,
+    "short_pacing_score_10": 8.5,
+    "weakest_final_visual_semantic_floor": 0.8,
+    "gold_must_pass": true,
+    "technical_must_pass": true
+  },
+  "policy": {
+    "topic_and_template_aware": true,
+    "force_run_228_style": false,
+    "force_fast_cuts": false,
+    "force_checklist_payoff": false,
+    "subjective_completion_save_share_metrics": "observer_only_until_calibrated",
+    "provider_calls_added": 0
+  }
+}
