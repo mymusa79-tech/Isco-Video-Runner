@@ -4,12 +4,12 @@
   "run_number": "236",
   "workflow_path": ".github/workflows/produce-resilient-v4.yml",
   "status": "running",
-  "stage": "gold_started",
+  "stage": "voice",
   "completed_stages": [
     "planning",
     "visuals",
     "mux",
     "final_master"
   ],
-  "updated_at": "2026-09-10T13:17:09.653344Z"
+  "updated_at": "2026-09-10T13:17:34.227026Z"
 }
