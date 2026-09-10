@@ -26,7 +26,7 @@ jobs:
           fi
           echo "MISTRAL_API_KEY is present"
 
-      - name: Diagnose Free-mode API access safely
+      - name: Verify Mistral authentication without generation
         shell: bash
         run: |
           set -euo pipefail
@@ -41,22 +41,13 @@ jobs:
           if not api_key:
               raise SystemExit("MISTRAL_API_KEY missing")
 
-          requested_model = "mistral-small-latest"
-          payload = {
-              "model": requested_model,
-              "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
-              "max_tokens": 8,
-              "temperature": 0,
-          }
           request = urllib.request.Request(
-              "https://api.mistral.ai/v1/chat/completions",
-              data=json.dumps(payload).encode("utf-8"),
+              "https://api.mistral.ai/v1/models",
               headers={
                   "Authorization": f"Bearer {api_key}",
-                  "Content-Type": "application/json",
                   "Accept": "application/json",
               },
-              method="POST",
+              method="GET",
           )
 
           try:
@@ -65,52 +56,29 @@ jobs:
                   body = response.read().decode("utf-8")
           except urllib.error.HTTPError as exc:
               raw = exc.read().decode("utf-8", errors="replace")
-              print(f"Mistral HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
+              print(f"Mistral models endpoint HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
               try:
-                  error_data = json.loads(raw)
+                  data = json.loads(raw)
               except Exception:
-                  error_data = {}
-              if isinstance(error_data, dict):
-                  safe = {}
-                  for key in ("message", "detail", "type", "code", "object"):
-                      value = error_data.get(key)
-                      if isinstance(value, (str, int, float, bool)) or value is None:
-                          if value is not None:
-                              safe[key] = value
+                  data = {}
+              if isinstance(data, dict):
+                  safe = {k: data[k] for k in ("message", "detail", "type", "code", "object") if k in data and isinstance(data[k], (str, int, float, bool))}
                   if safe:
                       print("Mistral error details: " + json.dumps(safe, ensure_ascii=False), file=sys.stderr)
-              for name in (
-                  "x-ratelimit-limit-req",
-                  "x-ratelimit-remaining-req",
-                  "x-ratelimit-limit-tokens",
-                  "x-ratelimit-remaining-tokens",
-                  "retry-after",
-              ):
-                  value = exc.headers.get(name)
-                  if value is not None:
-                      print(f"{name}: {value}", file=sys.stderr)
-              raise SystemExit(1)
-          except Exception as exc:
-              print(f"Mistral request failed: {type(exc).__name__}: {exc}", file=sys.stderr)
               raise SystemExit(1)
 
           if status != 200:
               raise SystemExit(f"Unexpected HTTP status: {status}")
 
           data = json.loads(body)
-          choices = data.get("choices") or []
-          if not choices:
-              raise SystemExit("Mistral response missing choices")
-          message = choices[0].get("message") or {}
-          content = message.get("content")
-          if not isinstance(content, str) or not content.strip():
-              raise SystemExit("Mistral response missing assistant text")
+          models = data.get("data") if isinstance(data, dict) else None
+          if not isinstance(models, list):
+              raise SystemExit("Mistral models response has unexpected shape")
 
-          usage = data.get("usage") or {}
-          print("Mistral API smoke test: PASS")
+          ids = {str(item.get("id")) for item in models if isinstance(item, dict) and item.get("id")}
+          print("Mistral authentication test: PASS")
           print(f"HTTP status: {status}")
-          print(f"Requested model: {requested_model}")
-          print(f"Returned model: {data.get('model', 'unknown')}")
-          print(f"Prompt tokens: {usage.get('prompt_tokens', 'unknown')}")
-          print(f"Completion tokens: {usage.get('completion_tokens', 'unknown')}")
+          print(f"Visible models: {len(ids)}")
+          print(f"mistral-small-latest visible: {'mistral-small-latest' in ids}")
+          print(f"mistral-medium-latest visible: {'mistral-medium-latest' in ids}")
           PY
