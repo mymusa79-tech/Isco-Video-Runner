@@ -32,10 +32,15 @@ def _is_no_wire_detail(detail: object) -> bool:
 
 
 def install_text_audit_no_wire_compat() -> None:
-    """Install after Text Audit Provider Mesh so all ledger routes pass through it."""
+    """Install after Text Audit Provider Mesh so all ledger routes pass through it.
+
+    This installer is composition-idempotent rather than one-shot. Test/diagnostic
+    processes may replace the Engine recorder after an earlier install; in that case we
+    must wrap the *current* recorder again. Marker checks prevent duplicate wrapping
+    when the current composition is already correct.
+    """
     global _INSTALLED
-    if _INSTALLED:
-        return
+    changed = False
 
     current_classify = engine_audit_router._classify_exception
     if not getattr(current_classify, "_isco_run238_no_wire_classifier", False):
@@ -51,6 +56,7 @@ def install_text_audit_no_wire_compat() -> None:
         classify._isco_run238_no_wire_classifier = True
         classify._isco_original = current_classify
         engine_audit_router._classify_exception = classify
+        changed = True
 
     current_record = engine_audit_router._record_wire_attempt
     if not getattr(current_record, "_isco_run238_wire_only_recording", False):
@@ -77,10 +83,12 @@ def install_text_audit_no_wire_compat() -> None:
         record._isco_run238_wire_only_recording = True
         record._isco_original = current_record
         engine_audit_router._record_wire_attempt = record
+        changed = True
 
     _INSTALLED = True
-    print(
-        "Text Audit no-wire compatibility installed: "
-        "legacy_engine_counting=guarded rate_limit_circuit=no_wire_exempt "
-        "new_engine_compatible=true"
-    )
+    if changed:
+        print(
+            "Text Audit no-wire compatibility installed: "
+            "legacy_engine_counting=guarded rate_limit_circuit=no_wire_exempt "
+            "new_engine_compatible=true composition_idempotent=true"
+        )
