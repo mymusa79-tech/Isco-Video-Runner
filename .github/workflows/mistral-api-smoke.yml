@@ -26,7 +26,7 @@ jobs:
           fi
           echo "MISTRAL_API_KEY is present"
 
-      - name: Verify Mistral authentication and diagnostic models
+      - name: Verify Mistral authentication and Ministral 8B visibility
         shell: bash
         run: |
           set -euo pipefail
@@ -48,18 +48,14 @@ jobs:
           models = data.get("data") if isinstance(data, dict) else None
           if status != 200 or not isinstance(models, list):
               raise SystemExit("Mistral models check failed")
-
           ids = {str(item.get("id")) for item in models if isinstance(item, dict) and item.get("id")}
-          print("Mistral authentication test: PASS")
-          print(f"HTTP status: {status}")
-          print(f"Visible models: {len(ids)}")
-          for model in ("mistral-small-latest", "ministral-3b-latest", "ministral-8b-latest"):
-              print(f"{model} visible: {model in ids}")
           if "ministral-8b-latest" not in ids:
-              raise SystemExit("ministral-8b-latest is not visible to this API key")
+              raise SystemExit("ministral-8b-latest is not visible")
+          print("Mistral authentication test: PASS")
+          print("ministral-8b-latest visible: True")
           PY
 
-      - name: Probe Ministral 8B generation
+      - name: Verify Arabic structured output on Ministral 8B
         shell: bash
         run: |
           set -euo pipefail
@@ -72,12 +68,19 @@ jobs:
 
           api_key = os.environ["MISTRAL_API_KEY"]
           model = "ministral-8b-latest"
+          prompt = (
+              "حلّل الجملة العربية التالية لمهمة مونتاج فيديو قصيرة: "
+              "'حين ينطفئ الدافع، لا تنتظر الشعور المناسب؛ ابدأ بخطوة صغيرة.' "
+              "أعد JSON فقط بهذه المفاتيح بالضبط: "
+              "intent, tone, visual_query, decision. "
+              "اجعل decision واحدة من PASS أو BLOCK، ولا تضف أي مفاتيح أخرى."
+          )
           payload = json.dumps({
               "model": model,
-              "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
+              "messages": [{"role": "user", "content": prompt}],
               "temperature": 0,
-              "max_tokens": 6,
-          }).encode("utf-8")
+              "max_tokens": 180,
+          }, ensure_ascii=False).encode("utf-8")
 
           request = urllib.request.Request(
               "https://api.mistral.ai/v1/chat/completions",
@@ -93,34 +96,59 @@ jobs:
           try:
               with urllib.request.urlopen(request, timeout=60) as response:
                   status = response.status
-                  body = response.read().decode("utf-8")
+                  data = json.loads(response.read().decode("utf-8"))
           except urllib.error.HTTPError as exc:
               raw = exc.read().decode("utf-8", errors="replace")
-              print(f"Ministral 8B HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
+              print(f"Structured-output HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
               try:
-                  data = json.loads(raw)
+                  error = json.loads(raw)
               except Exception:
-                  data = {}
-              if isinstance(data, dict):
-                  safe = {k: data[k] for k in ("message", "detail", "type", "code", "object") if k in data and isinstance(data[k], (str, int, float, bool))}
+                  error = {}
+              if isinstance(error, dict):
+                  safe = {k: error[k] for k in ("message", "detail", "type", "code", "object") if k in error and isinstance(error[k], (str, int, float, bool))}
                   if safe:
                       print("Mistral error details: " + json.dumps(safe, ensure_ascii=False), file=sys.stderr)
               raise SystemExit(1)
 
           if status != 200:
-              raise SystemExit(f"Unexpected generation HTTP status: {status}")
-
-          data = json.loads(body)
+              raise SystemExit(f"Unexpected HTTP status: {status}")
           choices = data.get("choices") if isinstance(data, dict) else None
           if not isinstance(choices, list) or not choices:
-              raise SystemExit("Generation response contains no choices")
+              raise SystemExit("No choices returned")
           message = choices[0].get("message") if isinstance(choices[0], dict) else None
           content = message.get("content") if isinstance(message, dict) else None
           if not isinstance(content, str) or not content.strip():
-              raise SystemExit("Generation returned empty content")
+              raise SystemExit("Empty content")
 
-          print("Ministral 8B generation probe: PASS")
+          text = content.strip()
+          if text.startswith("```"):
+              lines = text.splitlines()
+              if lines and lines[0].startswith("```"):
+                  lines = lines[1:]
+              if lines and lines[-1].strip() == "```":
+                  lines = lines[:-1]
+              text = "\n".join(lines).strip()
+              if text.lower().startswith("json"):
+                  text = text[4:].lstrip()
+
+          try:
+              obj = json.loads(text)
+          except Exception as exc:
+              raise SystemExit(f"Structured output is not valid JSON: {exc}")
+
+          expected = {"intent", "tone", "visual_query", "decision"}
+          if set(obj) != expected:
+              raise SystemExit(f"Unexpected keys: {sorted(obj)}")
+          if obj.get("decision") not in {"PASS", "BLOCK"}:
+              raise SystemExit("Invalid decision value")
+          for key in ("intent", "tone", "visual_query"):
+              if not isinstance(obj.get(key), str) or not obj[key].strip():
+                  raise SystemExit(f"Missing non-empty string: {key}")
+
+          print("Arabic structured-output probe: PASS")
           print(f"HTTP status: {status}")
           print(f"Model requested: {model}")
-          print("Non-empty response: True")
+          print("Valid JSON: True")
+          print("Exact keys: True")
+          print("Decision enum valid: True")
           PY
