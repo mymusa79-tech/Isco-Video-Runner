@@ -447,6 +447,21 @@ def _replace_evidence(index: int, entry: ProviderHealthEvidence) -> None:
     _EVIDENCE.set(tuple(current))
 
 
+def _active_legacy_state():
+    """Return the current Vision circuit without ever creating one.
+
+    ``legacy._state()`` intentionally creates a fallback state for direct diagnostic
+    calls. Provider-health lookup must not do that: a health read outside an active
+    Vision scope would otherwise leak Gemini/OpenRouter circuit state into later calls
+    or tests. Production scopes remain owned by ``vision_provider_circuit_scope``.
+    """
+    try:
+        from scripts import vision_provider_reliability as legacy
+        return legacy._VISION_CIRCUIT.get()
+    except Exception:
+        return None
+
+
 def _clear_legacy_circuit_if_recoverable(
     provider: str,
     *,
@@ -456,17 +471,16 @@ def _clear_legacy_circuit_if_recoverable(
 
     Run181's legacy Gemini/OpenRouter state predates classified health.  A transient or
     rate half-open would otherwise be admitted here and still be blocked by the older
-    ``*_open`` boolean.  Import lazily to avoid a module cycle.
+    ``*_open`` boolean.  Health reads are observational outside an active Vision scope
+    and must never create a legacy circuit as a side effect.
     """
     normalized = str(provider).strip().lower()
     if normalized not in {"gemini", "openrouter"}:
         return
     if failure_class not in {FAILURE_TRANSIENT, FAILURE_RATE_LIMITED}:
         return
-    try:
-        from scripts import vision_provider_reliability as legacy
-        state = legacy._state()
-    except Exception:
+    state = _active_legacy_state()
+    if state is None:
         return
     open_attr = f"{normalized}_open"
     reason_attr = f"{normalized}_reason"
@@ -491,6 +505,7 @@ def _recover_unpublished_legacy_gemini_transient(
     Run181 publishes shared Gemini health for quota/rate evidence, but a Gemini 5xx or
     transport failure only opens its legacy local circuit.  On the next candidate this
     helper gives at most two half-open probes; hard/auth/internal states are untouched.
+    Health lookup outside an active Vision scope is strictly side-effect free.
     """
     if str(provider).strip().lower() != "gemini":
         return False
@@ -502,10 +517,8 @@ def _recover_unpublished_legacy_gemini_transient(
         blocking_only=True,
     ) is not None:
         return False
-    try:
-        from scripts import vision_provider_reliability as legacy
-        state = legacy._state()
-    except Exception:
+    state = _active_legacy_state()
+    if state is None:
         return False
     if not bool(getattr(state, "gemini_open", False)):
         # A previously granted probe survived without republishing a failure: success.
@@ -543,7 +556,6 @@ def provider_unavailable(
     provider = str(provider).strip().lower()
     model = str(model or "*").strip()
     quota_domain = str(quota_domain or "*").strip().lower()
-    request_key = _normalized_key(provider, model, quota_domain)
 
     matched = _find_matching_entry(
         provider,
