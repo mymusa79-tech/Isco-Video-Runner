@@ -24,19 +24,28 @@ from scripts import text_audit_provider_mesh as mesh
 # - after model-scoped Groq routes were injected, the legacy generic ``groq`` alias was
 #   still present and could backtrack to an earlier Planning model.
 #
+# Run #238 exposed the remaining evidence/provenance gap: a waitable 120b reset (~5s)
+# was abandoned for a later Qwen route whose apparent capacity came only from the 8K
+# bootstrap assumption. Qwen then returned an OTPM 429 on the real request. It also
+# proved that a local pre-wire admission exception must never consume a Provider
+# Attempt merely because it happened inside an already-authorized callable.
+#
 # Ownership rule:
 # - Planning keeps its existing fast-failover policy unchanged.
 # - Text Audit Mesh keeps its canonical model order and route width unchanged.
 # - A busy audit route never waits when a later route that is already part of the
-#   bounded audit mesh is both actually routable in this run and immediately admissible
-#   or has a strictly nearer trustworthy reset. Circuit-open routes are not candidates.
+#   bounded audit mesh is both actually routable in this run and has provider-evidence-
+#   proven current capacity, or has a strictly nearer trustworthy provider reset.
+#   Bootstrap/unknown capacity can never beat a trustworthy <=60s current reset.
 # - When the current route is the best bounded option, a mandatory audit may wait once
 #   on trustworthy exact-model reset evidence <=60s before its existing single wire
-#   attempt. This closes Run #167/#229 without adding provider attempts.
+#   attempt. This closes Run #167/#229/#238 without adding provider attempts.
+# - Every local capacity/admission failover raised here is explicitly marked
+#   ``wire_attempted=False`` so Engine and Runner budget wrappers can observe it without
+#   counting it as a Provider Attempt.
 # - The generic Groq provider alias is removed only from the canonical Gemini + Groq +
 #   OpenRouter audit topology; model-scoped routes remain the sole Groq representation,
 #   preventing backtracking while preserving non-mesh standalone callers.
-# - Missing/untrusted/long reset evidence keeps the old failover-without-HTTP behavior.
 
 _TEXT_AUDIT_TASK_KINDS = frozenset(
     {
@@ -49,6 +58,13 @@ _AUDIT_RESET_WAIT_MAX_SECONDS = 60.0
 _AUDIT_RESET_GRACE_SECONDS = 1.5
 _AUDIT_WAITED_TASK_IDS: set[str] = set()
 _INSTALLED = False
+
+
+class NoWireCapacityFailover(RuntimeError):
+    """Local capacity routing decision proven to have made no provider HTTP request."""
+
+    wire_attempted = False
+    reason_code = "NO_WIRE_CAPACITY_FAILOVER"
 
 
 def _active_text_audit() -> bool:
@@ -66,15 +82,21 @@ def _active_text_audit_task_id() -> str | None:
     return task_id or None
 
 
+def _no_wire_capacity_error(detail: str) -> NoWireCapacityFailover:
+    return NoWireCapacityFailover(
+        "NO_WIRE_CAPACITY_FAILOVER " + str(detail).strip()
+    )
+
+
 def _busy_precheck_error(
     *,
     model: str,
     required: int,
     remaining: object,
     reset_in: float | None,
-) -> RuntimeError:
+) -> NoWireCapacityFailover:
     reset_text = "unknown" if reset_in is None else f"{reset_in:.2f}s"
-    return RuntimeError(
+    return _no_wire_capacity_error(
         "GROQ_TPM_WINDOW_BUSY_PRECHECK "
         f"model={model} required_estimate={required} remaining={remaining} "
         f"reset_in={reset_text} max_wait={_AUDIT_RESET_WAIT_MAX_SECONDS:.2f}s "
@@ -88,6 +110,27 @@ def _trusted_reset_in_seconds(model_name: str) -> float | None:
     if not isinstance(reset_at_epoch, (int, float)):
         return None
     return max(0.0, float(reset_at_epoch) - capacity.time.time())
+
+
+def _provider_proven_current_capacity(model_name: str, required: int) -> bool:
+    """Require provider-contact evidence for an immediate later-route win.
+
+    The pre-contact 8K bootstrap is useful for basic admission but is not evidence that
+    the current provider window can serve this request. To displace a short trustworthy
+    reset we require an observed model plus explicit remaining-token evidence sufficient
+    for this request. Unknown/stale capacity therefore loses to the bounded wait.
+    """
+    state = capacity._model_state(model_name)
+    if state.get("contacted") is not True:
+        return False
+    actual = state.get("actual_tpm_limit")
+    remaining = state.get("remaining_tokens")
+    return (
+        isinstance(actual, int)
+        and actual >= required
+        and isinstance(remaining, int)
+        and remaining >= required
+    )
 
 
 def _audit_route_circuit_open(model_name: str) -> bool:
@@ -113,12 +156,14 @@ def _later_bounded_route_is_better(
     required: int,
     current_reset_in: float,
 ) -> bool:
-    """Return True only when the existing bounded mesh has a better later Groq route.
+    """Return True only when the existing bounded mesh has a proven better later route.
 
     OpenRouter-healthy audits intentionally own only one Groq route, so there is no
     Groq look-ahead in that topology. When OpenRouter is blocked the existing mesh owns
-    up to two Groq routes. We inspect only the next *eligible and routable* route in the
-    canonical active pool and never reorder or widen that pool.
+    up to two Groq routes. A later immediate route may beat a short current reset only
+    with provider-contact evidence proving sufficient current-window capacity. A later
+    waiting route may win only with its own trustworthy provider reset that is strictly
+    nearer. Bootstrap/unknown admission is never enough.
     """
     if not run125.openrouter_preflight_blocked():
         return False
@@ -130,29 +175,29 @@ def _later_bounded_route_is_better(
         return False
 
     for later_model in tail[current_index + 1 :]:
-        # Run #229: a model already rate-limited earlier in this run is not a usable
-        # escape hatch. Treating it as "better" only rejects the current wait, after
-        # which Engine skips the later route as circuit-open and capacity is lost.
         if _audit_route_circuit_open(later_model):
             continue
 
         try:
             decision = capacity.groq_admission_decision(later_model, required)
         except Exception:
-            # Missing capacity evidence must be transparent to the historical mesh.
-            # Do not invent a preferred route from a failed local probe.
             continue
 
         action = str(decision.get("action") or "")
-        if action in {"impossible", "unavailable"}:
+        if action in {"impossible", "unavailable", "unknown"}:
+            continue
+        if action == "admit":
+            if _provider_proven_current_capacity(later_model, required):
+                return True
             continue
         if action != "wait":
-            return True
+            continue
 
+        state = capacity._model_state(later_model)
+        if state.get("contacted") is not True:
+            continue
         later_reset = _trusted_reset_in_seconds(later_model)
         if later_reset is None:
-            # The canonical mesh does not consider a waiting model eligible without a
-            # trustworthy reset timestamp, so keep looking for the next eligible route.
             continue
         return later_reset < current_reset_in
 
@@ -175,11 +220,11 @@ def _audit_wait_pacing(
             if decision.get("reason") == "actual_limit_below_required"
             else "GROQ_TPM_CAPACITY_PREFLIGHT"
         )
-        raise RuntimeError(
+        raise _no_wire_capacity_error(
             f"{marker} model={model} required={required} limit={decision.get('actual_limit')}"
         )
     if action == "unavailable":
-        raise RuntimeError(
+        raise _no_wire_capacity_error(
             "GROQ_MODEL_CAPACITY_UNAVAILABLE "
             f"model={model} reason={decision.get('reason')}"
         )
@@ -203,9 +248,6 @@ def _audit_wait_pacing(
             reset_in=reset_in,
         )
 
-    # Preserve canonical order while still choosing the cheapest *routable* admission
-    # decision. A healthy nearer Qwen reset still wins (Run #167); a circuit-open Qwen
-    # cannot disqualify a bounded 120b wait (Run #229).
     if _later_bounded_route_is_better(
         model_name=model,
         required=required,
@@ -314,10 +356,12 @@ def install_text_audit_capacity_ownership() -> None:
     _install_no_generic_groq_backtracking()
     mesh._ISCO_TEXT_AUDIT_CAPACITY_OWNERSHIP_V1 = True
     mesh._ISCO_RUN229_NO_GENERIC_GROQ_BACKTRACKING_V1 = True
+    mesh._ISCO_RUN238_PROVIDER_EVIDENCE_WAIT_V1 = True
     _INSTALLED = True
     print(
         "Text Audit capacity ownership installed: "
         "planning=fast_failover_preserved audit=single_bounded_reset_wait<=60s "
         "groq_order=mesh_preserved prewire_wait=zero_provider_attempts "
-        "circuit_open_lookahead=false generic_groq_backtracking=false"
+        "later_route_requires=provider_evidence circuit_open_lookahead=false "
+        "generic_groq_backtracking=false"
     )
