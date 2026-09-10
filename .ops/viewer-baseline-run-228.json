@@ -2,33 +2,36 @@
   "schema": "isco.viewer-regression-baseline.v1",
   "baseline_run": 228,
   "baseline_format": "moment",
+  "role": "qualitative_short_reference_only",
   "applicable_release_profiles": [
     "standalone_short",
     "derived_short"
   ],
-  "purpose": "Machine-consumed Short-only regression floor derived from the fixed independent-viewer review of Run #228. It must never govern Long releases and is not a human-MOS conversion or target style.",
+  "purpose": "Preserve the fixed independent-viewer observations from Short/Moment Run #228 as qualitative failure signatures. This file supplies no machine threshold and has no authority over Long releases.",
   "human_observation": {
     "overall_score_range_10": [6.5, 7.0],
     "enforced": false,
-    "reason": "The historical 6.5-7.0 score was a human qualitative observation and must not be converted into a deterministic engineering score."
+    "machine_threshold_source": false,
+    "reason": "The historical 6.5-7.0 score is a human qualitative observation, not a deterministic engineering calibration."
   },
   "observed_weaknesses": [
-    "hook_to_body_quality_cliff",
-    "generic_mood_visual_instead_of_exact_meaning",
-    "payoff_too_general_for_practical_topic"
+    {
+      "id": "hook_to_body_quality_cliff",
+      "machine_coverage": "not_yet_machine_calibrated"
+    },
+    {
+      "id": "generic_mood_visual_instead_of_exact_meaning",
+      "machine_coverage": "partially_covered_by_existing_visual_semantics"
+    },
+    {
+      "id": "payoff_too_general_for_practical_topic",
+      "machine_coverage": "not_yet_machine_calibrated"
+    }
   ],
-  "machine_regression_floor": {
-    "viewer_score_10": 8.5,
-    "visual_semantics_score_10": 8.5,
-    "short_pacing_score_10": 8.5,
-    "weakest_final_visual_semantic_floor": 0.8,
-    "gold_must_pass": true,
-    "technical_must_pass": true
-  },
   "long_policy": {
     "run_228_governs_long": false,
     "status": "not_calibrated",
-    "required_future_design": "long-specific benchmark set with range-based calibration",
+    "required_future_design": "long-specific multi-video benchmark set with range-based calibration",
     "candidate_metric_families": [
       "opening_promise_retention",
       "section_transition_drop",
