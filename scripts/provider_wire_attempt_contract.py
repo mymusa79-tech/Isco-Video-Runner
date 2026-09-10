@@ -7,10 +7,11 @@ Local admission, credential/file validation, media preprocessing and frame extra
 are useful routing/preflight events but must not consume the provider-attempt budget or
 poison provider health when no inference HTTP request was sent.
 
-Run #238 exposed this first in Text Audit. The same accounting family also exists at
-Vision boundaries where authorization can happen before local preview/frame work.
-This module closes that family without changing provider order, quality thresholds,
-semantic BLOCK behavior, or inference ceilings.
+Run #238 exposed this first in Text Audit. The same accounting family can occur in any
+wrapper that authorizes before invoking a provider callable. This module therefore
+applies one fail-closed invariant to Planning, direct-provider calls, shared Vision and
+Gold Cloudflare: only an exception carrying explicit ``wire_attempted=False`` proof is
+excluded from provider-attempt accounting. Unknown exceptions remain counted.
 """
 
 from contextvars import ContextVar
@@ -54,6 +55,7 @@ class NoWireVisionStageError(vision.VisionStageError):
 
 
 def is_no_wire_failure(exc: BaseException) -> bool:
+    """No inference-attempt exemption without explicit proof from the boundary owner."""
     return getattr(exc, "wire_attempted", None) is False
 
 
@@ -62,6 +64,167 @@ def _preview_key(preview: Path) -> str:
         return str(Path(preview).resolve())
     except Exception:
         return str(Path(preview))
+
+
+def _install_planning_budget_boundary() -> None:
+    """Future-proof Planning if a local pre-wire check moves inside its budget wrapper."""
+    from scripts import task_level_planner_router as planner
+
+    current = planner._budgeted_provider_call
+    if getattr(current, "_isco_wire_only_provider_attempts", False):
+        return
+
+    @wraps(current)
+    def wire_only_budgeted_provider_call(provider_name: str, resolved_model: str, call, *args, **kwargs):
+        active = planner.get_active_budget_task()
+        if active is None:
+            return call(*args, **kwargs)
+        if not active.ledger.authorize(active.spec.task_id):
+            raise RuntimeError(
+                f"AI budget authorization denied for task {active.spec.task_id}; provider call blocked"
+            )
+        started = planner.time.monotonic()
+        try:
+            result = call(*args, **kwargs)
+        except Exception as exc:
+            if not is_no_wire_failure(exc):
+                failure = planner.classify_provider_failure(provider_name, exc)
+                planner._record_budget_attempt(
+                    provider_name,
+                    resolved_model,
+                    failure.budget_outcome,
+                    duration_seconds=planner.time.monotonic() - started,
+                    detail=str(exc)[:220],
+                )
+            raise
+        planner._record_budget_attempt(
+            provider_name,
+            resolved_model,
+            planner.AttemptOutcome.SUCCESS,
+            duration_seconds=planner.time.monotonic() - started,
+        )
+        return result
+
+    wire_only_budgeted_provider_call._isco_wire_only_provider_attempts = True
+    wire_only_budgeted_provider_call._isco_wire_only_original = current
+    planner._budgeted_provider_call = wire_only_budgeted_provider_call
+
+
+def _install_direct_provider_budget_boundary() -> None:
+    """Apply the same proof rule to Engine direct Vision/TTS/provider wrappers."""
+    import isco_video_agent.orchestrator as orchestrator
+
+    current_call = orchestrator._ledger_call
+    if not getattr(current_call, "_isco_wire_only_provider_attempts", False):
+        @wraps(current_call)
+        def wire_only_call(ledger, spec, provider, resolved_model, fn, *args, **kwargs):
+            orchestrator._ledger_authorize(ledger, spec)
+            try:
+                result = fn(*args, **kwargs)
+            except Exception as exc:
+                if not is_no_wire_failure(exc):
+                    orchestrator._ledger_record(
+                        ledger,
+                        spec.task_id,
+                        provider=provider,
+                        resolved_model=resolved_model,
+                        capability=spec.capability,
+                        outcome=orchestrator._classify_exception(exc),
+                    )
+                raise
+            orchestrator._ledger_record(
+                ledger,
+                spec.task_id,
+                provider=provider,
+                resolved_model=resolved_model,
+                capability=spec.capability,
+                outcome=orchestrator.AttemptOutcome.SUCCESS,
+            )
+            return result
+
+        wire_only_call._isco_wire_only_provider_attempts = True
+        wire_only_call._isco_wire_only_original = current_call
+        orchestrator._ledger_call = wire_only_call
+
+    current_status = orchestrator._ledger_call_status
+    if not getattr(current_status, "_isco_wire_only_provider_attempts", False):
+        @wraps(current_status)
+        def wire_only_status(ledger, spec, provider, resolved_model, fn, *args, **kwargs):
+            orchestrator._ledger_authorize(ledger, spec)
+            try:
+                result = fn(*args, **kwargs)
+            except Exception as exc:
+                if not is_no_wire_failure(exc):
+                    orchestrator._ledger_record(
+                        ledger,
+                        spec.task_id,
+                        provider=provider,
+                        resolved_model=resolved_model,
+                        capability=spec.capability,
+                        outcome=orchestrator._classify_exception(exc),
+                    )
+                raise
+            outcome = (
+                orchestrator.AttemptOutcome.CONTENT_BLOCKED
+                if result.get("status") == "block"
+                else orchestrator.AttemptOutcome.SUCCESS
+            )
+            orchestrator._ledger_record(
+                ledger,
+                spec.task_id,
+                provider=provider,
+                resolved_model=resolved_model,
+                capability=spec.capability,
+                outcome=outcome,
+            )
+            return result
+
+        wire_only_status._isco_wire_only_provider_attempts = True
+        wire_only_status._isco_wire_only_original = current_status
+        orchestrator._ledger_call_status = wire_only_status
+
+
+def _install_gemini_vision_local_marker() -> None:
+    """Mark deterministic Gemini visual-preflight failures before the Vision router sees them."""
+    import isco_video_agent.orchestrator as orchestrator
+
+    current = orchestrator.audit_video_preview
+    if getattr(current, "_isco_no_wire_gemini_visual_preflight", False):
+        return
+
+    @wraps(current)
+    def guarded_gemini_visual_audit(api_key, preview: Path, *args, **kwargs):
+        # Prove the candidate bytes exist/read locally before Vision authorizes Gemini.
+        try:
+            Path(preview).read_bytes()
+        except Exception as exc:
+            raise NoWireVisionStageError(
+                vision.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
+                f"Gemini preview read failed before inference type={type(exc).__name__}",
+                provider="local_preflight",
+                requested_model=str(kwargs.get("model") or "gemini"),
+            ) from exc
+        try:
+            return current(api_key, Path(preview), *args, **kwargs)
+        except Exception as exc:
+            detail = str(exc)
+            # These two failures are deterministic local setup/request-size failures in
+            # the pinned Engine provider and occur before interactions.create().
+            if (
+                "Visual review preview exceeds Gemini inline total-request safety budget" in detail
+                or "google-genai is required for Gemini production" in detail
+            ):
+                raise NoWireVisionStageError(
+                    vision.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
+                    f"Gemini local visual preflight failed: {detail[:180]}",
+                    provider="local_preflight",
+                    requested_model=str(kwargs.get("model") or "gemini"),
+                ) from exc
+            raise
+
+    guarded_gemini_visual_audit._isco_no_wire_gemini_visual_preflight = True
+    guarded_gemini_visual_audit._isco_no_wire_original = current
+    orchestrator.audit_video_preview = guarded_gemini_visual_audit
 
 
 def _install_frame_preprocessing_boundary() -> None:
@@ -74,7 +237,6 @@ def _install_frame_preprocessing_boundary() -> None:
         key = _preview_key(Path(preview))
         prepared = _PREPARED_FRAMES.get()
         if prepared is not None and key in prepared:
-            # Return a shallow copy so downstream code cannot mutate the cached list.
             return list(prepared[key])
         try:
             return current(Path(preview))
@@ -108,8 +270,6 @@ def _install_wire_only_vision_recording() -> None:
         outcome,
         detail: str | None = None,
     ) -> None:
-        # The exception object is not available at this lower recording seam, so the
-        # explicit no-wire reason marker is the durable proof transported here.
         if detail is not None and NO_WIRE_MARKER in str(detail):
             return
         return current(
@@ -142,9 +302,6 @@ def _install_openrouter_pre_authorization_local_checks() -> None:
         intended_visual: str,
         requested_model: str,
     ):
-        # Keep deterministic local failures outside authorization. The underlying
-        # function still repeats these checks for defense in depth, but they are now
-        # proven before the provider-attempt budget can be consumed.
         if not vision._openrouter_key():
             raise NoWireVisionStageError(
                 vision.VisionErrorCode.AUTH_CONFIG,
@@ -196,11 +353,6 @@ def _install_cloudflare_preprocessing_before_reservation() -> None:
         narration_context: str,
         intended_visual: str,
     ):
-        # Reproduce the existing eligibility order exactly through the provider-owned
-        # probes, then prepare frames before the local inference-slot reservation and
-        # before BudgetLedger authorization. The actual _wire_call receives those same
-        # frames from the ContextVar-backed sampler, so preprocessing cannot fail a
-        # second time after reservation/authorization.
         if getattr(spec, "task_id", "") != cloudflare_gold.GOLD_OPENING_TASK_ID:
             raise cloudflare_gold.CloudflareGoldVisionUnavailable(
                 "Cloudflare Vision is Gold-opening-only"
@@ -219,6 +371,9 @@ def _install_cloudflare_preprocessing_before_reservation() -> None:
         cloudflare_gold._prove_workers_free(token, account_id)
         cloudflare_gold._prove_model_access(token, account_id)
 
+        # Prepare once before both the local workflow inference-slot reservation and
+        # BudgetLedger authorization. _wire_call's second sample access is served from
+        # the ContextVar cache, so it cannot fail later after those counters advance.
         frames = vision.legacy._sample_preview_frames(Path(preview))
         key = _preview_key(Path(preview))
         frame_token = _PREPARED_FRAMES.set({key: list(frames)})
@@ -266,16 +421,20 @@ def _install_cloudflare_preprocessing_before_reservation() -> None:
 
 
 def install_provider_wire_attempt_contract() -> None:
-    """Install shared no-wire accounting before Vision/Gold runtime composition."""
+    """Install the no-wire invariant before provider-specific runtime composition."""
     global _INSTALLED
     if _INSTALLED:
         return
+    _install_planning_budget_boundary()
+    _install_direct_provider_budget_boundary()
+    _install_gemini_vision_local_marker()
     _install_frame_preprocessing_boundary()
     _install_wire_only_vision_recording()
     _install_openrouter_pre_authorization_local_checks()
     _install_cloudflare_preprocessing_before_reservation()
     _INSTALLED = True
     print(
-        "Provider wire-attempt contract installed: local capacity/preprocessing=zero_attempts; "
-        "Vision OpenRouter local checks=pre_authorization; Gold Cloudflare frames=pre_reservation"
+        "Provider wire-attempt contract installed: explicit no-wire proof=zero attempts; "
+        "Planning/direct wrappers hardened; Vision local checks=pre-authorize; "
+        "Gold Cloudflare frames=pre-reservation"
     )
