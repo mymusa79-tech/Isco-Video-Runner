@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "contract_id": "viewer-regression-profile.v1",
+  "principles": {
+    "shared_invariants": [
+      "semantic_alignment",
+      "factual_visual_contradiction",
+      "obvious_repetition",
+      "dead_visual_stretches",
+      "promise_consistency"
+    ],
+    "shared_invariants_use_shared_thresholds": false,
+    "human_score_is_machine_threshold": false
+  },
+  "profiles": {
+    "standalone_short": {
+      "calibrated": true,
+      "calibration_kind": "known-failure-signatures",
+      "human_references": [
+        {
+          "run": 228,
+          "format": "moment",
+          "authority": "qualitative_reference_only",
+          "human_score_note": "approximately 6.5-7.0/10; never used as a machine threshold"
+        }
+      ],
+      "required_existing_signals": [
+        "viewer.visual_semantics.pass",
+        "viewer.pacing.pass",
+        "tone.editorial_promise_continuity.decision",
+        "tone.viewer_retention_continuity.decision"
+      ]
+    },
+    "derived_short": {
+      "calibrated": true,
+      "calibration_kind": "known-failure-signatures",
+      "human_references": [
+        {
+          "run": 228,
+          "format": "moment",
+          "authority": "qualitative_reference_only",
+          "human_score_note": "approximately 6.5-7.0/10; never used as a machine threshold"
+        }
+      ],
+      "required_existing_signals": [
+        "viewer.visual_semantics.pass",
+        "viewer.pacing.pass",
+        "tone.editorial_promise_continuity.decision",
+        "tone.viewer_retention_continuity.decision"
+      ]
+    },
+    "film": {
+      "calibrated": false,
+      "decision_when_uncalibrated": "not_calibrated",
+      "run_228_authority": "none",
+      "required_future_benchmark": {
+        "kind": "multi-video-format-aware-range-set",
+        "minimum_distinct_good_long_examples": 3,
+        "candidate_dimensions": [
+          "opening_promise_retention",
+          "section_transition_drop",
+          "stagnation_windows",
+          "narrative_progression_in_context"
+        ],
+        "section_as_independent_short": false
+      }
+    }
+  }
+}
