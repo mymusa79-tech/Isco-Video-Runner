@@ -538,7 +538,11 @@ def _recover_unpublished_legacy_gemini_transient(
     # generic no-evidence path could mistake a failed probe for success and reset the
     # counter, enabling an unbounded retry family.
     _set_pending(key, False)
-    count = int(_CONSECUTIVE_FAILURES.get().get(key, 0)) + 1
+    previous_count = int(_CONSECUTIVE_FAILURES.get().get(key, 0))
+    terminal_count = MAX_TRANSIENT_HALF_OPEN_PROBES + 1
+    if previous_count >= terminal_count:
+        return False
+    count = previous_count + 1
     _set_counter(key, count)
     if count > MAX_TRANSIENT_HALF_OPEN_PROBES:
         return False
