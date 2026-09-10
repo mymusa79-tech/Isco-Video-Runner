@@ -16,6 +16,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from scripts.final_master_acceptance_v2 import require_final_master_acceptance
+from scripts.viewer_regression_run228 import enforce_run_228_viewer_regression
+
 
 CONTRACT_ID = "viewer-quality.v1"
 CONTRACT_VERSION = 1
@@ -42,8 +45,11 @@ def _bounded(value: float) -> float:
 
 def _release_profile(root: Path, fmt: str) -> str:
     normalized = str(fmt or "").strip().lower()
-    if normalized == "film":
-        return "film"
+    # Engine routing defines Film and Story as long-form outer episode shapes.
+    # Only Moment is a Short. Keeping Story out of Short regression is critical:
+    # Run #228 is a Moment reference and is not calibrated for long narrative arcs.
+    if normalized in {"film", "story"}:
+        return normalized
     try:
         plan = _read_object(root / "plan.json")
     except Exception:
@@ -278,7 +284,9 @@ def _audio_score(quality: dict[str, Any]) -> tuple[float, dict[str, Any]]:
 
 
 def _pacing_score(root: Path, fmt: str, profile: str, qc: dict[str, Any]) -> tuple[float, dict[str, Any]]:
-    if fmt not in {"moment", "story"}:
+    # Only Moment uses Short visual-density pacing. Story is a long-form episode shape
+    # and must be judged in narrative context rather than as a sequence of mini Shorts.
+    if fmt != "moment":
         freeze_events = list(((qc.get("detectors") or {}).get("exact_freeze") or {}).get("events") or ())
         score = 10.0 if not freeze_events else 8.0
         return score, {
@@ -287,6 +295,7 @@ def _pacing_score(root: Path, fmt: str, profile: str, qc: dict[str, Any]) -> tup
             "exact_freeze_events": len(freeze_events),
             "score_10": score,
             "pass": not freeze_events,
+            "long_specific_regression_calibration": "not_yet_calibrated",
         }
 
     timeline = _read_object(root / "short-visual-timeline.json")
@@ -323,6 +332,38 @@ def _pacing_score(root: Path, fmt: str, profile: str, qc: dict[str, Any]) -> tup
     }
 
 
+def _p4_binding_summary(p4: dict[str, Any], *, profile: str) -> dict[str, Any]:
+    acceptance = p4.get("acceptance_contract") if isinstance(p4, dict) else None
+    if not isinstance(acceptance, dict):
+        raise RuntimeError("Viewer Quality Contract requires Final Master acceptance contract")
+    sources = acceptance.get("sources")
+    if not isinstance(sources, dict):
+        raise RuntimeError("Viewer Quality Contract requires Final Master source bindings")
+    final_binding = sources.get("final")
+    if not isinstance(final_binding, dict) or not str(final_binding.get("sha256") or ""):
+        raise RuntimeError("Viewer Quality Contract requires Final Master final.mp4 binding")
+    short_timeline = sources.get("short_visual_timeline")
+    is_short = profile in {"standalone_short", "derived_short"}
+    if is_short and not isinstance(short_timeline, dict):
+        raise RuntimeError(
+            "Viewer Quality Contract requires short-visual-timeline.json to be sealed by Final Master"
+        )
+    return {
+        "contract_id": acceptance.get("contract_id"),
+        "final_sha256": final_binding.get("sha256"),
+        "final_byte_length": final_binding.get("byte_length"),
+        "short_visual_timeline_required": is_short,
+        "short_visual_timeline_bound": isinstance(short_timeline, dict),
+        "short_visual_timeline_sha256": (
+            short_timeline.get("sha256") if isinstance(short_timeline, dict) else None
+        ),
+        "short_visual_timeline_byte_length": (
+            short_timeline.get("byte_length") if isinstance(short_timeline, dict) else None
+        ),
+        "validation": "exact_source_bindings_revalidated_before_and_after_viewer",
+    }
+
+
 def enforce_viewer_quality_contract(
     output_dir: Path,
     *,
@@ -330,15 +371,26 @@ def enforce_viewer_quality_contract(
     critic: dict[str, Any],
     gold_enforce: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Evaluate the final rendered bytes before production state acceptance.
+    """Evaluate exact final rendered bytes before production state acceptance.
 
     ``gold_enforce`` is accepted for backward compatibility with the first branch
     implementation and post-Gold diagnostic revalidation, but it is not an authority.
     The enforcing Gold critic itself is the pre-acceptance evidence used here.
+
+    Final Master is revalidated immediately before Viewer reads any evidence and again
+    after scoring. For both Standalone and Derived Shorts the exact Short timeline must
+    already be part of the same Final Master source receipt as ``final.mp4``. A stale,
+    newly-created-after-QC, mutated timeline, or mutated final render therefore fails
+    closed before publication state can be accepted.
     """
+    del gold_enforce
     root = Path(output_dir)
     normalized_fmt = str(fmt).strip().lower()
     profile = _release_profile(root, normalized_fmt)
+
+    p4_before = require_final_master_acceptance(root)
+    p4_binding = _p4_binding_summary(p4_before, profile=profile)
+
     qc = _read_object(root / "final-master-qc.json")
     quality = _read_object(root / "quality-final.json")
     visual_records = _final_cut_visual_records(root)
@@ -382,6 +434,15 @@ def enforce_viewer_quality_contract(
         "audio_av": audio.get("pass") is True,
     }
     verdict = "pass" if overall >= MIN_VIEWER_SCORE and all(non_compensable.values()) else "block"
+
+    # Revalidate the exact same source identities after all Viewer reads. The Final
+    # Master contract recomputes sha256+byte length for every current source, including
+    # the Short timeline when Moment owns one.
+    p4_after = require_final_master_acceptance(root)
+    p4_after_binding = _p4_binding_summary(p4_after, profile=profile)
+    if p4_after_binding != p4_binding:
+        raise RuntimeError("Viewer Quality Contract detected Final Master binding drift")
+
     document = {
         "schema_version": CONTRACT_VERSION,
         "contract_id": CONTRACT_ID,
@@ -393,6 +454,7 @@ def enforce_viewer_quality_contract(
         "acceptance_phase": "pre_state_acceptance",
         "score_meaning": "deterministic engineering release-confidence envelope; not human MOS or YouTube forecast",
         "calibration_status": "not_yet_calibrated_against_blind_human_panel",
+        "final_master_binding": p4_binding,
         "weights": weights,
         "dimensions": {
             "visual_semantics": visual,
@@ -411,9 +473,23 @@ def enforce_viewer_quality_contract(
             "Viewer Quality Contract V1 blocked release: "
             f"score={overall:.3f} required={MIN_VIEWER_SCORE:.1f} failed={','.join(failed) or 'score'}"
         )
+
+    # #228 is explicitly Short-only. Film and Story return not_applicable here and are
+    # never compared against the Moment reference; Long needs its own future benchmark
+    # set and range calibration.
+    regression = enforce_run_228_viewer_regression(root, viewer_report=document)
+    document["viewer_regression"] = {
+        "baseline_run": 228,
+        "status": regression.get("status"),
+        "run_228_governs_long": False,
+        "provider_calls_added": 0,
+    }
+    (root / FILENAME).write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+
     print(
         "Viewer Quality Contract V1 PASS before state acceptance: "
         f"profile={profile} format={normalized_fmt} score={overall:.3f}/10 "
-        f"visual={visual_score:.3f} pacing={pacing_score:.3f} audio={audio_score:.3f}"
+        f"visual={visual_score:.3f} pacing={pacing_score:.3f} audio={audio_score:.3f} "
+        f"run228={regression.get('status')}"
     )
     return document
