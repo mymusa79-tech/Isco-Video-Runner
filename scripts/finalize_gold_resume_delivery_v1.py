@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-"""Finish the same approved Telegram scope after a successful QC_PENDING Gold resume.
+"""Finish an accepted QC_PENDING source without letting downstream work own the parent.
 
-This owner starts *after* the parent final.mp4 has already passed Final Master QC and a
-subsequent Gold resume.  It must never replan, research, retrieve media, resynthesize, or
-rerender that parent.  It performs only the post-Gold work the original control request
-would have performed if Gold had not been temporarily unavailable:
-
-- standalone Short: project the already-persisted pre-Gold Short intelligence through
-  the final Short quality contract;
-- Long only: stage the reviewed long-form delivery;
-- Long + sibling Shorts: create the already-approved 2-3 derived Shorts, then stage the
-  unified delivery;
-- every scope: write production/delivery provenance over the exact unchanged parent.
+The long-form parent becomes immutable immediately after successful Gold.  Packaging and
+release staging may continue over those exact bytes, while approved sibling Shorts are
+recorded as deferred isolated child work.  No provider-backed child production is allowed
+to sit between parent Gold acceptance and parent delivery.
 """
 
 import argparse
@@ -22,22 +15,16 @@ import os
 from pathlib import Path
 from typing import Any
 
-from isco_video_agent.config import secret
-
 import scripts.run_v3_voice as production
 from scripts.orchestration_shorts_port import finalize_short_quality
-from scripts.run_control_production import (
-    execute_child_subprocess,
-    validate_control_request,
-    write_sibling_short_plan,
-)
+from scripts.post_gold_master_lock_v1 import assert_master_lock, write_master_lock
+from scripts.run_control_production import validate_control_request, write_sibling_short_plan
 from scripts.runtime_closure import run_post_gold_observers
-from scripts.short_finishing_capabilities import ShortFinishingCapabilities
-from scripts.sibling_short_orchestration import orchestrate_sibling_shorts, stage_sibling_assets
 from scripts.unified_delivery import write_delivery_manifest
 
 
 CONTRACT_ID = "gold.qc-pending.post-gold-delivery.v1"
+DEFERRED_SIBLING_CONTRACT_ID = "post_gold.sibling_short_deferred.v1"
 
 
 def _sha256_file(path: Path) -> str:
@@ -90,11 +77,6 @@ def _write_resume_production_manifest(
     if len(source_engine_sha) != 40 or any(ch not in "0123456789abcdef" for ch in source_engine_sha):
         raise RuntimeError("Post-Gold continuation lost exact source Engine SHA")
 
-    # production-manifest.v1 has an implicit identity invariant on the ordinary path:
-    # production_id, github_run_id/attempt and Runner/Engine SHAs all describe the same
-    # production that created final.mp4. A Gold-only resume must preserve that historical
-    # identity at the top level; the current workflow is an acceptance execution, not a
-    # new media production. Keep its identity separately under resume_execution.
     resume_execution = {
         "run_id": str(os.environ.get("GITHUB_RUN_ID") or "").strip() or None,
         "run_number": str(os.environ.get("GITHUB_RUN_NUMBER") or "").strip() or None,
@@ -119,9 +101,6 @@ def _write_resume_production_manifest(
             os.environ["ISCO_RELEASE_TAG_OVERRIDE"] = old_tag
 
     manifest["github_run_id"] = source_run_id
-    # The v2 resume bundle intentionally did not persist source run_number. Never copy
-    # the current resume run number into historical production provenance; release_tag is
-    # already explicitly bound to the original candidate by the resume authorization.
     manifest["github_run_number"] = None
     manifest["github_run_attempt"] = source_attempt
     manifest["runner_sha"] = source_runner_sha
@@ -146,51 +125,49 @@ def _finalize_standalone_short(root: Path, request: dict[str, Any]) -> None:
     finalize_short_quality(root, runtime_request, pre)
 
 
-def _produce_approved_sibling_shorts(
+def _defer_approved_sibling_shorts(
     root: Path,
     request: dict[str, Any],
     *,
-    runtime_root: Path,
-) -> list[dict[str, Any]]:
+    parent_final_sha256: str,
+) -> Path:
     sibling_plan = write_sibling_short_plan(root, request)
     if sibling_plan is None or not sibling_plan.is_file():
         raise RuntimeError("Post-Gold long+Shorts continuation produced no sibling plan")
+    plan = _read_object(sibling_plan)
+    count = int(plan.get("short_count") or 0)
+    if count not in {2, 3}:
+        raise RuntimeError("Deferred sibling continuation must preserve the approved 2–3 Short quota")
 
-    gemini = secret("GEMINI_API_KEY")
-    pexels = secret("PEXELS_API_KEY")
-    pixabay = secret("PIXABAY_API_KEY")
-    if not gemini or not pexels:
-        raise RuntimeError("Post-Gold sibling continuation requires Gemini and Pexels capabilities")
-    capabilities = ShortFinishingCapabilities(gemini=gemini, pexels=pexels, pixabay=pixabay)
-
-    def execute_short(child_request: dict[str, Any]) -> Path:
-        return execute_child_subprocess(
-            child_request,
-            runtime_root=runtime_root,
-            capabilities=capabilities,
-        )
-
-    completed = orchestrate_sibling_shorts(request, sibling_plan, execute_short=execute_short)
-    staged = stage_sibling_assets(root, completed)
-    (root / "sibling-short-results.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "parent_request_id": request.get("request_id"),
-                "parent_request_sha256": request.get("request_sha256"),
-                "short_count": len(staged),
-                "shorts": staged,
-                "execution_mode": "gold_resume_then_sequential_isolated_subprocesses",
-                "short_source_mode": "exact_long_episode_sections",
-                "partial_delivery_allowed": False,
-                "youtube_publish_mode": "manual_in_youtube_studio",
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    return staged
+    lock_path = root / "master-lock.json"
+    if not lock_path.is_file():
+        raise RuntimeError("Deferred sibling continuation requires locked parent master")
+    document = {
+        "schema_version": 1,
+        "contract_id": DEFERRED_SIBLING_CONTRACT_ID,
+        "status": "deferred_after_parent_gold",
+        "parent_request_id": request.get("request_id"),
+        "parent_request_sha256": request.get("request_sha256"),
+        "parent_final_sha256": parent_final_sha256,
+        "master_lock": {
+            "file": lock_path.name,
+            "sha256": _sha256_file(lock_path),
+        },
+        "sibling_short_plan": {
+            "file": sibling_plan.name,
+            "sha256": _sha256_file(sibling_plan),
+            "short_count": count,
+        },
+        "execution_owner": "isolated_child_jobs",
+        "automatic_production_started": False,
+        "provider_calls_performed": False,
+        "blocking_parent_delivery": False,
+        "partial_child_delivery_allowed": False,
+        "youtube_publish_mode": "manual_in_youtube_studio",
+    }
+    path = root / "sibling-short-deferred.json"
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
 
 
 def finalize_after_gold_resume(
@@ -230,22 +207,30 @@ def finalize_after_gold_resume(
     if kind == "long" and fmt not in {"film", "story"}:
         raise RuntimeError("Post-Gold long-form continuation has unsupported format")
 
+    deferred_siblings: Path | None = None
     if kind == "short":
         _finalize_standalone_short(root, request)
         staged_shorts: list[dict[str, Any]] = []
-    elif scope == "long_plus_sibling_shorts":
-        staged_shorts = _produce_approved_sibling_shorts(
+    elif scope in {"long_only", "long_plus_sibling_shorts"}:
+        write_master_lock(
             root,
-            request,
-            runtime_root=Path(runtime_root),
+            request=request,
+            source=source,
+            release_tag=release_tag,
+            expected_final_sha=expected_final,
         )
-    elif scope == "long_only":
         staged_shorts = []
+        if scope == "long_plus_sibling_shorts":
+            deferred_siblings = _defer_approved_sibling_shorts(
+                root,
+                request,
+                parent_final_sha256=final_sha_before,
+            )
     else:
         raise RuntimeError("Post-Gold continuation approval scope is unsupported")
 
-    # Match the normal successful path: observers are non-authoritative and may skip,
-    # while production/delivery manifests are enforcing deterministic provenance.
+    # Everything below this point must be deterministic with respect to the accepted
+    # parent. Observers may add non-authoritative evidence; they cannot own or rebuild it.
     run_post_gold_observers(root)
     production_manifest = _write_resume_production_manifest(
         root,
@@ -264,6 +249,8 @@ def finalize_after_gold_resume(
     final_sha_after = _sha256_file(final_path)
     if final_sha_after != final_sha_before:
         raise RuntimeError("Post-Gold continuation mutated the parent final.mp4")
+    if kind == "long":
+        assert_master_lock(root, expected_final_sha=final_sha_before)
 
     result = {
         "schema_version": 1,
@@ -277,7 +264,9 @@ def finalize_after_gold_resume(
         "source_run_id": source.get("run_id"),
         "parent_final_sha256": final_sha_after,
         "parent_media_rebuilt": False,
-        "sibling_shorts_produced_after_parent_gold": len(staged_shorts),
+        "master_lock": str(root / "master-lock.json") if kind == "long" else None,
+        "sibling_shorts_produced_after_parent_gold": 0,
+        "sibling_short_continuation": str(deferred_siblings) if deferred_siblings else None,
         "production_manifest": str(root / "production-manifest.json"),
         "delivery_manifest": str(delivery_path),
         "delivery_kind": _read_object(delivery_path).get("delivery_kind"),
