@@ -1,0 +1,43 @@
+name: Temporary Run238 Engine Pin Rollover
+
+on:
+  push:
+    branches:
+      - fix/run238-trusted-reset-no-wire
+
+permissions:
+  contents: write
+
+jobs:
+  rollover:
+    if: github.event.head_commit.message != 'chore: roll production Engine pin to no-wire contract'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/run238-trusted-reset-no-wire
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Replace live/test Engine pins and remove this temporary workflow
+        env:
+          OLD_SHA: e7724801511a881a4862c3a590dccf4fd6d22c34
+          NEW_SHA: c8576e9b4349feca64bdcccb2d4e78db4b235367
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(grep -RIl --exclude='tmp-run238-engine-pin.yml' "$OLD_SHA" .github scripts || true)
+          printf 'Pin occurrences to update: %s\n' "${#files[@]}"
+          for path in "${files[@]}"; do
+            sed -i "s/$OLD_SHA/$NEW_SHA/g" "$path"
+            echo "updated $path"
+          done
+          git rm .github/workflows/tmp-run238-engine-pin.yml
+          git config user.name "isco-maintenance-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github scripts
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No pin changes produced" >&2
+            exit 1
+          fi
+          git commit -m "chore: roll production Engine pin to no-wire contract"
+          git push origin HEAD:fix/run238-trusted-reset-no-wire
