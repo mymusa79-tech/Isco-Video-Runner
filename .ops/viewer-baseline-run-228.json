@@ -2,7 +2,11 @@
   "schema": "isco.viewer-regression-baseline.v1",
   "baseline_run": 228,
   "baseline_format": "moment",
-  "purpose": "Machine-consumed regression floor derived from the fixed independent-viewer review of Run #228. This is a release floor, not a human-MOS conversion and not a target style.",
+  "applicable_release_profiles": [
+    "standalone_short",
+    "derived_short"
+  ],
+  "purpose": "Machine-consumed Short-only regression floor derived from the fixed independent-viewer review of Run #228. It must never govern Long releases and is not a human-MOS conversion or target style.",
   "human_observation": {
     "overall_score_range_10": [6.5, 7.0],
     "enforced": false,
@@ -20,6 +24,21 @@
     "weakest_final_visual_semantic_floor": 0.8,
     "gold_must_pass": true,
     "technical_must_pass": true
+  },
+  "long_policy": {
+    "run_228_governs_long": false,
+    "status": "not_calibrated",
+    "required_future_design": "long-specific benchmark set with range-based calibration",
+    "candidate_metric_families": [
+      "opening_promise_retention",
+      "section_transition_drop",
+      "stagnation_windows",
+      "semantic_alignment_in_context",
+      "promise_consistency",
+      "obvious_repetition",
+      "dead_visual_stretches"
+    ],
+    "section_policy": "evaluate sections in narrative context; never treat every section as an independent Short"
   },
   "policy": {
     "topic_and_template_aware": true,
