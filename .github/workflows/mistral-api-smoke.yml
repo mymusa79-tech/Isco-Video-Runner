@@ -26,7 +26,42 @@ jobs:
           fi
           echo "MISTRAL_API_KEY is present"
 
-      - name: Verify Mistral authentication and model visibility
+      - name: Verify Mistral authentication and target models
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          api_key = os.environ["MISTRAL_API_KEY"]
+          request = urllib.request.Request(
+              "https://api.mistral.ai/v1/models",
+              headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+              method="GET",
+          )
+          with urllib.request.urlopen(request, timeout=45) as response:
+              status = response.status
+              data = json.loads(response.read().decode("utf-8"))
+
+          models = data.get("data") if isinstance(data, dict) else None
+          if status != 200 or not isinstance(models, list):
+              raise SystemExit("Mistral models check failed")
+
+          ids = {str(item.get("id")) for item in models if isinstance(item, dict) and item.get("id")}
+          for required in ("mistral-small-latest", "ministral-3b-latest"):
+              if required not in ids:
+                  raise SystemExit(f"Required diagnostic model is not visible: {required}")
+
+          print("Mistral authentication test: PASS")
+          print(f"HTTP status: {status}")
+          print(f"Visible models: {len(ids)}")
+          print("mistral-small-latest visible: True")
+          print("ministral-3b-latest visible: True")
+          PY
+
+      - name: Probe lowest-cost text generation
         shell: bash
         run: |
           set -euo pipefail
@@ -37,26 +72,33 @@ jobs:
           import urllib.error
           import urllib.request
 
-          api_key = os.environ.get("MISTRAL_API_KEY", "")
-          if not api_key:
-              raise SystemExit("MISTRAL_API_KEY missing")
+          api_key = os.environ["MISTRAL_API_KEY"]
+          model = "ministral-3b-latest"
+          payload = json.dumps({
+              "model": model,
+              "messages": [{"role": "user", "content": "Reply: OK"}],
+              "temperature": 0,
+              "max_tokens": 4,
+          }).encode("utf-8")
 
           request = urllib.request.Request(
-              "https://api.mistral.ai/v1/models",
+              "https://api.mistral.ai/v1/chat/completions",
+              data=payload,
               headers={
                   "Authorization": f"Bearer {api_key}",
                   "Accept": "application/json",
+                  "Content-Type": "application/json",
               },
-              method="GET",
+              method="POST",
           )
 
           try:
-              with urllib.request.urlopen(request, timeout=45) as response:
+              with urllib.request.urlopen(request, timeout=60) as response:
                   status = response.status
                   body = response.read().decode("utf-8")
           except urllib.error.HTTPError as exc:
               raw = exc.read().decode("utf-8", errors="replace")
-              print(f"Mistral models endpoint HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
+              print(f"Diagnostic generation HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
               try:
                   data = json.loads(raw)
               except Exception:
@@ -68,127 +110,20 @@ jobs:
               raise SystemExit(1)
 
           if status != 200:
-              raise SystemExit(f"Unexpected HTTP status: {status}")
+              raise SystemExit(f"Unexpected generation HTTP status: {status}")
 
           data = json.loads(body)
-          models = data.get("data") if isinstance(data, dict) else None
-          if not isinstance(models, list):
-              raise SystemExit("Mistral models response has unexpected shape")
+          choices = data.get("choices") if isinstance(data, dict) else None
+          if not isinstance(choices, list) or not choices:
+              raise SystemExit("Generation response contains no choices")
 
-          ids = {str(item.get("id")) for item in models if isinstance(item, dict) and item.get("id")}
-          if "mistral-small-latest" not in ids:
-              raise SystemExit("mistral-small-latest is not visible to this API key")
+          message = choices[0].get("message") if isinstance(choices[0], dict) else None
+          content = message.get("content") if isinstance(message, dict) else None
+          if not isinstance(content, str) or not content.strip():
+              raise SystemExit("Generation returned empty content")
 
-          print("Mistral authentication test: PASS")
+          print("Lowest-cost generation probe: PASS")
           print(f"HTTP status: {status}")
-          print(f"Visible models: {len(ids)}")
-          print("mistral-small-latest visible: True")
-          print(f"mistral-medium-latest visible: {'mistral-medium-latest' in ids}")
-          PY
-
-      - name: Diagnose tiny Mistral Small generation limit
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json
-          import os
-          import sys
-          import time
-          import urllib.error
-          import urllib.request
-
-          api_key = os.environ.get("MISTRAL_API_KEY", "")
-          if not api_key:
-              raise SystemExit("MISTRAL_API_KEY missing")
-
-          payload = json.dumps({
-              "model": "mistral-small-latest",
-              "messages": [
-                  {"role": "user", "content": "Reply with exactly: OK"}
-              ],
-              "temperature": 0,
-              "max_tokens": 8,
-          }).encode("utf-8")
-
-          def build_request():
-              return urllib.request.Request(
-                  "https://api.mistral.ai/v1/chat/completions",
-                  data=payload,
-                  headers={
-                      "Authorization": f"Bearer {api_key}",
-                      "Accept": "application/json",
-                      "Content-Type": "application/json",
-                  },
-                  method="POST",
-              )
-
-          for attempt in range(1, 4):
-              try:
-                  with urllib.request.urlopen(build_request(), timeout=60) as response:
-                      status = response.status
-                      body = response.read().decode("utf-8")
-              except urllib.error.HTTPError as exc:
-                  raw = exc.read().decode("utf-8", errors="replace")
-                  print(f"Attempt {attempt}/3: HTTP {exc.code} {exc.reason}", file=sys.stderr)
-
-                  for header_name in (
-                      "Retry-After",
-                      "X-RateLimit-Limit",
-                      "X-RateLimit-Remaining",
-                      "X-RateLimit-Reset",
-                  ):
-                      value = exc.headers.get(header_name) if exc.headers else None
-                      if value:
-                          print(f"{header_name}: {value}", file=sys.stderr)
-
-                  try:
-                      data = json.loads(raw)
-                  except Exception:
-                      data = {}
-                  if isinstance(data, dict):
-                      safe = {k: data[k] for k in ("message", "detail", "type", "code", "object") if k in data and isinstance(data[k], (str, int, float, bool))}
-                      if safe:
-                          print("Mistral error details: " + json.dumps(safe, ensure_ascii=False), file=sys.stderr)
-
-                  if exc.code != 429:
-                      raise SystemExit(1)
-
-                  if attempt == 3:
-                      raise SystemExit("Persistent HTTP 429 after 3 backoff attempts")
-
-                  retry_after = exc.headers.get("Retry-After") if exc.headers else None
-                  try:
-                      wait_seconds = float(retry_after) if retry_after else float(2 ** attempt)
-                  except (TypeError, ValueError):
-                      wait_seconds = float(2 ** attempt)
-                  wait_seconds = max(1.0, min(wait_seconds, 8.0))
-                  print(f"Backing off for {wait_seconds:.1f}s", file=sys.stderr)
-                  time.sleep(wait_seconds)
-                  continue
-
-              if status != 200:
-                  raise SystemExit(f"Unexpected completion HTTP status: {status}")
-
-              data = json.loads(body)
-              choices = data.get("choices") if isinstance(data, dict) else None
-              if not isinstance(choices, list) or not choices:
-                  raise SystemExit("Mistral completion response contains no choices")
-
-              message = choices[0].get("message") if isinstance(choices[0], dict) else None
-              content = message.get("content") if isinstance(message, dict) else None
-              if not isinstance(content, str) or not content.strip():
-                  raise SystemExit("Mistral completion returned empty content")
-
-              usage = data.get("usage") if isinstance(data, dict) else None
-              total_tokens = usage.get("total_tokens") if isinstance(usage, dict) else None
-
-              print("Mistral Small generation test: PASS")
-              print(f"Succeeded on attempt: {attempt}")
-              print(f"HTTP status: {status}")
-              print("Model requested: mistral-small-latest")
-              print("Non-empty response: True")
-              if isinstance(total_tokens, int):
-                  print(f"Total tokens reported: {total_tokens}")
-              break
+          print(f"Model requested: {model}")
+          print("Non-empty response: True")
           PY
