@@ -59,3 +59,49 @@ def preflight_gold_cloudflare_from_runner_temp() -> None:
         _prove_workers_free(token, account_id)
         _prove_model_access(token, account_id)
     print("Cloudflare Gold Vision preflight PASS: exact zero-cost/model capability proven")
+
+
+def _disable_optional_route_for_following_steps() -> None:
+    """Disable only the optional Cloudflare route for the rest of this workflow.
+
+    Updating the current process protects any later in-process caller. Appending the
+    same value to GITHUB_ENV carries the decision into subsequent GitHub Actions steps.
+    If that persistence channel is unavailable, the runtime adapter still remains
+    fail-closed and will never infer without proving zero-cost eligibility itself.
+    """
+    os.environ["CLOUDFLARE_GOLD_VISION_FREE_ONLY"] = "false"
+    github_env = str(os.environ.get("GITHUB_ENV") or "").strip()
+    if not github_env:
+        return
+    try:
+        with Path(github_env).open("a", encoding="utf-8") as handle:
+            handle.write("CLOUDFLARE_GOLD_VISION_FREE_ONLY=false\n")
+    except OSError as exc:
+        print(
+            "Cloudflare Gold Vision preflight warning: optional disable could not be "
+            f"persisted to GITHUB_ENV ({type(exc).__name__}); runtime remains fail-closed"
+        )
+
+
+def preflight_optional_gold_cloudflare_from_runner_temp() -> bool:
+    """Probe Cloudflare early without making a fourth-choice provider production-critical.
+
+    Cloudflare is only the Gold-opening fallback after the primary Vision mesh. A
+    credential, Billing-Read, free-tier, quota or model-access problem therefore disables
+    Cloudflare for this workflow and production continues. Only the provider's explicit
+    availability exception is downgraded; unexpected programming errors still propagate.
+    """
+    if not _enabled():
+        print("Cloudflare Gold Vision preflight: optional route already disabled")
+        return False
+    try:
+        preflight_gold_cloudflare_from_runner_temp()
+    except CloudflareGoldVisionUnavailable as exc:
+        _disable_optional_route_for_following_steps()
+        detail = " ".join(str(exc).split())[:500]
+        print(
+            "Cloudflare Gold Vision preflight OPTIONAL_UNAVAILABLE: "
+            f"{detail}; production continues without Cloudflare Gold fallback"
+        )
+        return False
+    return True
