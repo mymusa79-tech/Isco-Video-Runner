@@ -27,8 +27,8 @@ class Run167TextAuditCapacityOwnershipRegressionTests(unittest.TestCase):
             },
         }
         states = {
-            "openai/gpt-oss-120b": {"reset_at_epoch": now + 38.40},
-            "qwen/qwen3.8-27b": {"reset_at_epoch": now + 0.08},
+            "openai/gpt-oss-120b": {"contacted": True, "reset_at_epoch": now + 38.40},
+            "qwen/qwen3.8-27b": {"contacted": True, "reset_at_epoch": now + 0.08},
         }
 
         with mock.patch.object(
@@ -81,7 +81,7 @@ class Run167TextAuditCapacityOwnershipRegressionTests(unittest.TestCase):
         ), mock.patch.object(
             capacity,
             "_model_state",
-            return_value={"reset_at_epoch": now + 0.08},
+            return_value={"contacted": True, "reset_at_epoch": now + 0.08},
         ), mock.patch.object(
             capacity.time,
             "time",
@@ -107,7 +107,7 @@ class Run167TextAuditCapacityOwnershipRegressionTests(unittest.TestCase):
         sleep.assert_called_once()
         self.assertAlmostEqual(sleep.call_args.args[0], 1.58, places=2)
 
-    def test_immediately_admissible_later_route_beats_waiting_current_route(self):
+    def test_provider_proven_immediate_later_route_beats_waiting_current_route(self):
         decisions = {
             "openai/gpt-oss-120b": {
                 "action": "wait",
@@ -116,8 +116,22 @@ class Run167TextAuditCapacityOwnershipRegressionTests(unittest.TestCase):
             },
             "qwen/qwen3.8-27b": {
                 "action": "admit",
-                "remaining_tokens": None,
+                "remaining_tokens": 5000,
                 "actual_limit": 8000,
+            },
+        }
+        states = {
+            "openai/gpt-oss-120b": {
+                "contacted": True,
+                "actual_tpm_limit": 8000,
+                "remaining_tokens": 934,
+                "reset_at_epoch": 1052.99,
+            },
+            "qwen/qwen3.8-27b": {
+                "contacted": True,
+                "actual_tpm_limit": 8000,
+                "remaining_tokens": 5000,
+                "reset_at_epoch": None,
             },
         }
 
@@ -128,7 +142,7 @@ class Run167TextAuditCapacityOwnershipRegressionTests(unittest.TestCase):
         ), mock.patch.object(
             capacity,
             "_model_state",
-            return_value={"reset_at_epoch": 1052.99},
+            side_effect=lambda model: states[model],
         ), mock.patch.object(
             capacity.time,
             "time",
@@ -145,13 +159,78 @@ class Run167TextAuditCapacityOwnershipRegressionTests(unittest.TestCase):
             "_active_groq_pool_tail",
             return_value=("openai/gpt-oss-120b", "qwen/qwen3.8-27b"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "GROQ_TPM_WINDOW_BUSY_PRECHECK"):
+            with self.assertRaisesRegex(RuntimeError, "NO_WIRE_CAPACITY_FAILOVER.*GROQ_TPM_WINDOW_BUSY_PRECHECK"):
                 ownership._audit_wait_pacing(
                     {"estimated_request_tokens": 2731},
                     model_name="openai/gpt-oss-120b",
                 )
 
         sleep.assert_not_called()
+
+    def test_run238_bootstrap_only_qwen_cannot_beat_trusted_120b_short_reset(self):
+        now = 1000.0
+        required = 5054
+        decisions = {
+            "openai/gpt-oss-120b": {
+                "action": "wait",
+                "remaining_tokens": 5621,
+                "actual_limit": 8000,
+            },
+            # This is the old optimistic bootstrap admission from Run #238: no provider
+            # contact and no observed remaining-token evidence for Qwen.
+            "qwen/qwen3.8-27b": {
+                "action": "admit",
+                "remaining_tokens": None,
+                "actual_limit": 8000,
+            },
+        }
+        states = {
+            "openai/gpt-oss-120b": {
+                "contacted": True,
+                "actual_tpm_limit": 8000,
+                "remaining_tokens": 1000,
+                "reset_at_epoch": now + 5.18,
+            },
+            "qwen/qwen3.8-27b": {
+                "contacted": False,
+                "actual_tpm_limit": None,
+                "remaining_tokens": None,
+                "reset_at_epoch": None,
+            },
+        }
+
+        with mock.patch.object(
+            capacity,
+            "groq_admission_decision",
+            side_effect=lambda model, _required: decisions[model],
+        ), mock.patch.object(
+            capacity,
+            "_model_state",
+            side_effect=lambda model: states[model],
+        ), mock.patch.object(
+            capacity.time,
+            "time",
+            return_value=now,
+        ), mock.patch.object(
+            capacity.time,
+            "sleep",
+        ) as sleep, mock.patch.object(
+            ownership.run125,
+            "openrouter_preflight_blocked",
+            return_value=True,
+        ), mock.patch.object(
+            mesh,
+            "_active_groq_pool_tail",
+            return_value=("openai/gpt-oss-120b", "qwen/qwen3.8-27b"),
+        ):
+            waited = ownership._audit_wait_pacing(
+                {"estimated_request_tokens": required},
+                model_name="openai/gpt-oss-120b",
+            )
+
+        self.assertAlmostEqual(waited, 6.68, places=2)
+        sleep.assert_called_once()
+        self.assertAlmostEqual(sleep.call_args.args[0], 6.68, places=2)
 
     def test_openrouter_healthy_does_not_invent_second_groq_route(self):
         decision = {
@@ -214,7 +293,7 @@ class Run167TextAuditCapacityOwnershipRegressionTests(unittest.TestCase):
             ) as sleep:
                 with self.assertRaisesRegex(
                     RuntimeError,
-                    "GROQ_TPM_WINDOW_BUSY_PRECHECK.*action=failover_without_http",
+                    "NO_WIRE_CAPACITY_FAILOVER.*GROQ_TPM_WINDOW_BUSY_PRECHECK.*action=failover_without_http",
                 ):
                     ownership._audit_wait_pacing(
                         request_capacity,
@@ -286,6 +365,23 @@ class Run167TextAuditCapacityOwnershipRegressionTests(unittest.TestCase):
                 )
 
         sleep.assert_called_once()
+
+    def test_local_capacity_failures_are_explicitly_proven_no_wire(self):
+        decision = {
+            "action": "unavailable",
+            "reason": "daily_token_quota_exhausted",
+            "remaining_tokens": 0,
+            "actual_limit": 8000,
+        }
+        with mock.patch.object(capacity, "groq_admission_decision", return_value=decision):
+            with self.assertRaises(ownership.NoWireCapacityFailover) as caught:
+                ownership._audit_wait_pacing(
+                    {"estimated_request_tokens": 5054},
+                    model_name="openai/gpt-oss-120b",
+                )
+        self.assertIs(caught.exception.wire_attempted, False)
+        self.assertEqual(caught.exception.reason_code, "NO_WIRE_CAPACITY_FAILOVER")
+        self.assertIn("NO_WIRE_CAPACITY_FAILOVER", str(caught.exception))
 
     def test_install_preserves_planning_and_text_audit_mesh_order_owner(self):
         original_pacing = capacity._proactive_groq_pacing
