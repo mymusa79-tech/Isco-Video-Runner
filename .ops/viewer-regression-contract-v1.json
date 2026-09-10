@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "contract_id": "viewer-regression-profile.v1",
+  "principles": {
+    "shared_invariants": [
+      "semantic_alignment",
+      "factual_visual_contradiction",
+      "obvious_repetition",
+      "dead_visual_stretches",
+      "promise_consistency"
+    ],
+    "shared_invariants_use_shared_thresholds": false,
+    "human_score_is_machine_threshold": false,
+    "run_228_is_machine_threshold_source": false
+  },
+  "short_machine_release_invariants": {
+    "source": "existing_viewer_quality_absolute_release_envelope",
+    "calibration_source": "not_run_228",
+    "viewer_score_10": 8.5,
+    "visual_semantics_score_10": 8.5,
+    "short_pacing_score_10": 8.5,
+    "weakest_final_visual_semantic_floor": 0.8,
+    "gold_must_pass": true,
+    "technical_must_pass": true
+  },
+  "profiles": {
+    "standalone_short": {
+      "machine_gate_operational": true,
+      "human_failure_signature_calibration": "partial",
+      "human_references": [
+        {
+          "run": 228,
+          "format": "moment",
+          "authority": "qualitative_reference_only",
+          "human_score_note": "approximately 6.5-7.0/10; never used as a machine threshold"
+        }
+      ],
+      "existing_machine_signals": [
+        "viewer.visual_semantics.pass",
+        "viewer.pacing.pass",
+        "viewer.technical.pass",
+        "viewer.gold.pass"
+      ],
+      "known_failure_signature_coverage": {
+        "hook_to_body_quality_cliff": "not_yet_machine_calibrated",
+        "generic_mood_visual_instead_of_exact_meaning": "partially_covered_by_visual_semantics",
+        "payoff_too_general_for_practical_topic": "not_yet_machine_calibrated"
+      }
+    },
+    "derived_short": {
+      "machine_gate_operational": true,
+      "human_failure_signature_calibration": "partial",
+      "human_references": [
+        {
+          "run": 228,
+          "format": "moment",
+          "authority": "qualitative_reference_only",
+          "human_score_note": "approximately 6.5-7.0/10; never used as a machine threshold"
+        }
+      ],
+      "existing_machine_signals": [
+        "viewer.visual_semantics.pass",
+        "viewer.pacing.pass",
+        "viewer.technical.pass",
+        "viewer.gold.pass"
+      ],
+      "known_failure_signature_coverage": {
+        "hook_to_body_quality_cliff": "not_yet_machine_calibrated",
+        "generic_mood_visual_instead_of_exact_meaning": "partially_covered_by_visual_semantics",
+        "payoff_too_general_for_practical_topic": "not_yet_machine_calibrated"
+      }
+    },
+    "film": {
+      "machine_gate_operational": false,
+      "decision_when_uncalibrated": "not_calibrated",
+      "run_228_authority": "none",
+      "required_future_benchmark": {
+        "kind": "multi-video-format-aware-range-set",
+        "minimum_distinct_good_long_examples": 3,
+        "candidate_dimensions": [
+          "opening_promise_retention",
+          "section_transition_drop",
+          "stagnation_windows",
+          "narrative_progression_in_context"
+        ],
+        "section_as_independent_short": false
+      }
+    },
+    "story": {
+      "machine_gate_operational": false,
+      "decision_when_uncalibrated": "not_calibrated",
+      "run_228_authority": "none",
+      "required_future_benchmark": {
+        "kind": "multi-video-format-aware-range-set",
+        "minimum_distinct_good_long_examples": 3,
+        "candidate_dimensions": [
+          "opening_promise_retention",
+          "section_transition_drop",
+          "stagnation_windows",
+          "narrative_progression_in_context"
+        ],
+        "section_as_independent_short": false
+      }
+    }
+  }
+}

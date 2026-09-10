@@ -1,0 +1,35 @@
+name: Patch visual failure memory transport
+
+on:
+  push:
+    branches:
+      - fix/visual-family-closure-run228
+    paths:
+      - .github/workflows/_patch-visual-failure-memory-transport.yml
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/visual-family-closure-run228
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Build canonical V4 patch
+        run: |
+          set -euo pipefail
+          python scripts/_patch_visual_failure_transport.py
+          git diff --check
+
+      - name: Export patched canonical workflow
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: patched-produce-resilient-v4
+          path: .github/workflows/produce-resilient-v4.yml
+          if-no-files-found: error
+          retention-days: 1

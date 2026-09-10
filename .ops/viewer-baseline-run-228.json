@@ -1,0 +1,54 @@
+{
+  "schema": "isco.viewer-regression-baseline.v1",
+  "baseline_run": 228,
+  "baseline_format": "moment",
+  "role": "qualitative_short_reference_only",
+  "applicable_release_profiles": [
+    "standalone_short",
+    "derived_short"
+  ],
+  "purpose": "Preserve the fixed independent-viewer observations from Short/Moment Run #228 as qualitative failure signatures. This file supplies no machine threshold and has no authority over Long releases.",
+  "human_observation": {
+    "overall_score_range_10": [6.5, 7.0],
+    "enforced": false,
+    "machine_threshold_source": false,
+    "reason": "The historical 6.5-7.0 score is a human qualitative observation, not a deterministic engineering calibration."
+  },
+  "observed_weaknesses": [
+    {
+      "id": "hook_to_body_quality_cliff",
+      "machine_coverage": "not_yet_machine_calibrated"
+    },
+    {
+      "id": "generic_mood_visual_instead_of_exact_meaning",
+      "machine_coverage": "partially_covered_by_existing_visual_semantics"
+    },
+    {
+      "id": "payoff_too_general_for_practical_topic",
+      "machine_coverage": "not_yet_machine_calibrated"
+    }
+  ],
+  "long_policy": {
+    "run_228_governs_long": false,
+    "status": "not_calibrated",
+    "required_future_design": "long-specific multi-video benchmark set with range-based calibration",
+    "candidate_metric_families": [
+      "opening_promise_retention",
+      "section_transition_drop",
+      "stagnation_windows",
+      "semantic_alignment_in_context",
+      "promise_consistency",
+      "obvious_repetition",
+      "dead_visual_stretches"
+    ],
+    "section_policy": "evaluate sections in narrative context; never treat every section as an independent Short"
+  },
+  "policy": {
+    "topic_and_template_aware": true,
+    "force_run_228_style": false,
+    "force_fast_cuts": false,
+    "force_checklist_payoff": false,
+    "subjective_completion_save_share_metrics": "observer_only_until_calibrated",
+    "provider_calls_added": 0
+  }
+}

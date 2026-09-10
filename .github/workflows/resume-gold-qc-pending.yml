@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_ENGINE_SHA: 7516d772445ee5156fe4b4f47851f2f4e5bff3d0
+  EXPECTED_ENGINE_SHA: e7724801511a881a4862c3a590dccf4fd6d22c34
   CLOUDFLARE_GOLD_VISION_FREE_ONLY: "true"
   CLOUDFLARE_GOLD_VISION_MAX_CALLS_PER_WORKFLOW: "5"
 
@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: mymusa79-tech/Isco-Video-Agent
-          ref: 7516d772445ee5156fe4b4f47851f2f4e5bff3d0
+          ref: e7724801511a881a4862c3a590dccf4fd6d22c34
           token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
           path: engine
           persist-credentials: false
@@ -70,7 +70,7 @@ jobs:
           cd engine
           PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py lock --lock requirements-lock.txt
           python -m pip install -r requirements-lock.txt
-          python -m pip install --no-deps -e .
+          python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
 
       - name: Checkout latest encrypted Telegram control state
@@ -289,7 +289,7 @@ jobs:
           CLOUDFLARE_API_TOKEN_FILE: ${{ runner.temp }}/gold-secrets/cloudflare-api-token
           CLOUDFLARE_ACCOUNT_ID_FILE: ${{ runner.temp }}/gold-secrets/cloudflare-account-id
           CLOUDFLARE_GOLD_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-gold-vision-quota-v1.json
-          ISCO_ENGINE_SHA: 7516d772445ee5156fe4b4f47851f2f4e5bff3d0
+          ISCO_ENGINE_SHA: e7724801511a881a4862c3a590dccf4fd6d22c34
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
           BUNDLE_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
@@ -361,7 +361,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID_FILE: ${{ runner.temp }}/post-gold-secrets/cloudflare-account-id
           CLOUDFLARE_GOLD_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-gold-vision-quota-v1.json
           PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
-          ISCO_ENGINE_SHA: 7516d772445ee5156fe4b4f47851f2f4e5bff3d0
+          ISCO_ENGINE_SHA: e7724801511a881a4862c3a590dccf4fd6d22c34
           ISCO_CONTROL_REQUEST_ID: ${{ inputs.request_id }}
           ISCO_RELEASE_TAG_OVERRIDE: ${{ steps.consume.outputs.release_tag }}
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
