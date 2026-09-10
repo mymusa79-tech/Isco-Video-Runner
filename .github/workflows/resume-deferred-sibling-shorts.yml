@@ -1,0 +1,194 @@
+name: Produce Deferred Sibling Shorts
+
+on:
+  workflow_dispatch:
+    inputs:
+      parent_release_tag:
+        description: "Exact delivered parent Release tag whose sibling Shorts are deferred"
+        required: true
+        type: string
+
+concurrency:
+  group: deferred-sibling-shorts-${{ inputs.parent_release_tag }}
+  cancel-in-progress: false
+
+env:
+  EXPECTED_ENGINE_SHA: e7724801511a881a4862c3a590dccf4fd6d22c34
+  CLOUDFLARE_GOLD_VISION_FREE_ONLY: "true"
+  CLOUDFLARE_GOLD_VISION_MAX_CALLS_PER_WORKFLOW: "5"
+
+jobs:
+  produce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout current Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify current certified runtime
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          python scripts/production_certification_gate.py \
+            --output "$RUNNER_TEMP/deferred-sibling-runtime-certification.json"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Checkout certified Engine pin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: e7724801511a881a4862c3a590dccf4fd6d22c34
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install locked derivative runtime
+        run: |
+          set -euo pipefail
+          test "$(git -C engine rev-parse HEAD)" = "$EXPECTED_ENGINE_SHA"
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg fonts-noto-core
+          cd engine
+          PYTHONPATH=src python ../scripts/security_v1_supply_chain_preflight.py lock --lock requirements-lock.txt
+          python -m pip install -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+          python -m pip check
+          python -m pip install 'piper-tts==1.4.2'
+
+      - name: Download Piper voice for derivative children
+        env:
+          PIPER_MODEL_DIR: ${{ runner.temp }}/piper-voices
+        run: |
+          set -euo pipefail
+          mkdir -p "$PIPER_MODEL_DIR"
+          for attempt in 1 2; do
+            if python -m piper.download_voices --data-dir "$PIPER_MODEL_DIR" ar_JO-kareem-medium; then
+              break
+            fi
+            if [ "$attempt" -eq 2 ]; then exit 1; fi
+            sleep 4
+          done
+          test -f "$PIPER_MODEL_DIR/ar_JO-kareem-medium.onnx"
+
+      - name: Download sealed parent derivative contract
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PARENT_RELEASE_TAG: ${{ inputs.parent_release_tag }}
+          PARENT_DIR: ${{ runner.temp }}/delivered-parent
+        run: |
+          set -euo pipefail
+          mkdir -p "$PARENT_DIR"
+          gh release view "$PARENT_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,targetCommitish >/dev/null
+          gh release download "$PARENT_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir "$PARENT_DIR" \
+            --pattern 'plan.json' \
+            --pattern 'master-lock.json' \
+            --pattern 'sibling-short-plan.json' \
+            --pattern 'sibling-short-deferred.json' \
+            --pattern 'sibling-short-parent-contract.json'
+          for name in plan.json master-lock.json sibling-short-plan.json sibling-short-deferred.json sibling-short-parent-contract.json; do
+            test -f "$PARENT_DIR/$name"
+          done
+
+      - name: Materialize child-only provider capabilities
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          test -n "$GROQ_API_KEY"
+          test -n "$OPENROUTER_API_KEY"
+          test -n "$PEXELS_API_KEY"
+          test -n "$PIXABAY_API_KEY"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/deferred-sibling-secrets"
+          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/deferred-sibling-secrets/gemini"
+          printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/deferred-sibling-secrets/groq"
+          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/deferred-sibling-secrets/openrouter"
+          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/deferred-sibling-secrets/pexels"
+          printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/deferred-sibling-secrets/pixabay"
+          printf '%s' "$CLOUDFLARE_API_TOKEN" > "$RUNNER_TEMP/deferred-sibling-secrets/cloudflare-api-token"
+          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" > "$RUNNER_TEMP/deferred-sibling-secrets/cloudflare-account-id"
+
+      - name: Produce isolated sibling Short set
+        env:
+          GEMINI_API_KEY_FILE: ${{ runner.temp }}/deferred-sibling-secrets/gemini
+          GROQ_API_KEY_FILE: ${{ runner.temp }}/deferred-sibling-secrets/groq
+          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/deferred-sibling-secrets/openrouter
+          PEXELS_API_KEY_FILE: ${{ runner.temp }}/deferred-sibling-secrets/pexels
+          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/deferred-sibling-secrets/pixabay
+          CLOUDFLARE_API_TOKEN_FILE: ${{ runner.temp }}/deferred-sibling-secrets/cloudflare-api-token
+          CLOUDFLARE_ACCOUNT_ID_FILE: ${{ runner.temp }}/deferred-sibling-secrets/cloudflare-account-id
+          CLOUDFLARE_GOLD_VISION_QUOTA_FILE: ${{ runner.temp }}/deferred-sibling-cloudflare-quota.json
+          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
+          ISCO_ENGINE_SHA: e7724801511a881a4862c3a590dccf4fd6d22c34
+          GEMINI_CONTENT_MODEL: gemini-3.7-flash
+          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          PARENT_DIR: ${{ runner.temp }}/delivered-parent
+          PARENT_RELEASE_TAG: ${{ inputs.parent_release_tag }}
+        run: |
+          set -euo pipefail
+          python scripts/run_deferred_sibling_shorts_v1.py \
+            --parent-dir "$PARENT_DIR" \
+            --parent-release-tag "$PARENT_RELEASE_TAG" \
+            --runtime-root "$RUNNER_TEMP/deferred-sibling-runtime" \
+            --output-dir "$RUNNER_TEMP/sibling-derived" \
+            --result "$RUNNER_TEMP/sibling-derived-result.json"
+
+      - name: Upload derivative bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: isco-siblings-${{ inputs.parent_release_tag }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/sibling-derived/*
+            ${{ runner.temp }}/sibling-derived-result.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish derivative Release without touching parent Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PARENT_RELEASE_TAG: ${{ inputs.parent_release_tag }}
+          DERIVED_DIR: ${{ runner.temp }}/sibling-derived
+        run: |
+          set -euo pipefail
+          tag="${PARENT_RELEASE_TAG}-siblings-${GITHUB_RUN_ID}"
+          assets=("$DERIVED_DIR"/*)
+          cmd=(
+            python scripts/release_transaction.py
+            --repository "$GITHUB_REPOSITORY"
+            --tag "$tag"
+            --target-sha "$GITHUB_SHA"
+            --title "Sibling Shorts for ${PARENT_RELEASE_TAG}"
+            --notes "Derived child release. Parent long-form Release is immutable and remains authoritative. YouTube publication remains manual."
+            --journal "$RUNNER_TEMP/deferred-sibling-release-transaction.json"
+          )
+          for asset in "${assets[@]}"; do test -f "$asset" && cmd+=(--asset "$asset"); done
+          "${cmd[@]}"
+
+      - name: Remove derivative provider material
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/deferred-sibling-secrets" || true
+          rm -rf "$RUNNER_TEMP/piper-voices" || true
+          rm -rf "$RUNNER_TEMP/deferred-sibling-runtime" || true
+          rm -rf "$RUNNER_TEMP/delivered-parent" || true
+          rm -rf "$RUNNER_TEMP/sibling-derived" || true
