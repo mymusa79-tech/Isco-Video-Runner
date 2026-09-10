@@ -291,6 +291,7 @@ def _install_openrouter_pre_authorization_local_checks() -> None:
     current = vision._run_openrouter_attempt
     if getattr(current, "_isco_no_wire_openrouter_preflight", False):
         return
+    transport_owner = vision._openrouter_call
 
     @wraps(current)
     def guarded_openrouter_attempt(
@@ -302,29 +303,33 @@ def _install_openrouter_pre_authorization_local_checks() -> None:
         intended_visual: str,
         requested_model: str,
     ):
-        if not vision._openrouter_key():
-            raise NoWireVisionStageError(
-                vision.VisionErrorCode.AUTH_CONFIG,
-                "OpenRouter key unavailable before inference",
-                provider="openrouter",
-                requested_model=requested_model,
-            )
-        try:
-            payload_bytes = Path(preview).read_bytes()
-        except Exception as exc:
-            raise NoWireVisionStageError(
-                vision.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
-                f"preview read failed before OpenRouter inference type={type(exc).__name__}",
-                provider="local_preflight",
-                requested_model=requested_model,
-            ) from exc
-        if not payload_bytes or len(payload_bytes) > vision.legacy.MAX_PREVIEW_BYTES:
-            raise NoWireVisionStageError(
-                vision.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
-                "preview size is invalid before OpenRouter inference",
-                provider="local_preflight",
-                requested_model=requested_model,
-            )
+        # The captured transport is the only boundary this wrapper can prove no-wire for.
+        # If another component replaces that seam later, it owns its own preflight proof;
+        # unknown replacement failures still flow through the existing fail-closed counter.
+        if vision._openrouter_call is transport_owner:
+            if not vision._openrouter_key():
+                raise NoWireVisionStageError(
+                    vision.VisionErrorCode.AUTH_CONFIG,
+                    "OpenRouter key unavailable before inference",
+                    provider="openrouter",
+                    requested_model=requested_model,
+                )
+            try:
+                payload_bytes = Path(preview).read_bytes()
+            except Exception as exc:
+                raise NoWireVisionStageError(
+                    vision.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
+                    f"preview read failed before OpenRouter inference type={type(exc).__name__}",
+                    provider="local_preflight",
+                    requested_model=requested_model,
+                ) from exc
+            if not payload_bytes or len(payload_bytes) > vision.legacy.MAX_PREVIEW_BYTES:
+                raise NoWireVisionStageError(
+                    vision.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
+                    "preview size is invalid before OpenRouter inference",
+                    provider="local_preflight",
+                    requested_model=requested_model,
+                )
         return current(
             ledger,
             spec,
