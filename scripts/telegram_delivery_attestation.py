@@ -1,13 +1,6 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
-from pathlib import Path
 from typing import Any
-
-
-TARGET_ATTESTATION_FILENAME = "telegram-target-attestation-v1.json"
 
 
 class TelegramTargetAttestationError(RuntimeError):
@@ -22,11 +15,6 @@ def _numeric_id(value: object) -> int:
         return int(text, 10)
     except (TypeError, ValueError) as exc:
         raise TelegramTargetAttestationError("Telegram target identity is not numeric") from exc
-
-
-def _target_fingerprint(chat_id: object) -> str:
-    canonical = str(_numeric_id(chat_id)).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
 
 
 def attest_configured_target(*, chat_id: object, allowed_user_id: object = "") -> int:
@@ -45,34 +33,6 @@ def attest_configured_target(*, chat_id: object, allowed_user_id: object = "") -
                 "Telegram private target does not match the authorized operator"
             )
     return target
-
-
-def write_target_attestation_receipt(path: Path, *, chat_id: object) -> None:
-    """Persist only a one-way target fingerprint after caller-side identity attestation."""
-    payload = {
-        "schema_version": 1,
-        "target_sha256": _target_fingerprint(chat_id),
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.chmod(0o600)
-    temporary.replace(path)
-    path.chmod(0o600)
-
-
-def verify_target_attestation_receipt(path: Path, *, chat_id: object) -> None:
-    """Require the final-notify target to be the target attested earlier in this job."""
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError) as exc:
-        raise TelegramTargetAttestationError("Telegram target attestation receipt is unavailable") from exc
-    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
-        raise TelegramTargetAttestationError("Telegram target attestation receipt is invalid")
-    actual = str(payload.get("target_sha256") or "").strip().lower()
-    expected = _target_fingerprint(chat_id)
-    if len(actual) != 64 or not hmac.compare_digest(actual, expected):
-        raise TelegramTargetAttestationError("Telegram terminal target does not match attested target")
 
 
 def attest_message_response(
