@@ -2,8 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+# This file is both importable as scripts.telegram_certification_resume and
+# executed directly by the certification-resume GitHub workflow. When Python
+# executes a file under scripts/ directly, sys.path[0] is the scripts/
+# directory rather than the repository root, so absolute imports from the
+# scripts package would otherwise fail before the CLI can inspect the durable
+# reservation. Bootstrap only that direct-execution case; module execution and
+# imports keep the normal package path untouched.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.telegram_production_queue import dispatch_entry_is_live
 
