@@ -26,7 +26,7 @@ jobs:
           fi
           echo "MISTRAL_API_KEY is present"
 
-      - name: Verify Mistral authentication without generation
+      - name: Verify Mistral authentication and model visibility
         shell: bash
         run: |
           set -euo pipefail
@@ -76,9 +76,88 @@ jobs:
               raise SystemExit("Mistral models response has unexpected shape")
 
           ids = {str(item.get("id")) for item in models if isinstance(item, dict) and item.get("id")}
+          if "mistral-small-latest" not in ids:
+              raise SystemExit("mistral-small-latest is not visible to this API key")
+
           print("Mistral authentication test: PASS")
           print(f"HTTP status: {status}")
           print(f"Visible models: {len(ids)}")
-          print(f"mistral-small-latest visible: {'mistral-small-latest' in ids}")
+          print("mistral-small-latest visible: True")
           print(f"mistral-medium-latest visible: {'mistral-medium-latest' in ids}")
+          PY
+
+      - name: Verify tiny Mistral Small generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          api_key = os.environ.get("MISTRAL_API_KEY", "")
+          if not api_key:
+              raise SystemExit("MISTRAL_API_KEY missing")
+
+          payload = json.dumps({
+              "model": "mistral-small-latest",
+              "messages": [
+                  {"role": "user", "content": "Reply with exactly: OK"}
+              ],
+              "temperature": 0,
+              "max_tokens": 8,
+          }).encode("utf-8")
+
+          request = urllib.request.Request(
+              "https://api.mistral.ai/v1/chat/completions",
+              data=payload,
+              headers={
+                  "Authorization": f"Bearer {api_key}",
+                  "Accept": "application/json",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+
+          try:
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  status = response.status
+                  body = response.read().decode("utf-8")
+          except urllib.error.HTTPError as exc:
+              raw = exc.read().decode("utf-8", errors="replace")
+              print(f"Mistral completion HTTP error: {exc.code} {exc.reason}", file=sys.stderr)
+              try:
+                  data = json.loads(raw)
+              except Exception:
+                  data = {}
+              if isinstance(data, dict):
+                  safe = {k: data[k] for k in ("message", "detail", "type", "code", "object") if k in data and isinstance(data[k], (str, int, float, bool))}
+                  if safe:
+                      print("Mistral error details: " + json.dumps(safe, ensure_ascii=False), file=sys.stderr)
+              raise SystemExit(1)
+
+          if status != 200:
+              raise SystemExit(f"Unexpected completion HTTP status: {status}")
+
+          data = json.loads(body)
+          choices = data.get("choices") if isinstance(data, dict) else None
+          if not isinstance(choices, list) or not choices:
+              raise SystemExit("Mistral completion response contains no choices")
+
+          message = choices[0].get("message") if isinstance(choices[0], dict) else None
+          content = message.get("content") if isinstance(message, dict) else None
+          if not isinstance(content, str) or not content.strip():
+              raise SystemExit("Mistral completion returned empty content")
+
+          usage = data.get("usage") if isinstance(data, dict) else None
+          total_tokens = usage.get("total_tokens") if isinstance(usage, dict) else None
+
+          print("Mistral Small generation test: PASS")
+          print(f"HTTP status: {status}")
+          print("Model requested: mistral-small-latest")
+          print(f"Non-empty response: True")
+          if isinstance(total_tokens, int):
+              print(f"Total tokens reported: {total_tokens}")
           PY
