@@ -323,9 +323,10 @@ def main() -> None:
         )
     except Exception as exc:
         # Preserve the enforcing failure as the workflow result, but flush exact recovery
-        # evidence first. Audio unavailability and Gold Vision unavailability have
-        # separate typed checkpoint owners; neither promotes semantic quality failures.
+        # evidence first. The budget is part of the resume contract, so persist the real
+        # in-memory ledger before either typed QC checkpoint attempts bundle capture.
         _write_failure_diagnostics_safely(out, exc)
+        ledger.write(out / "ai-budget.json")
         try:
             capture_audio_qc_pending_checkpoint(out, exc)
         except Exception as checkpoint_exc:
@@ -343,7 +344,6 @@ def main() -> None:
                 "QC_PENDING capture skipped without masking Gold failure "
                 f"({type(checkpoint_exc).__name__}: {str(checkpoint_exc)[:180]})"
             )
-        ledger.write(out / "ai-budget.json")
         telemetry_path = write_planning_telemetry(out)
         _attach_voice_audit_to_telemetry(telemetry_path, out)
         raise
