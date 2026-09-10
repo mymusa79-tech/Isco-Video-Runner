@@ -197,19 +197,24 @@ class UrlActionTests(unittest.TestCase):
 
 
 class DeliveryTests(unittest.TestCase):
+    @staticmethod
+    def _message(chat_id: int, message_id: int) -> dict:
+        return {"ok": True, "result": {"chat": {"id": chat_id}, "message_id": message_id}}
+
     def test_delivery_edits_saved_lifecycle_message_with_keyboard(self) -> None:
         calls = []
 
         def fake_request(token, method, payload):
             calls.append((method, payload))
-            return True
+            return self._message(123, 42)
 
         original = notify._telegram_request
         notify._telegram_request = fake_request
         try:
             ok = notify.deliver_terminal_message(
                 token="tok",
-                chat_id="chat",
+                chat_id="123",
+                allowed_user_id="123",
                 text="failure",
                 progress_message_id="42",
                 reply_markup={"inline_keyboard": [[{"text": "logs", "url": "https://example.com"}]]},
@@ -227,16 +232,95 @@ class DeliveryTests(unittest.TestCase):
 
         def fake_request(token, method, payload):
             calls.append((method, payload))
-            return True
+            return self._message(123, 7)
 
         original = notify._telegram_request
         notify._telegram_request = fake_request
         try:
-            ok = notify.deliver_terminal_message(token="tok", chat_id="chat", text="failure")
+            ok = notify.deliver_terminal_message(
+                token="tok",
+                chat_id="123",
+                allowed_user_id="123",
+                text="failure",
+            )
         finally:
             notify._telegram_request = original
         self.assertTrue(ok)
         self.assertEqual(calls[0][0], "sendMessage")
+
+    def test_wrong_private_operator_blocks_before_network(self) -> None:
+        calls = []
+
+        def fake_request(token, method, payload):
+            calls.append((method, payload))
+            return self._message(123, 7)
+
+        original = notify._telegram_request
+        notify._telegram_request = fake_request
+        try:
+            ok = notify.deliver_terminal_message(
+                token="tok",
+                chat_id="123",
+                allowed_user_id="456",
+                text="failure",
+            )
+        finally:
+            notify._telegram_request = original
+        self.assertFalse(ok)
+        self.assertEqual(calls, [])
+
+    def test_ok_true_wrong_chat_is_not_terminal_success(self) -> None:
+        calls = []
+
+        def fake_request(token, method, payload):
+            calls.append((method, payload))
+            return self._message(456, 7)
+
+        original = notify._telegram_request
+        notify._telegram_request = fake_request
+        try:
+            ok = notify.deliver_terminal_message(
+                token="tok",
+                chat_id="123",
+                allowed_user_id="123",
+                text="failure",
+            )
+        finally:
+            notify._telegram_request = original
+        self.assertFalse(ok)
+        self.assertEqual(calls[0][0], "sendMessage")
+
+    def test_untrusted_edit_falls_back_to_fresh_attested_send(self) -> None:
+        calls = []
+        responses = [self._message(123, 99), self._message(123, 100)]
+
+        def fake_request(token, method, payload):
+            calls.append((method, payload))
+            return responses.pop(0)
+
+        original = notify._telegram_request
+        notify._telegram_request = fake_request
+        try:
+            ok = notify.deliver_terminal_message(
+                token="tok",
+                chat_id="123",
+                allowed_user_id="123",
+                text="failure",
+                progress_message_id="42",
+            )
+        finally:
+            notify._telegram_request = original
+        self.assertTrue(ok)
+        self.assertEqual([method for method, _ in calls], ["editMessageText", "sendMessage"])
+
+    def test_allowed_user_id_reads_materialized_secret_file(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            secret_dir = root / "isco-secrets"
+            secret_dir.mkdir()
+            (secret_dir / "telegram-allowed-user-id").write_text("123", encoding="utf-8")
+            self.assertEqual(notify._allowed_user_id({}, root), "123")
+            self.assertEqual(notify._allowed_user_id({"TELEGRAM_ALLOWED_USER_ID": "456"}, root), "456")
 
 
 if __name__ == "__main__":

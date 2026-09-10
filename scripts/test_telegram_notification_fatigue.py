@@ -26,26 +26,31 @@ class TelegramNotificationFatigueCertificationTests(unittest.TestCase):
             }
         )
 
+    @staticmethod
+    def _message(chat_id: int, message_id: int) -> dict:
+        return {"ok": True, "result": {"chat": {"id": chat_id}, "message_id": message_id}}
+
     def test_one_start_message_then_stage_updates_edit_in_place(self) -> None:
         calls: list[tuple[str, dict]] = []
 
         def fake_request(method: str, payload: dict):
             calls.append((method, dict(payload)))
-            if method == "sendMessage":
-                return {"ok": True, "result": {"message_id": 42}}
-            return {"ok": True, "result": True}
+            return self._message(777, 42)
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             token = root / "token"
             chat = root / "chat"
+            allowed = root / "allowed"
             request = root / "request.json"
             token.write_text("tok", encoding="utf-8")
             chat.write_text("777", encoding="utf-8")
+            allowed.write_text("777", encoding="utf-8")
             request.write_text(json.dumps({"topic": "موضوع"}), encoding="utf-8")
             env = {
                 "TELEGRAM_BOT_TOKEN_FILE": str(token),
                 "TELEGRAM_CHAT_ID_FILE": str(chat),
+                "TELEGRAM_ALLOWED_USER_ID_FILE": str(allowed),
                 "REQUEST_FILE": str(request),
                 "RUNNER_TEMP": td,
                 "GITHUB_RUN_ID": "123",
@@ -67,12 +72,13 @@ class TelegramNotificationFatigueCertificationTests(unittest.TestCase):
 
         def fake_request(token: str, method: str, payload: dict):
             calls.append((method, dict(payload)))
-            return True
+            return self._message(777, 42)
 
         with patch.object(final_notify, "_telegram_request", side_effect=fake_request):
             final_notify.deliver_terminal_message(
                 token="tok",
                 chat_id="777",
+                allowed_user_id="777",
                 text="✅ الإنتاج مكتمل",
                 progress_message_id="42",
                 reply_markup={"inline_keyboard": []},
@@ -84,12 +90,13 @@ class TelegramNotificationFatigueCertificationTests(unittest.TestCase):
 
         def fake_request(token: str, method: str, payload: dict):
             calls.append((method, dict(payload)))
-            return True
+            return self._message(777, 43)
 
         with patch.object(final_notify, "_telegram_request", side_effect=fake_request):
             final_notify.deliver_terminal_message(
                 token="tok",
                 chat_id="777",
+                allowed_user_id="777",
                 text="❌ فشل الإنتاج",
                 progress_message_id="",
             )

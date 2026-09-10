@@ -24,6 +24,15 @@ def main() -> None:
     # Certify the effective Google grant is read-only before any Engine process receives it.
     enforce_from_runner_temp()
     _original_main()
+    # Import only after the core CLI has parsed/validated its own request. This preserves
+    # Runner-only `--help` and unit-test entrypoints where the private Engine is
+    # intentionally absent, while production has already installed the pinned Engine.
+    from scripts.cloudflare_gold_preflight import preflight_gold_cloudflare_from_runner_temp
+
+    # Run 232 reached an exact Final Master before discovering that Cloudflare's
+    # Gold-only route could not prove Billing Read / zero-cost eligibility. Reuse the
+    # exact runtime probes here so this configuration gap is discovered before render.
+    preflight_gold_cloudflare_from_runner_temp()
 
 
 # Preserve provider_preflight's long-standing import API for all existing tests/callers.

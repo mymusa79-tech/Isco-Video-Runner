@@ -228,15 +228,25 @@ class EditorialProjectionWorkflowTests(unittest.TestCase):
 class TerminalDeliveryObservabilityTests(unittest.TestCase):
     def test_failed_terminal_edit_uses_one_send_fallback(self) -> None:
         calls: list[str] = []
+        responses = [
+            None,
+            {"ok": True, "result": {"chat": {"id": 123}, "message_id": 43}},
+        ]
 
-        def fake_request(token: str, method: str, payload: dict[str, str]) -> bool:
+        def fake_request(token: str, method: str, payload: dict[str, str]):
             calls.append(method)
-            return method == "sendMessage"
+            return responses.pop(0)
 
         original = final_notify._telegram_request
         final_notify._telegram_request = fake_request
         try:
-            ok = final_notify.deliver_terminal_message(token="tok", chat_id="chat", text="terminal", progress_message_id="42")
+            ok = final_notify.deliver_terminal_message(
+                token="tok",
+                chat_id="123",
+                allowed_user_id="123",
+                text="terminal",
+                progress_message_id="42",
+            )
         finally:
             final_notify._telegram_request = original
         self.assertTrue(ok)

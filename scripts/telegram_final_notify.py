@@ -10,6 +10,11 @@ from typing import Any
 
 from scripts import telegram_operations_ui as ops_ui
 from scripts.qc_pending_resume_bundle_v1 import validate_resume_bundle
+from scripts.telegram_delivery_attestation import (
+    TelegramTargetAttestationError,
+    attest_configured_target,
+    attest_message_response,
+)
 
 _FAILURE_STAGES = (
     ("CHECKOUT_RUNNER_OUTCOME", "Checkout Runner"),
@@ -35,9 +40,9 @@ _EXCEPTION_PREFIX = re.compile(
 _QC_PENDING_BUNDLE_DIRNAME = "short-circuit-gold-resume-v2"
 
 
-def _telegram_request(token: str, method: str, payload: dict[str, str]) -> bool:
+def _telegram_request(token: str, method: str, payload: dict[str, str]) -> dict[str, Any] | None:
     if not token:
-        return False
+        return None
     url = f"https://api.telegram.org/bot{token}/{method}"
     data = urllib.parse.urlencode(payload).encode("utf-8")
     try:
@@ -45,12 +50,13 @@ def _telegram_request(token: str, method: str, payload: dict[str, str]) -> bool:
             body = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
         print(f"Telegram {method} failed: {type(exc).__name__}: {exc}")
-        return False
-    if not body.get("ok"):
-        print(f"Telegram {method} failed: {body.get('description', 'unknown API error')}")
-        return False
+        return None
+    if not isinstance(body, dict) or not body.get("ok"):
+        description = body.get("description", "unknown API error") if isinstance(body, dict) else "invalid API envelope"
+        print(f"Telegram {method} failed: {description}")
+        return None
     print(f"Telegram {method} succeeded")
-    return True
+    return body
 
 
 def _read_json_optional(path: Path | None) -> dict[str, Any]:
@@ -66,6 +72,17 @@ def _read_json_optional(path: Path | None) -> dict[str, Any]:
 def _path_optional(value: str) -> Path | None:
     text = str(value or "").strip()
     return Path(text) if text else None
+
+
+def _allowed_user_id(env: dict[str, str], runner_temp: Path) -> str:
+    direct = str(env.get("TELEGRAM_ALLOWED_USER_ID") or "").strip()
+    if direct:
+        return direct
+    path = runner_temp / "isco-secrets" / "telegram-allowed-user-id"
+    try:
+        return path.read_text(encoding="utf-8").strip() if path.is_file() else ""
+    except OSError:
+        return ""
 
 
 def _current_qc_pending() -> dict[str, Any] | None:
@@ -324,9 +341,21 @@ def terminal_url_keyboard(*, job_status: str, run_url: str, results_url: str = "
 
 
 def deliver_terminal_message(
-    *, token: str, chat_id: str, text: str, progress_message_id: str = "",
+    *,
+    token: str,
+    chat_id: str,
+    text: str,
+    progress_message_id: str = "",
     reply_markup: dict[str, Any] | None = None,
+    allowed_user_id: str = "",
 ) -> bool:
+    try:
+        attest_configured_target(chat_id=chat_id, allowed_user_id=allowed_user_id)
+    except TelegramTargetAttestationError as exc:
+        print(f"Telegram terminal target attestation failed before delivery: {exc}")
+        print("TELEGRAM_TERMINAL_DELIVERY=target_unattested")
+        return False
+
     base_payload: dict[str, str] = {"chat_id": chat_id, "text": text}
     if reply_markup is not None:
         base_payload["reply_markup"] = json.dumps(reply_markup, ensure_ascii=False, separators=(",", ":"))
@@ -334,19 +363,44 @@ def deliver_terminal_message(
         edit_payload = dict(base_payload)
         edit_payload["message_id"] = progress_message_id
         print(f"Telegram notify: editMessageText (message_id={progress_message_id})")
-        if _telegram_request(token, "editMessageText", edit_payload):
-            print("TELEGRAM_TERMINAL_DELIVERY=edited")
-            return True
-        print("Telegram notify: terminal edit failed; bounded sendMessage fallback")
-        if _telegram_request(token, "sendMessage", base_payload):
-            print("TELEGRAM_TERMINAL_DELIVERY=fallback_sent")
-            return True
+        response = _telegram_request(token, "editMessageText", edit_payload)
+        if response is not None:
+            try:
+                attest_message_response(
+                    response,
+                    expected_chat_id=chat_id,
+                    expected_message_id=progress_message_id,
+                )
+            except TelegramTargetAttestationError as exc:
+                print(f"Telegram terminal edit attestation failed: {exc}")
+            else:
+                print("TELEGRAM_TERMINAL_DELIVERY=edited")
+                return True
+        print("Telegram notify: terminal edit failed or untrusted; bounded sendMessage fallback")
+        response = _telegram_request(token, "sendMessage", base_payload)
+        if response is not None:
+            try:
+                attest_message_response(response, expected_chat_id=chat_id)
+            except TelegramTargetAttestationError as exc:
+                print(f"Telegram terminal fallback attestation failed: {exc}")
+            else:
+                print("TELEGRAM_TERMINAL_DELIVERY=fallback_sent")
+                return True
         print("TELEGRAM_TERMINAL_DELIVERY=failed")
         return False
     print("Telegram notify: sendMessage (no saved progress message_id)")
-    delivered = _telegram_request(token, "sendMessage", base_payload)
-    print(f"TELEGRAM_TERMINAL_DELIVERY={'sent' if delivered else 'failed'}")
-    return delivered
+    response = _telegram_request(token, "sendMessage", base_payload)
+    if response is None:
+        print("TELEGRAM_TERMINAL_DELIVERY=failed")
+        return False
+    try:
+        attest_message_response(response, expected_chat_id=chat_id)
+    except TelegramTargetAttestationError as exc:
+        print(f"Telegram terminal send attestation failed: {exc}")
+        print("TELEGRAM_TERMINAL_DELIVERY=failed")
+        return False
+    print("TELEGRAM_TERMINAL_DELIVERY=sent")
+    return True
 
 
 def _elapsed_seconds(env: dict[str, str]) -> int:
@@ -396,6 +450,7 @@ def main() -> int:
 
     run_number = str(env.get("GITHUB_RUN_NUMBER") or "").strip()
     runner_temp = Path(str(env.get("RUNNER_TEMP") or "."))
+    allowed_user_id = _allowed_user_id(env, runner_temp)
     elapsed = _elapsed_seconds(env)
     checkpoint = _current_qc_pending()
     terminal_status = "qc_pending" if checkpoint is not None else terminal_delivery_status(env)
@@ -447,6 +502,7 @@ def main() -> int:
         text=text,
         progress_message_id=progress_message_id,
         reply_markup=keyboard,
+        allowed_user_id=allowed_user_id,
     )
     return 0 if delivered else 1
 

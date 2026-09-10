@@ -5,9 +5,12 @@ on:
     paths:
       - "scripts/provider_preflight.py"
       - "scripts/provider_preflight_core.py"
-      - "scripts/youtube_oauth_readonly_firewall.py"
+      - "scripts/cloudflare_gold_preflight.py"
+      - "scripts/gold_cloudflare_vision_fallback.py"
+      - "scripts/run_v3_voice.py"
       - "scripts/test_provider_preflight.py"
       - "scripts/test_youtube_oauth_readonly_firewall.py"
+      - "scripts/test_qc_pending_resilience_contract.py"
       - ".github/workflows/produce-resilient-v4.yml"
       - ".github/workflows/telegram-production-request.yml"
       - ".github/workflows/telegram-editorial-control.yml"
@@ -19,9 +22,12 @@ on:
     paths:
       - "scripts/provider_preflight.py"
       - "scripts/provider_preflight_core.py"
-      - "scripts/youtube_oauth_readonly_firewall.py"
+      - "scripts/cloudflare_gold_preflight.py"
+      - "scripts/gold_cloudflare_vision_fallback.py"
+      - "scripts/run_v3_voice.py"
       - "scripts/test_provider_preflight.py"
       - "scripts/test_youtube_oauth_readonly_firewall.py"
+      - "scripts/test_qc_pending_resilience_contract.py"
       - ".github/workflows/produce-resilient-v4.yml"
       - ".github/workflows/telegram-production-request.yml"
       - ".github/workflows/telegram-editorial-control.yml"
@@ -50,4 +56,5 @@ jobs:
           set -euo pipefail
           python -m unittest \
             scripts.test_provider_preflight \
-            scripts.test_youtube_oauth_readonly_firewall
+            scripts.test_youtube_oauth_readonly_firewall \
+            scripts.test_qc_pending_resilience_contract

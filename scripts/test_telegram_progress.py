@@ -121,34 +121,46 @@ class TelegramRequestDiagnosticLoggingTests(unittest.TestCase):
             token_path.write_text("fake-token", encoding="utf-8")
             chat_path = Path(d) / "chat"
             chat_path.write_text("123", encoding="utf-8")
-            env = {"TELEGRAM_BOT_TOKEN_FILE": str(token_path), "TELEGRAM_CHAT_ID_FILE": str(chat_path), "RUNNER_TEMP": d}
+            allowed_path = Path(d) / "allowed"
+            allowed_path.write_text("123", encoding="utf-8")
+            env = {
+                "TELEGRAM_BOT_TOKEN_FILE": str(token_path),
+                "TELEGRAM_CHAT_ID_FILE": str(chat_path),
+                "TELEGRAM_ALLOWED_USER_ID_FILE": str(allowed_path),
+                "RUNNER_TEMP": d,
+            }
+            response = {"ok": True, "result": {"message_id": 7, "chat": {"id": 123}}}
             with patch.dict(os.environ, env, clear=False):
-                with patch("urllib.request.urlopen", return_value=self._mock_http_response({"ok": True, "result": {"message_id": 7}})):
+                with patch("urllib.request.urlopen", return_value=self._mock_http_response(response)):
                     with redirect_stdout(buf):
                         tp.start_progress()
         self.assertIn("Telegram notify: sendMessage (initial lifecycle message)", buf.getvalue())
-        self.assertIn("Telegram progress message created: message_id=7", buf.getvalue())
+        self.assertIn("Telegram progress message created and target-attested: message_id=7", buf.getvalue())
 
     def test_update_stage_prints_which_stage_before_calling(self) -> None:
         tp._state["message_id"] = 7
         buf = io.StringIO()
-        with patch("urllib.request.urlopen", return_value=self._mock_http_response({"ok": True})):
+        response = {"ok": True, "result": {"message_id": 7, "chat": {"id": 123}}}
+        with patch("urllib.request.urlopen", return_value=self._mock_http_response(response)):
             with redirect_stdout(buf):
                 tp.update_stage("voice")
         self.assertIn("Telegram notify: editMessageText (stage=voice)", buf.getvalue())
         self.assertIn("Telegram editMessageText succeeded", buf.getvalue())
+        self.assertEqual(tp._state["message_id"], 7)
 
     def test_real_stage_change_edits_immediately_without_a_time_throttle(self) -> None:
         tp._state["message_id"] = 7
         tp._state["current_stage"] = "mux"
         tp._state["completed"] = {"planning", "voice", "visuals"}
+        response = {"ok": True, "result": {"message_id": 7, "chat": {"id": 123}}}
         with patch.object(tp, "_enqueue_progress_snapshot") as snapshot, patch.object(
-            tp, "_telegram_request", return_value={"ok": True}
+            tp, "_telegram_request", return_value=response
         ) as request:
             tp.advance_stage("final_master")
 
         self.assertEqual(tp._state["current_stage"], "final_master")
         self.assertIn("mux", tp._state["completed"])
+        self.assertEqual(tp._state["message_id"], 7)
         snapshot.assert_called_once_with("final_master")
         request.assert_called_once()
         self.assertEqual(request.call_args.args[0], "editMessageText")

@@ -13,6 +13,11 @@ from pathlib import Path
 import isco_video_agent.orchestrator as orchestrator
 
 from scripts import telegram_operations_ui as ops_ui
+from scripts.telegram_delivery_attestation import (
+    TelegramTargetAttestationError,
+    attest_configured_target,
+    attest_message_response,
+)
 
 # Stage order follows the real pipeline: planning, TTS, visual clip prep, final mux.
 # Best-effort only - a Telegram/GitHub observability outage must never fail real
@@ -215,9 +220,10 @@ def _enqueue_progress_snapshot(stage: str) -> None:
 
 
 def start_progress() -> None:
-    """Create the single lifecycle message later edited by stages and terminal notify."""
+    """Create one lifecycle message only after its destination identity is attested."""
     token = _read_secret_file_optional("TELEGRAM_BOT_TOKEN_FILE")
     chat_id = _read_secret_file_optional("TELEGRAM_CHAT_ID_FILE")
+    allowed_user_id = _read_secret_file_optional("TELEGRAM_ALLOWED_USER_ID_FILE")
     _state["token"] = token
     _state["chat_id"] = chat_id
     _state["completed"] = set()
@@ -230,6 +236,11 @@ def start_progress() -> None:
     if not token or not chat_id:
         print("Telegram progress tracking disabled: bot token or chat id not configured")
         return
+    try:
+        attest_configured_target(chat_id=chat_id, allowed_user_id=allowed_user_id)
+    except TelegramTargetAttestationError as exc:
+        print(f"Telegram target attestation failed before send: {exc}")
+        return
     print("Telegram notify: sendMessage (initial lifecycle message)")
     resp = _telegram_request(
         "sendMessage",
@@ -237,9 +248,15 @@ def start_progress() -> None:
     )
     if not resp:
         return
-    message_id = resp["result"]["message_id"]
+    try:
+        message_id = attest_message_response(resp, expected_chat_id=chat_id)
+    except TelegramTargetAttestationError as exc:
+        print(f"Telegram target attestation failed after send: {exc}")
+        return
+    # Persist only an attested message id. A technically successful API call to a
+    # different destination must never become the lifecycle message for this run.
     _state["message_id"] = message_id
-    print(f"Telegram progress message created: message_id={message_id}")
+    print(f"Telegram progress message created and target-attested: message_id={message_id}")
     runner_temp = os.environ.get("RUNNER_TEMP", "")
     if runner_temp:
         try:
@@ -257,7 +274,7 @@ def update_stage(stage: str) -> None:
     if _state["message_id"] is None:
         return
     print(f"Telegram notify: editMessageText (stage={stage})")
-    _telegram_request(
+    resp = _telegram_request(
         "editMessageText",
         {
             "chat_id": _state["chat_id"],
@@ -266,6 +283,19 @@ def update_stage(stage: str) -> None:
             "reply_markup": _progress_reply_markup(),
         },
     )
+    if not resp:
+        return
+    try:
+        attest_message_response(
+            resp,
+            expected_chat_id=_state["chat_id"],
+            expected_message_id=_state["message_id"],
+        )
+    except TelegramTargetAttestationError as exc:
+        # Stop editing an identity that Telegram no longer proves. Production stays
+        # authoritative and continues; only the untrusted observability handle is cut.
+        print(f"Telegram edit target attestation failed: {exc}")
+        _state["message_id"] = None
 
 
 def advance_stage(stage: str) -> None:

@@ -13,6 +13,7 @@ on:
       - "scripts/telegram_rich_integration.py"
       - "scripts/telegram_topic_memory_ui.py"
       - "scripts/telegram_final_notify.py"
+      - "scripts/telegram_delivery_attestation.py"
       - "scripts/telegram_operations_ui.py"
       - "scripts/telegram_status_contract.json"
       - "scripts/telegram_status_model.py"
@@ -25,6 +26,7 @@ on:
       - "scripts/test_telegram_topic_memory_ui.py"
       - "scripts/test_telegram_library_split.py"
       - "scripts/test_telegram_final_notify.py"
+      - "scripts/test_telegram_delivery_attestation.py"
       - "scripts/test_telegram_observability_v1.py"
       - "scripts/test_telegram_terminal_truth_family.py"
       - ".github/workflows/telegram-rich-ui-tests.yml"
@@ -39,6 +41,7 @@ on:
       - "scripts/telegram_rich_integration.py"
       - "scripts/telegram_topic_memory_ui.py"
       - "scripts/telegram_final_notify.py"
+      - "scripts/telegram_delivery_attestation.py"
       - "scripts/telegram_operations_ui.py"
       - "scripts/telegram_status_contract.json"
       - "scripts/telegram_status_model.py"
@@ -51,6 +54,7 @@ on:
       - "scripts/test_telegram_topic_memory_ui.py"
       - "scripts/test_telegram_library_split.py"
       - "scripts/test_telegram_final_notify.py"
+      - "scripts/test_telegram_delivery_attestation.py"
       - "scripts/test_telegram_observability_v1.py"
       - "scripts/test_telegram_terminal_truth_family.py"
       - ".github/workflows/telegram-rich-ui-tests.yml"
@@ -80,6 +84,7 @@ jobs:
             scripts/telegram_rich_integration.py \
             scripts/telegram_topic_memory_ui.py \
             scripts/telegram_final_notify.py \
+            scripts/telegram_delivery_attestation.py \
             scripts/telegram_operations_ui.py \
             scripts/telegram_status_model.py \
             scripts/telegram_status_projection.py \
@@ -99,5 +104,6 @@ jobs:
             scripts.test_telegram_topic_memory_ui \
             scripts.test_telegram_library_split \
             scripts.test_telegram_final_notify \
+            scripts.test_telegram_delivery_attestation \
             scripts.test_telegram_observability_v1 \
             scripts.test_telegram_terminal_truth_family
