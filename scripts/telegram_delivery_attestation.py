@@ -18,16 +18,20 @@ def _numeric_id(value: object) -> int:
 
 
 def attest_configured_target(*, chat_id: object, allowed_user_id: object = "") -> int:
-    """Return the canonical target id and independently bind private chats to operator.
+    """Return canonical target id and independently bind private chats to the operator.
 
-    Positive Telegram chat ids are private-user chats. When an allowed operator id is
-    configured, both must identify the same user. Negative ids are group/supergroup
-    destinations and cannot be equated with a user id, so response binding still applies
-    but no false private-chat equality is imposed.
+    Positive Telegram chat ids are private-user chats, so the separately configured
+    allowed operator id is mandatory and must identify that same user. Negative ids are
+    group/supergroup destinations and cannot be equated with a user id; those remain
+    bound by the returned Bot API chat identity instead of a false user/group equality.
     """
     target = _numeric_id(chat_id)
     allowed = str(allowed_user_id or "").strip()
-    if target > 0 and allowed:
+    if target > 0:
+        if not allowed:
+            raise TelegramTargetAttestationError(
+                "Telegram private target cannot be independently attested"
+            )
         if _numeric_id(allowed) != target:
             raise TelegramTargetAttestationError(
                 "Telegram private target does not match the authorized operator"
