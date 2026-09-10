@@ -4,8 +4,8 @@
     "approved_target": true,
     "pending_actions_count": 0,
     "production_inflight_count": 0,
-    "production_queue_count": 1,
-    "production_reserved_count": 1,
+    "production_queue_count": 0,
+    "production_reserved_count": 0,
     "production_waiting_count": 0,
     "request_count": 41,
     "research_active": true,
@@ -17,8 +17,8 @@
     "used_long_count": 0,
     "used_short_count": 0
   },
-  "generated_at": "2026-09-10T22:22:30.819501Z",
+  "generated_at": "2026-09-10T22:25:42.300116Z",
   "release_approvals": [],
   "schema_version": 1,
-  "source_last_event_at": "2026-09-10T22:22:30.819501+00:00"
+  "source_last_event_at": "2026-09-10T22:25:42.300116+00:00"
 }
