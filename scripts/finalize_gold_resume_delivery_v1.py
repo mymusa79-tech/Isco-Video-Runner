@@ -2,10 +2,10 @@ from __future__ import annotations
 
 """Finish an accepted QC_PENDING source without letting downstream work own the parent.
 
-The long-form parent becomes immutable immediately after successful Gold.  Packaging and
+The long-form parent becomes immutable immediately after successful Gold. Packaging and
 release staging may continue over those exact bytes, while approved sibling Shorts are
-recorded as deferred isolated child work.  No provider-backed child production is allowed
-to sit between parent Gold acceptance and parent delivery.
+recorded as deferred isolated child work. No provider-backed child production or observer
+call is allowed to sit between parent Gold acceptance and parent delivery.
 """
 
 import argparse
@@ -25,6 +25,7 @@ from scripts.unified_delivery import write_delivery_manifest
 
 CONTRACT_ID = "gold.qc-pending.post-gold-delivery.v1"
 DEFERRED_SIBLING_CONTRACT_ID = "post_gold.sibling_short_deferred.v1"
+SIBLING_PARENT_CONTRACT_ID = "post_gold.sibling_parent_contract.v1"
 
 
 def _sha256_file(path: Path) -> str:
@@ -125,6 +126,37 @@ def _finalize_standalone_short(root: Path, request: dict[str, Any]) -> None:
     finalize_short_quality(root, runtime_request, pre)
 
 
+def _write_sibling_parent_contract(root: Path, request: dict[str, Any]) -> Path:
+    candidate = request.get("candidate")
+    if not isinstance(candidate, dict) or not candidate:
+        raise RuntimeError("Deferred sibling continuation requires approved parent candidate evidence")
+    document = {
+        "schema_version": 1,
+        "contract_id": SIBLING_PARENT_CONTRACT_ID,
+        "approved_by_user": True,
+        "kind": "long",
+        "approval_scope": "long_plus_sibling_shorts",
+        "production_dispatch_authorized": False,
+        "request_id": request.get("request_id"),
+        "request_sha256": request.get("request_sha256"),
+        "approved_topic": request.get("approved_topic"),
+        "approved_at": request.get("approved_at"),
+        "weekly_option_id": request.get("weekly_option_id"),
+        "content_boundaries": list(request.get("content_boundaries") or []),
+        "candidate": dict(candidate),
+        "sibling_shorts": dict(request.get("sibling_shorts") or {}),
+        "source": request.get("source"),
+        "status": request.get("status"),
+        "youtube_publish_mode": "manual_in_youtube_studio",
+    }
+    required = ("request_id", "request_sha256", "approved_topic")
+    if any(not str(document.get(key) or "").strip() for key in required):
+        raise RuntimeError("Deferred sibling parent contract lost approval provenance")
+    path = root / "sibling-short-parent-contract.json"
+    path.write_text(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
 def _defer_approved_sibling_shorts(
     root: Path,
     request: dict[str, Any],
@@ -142,6 +174,7 @@ def _defer_approved_sibling_shorts(
     lock_path = root / "master-lock.json"
     if not lock_path.is_file():
         raise RuntimeError("Deferred sibling continuation requires locked parent master")
+    parent_contract = _write_sibling_parent_contract(root, request)
     document = {
         "schema_version": 1,
         "contract_id": DEFERRED_SIBLING_CONTRACT_ID,
@@ -152,6 +185,10 @@ def _defer_approved_sibling_shorts(
         "master_lock": {
             "file": lock_path.name,
             "sha256": _sha256_file(lock_path),
+        },
+        "parent_contract": {
+            "file": parent_contract.name,
+            "sha256": _sha256_file(parent_contract),
         },
         "sibling_short_plan": {
             "file": sibling_plan.name,
@@ -211,6 +248,9 @@ def finalize_after_gold_resume(
     if kind == "short":
         _finalize_standalone_short(root, request)
         staged_shorts: list[dict[str, Any]] = []
+        # Preserve the existing Short observer path. The long-form parent path below is
+        # deliberately provider-free once Gold has accepted the immutable master.
+        run_post_gold_observers(root)
     elif scope in {"long_only", "long_plus_sibling_shorts"}:
         write_master_lock(
             root,
@@ -229,9 +269,8 @@ def finalize_after_gold_resume(
     else:
         raise RuntimeError("Post-Gold continuation approval scope is unsupported")
 
-    # Everything below this point must be deterministic with respect to the accepted
-    # parent. Observers may add non-authoritative evidence; they cannot own or rebuild it.
-    run_post_gold_observers(root)
+    # Long-form work below this line is deterministic/local with respect to the accepted
+    # parent: no Gemini/Groq/OpenRouter/Pexels/Pixabay/Piper call is permitted here.
     production_manifest = _write_resume_production_manifest(
         root,
         fmt=fmt,
