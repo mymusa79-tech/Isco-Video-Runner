@@ -15,6 +15,10 @@ class TelegramDeliveryAttestationTests(unittest.TestCase):
         with self.assertRaises(TelegramTargetAttestationError):
             attest_configured_target(chat_id="123", allowed_user_id="456")
 
+    def test_private_target_without_independent_operator_is_rejected(self) -> None:
+        with self.assertRaises(TelegramTargetAttestationError):
+            attest_configured_target(chat_id="123", allowed_user_id="")
+
     def test_group_target_does_not_fake_user_id_equality(self) -> None:
         self.assertEqual(attest_configured_target(chat_id="-100123", allowed_user_id="456"), -100123)
 
