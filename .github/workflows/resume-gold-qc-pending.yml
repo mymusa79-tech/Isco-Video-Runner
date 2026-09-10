@@ -58,13 +58,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify exact Engine pin
-        working-directory: engine
-        run: test "$(git rev-parse HEAD)" = "$EXPECTED_ENGINE_SHA"
-
-      - name: Install locked Gold runtime
+      - name: Verify and install exact Engine pin
         run: |
           set -euo pipefail
+          test "$(git -C engine rev-parse HEAD)" = "$EXPECTED_ENGINE_SHA"
           sudo apt-get -o Acquire::Retries=3 update
           sudo apt-get -o Acquire::Retries=3 install -y ffmpeg fonts-noto-core openssl unzip
           cd engine
@@ -309,63 +306,13 @@ jobs:
             --runtime-runner-sha "$GITHUB_SHA" \
             --runtime-engine-sha "$EXPECTED_ENGINE_SHA"
 
-      - name: Prepare sibling Short runtime when approved
-        if: steps.consume.outputs.approval_scope == 'long_plus_sibling_shorts'
-        env:
-          PIPER_MODEL_DIR: ${{ runner.temp }}/piper-voices
-        run: |
-          set -euo pipefail
-          python -m pip install 'piper-tts==1.4.2'
-          mkdir -p "$PIPER_MODEL_DIR"
-          for attempt in 1 2; do
-            if python -m piper.download_voices --data-dir "$PIPER_MODEL_DIR" ar_JO-kareem-medium; then
-              break
-            fi
-            if [ "$attempt" -eq 2 ]; then exit 1; fi
-            sleep 4
-          done
-          test -f "$PIPER_MODEL_DIR/ar_JO-kareem-medium.onnx"
-
-      - name: Rematerialize post-Gold provider capabilities
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -euo pipefail
-          umask 077
-          rm -rf "$RUNNER_TEMP/post-gold-secrets"
-          mkdir -p "$RUNNER_TEMP/post-gold-secrets"
-          printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/post-gold-secrets/gemini"
-          printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/post-gold-secrets/groq"
-          printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/post-gold-secrets/openrouter"
-          printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/post-gold-secrets/pexels"
-          printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/post-gold-secrets/pixabay"
-          printf '%s' "$CLOUDFLARE_API_TOKEN" > "$RUNNER_TEMP/post-gold-secrets/cloudflare-api-token"
-          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" > "$RUNNER_TEMP/post-gold-secrets/cloudflare-account-id"
-
-      - name: Finish exact approved scope after Gold
+      - name: Finish exact approved scope after Gold without provider capabilities
         id: finish_scope
         env:
           CONTROL_PLANE_PRODUCTION_ENABLED: "true"
-          GEMINI_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/gemini
-          GROQ_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/groq
-          OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/openrouter
-          PEXELS_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/pexels
-          PIXABAY_API_KEY_FILE: ${{ runner.temp }}/post-gold-secrets/pixabay
-          CLOUDFLARE_API_TOKEN_FILE: ${{ runner.temp }}/post-gold-secrets/cloudflare-api-token
-          CLOUDFLARE_ACCOUNT_ID_FILE: ${{ runner.temp }}/post-gold-secrets/cloudflare-account-id
-          CLOUDFLARE_GOLD_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-gold-vision-quota-v1.json
-          PIPER_MODEL_PATH: ${{ runner.temp }}/piper-voices/ar_JO-kareem-medium.onnx
           ISCO_ENGINE_SHA: e7724801511a881a4862c3a590dccf4fd6d22c34
           ISCO_CONTROL_REQUEST_ID: ${{ inputs.request_id }}
           ISCO_RELEASE_TAG_OVERRIDE: ${{ steps.consume.outputs.release_tag }}
-          GEMINI_CONTENT_MODEL: gemini-3.7-flash
-          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
           OUTPUT_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
           REQUEST_PATH: ${{ steps.consume.outputs.request_path }}
@@ -381,16 +328,20 @@ jobs:
             --runtime-root "$RUNNER_TEMP/gold-resume-children" \
             --result "$RUNNER_TEMP/post-gold-delivery-result.json"
 
-      - name: Validate resumed Master and delivery
+      - name: Validate locked Master and staged delivery
         env:
           OUTPUT_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
           EXPECTED_FINAL_SHA: ${{ steps.consume.outputs.final_sha256 }}
+          KIND: ${{ steps.consume.outputs.kind }}
+          APPROVAL_SCOPE: ${{ steps.consume.outputs.approval_scope }}
         run: |
           set -euo pipefail
-          OUTPUT_DIR="$OUTPUT_DIR" EXPECTED_FINAL_SHA="$EXPECTED_FINAL_SHA" PYTHONPATH="${GITHUB_WORKSPACE}/engine/src:${GITHUB_WORKSPACE}" python - <<'PY'
+          OUTPUT_DIR="$OUTPUT_DIR" EXPECTED_FINAL_SHA="$EXPECTED_FINAL_SHA" KIND="$KIND" APPROVAL_SCOPE="$APPROVAL_SCOPE" PYTHONPATH="${GITHUB_WORKSPACE}/engine/src:${GITHUB_WORKSPACE}" python - <<'PY'
           import hashlib, json, os
           from pathlib import Path
           from scripts.packaging_delivery_contract import validate_packaging_delivery
+          from scripts.post_gold_master_lock_v1 import assert_master_lock
+
           root = Path(os.environ['OUTPUT_DIR'])
           final = root / 'final.mp4'
           digest = hashlib.sha256(final.read_bytes()).hexdigest()
@@ -406,11 +357,29 @@ jobs:
               raise SystemExit('Resumed Master lacks Gold/Viewer Quality PASS')
           if delivery.get('release_state') != 'staged' or delivery.get('publication_performed') is not False:
               raise SystemExit('Resumed delivery escaped staged/manual publication contract')
+          if os.environ['KIND'] == 'long':
+              assert_master_lock(root, expected_final_sha=digest)
+              if delivery.get('master_lock') is None:
+                  raise SystemExit('Long delivery did not bind immutable master-lock.json')
+              if os.environ['APPROVAL_SCOPE'] == 'long_plus_sibling_shorts':
+                  deferred_path = root / 'sibling-short-deferred.json'
+                  parent_contract = root / 'sibling-short-parent-contract.json'
+                  if not deferred_path.is_file() or not parent_contract.is_file():
+                      raise SystemExit('Long+Shorts delivery lost deferred child contract')
+                  deferred = json.loads(deferred_path.read_text(encoding='utf-8'))
+                  if deferred.get('blocking_parent_delivery') is not False or deferred.get('provider_calls_performed') is not False:
+                      raise SystemExit('Deferred sibling contract can still block parent delivery')
+                  if deferred.get('automatic_production_started') is not False:
+                      raise SystemExit('Sibling provider production started inside parent post-Gold path')
+                  if delivery.get('delivery_kind') != 'long' or delivery.get('requested_delivery_kind') != 'long_plus_shorts':
+                      raise SystemExit('Parent delivery identity is inconsistent with deferred sibling scope')
+                  if delivery.get('parent_delivery_independent_of_derived_assets') is not True:
+                      raise SystemExit('Parent delivery is still coupled to sibling assets')
           validate_packaging_delivery(root)
-          print(f'Resumed Master PASS final_sha256={digest} delivery_kind={delivery.get("delivery_kind")}')
+          print(f'Locked Master PASS final_sha256={digest} delivery_kind={delivery.get("delivery_kind")}')
           PY
 
-      - name: Upload resumed delivery bundle
+      - name: Upload resumed parent delivery bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: isco-gold-resumed-${{ steps.consume.outputs.release_tag }}
@@ -424,6 +393,7 @@ jobs:
             ${{ steps.restore_bundle.outputs.output_dir }}/production-manifest.json
             ${{ steps.restore_bundle.outputs.output_dir }}/delivery-manifest.json
             ${{ steps.restore_bundle.outputs.output_dir }}/final-master-qc.json
+            ${{ steps.restore_bundle.outputs.output_dir }}/master-lock.json
             ${{ steps.restore_bundle.outputs.output_dir }}/thumbnail-plan.json
             ${{ steps.restore_bundle.outputs.output_dir }}/thumbnail-*.jpg
             ${{ steps.restore_bundle.outputs.output_dir }}/rights-manifest.json
@@ -444,7 +414,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: python ../scripts/telegram_publish_gate.py
 
-      - name: Create GitHub Release from resumed reviewed bytes
+      - name: Create GitHub Release from locked reviewed parent bytes
         id: create_release
         if: steps.publish_approval.outputs.effective_decision == 'approved'
         env:
@@ -474,6 +444,7 @@ jobs:
             "$OUTPUT_DIR/production-manifest.json"
             "$OUTPUT_DIR/delivery-manifest.json"
             "$OUTPUT_DIR/final-master-qc.json"
+            "$OUTPUT_DIR/master-lock.json"
             "$OUTPUT_DIR/thumbnail-plan.json"
             "$OUTPUT_DIR/thumbnail-1.jpg"
             "$OUTPUT_DIR/thumbnail-2.jpg"
@@ -490,7 +461,7 @@ jobs:
             --tag "$RELEASE_TAG"
             --target-sha "$GITHUB_SHA"
             --title "Isco Gold-Resumed Bundle ${RELEASE_TAG}"
-            --notes "QC_PENDING recovered through current certified Gold. Parent final media SHA remained unchanged. YouTube publication remains manual."
+            --notes "QC_PENDING recovered through current certified Gold. Locked parent media is delivered independently; sibling Shorts, when approved, run only as isolated derivative jobs. YouTube publication remains manual."
             --journal "$RUNNER_TEMP/release-transaction.json"
           )
           for asset in "${assets[@]}"; do test -f "$asset" && cmd+=(--asset "$asset"); done
@@ -570,7 +541,20 @@ jobs:
           git commit -m "state: complete QC_PENDING through Gold resume"
           git push origin HEAD:control-plane-state
 
-      - name: Delete consumed QC_PENDING artifact after complete success
+      - name: Dispatch deferred sibling Shorts after parent completion
+        if: steps.reconcile_success.outcome == 'success' && steps.consume.outputs.approval_scope == 'long_plus_sibling_shorts'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.consume.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run resume-deferred-sibling-shorts.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_SHA" \
+            -f parent_release_tag="$RELEASE_TAG"
+
+      - name: Delete consumed QC_PENDING artifact after complete parent success
         if: steps.reconcile_success.outcome == 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -628,13 +612,18 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           RELEASE_TAG: ${{ steps.consume.outputs.release_tag }}
+          APPROVAL_SCOPE: ${{ steps.consume.outputs.approval_scope }}
           SUCCESS: ${{ steps.reconcile_success.outcome == 'success' }}
         run: |
           set -euo pipefail
           test -n "$TELEGRAM_BOT_TOKEN"
           test -n "$TELEGRAM_CHAT_ID"
           if [ "$SUCCESS" = "true" ]; then
-            text="✅ تابع Gold اكتمل\n${RELEASE_TAG}\nتم إكمال نفس النطاق المعتمد دون إعادة بناء فيديو الأب."
+            if [ "$APPROVAL_SCOPE" = "long_plus_sibling_shorts" ]; then
+              text="✅ تابع Gold اكتمل\n${RELEASE_TAG}\nتم قفل وتسليم فيديو الأب. المشتقات انتقلت إلى Job مستقل ولا يمكنها إسقاط الأب."
+            else
+              text="✅ تابع Gold اكتمل\n${RELEASE_TAG}\nتم قفل وتسليم نفس الفيديو المعتمد دون إعادة بنائه."
+            fi
           else
             text="🟠 تابع Gold لم يكتمل\nبقي الفيديو في QC_PENDING ويمكن إعادة المحاولة من «🎞️ إنتاجاتي»."
           fi
@@ -648,7 +637,6 @@ jobs:
         run: |
           rm -rf "$RUNNER_TEMP/gold-control" || true
           rm -rf "$RUNNER_TEMP/gold-secrets" || true
-          rm -rf "$RUNNER_TEMP/post-gold-secrets" || true
           rm -rf "$RUNNER_TEMP/isco-state" || true
           rm -rf "$RUNNER_TEMP/qc-pending-download" || true
           rm -rf "$RUNNER_TEMP/gold-resume-children" || true
