@@ -20,6 +20,7 @@ from scripts.gold_enforce_phase4 import _persist_budget_snapshot
 from scripts.vision_provider_failure_unification_v1 import (
     _classify_health_failure,
     _shared_http_classification,
+    gold_over_capacity_cooldown_scope,
 )
 
 
@@ -35,23 +36,34 @@ class GoldProviderResilienceClosureTests(unittest.TestCase):
     def test_unknown_non_provider_http_shape_stays_unclassified(self) -> None:
         self.assertIsNone(_shared_http_classification(418, "teapot"))
 
-    def test_runtime_model_over_capacity_uses_cooldown_class(self) -> None:
-        fallback = Mock(return_value=health.FAILURE_TRANSIENT)
-        result = _classify_health_failure(
+    def test_runtime_model_over_capacity_uses_cooldown_only_inside_gold(self) -> None:
+        ordinary_fallback = Mock(return_value=health.FAILURE_TRANSIENT)
+        ordinary = _classify_health_failure(
             "HTTP_503 model currently over capacity",
             source="vision_stage",
-            fallback=fallback,
+            fallback=ordinary_fallback,
         )
-        self.assertEqual(result, health.FAILURE_RATE_LIMITED)
-        fallback.assert_not_called()
+        self.assertEqual(ordinary, health.FAILURE_TRANSIENT)
+        ordinary_fallback.assert_called_once()
 
-    def test_provider_preflight_remains_authoritative(self) -> None:
+        gold_fallback = Mock(return_value=health.FAILURE_TRANSIENT)
+        with gold_over_capacity_cooldown_scope():
+            gold = _classify_health_failure(
+                "HTTP_503 model currently over capacity",
+                source="vision_stage",
+                fallback=gold_fallback,
+            )
+        self.assertEqual(gold, health.FAILURE_RATE_LIMITED)
+        gold_fallback.assert_not_called()
+
+    def test_provider_preflight_remains_authoritative_even_inside_gold(self) -> None:
         fallback = Mock(return_value=health.FAILURE_HARD)
-        result = _classify_health_failure(
-            "HTTP_503 model currently over capacity",
-            source="provider_preflight",
-            fallback=fallback,
-        )
+        with gold_over_capacity_cooldown_scope():
+            result = _classify_health_failure(
+                "HTTP_503 model currently over capacity",
+                source="provider_preflight",
+                fallback=fallback,
+            )
         self.assertEqual(result, health.FAILURE_HARD)
         fallback.assert_called_once()
 
