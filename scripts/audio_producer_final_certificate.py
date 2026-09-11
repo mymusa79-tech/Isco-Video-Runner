@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from scripts.audio_producer_repair_lifecycle import REPORT_FILENAME, SCHEMA_VERSION
-from scripts.audio_production_contract_v2 import require_audio_production_contract_v2
+from scripts.audio_quality_capability_binding import (
+    require_audio_production_contract_v2_routed as require_audio_production_contract_v2,
+)
 from scripts.audio_retention_qc import (
     REPORT_FILENAME as RETENTION_REPORT_FILENAME,
     require_audio_retention_qc,
