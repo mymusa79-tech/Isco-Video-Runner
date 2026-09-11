@@ -11,6 +11,10 @@ Run #198 extended that same family: Voice-Owned Timeline V1 is another post-core
 finisher and must lease the already-captured Gemini capability instead of re-consuming
 the destructive source-secret reader after the core has finished.
 
+Run #242 extends the same ownership boundary to Audio Production V2.  Audio semantic
+arbitration during Short finishing must lease the already-captured Gemini capability and
+must never fall back to a consumed environment/file secret while this scope is active.
+
 Sibling Shorts cross a real subprocess boundary after the long parent has already
 consumed its source secrets.  For that boundary only, the parent materializes fresh
 0600 one-time files inside RUNNER_TEMP and passes file *paths* to the child.  The Engine's
@@ -73,6 +77,24 @@ def _current() -> ShortFinishingCapabilities:
     return capabilities
 
 
+def current_short_finishing_gemini_for_audio() -> str | None:
+    """Return the scoped Gemini lease for Audio QC, or ``None`` outside Short finishing.
+
+    ``None`` is intentionally reserved for "no Short scope" so Long keeps its existing
+    provider-secret resolution.  An active Short scope with an empty Gemini capability
+    is an ownership violation and fails closed instead of escaping back to env/files.
+    """
+    capabilities = _ACTIVE.get()
+    if capabilities is None:
+        return None
+    gemini = str(capabilities.gemini or "").strip()
+    if not gemini:
+        raise ShortFinishingCapabilityError(
+            "SHORT_AUDIO_GEMINI_CAPABILITY_MISSING"
+        )
+    return gemini
+
+
 def _voice_secret(name: str) -> str | None:
     if name != "GEMINI_API_KEY":
         raise ShortFinishingCapabilityError(
@@ -113,7 +135,7 @@ def _install_legacy_resolvers() -> None:
 def bind_short_finishing_capabilities(
     capabilities: ShortFinishingCapabilities,
 ) -> Iterator[None]:
-    """Expose capabilities only while Short Voice/Cinematic finishing executes."""
+    """Expose capabilities only while post-core Short finishing executes."""
     if not isinstance(capabilities, ShortFinishingCapabilities):
         raise ShortFinishingCapabilityError("SHORT_FINISHING_CAPABILITY_TYPE_INVALID")
     _install_legacy_resolvers()
