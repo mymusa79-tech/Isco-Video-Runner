@@ -11,9 +11,10 @@ Run #198 extended that same family: Voice-Owned Timeline V1 is another post-core
 finisher and must lease the already-captured Gemini capability instead of re-consuming
 the destructive source-secret reader after the core has finished.
 
-Run #242 extends the same ownership boundary to Audio Production V2.  Audio semantic
-arbitration during Short finishing must lease the already-captured Gemini capability and
-must never fall back to a consumed environment/file secret while this scope is active.
+Run #242 extends the same ownership boundary to Audio Production V2. Audio semantic
+arbitration during normal Short finishing leases the captured Gemini capability. Audio
+resume has its own format-agnostic in-memory lease so Long recovery never enters the
+Short finishing scope.
 
 Sibling Shorts cross a real subprocess boundary after the long parent has already
 consumed its source secrets.  For that boundary only, the parent materializes fresh
@@ -61,6 +62,9 @@ class ShortFinishingCapabilities:
 _ACTIVE: ContextVar[ShortFinishingCapabilities | None] = ContextVar(
     "isco_short_finishing_capabilities", default=None
 )
+_AUDIO_RESUME_GEMINI: ContextVar[str | None] = ContextVar(
+    "isco_audio_resume_gemini_capability", default=None
+)
 _CHILD_FILE_VARS = (
     "GEMINI_API_KEY_FILE",
     "PEXELS_API_KEY_FILE",
@@ -81,7 +85,7 @@ def current_short_finishing_gemini_for_audio() -> str | None:
     """Return the scoped Gemini lease for Audio QC, or ``None`` outside Short finishing.
 
     ``None`` is intentionally reserved for "no Short scope" so Long keeps its existing
-    provider-secret resolution.  An active Short scope with an empty Gemini capability
+    provider-secret resolution. An active Short scope with an empty Gemini capability
     is an ownership violation and fails closed instead of escaping back to env/files.
     """
     capabilities = _ACTIVE.get()
@@ -92,6 +96,17 @@ def current_short_finishing_gemini_for_audio() -> str | None:
         raise ShortFinishingCapabilityError(
             "SHORT_AUDIO_GEMINI_CAPABILITY_MISSING"
         )
+    return gemini
+
+
+def current_audio_resume_gemini() -> str | None:
+    """Return the resume-only Gemini lease for either Long or Short Audio recovery."""
+    value = _AUDIO_RESUME_GEMINI.get()
+    if value is None:
+        return None
+    gemini = str(value or "").strip()
+    if not gemini:
+        raise ShortFinishingCapabilityError("AUDIO_RESUME_GEMINI_CAPABILITY_MISSING")
     return gemini
 
 
@@ -154,24 +169,26 @@ def bind_audio_resume_short_capability(
     pexels: str,
     pixabay: str | None,
 ) -> Iterator[None]:
-    """Rebind consumed one-time credentials only for a resumed Short Audio audit.
+    """Lease the captured Gemini value for resumed Audio QC without env reinjection.
 
-    Long resume deliberately receives no Short capability and therefore keeps the
-    existing Audio Production env/file resolver. A ``moment`` resume sets only the
-    request-local capability context required by Audio QC; it does not install or mutate
-    the legacy Short Voice/Cinematic resolver functions.
+    The resume lease is format-agnostic and covers ``film``, ``story`` and ``moment``.
+    Long never enters ``_ACTIVE``. Moment also exposes the same value through the Short
+    scope to preserve the normal Short ownership invariant while the auditor executes.
     """
-    if str(fmt or "").strip().lower() != "moment":
-        yield
-        return
+    normalized = str(fmt or "").strip().lower()
+    if normalized not in {"film", "story", "moment"}:
+        raise ShortFinishingCapabilityError("AUDIO_RESUME_FORMAT_INVALID")
     capabilities = ShortFinishingCapabilities.from_gold_kwargs(
         {"gemini": gemini, "pexels": pexels, "pixabay": pixabay}
     )
-    token = _ACTIVE.set(capabilities)
+    resume_token = _AUDIO_RESUME_GEMINI.set(capabilities.gemini)
+    short_token = _ACTIVE.set(capabilities) if normalized == "moment" else None
     try:
         yield
     finally:
-        _ACTIVE.reset(token)
+        if short_token is not None:
+            _ACTIVE.reset(short_token)
+        _AUDIO_RESUME_GEMINI.reset(resume_token)
 
 
 def cleanup_child_capability_files(file_env: dict[str, str]) -> None:
