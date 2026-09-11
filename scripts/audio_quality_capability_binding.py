@@ -43,15 +43,37 @@ def _credential_probe(candidate: router.CapabilityCandidate) -> bool:
     return False
 
 
+def _injected_adapter_credential_probe(_candidate: router.CapabilityCandidate) -> bool:
+    """Dependency injection is already the adapter authority in unit/contract tests.
+
+    Production never supplies an alternate callable and therefore always uses the real
+    credential probe above. This keeps historical fake-transcriber tests hermetic without
+    creating an environment-variable bypass in the canonical runtime path.
+    """
+    return True
+
+
+def _probe_for_transcriber(
+    transcriber: Callable[[Path], str],
+    default_transcriber: Callable[[Path], str],
+) -> router.CredentialProbe:
+    return (
+        _credential_probe
+        if transcriber is default_transcriber
+        else _injected_adapter_credential_probe
+    )
+
+
 def _admitted(
     capability: str,
     candidate: router.CapabilityCandidate,
     *,
     exclude_provenance: tuple[router.ArtifactProvenance, ...] = (),
+    credential_probe: router.CredentialProbe = _credential_probe,
 ) -> bool:
     decision = router.route_candidates(
         capability,
-        credential_probe=_credential_probe,
+        credential_probe=credential_probe,
         exclude_provenance=exclude_provenance,
     )
     return any(item.identity == candidate.identity for item in decision.candidates)
@@ -63,6 +85,7 @@ def _bounded_transcriber(
     *,
     capability: str,
     exclude_provenance: tuple[router.ArtifactProvenance, ...] = (),
+    credential_probe: router.CredentialProbe = _credential_probe,
 ) -> Callable[[Path], str]:
     """Apply retry taxonomy around one existing provider adapter, never semantics."""
 
@@ -71,6 +94,7 @@ def _bounded_transcriber(
             capability,
             candidate,
             exclude_provenance=exclude_provenance,
+            credential_probe=credential_probe,
         ):
             raise RuntimeError(
                 f"capability_route_unavailable:{capability}:{candidate.identity}"
@@ -128,12 +152,18 @@ def require_audio_production_contract_v2_routed(
             groq_candidate,
             groq_transcriber,
             capability=router.CAP_AUDIO_SEMANTIC_AUDIT,
+            credential_probe=_probe_for_transcriber(
+                groq_transcriber, contract._groq_transcribe
+            ),
         ),
         gemini_transcriber=_bounded_transcriber(
             gemini_candidate,
             gemini_transcriber,
             capability=router.CAP_INDEPENDENT_AUDIO_AUDIT,
             exclude_provenance=(primary_provenance,),
+            credential_probe=_probe_for_transcriber(
+                gemini_transcriber, contract._gemini_transcribe
+            ),
         ),
     )
 
