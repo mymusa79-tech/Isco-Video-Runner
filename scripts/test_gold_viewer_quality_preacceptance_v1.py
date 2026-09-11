@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from isco_video_agent.ai_budget import BudgetLedger
 from scripts import gold_enforce_phase4 as gold
 
 
@@ -74,7 +75,7 @@ class GoldViewerQualityPreAcceptanceV1Tests(unittest.TestCase):
                 gemini="g",
                 pexels="p",
                 pixabay=None,
-                ledger=object(),
+                ledger=BudgetLedger("story", enforce=False),
             )
 
         self.assertEqual(order, ["critic", "viewer", "packaging", "state_acceptance"])
@@ -133,7 +134,7 @@ class GoldViewerQualityPreAcceptanceV1Tests(unittest.TestCase):
                     gemini="g",
                     pexels="p",
                     pixabay=None,
-                    ledger=object(),
+                    ledger=BudgetLedger("story", enforce=False),
                 )
 
         self.assertEqual(order, ["critic", "viewer"])
