@@ -14,6 +14,9 @@ from scripts.audio_retention_qc import (
     REPORT_FILENAME as RETENTION_REPORT_FILENAME,
     require_audio_retention_qc,
 )
+from scripts.quality_capability_runtime_binding import (
+    install_quality_capability_runtime_binding,
+)
 
 
 class AudioProducerCertificateError(RuntimeError):
@@ -132,6 +135,12 @@ def _require_retention_for_certified_state(output_dir: Path, receipt: dict[str, 
 
 def install_audio_producer_final_certificate(production_modules: list[Any]) -> None:
     """Place exact-byte Producer, retention and semantic evidence outside final gates."""
+    # This installer runs after the provider transports are composed but before any
+    # canonical produce() call. Pin every release-critical legacy transport to exact
+    # Capability Registry model IDs here; no import-time side effect and no dynamic
+    # OpenRouter alias/model discovery can survive into production.
+    install_quality_capability_runtime_binding()
+
     installed = 0
     already_installed = 0
     for production in production_modules:
