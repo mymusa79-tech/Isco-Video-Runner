@@ -25,6 +25,7 @@ from scripts.short_planning_repair import active_short_repair_context
 
 _INSTALLED = False
 _PILLARS = ("understand", "rise", "see")
+NATIVE_SHORT_TRANSPORT_PROFILE = "native_short"
 _LIFECYCLE_STATE: ContextVar[dict[str, Any] | None] = ContextVar(
     "isco_native_short_stage_lifecycle_state", default=None
 )
@@ -139,7 +140,7 @@ def moment_stage_spec(stage_kind: str, topic: str) -> stage_contract.PlanningSta
         output_schema=_moment_schema(),
         semantic_rules={
             "kind": "native_short",
-            "transport_profile": "native_short",
+            "transport_profile": NATIVE_SHORT_TRANSPORT_PROFILE,
             "approved_topic": normalized_topic,
             "allowed_pillars": list(_PILLARS),
             "format": "moment",
@@ -257,8 +258,8 @@ def _install_stage_contract_extensions() -> None:
         @functools.wraps(current_schema_tuple)
         def schema_tuple(owner):
             profile = str(owner.semantic_rules.get("transport_profile") or "").strip()
-            if profile == "native_short":
-                return "native_short", owner.output_schema
+            if profile == NATIVE_SHORT_TRANSPORT_PROFILE:
+                return NATIVE_SHORT_TRANSPORT_PROFILE, owner.output_schema
             return current_schema_tuple(owner)
 
         schema_tuple._isco_native_short_stage_v1 = True
