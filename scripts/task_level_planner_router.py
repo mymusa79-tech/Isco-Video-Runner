@@ -21,7 +21,13 @@ from isco_video_agent.ai_budget import (
 from isco_video_agent.providers.gemini import json_text as gemini_json_text
 from isco_video_agent.providers.gemini import with_channel_persona
 from isco_video_agent.providers.openrouter import json_text as openrouter_json_text
-from provider_failure import ProviderFailure, classify_provider_failure
+from provider_failure import (
+    NoWireProviderFailure,
+    ProviderFailure,
+    classify_provider_failure,
+    is_no_wire_provider_failure,
+)
+from scripts.retry_after_policy import retry_delay_decision
 
 
 CACHE_PATH = Path("state/planning-checkpoint.json")
@@ -72,6 +78,8 @@ _OPENROUTER_FALLBACK_MODELS = ("openai/gpt-oss-20b:free",)
 _OPENROUTER_MODELS = ("openrouter/free",) + _OPENROUTER_FALLBACK_MODELS
 _OPENROUTER_REPAIR_SUFFIX = "\n\nأعد الرد بصيغة JSON صالحة فقط، بدون أي نص إضافي قبله أو بعده."
 _OPENROUTER_COMPACT_REPAIR_MAX_CHARS = 12000
+MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
+MISTRAL_RUNTIME_MODEL = "mistral-small-2603"
 
 
 class _OpenRouterMalformedJSON(RuntimeError):
@@ -154,6 +162,10 @@ def _record_attempt(
     error_detail: str | None = None,
     duration_seconds: float | None = None,
     provider_attempt: int | None = None,
+    wire_attempted: bool = True,
+    http_status: int | None = None,
+    quota_scope: str | None = None,
+    retry_after: object = None,
 ) -> None:
     headers = dict(_last_call_rate_limit_headers)
     _last_call_rate_limit_headers.clear()
@@ -165,10 +177,13 @@ def _record_attempt(
         "result": result,
         "error_detail": error_detail,
         "duration_seconds": duration_seconds,
-        "retry_after": headers.get("retry_after"),
+        "retry_after": headers.get("retry_after") or retry_after,
         "remaining_requests": headers.get("remaining_requests"),
         "remaining_tokens": headers.get("remaining_tokens"),
         "provider_attempt": provider_attempt,
+        "wire_attempted": bool(wire_attempted),
+        "http_status": http_status,
+        "quota_scope": quota_scope,
     }
     # Safe metadata only: never store prompt text, secrets, or response bodies.
     entry.update(_CURRENT_REQUEST_META)
@@ -224,14 +239,15 @@ def _budgeted_provider_call(provider_name: str, resolved_model: str, call, *args
     try:
         result = call(*args, **kwargs)
     except Exception as exc:
-        failure = classify_provider_failure(provider_name, exc)
-        _record_budget_attempt(
-            provider_name,
-            resolved_model,
-            failure.budget_outcome,
-            duration_seconds=time.monotonic() - started,
-            detail=str(exc)[:220],
-        )
+        if not is_no_wire_provider_failure(exc):
+            failure = classify_provider_failure(provider_name, exc)
+            _record_budget_attempt(
+                provider_name,
+                resolved_model,
+                failure.budget_outcome,
+                duration_seconds=time.monotonic() - started,
+                detail=str(exc)[:220],
+            )
         raise
     _record_budget_attempt(
         provider_name,
@@ -246,8 +262,10 @@ def _summarize_telemetry_by_provider(attempts: list[dict]) -> dict:
     summary: dict = {}
     for entry in attempts:
         name = entry["provider"]
-        bucket = summary.setdefault(name, {"total_attempts": 0, "by_result": {}})
-        bucket["total_attempts"] += 1
+        bucket = summary.setdefault(name, {"total_attempts": 0, "routing_events": 0, "by_result": {}})
+        bucket["routing_events"] += 1
+        if entry.get("wire_attempted", True):
+            bucket["total_attempts"] += 1
         bucket["by_result"][entry["result"]] = bucket["by_result"].get(entry["result"], 0) + 1
     return summary
 
@@ -266,8 +284,87 @@ def write_planning_telemetry(out_dir: Path) -> Path:
 
 
 def _read_secret_file(name: str) -> str:
-    path = Path(os.environ[name])
-    return path.read_text(encoding="utf-8").strip()
+    try:
+        path = Path(os.environ[name])
+        value = path.read_text(encoding="utf-8").strip()
+    except Exception as exc:
+        raise NoWireProviderFailure(
+            "PROVIDER_CREDENTIAL_UNAVAILABLE",
+            f"credential={name} read_failed type={type(exc).__name__}",
+        ) from exc
+    if not value:
+        raise NoWireProviderFailure(
+            "PROVIDER_CREDENTIAL_UNAVAILABLE", f"credential={name} is_empty"
+        )
+    return value
+
+
+def _provider_preflight_payload() -> dict:
+    configured = str(os.environ.get("ISCO_PROVIDER_PREFLIGHT_PATH") or "").strip()
+    candidates = [Path(configured)] if configured else []
+    runner_temp = str(os.environ.get("RUNNER_TEMP") or "").strip()
+    if runner_temp:
+        candidates.append(Path(runner_temp) / "provider-preflight.json")
+    for path in candidates:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _provider_preflight_passed(provider: str) -> bool:
+    payload = _provider_preflight_payload()
+    if payload.get("schema_version") != 4 or payload.get("overall_status") != "pass":
+        return False
+    checks = payload.get("checks")
+    if not isinstance(checks, list):
+        return False
+    for item in checks:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("provider") or "").strip().lower() != provider:
+            continue
+        if item.get("status") != "pass":
+            return False
+        if provider == "mistral" and MISTRAL_RUNTIME_MODEL not in str(item.get("detail") or ""):
+            return False
+        return True
+    return False
+
+
+def _mistral_secret_available() -> bool:
+    if str(os.environ.get("MISTRAL_API_KEY") or "").strip():
+        return True
+    file_name = str(os.environ.get("MISTRAL_API_KEY_FILE") or "").strip()
+    if not file_name:
+        return False
+    try:
+        return bool(Path(file_name).read_text(encoding="utf-8").strip())
+    except OSError:
+        return False
+
+
+def _mistral_route_ready() -> bool:
+    free_only = str(os.environ.get("MISTRAL_FREE_ONLY") or "").strip().lower()
+    return free_only == "true" and _mistral_secret_available() and _provider_preflight_passed("mistral")
+
+
+def _mistral_token() -> str:
+    direct = str(os.environ.get("MISTRAL_API_KEY") or "").strip()
+    if direct:
+        return direct
+    try:
+        token = _read_secret_file("MISTRAL_API_KEY_FILE")
+    except Exception as exc:
+        raise NoWireProviderFailure(
+            "MISTRAL_CREDENTIAL_UNAVAILABLE", f"credential read failed type={type(exc).__name__}"
+        ) from exc
+    if not token:
+        raise NoWireProviderFailure("MISTRAL_CREDENTIAL_UNAVAILABLE", "credential is empty")
+    return token
 
 
 def _load_checkpoint() -> dict:
@@ -537,8 +634,9 @@ def _groq_call(prompt: str) -> dict:
     # authorization because no provider call is made when the request is known risky.
     prompt_bytes = len(prompt.encode("utf-8"))
     if prompt_bytes > GROQ_MAX_PROMPT_UTF8_BYTES:
-        raise RuntimeError(
-            f"GROQ_PAYLOAD_TOO_LARGE_PREFLIGHT prompt_bytes={prompt_bytes} limit={GROQ_MAX_PROMPT_UTF8_BYTES}"
+        raise NoWireProviderFailure(
+            "GROQ_PAYLOAD_TOO_LARGE_PREFLIGHT",
+            f"prompt_bytes={prompt_bytes} limit={GROQ_MAX_PROMPT_UTF8_BYTES}",
         )
 
     token = _read_secret_file("GROQ_API_KEY_FILE")
@@ -590,6 +688,89 @@ def _groq_call(prompt: str) -> dict:
         return _parse_json(content)
 
     return _budgeted_provider_call("groq", "openai/gpt-oss-20b", do_request)
+
+
+def _mistral_message_text(content: object) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict) and isinstance(item.get("text"), str):
+            parts.append(item["text"])
+    return "".join(parts)
+
+
+def _mistral_call(
+    prompt: str,
+    *,
+    response_contract: tuple[str, dict] | None = None,
+    completion_tokens: int | None = None,
+    budgeted: bool = True,
+) -> dict:
+    """Exactly one optional Mistral free-plan request, gated by durable preflight.
+
+    This route is never silently enabled by the mere presence of a secret: production
+    must opt into the zero-paid-spend policy and preflight the exact model first.
+    """
+    if not _mistral_route_ready():
+        raise NoWireProviderFailure(
+            "MISTRAL_PREFLIGHT_BLOCKED",
+            "free-only opt-in, credential, or exact-model preflight is unavailable",
+        )
+    token = _mistral_token()
+
+    def do_request() -> dict:
+        if response_contract is None:
+            response_format: dict = {"type": "json_object"}
+        else:
+            schema_name, schema = response_contract
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {"name": schema_name, "schema": schema, "strict": True},
+            }
+        payload = {
+            "model": MISTRAL_RUNTIME_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt + "\nReturn ONLY one complete valid JSON object. No markdown.",
+                }
+            ],
+            "response_format": response_format,
+            "temperature": 0.1,
+            "max_tokens": int(completion_tokens or _completion_tokens_for_contract(response_contract)),
+            "reasoning_effort": "none",
+        }
+        response = requests.post(
+            MISTRAL_API_URL,
+            headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+            json=payload,
+            timeout=90,
+        )
+        _last_call_rate_limit_headers.update(_extract_rate_limit_headers(response.headers))
+        if not response.ok:
+            raise RuntimeError(_safe_api_error("MISTRAL", response))
+        body = response.json()
+        choices = body.get("choices") or []
+        if not choices:
+            raise RuntimeError("Mistral returned no choices")
+        choice = choices[0]
+        _last_call_response_meta.update(_extract_response_meta(body, choice))
+        finish = str(choice.get("finish_reason") or "").strip().lower()
+        if finish in {"length", "max_tokens"}:
+            raise RuntimeError("MISTRAL_PREMATURE_RESPONSE finish_reason=length")
+        content = _mistral_message_text((choice.get("message") or {}).get("content"))
+        if not content.strip():
+            raise RuntimeError("MISTRAL_EMPTY_OUTPUT")
+        return _parse_json(content)
+
+    if not budgeted:
+        return do_request()
+    return _budgeted_provider_call("mistral", MISTRAL_RUNTIME_MODEL, do_request)
 
 
 def _openrouter_key() -> str:
@@ -699,23 +880,34 @@ def _openrouter_call_with_repair(
         )
 
 
-def _retry_after_seconds(value: object) -> float | None:
-    try:
-        seconds = float(str(value).strip())
-    except (TypeError, ValueError):
-        return None
-    if seconds < 0:
-        return None
-    return min(seconds, RETRY_AFTER_MAX_SECONDS)
+def _retry_delay_decision(provider_name: str, retry_index: int, retry_after: object = None):
+    """Choose an exact bounded retry or failover without truncating Retry-After.
 
-
-def _retry_delay_seconds(provider_name: str, retry_index: int, retry_after: object = None) -> float:
+    A provider-supplied delay is a minimum, not a suggestion. If it exceeds the
+    current latency budget, callers must move to the next provider instead of issuing
+    an early duplicate request after a truncated wait.
+    """
     digest = hashlib.sha256(f"{provider_name}:{retry_index}".encode("utf-8")).digest()
     fraction = int.from_bytes(digest[:2], "big") / 65535.0
     exponential = TRANSIENT_RETRY_BASE_SECONDS * (2 ** retry_index)
     calculated = exponential + (fraction * TRANSIENT_RETRY_JITTER_SECONDS)
-    header_delay = _retry_after_seconds(retry_after)
-    return max(calculated, header_delay or 0.0)
+    return retry_delay_decision(
+        provider_hint=retry_after,
+        calculated_delay_seconds=calculated,
+        wait_budget_seconds=RETRY_AFTER_MAX_SECONDS,
+    )
+
+
+def _retry_delay_seconds(provider_name: str, retry_index: int, retry_after: object = None) -> float:
+    """Compatibility helper for callers that already established retry eligibility."""
+    decision = _retry_delay_decision(provider_name, retry_index, retry_after)
+    if decision.action != "retry" or decision.delay_seconds is None:
+        raise RuntimeError(
+            "PROVIDER_RETRY_AFTER_EXCEEDS_BUDGET "
+            f"provider={provider_name} retry_after={decision.provider_hint_seconds} "
+            f"budget={decision.wait_budget_seconds}"
+        )
+    return float(decision.delay_seconds)
 
 
 def install_router() -> None:
@@ -738,6 +930,18 @@ def install_router() -> None:
             ),
         ),
         ("groq", lambda _api_key, prompt, model: _groq_call(prompt)),
+    ]
+    if _mistral_route_ready():
+        providers.append(
+            (
+                "mistral",
+                lambda _api_key, prompt, model: _mistral_call(
+                    prompt,
+                    response_contract=_legacy_schema_hint(prompt),
+                ),
+            )
+        )
+    providers.append(
         (
             "openrouter",
             lambda _api_key, prompt, model: _openrouter_call_with_repair(
@@ -746,8 +950,8 @@ def install_router() -> None:
                 "openrouter",
                 response_contract=_legacy_schema_hint(prompt),
             ),
-        ),
-    ]
+        )
+    )
 
     def task_router(api_key, prompt, model="gemini-2.5-flash"):
         nonlocal planning_subtask_sequence
@@ -766,12 +970,12 @@ def install_router() -> None:
             failures: list[str] = []
             for name, provider in providers:
                 if name in cooldown:
-                    _safe_record_attempt(name, "circuit-open")
+                    _safe_record_attempt(name, "circuit-open", wire_attempted=False)
                     continue
 
                 cooldown_until = transient_cooldown_until.get(name)
                 if cooldown_until is not None and cooldown_until > time.monotonic():
-                    _safe_record_attempt(name, "transient-cooldown")
+                    _safe_record_attempt(name, "transient-cooldown", wire_attempted=False)
                     continue
 
                 for provider_attempt in range(TRANSIENT_PROVIDER_MAX_ATTEMPTS):
@@ -806,6 +1010,7 @@ def install_router() -> None:
                         return data
                     except Exception as exc:
                         detail = str(exc).replace("\n", " ")[:220]
+                        wire_attempted = not is_no_wire_provider_failure(exc)
                         # This run's own layered capacity/classification patches
                         # (run120/122/123/124/125, each replacing classify_provider_failure
                         # and/or _record_attempt with a wrapped version) are bookkeeping:
@@ -824,13 +1029,20 @@ def install_router() -> None:
                                 f"{type(classify_exc).__name__}"
                             )
                             failure = ProviderFailure("classification_error", AttemptOutcome.OTHER, False)
-                        retry_after = _last_call_rate_limit_headers.get("retry_after")
+                        retry_after = (
+                            _last_call_rate_limit_headers.get("retry_after")
+                            or failure.retry_after_seconds
+                        )
                         _safe_record_attempt(
                             name,
                             failure.telemetry_result,
                             error_detail=detail,
                             duration_seconds=time.monotonic() - last_call_at[name],
-                            provider_attempt=provider_attempt + 1,
+                            provider_attempt=provider_attempt + 1 if wire_attempted else None,
+                            wire_attempted=wire_attempted,
+                            http_status=failure.http_status,
+                            quota_scope=failure.quota_scope,
+                            retry_after=retry_after,
                         )
 
                         retryable = (
@@ -838,16 +1050,24 @@ def install_router() -> None:
                             or (failure.telemetry_result == "429" and retry_after is not None)
                         )
                         has_retry = provider_attempt + 1 < TRANSIENT_PROVIDER_MAX_ATTEMPTS
-                        if retryable and has_retry:
-                            delay = _retry_delay_seconds(name, provider_attempt, retry_after)
+                        if retryable and has_retry and wire_attempted:
+                            decision = _retry_delay_decision(name, provider_attempt, retry_after)
+                            if decision.action == "retry" and decision.delay_seconds is not None:
+                                delay = float(decision.delay_seconds)
+                                print(
+                                    "Planning provider transient retry: "
+                                    f"{name} result={failure.telemetry_result} "
+                                    f"attempt={provider_attempt + 1}/{TRANSIENT_PROVIDER_MAX_ATTEMPTS} "
+                                    f"delay={delay:.2f}s"
+                                )
+                                time.sleep(delay)
+                                continue
                             print(
-                                "Planning provider transient retry: "
-                                f"{name} result={failure.telemetry_result} "
-                                f"attempt={provider_attempt + 1}/{TRANSIENT_PROVIDER_MAX_ATTEMPTS} "
-                                f"delay={delay:.2f}s"
+                                "Planning provider Retry-After exceeds local wait budget; "
+                                f"failing over without partial wait: {name} "
+                                f"retry_after={decision.provider_hint_seconds} "
+                                f"budget={decision.wait_budget_seconds}"
                             )
-                            time.sleep(delay)
-                            continue
 
                         failures.append(f"{name}:{detail}")
                         if failure.open_circuit:
@@ -875,7 +1095,10 @@ def install_router() -> None:
             kind="PLANNING_SUBTASK",
             priority=active.spec.priority,
             capability=active.spec.capability,
-            max_provider_attempts=PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS,
+            max_provider_attempts=max(
+                PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS,
+                len(providers) * TRANSIENT_PROVIDER_MAX_ATTEMPTS,
+            ),
             schema_repair_allowed=active.spec.schema_repair_allowed,
             local_fallback=False,
             semantic_block_is_final=False,

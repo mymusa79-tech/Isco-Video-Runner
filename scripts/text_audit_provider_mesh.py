@@ -23,9 +23,11 @@ from scripts import task_level_planner_router as planner_router
 # blocked and Gemini is quota-limited, a model-specific Groq failure can therefore
 # exhaust a mandatory audit even though another Groq model is still available.
 #
-# This V2 keeps the same logical-task budget:
-# - OpenRouter healthy: Gemini + one eligible Groq model + OpenRouter = max 3 attempts.
-# - OpenRouter blocked: Gemini + up to two eligible Groq models = max 3 attempts.
+# This V3 keeps a bounded logical-task budget while adding one independent optional
+# family only when its exact model passed the free-only preflight:
+# - Mistral unavailable: the existing three-route policy is unchanged.
+# - Mistral + OpenRouter healthy: Gemini + Groq + Mistral + OpenRouter = max 4.
+# - Mistral healthy and OpenRouter blocked: Gemini + Groq + Mistral = max 3.
 #
 # Each Groq model remains a distinct routing/circuit key so one model's rate limit or
 # transport failure cannot poison another model. Ledger accounting normalizes those
@@ -137,14 +139,14 @@ def _groq_audit_json(prompt: str, *, model_name: str) -> dict:
     request_capacity, decision = _groq_request_capacity(prompt, model_name)
     required = int(request_capacity["estimated_request_tokens"])
     if decision.get("action") == "impossible":
-        raise RuntimeError(
-            "GROQ_AUDIT_TPM_HEADROOM_UNAVAILABLE "
-            f"model={model_name} required={required} limit={decision.get('actual_limit')}"
+        raise planner_router.NoWireProviderFailure(
+            "GROQ_AUDIT_TPM_HEADROOM_UNAVAILABLE",
+            f"model={model_name} required={required} limit={decision.get('actual_limit')}",
         )
     if decision.get("action") == "unavailable":
-        raise RuntimeError(
-            "GROQ_AUDIT_MODEL_UNAVAILABLE "
-            f"model={model_name} reason={decision.get('reason')}"
+        raise planner_router.NoWireProviderFailure(
+            "GROQ_AUDIT_MODEL_UNAVAILABLE",
+            f"model={model_name} reason={decision.get('reason')}",
         )
 
     capacity._proactive_groq_pacing(request_capacity, model_name=model_name)
@@ -205,6 +207,15 @@ def _groq_audit_json(prompt: str, *, model_name: str) -> dict:
     return planner_router._parse_json(content)
 
 
+def _mistral_audit_json(prompt: str) -> dict:
+    return planner_router._mistral_call(
+        prompt,
+        response_contract=None,
+        completion_tokens=_GROQ_COMPLETION_RESERVE_TOKENS,
+        budgeted=False,
+    )
+
+
 def _active_required_arrays() -> tuple[str, ...] | None:
     active = get_active_budget_task()
     if active is None:
@@ -232,9 +243,14 @@ def _groq_route_label(model_name: str) -> str:
     return _GROQ_ROUTE_PREFIX + model_name
 
 
-def _groq_route_models(prompt: str, *, openrouter_blocked: bool) -> list[str]:
+def _groq_route_models(
+    prompt: str,
+    *,
+    openrouter_blocked: bool,
+    mistral_ready: bool = False,
+) -> list[str]:
     """Select bounded model candidates without consuming provider attempts."""
-    max_models = 2 if openrouter_blocked else 1
+    max_models = 2 if openrouter_blocked and not mistral_ready else 1
     selected: list[str] = []
     for model_name in _active_groq_pool_tail():
         if _groq_model_route_eligible(prompt, model_name):
@@ -287,7 +303,7 @@ def _mesh_route(
     *,
     cooldown: set[str] | None = None,
 ):
-    """Gemini -> bounded Groq model candidates -> OpenRouter."""
+    """Gemini -> bounded Groq model candidates -> optional Mistral -> OpenRouter."""
     names = [str(name) for name, _call in providers]
     if "gemini" not in names or "openrouter" not in names:
         result = engine_audit_router.route_text_audit(providers, prompt, cooldown=cooldown)
@@ -295,6 +311,7 @@ def _mesh_route(
         return result
 
     openrouter_blocked = run125.openrouter_preflight_blocked()
+    mistral_ready = planner_router._mistral_route_ready()
     routed: list[tuple[str, Callable[[str], dict]]] = []
 
     for name, call in providers:
@@ -303,6 +320,7 @@ def _mesh_route(
             for model_name in _groq_route_models(
                 prompt,
                 openrouter_blocked=openrouter_blocked,
+                mistral_ready=mistral_ready,
             ):
                 def groq_call(p: str, model: str = model_name) -> dict:
                     return _groq_audit_json(p, model_name=model)
@@ -310,6 +328,8 @@ def _mesh_route(
                 routed.append(
                     (_groq_route_label(model_name), _contract_validated(groq_call))
                 )
+            if mistral_ready and "mistral" not in names:
+                routed.append(("mistral", _contract_validated(_mistral_audit_json)))
             continue
 
         if name == "openrouter":
@@ -378,7 +398,11 @@ def _install_three_attempt_task_budget() -> None:
 
     def three_attempt_spec(*args, **kwargs):
         spec = original(*args, **kwargs)
-        spec.max_provider_attempts = max(3, int(spec.max_provider_attempts))
+        route_bound = 4 if (
+            planner_router._mistral_route_ready()
+            and not run125.openrouter_preflight_blocked()
+        ) else 3
+        spec.max_provider_attempts = max(route_bound, int(spec.max_provider_attempts))
         return spec
 
     three_attempt_spec._isco_text_audit_three_provider_budget_v1 = True
@@ -464,10 +488,10 @@ def install_text_audit_provider_mesh() -> None:
 
     _INSTALLED = True
     print(
-        "Text Audit Provider Mesh V2 installed: "
-        "route=gemini->groq_model_pool->openrouter "
-        "max_attempts_per_audit=3 "
-        "openrouter_blocked_allows_two_groq_models=true "
+        "Text Audit Provider Mesh V3 installed: "
+        "route=gemini->groq_model_pool->optional_mistral->openrouter "
+        "max_attempts_per_audit=3_or_4_bounded "
+        "openrouter_blocked_fills_three_bounded_routes=true "
         "audit_groq_pool_isolated_from_planning_policy=true "
         "audit_contract_validation=task_kind_bound "
         "semantic_block_final=true technical_exhaustion_repair=false "

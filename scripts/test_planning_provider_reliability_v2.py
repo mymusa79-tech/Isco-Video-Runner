@@ -113,11 +113,16 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(gemini_calls["n"], 1)
 
-    def test_retry_after_is_respected_but_clamped(self) -> None:
+    def test_retry_after_is_respected_without_partial_clamping(self) -> None:
         base = router._retry_delay_seconds("groq", 0)
         self.assertGreaterEqual(router._retry_delay_seconds("groq", 0, "12"), 12.0)
-        self.assertEqual(router._retry_after_seconds("999"), router.RETRY_AFTER_MAX_SECONDS)
         self.assertGreaterEqual(base, router.TRANSIENT_RETRY_BASE_SECONDS)
+        with patch.object(router, "RETRY_AFTER_MAX_SECONDS", 20.0):
+            decision = router._retry_delay_decision("groq", 0, "120")
+            self.assertEqual(decision.action, "failover")
+            self.assertIsNone(decision.delay_seconds)
+            with self.assertRaisesRegex(RuntimeError, "PROVIDER_RETRY_AFTER_EXCEEDS_BUDGET"):
+                router._retry_delay_seconds("groq", 0, "120")
 
     def test_groq_large_prompt_is_rejected_before_http_call(self) -> None:
         with patch.object(router, "GROQ_MAX_PROMPT_UTF8_BYTES", 16), patch.object(router.requests, "post") as post:

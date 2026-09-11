@@ -769,6 +769,98 @@ class RecordAttemptAndTelemetryTests(unittest.TestCase):
         self.assertEqual(payload["providers"]["groq"]["total_attempts"], 2)
         self.assertEqual(payload["providers"]["groq"]["by_result"], {"success": 2})
 
+    def test_no_wire_routing_event_is_visible_but_not_counted_as_attempt(self) -> None:
+        router._record_attempt(
+            "openrouter",
+            "capacity_unavailable",
+            error_detail="local preflight block",
+            provider_attempt=None,
+            wire_attempted=False,
+        )
+        summary = router._summarize_telemetry_by_provider(router.get_telemetry())
+        self.assertEqual(summary["openrouter"]["routing_events"], 1)
+        self.assertEqual(summary["openrouter"]["total_attempts"], 0)
+
+
+class MistralOptionalAdapterTests(unittest.TestCase):
+    class _Response:
+        ok = True
+        status_code = 200
+        headers = {"x-ratelimit-remaining-requests": "7"}
+
+        @staticmethod
+        def json():
+            return {
+                "model": router.MISTRAL_RUNTIME_MODEL,
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": '{"ok":true}'},
+                    }
+                ],
+                "usage": {"prompt_tokens": 4, "completion_tokens": 3},
+            }
+
+    def test_exact_model_and_strict_schema_are_used_after_free_only_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            key = root / "mistral"
+            key.write_text("fake-mistral-key", encoding="utf-8")
+            evidence = root / "provider-preflight.json"
+            evidence.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 4,
+                        "overall_status": "pass",
+                        "checks": [
+                            {
+                                "provider": "mistral",
+                                "status": "pass",
+                                "detail": "exact fallback model mistral-small-2603 available",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            env = {
+                "MISTRAL_FREE_ONLY": "true",
+                "MISTRAL_API_KEY_FILE": str(key),
+                "ISCO_PROVIDER_PREFLIGHT_PATH": str(evidence),
+            }
+            schema = {
+                "type": "object",
+                "properties": {"ok": {"type": "boolean"}},
+                "required": ["ok"],
+                "additionalProperties": False,
+            }
+            with patch.dict(os.environ, env, clear=False), patch.object(
+                router.requests, "post", return_value=self._Response()
+            ) as post:
+                result = router._mistral_call(
+                    "prompt",
+                    response_contract=("test_contract", schema),
+                    completion_tokens=321,
+                )
+
+        self.assertEqual(result, {"ok": True})
+        payload = post.call_args.kwargs["json"]
+        self.assertEqual(payload["model"], "mistral-small-2603")
+        self.assertEqual(payload["max_tokens"], 321)
+        self.assertEqual(payload["reasoning_effort"], "none")
+        self.assertEqual(payload["response_format"]["json_schema"]["schema"], schema)
+
+    def test_missing_preflight_is_explicit_no_wire_failure(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"MISTRAL_FREE_ONLY": "true", "ISCO_PROVIDER_PREFLIGHT_PATH": "/missing/evidence"},
+            clear=False,
+        ), patch.object(router.requests, "post") as post:
+            with self.assertRaises(router.NoWireProviderFailure) as caught:
+                router._mistral_call("prompt")
+        self.assertIs(caught.exception.wire_attempted, False)
+        post.assert_not_called()
+
 
 class TelemetryRouterIntegrationTests(unittest.TestCase):
     """Covers task_router()'s actual instrumentation points: circuit-open skips,

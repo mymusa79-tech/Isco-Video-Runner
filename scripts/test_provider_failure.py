@@ -5,7 +5,11 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from provider_failure import classify_provider_failure  # noqa: E402
+from provider_failure import (  # noqa: E402
+    NoWireProviderFailure,
+    classify_provider_failure,
+    is_no_wire_provider_failure,
+)
 
 from isco_video_agent.ai_budget import AttemptOutcome  # noqa: E402
 
@@ -119,10 +123,56 @@ class ProviderFailureTaxonomyTests(unittest.TestCase):
                 self.assertFalse(failure.open_circuit)
 
     def test_server_errors_are_explicit_but_not_session_permanent(self) -> None:
-        failure = classify_provider_failure("gemini", RuntimeError("HTTP 503 server error"))
-        self.assertEqual(failure.telemetry_result, "server_error")
-        self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
+        for status in (500, 501, 502, 503, 504, 505, 520, 521, 522, 523, 524, 525, 526, 527, 530, 599):
+            with self.subTest(status=status):
+                failure = classify_provider_failure(
+                    "groq", RuntimeError(f"GROQ_HTTP_{status} status={status}")
+                )
+                self.assertEqual(failure.telemetry_result, "server_error")
+                self.assertEqual(failure.budget_outcome, AttemptOutcome.OTHER)
+                self.assertFalse(failure.open_circuit)
+                self.assertEqual(failure.http_status, status)
+
+        timeout_wording = classify_provider_failure(
+            "groq",
+            RuntimeError("GROQ_HTTP_522 status=522 message=Connection timed out Retry-After=120"),
+        )
+        self.assertEqual(timeout_wording.telemetry_result, "server_error")
+        self.assertEqual(timeout_wording.retry_after_seconds, 120.0)
+
+    def test_arbitrary_numbers_are_not_misread_as_http_statuses(self) -> None:
+        failure = classify_provider_failure(
+            "groq", RuntimeError("capacity estimate total=5500 remaining=5020")
+        )
+        self.assertEqual(failure.telemetry_result, "other")
+        self.assertIsNone(failure.http_status)
+
+    def test_retry_bounded_short_window_quota_does_not_open_run_circuit(self) -> None:
+        failure = classify_provider_failure(
+            "gemini",
+            RuntimeError(
+                "HTTP 429 quota exceeded metric=generate_content_free_tier_requests per minute retry in 12.5s"
+            ),
+        )
+        self.assertEqual(failure.telemetry_result, "429")
+        self.assertEqual(failure.quota_scope, "short_window")
+        self.assertEqual(failure.retry_after_seconds, 12.5)
         self.assertFalse(failure.open_circuit)
+
+    def test_daily_or_opaque_quota_remains_fail_closed_for_the_run(self) -> None:
+        for detail, scope in (
+            ("HTTP 429 quota exceeded requests per day", "daily"),
+            ("HTTP 429 quota exceeded", "unknown"),
+        ):
+            with self.subTest(detail=detail):
+                failure = classify_provider_failure("gemini", RuntimeError(detail))
+                self.assertEqual(failure.quota_scope, scope)
+                self.assertTrue(failure.open_circuit)
+
+    def test_explicit_no_wire_failure_carries_accounting_proof(self) -> None:
+        failure = NoWireProviderFailure("PREFLIGHT_BLOCKED", "provider unavailable")
+        self.assertTrue(is_no_wire_provider_failure(failure))
+        self.assertFalse(is_no_wire_provider_failure(RuntimeError("provider unavailable")))
 
     def test_unknown_failure_is_other_and_non_permanent(self) -> None:
         failure = classify_provider_failure("groq", RuntimeError("unexpected provider failure"))

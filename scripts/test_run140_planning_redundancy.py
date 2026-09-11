@@ -109,6 +109,29 @@ class Run140PlanningRedundancyTests(unittest.TestCase):
             ["groq"],
         )
 
+    def test_exact_mistral_preflight_is_an_independent_planning_family(self) -> None:
+        self.preflight.write_text(
+            json.dumps(
+                {
+                    "checks": [
+                        {"provider": "gemini", "status": "pass"},
+                        {"provider": "groq", "status": "block"},
+                        {"provider": "mistral", "status": "pass"},
+                        {"provider": "openrouter", "status": "block"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        viable = dynamic.require_viable_planning_capacity(
+            7000,
+            phase="mistral_independent_family_regression",
+            preflight_path=self.preflight,
+            min_provider_families=2,
+        )
+        self.assertEqual(viable, ["gemini", "mistral"])
+        self.assertEqual(dynamic.viable_provider_families(viable), ["gemini", "mistral"])
+
 
 if __name__ == "__main__":
     unittest.main()

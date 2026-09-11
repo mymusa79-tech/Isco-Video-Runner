@@ -290,7 +290,9 @@ class GeminiResearchCallWithFallbackTests(unittest.TestCase):
         telemetry = output.getvalue()
         self.assertIn("RESEARCH_PROVIDER_TELEMETRY", telemetry)
         self.assertIn("provider=gemini", telemetry)
-        self.assertIn("failure_class=timeout", telemetry)
+        # Explicit HTTP status owns the canonical taxonomy. Even when a 5xx body uses
+        # timeout wording, it remains one bounded server_error with the status retained.
+        self.assertIn("failure_class=server_error", telemetry)
         self.assertIn("http_status=504", telemetry)
         self.assertIn("retry_after_s=2", telemetry)
         self.assertIn("action=retry", telemetry)

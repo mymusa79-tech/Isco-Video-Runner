@@ -142,6 +142,13 @@ OUTLINE_MAX_ATTEMPTS_PER_PROVIDER = 1
 # may appear again, so no provider is retried back-to-back before alternatives are tried.
 OUTLINE_MAX_TOTAL_ATTEMPTS = len(_PROVIDER_ORDER) * 2
 
+
+def _planning_provider_order() -> tuple[str, ...]:
+    """Add Mistral only after the exact model passed the free-only preflight gate."""
+    if router._mistral_route_ready():
+        return ("gemini", "groq", "mistral", "openrouter")
+    return _PROVIDER_ORDER
+
 # One explicit provider-output budget per bounded Planning transport contract.  These
 # names are produced from stage identity + expected ids below; prompt text has no role
 # in selecting either the name or the budget.  Run123 consumes this same table for its
@@ -323,8 +330,9 @@ def _provider_policy(
         if max_attempts_per_provider is None
         else int(max_attempts_per_provider)
     )
+    providers = _planning_provider_order()
     total_attempts = (
-        router.PLANNING_SUBTASK_MAX_PROVIDER_ATTEMPTS
+        len(providers) * attempts_per_provider
         if max_total_attempts is None
         else int(max_total_attempts)
     )
@@ -334,7 +342,7 @@ def _provider_policy(
             "provider policy requires positive bounded attempts",
         )
     return ProviderPolicy(
-        providers=_PROVIDER_ORDER,
+        providers=providers,
         max_attempts_per_provider=attempts_per_provider,
         max_total_attempts=total_attempts,
         completion_tokens=completion_tokens,
@@ -373,7 +381,7 @@ def outline_stage_spec(expected_count: int) -> PlanningStageSpec:
         provider_policy=_provider_policy(
             _transport_completion_tokens("editorial_outline", expected_count),
             max_attempts_per_provider=OUTLINE_MAX_ATTEMPTS_PER_PROVIDER,
-            max_total_attempts=OUTLINE_MAX_TOTAL_ATTEMPTS,
+            max_total_attempts=len(_planning_provider_order()) * 2,
             second_pass_after_full_exhaustion=True,
         ),
         cache_policy=CachePolicy(),
@@ -987,7 +995,10 @@ def _provider_failure(
     exc: BaseException,
 ) -> tuple[PlanningStageError, bool, object, object]:
     failure = router.classify_provider_failure(provider, exc)
-    retry_after = router._last_call_rate_limit_headers.get("retry_after")
+    retry_after = (
+        router._last_call_rate_limit_headers.get("retry_after")
+        or failure.retry_after_seconds
+    )
     detail = str(exc).replace("\n", " ")[:300]
     lower = detail.lower()
     capacity_markers = (
@@ -1104,11 +1115,9 @@ def _provider_result(
         # before any provider request was made.
         gemini_key = str(primary_api_key or "").strip()
         if not gemini_key:
-            raise PlanningStageError(
-                PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
-                "Gemini request credential unavailable after one-time secret consumption",
-                stage_id=contract.stage_id,
-                provider=provider,
+            raise router.NoWireProviderFailure(
+                "GEMINI_CREDENTIAL_UNAVAILABLE",
+                "request credential unavailable after one-time secret consumption",
             )
         return router._budgeted_provider_call(
             "gemini",
@@ -1121,6 +1130,12 @@ def _provider_result(
         )
     if provider == "groq":
         return router._groq_call(prompt)
+    if provider == "mistral":
+        return router._mistral_call(
+            prompt,
+            response_contract=_schema_tuple(contract),
+            completion_tokens=contract.provider_policy.completion_tokens_for("mistral"),
+        )
     if provider == "openrouter":
         return router._openrouter_call_with_repair(
             prompt,
@@ -1183,6 +1198,7 @@ def install_planning_contract_router() -> None:
                     provider,
                     "capacity-preflight",
                     error_detail=str(exc)[:220],
+                    wire_attempted=False,
                 )
             else:
                 admitted.append(provider)
@@ -1196,6 +1212,7 @@ def install_planning_contract_router() -> None:
 
         def run_provider_loop() -> tuple[dict, str]:
             total_attempts = 0
+            provider_wire_attempts: dict[str, int] = {}
             failures: list[PlanningStageError] = []
             deferred_retry_providers: set[str] = set()
             request_token = _ACTIVE_REQUEST_CONTRACT.set(contract)
@@ -1217,17 +1234,16 @@ def install_planning_contract_router() -> None:
 
                     for provider in providers_this_round:
                         if provider in cooldown:
-                            router._record_attempt(provider, "circuit-open")
+                            router._record_attempt(provider, "circuit-open", wire_attempted=False)
                             continue
                         until = transient_cooldown_until.get(provider)
                         if until is not None and until > time.monotonic():
-                            router._record_attempt(provider, "transient-cooldown")
+                            router._record_attempt(provider, "transient-cooldown", wire_attempted=False)
                             continue
 
                         for provider_attempt in range(contract.provider_policy.max_attempts_per_provider):
                             if total_attempts >= contract.provider_policy.max_total_attempts:
                                 break
-                            total_attempts += 1
                             since = time.monotonic() - last_call_at.get(provider, 0.0)
                             if since < router.MIN_PROVIDER_CALL_INTERVAL_SECONDS:
                                 time.sleep(router.MIN_PROVIDER_CALL_INTERVAL_SECONDS - since)
@@ -1252,14 +1268,21 @@ def install_planning_contract_router() -> None:
                                     ) from exc
                                 validate_response(contract, parsed)
                             except PlanningStageError as exc:
+                                wire_attempted = not router.is_no_wire_provider_failure(exc)
+                                if wire_attempted:
+                                    total_attempts += 1
+                                    provider_wire_attempts[provider] = provider_wire_attempts.get(provider, 0) + 1
                                 failures.append(exc)
                                 _safe_record_attempt(
                                     provider,
                                     exc.code.value.lower(),
                                     error_detail=str(exc)[:220],
                                     duration_seconds=time.monotonic() - started,
-                                    provider_attempt=provider_attempt + 1,
+                                    provider_attempt=(provider_wire_attempts.get(provider) if wire_attempted else None),
+                                    wire_attempted=wire_attempted,
                                 )
+                                if not wire_attempted:
+                                    break
                                 # Invalid output, fixed capacity, and contract failures
                                 # are terminal for this provider in this request.
                                 if exc.code in {
@@ -1289,6 +1312,10 @@ def install_planning_contract_router() -> None:
                                 )
                                 break
                             except Exception as exc:
+                                wire_attempted = not router.is_no_wire_provider_failure(exc)
+                                if wire_attempted:
+                                    total_attempts += 1
+                                    provider_wire_attempts[provider] = provider_wire_attempts.get(provider, 0) + 1
                                 classified, retryable, retry_after, failure = _safe_provider_failure(
                                     contract,
                                     provider,
@@ -1300,24 +1327,47 @@ def install_planning_contract_router() -> None:
                                     failure.telemetry_result,
                                     error_detail=str(classified)[:220],
                                     duration_seconds=time.monotonic() - started,
-                                    provider_attempt=provider_attempt + 1,
+                                    provider_attempt=(provider_wire_attempts.get(provider) if wire_attempted else None),
+                                    wire_attempted=wire_attempted,
+                                    http_status=failure.http_status,
+                                    quota_scope=failure.quota_scope,
+                                    retry_after=retry_after,
                                 )
                                 if failure.open_circuit:
                                     cooldown.add(provider)
+                                if not wire_attempted:
+                                    if retryable:
+                                        if (
+                                            round_index == 1
+                                            and contract.provider_policy.second_pass_after_full_exhaustion
+                                            and not failure.open_circuit
+                                            and total_attempts < contract.provider_policy.max_total_attempts
+                                        ):
+                                            deferred_retry_providers.add(provider)
+                                        transient_cooldown_until[provider] = (
+                                            time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
+                                        )
+                                    break
                                 has_retry = provider_attempt + 1 < contract.provider_policy.max_attempts_per_provider
                                 if (
                                     retryable
                                     and has_retry
                                     and total_attempts < contract.provider_policy.max_total_attempts
                                 ):
-                                    time.sleep(
-                                        router._retry_delay_seconds(
-                                            provider,
-                                            provider_attempt,
-                                            retry_after,
-                                        )
+                                    decision = router._retry_delay_decision(
+                                        provider,
+                                        provider_attempt,
+                                        retry_after,
                                     )
-                                    continue
+                                    if decision.action == "retry" and decision.delay_seconds is not None:
+                                        time.sleep(float(decision.delay_seconds))
+                                        continue
+                                    print(
+                                        "Planning stage Retry-After exceeds local wait budget; "
+                                        f"failing over without partial wait: {provider} "
+                                        f"retry_after={decision.provider_hint_seconds} "
+                                        f"budget={decision.wait_budget_seconds}"
+                                    )
                                 if retryable:
                                     if (
                                         round_index == 1
@@ -1331,12 +1381,15 @@ def install_planning_contract_router() -> None:
                                     )
                                 break
                             else:
+                                total_attempts += 1
+                                provider_wire_attempts[provider] = provider_wire_attempts.get(provider, 0) + 1
                                 router._record_provider_used(provider)
                                 router._record_attempt(
                                     provider,
                                     "success",
                                     duration_seconds=time.monotonic() - started,
-                                    provider_attempt=provider_attempt + 1,
+                                    provider_attempt=provider_wire_attempts[provider],
+                                    wire_attempted=True,
                                 )
                                 print(
                                     "Planning subtask provider selected: "
@@ -1373,7 +1426,8 @@ def install_planning_contract_router() -> None:
                 summary = " | ".join(str(item) for item in failures)
                 raise PlanningStageError(
                     last.code,
-                    f"all providers exhausted after {total_attempts}/{contract.provider_policy.max_total_attempts} attempts: {summary}",
+                    f"all providers exhausted after {total_attempts}/{contract.provider_policy.max_total_attempts} attempts "
+                    f"(wire_only=true): {summary}",
                     stage_id=contract.stage_id,
                 )
             finally:

@@ -423,13 +423,14 @@ def _proactive_groq_pacing(capacity: dict, model_name: str = _DEFAULT_GROQ_MODEL
             if decision["reason"] == "actual_limit_below_required"
             else "GROQ_TPM_CAPACITY_PREFLIGHT"
         )
-        raise RuntimeError(
-            f"{marker} model={model_name} required={required} limit={decision['actual_limit']}"
+        raise router.NoWireProviderFailure(
+            marker,
+            f"model={model_name} required={required} limit={decision['actual_limit']}",
         )
     if decision["action"] == "unavailable":
-        raise RuntimeError(
-            "GROQ_MODEL_CAPACITY_UNAVAILABLE "
-            f"model={model_name} reason={decision['reason']}"
+        raise router.NoWireProviderFailure(
+            "GROQ_MODEL_CAPACITY_UNAVAILABLE",
+            f"model={model_name} reason={decision['reason']}",
         )
     if decision["action"] != "wait":
         return 0.0
@@ -438,9 +439,9 @@ def _proactive_groq_pacing(capacity: dict, model_name: str = _DEFAULT_GROQ_MODEL
     reset_at_epoch = state.get("reset_at_epoch")
     if not isinstance(reset_at_epoch, (int, float)):
         # No trustworthy reset evidence: fail over instead of inventing a sleep.
-        raise RuntimeError(
-            "GROQ_TPM_WINDOW_BUSY_PRECHECK "
-            f"model={model_name} required={required} remaining={decision['remaining_tokens']} reset_in=unknown"
+        raise router.NoWireProviderFailure(
+            "GROQ_TPM_WINDOW_BUSY_PRECHECK",
+            f"model={model_name} required={required} remaining={decision['remaining_tokens']} reset_in=unknown",
         )
     until_reset = max(0.0, float(reset_at_epoch) - time.time())
     delay = min(MAX_RETRY_AFTER_SECONDS, until_reset + GROQ_RATE_RESET_SAFETY_SECONDS)
@@ -494,14 +495,14 @@ def _hardened_groq_call(prompt: str) -> dict:
     request_capacity = groq_capacity_estimate(prompt, model_name=model_name)
     decision = groq_admission_decision(model_name, request_capacity["estimated_request_tokens"])
     if decision["action"] == "impossible":
-        raise RuntimeError(
-            "GROQ_TPM_CAPACITY_PREFLIGHT "
+        raise router.NoWireProviderFailure(
+            "GROQ_TPM_CAPACITY_PREFLIGHT",
             f"contract={request_capacity['contract']} "
             f"estimated_prompt_tokens={request_capacity['estimated_prompt_tokens']} "
             f"reserved_completion_tokens={request_capacity['reserved_completion_tokens']} "
             f"safety_tokens={request_capacity['token_safety_reserve']} "
             f"estimated_total={request_capacity['estimated_request_tokens']} "
-            f"limit={decision['actual_limit']} model={model_name}"
+            f"limit={decision['actual_limit']} model={model_name}",
         )
 
     _proactive_groq_pacing(request_capacity, model_name=model_name)
