@@ -24,6 +24,9 @@ from scripts import run181_vision_mesh_closure as vision_mesh
 from scripts import vision_stage_contract_v2 as vision_contract
 from scripts import visual_retrieval_adjudication_v1 as capacity
 from scripts.telegram_progress import update_stage
+from scripts.vision_provider_failure_unification_v1 import (
+    install_vision_provider_failure_unification_v1,
+)
 
 
 CONTRACT_ID = "gold-vision-capacity-reserve-v1"
@@ -176,6 +179,11 @@ def install_gold_vision_capacity_reserve_v1() -> None:
     global _INSTALLED
     if _INSTALLED:
         return
+    # Canonical Production calls this before any actual Vision work, and the Gold-only
+    # resume path installs the same owner. Keep provider-failure taxonomy composition at
+    # this shared Long+Short seam so ordinary production and deferred Gold use exactly
+    # the same failure semantics.
+    install_vision_provider_failure_unification_v1()
     _install_reserve_admission()
     _install_gold_groq_retry()
     _install_gold_scope()
