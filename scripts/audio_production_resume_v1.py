@@ -11,6 +11,7 @@ A newly confirmed second semantic review is terminal SEMANTIC_MISMATCH.
 
 import hashlib
 import json
+import os
 import tempfile
 from pathlib import Path
 from typing import Any, Callable
@@ -42,6 +43,35 @@ def _read_object(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise AudioProductionResumeError(f"audio_resume_wrong_shape:{Path(path).name}")
     return value
+
+
+def _gemini_transcriber_from_api_key(api_key: str) -> Callable[[Path], str]:
+    """Build a resume-only Gemini auditor from the already-consumed capability value.
+
+    The executor captures the one-time credential once, then passes the in-memory value
+    here.  The value is never restored to environment variables or persisted artifacts.
+    This path is format-agnostic so AUDIO_QC_PENDING recovery works for Long and Short.
+    """
+    key = str(api_key or "").strip()
+    if not key:
+        raise AudioProductionResumeError("audio_resume_gemini_capability_missing")
+
+    def transcribe(audio_path: Path) -> str:
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise RuntimeError("google_genai_not_installed") from exc
+        model = (os.environ.get("GEMINI_CONTENT_MODEL") or contract.DEFAULT_GEMINI_AUDIT_MODEL).strip()
+        client = genai.Client(api_key=key)
+        return contract._gemini_transcribe_with_client(
+            audio_path,
+            client=client,
+            types_module=types,
+            model=model,
+        )
+
+    return transcribe
 
 
 def _transcriber_for(
@@ -107,6 +137,7 @@ def resume_audio_production_contract_v2(
     extractor: Callable[[Path, Path], None] = contract.extract_final_audio,
     groq_transcriber: Callable[[Path], str] = contract._groq_transcribe,
     gemini_transcriber: Callable[[Path], str] = contract._gemini_transcribe,
+    gemini_api_key: str | None = None,
     max_provider_attempts: int = MAX_RESUME_PROVIDER_ATTEMPTS,
 ) -> dict[str, Any]:
     root = Path(output_dir)
@@ -125,6 +156,9 @@ def resume_audio_production_contract_v2(
         raise AudioProductionResumeError("audio_resume_provider_budget_out_of_range")
     if bounded_max == 0:
         raise AudioProductionResumeError("audio_resume_provider_budget_exhausted")
+
+    if gemini_api_key is not None:
+        gemini_transcriber = _gemini_transcriber_from_api_key(gemini_api_key)
 
     final_path = root / "final.mp4"
     if not final_path.is_file() or final_path.stat().st_size <= 1024:
