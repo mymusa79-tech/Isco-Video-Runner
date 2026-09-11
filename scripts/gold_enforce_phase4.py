@@ -52,6 +52,42 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _persist_budget_snapshot(ledger: BudgetLedger, output_dir: Path) -> Path:
+    """Atomically persist the exact in-memory AI ledger at the Gold boundary.
+
+    The QC_PENDING resume bundle treats ``ai-budget.json`` as required provenance. A
+    Gold provider can fail before the outer production exception handler gets a chance
+    to flush the ledger, so the file must exist before the first Gold provider call and
+    must be refreshed before a failure checkpoint is sealed. The temporary file is
+    fsync'd and atomically replaced; a crash can therefore expose either the previous
+    complete snapshot or the new complete snapshot, never a partially-written budget.
+    """
+    root = Path(output_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / "ai-budget.json"
+    temporary = root / ".ai-budget.json.tmp"
+    try:
+        ledger.write(temporary)
+        with temporary.open("rb") as handle:
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+        try:
+            directory_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return target
+
+
 def _snapshot_pending_production_record(output_key: str) -> dict | None:
     """Capture the core history row before Gold's fail-closed cleanup can remove it."""
     try:
@@ -160,6 +196,11 @@ def run_gold_enforce_phase4(
         if certified_sha != final_sha_before:
             raise RuntimeError("Gold enforcement received bytes different from P4 certificate")
 
+    # Recovery provenance must pre-exist before any Gold provider can fail. The same
+    # snapshot is refreshed immediately after Gold returns/raises below so a deferred
+    # bundle contains the exact provider attempts made by this Gold execution.
+    _persist_budget_snapshot(ledger, output_dir)
+
     attempts_before = _provider_attempt_total(ledger)
     state_before = _fingerprint(Path(os.environ.get("ISCO_HISTORY_PATH", ""))) if os.environ.get("ISCO_HISTORY_PATH") else {
         "exists": None,
@@ -227,6 +268,8 @@ def run_gold_enforce_phase4(
     except Exception as exc:
         error = exc
         critic = critic_box.get("critic", critic)
+    finally:
+        _persist_budget_snapshot(ledger, output_dir)
 
     attempts_after = _provider_attempt_total(ledger)
     final_sha_after = _sha256_file(final_path) if final_path.is_file() else None
@@ -344,6 +387,10 @@ def run_gold_enforce_phase4(
 
     if error is not None:
         try:
+            # Refresh once more immediately before checkpoint sealing. This is cheap and
+            # makes the ordering explicit for future refactors: budget provenance first,
+            # then QC_PENDING checkpoint, then immutable resume bundle.
+            _persist_budget_snapshot(ledger, output_dir)
             checkpoint = capture_qc_pending_checkpoint(
                 output_dir,
                 error,
