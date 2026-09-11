@@ -81,24 +81,6 @@ def _current() -> ShortFinishingCapabilities:
     return capabilities
 
 
-def current_short_finishing_gemini_for_audio() -> str | None:
-    """Return the scoped Gemini lease for Audio QC, or ``None`` outside Short finishing.
-
-    ``None`` is intentionally reserved for "no Short scope" so Long keeps its existing
-    provider-secret resolution. An active Short scope with an empty Gemini capability
-    is an ownership violation and fails closed instead of escaping back to env/files.
-    """
-    capabilities = _ACTIVE.get()
-    if capabilities is None:
-        return None
-    gemini = str(capabilities.gemini or "").strip()
-    if not gemini:
-        raise ShortFinishingCapabilityError(
-            "SHORT_AUDIO_GEMINI_CAPABILITY_MISSING"
-        )
-    return gemini
-
-
 def current_audio_resume_gemini() -> str | None:
     """Return the resume-only Gemini lease for either Long or Short Audio recovery."""
     value = _AUDIO_RESUME_GEMINI.get()
@@ -107,6 +89,27 @@ def current_audio_resume_gemini() -> str | None:
     gemini = str(value or "").strip()
     if not gemini:
         raise ShortFinishingCapabilityError("AUDIO_RESUME_GEMINI_CAPABILITY_MISSING")
+    return gemini
+
+
+def current_short_finishing_gemini_for_audio() -> str | None:
+    """Resolve the authoritative in-memory Gemini lease for Audio QC.
+
+    A dedicated Audio-resume lease wins for both Long and Short recovery. Outside resume,
+    normal Short finishing uses ``_ACTIVE``. ``None`` is reserved for callers with no
+    in-memory ownership scope, allowing the unchanged normal Long env/file resolver.
+    """
+    resume_gemini = current_audio_resume_gemini()
+    if resume_gemini is not None:
+        return resume_gemini
+    capabilities = _ACTIVE.get()
+    if capabilities is None:
+        return None
+    gemini = str(capabilities.gemini or "").strip()
+    if not gemini:
+        raise ShortFinishingCapabilityError(
+            "SHORT_AUDIO_GEMINI_CAPABILITY_MISSING"
+        )
     return gemini
 
 
