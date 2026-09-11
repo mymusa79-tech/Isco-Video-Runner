@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from scripts import audio_production_contract_v2 as contract
+from scripts import audio_quality_capability_binding as capability_binding
+from scripts import quality_capability_router as router
 
 
 CONTRACT_ID = "audio.production.resume.v1"
@@ -44,17 +46,56 @@ def _read_object(path: Path) -> dict[str, Any]:
     return value
 
 
+def _candidate_for_label(provider: str) -> router.CapabilityCandidate:
+    if provider == "groq-whisper":
+        return capability_binding._candidate("groq")
+    if provider == "gemini-audio":
+        return capability_binding._candidate("gemini")
+    raise AudioProductionResumeError(f"audio_resume_unknown_provider:{provider}")
+
+
 def _transcriber_for(
     provider: str,
     *,
     groq_transcriber: Callable[[Path], str],
     gemini_transcriber: Callable[[Path], str],
+    exclude_provenance: tuple[router.ArtifactProvenance, ...] = (),
 ) -> Callable[[Path], str]:
+    candidate = _candidate_for_label(provider)
     if provider == "groq-whisper":
-        return groq_transcriber
-    if provider == "gemini-audio":
-        return gemini_transcriber
-    raise AudioProductionResumeError(f"audio_resume_unknown_provider:{provider}")
+        transcriber = groq_transcriber
+    elif provider == "gemini-audio":
+        transcriber = gemini_transcriber
+    else:
+        raise AudioProductionResumeError(f"audio_resume_unknown_provider:{provider}")
+    capability = (
+        router.CAP_INDEPENDENT_AUDIO_AUDIT
+        if exclude_provenance
+        else router.CAP_AUDIO_SEMANTIC_AUDIT
+    )
+    return capability_binding._bounded_transcriber(
+        candidate,
+        transcriber,
+        capability=capability,
+        exclude_provenance=exclude_provenance,
+    )
+
+
+def _semantic_provenance(latest: dict[str, dict[str, Any]]) -> tuple[router.ArtifactProvenance, ...]:
+    evidence: list[router.ArtifactProvenance] = []
+    for provider, item in latest.items():
+        if str(item.get("status") or "") != "semantic_review":
+            continue
+        candidate = _candidate_for_label(provider)
+        evidence.append(
+            router.ArtifactProvenance(
+                artifact="audio-resume-existing-semantic-review",
+                capability=router.CAP_AUDIO_SEMANTIC_AUDIT,
+                provider=candidate.provider,
+                model=candidate.model,
+            )
+        )
+    return tuple(evidence)
 
 
 def _normalized_prior_attempts(prior: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -93,7 +134,16 @@ def _write_pass(root: Path, document: dict[str, Any], *, accepted_provider: str)
             "resume_provider_attempts": int(document.get("resume_provider_attempts") or 0),
         }
     )
-    contract._atomic_json(root / contract.AUDIT_FILENAME, document)
+    audit_path = root / contract.AUDIT_FILENAME
+    contract._atomic_json(audit_path, document)
+    candidate = _candidate_for_label(accepted_provider)
+    router.record_artifact_provenance(
+        audit_path,
+        capability=router.CAP_AUDIO_SEMANTIC_AUDIT,
+        provider=candidate.provider,
+        model=candidate.model,
+        subject=root / "final.mp4",
+    )
     print(
         "Audio Production Contract V2 resume PASS: "
         f"provider={accepted_provider} attempts={document['resume_provider_attempts']}"
@@ -172,6 +222,8 @@ def resume_audio_production_contract_v2(
         "approval_shopping_forbidden": True,
         "existing_semantic_review_is_immutable": bool(semantic),
         "retry_only_prior_technical_failure": True,
+        "capability_router_required": True,
+        "independent_provider_enforced": True,
         "max_provider_attempts_this_resume": bounded_max,
         "inherits_source_run_provider_budget": True,
     }
@@ -200,6 +252,10 @@ def resume_audio_production_contract_v2(
         document["extracted_audio_bytes"] = audio_path.stat().st_size
 
         for provider in retry_order:
+            # Recompute provenance after every attempt: if the first retry produced a
+            # semantic review, the second attempt must be routed as an independent audit
+            # and cannot reuse that provider family.
+            existing_semantic = _semantic_provenance(latest)
             attempt, passed = contract._provider_attempt(
                 provider=provider,
                 audio_path=audio_path,
@@ -208,6 +264,7 @@ def resume_audio_production_contract_v2(
                     provider,
                     groq_transcriber=groq_transcriber,
                     gemini_transcriber=gemini_transcriber,
+                    exclude_provenance=existing_semantic,
                 ),
             )
             document["resume_provider_attempts"] += 1
