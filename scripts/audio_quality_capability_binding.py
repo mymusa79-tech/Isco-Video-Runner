@@ -53,6 +53,18 @@ def _injected_adapter_credential_probe(_candidate: router.CapabilityCandidate) -
     return True
 
 
+def _default_transcriber_for_candidate(
+    candidate: router.CapabilityCandidate,
+) -> Callable[[Path], str]:
+    if candidate.provider == _GROQ_PROVIDER:
+        return contract._groq_transcribe
+    if candidate.provider == _GEMINI_PROVIDER:
+        return contract._gemini_transcribe
+    raise router.CapabilityRouteError(
+        f"audio_capability_unknown_provider:{candidate.provider}"
+    )
+
+
 def _probe_for_transcriber(
     transcriber: Callable[[Path], str],
     default_transcriber: Callable[[Path], str],
@@ -85,16 +97,20 @@ def _bounded_transcriber(
     *,
     capability: str,
     exclude_provenance: tuple[router.ArtifactProvenance, ...] = (),
-    credential_probe: router.CredentialProbe = _credential_probe,
+    credential_probe: router.CredentialProbe | None = None,
 ) -> Callable[[Path], str]:
     """Apply retry taxonomy around one existing provider adapter, never semantics."""
+    effective_probe = credential_probe or _probe_for_transcriber(
+        transcriber,
+        _default_transcriber_for_candidate(candidate),
+    )
 
     def call(audio_path: Path) -> str:
         if not _admitted(
             capability,
             candidate,
             exclude_provenance=exclude_provenance,
-            credential_probe=credential_probe,
+            credential_probe=effective_probe,
         ):
             raise RuntimeError(
                 f"capability_route_unavailable:{capability}:{candidate.identity}"
@@ -152,18 +168,12 @@ def require_audio_production_contract_v2_routed(
             groq_candidate,
             groq_transcriber,
             capability=router.CAP_AUDIO_SEMANTIC_AUDIT,
-            credential_probe=_probe_for_transcriber(
-                groq_transcriber, contract._groq_transcribe
-            ),
         ),
         gemini_transcriber=_bounded_transcriber(
             gemini_candidate,
             gemini_transcriber,
             capability=router.CAP_INDEPENDENT_AUDIO_AUDIT,
             exclude_provenance=(primary_provenance,),
-            credential_probe=_probe_for_transcriber(
-                gemini_transcriber, contract._gemini_transcribe
-            ),
         ),
     )
 
