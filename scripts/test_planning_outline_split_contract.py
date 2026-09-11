@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from scripts import native_short_stage_contract
 from scripts import planning_stage_contract as stage_contract
 from scripts import task_level_planner_router as router
 from scripts import run125_capacity_routing_closure as run125
@@ -294,14 +295,14 @@ class PlanningOutlineSplitFailureAwareRetryTests(unittest.TestCase):
         self.old_fingerprint_marker = getattr(
             router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD", None
         )
-        self.had_model_marker = hasattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER")
+        self.had_model_marker = hasattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2")
         self.old_model_marker = getattr(
-            run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER", None
+            run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2", None
         )
         if self.had_fingerprint_marker:
             delattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD")
         if self.had_model_marker:
-            delattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER")
+            delattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2")
 
     def tearDown(self) -> None:
         router.gemini_json_text = self.original_gemini
@@ -318,11 +319,11 @@ class PlanningOutlineSplitFailureAwareRetryTests(unittest.TestCase):
         if self.had_model_marker:
             setattr(
                 run125,
-                "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER",
+                "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2",
                 self.old_model_marker,
             )
-        elif hasattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER"):
-            delattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER")
+        elif hasattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2"):
+            delattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2")
         stage_contract._ACTIVE_REQUEST_CONTRACT.set(None)
         stage_contract._ACTIVE_STAGE_SPEC.set(None)
 
@@ -363,6 +364,34 @@ class PlanningOutlineSplitFailureAwareRetryTests(unittest.TestCase):
         with stage_contract.request_stage_scope(self.split.outline_sections_stage_spec(6)):
             self.assertTrue(run125._is_model_unavailable(error))
             self.assertFalse(run125._is_model_unavailable(RuntimeError("GROQ_HTTP_500")))
+
+        with stage_contract.request_stage_scope(stage_contract.script_stage_spec("full_script", ["s1"])):
+            self.assertFalse(run125._is_model_unavailable(error))
+
+    def test_run244_groq_schema_failure_is_also_model_diverse_for_native_short(self) -> None:
+        # Run #244 (real production log, Short/moment): Groq's structured-generation
+        # failure on planning.short_review is the exact same failure class the split
+        # outline already gets model diversity for, but native Short's Draft/Review/
+        # Repair calls (native_short_stage_contract.py) are not one of SPLIT_PROFILES,
+        # so the already-installed, already-proven groq_model_pool failover
+        # (run125_capacity_routing_closure.py) never triggered - the retry just hit
+        # the identical doomed model twice instead of trying a different one.
+        run125._is_model_unavailable = lambda error: False
+        self.split._install_groq_model_diversity()
+        error = RuntimeError(
+            "GROQ_JSON_VALIDATE_FAILED status=400 code=json_validate_failed"
+        )
+
+        native_short_spec = native_short_stage_contract.moment_stage_spec(
+            "short_review", "موضوع الشورت"
+        )
+        with stage_contract.request_stage_scope(native_short_spec):
+            self.assertTrue(run125._is_model_unavailable(error))
+            self.assertFalse(run125._is_model_unavailable(RuntimeError("GROQ_HTTP_500")))
+
+        # Split outline behavior (proven above) must be completely unaffected.
+        with stage_contract.request_stage_scope(self.split.outline_core_stage_spec(6)):
+            self.assertTrue(run125._is_model_unavailable(error))
 
         with stage_contract.request_stage_scope(stage_contract.script_stage_spec("full_script", ["s1"])):
             self.assertFalse(run125._is_model_unavailable(error))

@@ -27,6 +27,7 @@ from typing import Any
 
 import isco_video_agent.resilient_planner as staged
 
+from scripts import native_short_stage_contract as native_short_contract
 from scripts import planning_stage_contract as stage_contract
 from scripts import provider_capacity_hardening as capacity
 from scripts import run125_capacity_routing_closure as run125
@@ -507,9 +508,18 @@ def _install_groq_model_diversity() -> None:
     def model_unavailable(error) -> bool:
         if original(error):
             return True
-        return _active_profile() in SPLIT_PROFILES and _groq_schema_generation_failed(
-            error
-        )
+        if not _groq_schema_generation_failed(error):
+            return False
+        profile = _active_profile()
+        # Run #244: native Short's Draft/Review/Repair calls (native_short_stage_
+        # contract.py) share this exact Groq structured-generation failure class with
+        # Long's outline core/sections calls, but are not one of SPLIT_PROFILES - a
+        # schema-invalid Groq response there never triggered this already-proven,
+        # already-installed model-diversity failover (run125_capacity_routing_closure.
+        # py's groq_model_pool wraps every Groq call regardless of format), so a
+        # doomed request retried the identical failing model instead of trying a
+        # different one from the pool.
+        return profile in SPLIT_PROFILES or profile == native_short_contract.NATIVE_SHORT_TRANSPORT_PROFILE
 
     run125._is_model_unavailable = model_unavailable
     run125._ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2 = True
