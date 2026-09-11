@@ -51,9 +51,10 @@ def _provider_statuses(path: Path | None = None) -> dict[str, str]:
 def viable_planning_providers(required_tokens: int, *, preflight_path: Path | None = None) -> list[str]:
     """Return providers that are not known incapable of this P0 planning request.
 
-    Gemini/OpenRouter have no local TPM authority in this stack, so a passing provider
-    readiness check keeps them viable. Groq is stricter: each production model uses
-    provider-learned capacity, with 8000 only as its pre-contact bootstrap assumption.
+    Gemini/Mistral/OpenRouter have no local TPM authority in this stack, so a passing
+    exact-model readiness check keeps them viable. Groq is stricter: each production
+    model uses provider-learned capacity, with 8000 only as its pre-contact bootstrap
+    assumption.
     """
     statuses = _provider_statuses(preflight_path)
     viable: list[str] = []
@@ -70,6 +71,9 @@ def viable_planning_providers(required_tokens: int, *, preflight_path: Path | No
             if decision["action"] in {"admit", "unknown", "wait"}:
                 viable.append(f"groq:{model}")
                 break
+
+    if statuses.get("mistral") == "pass":
+        viable.append("mistral")
 
     if statuses.get("openrouter") == "pass":
         viable.append("openrouter")
@@ -139,14 +143,15 @@ def _dynamic_groq_model_call(prompt: str, model_name: str) -> dict:
             if decision["reason"] == "actual_limit_below_required"
             else "GROQ_TPM_CAPACITY_PREFLIGHT"
         )
-        raise RuntimeError(
-            f"{marker} model={model_name} required={request_capacity['estimated_request_tokens']} "
-            f"limit={decision['actual_limit']}"
+        raise router.NoWireProviderFailure(
+            marker,
+            f"model={model_name} required={request_capacity['estimated_request_tokens']} "
+            f"limit={decision['actual_limit']}",
         )
     if decision["action"] == "unavailable":
-        raise RuntimeError(
-            "GROQ_MODEL_CAPACITY_UNAVAILABLE "
-            f"model={model_name} reason={decision['reason']}"
+        raise router.NoWireProviderFailure(
+            "GROQ_MODEL_CAPACITY_UNAVAILABLE",
+            f"model={model_name} reason={decision['reason']}",
         )
 
     capacity._proactive_groq_pacing(request_capacity, model_name=model_name)

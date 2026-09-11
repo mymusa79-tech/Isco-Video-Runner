@@ -181,13 +181,14 @@ def _fast_failover_groq_pacing(
             if decision["reason"] == "actual_limit_below_required"
             else "GROQ_TPM_CAPACITY_PREFLIGHT"
         )
-        raise RuntimeError(
-            f"{marker} model={model} required={required} limit={decision['actual_limit']}"
+        raise router.NoWireProviderFailure(
+            marker,
+            f"model={model} required={required} limit={decision['actual_limit']}",
         )
     if decision["action"] == "unavailable":
-        raise RuntimeError(
-            "GROQ_MODEL_CAPACITY_UNAVAILABLE "
-            f"model={model} reason={decision['reason']}"
+        raise router.NoWireProviderFailure(
+            "GROQ_MODEL_CAPACITY_UNAVAILABLE",
+            f"model={model} reason={decision['reason']}",
         )
     if decision["action"] != "wait":
         return 0.0
@@ -195,11 +196,11 @@ def _fast_failover_groq_pacing(
     state = capacity._model_state(model)
     reset_at_epoch = state.get("reset_at_epoch")
     if not isinstance(reset_at_epoch, (int, float)):
-        raise RuntimeError(
-            "GROQ_TPM_WINDOW_BUSY_PRECHECK "
+        raise router.NoWireProviderFailure(
+            "GROQ_TPM_WINDOW_BUSY_PRECHECK",
             f"model={model} required_estimate={required} "
             f"remaining={decision['remaining_tokens']} reset_in=unknown "
-            "action=failover_without_http"
+            "action=failover_without_http",
         )
 
     until_reset = max(0.0, float(reset_at_epoch) - capacity.time.time())
@@ -209,10 +210,10 @@ def _fast_failover_groq_pacing(
         capacity._persist_model_states()
         return 0.0
 
-    raise RuntimeError(
-        "GROQ_TPM_WINDOW_BUSY_PRECHECK "
+    raise router.NoWireProviderFailure(
+        "GROQ_TPM_WINDOW_BUSY_PRECHECK",
         f"model={model} required_estimate={required} remaining={decision['remaining_tokens']} "
-        f"reset_in={until_reset:.2f}s action=failover_without_http"
+        f"reset_in={until_reset:.2f}s action=failover_without_http",
     )
 
 

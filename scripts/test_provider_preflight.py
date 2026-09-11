@@ -211,6 +211,32 @@ class ProviderPreflightTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "configured fallback model unavailable"):
                 preflight.check_groq("secret")
 
+    def test_mistral_is_optional_but_certifies_exact_model_without_inference(self) -> None:
+        response = self._response(
+            200,
+            {"data": [{"id": preflight.MISTRAL_RUNTIME_MODEL}]},
+        )
+        with patch.object(preflight.requests, "get", return_value=response) as get, patch.object(
+            preflight.requests, "post"
+        ) as post:
+            result = preflight.check_mistral("secret")
+        self.assertEqual(result.status, "pass")
+        self.assertEqual(result.capacity_status, "dynamic_unobservable")
+        self.assertIn(preflight.MISTRAL_RUNTIME_MODEL, result.detail)
+        get.assert_called_once()
+        post.assert_not_called()
+
+        with self.assertRaisesRegex(RuntimeError, "not configured"):
+            preflight.check_mistral("")
+
+        with patch.object(
+            preflight.requests,
+            "get",
+            return_value=self._response(200, {"data": [{"id": "other-model"}]}),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "configured fallback model unavailable"):
+                preflight.check_mistral("secret")
+
     def _openrouter_catalog(self, *, model_ids: list[str]) -> Mock:
         return self._response(200, {"data": [{"id": model_id} for model_id in model_ids]})
 
@@ -459,7 +485,8 @@ class ProviderPreflightTests(unittest.TestCase):
             self.assertFalse(output.with_name(output.name + ".tmp").exists())
         self.assertEqual(payload["schema_version"], 4)
         self.assertEqual(payload["required_providers"], ["gemini", "pexels"])
-        self.assertEqual(payload["fallback_providers"], ["groq", "openrouter", "pixabay"])
+        self.assertEqual(payload["fallback_providers"], ["groq", "mistral", "openrouter", "pixabay"])
+        self.assertIn("mistral", payload["fallback_degraded"])
         self.assertNotIn("super-secret", text)
 
 

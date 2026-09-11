@@ -13,6 +13,7 @@ import requests
 DEFAULT_TIMEOUT_SECONDS = 20
 GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
+MISTRAL_MODELS_URL = "https://api.mistral.ai/v1/models"
 OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/v1/videos/search"
@@ -33,8 +34,9 @@ GEMINI_RUNTIME_CONTENT_ALIASES = {
 # fallbacks: their loss must be visible in diagnostics, not promoted into a false
 # whole-run veto while the hard path remains healthy.
 REQUIRED_PROVIDERS = frozenset({"gemini", "pexels"})
-FALLBACK_PROVIDERS = frozenset({"groq", "openrouter", "pixabay"})
+FALLBACK_PROVIDERS = frozenset({"groq", "mistral", "openrouter", "pixabay"})
 GROQ_RUNTIME_MODEL = "openai/gpt-oss-20b"
+MISTRAL_RUNTIME_MODEL = "mistral-small-2603"
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,15 @@ def _read_secret(path: str | Path) -> str:
     if not value:
         raise RuntimeError("provider credential file is empty")
     return value
+
+
+def _read_optional_secret(path: str | Path | None) -> str:
+    if not path:
+        return ""
+    try:
+        return Path(path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def _require_ok(provider: str, response: requests.Response) -> None:
@@ -211,10 +222,10 @@ def check_gemini(api_key: str, *, content_model: str, tts_model: str, timeout: i
     )
 
 
-def _groq_model_ids(payload: dict) -> set[str]:
+def _model_ids(provider: str, payload: dict) -> set[str]:
     data = payload.get("data")
     if not isinstance(data, list):
-        raise RuntimeError("groq models response has invalid data field")
+        raise RuntimeError(f"{provider} models response has invalid data field")
     return {
         str(item.get("id") or "").strip()
         for item in data
@@ -250,7 +261,7 @@ def check_groq(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> Provi
     )
     _require_ok("groq", response)
     payload = _json_object("groq", response)
-    model_ids = _groq_model_ids(payload)
+    model_ids = _model_ids("groq", payload)
     if GROQ_RUNTIME_MODEL not in model_ids:
         raise RuntimeError(f"groq configured fallback model unavailable: {GROQ_RUNTIME_MODEL}")
 
@@ -284,6 +295,55 @@ def check_groq(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> Provi
         remaining_requests if remaining_requests is not None else remaining_tokens,
         "requests" if remaining_requests is not None else "tokens",
         reset,
+    )
+
+
+def check_mistral(api_key: str, *, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> ProviderCheck:
+    """Verify the optional exact Mistral model without spending inference quota."""
+    if not str(api_key or "").strip():
+        raise RuntimeError("mistral optional credential is not configured")
+    response = requests.get(
+        MISTRAL_MODELS_URL,
+        headers={"Authorization": "Bearer " + api_key, "User-Agent": USER_AGENT},
+        timeout=timeout,
+    )
+    _require_ok("mistral", response)
+    model_ids = _model_ids("mistral", _json_object("mistral", response))
+    if MISTRAL_RUNTIME_MODEL not in model_ids:
+        raise RuntimeError(
+            f"mistral configured fallback model unavailable: {MISTRAL_RUNTIME_MODEL}"
+        )
+
+    remaining_requests = _optional_positive_header(
+        "mistral", response, "x-ratelimit-remaining-requests"
+    )
+    remaining_tokens = _optional_positive_header(
+        "mistral", response, "x-ratelimit-remaining-tokens"
+    )
+    visible = remaining_requests if remaining_requests is not None else remaining_tokens
+    if visible is None:
+        return ProviderCheck(
+            "mistral",
+            "pass",
+            response.status_code,
+            (
+                f"credential and exact fallback model {MISTRAL_RUNTIME_MODEL} available; "
+                "discovery response exposes no capacity headers"
+            ),
+            "dynamic_unobservable",
+            None,
+            "rate-limit headroom",
+            None,
+        )
+    return ProviderCheck(
+        "mistral",
+        "pass",
+        response.status_code,
+        f"credential and exact fallback model {MISTRAL_RUNTIME_MODEL} available; positive visible headroom",
+        "positive",
+        visible,
+        "requests" if remaining_requests is not None else "tokens",
+        None,
     )
 
 
@@ -481,10 +541,12 @@ def run_preflight(
     content_model: str,
     tts_model: str,
     output: Path,
+    mistral_key: str = "",
 ) -> list[ProviderCheck]:
     checks: list[tuple[str, Callable[[], ProviderCheck]]] = [
         ("gemini", lambda: check_gemini(gemini_key, content_model=content_model, tts_model=tts_model)),
         ("groq", lambda: check_groq(groq_key)),
+        ("mistral", lambda: check_mistral(mistral_key)),
         ("openrouter", lambda: check_openrouter(openrouter_key)),
         ("pexels", lambda: check_pexels(pexels_key)),
         ("pixabay", lambda: check_pixabay(pixabay_key)),
@@ -547,6 +609,7 @@ def main() -> None:
     parser.add_argument("--tts-model", default="gemini-3.1-flash-tts-preview")
     parser.add_argument("--gemini-key-file", required=True)
     parser.add_argument("--groq-key-file", required=True)
+    parser.add_argument("--mistral-key-file")
     parser.add_argument("--openrouter-key-file", required=True)
     parser.add_argument("--pexels-key-file", required=True)
     parser.add_argument("--pixabay-key-file", required=True)
@@ -554,6 +617,7 @@ def main() -> None:
     results = run_preflight(
         gemini_key=_read_secret(args.gemini_key_file),
         groq_key=_read_secret(args.groq_key_file),
+        mistral_key=_read_optional_secret(args.mistral_key_file),
         openrouter_key=_read_secret(args.openrouter_key_file),
         pexels_key=_read_secret(args.pexels_key_file),
         pixabay_key=_read_secret(args.pixabay_key_file),

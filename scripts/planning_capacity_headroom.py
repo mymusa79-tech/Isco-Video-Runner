@@ -444,9 +444,9 @@ def _install_openrouter_preflight_guard() -> None:
 
     def preflight_guarded(*args, **kwargs):
         if run125.openrouter_preflight_blocked():
-            raise RuntimeError(
-                "OPENROUTER_UNAVAILABLE_THIS_RUN reason=preflight_blocked: "
-                + run125.openrouter_preflight_block_detail()
+            raise router.NoWireProviderFailure(
+                "OPENROUTER_UNAVAILABLE_THIS_RUN",
+                "reason=preflight_blocked: " + run125.openrouter_preflight_block_detail(),
             )
         return original(*args, **kwargs)
 

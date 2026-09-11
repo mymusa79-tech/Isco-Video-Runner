@@ -49,6 +49,13 @@ def _spec(kind: str, *, max_attempts: int = 3) -> TaskSpec:
 class TextAuditProviderMeshTests(unittest.TestCase):
     def setUp(self):
         mesh._AUDIT_ROUTE_TELEMETRY.clear()
+        self._mistral_ready = mock.patch.object(
+            mesh.planner_router, "_mistral_route_ready", return_value=False
+        )
+        self._mistral_ready.start()
+
+    def tearDown(self):
+        self._mistral_ready.stop()
 
     def test_openrouter_blocked_uses_two_bounded_groq_models(self):
         captured = {}
@@ -110,6 +117,64 @@ class TextAuditProviderMeshTests(unittest.TestCase):
         self.assertEqual(
             captured["names"],
             ["gemini", "groq:openai/gpt-oss-20b", "openrouter"],
+        )
+
+    def test_mistral_ready_adds_one_independent_route_before_openrouter(self):
+        captured = {}
+
+        def fake_engine_route(providers, prompt, *, cooldown=None):
+            captured["names"] = [name for name, _call in providers]
+            return mock.Mock(provider="mistral", exhausted=False, attempts=[])
+
+        with mock.patch.object(
+            mesh.planner_router, "_mistral_route_ready", return_value=True
+        ), mock.patch.object(
+            mesh, "_active_groq_pool_tail", return_value=("openai/gpt-oss-20b",)
+        ), mock.patch.object(
+            mesh, "_groq_model_route_eligible", return_value=True
+        ), mock.patch.object(
+            mesh.run125, "openrouter_preflight_blocked", return_value=False
+        ), mock.patch.object(
+            mesh.engine_audit_router, "route_text_audit", side_effect=fake_engine_route
+        ):
+            mesh._mesh_route(
+                [("gemini", lambda _p: {}), ("openrouter", lambda _p: {})],
+                "audit-prompt",
+            )
+
+        self.assertEqual(
+            captured["names"],
+            ["gemini", "groq:openai/gpt-oss-20b", "mistral", "openrouter"],
+        )
+
+    def test_mistral_replaces_second_groq_route_when_openrouter_is_blocked(self):
+        captured = {}
+
+        def fake_engine_route(providers, prompt, *, cooldown=None):
+            captured["names"] = [name for name, _call in providers]
+            return mock.Mock(provider="mistral", exhausted=False, attempts=[])
+
+        with mock.patch.object(
+            mesh.planner_router, "_mistral_route_ready", return_value=True
+        ), mock.patch.object(
+            mesh,
+            "_active_groq_pool_tail",
+            return_value=("openai/gpt-oss-120b", "qwen/qwen3.8-27b"),
+        ), mock.patch.object(
+            mesh, "_groq_model_route_eligible", return_value=True
+        ), mock.patch.object(
+            mesh.run125, "openrouter_preflight_blocked", return_value=True
+        ), mock.patch.object(
+            mesh.engine_audit_router, "route_text_audit", side_effect=fake_engine_route
+        ):
+            mesh._mesh_route(
+                [("gemini", lambda _p: {}), ("openrouter", lambda _p: {})],
+                "audit-prompt",
+            )
+
+        self.assertEqual(
+            captured["names"],
+            ["gemini", "groq:openai/gpt-oss-120b", "mistral"],
         )
 
     def test_pool_tail_never_returns_model_abandoned_by_planning(self):

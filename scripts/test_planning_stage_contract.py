@@ -82,6 +82,16 @@ class PlanningStageContractTests(unittest.TestCase):
         self.assertGreater(bound.provider_policy.max_total_attempts, 0)
         self.assertTrue(bound.cache_policy.revalidate_on_hit)
 
+    def test_mistral_preflight_adds_one_bounded_independent_provider_family(self) -> None:
+        with patch.object(router, "_mistral_route_ready", return_value=True):
+            spec = contract.script_stage_spec("full_script", ["s1"])
+        self.assertEqual(
+            spec.provider_policy.providers,
+            ("gemini", "groq", "mistral", "openrouter"),
+        )
+        self.assertEqual(spec.provider_policy.max_attempts_per_provider, 2)
+        self.assertEqual(spec.provider_policy.max_total_attempts, 8)
+
     def test_provider_schema_and_budget_come_only_from_explicit_stage_spec(self) -> None:
         cases = (
             (contract.script_stage_spec("full_script", ["s1", "s2"]), "script_writer_2", 1300),
@@ -335,6 +345,83 @@ class PlanningStageContractTests(unittest.TestCase):
                 "INTERNAL_CONTRACT_ERROR",
             },
         )
+
+    def test_run239_groq_http_522_with_long_retry_after_fails_over_to_mistral(self) -> None:
+        ids = ["s1"]
+        valid = _script(ids)
+        groq_calls = 0
+        mistral_calls = 0
+        openrouter_calls = 0
+
+        def gemini_quota(*_args, **_kwargs):
+            raise RuntimeError("GEMINI_HTTP_429 status=429 quota exceeded requests per day")
+
+        def groq_522(_prompt):
+            nonlocal groq_calls
+            groq_calls += 1
+            raise RuntimeError("GROQ_HTTP_522 status=522 Retry-After=120")
+
+        def mistral_success(*_args, **_kwargs):
+            nonlocal mistral_calls
+            mistral_calls += 1
+            return valid
+
+        def forbidden_openrouter(*_args, **_kwargs):
+            nonlocal openrouter_calls
+            openrouter_calls += 1
+            raise AssertionError("OpenRouter must not be reached after Mistral recovery")
+
+        self._install()
+        with patch.object(router, "_mistral_route_ready", return_value=True), \
+                patch.object(router, "gemini_json_text", side_effect=gemini_quota), \
+                patch.object(router, "_groq_call", side_effect=groq_522), \
+                patch.object(router, "_mistral_call", side_effect=mistral_success), \
+                patch.object(router, "_openrouter_call_with_repair", side_effect=forbidden_openrouter), \
+                contract.request_stage_scope(contract.script_stage_spec("full_script", ids)):
+            result = staged.json_text("unused", "run-239 exact failure-family prompt")
+
+        self.assertEqual(result, valid)
+        self.assertEqual(groq_calls, 1)
+        self.assertEqual(mistral_calls, 1)
+        self.assertEqual(openrouter_calls, 0)
+        groq_failure = next(
+            item for item in router.get_telemetry()
+            if item["provider"] == "groq" and item["result"] == "server_error"
+        )
+        self.assertEqual(groq_failure["http_status"], 522)
+        self.assertEqual(groq_failure["retry_after"], 120.0)
+        self.assertTrue(groq_failure["wire_attempted"])
+
+    def test_explicit_local_preflight_failure_does_not_consume_wire_budget(self) -> None:
+        base = contract.script_stage_spec("full_script", ["s1"])
+        only_openrouter = contract.PlanningStageSpec(
+            stage_id=base.stage_id,
+            contract_id=base.contract_id,
+            output_schema=base.output_schema,
+            semantic_rules=base.semantic_rules,
+            provider_policy=contract.ProviderPolicy(
+                providers=("openrouter",),
+                max_attempts_per_provider=1,
+                max_total_attempts=1,
+                completion_tokens=100,
+                max_prompt_utf8_bytes=(),
+            ),
+            cache_policy=base.cache_policy,
+        )
+        self._install()
+        with patch.object(
+            router,
+            "_openrouter_call_with_repair",
+            side_effect=router.NoWireProviderFailure(
+                "OPENROUTER_UNAVAILABLE_THIS_RUN", "reason=preflight_blocked"
+            ),
+        ), contract.request_stage_scope(only_openrouter):
+            with self.assertRaisesRegex(contract.PlanningStageError, r"after 0/1 attempts \(wire_only=true\)"):
+                staged.json_text("unused", "preflight-only failure")
+
+        event = next(item for item in router.get_telemetry() if item["provider"] == "openrouter")
+        self.assertFalse(event["wire_attempted"])
+        self.assertIsNone(event["provider_attempt"])
 
 
 class ProviderFailureBookkeepingResilienceTests(unittest.TestCase):

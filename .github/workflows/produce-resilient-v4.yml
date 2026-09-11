@@ -33,6 +33,7 @@ env:
   STATIC_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
   CLOUDFLARE_GOLD_VISION_FREE_ONLY: "true"
   CLOUDFLARE_GOLD_VISION_MAX_CALLS_PER_WORKFLOW: "5"
+  MISTRAL_FREE_ONLY: "true"
 
 jobs:
   produce:
@@ -366,6 +367,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
@@ -390,6 +392,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/isco-secrets"
           printf '%s' "$GEMINI_API_KEY" > "$RUNNER_TEMP/isco-secrets/gemini"
           printf '%s' "$GROQ_API_KEY" > "$RUNNER_TEMP/isco-secrets/groq"
+          printf '%s' "$MISTRAL_API_KEY" > "$RUNNER_TEMP/isco-secrets/mistral"
           printf '%s' "$OPENROUTER_API_KEY" > "$RUNNER_TEMP/isco-secrets/openrouter"
           printf '%s' "$PEXELS_API_KEY" > "$RUNNER_TEMP/isco-secrets/pexels"
           printf '%s' "$PIXABAY_API_KEY" > "$RUNNER_TEMP/isco-secrets/pixabay"
@@ -409,6 +412,7 @@ jobs:
         env:
           GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
           GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
+          MISTRAL_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/mistral
           OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
           PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
           PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay
@@ -422,6 +426,7 @@ jobs:
             --tts-model "$GEMINI_TTS_MODEL" \
             --gemini-key-file "$GEMINI_API_KEY_FILE" \
             --groq-key-file "$GROQ_API_KEY_FILE" \
+            --mistral-key-file "$MISTRAL_API_KEY_FILE" \
             --openrouter-key-file "$OPENROUTER_API_KEY_FILE" \
             --pexels-key-file "$PEXELS_API_KEY_FILE" \
             --pixabay-key-file "$PIXABAY_API_KEY_FILE"
@@ -430,6 +435,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
           ISCO_APPROVED_BRIEF_PATH: ${{ github.workspace }}/engine/production/approved_brief.json
+          MISTRAL_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/mistral
         run: |
           set -euo pipefail
           python scripts/planning_envelope_preflight.py \
@@ -461,6 +467,7 @@ jobs:
           CONTROL_PLANE_PRODUCTION_ENABLED: ${{ steps.ingress_mode.outputs.mode == 'telegram' && 'true' || 'false' }}
           GEMINI_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/gemini
           GROQ_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/groq
+          MISTRAL_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/mistral
           OPENROUTER_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/openrouter
           PEXELS_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pexels
           PIXABAY_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/pixabay

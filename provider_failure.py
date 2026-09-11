@@ -6,6 +6,16 @@ runtime as ``scripts.run_v3_voice`` from the repository root. Keep both entry mo
 bound to one provider-failure implementation instead of duplicating policy.
 """
 
-from scripts.provider_failure import ProviderFailure, classify_provider_failure
+from scripts.provider_failure import (
+    NoWireProviderFailure,
+    ProviderFailure,
+    classify_provider_failure,
+    is_no_wire_provider_failure,
+)
 
-__all__ = ["ProviderFailure", "classify_provider_failure"]
+__all__ = [
+    "NoWireProviderFailure",
+    "ProviderFailure",
+    "classify_provider_failure",
+    "is_no_wire_provider_failure",
+]

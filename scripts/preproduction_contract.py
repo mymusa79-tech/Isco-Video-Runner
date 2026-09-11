@@ -10,7 +10,7 @@ RELEASE_TRANSACTION = Path("scripts/release_transaction.py")
 ENVIRONMENT_PREFLIGHT = Path("scripts/environment_preflight.py")
 ENVIRONMENT_PREFLIGHT_CORE = Path("scripts/environment_preflight_core.py")
 EXPECTED_RUNNER_IMAGE = "ubuntu-24.04"
-PROVIDERS = ("gemini", "groq", "openrouter", "pexels", "pixabay")
+PROVIDERS = ("gemini", "groq", "mistral", "openrouter", "pexels", "pixabay")
 PROVIDER_PREFLIGHT_COMMAND = "python -m scripts.provider_preflight"
 
 
@@ -95,6 +95,25 @@ def audit_preproduction_contract(repo: Path) -> list[ContractIssue]:
     )
     for provider in PROVIDERS:
         require(f"provider_{provider}", f"--{provider}-key-file", f"provider preflight is missing {provider}")
+    require(
+        "mistral_free_only",
+        'MISTRAL_FREE_ONLY: "true"',
+        "optional Mistral routing must remain explicitly constrained to the zero-paid-spend policy",
+    )
+    if 'test -n "$MISTRAL_API_KEY"' in text:
+        issues.append(
+            ContractIssue(
+                "mistral_optional",
+                "Mistral must remain an optional fallback and cannot become a hard production dependency",
+            )
+        )
+    if text.count("MISTRAL_API_KEY_FILE: ${{ runner.temp }}/isco-secrets/mistral") < 3:
+        issues.append(
+            ContractIssue(
+                "mistral_route_evidence",
+                "Mistral credential evidence must be available to provider preflight, planning-envelope parity, and production runtime",
+            )
+        )
 
     # Release namespace ownership moved into environment_preflight_core so manual and
     # Telegram ingress use the same pre-provider guard and the exact resolved tag.

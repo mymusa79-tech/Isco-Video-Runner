@@ -214,15 +214,16 @@ def _groq_model_call(prompt: str, model_name: str) -> dict:
             if decision["reason"] == "actual_limit_below_required"
             else "GROQ_TPM_CAPACITY_PREFLIGHT"
         )
-        raise RuntimeError(
-            f"{marker} model={model_name} contract={request_capacity['contract']} "
+        raise router.NoWireProviderFailure(
+            marker,
+            f"model={model_name} contract={request_capacity['contract']} "
             f"estimated_total={request_capacity['estimated_request_tokens']} "
-            f"limit={decision['actual_limit']}"
+            f"limit={decision['actual_limit']}",
         )
     if decision["action"] == "unavailable":
-        raise RuntimeError(
-            "GROQ_MODEL_CAPACITY_UNAVAILABLE "
-            f"model={model_name} reason={decision['reason']}"
+        raise router.NoWireProviderFailure(
+            "GROQ_MODEL_CAPACITY_UNAVAILABLE",
+            f"model={model_name} reason={decision['reason']}",
         )
 
     capacity._proactive_groq_pacing(request_capacity, model_name=model_name)
@@ -470,7 +471,10 @@ def install_run125_capacity_routing_closure() -> None:
     def bounded_openrouter(prompt: str, contract: tuple[str, dict]) -> dict:
         nonlocal _OPENROUTER_BLOCK_REASON
         if _OPENROUTER_BLOCK_REASON is not None:
-            raise RuntimeError(f"OPENROUTER_UNAVAILABLE_THIS_RUN reason={_OPENROUTER_BLOCK_REASON}")
+            raise router.NoWireProviderFailure(
+                "OPENROUTER_UNAVAILABLE_THIS_RUN",
+                f"reason={_OPENROUTER_BLOCK_REASON}",
+            )
         try:
             return original_openrouter(prompt, contract)
         except Exception as exc:
