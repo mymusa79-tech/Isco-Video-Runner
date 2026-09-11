@@ -327,7 +327,10 @@ def validate_resume_bundle(
     if str(manifest.get("format") or "") != _format(checkpoint):
         raise RuntimeError("QC_PENDING resume manifest/checkpoint format mismatch")
     declared_receipt_files = manifest.get("final_master_upstream_evidence_files")
-    if declared_receipt_files != list(receipt_files):
+    # Bundles sealed before Run #241's closure did not carry this redundant summary.
+    # Preserve V2 backward compatibility while still deriving the authoritative closure
+    # from the exact Final Master receipt and requiring every bound file below.
+    if declared_receipt_files is not None and declared_receipt_files != list(receipt_files):
         raise RuntimeError("QC_PENDING resume manifest Final Master evidence closure mismatch")
 
     files = manifest.get("files")
