@@ -52,6 +52,7 @@ class QualityArchitectureGuardTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("audio_quality_capability_binding", source)
+        self.assertIn("install_quality_capability_runtime_binding()", source)
         self.assertNotIn(
             "from scripts.audio_production_contract_v2 import require_audio_production_contract_v2",
             source,
@@ -63,6 +64,23 @@ class QualityArchitectureGuardTests(unittest.TestCase):
             for candidate in policy.candidates:
                 self.assertNotIn(candidate.model, forbidden, capability)
                 self.assertFalse(candidate.model.endswith("-latest"), capability)
+
+    def test_runtime_binding_replaces_legacy_dynamic_quality_selection(self) -> None:
+        source = (_REPO_ROOT / "scripts/quality_capability_runtime_binding.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("vision.OPENROUTER_PRIMARY_MODEL = vision_models[0]", source)
+        self.assertIn("gold_text._OPENROUTER_MODEL = text_models[0]", source)
+        self.assertIn("vision._discover_alternate_free_vision_model = exact_alternate", source)
+        self.assertNotIn("requests.get(", source)
+        self.assertNotIn("requests.post(", source)
+
+    def test_provider_preflight_certifies_exact_quality_candidates(self) -> None:
+        source = (_REPO_ROOT / "scripts/provider_preflight.py").read_text(encoding="utf-8")
+        self.assertIn("_quality_candidate_readiness()", source)
+        self.assertIn("configured_models=(candidate.model,)", source)
+        self.assertIn("candidate.model in ids", source)
+        self.assertIn("critical_capacity_preflight(", source)
 
     def test_router_source_has_no_provider_wire_transport(self) -> None:
         source = (_REPO_ROOT / "scripts/quality_capability_router.py").read_text(
