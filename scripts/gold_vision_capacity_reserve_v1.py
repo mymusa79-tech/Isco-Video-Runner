@@ -25,6 +25,7 @@ from scripts import vision_stage_contract_v2 as vision_contract
 from scripts import visual_retrieval_adjudication_v1 as capacity
 from scripts.telegram_progress import update_stage
 from scripts.vision_provider_failure_unification_v1 import (
+    gold_over_capacity_cooldown_scope,
     install_vision_provider_failure_unification_v1,
 )
 
@@ -165,7 +166,11 @@ def _install_gold_scope() -> None:
     def scoped_gold_fallback():
         token = _GOLD_ACTIVE.set(True)
         try:
-            with _scoped_gold_attempt_budget(), current():
+            with (
+                gold_over_capacity_cooldown_scope(),
+                _scoped_gold_attempt_budget(),
+                current(),
+            ):
                 yield
         finally:
             _GOLD_ACTIVE.reset(token)
@@ -182,7 +187,7 @@ def install_gold_vision_capacity_reserve_v1() -> None:
     # Canonical Production calls this before any actual Vision work, and the Gold-only
     # resume path installs the same owner. Keep provider-failure taxonomy composition at
     # this shared Long+Short seam so ordinary production and deferred Gold use exactly
-    # the same failure semantics.
+    # the same transport semantics, while Gold-only saturation policy remains scoped.
     install_vision_provider_failure_unification_v1()
     _install_reserve_admission()
     _install_gold_groq_retry()
