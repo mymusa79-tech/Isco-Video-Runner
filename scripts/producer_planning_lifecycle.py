@@ -46,6 +46,7 @@ _REPAIRABLE_SHORT_PRODUCER_ISSUES = frozenset(
 _REPAIRABLE_SHORT_SECTION_SUFFIXES = (
     "_on_screen_text_serialized_list",
     "_visual_query_empty",
+    "_visual_query_not_stock_search_safe",
 )
 _REPAIRABLE_LONG_PRODUCER_ISSUES = frozenset(
     {

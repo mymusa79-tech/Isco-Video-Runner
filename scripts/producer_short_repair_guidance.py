@@ -7,6 +7,7 @@ from scripts import producer_quality_contract
 
 _DIRECT_IMPERATIVE_ISSUE = "moment_direct_imperative_in_story_beat"
 _NARRATION_TOO_LONG_ISSUE = "moment_narration_likely_exceeds_natural_duration"
+_VISUAL_QUERY_UNSAFE_SUFFIX = "_visual_query_not_stock_search_safe"
 
 
 def moment_direct_imperative_targets(plan: object) -> list[str]:
@@ -46,4 +47,13 @@ def short_producer_repair_guidance(plan: object, issues: list[str]) -> str:
         duration_guidance = producer_quality_contract.short_narration_duration_guidance(plan, template)
         if duration_guidance:
             parts.append(duration_guidance)
+    for issue in issues:
+        if issue.startswith("section_") and issue.endswith(_VISUAL_QUERY_UNSAFE_SUFFIX):
+            index_text = issue[len("section_") : -len(_VISUAL_QUERY_UNSAFE_SUFFIX)]
+            if index_text.isdigit():
+                parts.append(
+                    producer_quality_contract.visual_query_stock_search_repair_guidance(
+                        int(index_text)
+                    )
+                )
     return "\n".join(parts)

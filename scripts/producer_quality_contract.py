@@ -58,6 +58,22 @@ _SHORT_IMPERATIVE_RE = re.compile(
     flags=re.IGNORECASE,
 )
 
+# Run #243: a Short's single-section visual_query reached Production (past this exact
+# Planning gate) too long AND containing punctuation the real runtime Security gate
+# (security_v1_live_binding._normalized_stock_query -> isco_video_agent.model_output_
+# schemas.validate_visual_query) never accepts, and nothing caught the resulting
+# ModelOutputSchemaError - it crashed the whole production deep inside
+# orchestrator.produce()'s visual search, minutes after Planning finished. These
+# constants mirror that real gate's plain-English-stock-query boundary (length and
+# character set only - not the full instruction-channel/injection firewall, which this
+# predictor deliberately does not replicate) so a doomed visual_query is caught here,
+# before Production ever runs, instead of crashing late. Pinned bit-for-bit against the
+# real gate by VisualQueryStockSearchGateParityTests.
+_VISUAL_QUERY_MAX_LENGTH = 80
+_VISUAL_QUERY_CROSS_PROVIDER_TEXT_MAX_LENGTH = 240
+_VISUAL_QUERY_PLAIN_SEARCH_RE = re.compile(r"^[A-Za-z0-9]+(?:[ '-][A-Za-z0-9]+)*$")
+_VISUAL_QUERY_REPEATED_SEPARATOR_RE = re.compile(r"(?: {2,}|--|''| -|- | '|' )")
+
 _GENERIC_SHORT_PHRASES = (
     "ثق بنفسك",
     "لا تستسلم",
@@ -300,6 +316,44 @@ def short_narration_duration_guidance(plan: object, template: object) -> str:
     )
 
 
+def visual_query_survives_stock_search_gate(value: object) -> bool:
+    """Predict whether the real runtime Security gate would accept this visual_query.
+
+    Mirrors security_v1_live_binding._normalized_stock_query's exact pass/fail boundary
+    for length and character set: a query that is only too long is safely auto-shortened
+    at runtime (Run #106) as long as its full text is otherwise plain-English stock-search
+    syntax, so that case is not flagged here. This intentionally does not replicate the
+    full instruction-channel/injection firewall (URLs, role markers, shell syntax, prompt
+    injection) - those already fail the plain-search character-set check below in every
+    realistic case, and the real gate remains the sole authority either way.
+    """
+    text = _clean(value)
+    if not text:
+        return False
+    if not text.isascii():
+        return False
+    if len(text) > _VISUAL_QUERY_CROSS_PROVIDER_TEXT_MAX_LENGTH:
+        return False
+    if not _VISUAL_QUERY_PLAIN_SEARCH_RE.fullmatch(text):
+        return False
+    if _VISUAL_QUERY_REPEATED_SEPARATOR_RE.search(text):
+        return False
+    return True
+
+
+def visual_query_stock_search_repair_guidance(index: int) -> str:
+    return (
+        f"DETERMINISTIC_ACCEPTANCE_RULE section_{index}_visual_query_not_stock_search_safe: "
+        f"sections[{index - 1}].visual_query must be plain English stock-footage search "
+        f"terms only, at most {_VISUAL_QUERY_MAX_LENGTH} characters: letters, digits, and "
+        "single spaces/apostrophes/hyphens as separators - no punctuation "
+        "(no periods, commas, colons, quotation marks, parentheses, slashes, etc.), no "
+        "repeated separators, and nothing but the literal search terms themselves. "
+        "Describe only the visual subject/scene, e.g. \"man walking through forest at "
+        "golden hour\". Preserve the section's meaning; change only this field."
+    )
+
+
 def moment_direct_imperative_targets(plan: object) -> list[str]:
     """Return the exact viewer-story field paths rejected by the Moment imperative gate.
 
@@ -339,8 +393,11 @@ def plan_quality_issues(
         on_screen = getattr(section, "on_screen_text", "")
         if _looks_serialized_list(on_screen):
             issues.append(f"section_{index}_on_screen_text_serialized_list")
-        if not _clean(getattr(section, "visual_query", "")):
+        visual_query_value = _clean(getattr(section, "visual_query", ""))
+        if not visual_query_value:
             issues.append(f"section_{index}_visual_query_empty")
+        elif not visual_query_survives_stock_search_gate(visual_query_value):
+            issues.append(f"section_{index}_visual_query_not_stock_search_safe")
 
     if not _research_pack(research_context):
         joined = "\n".join(_plan_text_fields(plan))
