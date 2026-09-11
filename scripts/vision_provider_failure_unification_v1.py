@@ -18,6 +18,7 @@ RATE_LIMITED health state.
 """
 
 from functools import wraps
+from typing import Callable
 
 from scripts import provider_health_registry as health
 from scripts import vision_stage_contract_v2 as contract
@@ -69,7 +70,26 @@ def _install_http_classifier() -> None:
 
 def _explicit_over_capacity(reason: object) -> bool:
     text = str(reason or "").casefold()
-    return "currently over capacity" in text or "model over capacity" in text or "over capacity" in text
+    return (
+        "currently over capacity" in text
+        or "model over capacity" in text
+        or "over capacity" in text
+    )
+
+
+def _classify_health_failure(
+    reason: object,
+    *,
+    source: str,
+    fallback: Callable[..., str],
+) -> str:
+    """Pure policy seam: runtime saturation cools down; preflight stays authoritative."""
+    if (
+        str(source or "").strip().lower() != "provider_preflight"
+        and _explicit_over_capacity(reason)
+    ):
+        return health.FAILURE_RATE_LIMITED
+    return fallback(reason, source=source)
 
 
 def _install_over_capacity_health_policy() -> None:
@@ -83,9 +103,11 @@ def _install_over_capacity_health_policy() -> None:
         # model saturation, however, needs a cooldown rather than candidate-by-candidate
         # half-open probes. Reuse the existing RATE_LIMITED state and its bounded retry
         # timestamp instead of inventing another circuit implementation.
-        if str(source or "").strip().lower() != "provider_preflight" and _explicit_over_capacity(reason):
-            return health.FAILURE_RATE_LIMITED
-        return current(reason, source=source)
+        return _classify_health_failure(
+            reason,
+            source=source,
+            fallback=current,
+        )
 
     unified_health_classifier._isco_provider_failure_unification_v1 = True
     unified_health_classifier._isco_provider_failure_unification_original = current
