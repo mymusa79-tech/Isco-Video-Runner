@@ -41,6 +41,7 @@ from scripts.runtime_reliability import (
     production_entrypoint_modules,
 )
 from scripts.text_audit_capacity_ownership import install_text_audit_capacity_ownership
+from scripts.text_audit_no_wire_compat import install_text_audit_no_wire_compat
 from scripts.text_audit_provider_mesh import install_text_audit_provider_mesh
 from scripts.vision_stage_transport_v2 import install_vision_provider_reliability
 
@@ -113,6 +114,11 @@ def install_runtime_closure() -> None:
     # mesh only after planning capacity state is live, so Groq reuses the same model-
     # scoped headroom/reset evidence without entering the planning checkpoint contract.
     install_text_audit_provider_mesh()
+    # Run238 compatibility is deliberately installed after Provider Mesh so its
+    # wire-only recorder sits outside model-aware Groq normalization. It is transparent
+    # on Engines that already understand wire_attempted=False and closes the currently
+    # certified legacy Engine without requiring an Engine pin rollout.
+    install_text_audit_no_wire_compat()
     # Run167 closure: Text Audit Mesh remains the sole owner of audit route order,
     # provider-result semantics, and fail-closed repair admission. This separate owner
     # governs only the shared Groq pre-wire pacing boundary: one trustworthy bounded
