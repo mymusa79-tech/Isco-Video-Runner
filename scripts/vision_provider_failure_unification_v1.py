@@ -7,18 +7,19 @@ Run #240 exposed two related reliability gaps at Gold/Vision:
 * Vision's transport classifier had its own small HTTP allow-list. A provider could
   return a valid transient status such as 520/521/522/523/524 and Vision would classify
   it as an internal contract failure instead of failing over.
-* Groq's explicit ``currently over capacity`` response was treated like a generic
-  transient circuit. The generic half-open policy is intentionally eager, which can
-  spend later visual candidates probing the same saturated model during one Gold run.
+* During Gold, Groq's explicit ``currently over capacity`` response should not trigger
+  generic candidate-by-candidate half-open probing while the same model is saturated.
 
 This closure does not change visual semantics, thresholds, provider order, attempt
-budgets, or release authority. It only composes the existing shared provider taxonomy
-into Vision and maps explicit model saturation onto the existing time-bounded
-RATE_LIMITED health state.
+budgets, or release authority. The shared HTTP taxonomy is global because transport
+classification is provider-neutral; the stricter over-capacity cooldown is deliberately
+scoped to Gold so ordinary retrieval keeps its certified bounded half-open recovery.
 """
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import wraps
-from typing import Callable
+from typing import Callable, Iterator
 
 from scripts import provider_health_registry as health
 from scripts import vision_stage_contract_v2 as contract
@@ -27,6 +28,10 @@ from scripts.provider_failure import classify_provider_failure
 
 CONTRACT_ID = "vision-provider-failure-unification-v1"
 _INSTALLED = False
+_GOLD_OVER_CAPACITY_COOLDOWN_ACTIVE: ContextVar[bool] = ContextVar(
+    "isco_gold_over_capacity_cooldown_active",
+    default=False,
+)
 
 
 def _shared_http_classification(status: int, message: str) -> contract.VisionErrorCode | None:
@@ -77,15 +82,26 @@ def _explicit_over_capacity(reason: object) -> bool:
     )
 
 
+@contextmanager
+def gold_over_capacity_cooldown_scope() -> Iterator[None]:
+    """Enable stricter saturation cooldown only while the enforcing Gold critic runs."""
+    token = _GOLD_OVER_CAPACITY_COOLDOWN_ACTIVE.set(True)
+    try:
+        yield
+    finally:
+        _GOLD_OVER_CAPACITY_COOLDOWN_ACTIVE.reset(token)
+
+
 def _classify_health_failure(
     reason: object,
     *,
     source: str,
     fallback: Callable[..., str],
 ) -> str:
-    """Pure policy seam: runtime saturation cools down; preflight stays authoritative."""
+    """Gold saturation cools down; ordinary Vision keeps its certified recovery policy."""
     if (
-        str(source or "").strip().lower() != "provider_preflight"
+        _GOLD_OVER_CAPACITY_COOLDOWN_ACTIVE.get()
+        and str(source or "").strip().lower() != "provider_preflight"
         and _explicit_over_capacity(reason)
     ):
         return health.FAILURE_RATE_LIMITED
@@ -99,10 +115,9 @@ def _install_over_capacity_health_policy() -> None:
 
     @wraps(current)
     def unified_health_classifier(reason: object, *, source: str) -> str:
-        # Provider preflight is authoritative and must remain hard/fail-closed. Runtime
-        # model saturation, however, needs a cooldown rather than candidate-by-candidate
-        # half-open probes. Reuse the existing RATE_LIMITED state and its bounded retry
-        # timestamp instead of inventing another circuit implementation.
+        # Provider preflight remains authoritative. Only the enforcing Gold scope turns
+        # explicit runtime saturation into the existing bounded RATE_LIMITED cooldown;
+        # ordinary retrieval retains the existing transient half-open circuit behavior.
         return _classify_health_failure(
             reason,
             source=source,
@@ -123,5 +138,5 @@ def install_vision_provider_failure_unification_v1() -> None:
     _INSTALLED = True
     print(
         "Vision Provider Failure Unification V1 installed: shared 5xx transport taxonomy; "
-        "explicit model over-capacity uses bounded cooldown; quality/provider-order/budgets unchanged"
+        "Gold-scoped model over-capacity cooldown; quality/provider-order/budgets unchanged"
     )
