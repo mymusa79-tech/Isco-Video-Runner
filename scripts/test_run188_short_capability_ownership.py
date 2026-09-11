@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import inspect
+import json
 import os
 from pathlib import Path
 import stat
 import tempfile
 import unittest
 
-from scripts import canonical_v4_short_child, run_control_production
+from scripts import audio_production_contract_v2, canonical_v4_short_child, run_control_production
 from scripts import short_cinematic_director, short_voice_owned_timeline, short_voice_v2
 from scripts.short_finishing_capabilities import (
     ShortFinishingCapabilities,
     ShortFinishingCapabilityError,
+    bind_audio_resume_short_capability,
     bind_short_finishing_capabilities,
     cleanup_child_capability_files,
+    current_short_finishing_gemini_for_audio,
     materialize_child_capability_files,
 )
 
@@ -85,6 +88,8 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
                 self.assertEqual(short_cinematic_director.secret("GEMINI_API_KEY"), "owned-g")
                 self.assertEqual(short_cinematic_director.secret("PEXELS_API_KEY"), "owned-p")
                 self.assertEqual(short_cinematic_director.secret("PIXABAY_API_KEY"), "owned-x")
+                # Audio Production V2 is part of the same post-core ownership boundary.
+                self.assertEqual(audio_production_contract_v2._resolve_gemini_audit_key(), "owned-g")
                 self.assertEqual({name: os.environ.get(name) for name in names}, poison)
 
                 with self.assertRaisesRegex(
@@ -99,7 +104,7 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
                     short_voice_owned_timeline.secret("PEXELS_API_KEY")
 
             # Resolver remains fail-closed after the lease ends; it never falls back to
-            # the still-present poison environment value.
+            # the still-present poison environment value for legacy Short finishers.
             with self.assertRaisesRegex(
                 ShortFinishingCapabilityError,
                 "SHORT_FINISHING_CAPABILITY_CONTEXT_MISSING",
@@ -117,6 +122,110 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
                     os.environ.pop(name, None)
                 else:
                     os.environ[name] = value
+
+    def test_audio_qc_run242_boundary_uses_independent_scoped_fallback(self) -> None:
+        expected = "ا ب ج د ه و ز ح ط ي ك ل م ن"
+        groq_actual = "ا ب ج د ه و ز ح ط ي ك ل م"
+        comparison = audio_production_contract_v2.compare_transcripts(expected, groq_actual)
+        self.assertEqual(comparison["token_recall"], 0.928571)
+        self.assertEqual(comparison["thresholds"]["token_recall"], 0.93)
+        self.assertEqual(comparison["decision"], "review")
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "final.mp4").write_bytes(b"run242-final-short-audio" * 256)
+            (root / "plan.json").write_text(
+                json.dumps({"format": "moment"}), encoding="utf-8"
+            )
+            (root / "short-intelligence-pre-gold.json").write_text(
+                json.dumps({"voice": {"transcript": expected}}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            def extractor(_final: Path, audio: Path) -> None:
+                audio.write_bytes(b"run242-audio-evidence" * 64)
+
+            def gemini_fallback(_audio: Path) -> str:
+                self.assertEqual(
+                    audio_production_contract_v2._resolve_gemini_audit_key(),
+                    "run242-owned-gemini",
+                )
+                return expected
+
+            capabilities = ShortFinishingCapabilities(
+                gemini="run242-owned-gemini",
+                pexels="run242-owned-pexels",
+            )
+            with bind_short_finishing_capabilities(capabilities):
+                result = audio_production_contract_v2.require_audio_production_contract_v2(
+                    root,
+                    extractor=extractor,
+                    groq_transcriber=lambda _audio: groq_actual,
+                    gemini_transcriber=gemini_fallback,
+                )
+
+        self.assertEqual(result["decision"], "pass")
+        self.assertEqual(result["scope"], "short")
+        self.assertTrue(result["fallback_used"])
+        self.assertEqual(result["accepted_provider"], "gemini-audio")
+        self.assertEqual(result["attempts"][0]["comparison"]["token_recall"], 0.928571)
+        self.assertEqual(result["attempts"][1]["status"], "pass")
+
+    def test_audio_qc_active_short_scope_cannot_escape_to_environment(self) -> None:
+        previous = os.environ.get("GEMINI_API_KEY")
+        os.environ["GEMINI_API_KEY"] = "stale-environment-value"
+        try:
+            capabilities = ShortFinishingCapabilities(gemini="", pexels="owned-p")
+            with bind_short_finishing_capabilities(capabilities):
+                with self.assertRaisesRegex(
+                    ShortFinishingCapabilityError,
+                    "SHORT_AUDIO_GEMINI_CAPABILITY_MISSING",
+                ):
+                    audio_production_contract_v2._resolve_gemini_audit_key()
+        finally:
+            if previous is None:
+                os.environ.pop("GEMINI_API_KEY", None)
+            else:
+                os.environ["GEMINI_API_KEY"] = previous
+
+    def test_audio_resume_uses_captured_gemini_for_short_and_long_without_env_escape(self) -> None:
+        self.assertIsNone(current_short_finishing_gemini_for_audio())
+        with bind_audio_resume_short_capability(
+            fmt="moment",
+            gemini="resume-owned-g",
+            pexels="resume-owned-p",
+            pixabay="resume-owned-x",
+        ):
+            self.assertEqual(current_short_finishing_gemini_for_audio(), "resume-owned-g")
+            self.assertEqual(audio_production_contract_v2._resolve_gemini_audit_key(), "resume-owned-g")
+        self.assertIsNone(current_short_finishing_gemini_for_audio())
+
+        previous = os.environ.get("GEMINI_API_KEY")
+        os.environ["GEMINI_API_KEY"] = "long-stale-environment-value"
+        try:
+            with bind_audio_resume_short_capability(
+                fmt="film",
+                gemini="long-resume-owned-g",
+                pexels="long-p",
+                pixabay=None,
+            ):
+                # Long recovery uses the dedicated Audio-resume lease, not _ACTIVE and
+                # not the stale env value that may represent an already-consumed secret.
+                self.assertEqual(
+                    current_short_finishing_gemini_for_audio(),
+                    "long-resume-owned-g",
+                )
+                self.assertEqual(
+                    audio_production_contract_v2._resolve_gemini_audit_key(),
+                    "long-resume-owned-g",
+                )
+            self.assertIsNone(current_short_finishing_gemini_for_audio())
+            self.assertEqual(os.environ.get("GEMINI_API_KEY"), "long-stale-environment-value")
+        finally:
+            if previous is None:
+                os.environ.pop("GEMINI_API_KEY", None)
+            else:
+                os.environ["GEMINI_API_KEY"] = previous
 
     def test_nested_scopes_restore_previous_request_without_cross_run_leakage(self) -> None:
         outer = ShortFinishingCapabilities(gemini="outer-g", pexels="outer-p")

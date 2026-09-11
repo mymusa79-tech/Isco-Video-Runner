@@ -45,6 +45,7 @@ from scripts.gold_vision_capacity_reserve_v1 import install_gold_vision_capacity
 from scripts.production_model_contract import install_production_model_contract
 from scripts.resume_gold_qc_pending_v1 import _prepare_temporary_history, _verify_accepted_history
 from scripts.runtime_closure import install_runtime_closure, run_post_gold_observers
+from scripts.short_finishing_capabilities import bind_audio_resume_short_capability
 
 
 CONTRACT_ID = "audio.qc-pending.resume-execution.v1"
@@ -327,10 +328,16 @@ def execute_audio_resume(
     # Retry only the failed independent auditor (or both if neither produced semantic
     # evidence). The retry count is additionally bounded by the source video's remaining
     # run-wide provider budget; a resume never receives a fresh production allowance.
-    resumed_audio = resume_audio_production_contract_v2(
-        root,
-        max_provider_attempts=audio_resume_max,
-    )
+    with bind_audio_resume_short_capability(
+        fmt=fmt,
+        gemini=gemini,
+        pexels=pexels,
+        pixabay=pixabay,
+    ):
+        resumed_audio = resume_audio_production_contract_v2(
+            root,
+            max_provider_attempts=audio_resume_max,
+        )
     if resumed_audio.get("decision") != "pass":
         raise AudioQCPendingResumeError("audio_resume_audio_contract_returned_without_pass")
     resume_audio_attempts = int(resumed_audio.get("resume_provider_attempts") or 0)

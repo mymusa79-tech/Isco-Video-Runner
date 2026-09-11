@@ -228,8 +228,24 @@ def _gemini_transcribe_with_client(
                     print(f"Audio Production V2 Gemini temp-file cleanup skipped ({type(exc).__name__})")
 
 
+def _resolve_gemini_audit_key() -> str:
+    """Resolve Gemini without violating Short finishing secret ownership.
+
+    An active Short finishing scope owns the already-captured in-memory capability and
+    is authoritative.  Only callers outside that scope (notably Long) retain the legacy
+    env/file resolution path.  A broken active Short scope raises fail-closed rather
+    than silently escaping back to a consumed source secret.
+    """
+    from scripts.short_finishing_capabilities import current_short_finishing_gemini_for_audio
+
+    scoped_key = current_short_finishing_gemini_for_audio()
+    if scoped_key is not None:
+        return scoped_key
+    return _secret_from_env("GEMINI_API_KEY")
+
+
 def _gemini_transcribe(audio_path: Path) -> str:
-    key = _secret_from_env("GEMINI_API_KEY")
+    key = _resolve_gemini_audit_key()
     if not key:
         raise RuntimeError("gemini_api_key_missing")
     try:
