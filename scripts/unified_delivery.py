@@ -59,13 +59,6 @@ def _production_release_tag(production: dict[str, Any]) -> str | None:
 
 
 def _assert_release_candidate_identity(production: dict[str, Any], release_tag: str | None) -> None:
-    """Keep Production and staged Delivery bound to one candidate Release identity.
-
-    The production manifest is written against the exact reviewed final bytes. A
-    non-empty release tag there is therefore authoritative provenance for the staged
-    candidate namespace. Legacy/local fixtures may omit it, but a conflicting tag is
-    never silently rewritten by Delivery.
-    """
     candidate_tag = str(release_tag or "").strip()
     if not candidate_tag:
         return
@@ -112,6 +105,49 @@ def _validate_short_assets(root: Path, short_assets: list[dict[str, Any]]) -> li
         }
         normalized.append(normalized_item)
     return normalized
+
+
+def _deferred_sibling_continuation(
+    root: Path,
+    request: dict[str, Any] | None,
+    *,
+    short_count: int,
+) -> dict[str, Any] | None:
+    if not request or request.get("approval_scope") != "long_plus_sibling_shorts":
+        return None
+    if short_count in {2, 3}:
+        return None
+    if short_count != 0:
+        raise RuntimeError("Approved long+Shorts request cannot stage a partial sibling set")
+
+    path = Path(root) / "sibling-short-deferred.json"
+    if not path.is_file():
+        raise RuntimeError(
+            "Approved long+Shorts request may stage the parent alone only with an explicit deferred child contract"
+        )
+    document = _read_object(path)
+    if (
+        document.get("contract_id") != "post_gold.sibling_short_deferred.v1"
+        or document.get("status") != "deferred_after_parent_gold"
+        or document.get("blocking_parent_delivery") is not False
+        or document.get("automatic_production_started") is not False
+        or document.get("provider_calls_performed") is not False
+        or str(document.get("parent_request_id") or "") != str(request.get("request_id") or "")
+        or str(document.get("parent_request_sha256") or "") != str(request.get("request_sha256") or "")
+    ):
+        raise RuntimeError("Deferred sibling child contract is invalid or not bound to this approved request")
+    plan = document.get("sibling_short_plan")
+    if not isinstance(plan, dict) or int(plan.get("short_count") or 0) not in {2, 3}:
+        raise RuntimeError("Deferred sibling child contract lost the approved 2–3 Short plan")
+    return {
+        "file": path.name,
+        "file_size": path.stat().st_size,
+        "file_sha256": _file_identity(path)["sha256"],
+        "status": document.get("status"),
+        "planned_short_count": int(plan["short_count"]),
+        "blocking_parent_delivery": False,
+        "execution_owner": document.get("execution_owner"),
+    }
 
 
 def _cinematic_reports(root: Path) -> dict[str, Any]:
@@ -184,14 +220,21 @@ def build_delivery_manifest(
             )
 
     shorts = _validate_short_assets(root, list(short_assets or []))
+    deferred_siblings = _deferred_sibling_continuation(root, request, short_count=len(shorts))
     candidate_tag = str(release_tag or "").strip() or None
     candidate_url = f"https://github.com/{repository}/releases/tag/{candidate_tag}" if candidate_tag else None
+    master_lock_path = root / "master-lock.json"
+    master_lock = _file_identity(master_lock_path) if master_lock_path.is_file() else None
+
     manifest: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "delivery_kind": "long_plus_shorts" if kind == "long" and shorts else kind,
+        "requested_delivery_kind": (
+            "long_plus_shorts"
+            if kind == "long" and request and request.get("approval_scope") == "long_plus_sibling_shorts"
+            else kind
+        ),
         "topic": str(plan.get("topic") or ""),
-        # Immutable reviewed staging evidence. A tag is only a candidate namespace
-        # until release_transaction proves the published remote bytes.
         "release_state": "staged",
         "release_tag": None,
         "delivery_url": None,
@@ -199,9 +242,12 @@ def build_delivery_manifest(
         "release_candidate_url": candidate_url,
         "primary_video": "final.mp4",
         "primary_video_sha256": final_master_qc["acceptance_contract"]["sources"]["final"]["sha256"],
+        "parent_delivery_independent_of_derived_assets": bool(deferred_siblings),
+        "master_lock": master_lock,
         "title_thumbnail_pairs": title_thumbnail_pairs,
         "shorts": shorts,
         "short_count": len(shorts),
+        "sibling_short_continuation": deferred_siblings,
         "control_request": _request_summary(request),
         "youtube_publish_mode": "manual_in_youtube_studio",
         "telegram_surface": "decision_and_delivery_only",
@@ -223,8 +269,6 @@ def build_delivery_manifest(
     }
     if kind == "long" and len(title_thumbnail_pairs) != 3:
         raise RuntimeError("Long-form unified delivery must expose exactly three A/B/C packaging pairs")
-    if request and request.get("approval_scope") == "long_plus_sibling_shorts" and len(shorts) not in {2, 3}:
-        raise RuntimeError("Approved long+Shorts request cannot stage a partial unified delivery")
     return manifest
 
 
@@ -254,13 +298,6 @@ def write_delivery_manifest(
 
 
 def finalize_release_manifest(path: Path, *, repository: str, release_tag: str) -> Path:
-    """Legacy call seam: bind only the requested Release candidate, never Released truth.
-
-    The V4 workflow historically calls this before ``release_transaction.py``. Keeping
-    that call compatible is useful, but it must not be able to make reviewed local
-    evidence outrun the GitHub Release boundary. Terminal ``released`` truth belongs to
-    the completed Release transaction / durable receipt and delivery.acceptance.v2.
-    """
     path = Path(path)
     manifest = _read_object(path)
     if manifest.get("release_state") != "staged":

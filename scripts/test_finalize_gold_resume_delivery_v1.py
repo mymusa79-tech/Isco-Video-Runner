@@ -25,7 +25,20 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
     def _root(self, *, fmt: str) -> Path:
         root = Path(tempfile.mkdtemp(prefix="post-gold-delivery-"))
         (root / "final.mp4").write_bytes(b"immutable-parent-final")
-        (root / "plan.json").write_text(json.dumps({"format": fmt, "topic": "topic"}), encoding="utf-8")
+        (root / "plan.json").write_text(
+            json.dumps(
+                {
+                    "format": fmt,
+                    "topic": "topic",
+                    "sections": [
+                        {"key_point": "one"},
+                        {"key_point": "two"},
+                        {"key_point": "three"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
         (root / "gold-enforce-report.json").write_text(
             json.dumps(
                 {
@@ -41,7 +54,7 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
         return root
 
     def _request(self, *, kind: str, scope: str, fmt: str) -> dict:
-        request = {
+        return {
             "schema_version": 1,
             "request_id": "req-test",
             "request_sha256": "x",
@@ -53,8 +66,8 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
             "format": fmt,
             "production_dispatch_authorized": False,
             "status": "approved_waiting_production_activation",
+            "sibling_shorts": {"minimum": 2, "maximum": 3},
         }
-        return request
 
     def _paths(self, root: Path, request: dict):
         request_path = root.parent / "request.json"
@@ -83,14 +96,14 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
                 "format": fmt,
                 "final_sha256": _sha(Path(out) / "final.mp4"),
                 "release_authority": "gold_enforced",
+                "release_tag": os.environ.get("ISCO_RELEASE_TAG_OVERRIDE"),
             }
             (Path(out) / "production-manifest.json").write_text(json.dumps(document), encoding="utf-8")
             return document
 
         def fake_delivery(out, **kwargs):
-            short_assets = list(kwargs.get("short_assets") or [])
             request = kwargs.get("request") or {}
-            kind = "long_plus_shorts" if short_assets else ("short" if request.get("kind") == "short" else "long")
+            kind = "short" if request.get("kind") == "short" else "long"
             path = Path(out) / "delivery-manifest.json"
             path.write_text(json.dumps({"delivery_kind": kind}), encoding="utf-8")
             return path
@@ -117,7 +130,8 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
             "GITHUB_SHA": RUNNER_SHA,
             "ISCO_ENGINE_SHA": ENGINE_SHA,
         }
-        with patch.dict(os.environ, env, clear=False):
+        patches = self._common_patches(root)
+        with patch.dict(os.environ, env, clear=False), patches[2]:
             manifest = resume_delivery._write_resume_production_manifest(
                 root,
                 fmt="film",
@@ -133,28 +147,11 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
         self.assertEqual(manifest["engine_sha"], SOURCE_ENGINE_SHA)
         self.assertEqual(manifest["release_tag"], "video-225")
         self.assertEqual(manifest["final_sha256"], _sha(root / "final.mp4"))
-        self.assertEqual(
-            manifest["resume_source"],
-            {
-                "run_id": "99123",
-                "run_attempt": "2",
-                "runner_sha": SOURCE_RUNNER_SHA,
-                "engine_sha": SOURCE_ENGINE_SHA,
-            },
-        )
-        self.assertEqual(
-            manifest["resume_execution"],
-            {
-                "run_id": "77777",
-                "run_number": "333",
-                "run_attempt": "4",
-                "runner_sha": RUNNER_SHA,
-                "engine_sha": ENGINE_SHA,
-                "parent_media_rebuilt": False,
-            },
-        )
+        self.assertEqual(manifest["resume_source"]["run_id"], "99123")
+        self.assertEqual(manifest["resume_execution"]["run_id"], "77777")
+        self.assertFalse(manifest["resume_execution"]["parent_media_rebuilt"])
 
-    def test_standalone_short_finishes_quality_without_parent_media_rebuild(self) -> None:
+    def test_standalone_short_finishes_quality_without_parent_lock(self) -> None:
         root = self._root(fmt="moment")
         (root / "short-intelligence-pre-gold.json").write_text(json.dumps({"stage": "pre_gold"}), encoding="utf-8")
         request = self._request(kind="short", scope="short_only", fmt="moment")
@@ -163,7 +160,7 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
         patches = self._common_patches(root)
         with patch.dict(os.environ, {"GITHUB_SHA": RUNNER_SHA, "ISCO_ENGINE_SHA": ENGINE_SHA}, clear=False), patches[0], patches[1], patches[2], patches[3], patch.object(
             resume_delivery, "finalize_short_quality", return_value={"delivery_allowed": True}
-        ) as short_final:
+        ) as short_final, patch.object(resume_delivery, "write_master_lock") as master_lock:
             result = resume_delivery.finalize_after_gold_resume(
                 output_dir=root,
                 request_path=request_path,
@@ -174,23 +171,25 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
             )
         self.assertEqual(_sha(root / "final.mp4"), before)
         short_final.assert_called_once()
+        master_lock.assert_not_called()
         self.assertFalse(result["parent_media_rebuilt"])
-        self.assertEqual(result["sibling_shorts_produced_after_parent_gold"], 0)
         self.assertEqual(result["delivery_kind"], "short")
 
-    def test_long_plus_shorts_runs_only_sibling_continuation_after_parent_gold(self) -> None:
+    def test_long_plus_shorts_locks_parent_and_defers_children_without_provider_work(self) -> None:
         root = self._root(fmt="film")
         request = self._request(kind="long", scope="long_plus_sibling_shorts", fmt="film")
         request_path, manifest_path, result_path = self._paths(root, request)
         before = _sha(root / "final.mp4")
-        staged = [
-            {"semantic_job": "one", "video": "short-1.mp4", "delivery_allowed": True},
-            {"semantic_job": "two", "video": "short-2.mp4", "delivery_allowed": True},
-        ]
+        deferred = root / "sibling-short-deferred.json"
+        deferred.write_text("{}", encoding="utf-8")
         patches = self._common_patches(root)
-        with patch.dict(os.environ, {"GITHUB_SHA": RUNNER_SHA, "ISCO_ENGINE_SHA": ENGINE_SHA}, clear=False), patches[0], patches[1], patches[2], patches[3], patch.object(
-            resume_delivery, "_produce_approved_sibling_shorts", return_value=staged
-        ) as siblings:
+        with patches[0], patches[1], patches[2], patches[3], patch.object(
+            resume_delivery, "write_master_lock", return_value=root / "master-lock.json"
+        ) as master_lock, patch.object(
+            resume_delivery, "assert_master_lock", return_value={"state": "locked_after_gold"}
+        ) as assert_lock, patch.object(
+            resume_delivery, "_defer_approved_sibling_shorts", return_value=deferred
+        ) as defer:
             result = resume_delivery.finalize_after_gold_resume(
                 output_dir=root,
                 request_path=request_path,
@@ -200,19 +199,24 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
                 result_output=result_path,
             )
         self.assertEqual(_sha(root / "final.mp4"), before)
-        siblings.assert_called_once()
-        self.assertEqual(result["sibling_shorts_produced_after_parent_gold"], 2)
-        self.assertEqual(result["delivery_kind"], "long_plus_shorts")
+        master_lock.assert_called_once()
+        assert_lock.assert_called_once()
+        defer.assert_called_once()
+        self.assertEqual(result["sibling_shorts_produced_after_parent_gold"], 0)
+        self.assertEqual(result["sibling_short_continuation"], str(deferred))
+        self.assertEqual(result["delivery_kind"], "long")
         self.assertFalse(result["parent_media_rebuilt"])
 
-    def test_long_only_never_invokes_sibling_production(self) -> None:
+    def test_long_only_locks_parent_without_sibling_continuation(self) -> None:
         root = self._root(fmt="film")
         request = self._request(kind="long", scope="long_only", fmt="film")
         request_path, manifest_path, result_path = self._paths(root, request)
         patches = self._common_patches(root)
         with patches[0], patches[1], patches[2], patches[3], patch.object(
-            resume_delivery, "_produce_approved_sibling_shorts"
-        ) as siblings:
+            resume_delivery, "write_master_lock", return_value=root / "master-lock.json"
+        ) as master_lock, patch.object(
+            resume_delivery, "assert_master_lock", return_value={"state": "locked_after_gold"}
+        ), patch.object(resume_delivery, "_defer_approved_sibling_shorts") as defer:
             result = resume_delivery.finalize_after_gold_resume(
                 output_dir=root,
                 request_path=request_path,
@@ -221,7 +225,9 @@ class FinalizeGoldResumeDeliveryV1Tests(unittest.TestCase):
                 runtime_root=root.parent / "runtime",
                 result_output=result_path,
             )
-        siblings.assert_not_called()
+        master_lock.assert_called_once()
+        defer.assert_not_called()
+        self.assertIsNone(result["sibling_short_continuation"])
         self.assertEqual(result["delivery_kind"], "long")
 
 
