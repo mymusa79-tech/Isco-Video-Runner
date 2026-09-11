@@ -188,7 +188,7 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
             else:
                 os.environ["GEMINI_API_KEY"] = previous
 
-    def test_audio_resume_rebinds_short_only_and_leaves_long_resolver_unchanged(self) -> None:
+    def test_audio_resume_uses_captured_gemini_for_short_and_long_without_env_escape(self) -> None:
         self.assertIsNone(current_short_finishing_gemini_for_audio())
         with bind_audio_resume_short_capability(
             fmt="moment",
@@ -201,19 +201,26 @@ class Run188ShortCapabilityOwnershipTests(unittest.TestCase):
         self.assertIsNone(current_short_finishing_gemini_for_audio())
 
         previous = os.environ.get("GEMINI_API_KEY")
-        os.environ["GEMINI_API_KEY"] = "long-existing-g"
+        os.environ["GEMINI_API_KEY"] = "long-stale-environment-value"
         try:
             with bind_audio_resume_short_capability(
                 fmt="film",
-                gemini="must-not-bind-for-long",
+                gemini="long-resume-owned-g",
                 pexels="long-p",
                 pixabay=None,
             ):
-                self.assertIsNone(current_short_finishing_gemini_for_audio())
+                # Long recovery uses the dedicated Audio-resume lease, not _ACTIVE and
+                # not the stale env value that may represent an already-consumed secret.
+                self.assertEqual(
+                    current_short_finishing_gemini_for_audio(),
+                    "long-resume-owned-g",
+                )
                 self.assertEqual(
                     audio_production_contract_v2._resolve_gemini_audit_key(),
-                    "long-existing-g",
+                    "long-resume-owned-g",
                 )
+            self.assertIsNone(current_short_finishing_gemini_for_audio())
+            self.assertEqual(os.environ.get("GEMINI_API_KEY"), "long-stale-environment-value")
         finally:
             if previous is None:
                 os.environ.pop("GEMINI_API_KEY", None)
