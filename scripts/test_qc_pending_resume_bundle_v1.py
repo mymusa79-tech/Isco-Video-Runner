@@ -30,7 +30,12 @@ class QCPendingResumeBundleV1Tests(unittest.TestCase):
             "content-quality-audit.json": {"status": "pass"},
             "tone-quality-audit.json": {"status": "pass"},
             "opening-visual-audit.json": {"status": "pass"},
-            "final-master-qc.json": {},
+            # The resume bundle now derives dynamic dependencies from the exact F24
+            # receipt. This legacy fixture has no upstream evidence, so represent that
+            # explicitly instead of using an impossible empty Final Master document.
+            "final-master-qc.json": {
+                "acceptance_contract": {"upstream_evidence": {}}
+            },
             "ai-budget.json": {"format": fmt},
             "production-failure-diagnostics.json": {"failure": "gold"},
         }
