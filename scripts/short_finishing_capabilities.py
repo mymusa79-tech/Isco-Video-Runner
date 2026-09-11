@@ -146,6 +146,30 @@ def bind_short_finishing_capabilities(
         _ACTIVE.reset(token)
 
 
+@contextmanager
+def bind_audio_resume_short_capability(
+    *,
+    fmt: str,
+    gemini: str,
+    pexels: str,
+    pixabay: str | None,
+) -> Iterator[None]:
+    """Rebind consumed one-time credentials only for a resumed Short Audio audit.
+
+    Long resume deliberately receives no Short capability and therefore keeps the
+    existing Audio Production env/file resolver.  A ``moment`` resume gets the same
+    in-memory ownership boundary used by normal post-core Short finishing.
+    """
+    if str(fmt or "").strip().lower() != "moment":
+        yield
+        return
+    capabilities = ShortFinishingCapabilities.from_gold_kwargs(
+        {"gemini": gemini, "pexels": pexels, "pixabay": pixabay}
+    )
+    with bind_short_finishing_capabilities(capabilities):
+        yield
+
+
 def cleanup_child_capability_files(file_env: dict[str, str]) -> None:
     """Best-effort cleanup for files the child did not already consume/delete."""
     for name in _CHILD_FILE_VARS:
