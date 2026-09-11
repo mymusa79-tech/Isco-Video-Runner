@@ -157,8 +157,9 @@ def bind_audio_resume_short_capability(
     """Rebind consumed one-time credentials only for a resumed Short Audio audit.
 
     Long resume deliberately receives no Short capability and therefore keeps the
-    existing Audio Production env/file resolver.  A ``moment`` resume gets the same
-    in-memory ownership boundary used by normal post-core Short finishing.
+    existing Audio Production env/file resolver. A ``moment`` resume sets only the
+    request-local capability context required by Audio QC; it does not install or mutate
+    the legacy Short Voice/Cinematic resolver functions.
     """
     if str(fmt or "").strip().lower() != "moment":
         yield
@@ -166,8 +167,11 @@ def bind_audio_resume_short_capability(
     capabilities = ShortFinishingCapabilities.from_gold_kwargs(
         {"gemini": gemini, "pexels": pexels, "pixabay": pixabay}
     )
-    with bind_short_finishing_capabilities(capabilities):
+    token = _ACTIVE.set(capabilities)
+    try:
         yield
+    finally:
+        _ACTIVE.reset(token)
 
 
 def cleanup_child_capability_files(file_env: dict[str, str]) -> None:
