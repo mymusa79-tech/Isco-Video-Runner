@@ -1425,14 +1425,30 @@ def install_planning_contract_router() -> None:
                         continue
                     break
 
+                # Run #251 (real production log, Long/film): Mistral was legitimately
+                # rejected at admission (this specific script_doctor prompt exceeded its
+                # configured byte limit - a real, correct per-request size check, not a
+                # readiness/reliability failure) but that reason never appeared in the
+                # final crash message, which only ever summarized providers that actually
+                # entered the retry loop. Diagnosing why left exactly one provider fewer
+                # than expected took a source-code trace instead of reading the log.
+                # Appending admission rejections here is purely additive to the message
+                # text: it changes no admission decision, no retry behavior, and no gate.
+                admission_summary = (
+                    " | ADMISSION_REJECTED: "
+                    + " | ".join(str(exc) for exc in admission_failures)
+                    if admission_failures
+                    else ""
+                )
                 if not failures:
                     raise PlanningStageError(
                         PlanningErrorCode.PROVIDER_TRANSIENT,
-                        "all admitted providers unavailable by bounded circuit/cooldown policy",
+                        "all admitted providers unavailable by bounded circuit/cooldown policy"
+                        + admission_summary,
                         stage_id=contract.stage_id,
                     )
                 last = failures[-1]
-                summary = " | ".join(str(item) for item in failures)
+                summary = " | ".join(str(item) for item in failures) + admission_summary
                 raise PlanningStageError(
                     last.code,
                     f"all providers exhausted after {total_attempts}/{contract.provider_policy.max_total_attempts} attempts "

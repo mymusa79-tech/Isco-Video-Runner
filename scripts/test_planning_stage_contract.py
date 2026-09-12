@@ -333,6 +333,47 @@ class PlanningStageContractTests(unittest.TestCase):
         self.assertEqual(captured.exception.code, contract.PlanningErrorCode.CAPACITY)
         self.assertEqual(calls, 0)
 
+    def test_run251_admission_rejected_providers_appear_in_the_final_error(self) -> None:
+        # Run #251 (real production log, Long/film): Mistral was legitimately rejected
+        # at admission for this specific script_doctor prompt (it exceeded Mistral's
+        # configured byte limit - a correct per-request size check, not a reliability
+        # failure), but the final crash message only ever summarized providers that
+        # actually entered the retry loop, so that rejection was invisible in the log
+        # and had to be reconstructed from source instead of read directly. This
+        # reproduces the mixed shape (one provider admitted and exhausted, one rejected
+        # at admission) and proves both now appear in the same final error.
+        base = contract.script_stage_spec("full_script", ["s1"])
+        spec = contract.PlanningStageSpec(
+            stage_id=base.stage_id,
+            contract_id=base.contract_id,
+            output_schema=base.output_schema,
+            semantic_rules=base.semantic_rules,
+            provider_policy=contract.ProviderPolicy(
+                providers=("groq", "openrouter"),
+                max_attempts_per_provider=1,
+                max_total_attempts=2,
+                completion_tokens=100,
+                max_prompt_utf8_bytes=(("openrouter", 5),),
+            ),
+            cache_policy=base.cache_policy,
+        )
+
+        def fake_groq(_prompt):
+            raise RuntimeError("GROQ_JSON_VALIDATE_FAILED status=400 code=json_validate_failed")
+
+        self._install()
+        with patch.object(router, "_groq_call", side_effect=fake_groq), \
+                contract.request_stage_scope(spec):
+            with self.assertRaises(contract.PlanningStageError) as captured:
+                staged.json_text("unused", "a prompt long enough to exceed openrouter's tiny limit")
+
+        message = str(captured.exception)
+        self.assertIn("groq", message)
+        self.assertIn("GROQ_JSON_VALIDATE_FAILED", message)
+        self.assertIn("ADMISSION_REJECTED", message)
+        self.assertIn("openrouter", message)
+        self.assertIn("preflight_prompt_bytes", message)
+
     def test_error_taxonomy_values_are_stable_and_complete(self) -> None:
         self.assertEqual(
             {item.value for item in contract.PlanningErrorCode},
