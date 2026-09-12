@@ -6,6 +6,7 @@ import runpy
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from scripts.gold_resume_workflow_identity import gold_resume_workflow_identity
@@ -95,6 +96,56 @@ class GoldResumeCrossWorkflowMemorySequenceTests(unittest.TestCase):
                 _effective_run_number(Path("does-not-need-to-exist"), "7"),
                 "7",
             )
+
+    def test_authenticated_gold_resume_restore_suppresses_only_workflow_local_counter(self) -> None:
+        namespace = runpy.run_path(
+            "scripts/persistent_memory.py",
+            run_name="persistent_memory_authenticated_restore_test",
+        )
+        seen_run_numbers: list[str | None] = []
+        args = SimpleNamespace(
+            command="restore",
+            repo=".",
+            func=lambda _args: seen_run_numbers.append(os.environ.get("GITHUB_RUN_NUMBER")) or 0,
+        )
+        parser = mock.Mock()
+        parser.parse_args.return_value = args
+        with (
+            mock.patch.dict(
+                os.environ,
+                self._gold_resume_env(GITHUB_RUN_NUMBER="1"),
+                clear=True,
+            ),
+            mock.patch.object(namespace["_core"], "build_parser", return_value=parser),
+        ):
+            self.assertEqual(namespace["main"]([]), 0)
+            self.assertEqual(seen_run_numbers, [None])
+            self.assertEqual(os.environ.get("GITHUB_RUN_NUMBER"), "1")
+
+    def test_spoofed_display_name_does_not_suppress_restore_counter(self) -> None:
+        namespace = runpy.run_path(
+            "scripts/persistent_memory.py",
+            run_name="persistent_memory_spoofed_restore_test",
+        )
+        seen_run_numbers: list[str | None] = []
+        args = SimpleNamespace(
+            command="restore",
+            repo=".",
+            func=lambda _args: seen_run_numbers.append(os.environ.get("GITHUB_RUN_NUMBER")) or 0,
+        )
+        parser = mock.Mock()
+        parser.parse_args.return_value = args
+        env = self._gold_resume_env(GITHUB_RUN_NUMBER="1")
+        env["GITHUB_WORKFLOW_REF"] = (
+            "mymusa79-tech/Isco-Video-Runner/.github/workflows/other.yml@refs/heads/main"
+        )
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(namespace["_core"], "build_parser", return_value=parser),
+        ):
+            self.assertEqual(namespace["main"]([]), 0)
+            self.assertEqual(seen_run_numbers, ["1"])
+            self.assertEqual(os.environ.get("GITHUB_RUN_NUMBER"), "1")
 
     def test_resume_persistence_uses_authenticated_envelope_sequence_not_workflow_local_counter(self) -> None:
         key = "gold-resume-sequence-test-key"
