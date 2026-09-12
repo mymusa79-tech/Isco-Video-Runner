@@ -73,6 +73,52 @@ class StructuralEditorialContractTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "repeated_not_x_but_y"):
             wrapped()
 
+    def test_run249_excessive_rhetorical_questions_gets_a_plain_language_explanation(self) -> None:
+        # Run #249 (real production log, Long/film): Doctor got only the bare machine
+        # label "excessive_rhetorical_questions" and still failed to clear it in its
+        # one bounded pass. This proves the explanatory note is now added alongside
+        # the existing generic note, without replacing it.
+        sections = [
+            Section("s1", _pad("هل تعلم أن الوقت يمر؟ هل فكرت يومًا في هذا؟")),
+            Section("s2", _pad("ألا تشعر أحيانًا بالتعب؟ ألا يكفي هذا سببًا؟")),
+            Section("s3", _pad("أليس من الأفضل أن نبدأ؟ ماذا لو حاولنا الآن؟")),
+        ]
+
+        def base(items, *, minimum, maximum, target):
+            return []
+
+        wrapped = contract._with_structural_issue_notes(base)
+        notes = wrapped(sections, minimum=110, maximum=170, target=120)
+        self.assertEqual(len(notes), 2)
+        self.assertIn("excessive_rhetorical_questions", notes[0])
+        self.assertIn("excessive_rhetorical_questions", notes[1])
+        self.assertIn("؟", notes[1])
+        self.assertIn("direct statement", notes[1])
+
+    def test_rhetorical_question_guidance_never_states_a_numeric_threshold_or_count(self) -> None:
+        # The detector's threshold and counting method belong to Engine only. This
+        # guidance must never duplicate either, or it risks silently drifting from the
+        # real detector (guarded structurally by test_structural_editorial_contract_
+        # no_threshold_drift.py's forbidden-token scan on the whole module source).
+        text = contract._rhetorical_question_guidance()
+        for token in ("6", "5", "threshold", "ceiling", "count is"):
+            self.assertNotIn(token, text)
+
+    def test_other_flags_are_unaffected_by_the_rhetorical_question_addition(self) -> None:
+        sections = [
+            Section("s1", _pad("ليس الخلل في الوقت بل في طريقة توزيعه.")),
+            Section("s2", _pad("ليست المشكلة في الإرادة بل في الاحتكاك اليومي.")),
+            Section("s3", _pad("ليس الحل جدولًا أقسى بل قرارًا أبسط.")),
+        ]
+
+        def base(items, *, minimum, maximum, target):
+            return []
+
+        wrapped = contract._with_structural_issue_notes(base)
+        notes = wrapped(sections, minimum=110, maximum=170, target=120)
+        self.assertEqual(len(notes), 1)
+        self.assertNotIn("excessive_rhetorical_questions", notes[0])
+
     def test_contract_adds_no_provider_or_retry_owner(self) -> None:
         source = inspect.getsource(contract)
         forbidden = (

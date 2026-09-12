@@ -26,6 +26,16 @@ from isco_video_agent.editorial_room import structural_ai_flags
 _ISSUE_WRAPPER_MARKER = "_isco_structural_editorial_issue_owner"
 _BUILD_WRAPPER_MARKER = "_isco_structural_editorial_final_gate"
 
+# Run #249 (real production log, Long/film): the bounded Script Doctor received only
+# the flag's bare machine name ("excessive_rhetorical_questions") and still failed to
+# clear it in its one allowed pass, failing the whole production closed. This adds a
+# plain-language explanation of what that specific flag name means and how to act on
+# it - it does not compute a count, does not know or state the detector's threshold,
+# and does not touch the detector itself, so it carries no drift risk with Engine's
+# real pattern/threshold. It only helps the existing single bounded pass understand
+# an otherwise-opaque machine label well enough to actually succeed.
+_RHETORICAL_QUESTIONS_FLAG = "excessive_rhetorical_questions"
+
 
 def _joined_narration(sections: object) -> str:
     if not isinstance(sections, list):
@@ -55,6 +65,19 @@ def _structural_issue_note(flags: tuple[str, ...]) -> str:
     )
 
 
+def _rhetorical_question_guidance() -> str:
+    return (
+        f"DETERMINISTIC_ACCEPTANCE_RULE {_RHETORICAL_QUESTIONS_FLAG}: this machine "
+        "label means too many sentences across the whole script end in a question mark "
+        "(؟) used rhetorically rather than to genuinely ask the viewer something. Reread "
+        "every section's narration, find sentences ending in ؟, and rephrase most of "
+        "them into direct statements - prioritize sections that have more than one - "
+        "until only a few natural, purposeful questions remain. Restate each one as a "
+        "direct statement rather than deleting it, and preserve each section's meaning "
+        "and role."
+    )
+
+
 def _with_structural_issue_notes(original):
     @wraps(original)
     def wrapped(sections, *args, **kwargs):
@@ -62,6 +85,8 @@ def _with_structural_issue_notes(original):
         flags = _current_flags(sections)
         if flags:
             notes.append(_structural_issue_note(flags))
+            if _RHETORICAL_QUESTIONS_FLAG in flags:
+                notes.append(_rhetorical_question_guidance())
             print(
                 "Structural Editorial contract promoted advisory flags into existing "
                 "Script Doctor: " + ", ".join(flags)
