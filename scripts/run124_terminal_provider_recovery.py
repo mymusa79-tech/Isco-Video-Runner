@@ -5,6 +5,7 @@ import time
 
 from scripts import planning_batch_hardening as batching
 from scripts import provider_capacity_hardening as capacity
+from scripts.provider_failure import NoWireProviderFailure
 
 
 # Run #124 proved that fast failover must not become fast failure. Later runs proved the
@@ -14,11 +15,17 @@ from scripts import provider_capacity_hardening as capacity
 # 3-section semantic batch was recursively split 3 -> 2+1 -> 1+1 before the reset owner
 # could act. That converted one temporal window into one sleep per section.
 #
+# Run #242-family follow-up: planning_stage_contract already knows Groq TPM/RPM precheck
+# failures are temporal capacity, but typed PlanningStageError(CAPACITY) exits the
+# provider loop before the generic no-wire/deferred-retry path can own that temporal
+# window. Bridge ONLY those explicit Groq precheck signals into NoWireProviderFailure so
+# the existing bounded second pass is used. Plain HTTP 429/quota/spend/payload/context
+# capacity remains terminal and fail-closed.
+#
 # Keep two failure families separate:
 #   * payload/shape pressure -> existing bounded semantic sharding (3 -> 2+1 -> 1+1)
-#   * temporal Groq TPM window -> wait once for the CURRENT semantic batch, then retry
-#     that exact batch once. If that retry reveals real payload pressure, the existing
-#     sharder remains authoritative and may split it normally.
+#   * temporal Groq TPM/RPM window -> bounded stage retry first, then this outer
+#     semantic-batch recovery remains the final retry-once safety net.
 #
 # No quality gate, provider attempt budget, schema repair budget, or section limit is
 # relaxed here. Recovery still requires provider reset evidence, remains <=60s per wait,
@@ -30,6 +37,15 @@ _MAX_LONGFORM_SECTIONS = max(batching.staged._SECTION_COUNTS.values())
 _MAX_TERMINAL_WAIT_SECONDS_PER_RUN = _TERMINAL_WAIT_LIMIT_SECONDS * _MAX_LONGFORM_SECTIONS
 _RESET_RE = re.compile(r"reset_in=(\d+(?:\.\d+)?)s", flags=re.I)
 _MODEL_RE = re.compile(r"\bmodel=([^\s|]+)", flags=re.I)
+_TEMPORAL_GROQ_CAPACITY_MARKERS = (
+    "groq_tpm_window_busy_precheck",
+    "groq_rpm_window_busy_precheck",
+)
+_PROVIDER_EXHAUSTION_MARKERS = (
+    "all free providers failed for planning subtask",
+    "all providers exhausted after",
+)
+_STAGE_PROVIDER_BRIDGE_MARKER = "_run124_temporal_capacity_bridge_installed"
 _RECOVERED_TERMINAL_SHARDS: set[tuple[str, tuple[str, ...], str]] = set()
 _TERMINAL_RECOVERY_COUNT = 0
 _TERMINAL_WAIT_SPENT_SECONDS = 0.0
@@ -43,13 +59,14 @@ def _model_from_error(exc: BaseException) -> str | None:
     return model or None
 
 
-def _is_groq_tpm_window_busy(exc: BaseException) -> bool:
-    """Return True only for the typed temporal Groq TPM-window signal.
+def _is_groq_temporal_window_busy(exc: BaseException) -> bool:
+    """Return True only for an explicit Groq TPM/RPM precheck temporal signal."""
+    lowered = str(exc).strip().lower()
+    return any(marker in lowered for marker in _TEMPORAL_GROQ_CAPACITY_MARKERS)
 
-    This signal is deliberately NOT payload pressure. Splitting an unchanged temporal
-    rate-limit window does not create capacity; it only multiplies waits and provider
-    calls. The reset owner below handles it at the semantic batch boundary.
-    """
+
+def _is_groq_tpm_window_busy(exc: BaseException) -> bool:
+    """Compatibility helper retained for callers/tests written against Run208 behavior."""
     return "groq_tpm_window_busy_precheck" in str(exc).strip().lower()
 
 
@@ -62,9 +79,11 @@ def _remaining_reset_seconds(exc: BaseException) -> float | None:
     """
     text = str(exc)
     lower = text.lower()
-    if "all free providers failed for planning subtask" not in lower:
+    if "for planning subtask" not in lower:
         return None
-    if "groq_tpm_window_busy_precheck" not in lower:
+    if not any(marker in lower for marker in _PROVIDER_EXHAUSTION_MARKERS):
+        return None
+    if not _is_groq_temporal_window_busy(exc):
         return None
 
     match = _RESET_RE.search(text)
@@ -90,18 +109,57 @@ def _run_wait_budget_allows(wait_seconds: float) -> bool:
     return _TERMINAL_WAIT_SPENT_SECONDS + wait_seconds <= _MAX_TERMINAL_WAIT_SECONDS_PER_RUN
 
 
+def _install_stage_temporal_capacity_bridge() -> None:
+    """Route only explicit Groq TPM/RPM precheck capacity into bounded stage retry.
+
+    The stage contract has a generic no-wire path that defers a temporal provider and
+    retries it in one bounded second pass. Typed PlanningStageError(CAPACITY) otherwise
+    exits before reaching that path. Converting only the evidence-backed Groq precheck
+    family closes that classification gap without making generic 429/quota capacity
+    retryable.
+    """
+    stage_contract = getattr(batching, "stage_contract", None)
+    if stage_contract is None:
+        return
+
+    current = getattr(stage_contract, "_provider_result", None)
+    if current is None or getattr(current, _STAGE_PROVIDER_BRIDGE_MARKER, False):
+        return
+
+    def temporal_capacity_aware_provider_result(provider: str, *args, **kwargs):
+        try:
+            return current(provider, *args, **kwargs)
+        except stage_contract.PlanningStageError as exc:
+            failure_code = stage_contract._error_code_from_planning_error(exc)
+            if (
+                str(provider).strip().lower() == "groq"
+                and failure_code == stage_contract.FAILURE_CAPACITY
+                and _is_groq_temporal_window_busy(exc)
+            ):
+                raise NoWireProviderFailure(
+                    reason_code="temporal_capacity_window",
+                    detail=str(exc),
+                ) from exc
+            raise
+
+    setattr(temporal_capacity_aware_provider_result, _STAGE_PROVIDER_BRIDGE_MARKER, True)
+    stage_contract._provider_result = temporal_capacity_aware_provider_result
+
+
 def install_run124_terminal_provider_recovery() -> None:
     if getattr(batching, "_ISCO_RUN124_TERMINAL_PROVIDER_RECOVERY", False):
         return
 
+    _install_stage_temporal_capacity_bridge()
+
     original_call = batching._call_capacity_aware_shard
     original_is_transport_pressure = batching._is_transport_pressure
 
-    # Run208 family closure: temporal TPM windows must bubble to this batch-level reset
+    # Run208 family closure: temporal TPM/RPM windows must bubble to the batch-level reset
     # owner before planning_batch_hardening can recursively split them. Keep every real
     # payload/context/output pressure marker delegated to the existing splitter.
     def split_only_transport_pressure(exc: BaseException) -> bool:
-        if _is_groq_tpm_window_busy(exc):
+        if _is_groq_temporal_window_busy(exc):
             return False
         return original_is_transport_pressure(exc)
 
@@ -148,7 +206,7 @@ def install_run124_terminal_provider_recovery() -> None:
             _TERMINAL_RECOVERY_COUNT += 1
             _TERMINAL_WAIT_SPENT_SECONDS += wait_seconds
             print(
-                "Run124 coordinated TPM-window recovery: "
+                "Run124 coordinated TPM/RPM-window recovery: "
                 f"label={label} sections={','.join(ids)} groq_model={waited_model} "
                 f"groq_reset_in={remaining:.2f}s wait={wait_seconds:.2f}s "
                 "action=retry_same_semantic_batch_once "
@@ -160,8 +218,8 @@ def install_run124_terminal_provider_recovery() -> None:
 
             # Exactly one retry of the same semantic batch. If this call encounters
             # genuine payload pressure, original_call's existing sharder may split it;
-            # if the same TPM window recurs it bubbles out because this wrapper does not
-            # recursively call itself and therefore cannot create a wait loop.
+            # if the same temporal window recurs it bubbles out because this wrapper does
+            # not recursively call itself and therefore cannot create a wait loop.
             return original_call(
                 api_key,
                 model,
@@ -174,9 +232,9 @@ def install_run124_terminal_provider_recovery() -> None:
     batching._ISCO_RUN124_TERMINAL_PROVIDER_RECOVERY = True
     print(
         "Run124 coordinated terminal provider recovery installed: "
-        "groq_window_is_temporal_not_payload=true model_scoped_reset=true "
-        "semantic_batch_wait<=60s retry_same_batch_once=true payload_split_owner=existing "
-        "recovery_count=telemetry_only "
+        "groq_window_is_temporal_not_payload=true stage_temporal_bridge=true "
+        "model_scoped_reset=true semantic_batch_wait<=60s retry_same_batch_once=true "
+        "payload_split_owner=existing recovery_count=telemetry_only "
         f"run_wait_cap={_MAX_TERMINAL_WAIT_SECONDS_PER_RUN:.0f}s "
         f"topology_sections={_MAX_LONGFORM_SECTIONS}"
     )
