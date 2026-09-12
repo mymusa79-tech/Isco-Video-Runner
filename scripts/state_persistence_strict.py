@@ -7,16 +7,39 @@ from pathlib import Path
 
 try:
     from scripts.persistent_memory import persist_encrypted_state
+    from scripts.persistent_memory_crypto import open_envelope
 except ModuleNotFoundError:  # direct `python scripts/state_persistence_strict.py`
     from persistent_memory import persist_encrypted_state
+    from persistent_memory_crypto import open_envelope
+
+
+_GOLD_RESUME_WORKFLOW = "Resume Gold QC Pending"
+
+
+def _effective_run_number(encrypted: Path, requested_run_number: str) -> str:
+    """Use authenticated state sequence for the cross-workflow Gold resume only.
+
+    GITHUB_RUN_NUMBER is workflow-local, so Resume Gold starts again at 1 and cannot
+    safely identify the shared agent-state revision. The encrypted envelope created by
+    persistent_memory.py already advances from the authenticated prior state by one;
+    consume that authenticated sequence here instead of regressing to the resume job's
+    local counter. All canonical production workflows retain the existing exact-run
+    equality contract.
+    """
+    if (os.environ.get("GITHUB_WORKFLOW") or "").strip() != _GOLD_RESUME_WORKFLOW:
+        return str(requested_run_number)
+    key = os.environ.get("STATE_ENCRYPTION_KEY", "")
+    _, metadata = open_envelope(Path(encrypted).read_bytes(), key)
+    return str(metadata.sequence)
 
 
 def persist_strict(*, repo: Path, encrypted: Path, branch: str, run_number: str, report: Path) -> None:
+    effective_run_number = _effective_run_number(encrypted, run_number)
     status = persist_encrypted_state(
         repo,
         encrypted,
         branch=branch,
-        run_number=run_number,
+        run_number=effective_run_number,
         key=os.environ.get("STATE_ENCRYPTION_KEY", ""),
     )
     report.parent.mkdir(parents=True, exist_ok=True)
@@ -29,6 +52,8 @@ def persist_strict(*, repo: Path, encrypted: Path, branch: str, run_number: str,
                 "pushed": status.pushed,
                 "changed": status.changed,
                 "reason": status.reason,
+                "requested_run_number": str(run_number),
+                "effective_state_sequence": effective_run_number,
             },
             ensure_ascii=False,
             indent=2,
