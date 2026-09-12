@@ -23,6 +23,7 @@ from scripts import provider_health_registry as health
 from scripts import run181_vision_mesh_closure as vision_mesh
 from scripts import vision_stage_contract_v2 as vision_contract
 from scripts import visual_retrieval_adjudication_v1 as capacity
+from scripts.gold_text_qc_pending_v1 import install_gold_text_qc_pending_v1
 from scripts.telegram_progress import update_stage
 from scripts.vision_provider_failure_unification_v1 import (
     gold_over_capacity_cooldown_scope,
@@ -189,6 +190,7 @@ def install_gold_vision_capacity_reserve_v1() -> None:
     # this shared Long+Short seam so ordinary production and deferred Gold use exactly
     # the same transport semantics, while Gold-only saturation policy remains scoped.
     install_vision_provider_failure_unification_v1()
+    install_gold_text_qc_pending_v1()
     _install_reserve_admission()
     _install_gold_groq_retry()
     _install_gold_scope()
