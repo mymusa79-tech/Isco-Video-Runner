@@ -22,6 +22,13 @@ from scripts.provider_failure import NoWireProviderFailure
 # the existing bounded second pass is used. Plain HTTP 429/quota/spend/payload/context
 # capacity remains terminal and fail-closed.
 #
+# Run #254 follow-up: append-only repair is Stage-Contract-bound but does not traverse
+# planning_batch_hardening._call_capacity_aware_shard, so the historical Run124 wait
+# owner never sees its Groq temporal precheck. For this one exact stage, pace the first
+# evidence-backed Groq TPM/RPM window inside this same owner, then raise the same no-wire
+# signal so the Stage Contract - not this bridge - still owns and accounts the retry.
+# A second temporal signal for the same append stage/model is never slept again.
+#
 # Keep two failure families separate:
 #   * payload/shape pressure -> existing bounded semantic sharding (3 -> 2+1 -> 1+1)
 #   * temporal Groq TPM/RPM window -> bounded stage retry first, then this outer
@@ -45,8 +52,10 @@ _PROVIDER_EXHAUSTION_MARKERS = (
     "all free providers failed for planning subtask",
     "all providers exhausted after",
 )
+_APPEND_STAGE_ID = "planning.append_only_repair"
 _STAGE_PROVIDER_BRIDGE_MARKER = "_run124_temporal_capacity_bridge_installed"
 _RECOVERED_TERMINAL_SHARDS: set[tuple[str, tuple[str, ...], str]] = set()
+_WAITED_APPEND_STAGE_WINDOWS: set[tuple[str, str]] = set()
 _TERMINAL_RECOVERY_COUNT = 0
 _TERMINAL_WAIT_SPENT_SECONDS = 0.0
 
@@ -68,6 +77,19 @@ def _is_groq_temporal_window_busy(exc: BaseException) -> bool:
 def _is_groq_tpm_window_busy(exc: BaseException) -> bool:
     """Compatibility helper retained for callers/tests written against Run208 behavior."""
     return "groq_tpm_window_busy_precheck" in str(exc).strip().lower()
+
+
+def _temporal_reset_seconds(exc: BaseException) -> float | None:
+    """Return bounded reset evidence only for an explicit Groq temporal precheck."""
+    if not _is_groq_temporal_window_busy(exc):
+        return None
+    match = _RESET_RE.search(str(exc))
+    if match is None:
+        return None
+    remaining = max(0.0, float(match.group(1)))
+    if remaining > _TERMINAL_RESET_LIMIT_SECONDS:
+        return None
+    return remaining
 
 
 def _remaining_reset_seconds(exc: BaseException) -> float | None:
@@ -95,16 +117,7 @@ def _remaining_reset_seconds(exc: BaseException) -> float | None:
         return None
     if not any(marker in lower for marker in _PROVIDER_EXHAUSTION_MARKERS):
         return None
-    if not _is_groq_temporal_window_busy(exc):
-        return None
-
-    match = _RESET_RE.search(text)
-    if match is None:
-        return None
-    remaining = max(0.0, float(match.group(1)))
-    if remaining > _TERMINAL_RESET_LIMIT_SECONDS:
-        return None
-    return remaining
+    return _temporal_reset_seconds(exc)
 
 
 def _clear_waited_model_window(exc: BaseException) -> None:
@@ -121,6 +134,57 @@ def _run_wait_budget_allows(wait_seconds: float) -> bool:
     return _TERMINAL_WAIT_SPENT_SECONDS + wait_seconds <= _MAX_TERMINAL_WAIT_SECONDS_PER_RUN
 
 
+def _wait_once_for_append_temporal_window(exc: BaseException) -> bool:
+    """Pace one Run254 append-only Groq window without owning the provider retry.
+
+    The Stage Contract still receives NoWireProviderFailure after this function returns
+    and therefore remains the sole owner of retry count, provider order and accounting.
+    This helper owns timing only, shares Run124's existing run-wide wait budget, and may
+    sleep at most once per append-stage/model for the lifetime of the production process.
+    """
+    global _TERMINAL_RECOVERY_COUNT, _TERMINAL_WAIT_SPENT_SECONDS
+
+    if str(getattr(exc, "stage_id", "") or "").strip() != _APPEND_STAGE_ID:
+        return False
+    remaining = _temporal_reset_seconds(exc)
+    if remaining is None:
+        return False
+
+    waited_model = _model_from_error(exc) or "groq"
+    key = (_APPEND_STAGE_ID, waited_model)
+    if key in _WAITED_APPEND_STAGE_WINDOWS:
+        return False
+
+    wait_seconds = min(
+        remaining + _RESET_SAFETY_SECONDS,
+        _TERMINAL_WAIT_LIMIT_SECONDS,
+    )
+    if not _run_wait_budget_allows(wait_seconds):
+        print(
+            "Run254 append temporal wait skipped by Run124 run-wide wait budget: "
+            f"stage={_APPEND_STAGE_ID} groq_model={waited_model} "
+            f"requested_wait={wait_seconds:.2f}s "
+            f"wait_spent={_TERMINAL_WAIT_SPENT_SECONDS:.2f}/"
+            f"{_MAX_TERMINAL_WAIT_SECONDS_PER_RUN:.0f}s"
+        )
+        return False
+
+    _WAITED_APPEND_STAGE_WINDOWS.add(key)
+    _TERMINAL_RECOVERY_COUNT += 1
+    _TERMINAL_WAIT_SPENT_SECONDS += wait_seconds
+    print(
+        "Run254 coordinated append temporal-window wait: "
+        f"stage={_APPEND_STAGE_ID} groq_model={waited_model} "
+        f"groq_reset_in={remaining:.2f}s wait={wait_seconds:.2f}s "
+        "action=pace_once_then_stage_contract_owns_retry "
+        f"run_recovery={_TERMINAL_RECOVERY_COUNT} "
+        f"run_wait_spent={_TERMINAL_WAIT_SPENT_SECONDS:.2f}s"
+    )
+    time.sleep(wait_seconds)
+    _clear_waited_model_window(exc)
+    return True
+
+
 def _install_stage_temporal_capacity_bridge() -> None:
     """Route only explicit Groq TPM/RPM precheck capacity into bounded stage retry.
 
@@ -128,7 +192,8 @@ def _install_stage_temporal_capacity_bridge() -> None:
     retries it in one bounded second pass. Typed PlanningStageError(CAPACITY) otherwise
     exits before reaching that path. Converting only the evidence-backed Groq precheck
     family closes that classification gap without making generic 429/quota capacity
-    retryable.
+    retryable. Run254 adds timing only for append-only repair; the Stage Contract still
+    owns the subsequent provider retry and its attempt accounting.
     """
     stage_contract = getattr(batching, "stage_contract", None)
     if stage_contract is None:
@@ -147,9 +212,10 @@ def _install_stage_temporal_capacity_bridge() -> None:
                 and exc.code == stage_contract.PlanningErrorCode.CAPACITY
                 and _is_groq_temporal_window_busy(exc)
             ):
+                waited = _wait_once_for_append_temporal_window(exc)
                 raise NoWireProviderFailure(
                     reason_code="temporal_capacity_window",
-                    detail=str(exc),
+                    detail=f"{exc} run124_append_waited={str(waited).lower()}",
                 ) from exc
             raise
 
@@ -244,7 +310,8 @@ def install_run124_terminal_provider_recovery() -> None:
     print(
         "Run124 coordinated terminal provider recovery installed: "
         "groq_window_is_temporal_not_payload=true stage_temporal_bridge=true "
-        "model_scoped_reset=true semantic_batch_wait<=60s retry_same_batch_once=true "
+        "append_stage_temporal_wait_once=true model_scoped_reset=true "
+        "semantic_batch_wait<=60s retry_same_batch_once=true "
         "payload_split_owner=existing recovery_count=telemetry_only "
         f"run_wait_cap={_MAX_TERMINAL_WAIT_SECONDS_PER_RUN:.0f}s "
         f"topology_sections={_MAX_LONGFORM_SECTIONS}"
