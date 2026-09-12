@@ -105,6 +105,101 @@ class Run142OutlineSecondPassRetryTests(unittest.TestCase):
         )
         return dataclasses.replace(base, provider_policy=policy)
 
+    @staticmethod
+    def _extended_second_pass_spec(max_total_attempts: int) -> contract.PlanningStageSpec:
+        base = contract.script_stage_spec("full_script", ["s1"])
+        policy = dataclasses.replace(
+            base.provider_policy,
+            max_attempts_per_provider=1,
+            max_total_attempts=max_total_attempts,
+            second_pass_after_full_exhaustion=True,
+        )
+        return dataclasses.replace(base, provider_policy=policy)
+
+    def test_run250_a_provider_can_succeed_on_a_third_sweep_when_budget_remains(self) -> None:
+        # Run #250 (real production log, Long/film): Groq's TPM-window block failed on
+        # its very first attempt AND its one deferred second-sweep retry (the second
+        # failure reported reset_in=1.63s - the window was about to free up), then the
+        # whole stage gave up with 2 of its 6-attempt budget still unspent, because the
+        # old fixed-two-sweep design could never grant a third sweep no matter how much
+        # budget remained. This reproduces that shape with more headroom and proves a
+        # provider can now succeed on a third (or later) sweep as long as budget remains.
+        valid = _script(["s1"])
+        invalid = _script(["s1"])
+        del invalid["sections"][0]["key_point"]
+        calls = {"gemini": 0, "groq": 0, "openrouter": 0}
+
+        def fake_gemini(*_args, **_kwargs):
+            calls["gemini"] += 1
+            return invalid  # structurally invalid: terminal for Gemini only, first attempt
+
+        def fake_groq(_prompt):
+            calls["groq"] += 1
+            if calls["groq"] < 3:
+                raise RuntimeError(_GROQ_JSON_VALIDATE_FAILED)
+            return valid
+
+        def fake_openrouter(*_args, **_kwargs):
+            calls["openrouter"] += 1
+            raise RuntimeError(_OPENROUTER_SPEND_BLOCKED)  # circuit-opens: terminal, first attempt
+
+        spec = self._extended_second_pass_spec(max_total_attempts=9)
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini), \
+                patch.object(router, "_groq_call", side_effect=fake_groq), \
+                patch.object(router, "_openrouter_call_with_repair", side_effect=fake_openrouter), \
+                contract.request_stage_scope(spec):
+            result = staged.json_text("unused", "prompt")
+
+        self.assertEqual(result, valid)
+        self.assertEqual(calls, {"gemini": 1, "groq": 3, "openrouter": 1})
+        # Three sweeps happened, so exactly two bounded cooldown waits separate them.
+        self.assertEqual(
+            self.contract_sleep_mock.call_args_list.count(
+                ((router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS,), {})
+            ),
+            2,
+        )
+
+    def test_no_wire_retryable_failure_cannot_loop_forever(self) -> None:
+        # Safety net for the Run #250 fix: a no-wire retryable failure (e.g. Groq's own
+        # local TPM-window precheck, which never makes a real HTTP request) never
+        # advances total_attempts, so "budget remains" alone cannot bound the sweep
+        # count if that precheck keeps failing the same way forever. The sweep count
+        # itself is capped at max_total_attempts sweeps precisely so this always
+        # terminates instead of looping indefinitely.
+        invalid = _script(["s1"])
+        del invalid["sections"][0]["key_point"]
+        calls = {"gemini": 0, "groq": 0, "openrouter": 0}
+
+        def fake_gemini(*_args, **_kwargs):
+            calls["gemini"] += 1
+            return invalid  # structurally invalid: terminal, first attempt only
+
+        def fake_groq(_prompt):
+            calls["groq"] += 1
+            raise router.NoWireProviderFailure(
+                "GROQ_TPM_WINDOW_BUSY_PRECHECK",
+                "model=openai/gpt-oss-120b remaining=100 reset_in=0.5s",
+            )
+
+        def fake_openrouter(*_args, **_kwargs):
+            calls["openrouter"] += 1
+            raise RuntimeError(_OPENROUTER_SPEND_BLOCKED)  # circuit-opens: terminal, first attempt
+
+        with patch.object(router, "gemini_json_text", side_effect=fake_gemini), \
+                patch.object(router, "_groq_call", side_effect=fake_groq), \
+                patch.object(router, "_openrouter_call_with_repair", side_effect=fake_openrouter), \
+                contract.request_stage_scope(self._second_pass_spec()):
+            with self.assertRaises(contract.PlanningStageError):
+                staged.json_text("unused", "prompt")
+
+        # Groq's no-wire failure never advances total_attempts, so only the sweep-count
+        # safety cap (max_total_attempts=6 sweeps here) can end this - not the attempt
+        # budget, which stays unspent on Groq's side throughout.
+        self.assertEqual(calls["gemini"], 1)
+        self.assertEqual(calls["openrouter"], 1)
+        self.assertEqual(calls["groq"], 6)
+
     def test_all_transient_first_sweep_then_second_sweep_succeeds(self) -> None:
         valid = _script(["s1"])
         gemini_calls = 0
@@ -216,12 +311,16 @@ class Run142OutlineSecondPassRetryTests(unittest.TestCase):
 
         # Run210 closure: a terminal result is provider-local. Gemini's structural
         # invalidity is never replayed; OpenRouter's spend block is circuit-terminal;
-        # Groq's independent generation error remains eligible for exactly one deferred
-        # retry after every provider family has had its first-sweep opportunity.
-        self.assertEqual(calls, {"gemini": 1, "groq": 2, "openrouter": 1})
+        # Groq's independent generation error remains retryable every sweep. Run #250
+        # closure: sweeping is now bounded by the total attempt budget rather than a
+        # fixed two-round count, so Groq - the only provider still eligible - keeps
+        # getting swept until the full max_total_attempts=6 budget is spent
+        # (gemini=1 + openrouter=1 + groq=4), instead of stopping after exactly one
+        # extra sweep with budget still unspent.
+        self.assertEqual(calls, {"gemini": 1, "groq": 4, "openrouter": 1})
         self.contract_sleep_mock.assert_any_call(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
 
-    def test_second_sweep_also_fails_raises_after_bounded_two_sweeps(self) -> None:
+    def test_all_providers_stay_transient_exhausts_the_full_attempt_budget(self) -> None:
         calls = {"gemini": 0, "groq": 0, "openrouter": 0}
 
         def fake_gemini(*_args, **_kwargs):
@@ -243,8 +342,12 @@ class Run142OutlineSecondPassRetryTests(unittest.TestCase):
             with self.assertRaisesRegex(contract.PlanningStageError, r"exhausted after 6/6 attempts"):
                 staged.json_text("unused", "prompt")
 
-        # Bounded at exactly two full sweeps (max_total_attempts=6, 3 providers each) -
-        # never a third, even though every failure stayed PROVIDER_TRANSIENT throughout.
+        # Sweeping is bounded by the total attempt budget (Run #250 closure), not a
+        # fixed round count. With exactly 3 equally-transient providers and
+        # max_total_attempts=6, the budget happens to be spent after exactly two full
+        # sweeps here (1 attempt/provider/sweep x 3 providers x 2 sweeps = 6) - there is
+        # no third sweep only because there is no budget left for one, not because of a
+        # hard two-sweep ceiling.
         self.assertEqual(calls, {"gemini": 2, "groq": 2, "openrouter": 2})
         self.assertEqual(self.contract_sleep_mock.call_args_list.count(((router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS,), {})), 1)
 

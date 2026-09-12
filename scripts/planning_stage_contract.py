@@ -1214,23 +1214,24 @@ def install_planning_contract_router() -> None:
             total_attempts = 0
             provider_wire_attempts: dict[str, int] = {}
             failures: list[PlanningStageError] = []
-            deferred_retry_providers: set[str] = set()
             request_token = _ACTIVE_REQUEST_CONTRACT.set(contract)
             try:
-                round_index = 0
+                providers_this_round = list(admitted)
+                # A no-wire retryable failure (e.g. a local TPM-window precheck block)
+                # never advances total_attempts, so "budget remains" alone cannot bound
+                # the sweep count if that precheck keeps failing the same way. Cap sweeps
+                # at the same ceiling as the wire-attempt budget: any run that actually
+                # consumes wire attempts each sweep exhausts total_attempts long before
+                # this, so the cap only ever binds the genuinely-stuck no-wire case.
+                max_sweeps = contract.provider_policy.max_total_attempts
+                sweep_index = 0
                 while True:
-                    round_index += 1
-                    providers_this_round = (
-                        admitted
-                        if round_index == 1
-                        else [
-                            provider
-                            for provider in admitted
-                            if provider in deferred_retry_providers
-                        ]
-                    )
                     if not providers_this_round:
                         break
+                    sweep_index += 1
+                    if sweep_index > max_sweeps:
+                        break
+                    next_round_candidates: set[str] = set()
 
                     for provider in providers_this_round:
                         if provider in cooldown:
@@ -1302,11 +1303,10 @@ def install_planning_contract_router() -> None:
                                     continue
                                 if (
                                     exc.code == PlanningErrorCode.PROVIDER_TRANSIENT
-                                    and round_index == 1
                                     and contract.provider_policy.second_pass_after_full_exhaustion
                                     and total_attempts < contract.provider_policy.max_total_attempts
                                 ):
-                                    deferred_retry_providers.add(provider)
+                                    next_round_candidates.add(provider)
                                 transient_cooldown_until[provider] = (
                                     time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
                                 )
@@ -1338,12 +1338,11 @@ def install_planning_contract_router() -> None:
                                 if not wire_attempted:
                                     if retryable:
                                         if (
-                                            round_index == 1
-                                            and contract.provider_policy.second_pass_after_full_exhaustion
+                                            contract.provider_policy.second_pass_after_full_exhaustion
                                             and not failure.open_circuit
                                             and total_attempts < contract.provider_policy.max_total_attempts
                                         ):
-                                            deferred_retry_providers.add(provider)
+                                            next_round_candidates.add(provider)
                                         transient_cooldown_until[provider] = (
                                             time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
                                         )
@@ -1370,12 +1369,11 @@ def install_planning_contract_router() -> None:
                                     )
                                 if retryable:
                                     if (
-                                        round_index == 1
-                                        and contract.provider_policy.second_pass_after_full_exhaustion
+                                        contract.provider_policy.second_pass_after_full_exhaustion
                                         and not failure.open_circuit
                                         and total_attempts < contract.provider_policy.max_total_attempts
                                     ):
-                                        deferred_retry_providers.add(provider)
+                                        next_round_candidates.add(provider)
                                     transient_cooldown_until[provider] = (
                                         time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
                                     )
@@ -1397,22 +1395,33 @@ def install_planning_contract_router() -> None:
                                 )
                                 return parsed, provider
 
-                    # First pass always gives every admitted family its independent shot.
-                    # Only after that sweep do we wait once and retry the providers that
-                    # themselves proved transient/retryable. Terminal failure on another
-                    # family is local to that family and cannot veto this bounded retry.
+                    # Every sweep gives its providers an independent shot. When at least
+                    # one of them proved transient/retryable (a time-bound capacity window,
+                    # not a permanent failure), wait once and sweep again - bounded only by
+                    # the total attempt ceiling already allocated to this stage, not by a
+                    # fixed number of sweeps. Run #250 showed the fixed-round-count version
+                    # of this gate give up with budget still unspent while a provider's own
+                    # reported reset window was about to close (1.63s left): attempt-budget
+                    # gating (matching the same pattern Google SRE's retry-budget guidance
+                    # and Envoy's retry budgets use - keep going while budget remains and
+                    # the failure is retryable, not for a fixed number of rounds) spends the
+                    # ceiling this stage was already granted instead of wasting it. Terminal
+                    # failure on another family is local to that family and cannot veto
+                    # this bounded retry.
                     if (
                         contract.provider_policy.second_pass_after_full_exhaustion
-                        and round_index == 1
-                        and deferred_retry_providers
+                        and next_round_candidates
                         and total_attempts < contract.provider_policy.max_total_attempts
                     ):
-                        # The deferred round owns this bounded cooldown. Clear only the
+                        # The next sweep owns this bounded cooldown. Clear only the
                         # provider-local timestamps for providers explicitly authorized
-                        # for round two so the same cooldown is not enforced twice.
+                        # for that sweep so the same cooldown is not enforced twice.
                         time.sleep(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
-                        for provider in deferred_retry_providers:
+                        for provider in next_round_candidates:
                             transient_cooldown_until.pop(provider, None)
+                        providers_this_round = [
+                            provider for provider in admitted if provider in next_round_candidates
+                        ]
                         continue
                     break
 

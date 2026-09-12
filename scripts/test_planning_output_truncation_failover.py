@@ -158,10 +158,15 @@ class PlanningOutputTruncationFailoverTests(unittest.TestCase):
                 patch.object(router, "_groq_call", side_effect=fake_groq), \
                 patch.object(router, "_openrouter_call_with_repair", side_effect=fake_openrouter), \
                 contract.request_stage_scope(self._second_pass_spec()):
-            with self.assertRaisesRegex(contract.PlanningStageError, r"exhausted after 4/6 attempts"):
+            # Run #250 closure: sweeping is bounded by the total attempt budget, not a
+            # fixed two-sweep count. Gemini (CAPACITY) and OpenRouter (circuit-opens)
+            # are terminal after their first attempt, so Groq - the only still-eligible
+            # provider - keeps getting swept until the full 6-attempt budget is spent,
+            # instead of stopping at 4/6 with budget still unused.
+            with self.assertRaisesRegex(contract.PlanningStageError, r"exhausted after 6/6 attempts"):
                 staged.json_text("unused", "prompt")
 
-        self.assertEqual(calls, {"gemini": 1, "groq": 2, "openrouter": 1})
+        self.assertEqual(calls, {"gemini": 1, "groq": 4, "openrouter": 1})
         self.contract_sleep_mock.assert_any_call(router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS)
 
 
