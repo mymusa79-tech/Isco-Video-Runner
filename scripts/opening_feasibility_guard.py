@@ -550,7 +550,7 @@ def _enforce_truthful_visual_outcome(result: object, *, scope: str):
 
 
 def _preserve_outline_visual_intent(outline: object, *, fmt: str) -> object:
-    """Keep plan.visual_query intact and annotate only the search-only derivative."""
+    """Keep canonical visual intent pure; derive stock syntax only at retrieval time."""
     if fmt not in {"film", "story"} or not isinstance(outline, dict):
         return outline
     briefs = outline.get("section_briefs")
@@ -559,10 +559,15 @@ def _preserve_outline_visual_intent(outline: object, *, fmt: str) -> object:
 
     original = str(briefs[0].get("visual_query", "")).strip()
     search_query = stock_safe_search_query(original)
+    # The canonical Planning DTO intentionally has no stock_search_query field. Keep
+    # this derivative ephemeral so the Stage Contract can continue rejecting any
+    # provider-originated or wrapper-originated structural drift fail-closed. Pexels,
+    # Pixabay and the bounded alternate-query wrapper derive this same value at the
+    # retrieval boundary below, so no search capability is lost here.
     if search_query and search_query != original:
-        briefs[0]["stock_search_query"] = search_query[:260]
         print(
-            "Opening feasibility guard separated visual intent from stock query: "
+            "Opening feasibility guard derived retrieval-only stock query without "
+            "mutating canonical outline: "
             f"{original} -> {search_query}"
         )
     return outline
