@@ -314,6 +314,151 @@ class PlanningRuntimeFreshProcessTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stdout)
 
+    def test_production_entrypoint_composition_replays_run254_append_temporal_wait(self) -> None:
+        """Run254: append-only repair may pace one Groq window, never own the retry."""
+        probe = textwrap.dedent(
+            """
+            from scripts import planning_stage_contract as stage
+            from scripts import run124_terminal_provider_recovery as recovery
+            from scripts import run_v3_voice as production
+            from scripts.provider_failure import NoWireProviderFailure
+
+            class InstallComplete(BaseException):
+                pass
+
+            active_stage = {"value": "planning.append_only_repair"}
+            reset_seconds = {"value": 31.84}
+            provider_calls = []
+
+            def run254_provider_failure(provider, *args, **kwargs):
+                del args, kwargs
+                if provider != "groq":
+                    raise AssertionError(f"unexpected provider={provider}")
+                provider_calls.append(active_stage["value"])
+                raise stage.PlanningStageError(
+                    stage.PlanningErrorCode.CAPACITY,
+                    "GROQ_TPM_WINDOW_BUSY_PRECHECK model=openai/gpt-oss-120b "
+                    f"remaining=2176 reset_in={reset_seconds['value']:.2f}s "
+                    "action=provider_evidence_failover_without_partial_retry",
+                    stage_id=active_stage["value"],
+                    provider="groq",
+                )
+
+            # Compose the exact production installer chain around a provider-free
+            # synthetic boundary, as the Run252 replay does above.
+            stage._provider_result = run254_provider_failure
+
+            def stop_after_all_runtime_installers():
+                raise InstallComplete()
+
+            production.start_progress = stop_after_all_runtime_installers
+            try:
+                production.main()
+            except InstallComplete:
+                pass
+            else:
+                raise AssertionError("canonical production main did not reach installer boundary")
+
+            stage.assert_planning_stage_contract_installed()
+            waits = []
+            cleared = []
+            recovery.time.sleep = lambda seconds: waits.append(float(seconds))
+            recovery._clear_waited_model_window = lambda exc: cleared.append(str(exc))
+            recovery._WAITED_APPEND_STAGE_WINDOWS.clear()
+            recovery._TERMINAL_WAIT_SPENT_SECONDS = 0.0
+            recovery._TERMINAL_RECOVERY_COUNT = 0
+
+            def invoke():
+                try:
+                    stage._provider_result(
+                        "groq",
+                        "opaque prompt",
+                        "gemini-3.7-flash",
+                        None,
+                        "unused-primary-key",
+                    )
+                except NoWireProviderFailure as exc:
+                    assert exc.reason_code == "temporal_capacity_window", exc
+                    return str(exc)
+                raise AssertionError("Run254 temporal bridge did not return no-wire evidence")
+
+            # First append-only temporal signal: one documented bounded wait. The bridge
+            # itself calls the provider exactly once; Stage Contract remains retry owner.
+            first = invoke()
+            assert len(provider_calls) == 1, provider_calls
+            assert len(waits) == 1, waits
+            assert abs(waits[0] - 33.34) < 0.001, waits
+            assert len(cleared) == 1, cleared
+            assert "run124_append_waited=true" in first, first
+            assert abs(recovery._TERMINAL_WAIT_SPENT_SECONDS - 33.34) < 0.001
+
+            # Same stage/model signal again: no second sleep and no hidden retry.
+            second = invoke()
+            assert len(provider_calls) == 2, provider_calls
+            assert len(waits) == 1, waits
+            assert len(cleared) == 1, cleared
+            assert "run124_append_waited=false" in second, second
+
+            # Unrelated Planning stages preserve historical bridge behavior: classify to
+            # no-wire, but Run254 timing policy does not sleep them.
+            active_stage["value"] = "planning.editorial_outline_sections"
+            third = invoke()
+            assert len(provider_calls) == 3, provider_calls
+            assert len(waits) == 1, waits
+            assert "run124_append_waited=false" in third, third
+
+            # The append wait shares the existing Run124 run-wide wait budget. Exhausted
+            # budget means fail over with no extra wait, never a shortened/hidden retry.
+            active_stage["value"] = "planning.append_only_repair"
+            recovery._WAITED_APPEND_STAGE_WINDOWS.clear()
+            recovery._TERMINAL_WAIT_SPENT_SECONDS = recovery._MAX_TERMINAL_WAIT_SECONDS_PER_RUN
+            fourth = invoke()
+            assert len(provider_calls) == 4, provider_calls
+            assert len(waits) == 1, waits
+            assert len(cleared) == 1, cleared
+            assert "run124_append_waited=false" in fourth, fourth
+
+            # Reset evidence outside the certified <=60s boundary is never slept.
+            recovery._WAITED_APPEND_STAGE_WINDOWS.clear()
+            recovery._TERMINAL_WAIT_SPENT_SECONDS = 0.0
+            reset_seconds["value"] = 61.0
+            fifth = invoke()
+            assert len(provider_calls) == 5, provider_calls
+            assert len(waits) == 1, waits
+            assert len(cleared) == 1, cleared
+            assert "run124_append_waited=false" in fifth, fifth
+            """
+        )
+
+        env = dict(os.environ)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["GEMINI_CONTENT_MODEL"] = "gemini-3.7-flash"
+        env["GEMINI_TTS_MODEL"] = "gemini-3.1-flash-tts-preview"
+        for name in (
+            "ISCO_CANONICAL_RUNTIME",
+            "GITHUB_ACTIONS",
+            "GITHUB_EVENT_NAME",
+            "GITHUB_WORKFLOW_REF",
+            "REQUEST_FILE",
+            "GEMINI_API_KEY",
+            "GEMINI_API_KEY_FILE",
+            "PEXELS_API_KEY",
+            "PEXELS_API_KEY_FILE",
+        ):
+            env.pop(name, None)
+
+        completed = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=90,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
