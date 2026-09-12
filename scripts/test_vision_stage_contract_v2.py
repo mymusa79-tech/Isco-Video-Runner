@@ -8,6 +8,8 @@ from pathlib import Path
 from unittest import mock
 
 from isco_video_agent.ai_budget import BudgetLedger, Capability, Priority, TaskSpec
+from scripts import quality_capability_router as quality_router
+from scripts import quality_capability_runtime_binding as quality_binding
 from scripts import vision_provider_reliability as legacy
 from scripts import vision_stage_contract_v2 as v2
 
@@ -186,45 +188,20 @@ class OpenRouterStrictTransportTests(unittest.TestCase):
                 )
         self.assertEqual(raised.exception.code, v2.VisionErrorCode.CAPACITY)
 
-    def test_catalog_discovery_is_free_vision_structured_and_excludes_first_model(self) -> None:
-        class Response:
-            ok = True
-
-            def json(self):
-                return {
-                    "data": [
-                        {
-                            "id": "model/text:free",
-                            "pricing": {"prompt": "0", "completion": "0"},
-                            "architecture": {"input_modalities": ["text"]},
-                            "supported_parameters": ["response_format"],
-                        },
-                        {
-                            "id": "model/no-json:free",
-                            "pricing": {"prompt": "0", "completion": "0"},
-                            "architecture": {"input_modalities": ["text", "image"]},
-                            "supported_parameters": ["tools"],
-                        },
-                        {
-                            "id": "model/first:free",
-                            "pricing": {"prompt": "0", "completion": "0"},
-                            "architecture": {"input_modalities": ["image"]},
-                            "supported_parameters": ["response_format"],
-                        },
-                        {
-                            "id": "model/alternate:free",
-                            "pricing": {"prompt": "0", "completion": "0"},
-                            "architecture": {"input_modalities": ["image"]},
-                            "supported_parameters": ["response_format"],
-                        },
-                    ]
-                }
-
+    def test_runtime_binding_uses_only_pinned_vision_models_without_catalog_discovery(self) -> None:
+        quality_binding.install_quality_capability_runtime_binding()
+        exact_models = [
+            item.model
+            for item in quality_router.policy_for(quality_router.CAP_GOLD_VISION).candidates
+            if item.provider == "openrouter"
+        ]
+        self.assertGreaterEqual(len(exact_models), 2)
         with mock.patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=False), mock.patch.object(
-            v2.requests, "get", return_value=Response()
-        ):
-            selected = v2._discover_alternate_free_vision_model(exclude={"model/first:free"})
-        self.assertEqual(selected, "model/alternate:free")
+            v2.requests, "get"
+        ) as catalog_get:
+            selected = v2._discover_alternate_free_vision_model(exclude={exact_models[0]})
+        self.assertEqual(selected, exact_models[1])
+        catalog_get.assert_not_called()
 
 
 class SharedLongShortRoutingTests(unittest.TestCase):
