@@ -64,13 +64,14 @@ class Run92OpeningFeasibilityGuardTests(unittest.TestCase):
             "quiet room natural light",
         )
 
-    def test_outline_keeps_original_visual_intent_and_adds_search_derivative(self) -> None:
+    def test_outline_keeps_original_visual_intent_without_persisting_search_derivative(self) -> None:
         original = "person sitting by wooden table in sunlit room looking pensively at empty notebook"
         outline = {"section_briefs": [{"id": "s1", "visual_query": original}]}
         result = _preserve_outline_visual_intent(outline, fmt="film")
         self.assertEqual(result["section_briefs"][0]["visual_query"], original)
+        self.assertNotIn("stock_search_query", result["section_briefs"][0])
         self.assertEqual(
-            result["section_briefs"][0]["stock_search_query"],
+            stock_safe_search_query(original),
             "wooden table sunlit room empty notebook",
         )
 
