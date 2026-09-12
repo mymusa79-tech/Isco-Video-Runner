@@ -76,10 +76,22 @@ def _remaining_reset_seconds(exc: BaseException) -> float | None:
     Run126 made Groq capacity state model-scoped. A process-global "last response"
     mirror is therefore not authority for terminal recovery because another model or
     provider call may have updated it before this outer wrapper handles the error.
+
+    Accept both the historical router wording and the explicit Stage Contract wording;
+    both still require the exact Groq temporal precheck marker plus bounded reset_in
+    evidence, so generic quota/spend/HTTP 429 failures remain terminal.
     """
     text = str(exc)
     lower = text.lower()
-    if "for planning subtask" not in lower:
+    old_router_shape = (
+        "for planning subtask" in lower
+        and "all free providers failed for planning subtask" in lower
+    )
+    stage_contract_shape = (
+        "stage=planning." in lower
+        and "all providers exhausted after" in lower
+    )
+    if not (old_router_shape or stage_contract_shape):
         return None
     if not any(marker in lower for marker in _PROVIDER_EXHAUSTION_MARKERS):
         return None
