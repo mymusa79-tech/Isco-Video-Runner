@@ -37,16 +37,15 @@ def _positive_int(value: object) -> int | None:
 def _gold_resume_next_state_sequence(plain_path: Path) -> str:
     """Return a monotonic agent-state sequence for the cross-workflow Gold resume.
 
-    GitHub's GITHUB_RUN_NUMBER is scoped per workflow. The Gold-resume workflow therefore
-    starts at run 1 even when the canonical production workflow is already in the hundreds.
-    Reusing the resume workflow number would regress authenticated state ordering. Instead,
-    advance from the authenticated restore identity by exactly one revision. Canonical
-    production keeps its existing run-number semantics unchanged.
+    GitHub's GITHUB_RUN_NUMBER is scoped per workflow, so it is not part of the shared
+    agent-state ordering relation. The Gold-resume workflow therefore advances exactly
+    one revision from the authenticated restore identity. If no authenticated sequence
+    exists yet, the first shared state revision is 1. Canonical production keeps its
+    existing run-number semantics unchanged.
     """
     identity = _core.read_restore_identity(Path(plain_path))
     previous = _positive_int(identity.get("state_sequence"))
-    resume_run = _positive_int(os.environ.get("GITHUB_RUN_NUMBER")) or 1
-    return str(max(resume_run, (previous + 1) if previous is not None else 1))
+    return str((previous + 1) if previous is not None else 1)
 
 
 def main(argv: list[str] | None = None) -> int:
