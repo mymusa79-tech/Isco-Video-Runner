@@ -6,14 +6,13 @@ import os
 from pathlib import Path
 
 try:
+    from scripts.gold_resume_workflow_identity import gold_resume_workflow_identity
     from scripts.persistent_memory import persist_encrypted_state
     from scripts.persistent_memory_crypto import open_envelope
 except ModuleNotFoundError:  # direct `python scripts/state_persistence_strict.py`
+    from gold_resume_workflow_identity import gold_resume_workflow_identity
     from persistent_memory import persist_encrypted_state
     from persistent_memory_crypto import open_envelope
-
-
-_GOLD_RESUME_WORKFLOW = "Resume Gold QC Pending"
 
 
 def _effective_run_number(encrypted: Path, requested_run_number: str) -> str:
@@ -26,7 +25,7 @@ def _effective_run_number(encrypted: Path, requested_run_number: str) -> str:
     local counter. All canonical production workflows retain the existing exact-run
     equality contract.
     """
-    if (os.environ.get("GITHUB_WORKFLOW") or "").strip() != _GOLD_RESUME_WORKFLOW:
+    if not gold_resume_workflow_identity():
         return str(requested_run_number)
     key = os.environ.get("STATE_ENCRYPTION_KEY", "")
     _, metadata = open_envelope(Path(encrypted).read_bytes(), key)
