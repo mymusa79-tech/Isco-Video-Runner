@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import os
 import subprocess
 import sys
@@ -7,6 +8,7 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,6 +120,198 @@ class PlanningRuntimeFreshProcessTests(unittest.TestCase):
                 check=False,
             )
 
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+
+    def test_production_exact_harness_uses_canonical_main_and_restores_boundary(self) -> None:
+        """The diagnostic may stop production; it may never become a second planner."""
+        from scripts import production_exact_planning_harness as harness
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "output"
+            out.mkdir()
+            for name in harness._REQUIRED_PLANNING_ARTIFACTS:
+                payload = {"format": "film"} if name == "plan.json" else {"status": "pass"}
+                (out / name).write_text(
+                    __import__("json").dumps(payload, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+
+            original = harness.production.orchestrator._observe_director_phase_a
+
+            def fake_production_main() -> None:
+                current = harness.production.orchestrator._observe_director_phase_a
+                self.assertIsNot(current, original)
+                current(
+                    ledger=None,
+                    api_key="test",
+                    plan=object(),
+                    model="test",
+                    out=out,
+                )
+
+            with patch.object(harness.production, "main", fake_production_main):
+                result = harness.run_production_exact_planning_harness()
+
+            self.assertEqual(result, out)
+            self.assertIs(harness.production.orchestrator._observe_director_phase_a, original)
+            report = __import__("json").loads(
+                (out / harness.REPORT_NAME).read_text(encoding="utf-8")
+            )
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["format"], "film")
+            self.assertEqual(report["media_artifacts_observed"], [])
+
+    def test_production_exact_harness_rejects_any_media_started_before_boundary(self) -> None:
+        from scripts import production_exact_planning_harness as harness
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "output"
+            out.mkdir()
+            for name in harness._REQUIRED_PLANNING_ARTIFACTS:
+                payload = {"format": "film"} if name == "plan.json" else {"status": "pass"}
+                (out / name).write_text(
+                    __import__("json").dumps(payload, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            (out / "unexpected.wav").write_bytes(b"media-must-not-start")
+
+            def fake_production_main() -> None:
+                harness.production.orchestrator._observe_director_phase_a(
+                    ledger=None,
+                    api_key="test",
+                    plan=object(),
+                    model="test",
+                    out=out,
+                )
+
+            with patch.object(harness.production, "main", fake_production_main):
+                with self.assertRaisesRegex(RuntimeError, "media boundary violated"):
+                    harness.run_production_exact_planning_harness()
+
+    def test_harness_success_stop_bypasses_exception_failure_handler_by_type(self) -> None:
+        from scripts import production_exact_planning_harness as harness
+
+        self.assertTrue(issubclass(harness._PlanningBoundaryReached, BaseException))
+        self.assertFalse(issubclass(harness._PlanningBoundaryReached, Exception))
+
+    def test_harness_boundary_and_installer_order_match_current_production_source(self) -> None:
+        """Fail P1 if either Runner or pinned Engine moves the diagnostic off production."""
+        from scripts import run_v3_voice as production
+
+        main_source = inspect.getsource(production.main)
+        ordered = (
+            "install_production_model_contract(orchestrator)",
+            "install_entrypoint_planning_contracts()",
+            "install_runtime_closure()",
+            "install_post_runtime_planning_contracts()",
+            "install_tts_runtime_port()",
+            "install_director_phase_a_resilience()",
+            "install_opening_feasibility_guard()",
+            "orchestrator.produce(",
+        )
+        cursor = -1
+        for marker in ordered:
+            position = main_source.find(marker, cursor + 1)
+            self.assertGreater(position, cursor, marker)
+            cursor = position
+
+        engine_source = inspect.getsource(production.orchestrator.produce)
+        dry_return = engine_source.index("if dry_run:")
+        boundary = engine_source.index("phase_a_status = _observe_director_phase_a(")
+        tts = engine_source.index("_synthesize_tts_section(", boundary)
+        self.assertLess(dry_return, boundary)
+        self.assertLess(boundary, tts)
+
+    def test_production_entrypoint_composition_replays_run252_temporal_bridge(self) -> None:
+        """Run the real entrypoint installers, then replay the exact #252 crash family."""
+        probe = textwrap.dedent(
+            """
+            import os
+
+            from scripts import planning_stage_contract as stage
+            from scripts import run_v3_voice as production
+            from scripts.provider_failure import NoWireProviderFailure
+
+            class InstallComplete(BaseException):
+                pass
+
+            def run252_provider_failure(provider, *args, **kwargs):
+                del args, kwargs
+                if provider != "groq":
+                    raise AssertionError(f"unexpected provider={provider}")
+                raise stage.PlanningStageError(
+                    stage.PlanningErrorCode.CAPACITY,
+                    "GROQ_TPM_WINDOW_BUSY_PRECHECK model=openai/gpt-oss-120b "
+                    "remaining=2176 reset_in=31.84s "
+                    "action=provider_evidence_failover_without_partial_retry",
+                    stage_id="planning.editorial_outline_sections",
+                    provider="groq",
+                )
+
+            # Install the synthetic provider boundary *before* canonical main. The real
+            # Run124 installer inside runtime_closure must wrap this exact callable.
+            stage._provider_result = run252_provider_failure
+
+            def stop_after_all_runtime_installers():
+                raise InstallComplete()
+
+            production.start_progress = stop_after_all_runtime_installers
+            try:
+                production.main()
+            except InstallComplete:
+                pass
+            else:
+                raise AssertionError("canonical production main did not reach installer boundary")
+
+            stage.assert_planning_stage_contract_installed()
+            try:
+                stage._provider_result(
+                    "groq",
+                    "opaque prompt",
+                    "gemini-3.7-flash",
+                    None,
+                    "unused-primary-key",
+                )
+            except NoWireProviderFailure as exc:
+                assert exc.reason_code == "temporal_capacity_window", exc
+                assert "reset_in=31.84s" in str(exc), exc
+            except AttributeError as exc:
+                raise AssertionError(f"Run252 AttributeError regression returned: {exc}") from exc
+            else:
+                raise AssertionError("Run252 temporal bridge did not fail over as expected")
+            """
+        )
+
+        env = dict(os.environ)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        # Canonical production main starts by enforcing these explicit model identities.
+        # Supplying the same production values keeps this provider-free replay attached
+        # to the real entrypoint instead of bypassing the model contract.
+        env["GEMINI_CONTENT_MODEL"] = "gemini-3.7-flash"
+        env["GEMINI_TTS_MODEL"] = "gemini-3.1-flash-tts-preview"
+        for name in (
+            "ISCO_CANONICAL_RUNTIME",
+            "GITHUB_ACTIONS",
+            "GITHUB_EVENT_NAME",
+            "GITHUB_WORKFLOW_REF",
+            "REQUEST_FILE",
+            "GEMINI_API_KEY",
+            "GEMINI_API_KEY_FILE",
+            "PEXELS_API_KEY",
+            "PEXELS_API_KEY_FILE",
+        ):
+            env.pop(name, None)
+
+        completed = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=90,
+            check=False,
+        )
         self.assertEqual(completed.returncode, 0, completed.stdout)
 
 
