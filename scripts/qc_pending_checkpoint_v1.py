@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-"""Fail-closed post-render checkpoint for temporary Gold Vision provider exhaustion.
+"""Fail-closed post-render checkpoint for temporary Gold provider exhaustion.
 
 The checkpoint never authorizes release. It records that the exact rendered bytes had
-already passed Final Master Acceptance before the Gold provider mesh became unavailable.
-Only the explicit VisionProviderMeshUnavailableError taxonomy is eligible; similarly
-worded runtime errors are never promoted to a resumable state.
+already passed Final Master Acceptance before a Gold provider mesh became unavailable.
+Only explicit typed Vision/Text provider-mesh exhaustion is eligible; similarly worded
+runtime errors are never promoted to a resumable state.
 
 V2 additionally binds the exact pre-Gold production-history row. Gold correctly removes
 that row from durable success memory on failure; a later Gold-only resume can therefore
@@ -33,6 +33,10 @@ CONTRACT_ID = "gold.qc-pending.v1"
 CONTRACT_VERSION = 2
 FILENAME = "qc-pending.json"
 _SHA40 = re.compile(r"^[0-9a-f]{40}$")
+_SUPPORTED_FAILURES = {
+    ("GOLD_VISION_PENDING_PROVIDER_CAPACITY", "VisionProviderMeshUnavailableError"),
+    ("GOLD_TEXT_PENDING_PROVIDER_CAPACITY", "GoldTextProviderMeshUnavailableError"),
+}
 
 
 def _sha256_file(path: Path) -> str:
@@ -54,13 +58,19 @@ def _canonical_sha256(value: object) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _is_gold_vision_mesh_exhaustion(exc: BaseException) -> bool:
-    # Keep the dependency lazy so read-only/research entrypoints that intentionally load
-    # only a reduced Runner surface do not acquire the production Vision stack merely by
-    # importing run_v3_voice. The runtime decision remains exact-type fail-closed.
+def _gold_pending_failure(exc: BaseException) -> tuple[str, str] | None:
+    """Return exact resumable Gold outage identity, never message-based inference."""
+    # Keep dependencies lazy so read-only/research entrypoints that intentionally load
+    # only a reduced Runner surface do not acquire production provider stacks merely by
+    # importing this checkpoint module. The runtime decision remains exact-type fail-closed.
     from scripts import vision_stage_contract_v2 as vision_contract
+    from scripts.gold_text_qc_pending_v1 import GoldTextProviderMeshUnavailableError
 
-    return isinstance(exc, vision_contract.legacy.VisionProviderMeshUnavailableError)
+    if isinstance(exc, vision_contract.legacy.VisionProviderMeshUnavailableError):
+        return ("GOLD_VISION_PENDING_PROVIDER_CAPACITY", "VisionProviderMeshUnavailableError")
+    if isinstance(exc, GoldTextProviderMeshUnavailableError):
+        return ("GOLD_TEXT_PENDING_PROVIDER_CAPACITY", "GoldTextProviderMeshUnavailableError")
+    return None
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -151,8 +161,10 @@ def capture_qc_pending_checkpoint(
     output_key: str | None = None,
 ) -> dict[str, Any] | None:
     """Write a resumable marker only for exact provider-mesh exhaustion after Final QC PASS."""
-    if not _is_gold_vision_mesh_exhaustion(exc):
+    pending_failure = _gold_pending_failure(exc)
+    if pending_failure is None:
         return None
+    pending_status, failure_taxonomy = pending_failure
     root = Path(output_dir)
     # The Runner's outer failure handler may call us after Gold already captured the
     # authoritative checkpoint with the pre-cleanup history row. Revalidate rather than
@@ -194,7 +206,7 @@ def capture_qc_pending_checkpoint(
     document: dict[str, Any] = {
         "schema_version": CONTRACT_VERSION,
         "contract_id": CONTRACT_ID,
-        "status": "GOLD_VISION_PENDING_PROVIDER_CAPACITY",
+        "status": pending_status,
         "release_allowed": False,
         "resumable": True,
         "resume_authority": "gold_only_after_exact_revalidation",
@@ -225,7 +237,7 @@ def capture_qc_pending_checkpoint(
         "source_run_attempt": source_identity["run_attempt"],
         "git_ref": str(os.environ.get("GITHUB_REF") or "").strip() or None,
         "failure_type": type(exc).__name__,
-        "failure_taxonomy": "VisionProviderMeshUnavailableError",
+        "failure_taxonomy": failure_taxonomy,
         "retry_policy": {
             "rerender_required": False,
             "gold_revalidation_required": True,
@@ -257,7 +269,7 @@ def capture_qc_pending_checkpoint(
         )
     print(
         "QC_PENDING V2 captured: exact Final Master PASS + core state retained; Gold release remains blocked; "
-        f"final_sha256={final_sha[:12]} record_sha256={record_sha[:12]}"
+        f"status={pending_status} final_sha256={final_sha[:12]} record_sha256={record_sha[:12]}"
     )
     return document
 
@@ -271,7 +283,11 @@ def verify_qc_pending_checkpoint(output_dir: Path) -> dict[str, Any]:
         raise RuntimeError("QC_PENDING checkpoint schema is not resumable by this runtime")
     if document.get("release_allowed") is not False or document.get("resumable") is not True:
         raise RuntimeError("QC_PENDING checkpoint cannot authorize release")
-    if document.get("failure_taxonomy") != "VisionProviderMeshUnavailableError":
+    failure_identity = (
+        str(document.get("status") or "").strip(),
+        str(document.get("failure_taxonomy") or "").strip(),
+    )
+    if failure_identity not in _SUPPORTED_FAILURES:
         raise RuntimeError("QC_PENDING checkpoint has unsupported failure taxonomy")
     final_path = root / str((document.get("final") or {}).get("file") or "final.mp4")
     if not final_path.is_file():
