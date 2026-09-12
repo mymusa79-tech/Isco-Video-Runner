@@ -142,10 +142,9 @@ def _install_stage_temporal_capacity_bridge() -> None:
         try:
             return current(provider, *args, **kwargs)
         except stage_contract.PlanningStageError as exc:
-            failure_code = stage_contract._error_code_from_planning_error(exc)
             if (
                 str(provider).strip().lower() == "groq"
-                and failure_code == stage_contract.FAILURE_CAPACITY
+                and exc.code == stage_contract.PlanningErrorCode.CAPACITY
                 and _is_groq_temporal_window_busy(exc)
             ):
                 raise NoWireProviderFailure(

@@ -330,6 +330,59 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
             recovery.batching._is_transport_pressure(RuntimeError("finish_reason=max_tokens"))
         )
 
+    def test_run252_groq_temporal_window_capacity_becomes_no_wire_retryable(self) -> None:
+        # Run #252 (real production log, Long/film): this bridge's except-block
+        # referenced stage_contract._error_code_from_planning_error and
+        # stage_contract.FAILURE_CAPACITY - neither of which has ever existed on
+        # planning_stage_contract.py (confirmed via git history: PR #625 introduced
+        # this bridge already referencing names that were never defined). Every time a
+        # Groq temporal-window PlanningStageError actually reached this wrapper, it
+        # crashed with an unrelated AttributeError instead of doing its job.
+        from scripts import planning_stage_contract as stage_contract
+
+        original_provider_result = stage_contract._provider_result
+        self.addCleanup(setattr, stage_contract, "_provider_result", original_provider_result)
+
+        def fake_provider_result(provider, *_args, **_kwargs):
+            raise stage_contract.PlanningStageError(
+                stage_contract.PlanningErrorCode.CAPACITY,
+                "GROQ_TPM_WINDOW_BUSY_PRECHECK model=openai/gpt-oss-120b "
+                "remaining=3415 reset_in=4.19s",
+                stage_id="planning.editorial_outline_sections",
+                provider=provider,
+            )
+
+        stage_contract._provider_result = fake_provider_result
+        recovery._install_stage_temporal_capacity_bridge()
+
+        with self.assertRaises(recovery.NoWireProviderFailure) as captured:
+            stage_contract._provider_result("groq", "prompt", "model", None, "api_key")
+
+        self.assertEqual(captured.exception.reason_code, "temporal_capacity_window")
+
+    def test_run252_non_temporal_capacity_still_propagates_unchanged(self) -> None:
+        # Regression guard: only the evidence-backed Groq temporal-window family is
+        # bridged. A genuinely permanent capacity failure (quota/429/payload) must
+        # still fail exactly as PlanningStageError, unchanged.
+        from scripts import planning_stage_contract as stage_contract
+
+        original_provider_result = stage_contract._provider_result
+        self.addCleanup(setattr, stage_contract, "_provider_result", original_provider_result)
+
+        def fake_provider_result(provider, *_args, **_kwargs):
+            raise stage_contract.PlanningStageError(
+                stage_contract.PlanningErrorCode.CAPACITY,
+                "Error code: 429 - quota exceeded",
+                stage_id="planning.editorial_outline_sections",
+                provider=provider,
+            )
+
+        stage_contract._provider_result = fake_provider_result
+        recovery._install_stage_temporal_capacity_bridge()
+
+        with self.assertRaises(stage_contract.PlanningStageError):
+            stage_contract._provider_result("gemini", "prompt", "model", None, "api_key")
+
     def test_run_wide_wait_cap_remains_fail_closed(self) -> None:
         recovery._TERMINAL_WAIT_SPENT_SECONDS = recovery._MAX_TERMINAL_WAIT_SECONDS_PER_RUN - 10.0
         self.assertFalse(recovery._run_wait_budget_allows(10.01))
