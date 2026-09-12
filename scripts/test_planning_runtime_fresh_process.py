@@ -222,6 +222,93 @@ class PlanningRuntimeFreshProcessTests(unittest.TestCase):
         self.assertLess(dry_return, boundary)
         self.assertLess(boundary, tts)
 
+    def test_production_entrypoint_composition_replays_run252_temporal_bridge(self) -> None:
+        """Run the real entrypoint installers, then replay the exact #252 crash family."""
+        probe = textwrap.dedent(
+            """
+            import os
+
+            from scripts import planning_stage_contract as stage
+            from scripts import run_v3_voice as production
+            from scripts.provider_failure import NoWireProviderFailure
+
+            class InstallComplete(BaseException):
+                pass
+
+            def run252_provider_failure(provider, *args, **kwargs):
+                del args, kwargs
+                if provider != "groq":
+                    raise AssertionError(f"unexpected provider={provider}")
+                raise stage.PlanningStageError(
+                    stage.PlanningErrorCode.CAPACITY,
+                    "GROQ_TPM_WINDOW_BUSY_PRECHECK model=openai/gpt-oss-120b "
+                    "remaining=2176 reset_in=31.84s "
+                    "action=provider_evidence_failover_without_partial_retry",
+                    stage_id="planning.editorial_outline_sections",
+                    provider="groq",
+                )
+
+            # Install the synthetic provider boundary *before* canonical main. The real
+            # Run124 installer inside runtime_closure must wrap this exact callable.
+            stage._provider_result = run252_provider_failure
+
+            def stop_after_all_runtime_installers():
+                raise InstallComplete()
+
+            production.start_progress = stop_after_all_runtime_installers
+            try:
+                production.main()
+            except InstallComplete:
+                pass
+            else:
+                raise AssertionError("canonical production main did not reach installer boundary")
+
+            stage.assert_planning_stage_contract_installed()
+            try:
+                stage._provider_result(
+                    "groq",
+                    "opaque prompt",
+                    "gemini-3.7-flash",
+                    None,
+                    "unused-primary-key",
+                )
+            except NoWireProviderFailure as exc:
+                assert exc.reason_code == "temporal_capacity_window", exc
+                assert "reset_in=31.84s" in str(exc), exc
+            except AttributeError as exc:
+                raise AssertionError(f"Run252 AttributeError regression returned: {exc}") from exc
+            else:
+                raise AssertionError("Run252 temporal bridge did not fail over as expected")
+            """
+        )
+
+        env = dict(os.environ)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        for name in (
+            "ISCO_CANONICAL_RUNTIME",
+            "GITHUB_ACTIONS",
+            "GITHUB_EVENT_NAME",
+            "GITHUB_WORKFLOW_REF",
+            "REQUEST_FILE",
+            "GEMINI_API_KEY",
+            "GEMINI_API_KEY_FILE",
+            "PEXELS_API_KEY",
+            "PEXELS_API_KEY_FILE",
+        ):
+            env.pop(name, None)
+
+        completed = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=90,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
