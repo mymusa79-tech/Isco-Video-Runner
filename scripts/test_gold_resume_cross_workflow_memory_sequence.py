@@ -35,6 +35,28 @@ class GoldResumeCrossWorkflowMemorySequenceTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"GITHUB_RUN_NUMBER": "1"}, clear=False):
                 self.assertEqual(next_sequence(accepted), "246")
 
+    def test_resume_sequence_ignores_unrelated_high_workflow_local_counter(self) -> None:
+        namespace = runpy.run_path("scripts/persistent_memory.py", run_name="persistent_memory_wrapper_high_counter_test")
+        next_sequence = namespace["_gold_resume_next_state_sequence"]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            accepted = root / "history.accepted.json"
+            accepted.write_text('{"videos": []}\n', encoding="utf-8")
+            (root / ".persistent-memory-identity.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "save_allowed": True,
+                        "source": "agent-state",
+                        "state_commit": "b" * 40,
+                        "state_sequence": 245,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.dict(os.environ, {"GITHUB_RUN_NUMBER": "999"}, clear=False):
+                self.assertEqual(next_sequence(accepted), "246")
+
     def test_resume_persistence_uses_authenticated_envelope_sequence_not_workflow_local_counter(self) -> None:
         key = "gold-resume-sequence-test-key"
         metadata = metadata_from_values(run_number="246", previous_state_commit="a" * 40)
