@@ -6,10 +6,12 @@ from pathlib import Path
 
 try:
     from scripts import persistent_memory_core as _core
+    from scripts.gold_resume_workflow_identity import gold_resume_workflow_identity
     from scripts.immutable_planning_snapshot import bootstrap_immutable_planning_checkpoint
     from scripts.runtime_phase import activate_canonical_runtime, canonical_workflow_identity
 except ModuleNotFoundError:  # direct `python scripts/persistent_memory.py`
     import persistent_memory_core as _core
+    from gold_resume_workflow_identity import gold_resume_workflow_identity
     from immutable_planning_snapshot import bootstrap_immutable_planning_checkpoint
     from runtime_phase import activate_canonical_runtime, canonical_workflow_identity
 
@@ -17,13 +19,6 @@ except ModuleNotFoundError:  # direct `python scripts/persistent_memory.py`
 for _name in dir(_core):
     if not _name.startswith("__"):
         globals()[_name] = getattr(_core, _name)
-
-
-_GOLD_RESUME_WORKFLOW = "Resume Gold QC Pending"
-
-
-def _is_gold_resume_workflow() -> bool:
-    return (os.environ.get("GITHUB_WORKFLOW") or "").strip() == _GOLD_RESUME_WORKFLOW
 
 
 def _positive_int(value: object) -> int | None:
@@ -57,11 +52,11 @@ def main(argv: list[str] | None = None) -> int:
     # run-number freshness check. Any later write receives a new monotonic sequence below.
     removed_run_number: str | None = None
     removed = False
-    if args.command == "restore" and _is_gold_resume_workflow() and "GITHUB_RUN_NUMBER" in os.environ:
+    if args.command == "restore" and gold_resume_workflow_identity() and "GITHUB_RUN_NUMBER" in os.environ:
         removed_run_number = os.environ.pop("GITHUB_RUN_NUMBER")
         removed = True
 
-    if args.command == "encrypt" and _is_gold_resume_workflow() and args.run_number is None:
+    if args.command == "encrypt" and gold_resume_workflow_identity() and args.run_number is None:
         args.run_number = _gold_resume_next_state_sequence(Path(args.plain))
 
     try:
