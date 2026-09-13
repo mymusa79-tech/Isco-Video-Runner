@@ -65,7 +65,7 @@ _STAGE_PROVIDER_BRIDGE_MARKER = "_run124_temporal_capacity_bridge_installed"
 # already-certified topology instead of creating another retry budget.
 _MAX_APPEND_LOGICAL_WAITS_PER_RUN = 3
 _RECOVERED_TERMINAL_SHARDS: set[tuple[str, tuple[str, ...], str]] = set()
-_WAITED_APPEND_STAGE_WINDOWS: set[tuple[str, str]] = set()
+_WAITED_APPEND_STAGE_WINDOWS: set[str] = set()
 _TERMINAL_RECOVERY_COUNT = 0
 _TERMINAL_WAIT_SPENT_SECONDS = 0.0
 
@@ -208,7 +208,7 @@ def _wait_once_for_append_temporal_window(
 
     waited_model = _model_from_error(exc) or "groq"
     logical_request = str(request_identity or "").strip() or resolved_stage
-    key = (logical_request, waited_model)
+    key = logical_request
     if key in _WAITED_APPEND_STAGE_WINDOWS:
         return False
     if len(_WAITED_APPEND_STAGE_WINDOWS) >= _MAX_APPEND_LOGICAL_WAITS_PER_RUN:
