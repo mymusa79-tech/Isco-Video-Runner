@@ -14,6 +14,7 @@ from scripts.production_model_contract import (
 
 
 WORKFLOW = Path(".github/workflows/produce-resilient-v4.yml")
+GOLD_RESUME_WORKFLOW = Path(".github/workflows/resume-gold-qc-pending.yml")
 
 
 class ProductionModelContractTests(unittest.TestCase):
@@ -69,6 +70,22 @@ class ProductionModelContractTests(unittest.TestCase):
         self.assertEqual(
             text.count(f"GEMINI_TTS_MODEL: {CANONICAL_TTS_MODEL}"),
             2,
+        )
+
+    def test_gold_resume_workflow_sets_the_same_explicit_model_contract(self) -> None:
+        # The Gold-only resume path calls install_production_model_contract through the
+        # exact same executor as normal production, but its workflow set only
+        # GEMINI_CONTENT_MODEL. That let a real "تابع Gold" attempt crash on a missing
+        # explicit GEMINI_TTS_MODEL before ever reaching the Vision mesh, and it went
+        # uncaught because this contract test only ever read produce-resilient-v4.yml.
+        text = GOLD_RESUME_WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(
+            text.count(f"GEMINI_CONTENT_MODEL: {CANONICAL_CONTENT_MODEL}"),
+            1,
+        )
+        self.assertEqual(
+            text.count(f"GEMINI_TTS_MODEL: {CANONICAL_TTS_MODEL}"),
+            1,
         )
 
     def test_noncanonical_content_model_fails_before_provider_work(self) -> None:
