@@ -1,0 +1,96 @@
+name: Patch re-enqueue Gold resume request
+
+# One-time-use maintenance tool, matching the _patch-*.yml convention in this repo.
+#
+# After _patch-unstick-gold-resume-reservation.yml marks a wedged gold_resume_queue
+# item "failed", a fresh "تابع Gold" attempt still requires a normal Telegram button
+# press to create the next pending_dispatch entry -- this workflow performs that one
+# step (calling the exact same enqueue_gold_resume() function the Telegram bot calls)
+# without needing Telegram access, reusing the chat_id already stored on the existing
+# queue entry. It does not reserve or dispatch anything itself: the existing 5-minute
+# telegram-editorial-control.yml poller picks up the new pending_dispatch entry and
+# dispatches resume-gold-qc-pending.yml exactly as it would for a real button press.
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: "Exact Telegram request id to re-enqueue for Gold resume"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout control-plane-state
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: control-plane-state
+          path: control-gold
+          persist-credentials: true
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Re-enqueue exactly like a fresh Telegram Gold-resume button press
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          test -n "$REQUEST_ID"
+          encrypted="control-gold/state/control-panel.json.enc"
+          state="$RUNNER_TEMP/control-panel.json"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+          chmod 600 "$state"
+          STATE="$state" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.telegram_control_panel import load_state, save_state
+          from scripts.telegram_gold_resume_control import enqueue_gold_resume
+          path = Path(os.environ['STATE'])
+          state = load_state(path)
+          request_id = os.environ['REQUEST_ID']
+          matches = [
+              item for item in (state.get('gold_resume_queue') or [])
+              if isinstance(item, dict) and item.get('request_id') == request_id
+          ]
+          if not matches:
+              raise SystemExit(f"no existing gold_resume_queue entries for {request_id}")
+          chat_id = matches[-1].get('chat_id')
+          if not chat_id:
+              raise SystemExit("could not determine chat_id from the existing queue entry")
+          status, action = enqueue_gold_resume(state, request_id, chat_id=chat_id)
+          if status not in {"requested", "retry_requested"}:
+              raise SystemExit(f"unexpected enqueue status={status!r} action={action!r}")
+          save_state(path, state)
+          print(f"Re-enqueued request_id={request_id} status={status} attempt={(action or {}).get('attempt')}")
+          PY
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
+          cd control-gold
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "No durable state delta"
+            exit 0
+          fi
+          git commit -m "state: re-enqueue Gold resume request ${REQUEST_ID}"
+          git push origin HEAD:control-plane-state
