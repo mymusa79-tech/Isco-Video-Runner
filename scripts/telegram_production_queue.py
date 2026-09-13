@@ -401,6 +401,7 @@ def mark_dispatch_qc_pending(
     engine_sha: str,
     final_sha256: str,
     fmt: str,
+    reason_detail: str = "",
 ) -> dict[str, Any]:
     source_run_id = _positive_run_id(source_run_id, label="QC_PENDING source run id")
     source_run_attempt = _positive_run_id(source_run_attempt, label="QC_PENDING source run attempt")
@@ -413,6 +414,10 @@ def mark_dispatch_qc_pending(
     fmt = str(fmt or "").strip().lower()
     if fmt not in {"film", "story", "moment"}:
         raise RuntimeError("QC_PENDING format is unsupported")
+    # Purely informational: a short human-facing summary of why the Gold provider mesh
+    # became unavailable, sourced from the checkpoint's own already-sanitized detail.
+    # Never gates or changes the QC_PENDING transition itself.
+    reason_detail = str(reason_detail or "").strip()[:300]
 
     for item in _queue(state):
         if not isinstance(item, dict):
@@ -430,6 +435,7 @@ def mark_dispatch_qc_pending(
                 "engine_sha": engine_sha,
                 "final_sha256": final_sha256,
                 "format": fmt,
+                "reason_detail": reason_detail,
             }
             if item.get("status") == "qc_pending":
                 if item.get("qc_pending") != expected:

@@ -162,6 +162,67 @@ class TelegramGoldResumeControlTests(unittest.TestCase):
         )
         self.assertIs(again, completed)
 
+    def test_reserved_but_never_consumed_resume_can_be_marked_failed(self):
+        # Covers the exact recovery path resume-gold-qc-pending.yml's "Mark failed Gold
+        # resume reservation when never consumed" step relies on: a reservation whose
+        # workflow run died before "Consume exact Gold resume authorization" ever ran
+        # (e.g. the production certification gate failing first) is still only at
+        # dispatch_reserved, never dispatch_consumed -- mark_gold_resume_failed() must
+        # accept that state directly, not only the already-consumed one.
+        state = _state()
+        _, action = gold.enqueue_gold_resume(state, "req-gold", chat_id=77)
+        reserved = gold.reserve_gold_resume(
+            state,
+            action["request_id"],
+            action["authorization_id"],
+            runner_sha=RUNNER_SHA,
+        )
+        self.assertEqual(reserved["status"], "dispatch_reserved")
+        failed = gold.mark_gold_resume_failed(
+            state,
+            action["request_id"],
+            action["authorization_id"],
+            reason="gold_resume_never_consumed",
+        )
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["failure_reason"], "gold_resume_never_consumed")
+        self.assertIs(failed, reserved)
+
+        # A fresh "تابع Gold" press must now be possible again instead of refused as
+        # already in progress.
+        status, retry = gold.enqueue_gold_resume(state, "req-gold", chat_id=77)
+        self.assertEqual(status, "retry_requested")
+        self.assertEqual(retry["attempt"], 2)
+
+    def test_marking_already_failed_resume_failed_again_is_idempotent(self):
+        state = _state()
+        _, action = gold.enqueue_gold_resume(state, "req-gold", chat_id=77)
+        gold.reserve_gold_resume(
+            state, action["request_id"], action["authorization_id"], runner_sha=RUNNER_SHA
+        )
+        first = gold.mark_gold_resume_failed(
+            state, action["request_id"], action["authorization_id"], reason="first"
+        )
+        again = gold.mark_gold_resume_failed(
+            state, action["request_id"], action["authorization_id"], reason="second"
+        )
+        self.assertIs(again, first)
+        self.assertEqual(again["failure_reason"], "first")
+
+    def test_pending_dispatch_resume_cannot_be_marked_failed_before_reservation(self):
+        state = _state()
+        _, action = gold.enqueue_gold_resume(state, "req-gold", chat_id=77)
+        self.assertEqual(action["status"], "pending_dispatch")
+        with self.assertRaisesRegex(RuntimeError, "not in a fail-able dispatch state"):
+            gold.mark_gold_resume_failed(
+                state, action["request_id"], action["authorization_id"], reason="premature"
+            )
+
+    def test_marking_unknown_resume_failed_raises(self):
+        state = _state()
+        with self.assertRaisesRegex(RuntimeError, "was not found for failure"):
+            gold.mark_gold_resume_failed(state, "req-gold", "0" * 32, reason="missing")
+
 
 if __name__ == "__main__":
     unittest.main()

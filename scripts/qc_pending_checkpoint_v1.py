@@ -73,6 +73,17 @@ def _gold_pending_failure(exc: BaseException) -> tuple[str, str] | None:
     return None
 
 
+def _safe_failure_detail(exc: BaseException) -> str:
+    """A short, already-loggable summary of why the provider mesh became unavailable.
+
+    Reuses the same truncation/sanitization shape the provider mesh itself already
+    prints freely to stdout (newlines stripped, capped length) so this carries no new
+    exposure: everything here was already considered safe to log.
+    """
+    detail = str(exc).replace("\n", " ").strip()
+    return detail[:300]
+
+
 def _read_json(path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -238,6 +249,7 @@ def capture_qc_pending_checkpoint(
         "git_ref": str(os.environ.get("GITHUB_REF") or "").strip() or None,
         "failure_type": type(exc).__name__,
         "failure_taxonomy": failure_taxonomy,
+        "failure_detail": _safe_failure_detail(exc),
         "retry_policy": {
             "rerender_required": False,
             "gold_revalidation_required": True,

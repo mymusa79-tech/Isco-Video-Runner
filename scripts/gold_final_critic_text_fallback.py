@@ -7,6 +7,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Iterator
 
+import requests
+
 import isco_video_agent.ai_budget as ai_budget
 import isco_video_agent.final_critic as final_critic
 import isco_video_agent.production_pipeline as production_pipeline
@@ -27,12 +29,31 @@ _OPENROUTER_MODEL = "openrouter/free"
 # Physical opening-Vision ceiling on Gold only:
 # Gemini + one explicit provider-directed Gemini retry + Groq + OpenRouter +
 # Cloudflare Workers AI (free-only proof required) = 5.
+# Gemini + OpenRouter primary + one explicit alternate-model OpenRouter retry, mirroring
+# Vision's model-diversity recovery for the same class of failure: OpenRouter's
+# `openrouter/free` auto-router can resolve to a model its own catalog has already
+# stopped serving for free by the time the completion request lands (observed live:
+# resolved openai/gpt-oss-20b, rejected 404 model_not_found).
 _FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = 5
-_FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS = 2
+_FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS = 3
 _FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS = (
     _FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS + _FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS
 )
 _GEMINI_RETRY_AFTER_WAIT_BUDGET_SECONDS = 30.0
+# Run #252-family follow-up: the shared Vision mesh is a single pass through
+# Gemini -> Groq -> OpenRouter with no sweep-back of its own, unlike Planning's
+# provider loop. Gold's opening-Vision task calls that mesh only once per run, so it
+# never gets the multi-candidate exposure that lets ordinary Visual Retrieval's bounded
+# half-open provider-health recovery close a short rate/quota window on its own. Give
+# Gold exactly one extra full sweep, gated on the mesh's own evidence, after waiting out
+# the same bounded window the shared provider-health registry already uses for
+# rate-limited recovery. This never fires for a hard/permanent block and never repeats.
+_GOLD_MESH_RETRY_WAIT_SECONDS = vision_mesh.health.DEFAULT_RATE_LIMIT_RETRY_SECONDS
+
+# Unlike vision_stage_contract_v2.OPENROUTER_MODELS_URL, this deliberately omits
+# "input_modalities=image": every OpenRouter model accepts text, so the catalog is
+# queried unfiltered and every model is text-eligible before the Python-side filter.
+_OPENROUTER_TEXT_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 _RETRY_AFTER_PATTERNS = (
     re.compile(r"please\s+retry\s+in\s+([0-9]+(?:\.[0-9]+)?)\s*s", re.I),
@@ -47,14 +68,55 @@ def _two_attempt_spec(spec: TaskSpec) -> TaskSpec:
         kind=spec.kind,
         priority=spec.priority,
         capability=spec.capability,
-        max_provider_attempts=2,
+        max_provider_attempts=_FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS,
         schema_repair_allowed=False,
         local_fallback=False,
         semantic_block_is_final=True,
     )
 
 
-def _provider_review(audit_fn, provider: str, *args, **kwargs):
+def _discover_alternate_free_text_model(exclude: set[str]) -> str | None:
+    """Mirror Vision's OpenRouter model-diversity discovery for text-only review.
+
+    Same filter as vision_stage_contract_v2._discover_alternate_free_vision_model
+    (":free" suffix, zero price, structured "response_format" support) minus the
+    image-input-modality requirement, since Gold's text critic never sends an image.
+    """
+    contract = vision_mesh.contract
+    token = contract._openrouter_key()
+    if not token:
+        return None
+    try:
+        response = requests.get(
+            _OPENROUTER_TEXT_MODELS_URL,
+            headers={"Authorization": "Bearer " + token},
+            timeout=contract.OPENROUTER_CATALOG_TIMEOUT_SECONDS,
+        )
+        if not response.ok:
+            return None
+        body = response.json()
+    except Exception:
+        return None
+    data = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(data, list):
+        return None
+    candidates: list[str] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("id") or "").strip()
+        if not model_id or model_id in exclude or not model_id.endswith(":free"):
+            continue
+        if not contract._price_is_zero(item):
+            continue
+        parameters = item.get("supported_parameters")
+        if isinstance(parameters, list) and "response_format" not in parameters:
+            continue
+        candidates.append(model_id)
+    return sorted(candidates)[0] if candidates else None
+
+
+def _provider_review(audit_fn, provider: str, *args, openrouter_model: str | None = None, **kwargs):
     """Run the unchanged Final Critic while exposing only provider-call failures.
 
     final_critic.audit_final_release intentionally catches json_text exceptions and
@@ -74,10 +136,12 @@ def _provider_review(audit_fn, provider: str, *args, **kwargs):
                 captured["error"] = exc
                 raise
     elif provider == "openrouter":
+        model_to_use = openrouter_model or _OPENROUTER_MODEL
+
         def routed_json_text(_api_key: str, prompt: str, *, model: str):
             del model
             try:
-                return openrouter_json_text(prompt, model=_OPENROUTER_MODEL)
+                return openrouter_json_text(prompt, model=model_to_use)
             except Exception as exc:
                 captured["error"] = exc
                 raise
@@ -107,17 +171,26 @@ def _release_review_with_fallback(
             ledger, spec, provider, resolved_model, audit_fn, *args, **kwargs
         )
 
-    # Gold release text review gets exactly one technical provider switch:
-    # Gemini -> OpenRouter. A valid semantic BLOCK remains authoritative.
+    # Gold release text review gets a technical provider switch (Gemini -> OpenRouter)
+    # plus, only when OpenRouter's own primary attempt fails technically, one further
+    # OpenRouter retry against an explicit alternate free model -- mirroring Vision's
+    # model-diversity recovery for the exact same failure class (the openrouter/free
+    # auto-router resolving to a model its own catalog has already stopped serving for
+    # free). A valid semantic BLOCK from any attempt remains authoritative.
     fallback_spec = _two_attempt_spec(spec)
     last_result: dict | None = None
-    for provider_name, model_name in (
-        ("gemini", resolved_model),
-        ("openrouter", _OPENROUTER_MODEL),
-    ):
+    openrouter_models_tried: set[str] = set()
+    provider_plan = [("gemini", resolved_model), ("openrouter", _OPENROUTER_MODEL)]
+    index = 0
+    while index < len(provider_plan):
+        provider_name, model_name = provider_plan[index]
+        index += 1
+        openrouter_model = model_name if provider_name == "openrouter" else None
+        if openrouter_model:
+            openrouter_models_tried.add(openrouter_model)
         _ledger_authorize(ledger, fallback_spec)
         result, provider_error = _provider_review(
-            audit_fn, provider_name, *args, **kwargs
+            audit_fn, provider_name, *args, openrouter_model=openrouter_model, **kwargs
         )
         last_result = result
         if provider_error is not None:
@@ -129,9 +202,13 @@ def _release_review_with_fallback(
                 capability=Capability.TEXT,
                 outcome=_classify_exception(provider_error),
             )
-            # Only technical/provider failure is eligible for the single switch.
             if provider_name == "gemini":
                 continue
+            if len(openrouter_models_tried) < 2:
+                alternate = _discover_alternate_free_text_model(exclude=openrouter_models_tried)
+                if alternate is not None:
+                    provider_plan.append(("openrouter", alternate))
+                    continue
             return result
 
         outcome = (
@@ -257,6 +334,56 @@ def _cloudflare_mesh_unavailable(
     )
 
 
+def _mesh_failure_is_bounded_recoverable(mesh_error: BaseException) -> bool:
+    """True only when every reason the mesh reported is quota/rate pressure.
+
+    A hard/permanent block (auth, disabled key, exhaustion with no bounded-window
+    evidence) never matches this, so it never turns a real outage into an extra wait;
+    it only gives a temporary capacity window one more chance to clear before Gold
+    spends its Cloudflare-only fourth provider.
+    """
+    return vision_mesh._quota_or_rate_failure(str(mesh_error))
+
+
+def _retry_mesh_once_after_bounded_wait(
+    ledger,
+    routed_spec: TaskSpec,
+    provider: str,
+    resolved_model: str,
+    retrying_gemini,
+    *args,
+    **kwargs,
+):
+    """Give the shared mesh exactly one more full sweep after a bounded wait.
+
+    The mesh's circuit-open flags live on one state object shared across this Gold
+    task's calls, so clearing them here is required before a retry can reach
+    Gemini/OpenRouter again; shared provider health is re-read fresh by the mesh on
+    every call and needs no separate reset.
+    """
+    state = vision_mesh.contract.legacy._state()
+    state.gemini_open = False
+    state.gemini_reason = ""
+    state.openrouter_open = False
+    state.openrouter_reason = ""
+    print(
+        "Gold Final Critic Vision: mesh reported only bounded quota/rate pressure; "
+        f"honoring one extra full-mesh sweep after wait_seconds={_GOLD_MESH_RETRY_WAIT_SECONDS:.1f}"
+    )
+    update_stage("provider_wait")
+    time.sleep(_GOLD_MESH_RETRY_WAIT_SECONDS)
+    update_stage("gold_vision")
+    return vision_mesh._route_visual_audit_v3(
+        ledger,
+        routed_spec,
+        provider,
+        resolved_model,
+        retrying_gemini,
+        *args,
+        **kwargs,
+    )
+
+
 def _opening_vision_with_mesh(
     original_call_status,
     ledger,
@@ -306,6 +433,19 @@ def _opening_vision_with_mesh(
             **kwargs,
         )
     except vision_mesh.contract.legacy.VisionProviderMeshUnavailableError as mesh_error:
+        if _mesh_failure_is_bounded_recoverable(mesh_error):
+            try:
+                return _retry_mesh_once_after_bounded_wait(
+                    ledger,
+                    routed_spec,
+                    provider,
+                    resolved_model,
+                    retrying_gemini,
+                    *args,
+                    **kwargs,
+                )
+            except vision_mesh.contract.legacy.VisionProviderMeshUnavailableError as retry_error:
+                mesh_error = retry_error
         if len(args) < 2:
             raise vision_mesh.contract.VisionStageError(
                 vision_mesh.contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR,

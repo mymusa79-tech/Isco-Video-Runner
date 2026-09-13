@@ -71,6 +71,11 @@ jobs:
           python -m pip check
 
       - name: Checkout latest encrypted Telegram control state
+        # if: always() -- this must run even when an earlier step (certification gate,
+        # Engine pin verify/install) already failed, because "Mark failed Gold resume
+        # reservation when never consumed" below needs this authenticated control-gold/
+        # checkout to exist regardless of where the job died.
+        if: always()
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: control-plane-state
@@ -136,6 +141,60 @@ jobs:
           }.items():
               _github_output(key, str(value or ''))
           PY
+
+      - name: Mark failed Gold resume reservation when never consumed
+        # Runs exactly when "Consume exact Gold resume authorization" did not succeed --
+        # either it never ran at all (an earlier step like the certification gate or
+        # Engine pin verify/install failed first) or it ran and failed. Either way the
+        # queue item is still stuck at "dispatch_reserved" from the poller's reservation:
+        # nothing else in this job would ever transition it to "failed", so every later
+        # "تابع Gold" press is refused as already in progress even though nothing is
+        # actually running (the same class of bug PR #641 fixed one step later, at
+        # "dispatch_consumed"). mark_gold_resume_failed() accepts both
+        # dispatch_reserved and dispatch_consumed as valid current states, so this is
+        # safe to also fire when consume itself failed after reserving.
+        if: always() && steps.consume.outcome != 'success'
+        continue-on-error: true
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+        run: |
+          set -euo pipefail
+          cd control-gold
+          git fetch --no-tags origin control-plane-state
+          git reset --hard origin/control-plane-state
+          cd ..
+          encrypted="control-gold/state/control-panel.json.enc"
+          state="$RUNNER_TEMP/gold-control/never-consumed.json"
+          mkdir -p "$RUNNER_TEMP/gold-control"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+          chmod 600 "$state"
+          STATE="$state" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.telegram_control_panel import load_state, save_state
+          from scripts.telegram_gold_resume_control import mark_gold_resume_failed
+          path = Path(os.environ['STATE'])
+          state = load_state(path)
+          mark_gold_resume_failed(
+              state,
+              os.environ['REQUEST_ID'],
+              os.environ['AUTHORIZATION_ID'],
+              reason='gold_resume_never_consumed',
+          )
+          save_state(path, state)
+          PY
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
+          cd control-gold
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "state: record Gold resume reservation that was never consumed"
+          git push origin HEAD:control-plane-state
 
       - name: Persist consumed Gold authorization before external work
         env:
@@ -288,6 +347,7 @@ jobs:
           CLOUDFLARE_GOLD_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-gold-vision-quota-v1.json
           ISCO_ENGINE_SHA: e7724801511a881a4862c3a590dccf4fd6d22c34
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
+          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
           BUNDLE_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
           SOURCE_RUN_ID: ${{ steps.consume.outputs.source_run_id }}
@@ -304,7 +364,8 @@ jobs:
             --source-runner-sha "$SOURCE_RUNNER_SHA" \
             --source-engine-sha "$SOURCE_ENGINE_SHA" \
             --runtime-runner-sha "$GITHUB_SHA" \
-            --runtime-engine-sha "$EXPECTED_ENGINE_SHA"
+            --runtime-engine-sha "$EXPECTED_ENGINE_SHA" \
+            --failure-detail-output "$RUNNER_TEMP/gold-resume-failure.json"
 
       - name: Finish exact approved scope after Gold without provider capabilities
         id: finish_scope
@@ -499,10 +560,18 @@ jobs:
           RELEASE_TAG: ${{ steps.consume.outputs.release_tag }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
-          worktree="$RUNNER_TEMP/gold-control-success"
-          git worktree add --detach "$worktree" origin/control-plane-state
-          encrypted="$worktree/state/control-panel.json.enc"
+          # The root checkout intentionally runs with persist-credentials: false, so a
+          # git worktree created off it has no push credentials. control-gold/ (checked
+          # out earlier with persist-credentials: true) is the only authenticated clone
+          # in this job; reuse it, refreshed to the latest branch tip, instead of a bare
+          # worktree that silently fails to push (masked by continue-on-error elsewhere,
+          # but this step has none, so a real Gold success would otherwise be reported
+          # as a job failure).
+          cd control-gold
+          git fetch --no-tags origin control-plane-state
+          git reset --hard origin/control-plane-state
+          cd ..
+          encrypted="control-gold/state/control-panel.json.enc"
           state="$RUNNER_TEMP/gold-control/completed.json"
           openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
             -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
@@ -534,7 +603,7 @@ jobs:
           PY
           openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
             -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
-          cd "$worktree"
+          cd control-gold
           git config user.name "isco-control-bot"
           git config user.email "actions@users.noreply.github.com"
           git add state/control-panel.json.enc
@@ -572,10 +641,17 @@ jobs:
           AUTHORIZATION_ID: ${{ inputs.authorization_id }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
-          worktree="$RUNNER_TEMP/gold-control-failed"
-          git worktree add --detach "$worktree" origin/control-plane-state
-          encrypted="$worktree/state/control-panel.json.enc"
+          # See the "Reconcile Telegram QC_PENDING as completed" step: the root checkout
+          # runs with persist-credentials: false, so a worktree off it has no push
+          # credentials and silently fails here (masked by continue-on-error). That left
+          # a real Gold-resume failure stuck at dispatch_consumed forever, so every later
+          # "تابع Gold" press was refused as already in progress even though nothing was
+          # actually running. Reuse the already-authenticated control-gold/ checkout.
+          cd control-gold
+          git fetch --no-tags origin control-plane-state
+          git reset --hard origin/control-plane-state
+          cd ..
+          encrypted="control-gold/state/control-panel.json.enc"
           state="$RUNNER_TEMP/gold-control/failed.json"
           openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
             -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
@@ -597,7 +673,7 @@ jobs:
           PY
           openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
             -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
-          cd "$worktree"
+          cd control-gold
           git config user.name "isco-control-bot"
           git config user.email "actions@users.noreply.github.com"
           git add state/control-panel.json.enc
@@ -614,6 +690,7 @@ jobs:
           RELEASE_TAG: ${{ steps.consume.outputs.release_tag }}
           APPROVAL_SCOPE: ${{ steps.consume.outputs.approval_scope }}
           SUCCESS: ${{ steps.reconcile_success.outcome == 'success' }}
+          FAILURE_DETAIL_FILE: ${{ runner.temp }}/gold-resume-failure.json
         run: |
           set -euo pipefail
           test -n "$TELEGRAM_BOT_TOKEN"
@@ -626,6 +703,13 @@ jobs:
             fi
           else
             text="🟠 تابع Gold لم يكتمل\nبقي الفيديو في QC_PENDING ويمكن إعادة المحاولة من «🎞️ إنتاجاتي»."
+            reason=""
+            if [ -f "$FAILURE_DETAIL_FILE" ]; then
+              reason=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); print(str(d.get("failure_detail") or "").replace(chr(10)," ").strip()[:200])' "$FAILURE_DETAIL_FILE" 2>/dev/null || true)
+            fi
+            if [ -n "$reason" ]; then
+              text="${text}\nالسبب التقني: ${reason}"
+            fi
           fi
           curl --fail --silent --show-error \
             --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

@@ -1,0 +1,98 @@
+name: Patch unstick Gold resume reservation
+
+# One-time-use maintenance tool, matching the _patch-*.yml convention in this repo.
+#
+# PR #641 fixed two bugs that could leave a gold_resume_queue item permanently stuck
+# at "dispatch_consumed": a missing GEMINI_TTS_MODEL env var made Gold crash before
+# reaching the Vision mesh, and the step meant to record that failure could not push
+# its state update (credential-less git worktree), so the item never transitioned to
+# "failed". That fix stops it happening again, but does not retroactively repair a
+# record already wedged by it. This workflow performs that one-time repair using the
+# exact same mark_gold_resume_failed() function the (now-fixed) production code calls
+# automatically -- it changes only the named gold_resume_queue item's own status, and
+# touches no quality gate, security gate, or Gold acceptance/release-authority logic.
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: "Exact Telegram request id of the stuck Gold resume item"
+        required: true
+        type: string
+      authorization_id:
+        description: "Exact stuck Gold resume authorization id"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout control-plane-state
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: control-plane-state
+          path: control-gold
+          persist-credentials: true
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Mark the exact stuck authorization failed so it can be retried
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          test -n "$STATE_ENCRYPTION_KEY"
+          test -n "$REQUEST_ID"
+          test -n "$AUTHORIZATION_ID"
+          encrypted="control-gold/state/control-panel.json.enc"
+          state="$RUNNER_TEMP/control-panel.json"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+          chmod 600 "$state"
+          STATE="$state" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.telegram_control_panel import load_state, save_state
+          from scripts.telegram_gold_resume_control import mark_gold_resume_failed
+          path = Path(os.environ['STATE'])
+          state = load_state(path)
+          item = mark_gold_resume_failed(
+              state,
+              os.environ['REQUEST_ID'],
+              os.environ['AUTHORIZATION_ID'],
+              reason='manually_repaired_stuck_reservation',
+          )
+          if item.get('status') != 'failed':
+              raise SystemExit(f"repair did not reach failed status: {item.get('status')!r}")
+          save_state(path, state)
+          print(f"Repaired request_id={item.get('request_id')} status={item.get('status')}")
+          PY
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
+          cd control-gold
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then
+            echo "No durable state delta; authorization was already resolved"
+            exit 0
+          fi
+          git commit -m "state: manually unstick Gold resume reservation ${REQUEST_ID}"
+          git push origin HEAD:control-plane-state

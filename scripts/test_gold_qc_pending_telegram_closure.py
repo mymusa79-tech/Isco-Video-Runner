@@ -65,6 +65,7 @@ def _checkpoint() -> dict:
         "release_allowed": False,
         "resumable": True,
         "failure_taxonomy": "VisionProviderMeshUnavailableError",
+        "failure_detail": "gemini=quota | groq=429 | openrouter=capacity",
         "runner_sha": RUNNER_SHA,
         "engine_sha": ENGINE_SHA,
         "source_run_id": "34286657157",
@@ -120,6 +121,10 @@ class GoldQCPendingTelegramClosureTests(unittest.TestCase):
         self.assertEqual(entry["qc_pending"]["source_run_id"], "34286657157")
         self.assertEqual(entry["qc_pending"]["artifact_name"], "isco-resilient-v4-diagnostics-230")
         self.assertEqual(entry["qc_pending"]["final_sha256"], FINAL_SHA)
+        self.assertEqual(
+            entry["qc_pending"]["reason_detail"],
+            "gemini=quota | groq=429 | openrouter=capacity",
+        )
 
         status, action = gold.enqueue_gold_resume(state, REQUEST_ID, chat_id=77)
         self.assertEqual(status, "requested")
