@@ -29,6 +29,9 @@ from scripts.planner_schema_guard import install_schema_guard
 from scripts.planning_batch_hardening import install_planning_batch_hardening
 from scripts.planning_capacity_headroom import install_planning_capacity_headroom
 from scripts.planning_capacity_profile import install_planning_capacity_profile
+from scripts.planning_global_skeleton_budget_contract import (
+    install_global_skeleton_derived_budget_contract,
+)
 from scripts.planning_legacy_authority_guard import install_legacy_planning_authority_guard
 from scripts.planning_production_contract_v2 import install_planning_production_contract_v2
 from scripts.planning_provider_visible_semantics import install_planning_provider_visible_semantics
@@ -88,6 +91,11 @@ def _install_long_outline_topology_contract() -> None:
         install_planning_outline_adaptive_sharding,
     )
 
+    # This is a projection inside the existing adaptive owner, not another provider or
+    # retry layer. It must install before adaptive sharding binds _validate_core into the
+    # split-contract validation adapter so Core portability failures keep their precise
+    # STRUCTURAL_INVALID identity.
+    install_global_skeleton_derived_budget_contract()
     install_planning_outline_adaptive_sharding()
 
 
