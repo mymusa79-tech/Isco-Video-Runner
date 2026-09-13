@@ -156,6 +156,57 @@ class ResumeGoldQCPendingV1Tests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "certified resume SHA"):
                 resume.execute_gold_resume(**self._execute_kwargs(bundle, durable, accepted, result))
 
+    def test_main_writes_failure_detail_and_still_propagates_and_still_exits_nonzero(self) -> None:
+        _, bundle, durable, accepted, result, _manifest = self._fixture()
+        parent = bundle.parent
+        failure_output = parent / "gold-resume-failure.json"
+        argv = [
+            "resume_gold_qc_pending_v1.py",
+            "--bundle", str(bundle),
+            "--durable-history", str(durable),
+            "--accepted-history-output", str(accepted),
+            "--result", str(result),
+            "--source-run-id", RUN_ID,
+            "--source-runner-sha", SOURCE_RUNNER_SHA,
+            "--source-engine-sha", SOURCE_ENGINE_SHA,
+            "--runtime-runner-sha", RUNTIME_RUNNER_SHA,
+            "--runtime-engine-sha", RUNTIME_ENGINE_SHA,
+            "--failure-detail-output", str(failure_output),
+        ]
+        with patch("sys.argv", argv), patch.object(
+            resume,
+            "execute_gold_resume",
+            side_effect=RuntimeError(
+                "Vision provider mesh unavailable: gemini=quota | groq=429 | openrouter=capacity"
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Vision provider mesh unavailable"):
+                resume.main()
+        self.assertTrue(failure_output.is_file())
+        detail = json.loads(failure_output.read_text(encoding="utf-8"))
+        self.assertIn("gemini=quota", detail["failure_detail"])
+        self.assertTrue(detail["failure_type"])
+
+    def test_main_without_failure_detail_flag_still_propagates_cleanly(self) -> None:
+        _, bundle, durable, accepted, result, _manifest = self._fixture()
+        argv = [
+            "resume_gold_qc_pending_v1.py",
+            "--bundle", str(bundle),
+            "--durable-history", str(durable),
+            "--accepted-history-output", str(accepted),
+            "--result", str(result),
+            "--source-run-id", RUN_ID,
+            "--source-runner-sha", SOURCE_RUNNER_SHA,
+            "--source-engine-sha", SOURCE_ENGINE_SHA,
+            "--runtime-runner-sha", RUNTIME_RUNNER_SHA,
+            "--runtime-engine-sha", RUNTIME_ENGINE_SHA,
+        ]
+        with patch("sys.argv", argv), patch.object(
+            resume, "execute_gold_resume", side_effect=RuntimeError("boom")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                resume.main()
+
     def test_executor_source_contains_no_production_rebuild_entrypoints(self) -> None:
         source = inspect.getsource(resume.execute_gold_resume)
         self.assertNotIn("orchestrator.produce(", source)

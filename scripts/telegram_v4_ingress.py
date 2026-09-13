@@ -265,6 +265,7 @@ def qc_pending(
         engine_sha=str(checkpoint.get("engine_sha") or "").strip().lower(),
         final_sha256=final_sha256,
         fmt=str(checkpoint.get("format") or "").strip().lower(),
+        reason_detail=str(checkpoint.get("failure_detail") or "").strip(),
     )
     _save(state_path, state)
 
@@ -308,6 +309,7 @@ def fail(
                 engine_sha=str(checkpoint.get("engine_sha") or ""),
                 final_sha256=str((checkpoint.get("final") or {}).get("sha256") or ""),
                 fmt=str(checkpoint.get("format") or ""),
+                reason_detail=str(checkpoint.get("failure_detail") or "").strip(),
             )
             _save(state_path, state)
             print(f"Telegram terminal reconciliation: QC_PENDING artifact={artifact_name}")

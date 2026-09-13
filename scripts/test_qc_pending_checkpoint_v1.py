@@ -95,6 +95,7 @@ class QCPendingCheckpointV1Tests(unittest.TestCase):
         self.assertFalse(report["release_allowed"])
         self.assertTrue(report["resumable"])
         self.assertEqual(report["failure_taxonomy"], "VisionProviderMeshUnavailableError")
+        self.assertEqual(report["failure_detail"], "mesh exhausted")
         self.assertEqual(report["final"]["sha256"], _sha(root / "final.mp4"))
         self.assertEqual(report["production_state"]["output_key"], self.OUTPUT_KEY)
         self.assertEqual(report["production_state"]["record"]["output"], self.OUTPUT_KEY)
@@ -104,6 +105,34 @@ class QCPendingCheckpointV1Tests(unittest.TestCase):
         )
         self.assertEqual(diagnostics["qc_pending_checkpoint"]["contract_id"], CONTRACT_ID)
         self.assertNotIn("record", diagnostics["qc_pending_checkpoint"]["production_state"])
+
+    def test_failure_detail_is_sanitized_and_length_bounded(self) -> None:
+        root = self._root()
+        long_reason = "gemini=quota | groq=429\nRESOURCE_EXHAUSTED" + ("x" * 400)
+        with patch(
+            "scripts.qc_pending_checkpoint_v1.require_final_master_acceptance",
+            return_value=self._acceptance(root),
+        ), patch.dict(
+            "os.environ",
+            {
+                "GITHUB_SHA": "a" * 40,
+                "ISCO_ENGINE_SHA": "b" * 40,
+                "GITHUB_RUN_ID": "12345",
+                "GITHUB_RUN_ATTEMPT": "2",
+                "GITHUB_REF": "refs/heads/main",
+            },
+            clear=False,
+        ):
+            report = capture_qc_pending_checkpoint(
+                root,
+                vision_contract.legacy.VisionProviderMeshUnavailableError(long_reason),
+                production_record=self._record(),
+                output_key=self.OUTPUT_KEY,
+            )
+        self.assertIsNotNone(report)
+        self.assertNotIn("\n", report["failure_detail"])
+        self.assertLessEqual(len(report["failure_detail"]), 300)
+        self.assertTrue(report["failure_detail"].startswith("gemini=quota | groq=429 RESOURCE_EXHAUSTED"))
 
     def test_outer_duplicate_capture_revalidates_existing_checkpoint(self) -> None:
         root = self._root()

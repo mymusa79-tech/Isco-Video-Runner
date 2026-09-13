@@ -89,6 +89,12 @@ class TelegramEdgeLibraryV7Tests(unittest.TestCase):
         self.assertNotIn('value.startsWith("cmd:goldresume-")', self.text)
         self.assertNotIn("resume_gold_qc_pending_v1", self.text)
 
+    def test_qc_pending_detail_shows_the_actual_provider_reason_when_present(self):
+        self.assertIn("const reasonDetail = String(pending.reason_detail", self.text)
+        self.assertIn('lines.push(`السبب التقني: ${reasonDetail.slice(0, 200)}`)', self.text)
+        # Missing/legacy entries without the field must not push an empty/undefined line.
+        self.assertIn("if (reasonDetail) lines.push", self.text)
+
     def test_per_video_callbacks_stay_compact_for_telegram_callback_data_limit(self):
         self.assertIn("[A-Za-z0-9_-]{1,40}", self.text)
         self.assertIn('callback_data: `cmd:production-item-${item.requestId}`', self.text)

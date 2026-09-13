@@ -251,6 +251,24 @@ def execute_gold_resume(
     return result
 
 
+def _write_failure_detail(path: Path, exc: BaseException) -> None:
+    """Purely observational: never read by any acceptance/resume-authority logic.
+
+    Lets the workflow's Telegram notification explain why a retry attempt failed
+    instead of a generic message, using the same sanitization already applied to the
+    original QC_PENDING checkpoint's failure detail.
+    """
+    detail = str(exc).replace("\n", " ").strip()[:300]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {"failure_type": type(exc).__name__, "failure_detail": detail},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bundle", required=True, type=Path)
@@ -262,18 +280,24 @@ def main() -> int:
     parser.add_argument("--source-engine-sha", required=True)
     parser.add_argument("--runtime-runner-sha", required=True)
     parser.add_argument("--runtime-engine-sha", required=True)
+    parser.add_argument("--failure-detail-output", type=Path, default=None)
     args = parser.parse_args()
-    execute_gold_resume(
-        bundle_dir=args.bundle,
-        durable_history=args.durable_history,
-        accepted_history_output=args.accepted_history_output,
-        result_output=args.result,
-        expected_source_run_id=args.source_run_id,
-        expected_source_runner_sha=args.source_runner_sha,
-        expected_source_engine_sha=args.source_engine_sha,
-        expected_runtime_runner_sha=args.runtime_runner_sha,
-        expected_runtime_engine_sha=args.runtime_engine_sha,
-    )
+    try:
+        execute_gold_resume(
+            bundle_dir=args.bundle,
+            durable_history=args.durable_history,
+            accepted_history_output=args.accepted_history_output,
+            result_output=args.result,
+            expected_source_run_id=args.source_run_id,
+            expected_source_runner_sha=args.source_runner_sha,
+            expected_source_engine_sha=args.source_engine_sha,
+            expected_runtime_runner_sha=args.runtime_runner_sha,
+            expected_runtime_engine_sha=args.runtime_engine_sha,
+        )
+    except Exception as exc:
+        if args.failure_detail_output is not None:
+            _write_failure_detail(args.failure_detail_output, exc)
+        raise
     return 0
 
 
