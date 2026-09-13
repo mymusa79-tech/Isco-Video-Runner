@@ -237,6 +237,101 @@ class TemporalCapacityFinalCompositionTests(unittest.TestCase):
             """
         )
 
+    def test_final_composition_retains_long_429_cooldown_metadata(self) -> None:
+        """Run125 normalization must not erase the deadline Stage Contract persists."""
+        self._run_probe(
+            """
+            import tempfile
+            from dataclasses import replace
+            from pathlib import Path
+
+            from scripts import planning_stage_contract as stage
+            from scripts import run_v3_voice as production
+            from scripts import task_level_planner_router as router
+
+            class InstallComplete(BaseException):
+                pass
+
+            temp_dir = tempfile.TemporaryDirectory()
+            router.CACHE_PATH = Path(temp_dir.name) / "planning-checkpoint.json"
+
+            def stop_after_all_runtime_installers():
+                raise InstallComplete()
+
+            production.start_progress = stop_after_all_runtime_installers
+            try:
+                production.main()
+            except InstallComplete:
+                pass
+            else:
+                raise AssertionError("canonical production main did not reach installer boundary")
+
+            valid = {
+                "sections": [
+                    {
+                        "id": "s1",
+                        "narration": "نص صالح",
+                        "key_point": "key-s1",
+                    }
+                ]
+            }
+            calls = {"gemini": 0, "groq": 0}
+
+            def gemini_short_window(*_args, **_kwargs):
+                calls["gemini"] += 1
+                router._last_call_rate_limit_headers["retry_after"] = "60"
+                raise RuntimeError(
+                    "GEMINI_HTTP_429 status=429 quota exceeded requests per minute"
+                )
+
+            def groq_success(_prompt):
+                calls["groq"] += 1
+                return valid
+
+            router.gemini_json_text = gemini_short_window
+            router._groq_call = groq_success
+            router._TELEMETRY.clear()
+
+            base_spec = stage.script_stage_spec("full_script", ["s1"])
+            spec = replace(
+                base_spec,
+                provider_policy=replace(
+                    base_spec.provider_policy,
+                    providers=("gemini", "groq"),
+                    max_attempts_per_provider=1,
+                    max_total_attempts=2,
+                ),
+            )
+
+            with stage.request_stage_scope(spec):
+                first = stage.staged.json_text(
+                    "request-key", "run-258 cooldown stage one"
+                )
+            with stage.request_stage_scope(spec):
+                second = stage.staged.json_text(
+                    "request-key", "run-258 cooldown stage two"
+                )
+
+            assert first == valid and second == valid
+            assert calls == {"gemini": 1, "groq": 2}, calls
+            gemini_events = [
+                item for item in router.get_telemetry()
+                if item.get("provider") == "gemini"
+            ]
+            assert [item.get("result") for item in gemini_events] == [
+                "retry_after_exceeds_budget",
+                "transient-cooldown",
+            ], gemini_events
+            first_event, skipped_event = gemini_events
+            assert first_event.get("http_status") == 429, first_event
+            assert first_event.get("quota_scope") == "short_window", first_event
+            assert float(first_event.get("retry_after")) == 60.0, first_event
+            assert first_event.get("wire_attempted") is True, first_event
+            assert skipped_event.get("wire_attempted") is False, skipped_event
+            assert skipped_event.get("provider_attempt") is None, skipped_event
+            """
+        )
+
     def test_final_production_composition_never_waits_for_fixed_groq_capacity(self) -> None:
         """Fixed request-vs-limit capacity must stay fail-fast after final composition.
 
