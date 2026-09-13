@@ -94,7 +94,23 @@ class TemporalCapacityFinalCompositionTests(unittest.TestCase):
 
             waits = []
             cleared = []
-            recovery.time.sleep = lambda seconds: waits.append(float(seconds))
+            clock = {"now": 1000.0}
+
+            def fake_sleep(seconds):
+                seconds = float(seconds)
+                waits.append(seconds)
+                clock["now"] += seconds
+
+            def fake_monotonic():
+                return clock["now"]
+
+            # recovery.time and stage.time are the same Python time module.  Advance a
+            # deterministic clock whenever the Run255 wait occurs so Stage Contract's
+            # independent 1.5s provider-spacing guard sees real elapsed time instead of
+            # inventing a second sleep only because this test mocked sleep to return
+            # instantly.  The waits list therefore measures actual logical waits.
+            recovery.time.sleep = fake_sleep
+            recovery.time.monotonic = fake_monotonic
             recovery._clear_waited_model_window = lambda exc: cleared.append(str(exc))
             recovery._WAITED_APPEND_STAGE_WINDOWS.clear()
             recovery._TERMINAL_WAIT_SPENT_SECONDS = 0.0
