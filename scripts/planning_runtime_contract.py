@@ -84,10 +84,18 @@ def _install_long_outline_topology_contract() -> None:
         )
         return
 
+    from scripts.planning_global_skeleton_budget_contract import (
+        install_global_skeleton_derived_budget_contract,
+    )
     from scripts.planning_outline_adaptive_sharding import (
         install_planning_outline_adaptive_sharding,
     )
 
+    # This is a projection inside the existing adaptive owner, not another provider or
+    # retry layer. It must install before adaptive sharding binds _validate_core into the
+    # split-contract validation adapter so Core portability failures keep their precise
+    # STRUCTURAL_INVALID identity.
+    install_global_skeleton_derived_budget_contract()
     install_planning_outline_adaptive_sharding()
 
 
