@@ -58,6 +58,7 @@ from scripts.short_repair_reset_recovery import install_short_repair_reset_recov
 from scripts.structural_editorial_contract import install_structural_editorial_contract
 from scripts.task_level_planner_router import install_router
 from scripts.tone_audit_representation_bridge import install_tone_audit_representation_bridge
+from scripts.word_band_repair_contract import install_word_band_repair_contract
 
 
 # The production Runner can be reviewed/merged before the newly certified Engine pin is
@@ -123,6 +124,7 @@ def install_entrypoint_planning_contracts() -> None:
     install_structural_editorial_contract()
     install_attempt9_schema_normalizer()
     install_append_retry_guard()
+    install_word_band_repair_contract()
     install_planning_stage_boundaries()
     assert_planning_stage_contract_installed()
     install_native_short_stage_contract()
