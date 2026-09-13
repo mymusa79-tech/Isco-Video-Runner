@@ -31,6 +31,7 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
             delattr(recovery.batching, "_ISCO_RUN124_TERMINAL_PROVIDER_RECOVERY")
         recovery.capacity.reset_groq_capacity_state_for_tests()
         recovery._RECOVERED_TERMINAL_SHARDS.clear()
+        recovery._WAITED_APPEND_STAGE_WINDOWS.clear()
         recovery._TERMINAL_RECOVERY_COUNT = 0
         recovery._TERMINAL_WAIT_SPENT_SECONDS = 0.0
 
@@ -40,6 +41,7 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
         recovery.batching._TRANSPORT_PRESSURE_MARKERS = self.original_markers
         recovery.capacity.reset_groq_capacity_state_for_tests()
         recovery._RECOVERED_TERMINAL_SHARDS.clear()
+        recovery._WAITED_APPEND_STAGE_WINDOWS.clear()
         recovery._TERMINAL_RECOVERY_COUNT = 0
         recovery._TERMINAL_WAIT_SPENT_SECONDS = 0.0
         if self.had_flag:
@@ -382,6 +384,112 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
 
         with self.assertRaises(stage_contract.PlanningStageError):
             stage_contract._provider_result("gemini", "prompt", "model", None, "api_key")
+
+    def test_run255_live_append_no_wire_paces_before_first_counted_provider_attempt(self) -> None:
+        """Replay the real Run255 pre-HTTP shape through the actual Stage Contract loop."""
+        from dataclasses import replace
+
+        from scripts import planning_stage_contract as stage_contract
+        from scripts import task_level_planner_router as router
+
+        original_provider_result = stage_contract._provider_result
+        original_json_text = stage_contract.staged.json_text
+        original_schema_adapter = router._structured_schema_for_prompt
+        original_telemetry = list(router._TELEMETRY)
+        self.addCleanup(setattr, stage_contract, "_provider_result", original_provider_result)
+        self.addCleanup(setattr, stage_contract.staged, "json_text", original_json_text)
+        self.addCleanup(setattr, router, "_structured_schema_for_prompt", original_schema_adapter)
+        self.addCleanup(router._TELEMETRY.__setitem__, slice(None), original_telemetry)
+
+        calls = 0
+
+        def live_provider_result(provider, *_args, **_kwargs):
+            nonlocal calls
+            self.assertEqual(provider, "groq")
+            calls += 1
+            if calls == 1:
+                raise router.NoWireProviderFailure(
+                    "GROQ_TPM_WINDOW_BUSY_PRECHECK",
+                    "model=openai/gpt-oss-120b required_estimate=4325 "
+                    "remaining=4003 reset_in=29.97s action=failover_without_http",
+                )
+            return {
+                "additions": [
+                    {"id": "s1", "append_text": "إضافة صالحة تحافظ على نفس الفكرة"}
+                ]
+            }
+
+        stage_contract._provider_result = live_provider_result
+        stage_contract.install_planning_contract_router()
+        recovery._install_stage_temporal_capacity_bridge()
+
+        base_spec = stage_contract.append_stage_spec(["s1"])
+        spec = replace(
+            base_spec,
+            provider_policy=replace(
+                base_spec.provider_policy,
+                providers=("groq",),
+                max_attempts_per_provider=2,
+                max_total_attempts=2,
+            ),
+        )
+        router._TELEMETRY.clear()
+        state = recovery.capacity._model_state(MODEL)
+        state["remaining_tokens"] = 4003
+        state["reset_at_epoch"] = 1234.0
+
+        with patch.object(recovery.time, "sleep") as sleep:
+            with stage_contract.request_stage_scope(spec):
+                result = stage_contract.staged.json_text(
+                    "unused-primary-key",
+                    "opaque append prompt",
+                    model="gemini-3.7-flash",
+                )
+
+        self.assertEqual(result["additions"][0]["id"], "s1")
+        self.assertEqual(calls, 2)
+        sleep.assert_called_once_with(31.47)
+        self.assertIsNone(recovery.capacity._model_state(MODEL)["remaining_tokens"])
+        self.assertIsNone(recovery.capacity._model_state(MODEL)["reset_at_epoch"])
+        self.assertAlmostEqual(recovery._TERMINAL_WAIT_SPENT_SECONDS, 31.47, places=2)
+
+        groq_events = [item for item in router.get_telemetry() if item.get("provider") == "groq"]
+        self.assertEqual(len(groq_events), 1, groq_events)
+        self.assertEqual(groq_events[0].get("result"), "success")
+        self.assertEqual(groq_events[0].get("provider_attempt"), 1)
+        self.assertIs(groq_events[0].get("wire_attempted"), True)
+
+    def test_run255_second_live_no_wire_signal_never_creates_wait_loop(self) -> None:
+        from scripts import planning_stage_contract as stage_contract
+        from scripts import task_level_planner_router as router
+
+        original_provider_result = stage_contract._provider_result
+        self.addCleanup(setattr, stage_contract, "_provider_result", original_provider_result)
+        calls = 0
+
+        def always_busy(provider, *_args, **_kwargs):
+            nonlocal calls
+            self.assertEqual(provider, "groq")
+            calls += 1
+            raise router.NoWireProviderFailure(
+                "GROQ_TPM_WINDOW_BUSY_PRECHECK",
+                "model=openai/gpt-oss-120b required_estimate=4325 "
+                "remaining=4003 reset_in=29.97s action=failover_without_http",
+            )
+
+        stage_contract._provider_result = always_busy
+        recovery._install_stage_temporal_capacity_bridge()
+        spec = stage_contract.append_stage_spec(["s1"])
+
+        with patch.object(recovery.time, "sleep") as sleep:
+            with stage_contract.request_stage_scope(spec):
+                with self.assertRaises(router.NoWireProviderFailure):
+                    stage_contract._provider_result(
+                        "groq", "prompt", "model", None, "unused-primary-key"
+                    )
+
+        self.assertEqual(calls, 2)
+        sleep.assert_called_once_with(31.47)
 
     def test_run_wide_wait_cap_remains_fail_closed(self) -> None:
         recovery._TERMINAL_WAIT_SPENT_SECONDS = recovery._MAX_TERMINAL_WAIT_SECONDS_PER_RUN - 10.0
