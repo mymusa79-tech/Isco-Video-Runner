@@ -125,6 +125,7 @@ class WordBandRepairContractTests(unittest.TestCase):
             "positioning": "modern awareness",
             "language": {"register": "MSA", "avoid": ["generic filler"]},
             "values": {"respect_islam": True, "rules": ["No fabricated religious quotes"]},
+            "future_text_rule": "FUTURE_HARD_POLICY_SENTINEL",
             "visuals": {"rules": ["VISUAL_SENTINEL_" * 1200]},
             "audio": {"rules": ["AUDIO_SENTINEL_" * 1200]},
             "brand_signature": {"opener": "BRAND_SENTINEL_" * 1200},
@@ -132,6 +133,8 @@ class WordBandRepairContractTests(unittest.TestCase):
         }
         research = {
             "approved_research_pack": "RESEARCH_SENTINEL_" * 5000,
+            "approved_audience": "APPROVED_AUDIENCE_SENTINEL",
+            "approved_editorial_direction": "APPROVED_DIRECTION_SENTINEL",
             "market_signals": {"grounded_research": "MARKET_SENTINEL_" * 5000},
             "factuality_rule": "Do not introduce claims not already supported.",
             "content_boundaries": ["no medical diagnosis"],
@@ -180,6 +183,9 @@ class WordBandRepairContractTests(unittest.TestCase):
         self.assertNotIn("BRAND_SENTINEL_", prompt)
         self.assertNotIn("RESEARCH_SENTINEL_", prompt)
         self.assertNotIn("MARKET_SENTINEL_", prompt)
+        self.assertIn("FUTURE_HARD_POLICY_SENTINEL", prompt)
+        self.assertIn("APPROVED_AUDIENCE_SENTINEL", prompt)
+        self.assertIn("APPROVED_DIRECTION_SENTINEL", prompt)
         self.assertIn("factuality_rule", prompt)
         self.assertIn("content_boundaries", prompt)
         self.assertIn("Do not introduce any new externally verifiable", prompt)

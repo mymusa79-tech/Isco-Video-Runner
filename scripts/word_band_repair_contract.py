@@ -40,37 +40,43 @@ def _json_object(raw: str, label: str) -> dict[str, Any]:
 
 
 def _project_policy_json(raw: str) -> str:
-    """Keep only narration-repair policy; drop non-text visual/audio/brand payloads.
+    """Drop only known non-narration media/identity policy from local text repair.
 
-    Values and language rules are hard cultural/editorial constraints and are kept
-    exactly. The current production policy's visual/audio/brand fields govern media or
-    host-owned identity placement, not model-authored append text, so they are excluded
-    from this narrowly scoped prompt. Release gates remain visible to the model.
+    Preserve every current or future editorial-policy field by default. Only the three
+    known fields whose authority is outside model-authored append narration are removed:
+    visual rules, audio rules, and host-owned brand-signature placement/text. This avoids
+    a whitelist that could silently discard a future cultural or safety rule.
     """
 
     source = _json_object(raw, "EDITORIAL_POLICY")
-    payload: dict[str, Any] = {}
-    for key in ("version", "audience", "positioning", "language", "values", "release_gate"):
-        if key in source:
-            payload[key] = source[key]
+    payload: dict[str, Any] = {
+        key: value
+        for key, value in source.items()
+        if key not in {"visuals", "audio", "brand_signature"}
+    }
     payload["local_repair_rule"] = _LOCAL_REPAIR_RULE
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def _project_research_json(raw: str) -> str:
-    """Project research to hard boundaries only; append repair may not add new facts.
+    """Keep hard editorial/factual boundaries; drop evidence payloads local repair cannot use.
 
-    The full approved research pack and market signals are useful while authoring the
-    script, but not for a local append-only repair whose contract explicitly forbids
-    introducing new factual claims. Keeping them here made a tiny residual defect carry
-    almost a full planning envelope and could make free-tier Groq impossible to admit.
+    The full approved research pack and market evidence are useful while authoring the
+    script, but not for append-only repair because this contract forbids new claims.
+    Audience and approved editorial direction remain, along with factuality/content
+    boundaries, so narrowing the evidence envelope never weakens the approved brief.
     """
 
     source = _json_object(raw, "RESEARCH_DATA")
     payload: dict[str, Any] = {
         "repair_factuality_rule": _LOCAL_REPAIR_RULE,
     }
-    for key in ("content_boundaries", "factuality_rule"):
+    for key in (
+        "approved_audience",
+        "approved_editorial_direction",
+        "content_boundaries",
+        "factuality_rule",
+    ):
         if key in source:
             payload[key] = source[key]
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
