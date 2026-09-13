@@ -30,9 +30,24 @@ from scripts import visual_retrieval_adjudication_v1 as visual_v1
 from scripts import visual_retrieval_runtime_scope_v1 as visual_scope
 
 
-CONTRACT_ID = "run200-short-visual-runtime-recovery-v3"
+CONTRACT_ID = "run200-short-visual-runtime-recovery-v4"
 MAX_HALF_OPEN_WAIT_SECONDS = float(visual_v1.GROQ_MAX_BOUNDED_WAIT_SECONDS)
 PARTIAL_AUDIT_FILENAME = "short-cinematic-visual-audit.partial.json"
+
+# Originally 429-only. Real production evidence (req-c39f532991c1: Groq HTTP 503
+# "qwen/qwen3.8-27b is currently over capacity") proved that the same owned-cooldown
+# state this half-open retry relies on is already populated for a transient 5xx
+# capacity outage too, not only a 429: _Run181RequestsProxy.post() calls
+# visual_v1._observe_groq_headers() unconditionally on every Groq HTTP response, and
+# that function's fallback branch (`if remaining is None or reset is None`) sets
+# next_allowed_monotonic to a conservative bounded interval whenever the rate-limit
+# headers are absent - exactly the case on a plain 503 service outage, which never
+# carries them the way a 429 sometimes does. Only this status-code gate was 429-only;
+# broadening it to the same transient set opening_feasibility_guard's
+# _TRANSIENT_VISION_PROVIDER_MARKERS already treats as transient lets the retry
+# actually fire for them too, without inventing any new wait duration or touching how
+# that duration is computed.
+_HALF_OPEN_ELIGIBLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 _ACTIVE_ROOT: ContextVar[Path | None] = ContextVar("isco_run200_short_visual_root", default=None)
 _SELECTOR_CALL_INDEX: ContextVar[int] = ContextVar("isco_run200_short_selector_call_index", default=0)
@@ -48,9 +63,10 @@ def _is_technical_unavailable(payload: object) -> bool:
 
 
 def _active_groq_cooldown_seconds() -> float | None:
-    """Return only an already-owned live HTTP-429 cooldown; never invent a new sleep."""
+    """Return only an already-owned live cooldown from a transient Groq failure (rate
+    limit or a transient 5xx capacity outage); never invent a new sleep or duration."""
     state = visual_v1._capacity_state()
-    if int(state.last_status or 0) != 429:
+    if int(state.last_status or 0) not in _HALF_OPEN_ELIGIBLE_STATUS_CODES:
         return None
     remaining = max(0.0, float(state.next_allowed_monotonic) - time.monotonic())
     if remaining <= 0.01 or remaining > MAX_HALF_OPEN_WAIT_SECONDS:
