@@ -194,6 +194,9 @@ def _install_rate_limit_ownership() -> None:
                 "retry_after_exceeds_budget",
                 router.AttemptOutcome.RATE_LIMITED,
                 False,
+                failure.http_status,
+                failure.retry_after_seconds,
+                failure.quota_scope,
             )
         return failure
 
