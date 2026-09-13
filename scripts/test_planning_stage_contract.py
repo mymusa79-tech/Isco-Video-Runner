@@ -433,6 +433,68 @@ class PlanningStageContractTests(unittest.TestCase):
         self.assertEqual(groq_failure["retry_after"], 120.0)
         self.assertTrue(groq_failure["wire_attempted"])
 
+    def test_run258_short_window_429_cools_provider_across_later_stages(self) -> None:
+        """A failed stage may not immediately re-hit the same Retry-After window."""
+        ids = ["s1"]
+        valid = _script(ids)
+        gemini_calls = 0
+        groq_calls = 0
+
+        def gemini_short_window(*_args, **_kwargs):
+            nonlocal gemini_calls
+            gemini_calls += 1
+            raise RuntimeError(
+                "GEMINI_HTTP_429 status=429 quota exceeded Retry-After=60"
+            )
+
+        def groq_success(_prompt):
+            nonlocal groq_calls
+            groq_calls += 1
+            return valid
+
+        base = contract.script_stage_spec("full_script", ids)
+        spec = contract.PlanningStageSpec(
+            stage_id=base.stage_id,
+            contract_id=base.contract_id,
+            output_schema=base.output_schema,
+            semantic_rules=base.semantic_rules,
+            provider_policy=contract.ProviderPolicy(
+                providers=("gemini", "groq"),
+                max_attempts_per_provider=1,
+                max_total_attempts=2,
+                completion_tokens=base.provider_policy.completion_tokens,
+                max_prompt_utf8_bytes=(),
+            ),
+            cache_policy=base.cache_policy,
+        )
+
+        self._install()
+        with patch.object(router, "gemini_json_text", side_effect=gemini_short_window), \
+                patch.object(router, "_groq_call", side_effect=groq_success):
+            with contract.request_stage_scope(spec):
+                first = staged.json_text("request-key", "run-258 first stage prompt")
+            with contract.request_stage_scope(spec):
+                second = staged.json_text("request-key", "run-258 later stage prompt")
+
+        self.assertEqual(first, valid)
+        self.assertEqual(second, valid)
+        self.assertEqual(gemini_calls, 1)
+        self.assertEqual(groq_calls, 2)
+
+        gemini_events = [
+            item for item in router.get_telemetry()
+            if item.get("provider") == "gemini"
+        ]
+        self.assertEqual([item.get("result") for item in gemini_events], [
+            "429",
+            "transient-cooldown",
+        ])
+        self.assertIs(gemini_events[0].get("wire_attempted"), True)
+        self.assertEqual(gemini_events[0].get("quota_scope"), "short_window")
+        self.assertEqual(gemini_events[0].get("retry_after"), 60.0)
+        self.assertIs(gemini_events[1].get("wire_attempted"), False)
+        self.assertIsNone(gemini_events[1].get("provider_attempt"))
+
     def test_explicit_local_preflight_failure_does_not_consume_wire_budget(self) -> None:
         base = contract.script_stage_spec("full_script", ["s1"])
         only_openrouter = contract.PlanningStageSpec(

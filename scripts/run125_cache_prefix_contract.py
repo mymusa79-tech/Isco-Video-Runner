@@ -158,8 +158,14 @@ def _install_rate_limit_ownership() -> None:
             return original_groq_call(prompt)
         except Exception as exc:
             if _is_tpm_window_exhausted(exc):
-                # No production model remains. Preserve exact provider reset evidence in
-                # the marker already understood by Run124's bounded terminal owner.
+                # Run123's local admission guard deliberately raises typed no-wire
+                # evidence. Keep that provenance intact so Run124 can pace the exact
+                # append request without charging a provider HTTP attempt. Only real
+                # wire failures are normalized into the terminal marker below.
+                if router.is_no_wire_provider_failure(exc):
+                    raise
+                # No production model remains after a real HTTP TPM response. Preserve
+                # exact provider reset evidence in the marker understood by Run124.
                 raise _terminal_tpm_window_error(exc) from None
             raise
 
@@ -188,6 +194,9 @@ def _install_rate_limit_ownership() -> None:
                 "retry_after_exceeds_budget",
                 router.AttemptOutcome.RATE_LIMITED,
                 False,
+                failure.http_status,
+                failure.retry_after_seconds,
+                failure.quota_scope,
             )
         return failure
 
@@ -228,5 +237,6 @@ def install_run125_cache_prefix_contract() -> None:
         "Run125 cache-prefix contract installed: "
         "writer_range_and_shard_state_after_shared_policy=true "
         "groq_production_pool=gpt-oss-20b->gpt-oss-120b hard_tpd_retry=false "
-        "tpm_model_failover=true partial_retry_after=false terminal_reset_owner=run124"
+        "tpm_model_failover=true partial_retry_after=false "
+        "no_wire_provenance_preserved=true terminal_reset_owner=run124"
     )

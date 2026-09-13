@@ -60,8 +60,12 @@ _PROVIDER_EXHAUSTION_MARKERS = (
 )
 _APPEND_STAGE_ID = "planning.append_only_repair"
 _STAGE_PROVIDER_BRIDGE_MARKER = "_run124_temporal_capacity_bridge_installed"
+# append_retry_guard owns at most three logical calls: initial repair, bounded target
+# completion, and one narrow missing-target rescue. Keep temporal pacing inside that
+# already-certified topology instead of creating another retry budget.
+_MAX_APPEND_LOGICAL_WAITS_PER_RUN = 3
 _RECOVERED_TERMINAL_SHARDS: set[tuple[str, tuple[str, ...], str]] = set()
-_WAITED_APPEND_STAGE_WINDOWS: set[tuple[str, str]] = set()
+_WAITED_APPEND_STAGE_WINDOWS: set[str] = set()
 _TERMINAL_RECOVERY_COUNT = 0
 _TERMINAL_WAIT_SPENT_SECONDS = 0.0
 
@@ -159,16 +163,39 @@ def _active_stage_id(stage_contract, exc: BaseException) -> str:
     return ""
 
 
+def _active_request_identity(stage_contract, args: tuple, kwargs: dict) -> str:
+    """Return stable identity for one bound logical request, never prompt inference."""
+    owner = kwargs.get("contract")
+    if owner is None and len(args) >= 3:
+        # _provider_result(provider, prompt, model, contract, primary_api_key)
+        owner = args[2]
+    if owner is None:
+        context = getattr(stage_contract, "_ACTIVE_REQUEST_CONTRACT", None)
+        if context is not None:
+            try:
+                owner = context.get()
+            except Exception:
+                owner = None
+    stage_id = str(getattr(owner, "stage_id", "") or "").strip()
+    contract_id = str(getattr(owner, "contract_id", "") or "").strip()
+    input_hash = str(getattr(owner, "input_hash", "") or "").strip()
+    if stage_id != _APPEND_STAGE_ID or not contract_id or not input_hash:
+        return ""
+    return f"{contract_id}:{input_hash}"
+
+
 def _wait_once_for_append_temporal_window(
     exc: BaseException,
     *,
     stage_id: str | None = None,
+    request_identity: str | None = None,
 ) -> bool:
     """Pace one append-only Groq window without spending a provider HTTP attempt.
 
     The live Run255 path reaches this owner before transport, so the continuation after
     the wait is still the same logical provider attempt. Timing shares Run124's existing
-    run-wide wait budget and may happen at most once per append-stage/model.
+    run-wide wait budget and may happen at most once per bound append request. The three
+    logical append calls already allowed by append_retry_guard are the absolute run cap.
     """
     global _TERMINAL_RECOVERY_COUNT, _TERMINAL_WAIT_SPENT_SECONDS
 
@@ -180,8 +207,17 @@ def _wait_once_for_append_temporal_window(
         return False
 
     waited_model = _model_from_error(exc) or "groq"
-    key = (_APPEND_STAGE_ID, waited_model)
+    logical_request = str(request_identity or "").strip() or resolved_stage
+    key = logical_request
     if key in _WAITED_APPEND_STAGE_WINDOWS:
+        return False
+    if len(_WAITED_APPEND_STAGE_WINDOWS) >= _MAX_APPEND_LOGICAL_WAITS_PER_RUN:
+        print(
+            "Run255 append temporal wait skipped by logical-call cap: "
+            f"stage={_APPEND_STAGE_ID} groq_model={waited_model} "
+            f"logical_waits={len(_WAITED_APPEND_STAGE_WINDOWS)}/"
+            f"{_MAX_APPEND_LOGICAL_WAITS_PER_RUN}"
+        )
         return False
 
     wait_seconds = min(
@@ -243,6 +279,9 @@ def _install_stage_temporal_capacity_bridge() -> None:
                 waited = _wait_once_for_append_temporal_window(
                     exc,
                     stage_id=_active_stage_id(stage_contract, exc),
+                    request_identity=_active_request_identity(
+                        stage_contract, args, kwargs
+                    ),
                 )
                 raise NoWireProviderFailure(
                     reason_code="temporal_capacity_window",
@@ -257,7 +296,13 @@ def _install_stage_temporal_capacity_bridge() -> None:
                 and _is_groq_temporal_window_busy(exc)
             ):
                 stage_id = _active_stage_id(stage_contract, exc)
-                if _wait_once_for_append_temporal_window(exc, stage_id=stage_id):
+                if _wait_once_for_append_temporal_window(
+                    exc,
+                    stage_id=stage_id,
+                    request_identity=_active_request_identity(
+                        stage_contract, args, kwargs
+                    ),
+                ):
                     # The first signal proved no HTTP happened. Continue the exact same
                     # logical provider attempt once after the provider reset. If this
                     # second call still reports a no-wire busy window, it bubbles out;
