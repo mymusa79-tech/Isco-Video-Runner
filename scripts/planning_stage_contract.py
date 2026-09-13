@@ -1412,6 +1412,9 @@ def install_planning_contract_router() -> None:
                             else:
                                 total_attempts += 1
                                 provider_wire_attempts[provider] = provider_wire_attempts.get(provider, 0) + 1
+                                # A successful real response proves any prior short-window
+                                # deadline for this provider has healed.
+                                transient_cooldown_until.pop(provider, None)
                                 router._record_provider_used(provider)
                                 router._record_attempt(
                                     provider,
