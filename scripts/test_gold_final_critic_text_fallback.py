@@ -114,11 +114,15 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
             {"CONTENT_BLOCKED": 1},
         )
 
-    def test_openrouter_text_failure_stops_after_exactly_two_attempts(self) -> None:
+    def test_openrouter_text_failure_stops_after_exactly_two_attempts_when_no_alternate(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
         with patch.object(final_critic, "json_text", side_effect=RuntimeError("Gemini HTTP 503")), patch.object(
             fallback, "openrouter_json_text", side_effect=RuntimeError("OpenRouter HTTP 503")
-        ):
+        ), patch.object(
+            fallback,
+            "_discover_alternate_free_text_model",
+            return_value=None,
+        ) as discover:
             result = fallback._release_review_with_fallback(
                 Mock(side_effect=AssertionError("release review must use fallback path")),
                 ledger,
@@ -130,6 +134,80 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "block")
         self.assertEqual(ledger.to_summary()["provider_attempts"]["total"], 2)
+        discover.assert_called_once_with(exclude={fallback._OPENROUTER_MODEL})
+
+    def test_openrouter_primary_failure_retries_once_with_discovered_alternate_and_succeeds(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        alternate = "some-vendor/alt-model:free"
+        discover_calls: list[set[str]] = []
+
+        def fake_discover(*, exclude: set[str]) -> str:
+            discover_calls.append(set(exclude))  # snapshot: exclude is mutated later
+            return alternate
+
+        with patch.object(final_critic, "json_text", side_effect=RuntimeError("Gemini HTTP 503")), patch.object(
+            fallback,
+            "openrouter_json_text",
+            side_effect=[RuntimeError("OPENROUTER_MODEL_NOT_FOUND status=404"), {"status": "pass"}],
+        ) as openrouter, patch.object(
+            fallback,
+            "_discover_alternate_free_text_model",
+            side_effect=fake_discover,
+        ):
+            result = fallback._release_review_with_fallback(
+                Mock(side_effect=AssertionError("release review must use fallback path")),
+                ledger,
+                _release_spec(),
+                "gemini",
+                "gemini-2.5-flash",
+                _critic_like_call,
+            )
+
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(discover_calls, [{fallback._OPENROUTER_MODEL}])
+        self.assertEqual(openrouter.call_count, 2)
+        self.assertEqual(openrouter.call_args_list[0].kwargs["model"], fallback._OPENROUTER_MODEL)
+        self.assertEqual(openrouter.call_args_list[1].kwargs["model"], alternate)
+        summary = ledger.to_summary()
+        self.assertEqual(summary["provider_attempts"]["total"], 3)
+        self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 1, "openrouter": 2})
+
+    def test_openrouter_primary_and_alternate_both_fail_stops_after_three_total_attempts(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        alternate = "some-vendor/alt-model:free"
+        discover_calls: list[set[str]] = []
+
+        def fake_discover(*, exclude: set[str]) -> str:
+            discover_calls.append(set(exclude))  # snapshot: exclude is mutated later
+            return alternate
+
+        with patch.object(final_critic, "json_text", side_effect=RuntimeError("Gemini HTTP 503")), patch.object(
+            fallback,
+            "openrouter_json_text",
+            side_effect=RuntimeError("OpenRouter HTTP 503"),
+        ) as openrouter, patch.object(
+            fallback,
+            "_discover_alternate_free_text_model",
+            side_effect=fake_discover,
+        ):
+            result = fallback._release_review_with_fallback(
+                Mock(side_effect=AssertionError("release review must use fallback path")),
+                ledger,
+                _release_spec(),
+                "gemini",
+                "gemini-2.5-flash",
+                _critic_like_call,
+            )
+
+        self.assertEqual(result["status"], "block")
+        # Discovery runs once, on the primary OpenRouter model's failure; once the
+        # alternate itself has also been tried, the two-openrouter-model budget is
+        # spent and the mesh gives up without discovering a third candidate.
+        self.assertEqual(discover_calls, [{fallback._OPENROUTER_MODEL}])
+        self.assertEqual(openrouter.call_count, 2)
+        summary = ledger.to_summary()
+        self.assertEqual(summary["provider_attempts"]["total"], 3)
+        self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 1, "openrouter": 2})
 
     def test_opening_vision_enters_existing_run181_mesh_with_five_attempt_task_cap(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
@@ -528,7 +606,8 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         expected_delta = max(0, fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS - baseline_attempts)
 
         self.assertEqual(fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS, 5)
-        self.assertEqual(fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS, 7)
+        self.assertEqual(fallback._FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS, 3)
+        self.assertEqual(fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS, 8)
         with fallback._final_critic_provider_budget_scope():
             for fmt, baseline_cap in fallback.run123.RUN123_PROVIDER_ATTEMPT_HARD_CAP.items():
                 self.assertGreaterEqual(
