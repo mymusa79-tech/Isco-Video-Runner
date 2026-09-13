@@ -71,6 +71,11 @@ jobs:
           python -m pip check
 
       - name: Checkout latest encrypted Telegram control state
+        # if: always() -- this must run even when an earlier step (certification gate,
+        # Engine pin verify/install) already failed, because "Mark failed Gold resume
+        # reservation when never consumed" below needs this authenticated control-gold/
+        # checkout to exist regardless of where the job died.
+        if: always()
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: control-plane-state
@@ -136,6 +141,60 @@ jobs:
           }.items():
               _github_output(key, str(value or ''))
           PY
+
+      - name: Mark failed Gold resume reservation when never consumed
+        # Runs exactly when "Consume exact Gold resume authorization" did not succeed --
+        # either it never ran at all (an earlier step like the certification gate or
+        # Engine pin verify/install failed first) or it ran and failed. Either way the
+        # queue item is still stuck at "dispatch_reserved" from the poller's reservation:
+        # nothing else in this job would ever transition it to "failed", so every later
+        # "تابع Gold" press is refused as already in progress even though nothing is
+        # actually running (the same class of bug PR #641 fixed one step later, at
+        # "dispatch_consumed"). mark_gold_resume_failed() accepts both
+        # dispatch_reserved and dispatch_consumed as valid current states, so this is
+        # safe to also fire when consume itself failed after reserving.
+        if: always() && steps.consume.outcome != 'success'
+        continue-on-error: true
+        env:
+          STATE_ENCRYPTION_KEY: ${{ secrets.STATE_ENCRYPTION_KEY }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          AUTHORIZATION_ID: ${{ inputs.authorization_id }}
+        run: |
+          set -euo pipefail
+          cd control-gold
+          git fetch --no-tags origin control-plane-state
+          git reset --hard origin/control-plane-state
+          cd ..
+          encrypted="control-gold/state/control-panel.json.enc"
+          state="$RUNNER_TEMP/gold-control/never-consumed.json"
+          mkdir -p "$RUNNER_TEMP/gold-control"
+          openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
+          chmod 600 "$state"
+          STATE="$state" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.telegram_control_panel import load_state, save_state
+          from scripts.telegram_gold_resume_control import mark_gold_resume_failed
+          path = Path(os.environ['STATE'])
+          state = load_state(path)
+          mark_gold_resume_failed(
+              state,
+              os.environ['REQUEST_ID'],
+              os.environ['AUTHORIZATION_ID'],
+              reason='gold_resume_never_consumed',
+          )
+          save_state(path, state)
+          PY
+          openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
+            -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
+          cd control-gold
+          git config user.name "isco-control-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/control-panel.json.enc
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "state: record Gold resume reservation that was never consumed"
+          git push origin HEAD:control-plane-state
 
       - name: Persist consumed Gold authorization before external work
         env:
