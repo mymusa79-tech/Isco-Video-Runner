@@ -1165,6 +1165,22 @@ def install_planning_contract_router() -> None:
     last_call_at: dict[str, float] = {}
     sequence = 0
 
+    def extend_transient_cooldown(provider: str, seconds: object) -> float | None:
+        """Keep the longest trustworthy provider-local cooldown across stage calls."""
+        try:
+            delay = float(seconds)
+        except (TypeError, ValueError):
+            return None
+        if not 0.0 < delay < float("inf"):
+            return None
+        now = time.monotonic()
+        deadline = now + delay
+        previous = transient_cooldown_until.get(provider)
+        if isinstance(previous, (int, float)):
+            deadline = max(deadline, float(previous))
+        transient_cooldown_until[provider] = deadline
+        return max(0.0, deadline - now)
+
     # Every old low-level caller that still asks for a response schema now resolves it
     # from the active request contract. The prompt argument is deliberately ignored.
     router._structured_schema_for_prompt = _explicit_schema_adapter
@@ -1307,8 +1323,8 @@ def install_planning_contract_router() -> None:
                                     and total_attempts < contract.provider_policy.max_total_attempts
                                 ):
                                     next_round_candidates.add(provider)
-                                transient_cooldown_until[provider] = (
-                                    time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
+                                extend_transient_cooldown(
+                                    provider, router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
                                 )
                                 break
                             except Exception as exc:
@@ -1333,6 +1349,21 @@ def install_planning_contract_router() -> None:
                                     quota_scope=failure.quota_scope,
                                     retry_after=retry_after,
                                 )
+                                if (
+                                    failure.quota_scope == "short_window"
+                                    and (
+                                        failure.telemetry_result == "429"
+                                        or failure.http_status == 429
+                                    )
+                                    and retry_after is not None
+                                ):
+                                    armed_for = extend_transient_cooldown(provider, retry_after)
+                                    if armed_for is not None:
+                                        print(
+                                            "Planning provider short-window cooldown armed: "
+                                            f"provider={provider} retry_after={armed_for:.2f}s "
+                                            f"stage={contract.stage_id}"
+                                        )
                                 if failure.open_circuit:
                                     cooldown.add(provider)
                                 if not wire_attempted:
@@ -1343,8 +1374,8 @@ def install_planning_contract_router() -> None:
                                             and total_attempts < contract.provider_policy.max_total_attempts
                                         ):
                                             next_round_candidates.add(provider)
-                                        transient_cooldown_until[provider] = (
-                                            time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
+                                        extend_transient_cooldown(
+                                            provider, router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
                                         )
                                     break
                                 has_retry = provider_attempt + 1 < contract.provider_policy.max_attempts_per_provider
@@ -1374,8 +1405,8 @@ def install_planning_contract_router() -> None:
                                         and total_attempts < contract.provider_policy.max_total_attempts
                                     ):
                                         next_round_candidates.add(provider)
-                                    transient_cooldown_until[provider] = (
-                                        time.monotonic() + router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
+                                    extend_transient_cooldown(
+                                        provider, router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
                                     )
                                 break
                             else:
