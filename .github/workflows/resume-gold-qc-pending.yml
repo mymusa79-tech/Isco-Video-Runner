@@ -288,6 +288,7 @@ jobs:
           CLOUDFLARE_GOLD_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-gold-vision-quota-v1.json
           ISCO_ENGINE_SHA: e7724801511a881a4862c3a590dccf4fd6d22c34
           GEMINI_CONTENT_MODEL: gemini-3.7-flash
+          GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
           BUNDLE_DIR: ${{ steps.restore_bundle.outputs.output_dir }}
           SOURCE_RUN_ID: ${{ steps.consume.outputs.source_run_id }}
@@ -500,10 +501,18 @@ jobs:
           RELEASE_TAG: ${{ steps.consume.outputs.release_tag }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
-          worktree="$RUNNER_TEMP/gold-control-success"
-          git worktree add --detach "$worktree" origin/control-plane-state
-          encrypted="$worktree/state/control-panel.json.enc"
+          # The root checkout intentionally runs with persist-credentials: false, so a
+          # git worktree created off it has no push credentials. control-gold/ (checked
+          # out earlier with persist-credentials: true) is the only authenticated clone
+          # in this job; reuse it, refreshed to the latest branch tip, instead of a bare
+          # worktree that silently fails to push (masked by continue-on-error elsewhere,
+          # but this step has none, so a real Gold success would otherwise be reported
+          # as a job failure).
+          cd control-gold
+          git fetch --no-tags origin control-plane-state
+          git reset --hard origin/control-plane-state
+          cd ..
+          encrypted="control-gold/state/control-panel.json.enc"
           state="$RUNNER_TEMP/gold-control/completed.json"
           openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
             -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
@@ -535,7 +544,7 @@ jobs:
           PY
           openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
             -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
-          cd "$worktree"
+          cd control-gold
           git config user.name "isco-control-bot"
           git config user.email "actions@users.noreply.github.com"
           git add state/control-panel.json.enc
@@ -573,10 +582,17 @@ jobs:
           AUTHORIZATION_ID: ${{ inputs.authorization_id }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin control-plane-state:refs/remotes/origin/control-plane-state
-          worktree="$RUNNER_TEMP/gold-control-failed"
-          git worktree add --detach "$worktree" origin/control-plane-state
-          encrypted="$worktree/state/control-panel.json.enc"
+          # See the "Reconcile Telegram QC_PENDING as completed" step: the root checkout
+          # runs with persist-credentials: false, so a worktree off it has no push
+          # credentials and silently fails here (masked by continue-on-error). That left
+          # a real Gold-resume failure stuck at dispatch_consumed forever, so every later
+          # "تابع Gold" press was refused as already in progress even though nothing was
+          # actually running. Reuse the already-authenticated control-gold/ checkout.
+          cd control-gold
+          git fetch --no-tags origin control-plane-state
+          git reset --hard origin/control-plane-state
+          cd ..
+          encrypted="control-gold/state/control-panel.json.enc"
           state="$RUNNER_TEMP/gold-control/failed.json"
           openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 \
             -pass env:STATE_ENCRYPTION_KEY -in "$encrypted" -out "$state"
@@ -598,7 +614,7 @@ jobs:
           PY
           openssl enc -aes-256-cbc -salt -pbkdf2 -md sha256 \
             -pass env:STATE_ENCRYPTION_KEY -in "$state" -out "$encrypted"
-          cd "$worktree"
+          cd control-gold
           git config user.name "isco-control-bot"
           git config user.email "actions@users.noreply.github.com"
           git add state/control-panel.json.enc

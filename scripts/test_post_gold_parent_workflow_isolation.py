@@ -17,9 +17,15 @@ class PostGoldParentWorkflowIsolationTests(unittest.TestCase):
             'Rematerialize post-Gold provider capabilities',
             'post-gold-secrets',
             'PIPER_MODEL_PATH',
-            'GEMINI_TTS_MODEL',
             'python -m piper.download_voices',
         )
+        # GEMINI_TTS_MODEL is deliberately not forbidden: the marker split happens right
+        # after the Gold step's own `- name:` line, so this slice still includes that
+        # step's own env block. install_production_model_contract() requires
+        # GEMINI_TTS_MODEL as a blanket model-identity pin shared by every Gold caller,
+        # even though execute_gold_resume() never actually invokes TTS -- its presence
+        # here is a required contract value, not regained TTS provider work.
+        self.assertIn('GEMINI_TTS_MODEL', post_gold)
         for value in forbidden:
             self.assertNotIn(value, post_gold, f'parent post-Gold path regained external provider work: {value}')
 
