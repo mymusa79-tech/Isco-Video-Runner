@@ -170,15 +170,18 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
             "Vision provider mesh unavailable: gemini=429 | groq=429 | openrouter=capacity"
         )
         expected = {"status": "pass"}
-        with tempfile.TemporaryDirectory() as root, patch.object(
+        with tempfile.TemporaryDirectory() as root, fallback.vision_mesh.contract.legacy.vision_provider_circuit_scope(), patch.object(
             fallback.vision_mesh,
             "_route_visual_audit_v3",
             side_effect=mesh_error,
-        ), patch.object(
+        ) as route, patch.object(
             fallback.cloudflare_vision,
             "run_gold_cloudflare_attempt",
             return_value=expected,
-        ) as cloudflare:
+        ) as cloudflare, patch.object(
+            fallback.time,
+            "sleep",
+        ) as sleep:
             preview = _preview(root)
             result = fallback._opening_vision_with_mesh(
                 Mock(),
@@ -194,10 +197,96 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
             )
 
         self.assertIs(result, expected)
+        # The mesh's own reasons are all bounded quota/rate pressure, so Gold spends
+        # its one extra full-mesh sweep before falling through to Cloudflare.
+        self.assertEqual(route.call_count, 2)
+        sleep.assert_called_once_with(fallback._GOLD_MESH_RETRY_WAIT_SECONDS)
         cloudflare.assert_called_once()
         self.assertEqual(cloudflare.call_args.kwargs["preview"], preview)
         self.assertEqual(cloudflare.call_args.kwargs["narration_context"], "ctx")
         self.assertEqual(cloudflare.call_args.kwargs["intended_visual"], "intent")
+
+    def test_bounded_recoverable_mesh_failure_gets_one_extra_sweep_that_succeeds(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        mesh_error = fallback.vision_mesh.contract.legacy.VisionProviderMeshUnavailableError(
+            "Vision provider mesh unavailable: gemini=quota exceeded | groq=429 | openrouter=rate_limit"
+        )
+        expected = {"status": "pass"}
+        with tempfile.TemporaryDirectory() as root, fallback.vision_mesh.contract.legacy.vision_provider_circuit_scope(), patch.object(
+            fallback.vision_mesh,
+            "_route_visual_audit_v3",
+            side_effect=[mesh_error, expected],
+        ) as route, patch.object(
+            fallback.cloudflare_vision,
+            "run_gold_cloudflare_attempt",
+            side_effect=AssertionError("a recovered second sweep must not reach Cloudflare"),
+        ), patch.object(
+            fallback.time,
+            "sleep",
+        ) as sleep, patch.object(
+            fallback,
+            "update_stage",
+        ) as progress:
+            preview = _preview(root)
+            result = fallback._opening_vision_with_mesh(
+                Mock(),
+                ledger,
+                _opening_spec(),
+                "gemini",
+                "gemini-3.7-flash",
+                Mock(),
+                "gem-key",
+                preview,
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+
+        self.assertIs(result, expected)
+        self.assertEqual(route.call_count, 2)
+        sleep.assert_called_once_with(fallback._GOLD_MESH_RETRY_WAIT_SECONDS)
+        self.assertEqual(
+            [call.args[0] for call in progress.call_args_list],
+            ["provider_wait", "gold_vision"],
+        )
+
+    def test_hard_mesh_failure_skips_the_extra_sweep_and_goes_straight_to_cloudflare(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        mesh_error = fallback.vision_mesh.contract.legacy.VisionProviderMeshUnavailableError(
+            "Vision provider mesh unavailable: gemini=AUTH_CONFIG invalid api key | "
+            "groq=unavailable | openrouter=unavailable"
+        )
+        expected = {"status": "pass"}
+        with tempfile.TemporaryDirectory() as root, fallback.vision_mesh.contract.legacy.vision_provider_circuit_scope(), patch.object(
+            fallback.vision_mesh,
+            "_route_visual_audit_v3",
+            side_effect=mesh_error,
+        ) as route, patch.object(
+            fallback.cloudflare_vision,
+            "run_gold_cloudflare_attempt",
+            return_value=expected,
+        ) as cloudflare, patch.object(
+            fallback.time,
+            "sleep",
+        ) as sleep:
+            preview = _preview(root)
+            result = fallback._opening_vision_with_mesh(
+                Mock(),
+                ledger,
+                _opening_spec(),
+                "gemini",
+                "gemini-3.7-flash",
+                Mock(),
+                "gem-key",
+                preview,
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+
+        self.assertIs(result, expected)
+        # No evidence of bounded/recoverable pressure means the extra sweep never fires.
+        self.assertEqual(route.call_count, 1)
+        sleep.assert_not_called()
+        cloudflare.assert_called_once()
 
     def test_cloudflare_semantic_block_is_final_after_mesh_exhaustion(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
