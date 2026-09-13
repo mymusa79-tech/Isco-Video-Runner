@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 from functools import wraps
@@ -24,6 +25,7 @@ from scripts.producer_quality_contract import (
     ProducerQualityContractError,
     merge_producer_revision_note,
     plan_quality_issues,
+    sanitize_visual_query_for_stock_search,
     validate_plan_for_producer_handoff,
 )
 
@@ -111,6 +113,49 @@ def _short_failure_target_suffix(plan: object, issues: list[str]) -> str:
     return ":failing_field_paths=" + ",".join(targets)
 
 
+_VISUAL_QUERY_ISSUE_SUFFIX = "_visual_query_not_stock_search_safe"
+
+
+def _sanitize_flagged_visual_queries(plan: object, issues: list[str]) -> object:
+    """Deterministically pre-clean every section's visual_query the quality gate just
+    flagged as stock-search-unsafe, with zero model/provider call, before the bounded
+    AI repair below ever spends its one attempt on what may just be formatting noise.
+
+    Returns a shallow copy (dataclasses.replace) with only the flagged sections'
+    visual_query field touched, or the original ``plan`` object unchanged when nothing
+    was actually fixed - never mutates ``plan`` or its sections in place. Applies to
+    every format alike: the sanitizer can only produce the same accepted shape or an
+    empty string (see sanitize_visual_query_for_stock_search's own guarantee), so it
+    never weakens the gate regardless of which repair path (or none) a format has.
+    """
+    targets: set[int] = set()
+    for issue in issues:
+        if not issue.startswith("section_") or not issue.endswith(_VISUAL_QUERY_ISSUE_SUFFIX):
+            continue
+        try:
+            targets.add(int(issue.split("_")[1]))
+        except (IndexError, ValueError):
+            continue
+    if not targets:
+        return plan
+
+    sections = list(getattr(plan, "sections", []) or [])
+    new_sections = list(sections)
+    changed = False
+    for index in targets:
+        if index < 1 or index > len(sections):
+            continue
+        section = sections[index - 1]
+        current = _clean(getattr(section, "visual_query", ""))
+        sanitized = sanitize_visual_query_for_stock_search(current)
+        if sanitized and sanitized != current:
+            new_sections[index - 1] = dataclasses.replace(section, visual_query=sanitized)
+            changed = True
+    if not changed:
+        return plan
+    return dataclasses.replace(plan, sections=new_sections)
+
+
 def resolve_plan_for_producer_handoff(
     plan: object,
     *,
@@ -122,6 +167,25 @@ def resolve_plan_for_producer_handoff(
     issues = plan_quality_issues(plan, research_context=research_context)
     if not issues:
         return plan
+
+    # Deterministic, zero-cost pass first: a stray punctuation mark, a doubled
+    # separator, or a few non-ASCII characters in visual_query (Run #243,
+    # req-c39f532991c1) is common enough that a plain regex fixes it for free,
+    # without spending - or being at the mercy of - the bounded AI repair call below
+    # for something that was never a content problem. Every format gets this pass;
+    # sanitize_visual_query_for_stock_search can only produce the already-accepted
+    # shape or an empty string, so it never weakens the gate.
+    sanitized_plan = _sanitize_flagged_visual_queries(plan, issues)
+    if sanitized_plan is not plan:
+        sanitized_issues = plan_quality_issues(sanitized_plan, research_context=research_context)
+        if not sanitized_issues:
+            print(
+                "Producer visual_query sanitized deterministically: "
+                f"resolved={','.join(issue for issue in issues if issue not in sanitized_issues)}"
+            )
+            return sanitized_plan
+        plan = sanitized_plan
+        issues = sanitized_issues
 
     fmt = _clean(getattr(plan, "format", "")).lower()
     selected_repair: Callable[[object, list[str]], object] | None = None
@@ -144,6 +208,11 @@ def resolve_plan_for_producer_handoff(
 
     if selected_repair is not None:
         repaired = selected_repair(plan, issues)
+        # Give the AI-repaired output the same free, deterministic pass before
+        # spending this bounded repair's only revalidation on formatting noise (e.g. a
+        # trailing period) the repair call left behind rather than fixing outright.
+        post_repair_issues = plan_quality_issues(repaired, research_context=research_context)
+        repaired = _sanitize_flagged_visual_queries(repaired, post_repair_issues)
         remaining = plan_quality_issues(
             repaired,
             research_context=research_context,

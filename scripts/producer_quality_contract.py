@@ -73,6 +73,7 @@ _VISUAL_QUERY_MAX_LENGTH = 80
 _VISUAL_QUERY_CROSS_PROVIDER_TEXT_MAX_LENGTH = 240
 _VISUAL_QUERY_PLAIN_SEARCH_RE = re.compile(r"^[A-Za-z0-9]+(?:[ '-][A-Za-z0-9]+)*$")
 _VISUAL_QUERY_REPEATED_SEPARATOR_RE = re.compile(r"(?: {2,}|--|''| -|- | '|' )")
+_VISUAL_QUERY_SANITIZE_SPLIT_RE = re.compile(r"[^A-Za-z0-9]+")
 
 _GENERIC_SHORT_PHRASES = (
     "ثق بنفسك",
@@ -339,6 +340,36 @@ def visual_query_survives_stock_search_gate(value: object) -> bool:
     if _VISUAL_QUERY_REPEATED_SEPARATOR_RE.search(text):
         return False
     return True
+
+
+def sanitize_visual_query_for_stock_search(value: object) -> str:
+    """Deterministically coerce a visual_query into visual_query_survives_stock_search_gate's
+    exact accepted shape, with zero model/provider call.
+
+    Real production evidence (req-c39f532991c1, 2026-09-13): a Short's section-1
+    visual_query was flagged not-stock-search-safe, spent its one bounded AI repair
+    call, and the repaired text was STILL rejected on revalidation - the whole
+    production failed closed before a single frame was produced, for what is very
+    plausibly formatting noise (stray punctuation, a doubled separator, a few
+    non-ASCII characters) rather than a genuine content problem.
+
+    Splits the text on every run of characters outside plain ASCII letters/digits
+    (punctuation, whitespace, non-ASCII scripts, doubled separators alike) and rejoins
+    the surviving words with single spaces, then enforces the same length ceiling.
+    The result is either empty (nothing ASCII-alphanumeric survived - e.g. a fully
+    non-English query, which this cannot salvage) or provably satisfies
+    visual_query_survives_stock_search_gate() outright, so it can never trade one
+    unsafe shape for another. Applied before AND after the existing one-shot AI
+    repair so that call is spent only on queries that actually need rewritten
+    content, never on formatting a plain regex already fixes for free.
+    """
+    text = _clean(value)
+    words = [word for word in _VISUAL_QUERY_SANITIZE_SPLIT_RE.split(text) if word]
+    sanitized = " ".join(words)
+    if len(sanitized) > _VISUAL_QUERY_CROSS_PROVIDER_TEXT_MAX_LENGTH:
+        truncated = sanitized[:_VISUAL_QUERY_CROSS_PROVIDER_TEXT_MAX_LENGTH]
+        sanitized = truncated.rsplit(" ", 1)[0] if " " in truncated else ""
+    return sanitized
 
 
 def visual_query_stock_search_repair_guidance(index: int) -> str:

@@ -116,8 +116,39 @@ class GuidanceTests(unittest.TestCase):
 
 
 class EndToEndRepairTests(unittest.TestCase):
-    def test_doomed_visual_query_is_repaired_and_accepted(self) -> None:
+    def test_run243_style_query_is_fixed_deterministically_without_any_repair_call(self) -> None:
+        # Real production evidence (req-c39f532991c1): the exact same issue class as
+        # Run #243 (punctuation, over the guidance length) spent its one bounded AI
+        # repair call and the repair output was STILL rejected, failing the whole
+        # production closed with zero output. sanitize_visual_query_for_stock_search
+        # fixes this class of case (stray punctuation, doubled separators) for free -
+        # repair_fn must never even be consulted for it.
         broken = _short_plan(_RUN243_STYLE_QUERY)
+        repair_calls: list[list[str]] = []
+
+        def repair(plan, issues):
+            repair_calls.append(issues)
+            return _short_plan(_SAFE_QUERY)
+
+        resolved = lifecycle.resolve_plan_for_producer_handoff(
+            broken, research_context={"approved_research_pack": []}, repair_fn=repair,
+        )
+        self.assertEqual(repair_calls, [])
+        self.assertNotIn(
+            "section_1_visual_query_not_stock_search_safe",
+            quality.plan_quality_issues(resolved, research_context={}),
+        )
+        # The sanitizer only strips separators; it must not invent or drop words.
+        self.assertEqual(
+            resolved.sections[0].visual_query,
+            "a quiet person sitting alone by the window watching the rain fall slowly outside",
+        )
+
+    def test_doomed_visual_query_is_repaired_and_accepted(self) -> None:
+        # Non-ASCII text has nothing ASCII-alphanumeric for the deterministic
+        # sanitizer to salvage, so this genuinely needs the bounded AI repair call -
+        # unlike the punctuation-only case above.
+        broken = _short_plan(_NON_ASCII_QUERY)
 
         def repair(plan, issues):
             self.assertIn("section_1_visual_query_not_stock_search_safe", issues)
@@ -133,7 +164,7 @@ class EndToEndRepairTests(unittest.TestCase):
         )
 
     def test_repair_that_is_still_unsafe_fails_closed_not_silently_accepted(self) -> None:
-        broken = _short_plan(_RUN243_STYLE_QUERY)
+        broken = _short_plan(_NON_ASCII_QUERY)
 
         def repair(plan, issues):
             return _short_plan(_NON_ASCII_QUERY)
@@ -143,11 +174,60 @@ class EndToEndRepairTests(unittest.TestCase):
                 broken, research_context={"approved_research_pack": []}, repair_fn=repair,
             )
 
+    def test_repair_output_with_leftover_punctuation_is_cleaned_up_not_failed(self) -> None:
+        # The AI repair call itself gets the same free deterministic pass: a repair
+        # that fixes the content but leaves a trailing period must not fail closed
+        # over formatting alone.
+        broken = _short_plan(_NON_ASCII_QUERY)
+
+        def repair(plan, issues):
+            return _short_plan(_SAFE_QUERY + ".")
+
+        resolved = lifecycle.resolve_plan_for_producer_handoff(
+            broken, research_context={"approved_research_pack": []}, repair_fn=repair,
+        )
+        self.assertEqual(resolved.sections[0].visual_query, _SAFE_QUERY)
+
     def test_long_format_without_a_repair_path_fails_closed_at_planning_not_deep_in_production(self) -> None:
-        # No Long repair path exists for this issue (no real evidence of the Run #243
-        # failure mode on Long yet), so this must still fail *here*, at Planning
-        # handoff, with a clear ProducerQualityContractError - not silently pass
-        # through to crash deep inside orchestrator.produce() minutes later.
+        # No Long AI-repair path exists for this issue (no real evidence of the Run
+        # #243 failure mode needing content rewrites on Long yet), so a genuinely
+        # unfixable query must still fail *here*, at Planning handoff, with a clear
+        # ProducerQualityContractError - not silently pass through to crash deep
+        # inside orchestrator.produce() minutes later. The deterministic sanitizer
+        # applies to every format, so use non-ASCII text here too: nothing it can fix.
+        long_plan = ProductionPlan(
+            topic="موضوع",
+            pillar="understand",
+            format="story",
+            hook="خطاف",
+            title_options=["أ"],
+            thumbnail_concepts=["a"],
+            sections=[
+                ScriptSection(
+                    id="s1",
+                    narration="سرد",
+                    visual_query=_NON_ASCII_QUERY,
+                    on_screen_text="نص",
+                    emotion="reflective",
+                    expected_seconds=20.0,
+                    key_point="نقطة",
+                )
+            ],
+            cta="جرب",
+            closing_payoff="خلاصة",
+            narrative_format="direct_cinematic",
+            editorial_intent={},
+        )
+        with self.assertRaises(quality.ProducerQualityContractError) as captured:
+            lifecycle.resolve_plan_for_producer_handoff(
+                long_plan, research_context={"approved_research_pack": []},
+            )
+        self.assertIn("section_1_visual_query_not_stock_search_safe", str(captured.exception))
+
+    def test_long_format_run243_style_query_is_also_fixed_deterministically(self) -> None:
+        # The sanitizer is format-agnostic and strictly safe (same accepted shape or
+        # empty), so Long gets the same free fix Short does for pure formatting noise,
+        # even though Long has no AI repair path for this issue at all.
         long_plan = ProductionPlan(
             topic="موضوع",
             pillar="understand",
@@ -171,11 +251,52 @@ class EndToEndRepairTests(unittest.TestCase):
             narrative_format="direct_cinematic",
             editorial_intent={},
         )
-        with self.assertRaises(quality.ProducerQualityContractError) as captured:
-            lifecycle.resolve_plan_for_producer_handoff(
-                long_plan, research_context={"approved_research_pack": []},
-            )
-        self.assertIn("section_1_visual_query_not_stock_search_safe", str(captured.exception))
+        resolved = lifecycle.resolve_plan_for_producer_handoff(
+            long_plan, research_context={"approved_research_pack": []},
+        )
+        self.assertNotIn(
+            "section_1_visual_query_not_stock_search_safe",
+            quality.plan_quality_issues(resolved, research_context={}),
+        )
+
+
+class SanitizeVisualQueryTests(unittest.TestCase):
+    def test_already_safe_query_is_unchanged(self) -> None:
+        self.assertEqual(quality.sanitize_visual_query_for_stock_search(_SAFE_QUERY), _SAFE_QUERY)
+
+    def test_run243_style_punctuation_and_doubled_separators_are_stripped(self) -> None:
+        sanitized = quality.sanitize_visual_query_for_stock_search(_RUN243_STYLE_QUERY)
+        self.assertTrue(quality.visual_query_survives_stock_search_gate(sanitized))
+        self.assertEqual(
+            sanitized,
+            "a quiet person sitting alone by the window watching the rain fall slowly outside",
+        )
+
+    def test_non_ascii_query_sanitizes_to_empty_it_cannot_be_salvaged(self) -> None:
+        self.assertEqual(quality.sanitize_visual_query_for_stock_search(_NON_ASCII_QUERY), "")
+
+    def test_empty_input_sanitizes_to_empty(self) -> None:
+        self.assertEqual(quality.sanitize_visual_query_for_stock_search(""), "")
+
+    def test_result_never_exceeds_the_cross_provider_length_ceiling(self) -> None:
+        overlong = " ".join(["word"] * 100)
+        sanitized = quality.sanitize_visual_query_for_stock_search(overlong)
+        self.assertLessEqual(len(sanitized), quality._VISUAL_QUERY_CROSS_PROVIDER_TEXT_MAX_LENGTH)
+        self.assertTrue(quality.visual_query_survives_stock_search_gate(sanitized))
+
+    def test_output_always_either_empty_or_passes_the_gate(self) -> None:
+        for value in (
+            _SAFE_QUERY,
+            _RUN243_STYLE_QUERY,
+            _NON_ASCII_QUERY,
+            "a" * 300,
+            "!!!???...",
+            "café scene, softly-lit",
+            "",
+        ):
+            with self.subTest(value=value):
+                sanitized = quality.sanitize_visual_query_for_stock_search(value)
+                self.assertTrue(sanitized == "" or quality.visual_query_survives_stock_search_gate(sanitized))
 
 
 class RepairableIssueRegistrationTests(unittest.TestCase):
