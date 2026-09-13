@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import isco_video_agent.resilient_planner as staged
 from scripts import append_retry_guard as append_guard
+from scripts import planning_stage_contract as stage_contract
 from scripts import provider_capacity_hardening as capacity
 from scripts.word_band_repair_contract import install_word_band_repair_contract
 
@@ -183,20 +184,27 @@ class WordBandRepairContractTests(unittest.TestCase):
         self.assertIn("content_boundaries", prompt)
         self.assertIn("Do not introduce any new externally verifiable", prompt)
 
-        # The regression is capacity, not merely raw bytes. Use the same conservative
-        # Groq estimator: 8 append targets reserve 2000 completion tokens in the Stage
-        # Contract, plus the shared 250-token safety reserve. Keep a material margin
-        # below the 8000 TPM ceiling so this cannot regress to Run #255's 7483-edge
-        # envelope while still passing a loose byte-only assertion.
+        # The regression is capacity, not merely raw bytes. Read the reserved output
+        # budget from the exact append Stage Contract, then feed that budget into the
+        # same conservative Groq estimator used by runtime admission. This keeps one
+        # policy owner and prevents the test from going stale if append transport
+        # budgets change later.
+        target_ids = [f"sec_{index}" for index in range(1, 9)]
+        append_spec = stage_contract.append_stage_spec(
+            target_ids,
+            allow_ordered_subset=True,
+        )
+        reserved_completion = append_spec.provider_policy.completion_tokens_for("groq")
         estimate = capacity.groq_capacity_estimate(
             prompt,
             model_name="openai/gpt-oss-120b",
-            reserved_completion_tokens=2000,
-            contract_name="planning.append_only_repair",
+            reserved_completion_tokens=reserved_completion,
+            contract_name=append_spec.contract_id,
         )
+        self.assertEqual(append_spec.stage_id, "planning.append_only_repair")
+        self.assertEqual(reserved_completion, 2000)
         self.assertLessEqual(estimate["estimated_request_tokens"], 6500)
-        self.assertEqual(estimate["reserved_completion_tokens"], 2000)
-        self.assertEqual(list(additions), [f"sec_{index}" for index in range(1, 9)])
+        self.assertEqual(list(additions), target_ids)
 
     def test_projection_does_not_create_an_extra_provider_retry(self) -> None:
         sections = self._sections([120, 100, 120, 120, 120, 120, 120, 120])
