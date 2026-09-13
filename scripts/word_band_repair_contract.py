@@ -40,16 +40,17 @@ def _json_object(raw: str, label: str) -> dict[str, Any]:
 
 
 def _project_policy_json(raw: str) -> str:
-    """Keep only text-repair policy; drop visual/audio/brand payloads.
+    """Keep only narration-repair policy; drop non-text visual/audio/brand payloads.
 
-    Values and language rules are hard cultural/editorial constraints, so they are
-    preserved exactly. Visual, audio and brand-signature policy cannot affect an
-    append-only narration continuation and are intentionally not sent to the model.
+    Values and language rules are hard cultural/editorial constraints and are kept
+    exactly. The current production policy's visual/audio/brand fields govern media or
+    host-owned identity placement, not model-authored append text, so they are excluded
+    from this narrowly scoped prompt. Release gates remain visible to the model.
     """
 
     source = _json_object(raw, "EDITORIAL_POLICY")
     payload: dict[str, Any] = {}
-    for key in ("audience", "positioning", "language", "values", "release_gate"):
+    for key in ("version", "audience", "positioning", "language", "values", "release_gate"):
         if key in source:
             payload[key] = source[key]
     payload["local_repair_rule"] = _LOCAL_REPAIR_RULE
@@ -107,8 +108,12 @@ def _install_script_doctor_band_preservation() -> None:
         closer = str(kwargs.get("identity_closer", "") or "")
         baseline: dict[str, tuple[str, int]] = {}
         for section in sections:
-            narration = _strip_host_identity(section.narration, opener, closer)
-            baseline[str(section.id)] = (narration, staged._word_count(narration))
+            original_narration = str(section.narration or "").strip()
+            content_narration = _strip_host_identity(original_narration, opener, closer)
+            baseline[str(section.id)] = (
+                original_narration,
+                staged._word_count(content_narration),
+            )
 
         corrected = original(*args, **kwargs)
         if not isinstance(corrected, dict):
@@ -131,14 +136,14 @@ def _install_script_doctor_band_preservation() -> None:
             if section_minimum <= candidate_words <= section_maximum:
                 continue
 
-            # Do not spend another provider call. Restore the already-valid narration;
-            # the Doctor may still keep a corrected key_point or other schema fields.
+            # Do not spend another provider call. Restore the exact already-valid
+            # pre-Doctor narration, including any host-owned opener/closer that may be
+            # present at this lifecycle seam. The Doctor may still keep a corrected
+            # key_point or other schema fields.
             replacement = dict(entry)
             replacement["narration"] = baseline_narration
             corrected[section_id] = replacement
-            restored.append(
-                f"{section_id}:{baseline_words}->{candidate_words}"
-            )
+            restored.append(f"{section_id}:{baseline_words}->{candidate_words}")
 
         if restored:
             print(

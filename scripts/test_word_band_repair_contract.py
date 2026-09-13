@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import isco_video_agent.resilient_planner as staged
 from scripts import append_retry_guard as append_guard
+from scripts import provider_capacity_hardening as capacity
 from scripts.word_band_repair_contract import install_word_band_repair_contract
 
 
@@ -42,7 +43,7 @@ class WordBandRepairContractTests(unittest.TestCase):
             for index, words in enumerate(counts, start=1)
         }
 
-    def _call_doctor(self, sections):
+    def _call_doctor(self, sections, *, opener: str = "", closer: str = ""):
         return staged._script_doctor(
             "key",
             topic="topic",
@@ -53,8 +54,8 @@ class WordBandRepairContractTests(unittest.TestCase):
             editorial_intent_json="{}",
             narrative_format="problem_reveal_solution",
             issue_notes="- test",
-            identity_opener="",
-            identity_closer="",
+            identity_opener=opener,
+            identity_closer=closer,
         )
 
     def test_film_doctor_cannot_create_new_word_band_defect(self) -> None:
@@ -76,6 +77,28 @@ class WordBandRepairContractTests(unittest.TestCase):
         self.assertEqual(corrected["sec_2"]["key_point"], "edited key point 2")
         self.assertEqual(staged._word_count(corrected["sec_1"]["narration"]), 120)
 
+    def test_doctor_restores_exact_pre_doctor_identity_text_when_band_regresses(self) -> None:
+        sections = self._sections([120] * 8)
+        opener = "هوية افتتاحية ثابتة"
+        closer = "هوية ختامية ثابتة"
+        sections[0].narration = f"{opener} {sections[0].narration}"
+        sections[-1].narration = f"{sections[-1].narration} {closer}"
+        baseline_first = sections[0].narration
+        baseline_last = sections[-1].narration
+
+        def fake_doctor(*args, **kwargs):
+            del args, kwargs
+            return self._doctor_result([95, 120, 120, 120, 120, 120, 120, 95])
+
+        staged._script_doctor = fake_doctor
+        install_word_band_repair_contract()
+        corrected = self._call_doctor(sections, opener=opener, closer=closer)
+
+        self.assertEqual(corrected["sec_1"]["narration"], baseline_first)
+        self.assertEqual(corrected["sec_8"]["narration"], baseline_last)
+        self.assertTrue(corrected["sec_1"]["narration"].startswith(opener))
+        self.assertTrue(corrected["sec_8"]["narration"].endswith(closer))
+
     def test_existing_underfloor_section_may_be_fixed_by_doctor(self) -> None:
         sections = self._sections([120, 100, 120, 120, 120, 120, 120, 120])
 
@@ -89,14 +112,16 @@ class WordBandRepairContractTests(unittest.TestCase):
 
         self.assertEqual(staged._word_count(corrected["sec_2"]["narration"]), 115)
 
-    def test_run255_successor_797_shape_uses_small_local_context_same_stage_owner(self) -> None:
+    def test_run255_successor_797_shape_has_real_groq_headroom_same_stage_owner(self) -> None:
         counts = [100, 100, 100, 100, 100, 100, 100, 97]
         self.assertEqual(sum(counts), 797)
         sections = self._sections(counts)
         prompts: list[str] = []
 
         policy = {
+            "version": 1,
             "audience": "Arabic audience",
+            "positioning": "modern awareness",
             "language": {"register": "MSA", "avoid": ["generic filler"]},
             "values": {"respect_islam": True, "rules": ["No fabricated religious quotes"]},
             "visuals": {"rules": ["VISUAL_SENTINEL_" * 1200]},
@@ -157,7 +182,20 @@ class WordBandRepairContractTests(unittest.TestCase):
         self.assertIn("factuality_rule", prompt)
         self.assertIn("content_boundaries", prompt)
         self.assertIn("Do not introduce any new externally verifiable", prompt)
-        self.assertLess(len(prompt.encode("utf-8")), 35_000)
+
+        # The regression is capacity, not merely raw bytes. Use the same conservative
+        # Groq estimator: 8 append targets reserve 2000 completion tokens in the Stage
+        # Contract, plus the shared 250-token safety reserve. Keep a material margin
+        # below the 8000 TPM ceiling so this cannot regress to Run #255's 7483-edge
+        # envelope while still passing a loose byte-only assertion.
+        estimate = capacity.groq_capacity_estimate(
+            prompt,
+            model_name="openai/gpt-oss-120b",
+            reserved_completion_tokens=2000,
+            contract_name="planning.append_only_repair",
+        )
+        self.assertLessEqual(estimate["estimated_request_tokens"], 6500)
+        self.assertEqual(estimate["reserved_completion_tokens"], 2000)
         self.assertEqual(list(additions), [f"sec_{index}" for index in range(1, 9)])
 
     def test_projection_does_not_create_an_extra_provider_retry(self) -> None:
