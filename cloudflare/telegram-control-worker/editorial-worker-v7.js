@@ -375,6 +375,8 @@ async function showProductionItem(env, target, state, requestId) {
       "Final Master موجود ومثبت، لكن Gold لم يُقبل بعد بسبب سعة مزود الرؤية.",
       "«تابع Gold» يعيد Gold فقط على نفس البايتات؛ لا تخطيط، لا بحث بصري، لا TTS، ولا رندر جديد.",
     );
+    const reasonDetail = String(pending.reason_detail || "").replace(/\s+/g, " ").trim();
+    if (reasonDetail) lines.push(`السبب التقني: ${reasonDetail.slice(0, 200)}`);
     if (pending.source_run_id) lines.push(`Source Run: ${String(pending.source_run_id)}`);
   } else if (item.entry.status === "failed") {
     lines.push("", "هذا فشل عادي وليس QC_PENDING؛ لذلك لا يظهر خيار «تابع Gold».");

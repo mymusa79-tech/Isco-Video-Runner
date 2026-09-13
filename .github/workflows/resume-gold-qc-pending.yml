@@ -304,7 +304,8 @@ jobs:
             --source-runner-sha "$SOURCE_RUNNER_SHA" \
             --source-engine-sha "$SOURCE_ENGINE_SHA" \
             --runtime-runner-sha "$GITHUB_SHA" \
-            --runtime-engine-sha "$EXPECTED_ENGINE_SHA"
+            --runtime-engine-sha "$EXPECTED_ENGINE_SHA" \
+            --failure-detail-output "$RUNNER_TEMP/gold-resume-failure.json"
 
       - name: Finish exact approved scope after Gold without provider capabilities
         id: finish_scope
@@ -614,6 +615,7 @@ jobs:
           RELEASE_TAG: ${{ steps.consume.outputs.release_tag }}
           APPROVAL_SCOPE: ${{ steps.consume.outputs.approval_scope }}
           SUCCESS: ${{ steps.reconcile_success.outcome == 'success' }}
+          FAILURE_DETAIL_FILE: ${{ runner.temp }}/gold-resume-failure.json
         run: |
           set -euo pipefail
           test -n "$TELEGRAM_BOT_TOKEN"
@@ -626,6 +628,13 @@ jobs:
             fi
           else
             text="🟠 تابع Gold لم يكتمل\nبقي الفيديو في QC_PENDING ويمكن إعادة المحاولة من «🎞️ إنتاجاتي»."
+            reason=""
+            if [ -f "$FAILURE_DETAIL_FILE" ]; then
+              reason=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); print(str(d.get("failure_detail") or "").replace(chr(10)," ").strip()[:200])' "$FAILURE_DETAIL_FILE" 2>/dev/null || true)
+            fi
+            if [ -n "$reason" ]; then
+              text="${text}\nالسبب التقني: ${reason}"
+            fi
           fi
           curl --fail --silent --show-error \
             --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
