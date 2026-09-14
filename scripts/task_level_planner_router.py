@@ -30,8 +30,10 @@ from provider_failure import (
 from scripts.retry_after_policy import retry_delay_decision
 
 
+# Shared storage path only. Durable Planning checkpoint authority belongs exclusively
+# to planning_stage_contract.py; this compatibility/provider-helper module must never
+# read or write the checkpoint document itself.
 CACHE_PATH = Path("state/planning-checkpoint.json")
-CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # One outer retry owner only. SDK/provider-internal retries are not stacked on top.
 MIN_PROVIDER_CALL_INTERVAL_SECONDS = 1.5
@@ -62,16 +64,9 @@ _CURRENT_REQUEST_META: dict = {}
 # Shared with scripts/planning_stage_contract.py's own `_ROUTER_MARKER` constant -
 # duplicated here as a bare string literal rather than imported, because that module
 # already imports this one (`from scripts import task_level_planner_router as router`),
-# so importing it back would be circular. planning_stage_contract.py is the newer,
-# more complete Planning provider-loop owner (PlanningStageError taxonomy, explicit
-# per-stage admission, structural+semantic validation before the single cache write -
-# see its own module docstring). Two full independent "try Gemini, then Groq, then
-# OpenRouter" implementations used to both install themselves onto
-# isco_video_agent.resilient_planner.json_text, so live behavior depended on which one
-# happened to run last. install_router() below checks this marker so that, regardless
-# of install order, once the explicit Stage Contract router is live it can never be
-# silently replaced by this module's own older provider loop reinstalling itself; see
-# test_task_level_planner_router.py's ExplicitStageContractOwnershipTests.
+# so importing it back would be circular. planning_stage_contract.py is the canonical
+# Planning request/schema/cache owner. This module retains provider adapters, telemetry,
+# retry helpers and the dialogue build-plan wrapper for compatibility only.
 _EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER = "_isco_explicit_planning_contract_router"
 
 _OPENROUTER_FALLBACK_MODELS = ("openai/gpt-oss-20b:free",)
@@ -130,16 +125,13 @@ def _extract_response_meta(body: dict, choice: dict) -> dict:
 
 
 def _legacy_schema_hint(prompt: str) -> tuple[str, dict] | None:
-    """Best-effort schema hint for callers carrying no explicit stage contract.
+    """Compatibility seam to the explicit Stage-owned schema adapter.
 
-    The Explicit Planning Stage Contract (planning_stage_contract.py) replaces
-    _structured_schema_for_prompt process-wide with a resolver that hard-fails outside
-    an active request contract - correct for contract-bound long-form callers (every
-    resilient_planner call binds one). task_router itself remains the legacy/
-    compatibility provider mesh for callers with no stage contract (the native Short
-    planner, via native_short_planner_router.py). A best-effort capacity/telemetry hint
-    must never abort their real, successful call - it only ever affects logging and
-    local capacity estimates, never the actual request sent to a provider.
+    The default resolver in this module deliberately owns no prompt-derived schema.
+    planning_stage_contract installs its explicit adapter process-wide; low-level
+    provider helpers consume that adapter when an active Stage Contract exists. Outside
+    an explicit contract this returns no schema hint and the compatibility provider
+    path uses ordinary json_object transport.
     """
     try:
         return _structured_schema_for_prompt(prompt)
@@ -368,23 +360,22 @@ def _mistral_token() -> str:
 
 
 def _load_checkpoint() -> dict:
-    if not CACHE_PATH.exists():
-        return {"version": 1, "responses": {}}
-    try:
-        data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {"version": 1, "responses": {}}
-    if not isinstance(data, dict):
-        return {"version": 1, "responses": {}}
-    data.setdefault("version", 1)
-    data.setdefault("responses", {})
-    return data
+    """Historical compatibility symbol; durable cache authority was removed.
+
+    The canonical reader is planning_stage_contract._load_checkpoint_strict(). Keeping
+    this name temporarily makes accidental legacy use fail loudly instead of silently
+    regaining version-1 prompt-hash state ownership.
+    """
+    raise RuntimeError(
+        "LEGACY_PLANNING_CACHE_AUTHORITY_REMOVED: use planning_stage_contract"
+    )
 
 
-def _save_checkpoint(data: dict) -> None:
-    tmp = CACHE_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(CACHE_PATH)
+def _save_checkpoint(_data: dict) -> None:
+    """Historical compatibility symbol; durable cache authority was removed."""
+    raise RuntimeError(
+        "LEGACY_PLANNING_CACHE_AUTHORITY_REMOVED: use planning_stage_contract"
+    )
 
 
 def _parse_json(raw):
@@ -420,90 +411,16 @@ def _expected_sections(prompt: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _strict_object(properties: dict, required: list[str]) -> dict:
-    return {"type": "object", "properties": properties, "required": required, "additionalProperties": False}
+def _structured_schema_for_prompt(_prompt: str) -> tuple[str, dict] | None:
+    """Historical compatibility symbol with zero prompt-derived authority.
 
-
-def _string_array(*, min_items: int | None = None, max_items: int | None = None) -> dict:
-    schema: dict = {"type": "array", "items": {"type": "string"}}
-    if min_items is not None:
-        schema["minItems"] = min_items
-    if max_items is not None:
-        schema["maxItems"] = max_items
-    return schema
-
-
-def _outline_response_schema(expected: int) -> dict:
-    editorial_intent = _strict_object(
-        {
-            "editorial_thesis": {"type": "string"},
-            "viewer_starting_belief": {"type": "string"},
-            "hidden_assumption": {"type": "string"},
-            "editorial_turn": {"type": "string"},
-            "stakes": {"type": "string"},
-            "viewer_promise": {"type": "string"},
-            "evidence_boundaries": _string_array(min_items=1, max_items=5),
-            "earned_payoff": {"type": "string"},
-        },
-        [
-            "editorial_thesis", "viewer_starting_belief", "hidden_assumption", "editorial_turn",
-            "stakes", "viewer_promise", "evidence_boundaries", "earned_payoff",
-        ],
+    planning_stage_contract.install_planning_contract_router() replaces this symbol
+    with `_explicit_schema_adapter`, which reads only the active Stage Contract. Until
+    that happens, provider helpers deliberately receive no schema hint.
+    """
+    raise RuntimeError(
+        "LEGACY_PROMPT_SCHEMA_AUTHORITY_REMOVED: explicit Stage Contract required"
     )
-    brief = _strict_object(
-        {
-            "id": {"type": "string"}, "purpose": {"type": "string"}, "visual_query": {"type": "string"},
-            "on_screen_text": {"type": "string"}, "emotion": {"type": "string"}, "expected_seconds": {"type": "number"},
-        },
-        ["id", "purpose", "visual_query", "on_screen_text", "emotion", "expected_seconds"],
-    )
-    return _strict_object(
-        {
-            "pillar": {"type": "string"}, "hook": {"type": "string"},
-            "title_options": _string_array(min_items=3, max_items=3),
-            "thumbnail_concepts": _string_array(min_items=3, max_items=3),
-            "cta": {"type": "string"}, "closing_payoff": {"type": "string"},
-            "narrative_format": {"type": "string"}, "opener_variant": {"type": "string"},
-            "closer_variant": {"type": "string"}, "transition_variants": _string_array(min_items=3, max_items=3),
-            "editorial_intent": editorial_intent,
-            "section_briefs": {"type": "array", "items": brief, "minItems": expected, "maxItems": expected},
-        },
-        [
-            "pillar", "hook", "title_options", "thumbnail_concepts", "cta", "closing_payoff",
-            "narrative_format", "opener_variant", "closer_variant", "transition_variants",
-            "editorial_intent", "section_briefs",
-        ],
-    )
-
-
-def _structured_schema_for_prompt(prompt: str) -> tuple[str, dict] | None:
-    expected = _expected_sections(prompt)
-    if expected is not None and "section_briefs" in prompt:
-        return "editorial_outline", _outline_response_schema(expected)
-
-    exact_match = re.search(r"with EXACTLY\s*(\d+)\s+entries", prompt, flags=re.I)
-    exact_count = int(exact_match.group(1)) if exact_match else None
-    if exact_count is not None and '"sections"' in prompt:
-        item = _strict_object(
-            {"id": {"type": "string"}, "narration": {"type": "string"}, "key_point": {"type": "string"}},
-            ["id", "narration", "key_point"],
-        )
-        return "full_script", _strict_object(
-            {"sections": {"type": "array", "items": item, "minItems": exact_count, "maxItems": exact_count}},
-            ["sections"],
-        )
-    if exact_count is not None and '"additions"' in prompt:
-        item = _strict_object(
-            {"id": {"type": "string"}, "append_text": {"type": "string"}},
-            ["id", "append_text"],
-        )
-        return "append_only_repair", _strict_object(
-            {"additions": {"type": "array", "items": item, "minItems": exact_count, "maxItems": exact_count}},
-            ["additions"],
-        )
-    if 'Return ONLY JSON: {"narration"' in prompt:
-        return "section_repair", _strict_object({"narration": {"type": "string"}}, ["narration"])
-    return None
 
 
 _PLAN_SHAPE_MARKER_KEYS = ("hook", "cta", "pillar", "title_options", "closing_payoff")
@@ -526,22 +443,8 @@ def _validate_plan_shaped_sections(data: dict) -> dict:
     """Reject a plan-shaped response whose "sections" cannot survive Engine's own
     parsing, before task_router accepts it as a success.
 
-    Regression for a real 2026-09-01 production failure: the native Short planner (the
-    only live caller of task_router - see _legacy_schema_hint's docstring) got a
-    syntactically valid JSON object back from a provider (observed: OpenRouter) that was
-    missing "sections" entirely, or had a section missing "id". task_router's only
-    existing response check, _normalize_outline(), validates just the long-form
-    "section_briefs" shape and silently passes this shape through untouched. The
-    response was then cached and handed to isco_video_agent/planner.py::_plan_from_dict,
-    which does unguarded `d["sections"]` / `s["id"]` access with no schema in front of
-    it (unlike the long-form path's strict planning_stage_contract.py validation) and
-    raised an uncaught KeyError deep inside plan construction - security.safe_error()
-    then scrubbed it down to the unhelpful `{'type': 'KeyError'}` seen in logs, and the
-    request was never retried against another provider even though two others were
-    still available. A malformed response must be treated exactly like any other
-    provider failure: reject it here, inside the retry loop's own try block, so the
-    existing fallback logic naturally tries the next provider instead of caching a plan
-    Engine cannot actually build.
+    This remains a provider-helper safety check for the compatibility Moment path. It
+    does not select a schema or own durable cache state.
     """
     if not _looks_like_plan_shaped_response(data):
         return data
@@ -659,9 +562,6 @@ def _groq_call(prompt: str) -> dict:
             "temperature": 0.15,
             "max_completion_tokens": _completion_tokens_for_contract(contract),
         }
-        # GPT-OSS reasoning tokens share the completion budget.  For the bounded
-        # outline schema, low effort preserves reasoning while reserving room for the
-        # complete JSON instead of reproducing Run #116's finish_reason=length.
         if contract is not None and contract[0] == "editorial_outline":
             request_payload["reasoning_effort"] = "low"
         response = requests.post(
@@ -911,8 +811,8 @@ def _retry_delay_seconds(provider_name: str, retry_index: int, retry_after: obje
 
 
 def install_router() -> None:
-    checkpoint = _load_checkpoint()
-    responses = checkpoint.setdefault("responses", {})
+    # This legacy/compatibility provider loop is intentionally in-memory only. The
+    # canonical Stage Contract owns every durable Planning checkpoint read/write.
     cooldown: set[str] = set()
     transient_cooldown_until: dict[str, float] = {}
     last_call_at: dict[str, float] = {}
@@ -957,11 +857,6 @@ def install_router() -> None:
         nonlocal planning_subtask_sequence
         prompt = _enrich_dialogue_prompt(prompt)
         prompt = with_channel_persona(prompt)
-        cache_key = hashlib.sha256((model + "\n" + prompt).encode("utf-8")).hexdigest()
-        cached = responses.get(cache_key)
-        if isinstance(cached, dict):
-            print("Planning checkpoint hit")
-            return cached
 
         _CURRENT_REQUEST_META.clear()
         _CURRENT_REQUEST_META.update(_request_metadata(prompt))
@@ -986,19 +881,6 @@ def install_router() -> None:
                     try:
                         raw = provider(api_key, prompt, model)
                         data = _validate_plan_shaped_sections(_normalize_outline(_parse_json(raw), prompt))
-                        responses[cache_key] = data
-                        checkpoint["last_provider"] = name
-                        try:
-                            _save_checkpoint(checkpoint)
-                        except Exception as save_exc:
-                            # Cross-run checkpoint persistence is a caching optimization,
-                            # not a correctness gate - planning_legacy_authority_guard
-                            # deliberately seals it once the Explicit Planning Stage
-                            # Contract owns checkpointing, for callers still on this
-                            # legacy/compatibility provider mesh (the native Short
-                            # planner). A sealed persistence path must never discard an
-                            # already-successful provider result.
-                            print(f"Planning checkpoint persistence skipped: {save_exc}")
                         _record_provider_used(name)
                         _safe_record_attempt(
                             name,
@@ -1011,15 +893,6 @@ def install_router() -> None:
                     except Exception as exc:
                         detail = str(exc).replace("\n", " ")[:220]
                         wire_attempted = not is_no_wire_provider_failure(exc)
-                        # This run's own layered capacity/classification patches
-                        # (run120/122/123/124/125, each replacing classify_provider_failure
-                        # and/or _record_attempt with a wrapped version) are bookkeeping:
-                        # telemetry and retry classification for a failure that already
-                        # happened. A defect in that bookkeeping must never be able to
-                        # crash the whole planning subtask in place of the real provider
-                        # failure it was classifying - the same principle every resilient
-                        # retry/circuit-breaker implementation follows. Degrade to a
-                        # generic, non-retryable classification instead.
                         try:
                             failure = classify_provider_failure(name, exc)
                         except Exception as classify_exc:
@@ -1117,11 +990,9 @@ def install_router() -> None:
 
     routed_build_plan._is_resilient_router = True
     # Never clobber the newer, more complete explicit Stage Contract router if it is
-    # already the live isco_video_agent.resilient_planner.json_text owner - see the
-    # _EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER comment above. Every other install_router()
-    # side effect (checkpoint bootstrap, telemetry reset, the routed_build_plan
-    # dialogue_qa wrapper) still runs unconditionally; only this module's own provider
-    # loop is skipped when it would not be reachable anyway.
+    # already the live isco_video_agent.resilient_planner.json_text owner. Every other
+    # live compatibility side effect (telemetry reset and routed_build_plan dialogue_qa
+    # wrapper) still runs; this module has no durable cache/schema authority to restore.
     if not getattr(staged.json_text, _EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER, False):
         staged.json_text = task_router
     orchestrator.build_plan = routed_build_plan

@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import scripts.planning_stage_contract as stage_contract
 import scripts.task_level_planner_router as router
 from scripts.provider_failure import classify_provider_failure
 from isco_video_agent.anti_repetition import novelty_context
@@ -50,6 +51,17 @@ def _outline_prompt(n: int = 2) -> str:
         f"Required number of sections: exactly {n}\n"
         "Return ONLY JSON with section_briefs and title_options.\n"
         "section_briefs must be exact."
+    )
+
+
+def _outline_contract(n: int = 2) -> tuple[str, dict]:
+    return ("editorial_outline", stage_contract.outline_stage_spec(n).output_schema)
+
+
+def _section_repair_contract() -> tuple[str, dict]:
+    return (
+        "section_repair",
+        stage_contract.section_repair_stage_spec("s1").output_schema,
     )
 
 
@@ -183,7 +195,10 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
         def post(url, **kwargs):
             seen["url"] = url; seen["json"] = kwargs["json"]
             return _chat_ok({"section_briefs": []})
-        with patch.object(router, "GROQ_MAX_PROMPT_UTF8_BYTES", 100000), patch.object(router.requests, "post", side_effect=post):
+        contract = _outline_contract(2)
+        with patch.object(router, "_structured_schema_for_prompt", return_value=contract), \
+                patch.object(router, "GROQ_MAX_PROMPT_UTF8_BYTES", 100000), \
+                patch.object(router.requests, "post", side_effect=post):
             router._groq_call(_outline_prompt(2))
         fmt = seen["json"]["response_format"]
         self.assertEqual(fmt["type"], "json_schema")
@@ -202,7 +217,7 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
         def post(url, **kwargs):
             seen["url"] = url; seen["json"] = kwargs["json"]
             return _chat_ok({"ok": True})
-        contract = ("section_repair", router._strict_object({"narration": {"type": "string"}}, ["narration"]))
+        contract = _section_repair_contract()
         with patch.object(router.requests, "post", side_effect=post):
             result = router._openrouter_structured_request("prompt", contract)
         self.assertEqual(result, {"ok": True})
@@ -220,7 +235,7 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
             del url
             seen["json"] = kwargs["json"]
             return _chat_ok({"section_briefs": []})
-        contract = router._structured_schema_for_prompt(_outline_prompt(2))
+        contract = _outline_contract(2)
         with patch.object(router.requests, "post", side_effect=post):
             router._openrouter_structured_request(_outline_prompt(2), contract)
         self.assertEqual(
@@ -236,7 +251,7 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
             del url
             payloads.append(kwargs["json"])
             return malformed if len(payloads) == 1 else repaired
-        contract = ("section_repair", router._strict_object({"narration": {"type": "string"}}, ["narration"]))
+        contract = _section_repair_contract()
         with patch.object(router.requests, "post", side_effect=post):
             result = router._openrouter_call_with_repair(original, "openrouter/free", response_contract=contract)
         self.assertEqual(result, {"narration": "ok"})
@@ -247,7 +262,7 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
         self.assertLess(len(second_prompt), router._OPENROUTER_COMPACT_REPAIR_MAX_CHARS + 1000)
 
     def test_openrouter_truncation_is_never_sent_to_syntax_repair(self) -> None:
-        contract = ("section_repair", router._strict_object({"narration": {"type": "string"}}, ["narration"]))
+        contract = _section_repair_contract()
         with patch.object(router.requests, "post", return_value=_chat_ok({"narration": "partial"}, finish_reason="length")) as post:
             with self.assertRaisesRegex(RuntimeError, "PREMATURE_RESPONSE"):
                 router._openrouter_call_with_repair("original", "openrouter/free", response_contract=contract)
