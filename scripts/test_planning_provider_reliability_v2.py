@@ -178,13 +178,21 @@ class PlanningProviderReliabilityV2Tests(unittest.TestCase):
             ["server_error", "server_error", "success"],
         )
 
-    def test_groq_known_contract_uses_strict_json_schema(self) -> None:
+    def test_groq_explicit_contract_uses_strict_json_schema(self) -> None:
         seen: dict = {}
+        contract = ("editorial_outline", router._outline_response_schema(2))
+
+        def _explicit_schema_adapter(_prompt: str):
+            return contract
+
         def post(url, **kwargs):
             seen["url"] = url; seen["json"] = kwargs["json"]
             return _chat_ok({"section_briefs": []})
-        with patch.object(router, "GROQ_MAX_PROMPT_UTF8_BYTES", 100000), patch.object(router.requests, "post", side_effect=post):
-            router._groq_call(_outline_prompt(2))
+
+        with patch.object(router, "_structured_schema_for_prompt", _explicit_schema_adapter), \
+                patch.object(router, "GROQ_MAX_PROMPT_UTF8_BYTES", 100000), \
+                patch.object(router.requests, "post", side_effect=post):
+            router._groq_call("arbitrary prompt wording")
         fmt = seen["json"]["response_format"]
         self.assertEqual(fmt["type"], "json_schema")
         self.assertTrue(fmt["json_schema"]["strict"])
