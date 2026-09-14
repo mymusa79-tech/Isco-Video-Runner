@@ -30,6 +30,8 @@ from provider_failure import (
 from scripts.retry_after_policy import retry_delay_decision
 
 
+# Compatibility surface only. The explicit Planning Stage Contract owns durable
+# checkpoint reads/writes; install_router() below never reads or writes this path.
 CACHE_PATH = Path("state/planning-checkpoint.json")
 CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -130,19 +132,18 @@ def _extract_response_meta(body: dict, choice: dict) -> dict:
 
 
 def _legacy_schema_hint(prompt: str) -> tuple[str, dict] | None:
-    """Best-effort schema hint for callers carrying no explicit stage contract.
+    """Compatibility seam for provider helpers; prompt text has zero schema authority.
 
-    The Explicit Planning Stage Contract (planning_stage_contract.py) replaces
-    _structured_schema_for_prompt process-wide with a resolver that hard-fails outside
-    an active request contract - correct for contract-bound long-form callers (every
-    resilient_planner call binds one). task_router itself remains the legacy/
-    compatibility provider mesh for callers with no stage contract (the native Short
-    planner, via native_short_planner_router.py). A best-effort capacity/telemetry hint
-    must never abort their real, successful call - it only ever affects logging and
-    local capacity estimates, never the actual request sent to a provider.
+    The canonical Planning Stage Contract may replace `_structured_schema_for_prompt`
+    with its `_explicit_schema_adapter`. Only that adapter is eligible here. The
+    historical prompt-inferred resolver remains import-compatible for old tests/guards,
+    but is deliberately ignored by live provider helpers.
     """
+    resolver = globals().get("_structured_schema_for_prompt")
+    if not callable(resolver) or getattr(resolver, "__name__", "") != "_explicit_schema_adapter":
+        return None
     try:
-        return _structured_schema_for_prompt(prompt)
+        return resolver(prompt)
     except Exception:
         return None
 
@@ -368,6 +369,7 @@ def _mistral_token() -> str:
 
 
 def _load_checkpoint() -> dict:
+    """Deprecated compatibility helper; canonical Stage Contract owns checkpoint IO."""
     if not CACHE_PATH.exists():
         return {"version": 1, "responses": {}}
     try:
@@ -382,6 +384,7 @@ def _load_checkpoint() -> dict:
 
 
 def _save_checkpoint(data: dict) -> None:
+    """Deprecated compatibility helper; install_router() never calls this function."""
     tmp = CACHE_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(CACHE_PATH)
@@ -477,6 +480,7 @@ def _outline_response_schema(expected: int) -> dict:
 
 
 def _structured_schema_for_prompt(prompt: str) -> tuple[str, dict] | None:
+    """Deprecated compatibility resolver. Live helpers ignore this prompt-inferred path."""
     expected = _expected_sections(prompt)
     if expected is not None and "section_briefs" in prompt:
         return "editorial_outline", _outline_response_schema(expected)
@@ -911,8 +915,6 @@ def _retry_delay_seconds(provider_name: str, retry_index: int, retry_after: obje
 
 
 def install_router() -> None:
-    checkpoint = _load_checkpoint()
-    responses = checkpoint.setdefault("responses", {})
     cooldown: set[str] = set()
     transient_cooldown_until: dict[str, float] = {}
     last_call_at: dict[str, float] = {}
@@ -957,11 +959,6 @@ def install_router() -> None:
         nonlocal planning_subtask_sequence
         prompt = _enrich_dialogue_prompt(prompt)
         prompt = with_channel_persona(prompt)
-        cache_key = hashlib.sha256((model + "\n" + prompt).encode("utf-8")).hexdigest()
-        cached = responses.get(cache_key)
-        if isinstance(cached, dict):
-            print("Planning checkpoint hit")
-            return cached
 
         _CURRENT_REQUEST_META.clear()
         _CURRENT_REQUEST_META.update(_request_metadata(prompt))
@@ -986,19 +983,6 @@ def install_router() -> None:
                     try:
                         raw = provider(api_key, prompt, model)
                         data = _validate_plan_shaped_sections(_normalize_outline(_parse_json(raw), prompt))
-                        responses[cache_key] = data
-                        checkpoint["last_provider"] = name
-                        try:
-                            _save_checkpoint(checkpoint)
-                        except Exception as save_exc:
-                            # Cross-run checkpoint persistence is a caching optimization,
-                            # not a correctness gate - planning_legacy_authority_guard
-                            # deliberately seals it once the Explicit Planning Stage
-                            # Contract owns checkpointing, for callers still on this
-                            # legacy/compatibility provider mesh (the native Short
-                            # planner). A sealed persistence path must never discard an
-                            # already-successful provider result.
-                            print(f"Planning checkpoint persistence skipped: {save_exc}")
                         _record_provider_used(name)
                         _safe_record_attempt(
                             name,
@@ -1117,11 +1101,9 @@ def install_router() -> None:
 
     routed_build_plan._is_resilient_router = True
     # Never clobber the newer, more complete explicit Stage Contract router if it is
-    # already the live isco_video_agent.resilient_planner.json_text owner - see the
-    # _EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER comment above. Every other install_router()
-    # side effect (checkpoint bootstrap, telemetry reset, the routed_build_plan
-    # dialogue_qa wrapper) still runs unconditionally; only this module's own provider
-    # loop is skipped when it would not be reachable anyway.
+    # already the live isco_video_agent.resilient_planner.json_text owner. Telemetry
+    # reset and the routed_build_plan dialogue_qa wrapper still run unconditionally;
+    # this compatibility provider loop owns neither schema selection nor persistence.
     if not getattr(staged.json_text, _EXPLICIT_STAGE_CONTRACT_ROUTER_MARKER, False):
         staged.json_text = task_router
     orchestrator.build_plan = routed_build_plan
