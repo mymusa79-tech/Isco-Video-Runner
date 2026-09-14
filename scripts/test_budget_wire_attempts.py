@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sys
@@ -106,27 +105,28 @@ class PlannerWireAccountingTests(unittest.TestCase):
     def _install(self) -> None:
         router.install_router()
 
-    # Acceptance matrix #1: checkpoint/cache hit means zero provider calls and zero
-    # provider-attempt records, while the logical task still exists.
-    def test_planner_cache_hit_records_zero_provider_attempts(self) -> None:
-        prompt = "cached-prompt"
-        model = "gemini-2.5-flash"
-        cache_key = hashlib.sha256((model + "\n" + prompt).encode("utf-8")).hexdigest()
+    # Acceptance matrix #1: the retired legacy prompt-hash checkpoint is not an
+    # accounting bypass. Canonical cache-hit semantics are owned and covered by
+    # planning_stage_contract; a historical v1 row presented directly to this helper
+    # must be ignored and the real provider contact must still be counted.
+    def test_legacy_planner_cache_cannot_bypass_provider_accounting(self) -> None:
         router.CACHE_PATH.write_text(
-            json.dumps({"version": 1, "responses": {cache_key: {"cached": True}}}),
+            json.dumps({"version": 1, "responses": {"legacy-prompt-hash": {"cached": True}}}),
             encoding="utf-8",
         )
         ledger = BudgetLedger("film", enforce=False)
 
-        with patch.object(router, "gemini_json_text", side_effect=AssertionError("provider must not be called")):
+        with patch.object(router, "gemini_json_text", return_value={"ok": True}) as gemini:
             self._install()
-            with budget_task_scope(ledger, _spec(), requested_model=model):
-                result = staged.json_text("unused", prompt, model=model)
+            with budget_task_scope(ledger, _spec(), requested_model="gemini-2.5-flash"):
+                result = staged.json_text("unused", "cached-prompt", model="gemini-2.5-flash")
 
-        self.assertEqual(result, {"cached": True})
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(gemini.call_count, 1)
         summary = ledger.to_summary()
         self.assertEqual(summary["logical_tasks"]["total"], 1)
-        self.assertEqual(summary["provider_attempts"]["total"], 0)
+        self.assertEqual(summary["provider_attempts"]["total"], 1)
+        self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 1})
 
     # Acceptance matrix #2: Gemini success = exactly one real attempt.
     def test_planner_gemini_success_records_one_attempt(self) -> None:
