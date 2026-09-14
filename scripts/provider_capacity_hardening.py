@@ -4,6 +4,7 @@ import json
 import math
 import os
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -40,6 +41,7 @@ _DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
 _GROQ_CAPACITY_SCHEMA = 1
 _GROQ_CAPACITY_FILENAME = "groq-model-capacity-v1.json"
 _GROQ_MODEL_RATE_STATE: dict[str, dict] = {}
+_GROQ_MODEL_RATE_STATE_LOCK = threading.RLock()
 # Legacy view kept for Run124/test compatibility. It mirrors the most recently observed
 # model, but no runtime admission decision should use it as model-global authority.
 _GROQ_RATE_STATE: dict[str, float | int | None] = {
@@ -85,6 +87,10 @@ def _empty_model_state() -> dict:
         "actual_tpm_limit": None,
         "remaining_tokens": None,
         "reset_at_epoch": None,
+        "uncertain_until_epoch": None,
+        "last_observed_at_epoch": None,
+        "last_estimated_tokens": None,
+        "last_status": None,
         "blocked_reason": None,
     }
 
@@ -107,13 +113,23 @@ def _load_model_states() -> None:
             continue
         state = _empty_model_state()
         state["contacted"] = bool(raw.get("contacted"))
-        for key in ("actual_tpm_limit", "remaining_tokens"):
+        for key in (
+            "actual_tpm_limit",
+            "remaining_tokens",
+            "last_estimated_tokens",
+            "last_status",
+        ):
             value = raw.get(key)
             if isinstance(value, int) and value >= 0:
                 state[key] = value
-        reset = raw.get("reset_at_epoch")
-        if isinstance(reset, (int, float)) and reset >= 0:
-            state["reset_at_epoch"] = float(reset)
+        for key in (
+            "reset_at_epoch",
+            "uncertain_until_epoch",
+            "last_observed_at_epoch",
+        ):
+            value = raw.get(key)
+            if isinstance(value, (int, float)) and value >= 0:
+                state[key] = float(value)
         blocked = raw.get("blocked_reason")
         if isinstance(blocked, str) and blocked.strip():
             state["blocked_reason"] = blocked.strip()[:160]
@@ -149,31 +165,41 @@ def _model_state(model_name: str) -> dict:
 
 
 def reset_groq_capacity_state_for_tests() -> None:
-    _GROQ_MODEL_RATE_STATE.clear()
-    _GROQ_RATE_STATE["remaining_tokens"] = None
-    _GROQ_RATE_STATE["reset_at_monotonic"] = None
+    with _GROQ_MODEL_RATE_STATE_LOCK:
+        _GROQ_MODEL_RATE_STATE.clear()
+        _GROQ_RATE_STATE["remaining_tokens"] = None
+        _GROQ_RATE_STATE["reset_at_monotonic"] = None
 
 
 def mark_groq_model_unavailable(model_name: str, reason: str) -> None:
-    state = _model_state(model_name)
-    state["blocked_reason"] = str(reason or "unavailable")[:160]
-    state["contacted"] = True
-    _persist_model_states()
+    with _GROQ_MODEL_RATE_STATE_LOCK:
+        state = _model_state(model_name)
+        state["blocked_reason"] = str(reason or "unavailable")[:160]
+        state["contacted"] = True
+        _persist_model_states()
 
 
 def groq_model_blocked(model_name: str) -> bool:
-    return bool(_model_state(model_name).get("blocked_reason"))
+    with _GROQ_MODEL_RATE_STATE_LOCK:
+        return bool(_model_state(model_name).get("blocked_reason"))
+
+
+def groq_capacity_snapshot(model_name: str = _DEFAULT_GROQ_MODEL) -> dict:
+    """Return one immutable view of the shared model-scoped capacity evidence."""
+    with _GROQ_MODEL_RATE_STATE_LOCK:
+        return dict(_model_state(model_name))
 
 
 def groq_effective_tpm_limit(model_name: str = _DEFAULT_GROQ_MODEL) -> int | None:
-    state = _model_state(model_name)
-    actual = state.get("actual_tpm_limit")
-    if isinstance(actual, int) and actual > 0:
-        return actual
-    # The theoretical 8K number is allowed only before first provider contact.
-    if state.get("contacted") is not True:
-        return GROQ_INITIAL_TPM_FALLBACK
-    return None
+    with _GROQ_MODEL_RATE_STATE_LOCK:
+        state = _model_state(model_name)
+        actual = state.get("actual_tpm_limit")
+        if isinstance(actual, int) and actual > 0:
+            return actual
+        # The theoretical 8K number is allowed only before first provider contact.
+        if state.get("contacted") is not True:
+            return GROQ_INITIAL_TPM_FALLBACK
+        return None
 
 
 def _contract_name(prompt: str) -> str:
@@ -309,6 +335,14 @@ def _limit_from_error_text(text: str) -> int | None:
     return None
 
 
+def _fallback_window_seconds(required_tokens: int, limit_tokens: int | None) -> float:
+    """Conservative rolling-window cooldown when a proxy strips Groq headers."""
+    limit = int(limit_tokens or GROQ_INITIAL_TPM_FALLBACK)
+    if limit <= 0:
+        limit = GROQ_INITIAL_TPM_FALLBACK
+    return min(60.0, max(1.0, 60.0 * float(max(1, required_tokens)) / float(limit)))
+
+
 def observe_groq_response(
     response,
     model_name: str = _DEFAULT_GROQ_MODEL,
@@ -316,44 +350,279 @@ def observe_groq_response(
     required_tokens: int | None = None,
 ) -> dict:
     """Persist model-scoped provider evidence from every real Groq response."""
-    state = _model_state(model_name)
-    state["contacted"] = True
+    with _GROQ_MODEL_RATE_STATE_LOCK:
+        state = _model_state(model_name)
+        state["contacted"] = True
+        now_epoch = time.time()
+        status = int(getattr(response, "status_code", 0) or 0)
+        headers = getattr(response, "headers", {}) or {}
 
-    limit = _positive_int(_header_value(response.headers, "x-ratelimit-limit-tokens"))
-    remaining = _positive_int(_header_value(response.headers, "x-ratelimit-remaining-tokens"))
-    reset_seconds = _duration_header_seconds(
-        _header_value(response.headers, "x-ratelimit-reset-tokens")
+        limit = _positive_int(_header_value(headers, "x-ratelimit-limit-tokens"))
+        remaining = _positive_int(_header_value(headers, "x-ratelimit-remaining-tokens"))
+        reset_seconds = _duration_header_seconds(
+            _header_value(headers, "x-ratelimit-reset-tokens")
+        )
+        retry_after_seconds = _duration_header_seconds(_header_value(headers, "retry-after"))
+        error_text = _response_error_text(response)
+
+        if limit is None:
+            limit = _limit_from_error_text(error_text)
+        if isinstance(limit, int) and limit > 0:
+            state["actual_tpm_limit"] = limit
+        if isinstance(remaining, int):
+            state["remaining_tokens"] = remaining
+        elif status == 429:
+            state["remaining_tokens"] = 0
+
+        reset_candidates = [
+            seconds
+            for seconds in (reset_seconds, retry_after_seconds)
+            if isinstance(seconds, (int, float)) and seconds >= 0
+        ]
+        if reset_candidates:
+            # On 429, retry-after can be shorter than the token reset. Waiting for the
+            # later provider signal avoids the exact premature Gold retry seen in #259.
+            state["reset_at_epoch"] = now_epoch + max(reset_candidates)
+
+        required = (
+            int(required_tokens)
+            if isinstance(required_tokens, int) and not isinstance(required_tokens, bool) and required_tokens > 0
+            else None
+        )
+        state["last_observed_at_epoch"] = now_epoch
+        state["last_estimated_tokens"] = required
+        state["last_status"] = status
+
+        headers_complete = remaining is not None and reset_seconds is not None
+        if headers_complete:
+            state["uncertain_until_epoch"] = None
+        elif required is not None:
+            effective_limit = state.get("actual_tpm_limit")
+            fallback = _fallback_window_seconds(
+                required,
+                effective_limit if isinstance(effective_limit, int) else None,
+            )
+            state["uncertain_until_epoch"] = max(
+                float(state.get("uncertain_until_epoch") or 0.0),
+                now_epoch + fallback,
+            )
+            if not reset_candidates and status == 429:
+                state["reset_at_epoch"] = now_epoch + 60.0
+
+        lower = error_text.lower()
+        if (
+            ("tokens per day" in lower or "(tpd)" in lower or " tpd" in lower or "daily token" in lower)
+            and status == 429
+        ):
+            state["blocked_reason"] = "daily_token_quota_exhausted"
+
+        # A previous temporary block should not survive a successful real response.
+        if bool(getattr(response, "ok", False)) and state.get("blocked_reason") == "daily_token_quota_exhausted":
+            state["blocked_reason"] = None
+
+        _persist_model_states()
+
+        # Mirror current evidence only for old Run124 observability; this is not authority.
+        _GROQ_RATE_STATE["remaining_tokens"] = state.get("remaining_tokens")
+        reset_delay = max(reset_candidates) if reset_candidates else None
+        _GROQ_RATE_STATE["reset_at_monotonic"] = (
+            time.monotonic() + reset_delay if reset_delay is not None else None
+        )
+        return dict(state)
+
+
+def mark_groq_rate_limited(
+    model_name: str,
+    reason: object,
+    *,
+    default_cooldown_seconds: float = 60.0,
+) -> dict:
+    """Publish short-window evidence without creating a second Vision-owned ledger."""
+    text = str(reason or "")
+    retry = None
+    match = re.search(r"(?:try again in|retry-after[=: ]+)\s*([0-9.]+)\s*s", text, flags=re.I)
+    if match:
+        try:
+            retry = float(match.group(1))
+        except ValueError:
+            retry = None
+    delay = max(0.0, float(retry if retry is not None else default_cooldown_seconds))
+    with _GROQ_MODEL_RATE_STATE_LOCK:
+        state = _model_state(model_name)
+        now_epoch = time.time()
+        state["contacted"] = True
+        state["remaining_tokens"] = 0
+        state["last_status"] = 429
+        state["last_observed_at_epoch"] = now_epoch
+        state["reset_at_epoch"] = max(
+            float(state.get("reset_at_epoch") or 0.0),
+            now_epoch + delay,
+        )
+        _persist_model_states()
+        return dict(state)
+
+
+def groq_capacity_pacing_decision(
+    model_name: str,
+    required_tokens: int,
+    *,
+    reserve_tokens: int = 0,
+    now_epoch: float | None = None,
+) -> dict:
+    """Decide admission from the one persisted model ledger.
+
+    ``reserve_tokens`` is an admission cushion, not payload size. It is clamped to the
+    provider's real TPM ceiling so a large cushion can require a fresh window without
+    falsely classifying a request that itself fits as impossible.
+    """
+    required = max(0, int(required_tokens))
+    reserve = max(0, int(reserve_tokens))
+    now = time.time() if now_epoch is None else float(now_epoch)
+    with _GROQ_MODEL_RATE_STATE_LOCK:
+        state = _model_state(model_name)
+        blocked = state.get("blocked_reason")
+        limit = groq_effective_tpm_limit(model_name)
+        remaining = state.get("remaining_tokens")
+        if blocked:
+            return {
+                "action": "unavailable",
+                "reason": str(blocked),
+                "required_tokens": required,
+                "reserve_tokens": reserve,
+                "admission_threshold": required,
+                "actual_limit": limit,
+                "remaining_tokens": remaining,
+                "wait_until_epoch": None,
+            }
+        if isinstance(limit, int) and limit > 0 and required > limit:
+            return {
+                "action": "impossible",
+                "reason": (
+                    "actual_limit_below_required"
+                    if state.get("contacted")
+                    else "initial_fallback_below_required"
+                ),
+                "required_tokens": required,
+                "reserve_tokens": reserve,
+                "admission_threshold": required,
+                "actual_limit": limit,
+                "remaining_tokens": remaining,
+                "wait_until_epoch": None,
+            }
+
+        threshold = required + reserve
+        if isinstance(limit, int) and limit > 0:
+            threshold = min(limit, threshold)
+
+        reset_at = state.get("reset_at_epoch")
+        uncertain_until = state.get("uncertain_until_epoch")
+        state_changed = False
+        if isinstance(reset_at, (int, float)) and float(reset_at) <= now:
+            # The provider-declared reset expired, so its remaining count is stale.
+            # Preserve a longer uncertainty window when the response omitted complete
+            # token headers; a short Retry-After must not override that fallback.
+            state["remaining_tokens"] = None
+            state["reset_at_epoch"] = None
+            state_changed = True
+            remaining = None
+            reset_at = None
+        if isinstance(uncertain_until, (int, float)) and float(uncertain_until) <= now:
+            state["uncertain_until_epoch"] = None
+            state_changed = True
+            uncertain_until = None
+        if state_changed:
+            _persist_model_states()
+        wait_until = None
+        reason = "capacity_available"
+        if isinstance(remaining, int) and remaining < threshold:
+            reason = "remaining_below_admission_threshold"
+            future_boundaries = [
+                float(boundary)
+                for boundary in (reset_at, uncertain_until)
+                if isinstance(boundary, (int, float)) and float(boundary) > now
+            ]
+            wait_until = max(future_boundaries, default=now + 60.0)
+        elif isinstance(uncertain_until, (int, float)) and float(uncertain_until) > now:
+            reason = "capacity_headers_incomplete"
+            wait_until = float(uncertain_until)
+
+        return {
+            "action": "wait" if wait_until is not None else ("admit" if limit is not None else "unknown"),
+            "reason": (
+                reason
+                if wait_until is not None
+                else ("capacity_available" if limit is not None else "actual_limit_unobserved")
+            ),
+            "required_tokens": required,
+            "reserve_tokens": reserve,
+            "admission_threshold": threshold,
+            "actual_limit": limit,
+            "remaining_tokens": remaining,
+            "wait_until_epoch": wait_until,
+            "last_observed_at_epoch": state.get("last_observed_at_epoch"),
+        }
+
+
+def pace_groq_capacity(
+    model_name: str,
+    required_tokens: int,
+    *,
+    reserve_tokens: int = 0,
+    max_wait_seconds: float = MAX_RETRY_AFTER_SECONDS,
+    owner: str = "shared",
+) -> float:
+    """Wait before wire when persisted capacity cannot safely admit the request."""
+    now_epoch = time.time()
+    decision = groq_capacity_pacing_decision(
+        model_name,
+        required_tokens,
+        reserve_tokens=reserve_tokens,
+        now_epoch=now_epoch,
     )
-    error_text = _response_error_text(response)
+    if decision["action"] == "impossible":
+        raise router.NoWireProviderFailure(
+            "GROQ_ACTUAL_TPM_BELOW_REQUEST",
+            f"model={model_name} required={decision['required_tokens']} limit={decision['actual_limit']}",
+        )
+    if decision["action"] == "unavailable":
+        raise router.NoWireProviderFailure(
+            "GROQ_MODEL_CAPACITY_UNAVAILABLE",
+            f"model={model_name} reason={decision['reason']}",
+        )
+    if decision["action"] != "wait":
+        return 0.0
 
-    if limit is None:
-        limit = _limit_from_error_text(error_text)
-    if isinstance(limit, int) and limit > 0:
-        state["actual_tpm_limit"] = limit
-    if isinstance(remaining, int):
-        state["remaining_tokens"] = remaining
-    if reset_seconds is not None:
-        state["reset_at_epoch"] = time.time() + reset_seconds
-
-    lower = error_text.lower()
-    if (
-        ("tokens per day" in lower or "(tpd)" in lower or " tpd" in lower or "daily token" in lower)
-        and int(getattr(response, "status_code", 0) or 0) == 429
-    ):
-        state["blocked_reason"] = "daily_token_quota_exhausted"
-
-    # A previous temporary block should not survive a successful real response.
-    if bool(getattr(response, "ok", False)) and state.get("blocked_reason") == "daily_token_quota_exhausted":
-        state["blocked_reason"] = None
-
-    _persist_model_states()
-
-    # Mirror current evidence only for old Run124 observability; this is not authority.
-    _GROQ_RATE_STATE["remaining_tokens"] = state.get("remaining_tokens")
-    _GROQ_RATE_STATE["reset_at_monotonic"] = (
-        time.monotonic() + reset_seconds if reset_seconds is not None else None
+    wait_until = float(decision["wait_until_epoch"])
+    delay = max(0.0, wait_until - now_epoch) + GROQ_RATE_RESET_SAFETY_SECONDS
+    maximum = max(0.0, float(max_wait_seconds))
+    if delay > maximum:
+        raise router.NoWireProviderFailure(
+            "GROQ_TPM_WINDOW_EXCEEDS_WAIT_BUDGET",
+            f"model={model_name} required={decision['required_tokens']} "
+            f"remaining={decision['remaining_tokens']} reset_in={delay:.2f}s max_wait={maximum:.2f}s",
+        )
+    if delay <= 0:
+        return 0.0
+    print(
+        "Groq shared capacity pacing: "
+        f"owner={owner} model={model_name} required={decision['required_tokens']} "
+        f"reserve={decision['reserve_tokens']} threshold={decision['admission_threshold']} "
+        f"remaining={decision['remaining_tokens']} reason={decision['reason']} delay={delay:.2f}s"
     )
-    return dict(state)
+    time.sleep(delay)
+    with _GROQ_MODEL_RATE_STATE_LOCK:
+        state = _model_state(model_name)
+        # Do not erase fresher evidence written while this caller was sleeping. This
+        # matters when Long/Short work shares one interpreter and another provider call
+        # completes during the bounded wait.
+        if state.get("last_observed_at_epoch") == decision.get("last_observed_at_epoch"):
+            state["remaining_tokens"] = None
+            state["reset_at_epoch"] = None
+            state["uncertain_until_epoch"] = None
+            _persist_model_states()
+            _GROQ_RATE_STATE["remaining_tokens"] = None
+            _GROQ_RATE_STATE["reset_at_monotonic"] = None
+    return delay
 
 
 def _update_groq_rate_state(headers, model_name: str = _DEFAULT_GROQ_MODEL) -> None:

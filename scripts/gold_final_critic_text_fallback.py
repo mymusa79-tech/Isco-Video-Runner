@@ -27,29 +27,19 @@ _GOLD_RELEASE_TASK = "GOLD_FINAL_CRITIC_RELEASE_REVIEW"
 _GOLD_OPENING_VISION_TASK = "GOLD_FINAL_CRITIC_OPENING_VISUAL"
 _OPENROUTER_MODEL = "openrouter/free"
 # Physical opening-Vision ceiling on Gold only:
-# Gemini + one explicit provider-directed Gemini retry + Groq + OpenRouter +
-# Cloudflare Workers AI (free-only proof required) = 5.
+# Gemini + one explicit provider-directed Gemini retry + Groq + one explicit
+# provider-directed Groq retry + OpenRouter + Cloudflare Workers AI = 6.
 # Gemini + OpenRouter primary + one explicit alternate-model OpenRouter retry, mirroring
 # Vision's model-diversity recovery for the same class of failure: OpenRouter's
 # `openrouter/free` auto-router can resolve to a model its own catalog has already
 # stopped serving for free by the time the completion request lands (observed live:
 # resolved openai/gpt-oss-20b, rejected 404 model_not_found).
-_FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = 5
+_FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = 6
 _FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS = 3
 _FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS = (
     _FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS + _FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS
 )
 _GEMINI_RETRY_AFTER_WAIT_BUDGET_SECONDS = 30.0
-# Run #252-family follow-up: the shared Vision mesh is a single pass through
-# Gemini -> Groq -> OpenRouter with no sweep-back of its own, unlike Planning's
-# provider loop. Gold's opening-Vision task calls that mesh only once per run, so it
-# never gets the multi-candidate exposure that lets ordinary Visual Retrieval's bounded
-# half-open provider-health recovery close a short rate/quota window on its own. Give
-# Gold exactly one extra full sweep, gated on the mesh's own evidence, after waiting out
-# the same bounded window the shared provider-health registry already uses for
-# rate-limited recovery. This never fires for a hard/permanent block and never repeats.
-_GOLD_MESH_RETRY_WAIT_SECONDS = vision_mesh.health.DEFAULT_RATE_LIMIT_RETRY_SECONDS
-
 # Unlike vision_stage_contract_v2.OPENROUTER_MODELS_URL, this deliberately omits
 # "input_modalities=image": every OpenRouter model accepts text, so the catalog is
 # queried unfiltered and every model is text-eligible before the Python-side filter.
@@ -334,56 +324,6 @@ def _cloudflare_mesh_unavailable(
     )
 
 
-def _mesh_failure_is_bounded_recoverable(mesh_error: BaseException) -> bool:
-    """True only when every reason the mesh reported is quota/rate pressure.
-
-    A hard/permanent block (auth, disabled key, exhaustion with no bounded-window
-    evidence) never matches this, so it never turns a real outage into an extra wait;
-    it only gives a temporary capacity window one more chance to clear before Gold
-    spends its Cloudflare-only fourth provider.
-    """
-    return vision_mesh._quota_or_rate_failure(str(mesh_error))
-
-
-def _retry_mesh_once_after_bounded_wait(
-    ledger,
-    routed_spec: TaskSpec,
-    provider: str,
-    resolved_model: str,
-    retrying_gemini,
-    *args,
-    **kwargs,
-):
-    """Give the shared mesh exactly one more full sweep after a bounded wait.
-
-    The mesh's circuit-open flags live on one state object shared across this Gold
-    task's calls, so clearing them here is required before a retry can reach
-    Gemini/OpenRouter again; shared provider health is re-read fresh by the mesh on
-    every call and needs no separate reset.
-    """
-    state = vision_mesh.contract.legacy._state()
-    state.gemini_open = False
-    state.gemini_reason = ""
-    state.openrouter_open = False
-    state.openrouter_reason = ""
-    print(
-        "Gold Final Critic Vision: mesh reported only bounded quota/rate pressure; "
-        f"honoring one extra full-mesh sweep after wait_seconds={_GOLD_MESH_RETRY_WAIT_SECONDS:.1f}"
-    )
-    update_stage("provider_wait")
-    time.sleep(_GOLD_MESH_RETRY_WAIT_SECONDS)
-    update_stage("gold_vision")
-    return vision_mesh._route_visual_audit_v3(
-        ledger,
-        routed_spec,
-        provider,
-        resolved_model,
-        retrying_gemini,
-        *args,
-        **kwargs,
-    )
-
-
 def _opening_vision_with_mesh(
     original_call_status,
     ledger,
@@ -433,19 +373,6 @@ def _opening_vision_with_mesh(
             **kwargs,
         )
     except vision_mesh.contract.legacy.VisionProviderMeshUnavailableError as mesh_error:
-        if _mesh_failure_is_bounded_recoverable(mesh_error):
-            try:
-                return _retry_mesh_once_after_bounded_wait(
-                    ledger,
-                    routed_spec,
-                    provider,
-                    resolved_model,
-                    retrying_gemini,
-                    *args,
-                    **kwargs,
-                )
-            except vision_mesh.contract.legacy.VisionProviderMeshUnavailableError as retry_error:
-                mesh_error = retry_error
         if len(args) < 2:
             raise vision_mesh.contract.VisionStageError(
                 vision_mesh.contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
@@ -485,9 +412,9 @@ def _ensure_final_critic_provider_budget() -> None:
     """Expand only the release reserve required by the newly reachable provider path.
 
     Run123 budgeted three Final-Critic attempts: opening Vision=1 plus text=2. Gold now
-    permits at most five physical opening-Vision attempts: Gemini + one explicit
-    Retry-After retry + Groq + OpenRouter + one free-only Cloudflare attempt. Text
-    remains capped at two, so the enforcing release path needs seven total slots. Keep
+    permits at most six physical opening-Vision attempts: Gemini + one explicit
+    Retry-After retry + Groq + one shared-ledger Groq retry + OpenRouter + one free-only
+    Cloudflare attempt. Text has its separately bounded mesh. Keep
     the old P2 ceiling unchanged by increasing only the run hard cap and P1+P0 reserve
     by the exact newly reachable delta.
     """

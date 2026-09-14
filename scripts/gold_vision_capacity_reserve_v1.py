@@ -2,10 +2,10 @@ from __future__ import annotations
 
 """Gold Vision priority-admission policy shared by Long and Shorts.
 
-Visual Retrieval & Adjudication V1 remains the sole owner of Groq header parsing and
-TPM pacing. This module does not reserve provider capacity at Groq; it applies a local
-priority-admission margin so non-Gold calls avoid consuming the last observed token
-window when Gemini and OpenRouter are already unavailable.
+Provider Capacity Hardening is the sole owner of Groq header parsing, persisted model
+state, and TPM pacing. This module contributes only Gold priority: both the final
+non-Gold calls (when Groq is the last live route) and Gold itself require an additional
+admission cushion before any wire call.
 
 The one provider-directed Groq retry is exposed truthfully to BudgetLedger and the
 expanded physical-attempt allowance exists only while the Gold fallback context is
@@ -13,12 +13,12 @@ active. No semantic, quality, or security threshold is changed.
 """
 
 import math
-import time
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
 
 from scripts import gold_final_critic_text_fallback as gold_fallback
+from scripts import provider_capacity_hardening as shared_capacity
 from scripts import provider_health_registry as health
 from scripts import run181_vision_mesh_closure as vision_mesh
 from scripts import vision_stage_contract_v2 as vision_contract
@@ -37,9 +37,13 @@ POLICY_NAME = "gold-vision-priority-admission-v1"
 GOLD_RESERVE_FRACTION = 0.80
 GOLD_RESERVE_MIN_TOKENS = 3200
 GOLD_RESERVE_MAX_TOKENS = 4200
-GOLD_GROQ_RETRY_MAX_WAIT_SECONDS = 65.0
+GOLD_VISION_PHYSICAL_ATTEMPT_CAP = 6
 
 _GOLD_ACTIVE: ContextVar[bool] = ContextVar("isco_gold_vision_capacity_active", default=False)
+_GOLD_GROQ_RETRY_SPENT: ContextVar[bool] = ContextVar(
+    "isco_gold_vision_groq_retry_spent",
+    default=False,
+)
 _INSTALLED = False
 
 
@@ -75,7 +79,10 @@ def _scoped_gold_attempt_budget():
     before_vision = int(gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS)
     before_total = int(gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS)
     try:
-        gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = max(5, before_vision)
+        gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS = max(
+            GOLD_VISION_PHYSICAL_ATTEMPT_CAP,
+            before_vision,
+        )
         gold_fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS = (
             int(gold_fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS)
             + int(gold_fallback._FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS)
@@ -92,30 +99,19 @@ def _install_reserve_admission() -> None:
         return
 
     @wraps(current)
-    def reserve_aware_admit(estimated_tokens: int) -> None:
-        state = capacity._capacity_state()
+    def reserve_aware_admit(
+        estimated_tokens: int,
+        *,
+        reserve_tokens: int = 0,
+    ) -> float:
         estimate = max(1, int(estimated_tokens))
-        if not _GOLD_ACTIVE.get() and _groq_is_last_live_vision_provider():
-            remaining = state.remaining_tokens
-            reset = state.reset_tokens_seconds
-            reserve = _gold_reserve_tokens(estimate)
-            if (
-                remaining is not None
-                and reset is not None
-                and remaining < estimate + reserve
-                and reset > 0.01
-            ):
-                bounded = min(float(reset), capacity.GROQ_MAX_BOUNDED_WAIT_SECONDS)
-                print(
-                    "Gold Vision Priority Admission V1: delaying non-Gold Groq call "
-                    f"remaining_tokens={remaining} next_estimate={estimate} "
-                    f"priority_margin={reserve} wait_seconds={bounded:.2f}"
-                )
-                time.sleep(bounded)
-                if float(reset) <= capacity.GROQ_MAX_BOUNDED_WAIT_SECONDS:
-                    state.remaining_tokens = None
-                    state.reset_tokens_seconds = None
-        return current(estimate)
+        needs_gold_cushion = _GOLD_ACTIVE.get() or _groq_is_last_live_vision_provider()
+        policy_reserve = _gold_reserve_tokens(estimate) if needs_gold_cushion else 0
+        # Keep the strongest request when a targeted retry explicitly carries the same
+        # Gold cushion through this wrapper. Never add both values and accidentally make
+        # an otherwise feasible request exceed the provider's real TPM ceiling.
+        reserve = max(0, int(reserve_tokens), policy_reserve)
+        return current(estimate, reserve_tokens=reserve)
 
     reserve_aware_admit._isco_gold_capacity_reserve_v1 = True
     reserve_aware_admit._isco_gold_capacity_original = current
@@ -134,21 +130,43 @@ def _install_gold_groq_retry() -> None:
         except vision_contract.VisionStageError as exc:
             if (
                 not _GOLD_ACTIVE.get()
+                or _GOLD_GROQ_RETRY_SPENT.get()
                 or exc.code is not vision_contract.VisionErrorCode.PROVIDER_TRANSIENT
                 or not vision_mesh._quota_or_rate_failure(exc.detail)
             ):
                 raise
-            state = capacity._capacity_state()
-            delay = max(0.0, float(state.next_allowed_monotonic) - time.monotonic())
-            if delay <= 0.01 or delay > GOLD_GROQ_RETRY_MAX_WAIT_SECONDS:
+            state = shared_capacity.groq_capacity_snapshot(vision_mesh.GROQ_VISION_MODEL)
+            if state.get("blocked_reason"):
                 raise
+            estimate = state.get("last_estimated_tokens")
+            if not isinstance(estimate, int) or estimate <= 0:
+                raise
+            decision = shared_capacity.groq_capacity_pacing_decision(
+                vision_mesh.GROQ_VISION_MODEL,
+                estimate,
+                reserve_tokens=_gold_reserve_tokens(estimate),
+            )
+            wait_until = decision.get("wait_until_epoch")
+            if decision.get("action") != "wait" or not isinstance(wait_until, (int, float)):
+                raise
+            _GOLD_GROQ_RETRY_SPENT.set(True)
             print(
-                "Gold Vision Priority Admission V1: honoring Groq cooldown once; "
-                f"delay_seconds={delay:.3f}"
+                "Gold Vision Priority Admission V1: honoring one shared-ledger Groq "
+                f"cooldown; reason={decision['reason']}"
             )
             update_stage("provider_wait")
-            time.sleep(delay)
-            update_stage("gold_vision")
+            try:
+                try:
+                    capacity._admit_groq(
+                        estimate,
+                        reserve_tokens=_gold_reserve_tokens(estimate),
+                    )
+                except Exception as wait_error:
+                    # Preserve the typed provider failure expected by the Vision mesh;
+                    # a no-wire wait-budget refusal must not escape as an internal error.
+                    raise exc from wait_error
+            finally:
+                update_stage("gold_vision")
             return current(*args, **kwargs)
 
     gold_retry_once._isco_gold_groq_retry_v1 = True
@@ -166,6 +184,7 @@ def _install_gold_scope() -> None:
     @contextmanager
     def scoped_gold_fallback():
         token = _GOLD_ACTIVE.set(True)
+        retry_token = _GOLD_GROQ_RETRY_SPENT.set(False)
         try:
             with (
                 gold_over_capacity_cooldown_scope(),
@@ -174,6 +193,7 @@ def _install_gold_scope() -> None:
             ):
                 yield
         finally:
+            _GOLD_GROQ_RETRY_SPENT.reset(retry_token)
             _GOLD_ACTIVE.reset(token)
 
     scoped_gold_fallback._isco_gold_capacity_scope_v1 = True
@@ -196,7 +216,7 @@ def install_gold_vision_capacity_reserve_v1() -> None:
     _install_gold_scope()
     _INSTALLED = True
     print(
-        "Gold Vision Priority Admission V1 installed: shared Long+Short local capacity margin; "
-        "one bounded provider-directed Groq retry; Gold-only physical Vision cap=5; "
+        "Gold Vision Priority Admission V1 installed: persisted Long+Short Gold admission cushion; "
+        "one run-scoped provider-directed Groq retry; Gold-only physical Vision cap=6; "
         "semantic/quality/security gates unchanged"
     )

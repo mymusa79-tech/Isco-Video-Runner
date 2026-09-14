@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
+from scripts import provider_capacity_hardening as shared_capacity
 from scripts import provider_health_registry as health
 from scripts import run181_vision_mesh_closure as run181
 from scripts import visual_retrieval_adjudication_v1 as v1
@@ -18,11 +19,11 @@ class VisualRetrievalRuntimeScopeV1Tests(unittest.TestCase):
 
     def setUp(self) -> None:
         health.reset_provider_health()
-        v1._GROQ_CAPACITY.set(None)
+        shared_capacity.reset_groq_capacity_state_for_tests()
 
     def tearDown(self) -> None:
         health.reset_provider_health()
-        v1._GROQ_CAPACITY.set(None)
+        shared_capacity.reset_groq_capacity_state_for_tests()
 
     def test_scope_is_false_by_default_and_nested_safe(self) -> None:
         self.assertFalse(scope.active())
@@ -68,8 +69,10 @@ class VisualRetrievalRuntimeScopeV1Tests(unittest.TestCase):
         self.assertEqual(evidence.source, "scope-test")
 
     def test_short_window_qwen_rate_limit_becomes_cooldown_inside_production(self) -> None:
-        with mock.patch.object(contract.legacy, "_state", return_value=object()), mock.patch.object(
-            v1.time, "monotonic", return_value=100.0
+        with mock.patch.object(
+            shared_capacity.time,
+            "time",
+            return_value=100.0,
         ), scope.visual_retrieval_runtime_scope():
             health.publish_provider_unavailable(
                 "groq",
@@ -83,10 +86,10 @@ class VisualRetrievalRuntimeScopeV1Tests(unittest.TestCase):
                 model=run181.GROQ_VISION_MODEL,
                 quota_domain=run181.GROQ_VISION_QUOTA_DOMAIN,
             )
-            state = v1._GROQ_CAPACITY.get()
+            state = shared_capacity.groq_capacity_snapshot(run181.GROQ_VISION_MODEL)
         self.assertIsNone(evidence)
-        self.assertIsNotNone(state)
-        self.assertAlmostEqual(state.next_allowed_monotonic, 107.5, places=2)
+        self.assertAlmostEqual(state["reset_at_epoch"], 107.5, places=2)
+        self.assertEqual(state["remaining_tokens"], 0)
 
     def test_daily_qwen_limit_remains_hard_block_inside_production(self) -> None:
         with scope.visual_retrieval_runtime_scope():
@@ -111,6 +114,19 @@ class VisualRetrievalRuntimeScopeV1Tests(unittest.TestCase):
         active = getattr(sampler, "_isco_visual_scope_active_target")
         self.assertIsNot(inactive, active)
         self.assertTrue(getattr(active, "_isco_contact_sheet_v1", False))
+
+    def test_groq_capacity_transport_remains_shared_outside_retrieval_scope(self) -> None:
+        proxy = run181.requests
+        self.assertIsInstance(proxy, scope._ScopedRequestsProxy)
+        with mock.patch.object(proxy._active_proxy, "post", return_value="shared") as active, mock.patch.object(
+            proxy._base,
+            "post",
+            return_value="legacy",
+        ) as legacy:
+            result = proxy.post(run181.GROQ_CHAT_URL, json={})
+        self.assertEqual(result, "shared")
+        active.assert_called_once()
+        legacy.assert_not_called()
 
 
 if __name__ == "__main__":

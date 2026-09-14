@@ -15,9 +15,9 @@ Vision itself:
 4. Replace the fallback transport's three separate images with one six-tile chronological
    contact sheet. Groq documents each input image as 2048 tokens; one contact sheet keeps
    temporal evidence while reducing image-token pressure from 6144 to 2048.
-5. Pace Groq Vision from its live rate-limit response headers. A short TPM cooldown is a
-   waitable capacity state, not permanent provider death. Daily/auth/model failures retain
-   the existing hard-unavailable semantics.
+5. Forward every Groq Vision response to the shared persisted model-capacity owner. A
+   short TPM cooldown is waitable across production, Gold, and sibling subprocesses;
+   daily/auth/model failures retain the existing hard-unavailable semantics.
 
 No visual threshold, Cultural/Islamic gate, Security gate, candidate/review ceiling, or
 semantic BLOCK behavior is weakened here.
@@ -29,7 +29,6 @@ import math
 import re
 import subprocess
 import tempfile
-import time
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import wraps
@@ -42,9 +41,11 @@ import isco_video_agent.opening_director as opening_director
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.section_visual_sequence as section_visual_sequence
 import isco_video_agent.visual_selection as visual_selection
+from scripts import provider_capacity_hardening as shared_capacity
 from scripts import provider_health_registry as health
 from scripts import run181_vision_mesh_closure as run181
 from scripts import vision_stage_contract_v2 as contract
+from scripts.provider_wire_attempt_contract import NoWireVisionStageError
 
 
 CONTRACT_ID = "visual-retrieval-adjudication-v1"
@@ -93,22 +94,6 @@ class VisualIntent:
     raw: str
     anchors: frozenset[str]
     expanded: frozenset[str]
-
-
-@dataclass(slots=True)
-class _GroqCapacityState:
-    scope: object | None = None
-    next_allowed_monotonic: float = 0.0
-    remaining_tokens: int | None = None
-    reset_tokens_seconds: float | None = None
-    last_estimated_tokens: int = 0
-    last_status: int | None = None
-
-
-_GROQ_CAPACITY: ContextVar[_GroqCapacityState | None] = ContextVar(
-    "isco_visual_groq_capacity_v1",
-    default=None,
-)
 
 
 def _stem(token: str) -> str:
@@ -405,32 +390,6 @@ def _install_rank_hooks() -> None:
     section_visual_sequence.rank_and_interleave = wrapped
 
 
-def _parse_duration_seconds(value: object) -> float | None:
-    text = str(value or "").strip().lower()
-    if not text:
-        return None
-    try:
-        return max(0.0, float(text))
-    except ValueError:
-        pass
-    total = 0.0
-    matched = False
-    for amount, unit in re.findall(r"([0-9]+(?:\.[0-9]+)?)\s*(ms|s|m|h)", text):
-        matched = True
-        number = float(amount)
-        total += number * {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}[unit]
-    return total if matched else None
-
-
-def _capacity_state() -> _GroqCapacityState:
-    scope = contract.legacy._state()
-    current = _GROQ_CAPACITY.get()
-    if current is None or current.scope is not scope:
-        current = _GroqCapacityState(scope=scope)
-        _GROQ_CAPACITY.set(current)
-    return current
-
-
 def _estimate_payload_tokens(payload: object) -> int:
     if not isinstance(payload, dict):
         return GROQ_IMAGE_TOKENS + GROQ_OUTPUT_TOKEN_RESERVE + 1800
@@ -458,64 +417,31 @@ def _estimate_payload_tokens(payload: object) -> int:
     return max(1, images * GROQ_IMAGE_TOKENS + text_tokens + output_reserve)
 
 
-def _fallback_interval_seconds(estimated_tokens: int) -> float:
-    return min(60.0, max(1.0, 60.0 * float(max(1, estimated_tokens)) / float(GROQ_FREE_TPM_HINT)))
-
-
-def _admit_groq(estimated_tokens: int) -> None:
-    state = _capacity_state()
-    now = time.monotonic()
-    wait = max(0.0, state.next_allowed_monotonic - now)
-    if wait > 0.01:
-        bounded = min(wait, GROQ_MAX_BOUNDED_WAIT_SECONDS)
-        print(
-            "Vision Capacity V1: bounded Groq TPM wait "
-            f"seconds={bounded:.2f} remaining_tokens={state.remaining_tokens} "
-            f"last_estimate={state.last_estimated_tokens} next_estimate={estimated_tokens}"
-        )
-        time.sleep(bounded)
-    state.last_estimated_tokens = int(estimated_tokens)
+def _admit_groq(estimated_tokens: int, *, reserve_tokens: int = 0) -> float:
+    """Delegate every Vision admission to the persisted model-scoped owner."""
+    return shared_capacity.pace_groq_capacity(
+        run181.GROQ_VISION_MODEL,
+        int(estimated_tokens),
+        reserve_tokens=max(0, int(reserve_tokens)),
+        max_wait_seconds=GROQ_MAX_BOUNDED_WAIT_SECONDS,
+        owner="vision",
+    )
 
 
 def _observe_groq_headers(response, estimated_tokens: int) -> None:
-    state = _capacity_state()
-    state.last_status = int(getattr(response, "status_code", 0) or 0)
-    headers = getattr(response, "headers", {}) or {}
-    try:
-        remaining = int(str(headers.get("x-ratelimit-remaining-tokens") or "").strip())
-    except (TypeError, ValueError):
-        remaining = None
-    reset = _parse_duration_seconds(headers.get("x-ratelimit-reset-tokens"))
-    retry_after = _parse_duration_seconds(headers.get("retry-after"))
-    state.remaining_tokens = remaining
-    state.reset_tokens_seconds = reset
-    now = time.monotonic()
-
-    if state.last_status == 429 and retry_after is not None:
-        state.next_allowed_monotonic = max(state.next_allowed_monotonic, now + retry_after)
-        return
-    if remaining is not None and remaining < estimated_tokens and reset is not None:
-        state.next_allowed_monotonic = max(state.next_allowed_monotonic, now + reset)
-        return
-    # Headers should normally be present. Keep a conservative fallback if a proxy strips
-    # them so two ~4-5K-token Vision calls cannot burst into an 8K TPM window.
-    if remaining is None or reset is None:
-        state.next_allowed_monotonic = max(
-            state.next_allowed_monotonic,
-            now + _fallback_interval_seconds(estimated_tokens),
-        )
+    shared_capacity.observe_groq_response(
+        response,
+        run181.GROQ_VISION_MODEL,
+        required_tokens=int(estimated_tokens),
+    )
 
 
 def _observe_external_rate_limit(reason: object) -> None:
-    state = _capacity_state()
-    text = str(reason or "")
-    retry = None
-    match = re.search(r"try again in\s+([0-9.]+)\s*s", text, flags=re.I)
-    if match:
-        retry = float(match.group(1))
-    if retry is None:
-        retry = 60.0
-    state.next_allowed_monotonic = max(state.next_allowed_monotonic, time.monotonic() + retry)
+    shared_capacity.mark_groq_rate_limited(
+        run181.GROQ_VISION_MODEL,
+        reason,
+        default_cooldown_seconds=60.0,
+    )
 
 
 def _is_daily_groq_limit(reason: object) -> bool:
@@ -572,7 +498,32 @@ class _Run181RequestsProxy:
         if str(url) != run181.GROQ_CHAT_URL:
             return self._base.post(url, *args, **kwargs)
         estimated = _estimate_payload_tokens(kwargs.get("json"))
-        _admit_groq(estimated)
+        try:
+            _admit_groq(estimated)
+        except Exception as exc:
+            if getattr(exc, "wire_attempted", None) is not False:
+                raise
+            reason_code = str(getattr(exc, "reason_code", ""))
+            transient = reason_code in {
+                "GROQ_TPM_WINDOW_BUSY_PRECHECK",
+                "GROQ_TPM_WINDOW_EXCEEDS_WAIT_BUDGET",
+            }
+            detail = str(exc)
+            if transient:
+                # Keep the existing Vision mesh's rate classification and bounded
+                # fallback behavior while preserving explicit zero-wire accounting.
+                detail = f"HTTP_429 rate limit pre-admission {detail}"
+            raise NoWireVisionStageError(
+                (
+                    contract.VisionErrorCode.PROVIDER_TRANSIENT
+                    if transient
+                    else contract.VisionErrorCode.CAPACITY
+                ),
+                detail,
+                provider="groq",
+                requested_model=run181.GROQ_VISION_MODEL,
+                resolved_model=run181.GROQ_VISION_MODEL,
+            ) from exc
         response = self._base.post(url, *args, **kwargs)
         _observe_groq_headers(response, estimated)
         return response
@@ -714,6 +665,6 @@ def install_visual_retrieval_adjudication_v1() -> None:
     _INSTALLED = True
     print(
         "Visual Retrieval & Adjudication V1 installed: local intent-aware metadata rerank+MMR; "
-        "Pixabay/Pexels intelligence preserved; Groq header-aware TPM admission; 6-frame single-image "
+        "Pixabay/Pexels intelligence preserved; shared persisted Groq TPM admission; 6-frame single-image "
         "contact sheet; Long+Short shared Vision gates unchanged"
     )
