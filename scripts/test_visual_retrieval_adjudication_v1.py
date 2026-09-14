@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import unittest
@@ -7,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from scripts import provider_capacity_hardening as shared_capacity
 from scripts import visual_retrieval_adjudication_v1 as v1
 
 
@@ -22,10 +24,10 @@ def _candidate(asset_id: int, *, url: str, tags: str = "", views: int = 0) -> di
 
 class VisualRetrievalAdjudicationV1Tests(unittest.TestCase):
     def setUp(self) -> None:
-        v1._GROQ_CAPACITY.set(None)
+        shared_capacity.reset_groq_capacity_state_for_tests()
 
     def tearDown(self) -> None:
-        v1._GROQ_CAPACITY.set(None)
+        shared_capacity.reset_groq_capacity_state_for_tests()
 
     def test_intent_rerank_lifts_semantically_relevant_candidate(self) -> None:
         intent = v1.build_visual_intent("drawing a boundary line in a relationship")
@@ -100,37 +102,65 @@ class VisualRetrievalAdjudicationV1Tests(unittest.TestCase):
         self.assertLess(one, v1.GROQ_FREE_TPM_HINT)
 
     def test_rate_headers_schedule_next_call_from_tpm_reset(self) -> None:
-        state = v1._GroqCapacityState(scope=object())
-        token = v1._GROQ_CAPACITY.set(state)
-        try:
-            fake_scope = state.scope
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            os.environ,
+            {"RUNNER_TEMP": temp_dir},
+            clear=False,
+        ):
             response = SimpleNamespace(
+                ok=True,
                 status_code=200,
                 headers={
+                    "x-ratelimit-limit-tokens": "8000",
                     "x-ratelimit-remaining-tokens": "1500",
                     "x-ratelimit-reset-tokens": "12.5s",
                 },
+                json=lambda: {},
             )
-            with mock.patch.object(v1.contract.legacy, "_state", return_value=fake_scope), mock.patch.object(
-                v1.time, "monotonic", return_value=100.0
+            with mock.patch.object(
+                shared_capacity.time,
+                "time",
+                return_value=100.0,
             ):
                 v1._observe_groq_headers(response, estimated_tokens=4000)
-            self.assertEqual(state.remaining_tokens, 1500)
-            self.assertAlmostEqual(state.next_allowed_monotonic, 112.5, places=3)
-        finally:
-            v1._GROQ_CAPACITY.reset(token)
+            state = shared_capacity.groq_capacity_snapshot(v1.run181.GROQ_VISION_MODEL)
+            self.assertEqual(state["remaining_tokens"], 1500)
+            self.assertAlmostEqual(state["reset_at_epoch"], 112.5, places=3)
+            self.assertEqual(state["last_estimated_tokens"], 4000)
 
     def test_retry_after_is_parsed_as_bounded_cooldown_not_permanent_death(self) -> None:
-        state = v1._GroqCapacityState(scope=object())
-        token = v1._GROQ_CAPACITY.set(state)
-        try:
-            with mock.patch.object(v1.contract.legacy, "_state", return_value=state.scope), mock.patch.object(
-                v1.time, "monotonic", return_value=50.0
-            ):
-                v1._observe_external_rate_limit("429 rate limit; try again in 8.75s")
-            self.assertAlmostEqual(state.next_allowed_monotonic, 58.75, places=2)
-        finally:
-            v1._GROQ_CAPACITY.reset(token)
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            os.environ,
+            {"RUNNER_TEMP": temp_dir},
+            clear=False,
+        ), mock.patch.object(
+            shared_capacity.time,
+            "time",
+            return_value=50.0,
+        ):
+            v1._observe_external_rate_limit("429 rate limit; try again in 8.75s")
+            state = shared_capacity.groq_capacity_snapshot(v1.run181.GROQ_VISION_MODEL)
+            self.assertAlmostEqual(state["reset_at_epoch"], 58.75, places=2)
+            self.assertEqual(state["remaining_tokens"], 0)
+
+    def test_no_wire_capacity_refusal_stays_typed_and_never_posts(self) -> None:
+        base = mock.Mock()
+        proxy = v1._Run181RequestsProxy(base)
+        refusal = shared_capacity.router.NoWireProviderFailure(
+            "GROQ_TPM_WINDOW_EXCEEDS_WAIT_BUDGET",
+            "model=qwen reset_in=90s",
+        )
+        with mock.patch.object(v1, "_admit_groq", side_effect=refusal):
+            with self.assertRaises(v1.NoWireVisionStageError) as raised:
+                proxy.post(v1.run181.GROQ_CHAT_URL, json={"messages": []})
+
+        self.assertIs(raised.exception.wire_attempted, False)
+        self.assertIs(
+            raised.exception.code,
+            v1.contract.VisionErrorCode.PROVIDER_TRANSIENT,
+        )
+        self.assertIn("HTTP_429 rate limit pre-admission", raised.exception.detail)
+        base.post.assert_not_called()
 
     def test_daily_groq_limit_remains_hard_unavailable(self) -> None:
         self.assertTrue(v1._is_daily_groq_limit("tokens per day limit reached"))

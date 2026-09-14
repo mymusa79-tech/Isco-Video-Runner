@@ -54,7 +54,11 @@ class ControlBundleRuntimeTests(unittest.TestCase):
 
     def test_child_runtime_uses_clean_subprocess_and_exact_hashed_request(self):
         child = self._child()
-        with tempfile.TemporaryDirectory() as temp, patch.object(control, "_output_dirs", return_value=set()), patch.object(
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            control.os.environ,
+            {"RUNNER_TEMP": temp},
+            clear=False,
+        ), patch.object(control, "_output_dirs", return_value=set()), patch.object(
             control, "_new_output_dir", return_value=Path(temp) / "output-short"
         ), patch.object(control.subprocess, "run") as run:
             result = control.execute_child_subprocess(
@@ -70,6 +74,9 @@ class ControlBundleRuntimeTests(unittest.TestCase):
             self.assertTrue(command[1].endswith("run_control_production.py"))
             self.assertTrue(kwargs["check"])
             env = kwargs["env"]
+            # Sequential derived Shorts retain the shared runtime location used by the
+            # model-capacity ledger; approval/checkpoint state and secret files stay isolated.
+            self.assertEqual(env["RUNNER_TEMP"], temp)
             self.assertEqual(env["CONTROL_PLANE_PRODUCTION_ENABLED"], "true")
             self.assertEqual(env["ISCO_CONTROL_REQUEST_SHA256"], child["request_sha256"])
             request_path = Path(env["ISCO_CONTROL_REQUEST_PATH"])

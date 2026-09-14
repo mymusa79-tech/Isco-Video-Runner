@@ -209,7 +209,7 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         self.assertEqual(summary["provider_attempts"]["total"], 3)
         self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 1, "openrouter": 2})
 
-    def test_opening_vision_enters_existing_run181_mesh_with_five_attempt_task_cap(self) -> None:
+    def test_opening_vision_enters_existing_run181_mesh_with_six_attempt_task_cap(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
         expected = {"status": "pass"}
         with patch.object(
@@ -238,11 +238,11 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         routed_spec = route.call_args.args[1]
         self.assertEqual(routed_spec.task_id, "GOLD_FINAL_CRITIC_OPENING_VISUAL")
         self.assertEqual(routed_spec.kind, "VISUAL_AUDIT")
-        self.assertEqual(routed_spec.max_provider_attempts, 5)
+        self.assertEqual(routed_spec.max_provider_attempts, 6)
         self.assertTrue(routed_spec.semantic_block_is_final)
         self.assertIs(routed_spec.priority, Priority.P0)
 
-    def test_shared_mesh_exhaustion_uses_cloudflare_once(self) -> None:
+    def test_shared_mesh_exhaustion_uses_cloudflare_without_replaying_mesh(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
         mesh_error = fallback.vision_mesh.contract.legacy.VisionProviderMeshUnavailableError(
             "Vision provider mesh unavailable: gemini=429 | groq=429 | openrouter=capacity"
@@ -275,29 +275,28 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
             )
 
         self.assertIs(result, expected)
-        # The mesh's own reasons are all bounded quota/rate pressure, so Gold spends
-        # its one extra full-mesh sweep before falling through to Cloudflare.
-        self.assertEqual(route.call_count, 2)
-        sleep.assert_called_once_with(fallback._GOLD_MESH_RETRY_WAIT_SECONDS)
+        self.assertEqual(route.call_count, 1)
+        sleep.assert_not_called()
         cloudflare.assert_called_once()
         self.assertEqual(cloudflare.call_args.kwargs["preview"], preview)
         self.assertEqual(cloudflare.call_args.kwargs["narration_context"], "ctx")
         self.assertEqual(cloudflare.call_args.kwargs["intended_visual"], "intent")
 
-    def test_bounded_recoverable_mesh_failure_gets_one_extra_sweep_that_succeeds(self) -> None:
+    def test_mixed_hard_and_transient_mesh_failure_never_replays_hard_routes(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
         mesh_error = fallback.vision_mesh.contract.legacy.VisionProviderMeshUnavailableError(
-            "Vision provider mesh unavailable: gemini=quota exceeded | groq=429 | openrouter=rate_limit"
+            "Vision provider mesh unavailable: gemini=daily quota exhausted | "
+            "groq=HTTP 429 rate_limit | openrouter=key spend capacity exhausted"
         )
         expected = {"status": "pass"}
         with tempfile.TemporaryDirectory() as root, fallback.vision_mesh.contract.legacy.vision_provider_circuit_scope(), patch.object(
             fallback.vision_mesh,
             "_route_visual_audit_v3",
-            side_effect=[mesh_error, expected],
+            side_effect=mesh_error,
         ) as route, patch.object(
             fallback.cloudflare_vision,
             "run_gold_cloudflare_attempt",
-            side_effect=AssertionError("a recovered second sweep must not reach Cloudflare"),
+            return_value=expected,
         ), patch.object(
             fallback.time,
             "sleep",
@@ -320,14 +319,11 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
             )
 
         self.assertIs(result, expected)
-        self.assertEqual(route.call_count, 2)
-        sleep.assert_called_once_with(fallback._GOLD_MESH_RETRY_WAIT_SECONDS)
-        self.assertEqual(
-            [call.args[0] for call in progress.call_args_list],
-            ["provider_wait", "gold_vision"],
-        )
+        self.assertEqual(route.call_count, 1)
+        sleep.assert_not_called()
+        progress.assert_not_called()
 
-    def test_hard_mesh_failure_skips_the_extra_sweep_and_goes_straight_to_cloudflare(self) -> None:
+    def test_hard_mesh_failure_goes_straight_to_cloudflare(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
         mesh_error = fallback.vision_mesh.contract.legacy.VisionProviderMeshUnavailableError(
             "Vision provider mesh unavailable: gemini=AUTH_CONFIG invalid api key | "
@@ -361,7 +357,6 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
             )
 
         self.assertIs(result, expected)
-        # No evidence of bounded/recoverable pressure means the extra sweep never fires.
         self.assertEqual(route.call_count, 1)
         sleep.assert_not_called()
         cloudflare.assert_called_once()
@@ -605,9 +600,9 @@ class GoldFinalCriticProviderMeshTests(unittest.TestCase):
         baseline_attempts = int(fallback.run123._FINAL_CRITIC_PROVIDER_ATTEMPTS)
         expected_delta = max(0, fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS - baseline_attempts)
 
-        self.assertEqual(fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS, 5)
+        self.assertEqual(fallback._FINAL_CRITIC_VISION_MAX_PROVIDER_ATTEMPTS, 6)
         self.assertEqual(fallback._FINAL_CRITIC_TEXT_MAX_PROVIDER_ATTEMPTS, 3)
-        self.assertEqual(fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS, 8)
+        self.assertEqual(fallback._FINAL_CRITIC_TOTAL_PROVIDER_ATTEMPTS, 9)
         with fallback._final_critic_provider_budget_scope():
             for fmt, baseline_cap in fallback.run123.RUN123_PROVIDER_ATTEMPT_HARD_CAP.items():
                 self.assertGreaterEqual(

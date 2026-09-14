@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -287,6 +288,176 @@ class Run126RootCauseClosureTests(unittest.TestCase):
                 )
             self.assertGreater(delayed, 0.0)
             sleep.assert_called_once()
+
+    def test_run259_remaining_that_fits_payload_does_not_bypass_gold_cushion(self) -> None:
+        model = "qwen/qwen3.8-27b"
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"RUNNER_TEMP": td},
+            clear=False,
+        ), patch.object(capacity.time, "time", return_value=100.0):
+            response = _Response(
+                200,
+                {"choices": []},
+                headers={
+                    "x-ratelimit-limit-tokens": "8000",
+                    "x-ratelimit-remaining-tokens": "5024",
+                    "x-ratelimit-reset-tokens": "22.32s",
+                },
+            )
+            capacity.observe_groq_response(response, model, required_tokens=4113)
+
+            ordinary = capacity.groq_capacity_pacing_decision(model, 4113)
+            gold = capacity.groq_capacity_pacing_decision(
+                model,
+                4113,
+                reserve_tokens=3291,
+            )
+
+            self.assertEqual(ordinary["action"], "admit")
+            self.assertEqual(gold["action"], "wait")
+            self.assertEqual(gold["admission_threshold"], 7404)
+            self.assertEqual(gold["wait_until_epoch"], 122.32)
+
+    def test_429_uses_later_token_reset_instead_of_shorter_retry_after(self) -> None:
+        model = "qwen/qwen3.8-27b"
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"RUNNER_TEMP": td},
+            clear=False,
+        ), patch.object(capacity.time, "time", return_value=100.0):
+            response = _Response(
+                429,
+                {"error": {"type": "rate_limit_exceeded", "message": "TPM rate limit"}},
+                headers={
+                    "x-ratelimit-limit-tokens": "8000",
+                    "x-ratelimit-remaining-tokens": "0",
+                    "x-ratelimit-reset-tokens": "22.32s",
+                    "retry-after": "4.714",
+                },
+            )
+            state = capacity.observe_groq_response(response, model, required_tokens=4113)
+
+        self.assertEqual(state["remaining_tokens"], 0)
+        self.assertAlmostEqual(state["reset_at_epoch"], 122.32, places=3)
+        self.assertEqual(state["last_status"], 429)
+
+    def test_missing_token_reset_uses_conservative_window_beyond_retry_after(self) -> None:
+        model = "qwen/qwen3.8-27b"
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"RUNNER_TEMP": td},
+            clear=False,
+        ), patch.object(capacity.time, "time", return_value=100.0):
+            response = _Response(
+                429,
+                {"error": {"type": "rate_limit_exceeded", "message": "TPM rate limit"}},
+                headers={
+                    "x-ratelimit-limit-tokens": "8000",
+                    "retry-after": "4.714",
+                },
+            )
+            state = capacity.observe_groq_response(response, model, required_tokens=4113)
+            immediate = capacity.groq_capacity_pacing_decision(
+                model,
+                4113,
+                reserve_tokens=3291,
+                now_epoch=100.0,
+            )
+            after_short_retry = capacity.groq_capacity_pacing_decision(
+                model,
+                4113,
+                reserve_tokens=3291,
+                now_epoch=105.0,
+            )
+
+        expected = 100.0 + (60.0 * 4113.0 / 8000.0)
+        self.assertAlmostEqual(state["reset_at_epoch"], 104.714, places=3)
+        self.assertAlmostEqual(state["uncertain_until_epoch"], expected, places=3)
+        self.assertEqual(immediate["action"], "wait")
+        self.assertAlmostEqual(immediate["wait_until_epoch"], expected, places=3)
+        self.assertEqual(after_short_retry["action"], "wait")
+        self.assertAlmostEqual(after_short_retry["wait_until_epoch"], expected, places=3)
+
+    def test_shared_pacer_waits_for_later_token_reset_plus_safety_once(self) -> None:
+        model = "qwen/qwen3.8-27b"
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"RUNNER_TEMP": td},
+            clear=False,
+        ), patch.object(capacity.time, "time", return_value=100.0):
+            response = _Response(
+                429,
+                {"error": {"type": "rate_limit_exceeded", "message": "TPM rate limit"}},
+                headers={
+                    "x-ratelimit-limit-tokens": "8000",
+                    "x-ratelimit-remaining-tokens": "0",
+                    "x-ratelimit-reset-tokens": "22.32s",
+                    "retry-after": "4.714",
+                },
+            )
+            capacity.observe_groq_response(response, model, required_tokens=4113)
+            with patch.object(capacity.time, "sleep") as sleep:
+                delayed = capacity.pace_groq_capacity(
+                    model,
+                    4113,
+                    reserve_tokens=3291,
+                    max_wait_seconds=65.0,
+                    owner="gold-test",
+                )
+            cleared = capacity.groq_capacity_snapshot(model)
+
+        self.assertAlmostEqual(delayed, 23.82, places=3)
+        sleep.assert_called_once_with(delayed)
+        self.assertIsNone(cleared["remaining_tokens"])
+        self.assertIsNone(cleared["reset_at_epoch"])
+
+    def test_capacity_evidence_reloads_for_next_subprocess_owner(self) -> None:
+        model = "qwen/qwen3.8-27b"
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"RUNNER_TEMP": td},
+            clear=False,
+        ):
+            observed_at = capacity.time.time()
+            response = _Response(
+                200,
+                {"choices": []},
+                headers={
+                    "x-ratelimit-limit-tokens": "8000",
+                    "x-ratelimit-remaining-tokens": "1200",
+                    "x-ratelimit-reset-tokens": "31s",
+                },
+            )
+            capacity.observe_groq_response(response, model, required_tokens=4113)
+            child = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import json; "
+                        "from scripts import provider_capacity_hardening as c; "
+                        f"m={model!r}; "
+                        "print(json.dumps({"
+                        "'snapshot': c.groq_capacity_snapshot(m), "
+                        "'decision': c.groq_capacity_pacing_decision(m, 4113, reserve_tokens=3291)"
+                        "}))"
+                    ),
+                ],
+                cwd=ROOT,
+                env={**os.environ, "RUNNER_TEMP": td},
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            restored = json.loads(child.stdout.strip().splitlines()[-1])
+
+        self.assertEqual(restored["snapshot"]["remaining_tokens"], 1200)
+        self.assertEqual(restored["snapshot"]["last_estimated_tokens"], 4113)
+        self.assertGreaterEqual(restored["snapshot"]["reset_at_epoch"], observed_at + 30.9)
+        self.assertEqual(restored["decision"]["action"], "wait")
+        self.assertEqual(restored["decision"]["admission_threshold"], 7404)
 
 
 if __name__ == "__main__":

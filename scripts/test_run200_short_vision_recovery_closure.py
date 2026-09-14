@@ -66,9 +66,6 @@ class Run200TechnicalRetryTests(unittest.TestCase):
         self.assertTrue(result["availability_recovery_attempted"])
 
     def test_same_candidate_half_open_retries_once_for_a_503_capacity_outage_too(self) -> None:
-        # Real production evidence (req-c39f532991c1): Groq returned HTTP 503 "over
-        # capacity" for the Short cinematic beat search, and nothing retried it --
-        # production failed closed after ~13 minutes of otherwise-successful work.
         calls = {"n": 0}
 
         def base_factory(audit_fn, intended_visual):
@@ -78,7 +75,9 @@ class Run200TechnicalRetryTests(unittest.TestCase):
                 del args, kwargs
                 calls["n"] += 1
                 technical_503 = dict(TECHNICAL)
-                technical_503["reason"] = "Vision provider call failed technically: HTTP_503 over capacity"
+                technical_503["reason"] = (
+                    "Vision provider call failed technically: HTTP_503 over capacity"
+                )
                 return technical_503 if calls["n"] == 1 else dict(PASS)
 
             return base
@@ -110,39 +109,49 @@ class Run200TechnicalRetryTests(unittest.TestCase):
         self.assertTrue(closure._is_technical_unavailable(result))
         self.assertEqual(calls["n"], 1)
 
-    def test_active_cooldown_requires_a_transient_status_and_bounded_future_deadline(self) -> None:
-        state = types.SimpleNamespace(last_status=429, next_allowed_monotonic=110.0)
-        with mock.patch.object(closure.visual_v1, "_capacity_state", return_value=state), mock.patch.object(
-            closure.time, "monotonic", return_value=100.0
+    def test_active_cooldown_requires_transient_status_and_bounded_future_deadline(self) -> None:
+        state = {"last_status": 429, "reset_at_epoch": 110.0, "uncertain_until_epoch": None}
+        with mock.patch.object(
+            closure.shared_capacity,
+            "groq_capacity_snapshot",
+            return_value=state,
+        ), mock.patch.object(
+            closure.time, "time", return_value=100.0
         ):
             self.assertEqual(closure._active_groq_cooldown_seconds(), 10.0)
 
-        # Real production evidence (req-c39f532991c1): a Groq HTTP 503 "over capacity"
-        # response already populates this same owned-cooldown state (via
-        # visual_v1._observe_groq_headers' no-headers fallback), so 503 must be
-        # eligible too -- not just 429.
         for transient_status in (500, 502, 503, 504):
-            state.last_status = transient_status
-            state.next_allowed_monotonic = 110.0
+            state["last_status"] = transient_status
+            state["reset_at_epoch"] = None
+            state["uncertain_until_epoch"] = 110.0
             with self.subTest(status=transient_status), mock.patch.object(
-                closure.visual_v1, "_capacity_state", return_value=state
-            ), mock.patch.object(closure.time, "monotonic", return_value=100.0):
+                closure.shared_capacity,
+                "groq_capacity_snapshot",
+                return_value=state,
+            ), mock.patch.object(closure.time, "time", return_value=100.0):
                 self.assertEqual(closure._active_groq_cooldown_seconds(), 10.0)
 
-        # A genuinely non-transient status (e.g. a client-error 400) must never be
-        # treated as an owned cooldown, even if next_allowed_monotonic happens to carry
-        # a stale future value from an earlier transient failure.
-        state.last_status = 400
-        state.next_allowed_monotonic = 110.0
-        with mock.patch.object(closure.visual_v1, "_capacity_state", return_value=state), mock.patch.object(
-            closure.time, "monotonic", return_value=100.0
+        state["last_status"] = 400
+        state["reset_at_epoch"] = None
+        state["uncertain_until_epoch"] = 110.0
+        with mock.patch.object(
+            closure.shared_capacity,
+            "groq_capacity_snapshot",
+            return_value=state,
+        ), mock.patch.object(
+            closure.time, "time", return_value=100.0
         ):
             self.assertIsNone(closure._active_groq_cooldown_seconds())
 
-        state.last_status = 429
-        state.next_allowed_monotonic = 100.0 + closure.MAX_HALF_OPEN_WAIT_SECONDS + 1.0
-        with mock.patch.object(closure.visual_v1, "_capacity_state", return_value=state), mock.patch.object(
-            closure.time, "monotonic", return_value=100.0
+        state["last_status"] = 429
+        state["reset_at_epoch"] = 100.0 + closure.MAX_HALF_OPEN_WAIT_SECONDS + 1.0
+        state["uncertain_until_epoch"] = None
+        with mock.patch.object(
+            closure.shared_capacity,
+            "groq_capacity_snapshot",
+            return_value=state,
+        ), mock.patch.object(
+            closure.time, "time", return_value=100.0
         ):
             self.assertIsNone(closure._active_groq_cooldown_seconds())
 

@@ -7,9 +7,11 @@ continue to observe the historical Engine/V2 surfaces unless they explicitly ent
 canonical production run. This module makes that boundary explicit instead of relying on
 process lifetime or test ordering.
 
-Only ``orchestrator.produce()`` activates V1 transport/reranking semantics. The Vision
-contract fingerprint remains globally V1-bound because durable production audit identity
-must reflect the installed production policy even before a run begins.
+Only ``orchestrator.produce()`` activates V1 retrieval/reranking/contact-sheet semantics.
+The Groq capacity observer is deliberately run-wide so post-produce Gold cannot lose the
+same model's token-window evidence. The Vision contract fingerprint remains globally
+V1-bound because durable production audit identity must reflect the installed production
+policy even before a run begins.
 """
 
 from contextlib import contextmanager
@@ -121,6 +123,13 @@ class _ScopedRequestsProxy:
         return target.get(*args, **kwargs)
 
     def post(self, *args, **kwargs):
+        # Capacity is a run-wide transport invariant, not a retrieval-only feature.
+        # Gold executes after orchestrator.produce(), so its Groq call must still pass
+        # through the same persisted observer even though ranking/contact-sheet hooks
+        # correctly return to their legacy surfaces outside this scope.
+        url = args[0] if args else kwargs.get("url")
+        if str(url) == run181.GROQ_CHAT_URL:
+            return self._active_proxy.post(*args, **kwargs)
         target = self._active_proxy if _ACTIVE.get() else self._base
         return target.post(*args, **kwargs)
 
@@ -224,6 +233,6 @@ def install_visual_retrieval_runtime_scope_v1() -> None:
     _install_produce_scope()
     _INSTALLED = True
     print(
-        "Visual Retrieval V1 runtime scope installed: active only inside orchestrator.produce; "
-        "direct V2/Run181 diagnostics preserve historical transport and health semantics"
+        "Visual Retrieval V1 runtime scope installed: retrieval hooks active only inside "
+        "orchestrator.produce; shared Groq capacity transport remains active through Gold"
     )

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 The Short finishing seam runs after ``orchestrator.produce()`` and therefore must
 explicitly re-enter the canonical Visual Retrieval runtime scope. Run200 adds one bounded
-same-candidate availability half-open after an already-observed Groq 429, preserves the
-server/header cooldown, keeps semantic/security verdicts authoritative, and reports an
-unmade technical verdict as ``VISION_UNAVAILABLE`` rather than false stock exhaustion.
+same-candidate availability half-open after an already-observed transient Groq failure,
+preserves the shared cooldown, keeps semantic/security verdicts authoritative, and reports
+an unmade technical verdict as ``VISION_UNAVAILABLE`` rather than false stock exhaustion.
 
 All composition in this module is request-scoped and restored in ``finally``. No process-
 lifetime monkey patch is allowed to escape the Short finishing seam.
@@ -23,6 +23,7 @@ from typing import Any, Iterator
 import isco_video_agent.orchestrator as orchestrator
 import isco_video_agent.visual_selection as visual_selection
 from scripts import opening_feasibility_guard as opening_guard
+from scripts import provider_capacity_hardening as shared_capacity
 from scripts import provider_health_registry as health
 from scripts import run181_vision_mesh_closure as run181
 from scripts import short_cinematic_director as short_director
@@ -30,23 +31,13 @@ from scripts import visual_retrieval_adjudication_v1 as visual_v1
 from scripts import visual_retrieval_runtime_scope_v1 as visual_scope
 
 
-CONTRACT_ID = "run200-short-visual-runtime-recovery-v4"
+CONTRACT_ID = "run200-short-visual-runtime-recovery-v3"
 MAX_HALF_OPEN_WAIT_SECONDS = float(visual_v1.GROQ_MAX_BOUNDED_WAIT_SECONDS)
 PARTIAL_AUDIT_FILENAME = "short-cinematic-visual-audit.partial.json"
 
-# Originally 429-only. Real production evidence (req-c39f532991c1: Groq HTTP 503
-# "qwen/qwen3.8-27b is currently over capacity") proved that the same owned-cooldown
-# state this half-open retry relies on is already populated for a transient 5xx
-# capacity outage too, not only a 429: _Run181RequestsProxy.post() calls
-# visual_v1._observe_groq_headers() unconditionally on every Groq HTTP response, and
-# that function's fallback branch (`if remaining is None or reset is None`) sets
-# next_allowed_monotonic to a conservative bounded interval whenever the rate-limit
-# headers are absent - exactly the case on a plain 503 service outage, which never
-# carries them the way a 429 sometimes does. Only this status-code gate was 429-only;
-# broadening it to the same transient set opening_feasibility_guard's
-# _TRANSIENT_VISION_PROVIDER_MARKERS already treats as transient lets the retry
-# actually fire for them too, without inventing any new wait duration or touching how
-# that duration is computed.
+# Real production also observed Groq HTTP 503 "over capacity" on Short cinematic work.
+# The central capacity owner records a conservative uncertainty window for headerless
+# transient responses, so the same one-time half-open is valid for this bounded set.
 _HALF_OPEN_ELIGIBLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 
 _ACTIVE_ROOT: ContextVar[Path | None] = ContextVar("isco_run200_short_visual_root", default=None)
@@ -63,12 +54,21 @@ def _is_technical_unavailable(payload: object) -> bool:
 
 
 def _active_groq_cooldown_seconds() -> float | None:
-    """Return only an already-owned live cooldown from a transient Groq failure (rate
-    limit or a transient 5xx capacity outage); never invent a new sleep or duration."""
-    state = visual_v1._capacity_state()
-    if int(state.last_status or 0) not in _HALF_OPEN_ELIGIBLE_STATUS_CODES:
+    """Return only a central live transient cooldown; never invent a new sleep."""
+    state = shared_capacity.groq_capacity_snapshot(run181.GROQ_VISION_MODEL)
+    if int(state.get("last_status") or 0) not in _HALF_OPEN_ELIGIBLE_STATUS_CODES:
         return None
-    remaining = max(0.0, float(state.next_allowed_monotonic) - time.monotonic())
+    deadlines = [
+        float(value)
+        for value in (
+            state.get("reset_at_epoch"),
+            state.get("uncertain_until_epoch"),
+        )
+        if isinstance(value, (int, float))
+    ]
+    if not deadlines:
+        return None
+    remaining = max(0.0, max(deadlines) - time.time())
     if remaining <= 0.01 or remaining > MAX_HALF_OPEN_WAIT_SECONDS:
         return None
     return remaining
@@ -95,7 +95,7 @@ def _make_exact_groq_cooldown_publisher(current):
             wait = _active_groq_cooldown_seconds()
             if wait is not None:
                 print(
-                    "Run200 Vision recovery: preserving observed Groq 429 cooldown "
+                    "Run200 Vision recovery: preserving observed Groq transient cooldown "
                     f"seconds={wait:.2f} source={source}"
                 )
                 return None
