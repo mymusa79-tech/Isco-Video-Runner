@@ -5,8 +5,18 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from scripts import audio_production_contract_v2 as contract
+
+
+class _CapacityErrorWithRetryAfter(RuntimeError):
+    """A 429 carrying a provider-supplied retry delay, the way real HTTP transports do."""
+
+    def __init__(self, retry_after_seconds: float) -> None:
+        super().__init__("429 RESOURCE_EXHAUSTED. quota exceeded")
+        self.status_code = 429
+        self.headers = {"Retry-After": str(retry_after_seconds)}
 
 
 class AudioProductionContractV2Tests(unittest.TestCase):
@@ -251,6 +261,81 @@ class AudioProductionContractV2Tests(unittest.TestCase):
             self.assertEqual(events[0][0], "upload")
             self.assertIn(("generate", "gemini-3.7-flash"), events)
             self.assertEqual(events[-1], ("delete", "files/audio-contract-test"))
+
+    def test_capacity_failure_with_retry_after_hint_is_retried_once_and_recovers(self) -> None:
+        # Real production evidence (req-c39f532991c1): Gemini's independent audio audit
+        # hit a plain 429 RESOURCE_EXHAUSTED with no retry, so a borderline-but-real Groq
+        # semantic_review could never be confirmed and production failed AUDIT_UNAVAILABLE.
+        # When the provider *does* supply a retry delay, one bounded retry must recover.
+        expected = "استمر رغم الصعوبة اليوم"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._base_long(root, expected)
+            calls = {"n": 0}
+
+            def flaky_gemini(_audio: Path) -> str:
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise _CapacityErrorWithRetryAfter(5.0)
+                return expected
+
+            with mock.patch.object(contract.time, "sleep") as sleep_mock:
+                result = contract.require_audio_production_contract_v2(
+                    root,
+                    extractor=self._extract,
+                    groq_transcriber=lambda _audio: (_ for _ in ()).throw(RuntimeError("groq unavailable")),
+                    gemini_transcriber=flaky_gemini,
+                )
+            self.assertEqual(result["decision"], "pass")
+            self.assertEqual(result["accepted_provider"], "gemini-audio")
+            self.assertEqual(calls["n"], 2)
+            sleep_mock.assert_called_once_with(5.0)
+
+    def test_capacity_failure_without_retry_after_hint_is_never_retried(self) -> None:
+        # This is the exact real failure mode: a quota-exhaustion message with no
+        # parseable retry delay must not invent a wait -- it fails exactly as before.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._base_long(root, "لا تتراجع عن قرارك")
+            calls = {"n": 0}
+
+            def gemini_no_hint(_audio: Path) -> str:
+                calls["n"] += 1
+                raise RuntimeError("429 RESOURCE_EXHAUSTED. quota exceeded")
+
+            with mock.patch.object(contract.time, "sleep") as sleep_mock:
+                with self.assertRaisesRegex(contract.AudioProductionContractError, "AUDIT_UNAVAILABLE"):
+                    contract.require_audio_production_contract_v2(
+                        root,
+                        extractor=self._extract,
+                        groq_transcriber=lambda _audio: "تراجع عن قرارك",
+                        gemini_transcriber=gemini_no_hint,
+                    )
+            self.assertEqual(calls["n"], 1)
+            sleep_mock.assert_not_called()
+
+    def test_retry_after_hint_exceeding_local_budget_fails_over_without_waiting(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._base_long(root)
+            calls = {"n": 0}
+
+            def gemini_huge_hint(_audio: Path) -> str:
+                calls["n"] += 1
+                raise _CapacityErrorWithRetryAfter(
+                    contract.PROVIDER_AUDIT_RETRY_WAIT_BUDGET_SECONDS + 1.0
+                )
+
+            with mock.patch.object(contract.time, "sleep") as sleep_mock:
+                with self.assertRaises(contract.AudioProductionContractError):
+                    contract.require_audio_production_contract_v2(
+                        root,
+                        extractor=self._extract,
+                        groq_transcriber=lambda _audio: (_ for _ in ()).throw(RuntimeError("groq unavailable")),
+                        gemini_transcriber=gemini_huge_hint,
+                    )
+            self.assertEqual(calls["n"], 1)
+            sleep_mock.assert_not_called()
 
     def test_gemini_small_audio_stays_inline_without_files_api(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

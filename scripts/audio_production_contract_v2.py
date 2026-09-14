@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -17,6 +18,8 @@ from scripts.groq_audio_audit import (
     narration_from_plan,
     transcribe_audio,
 )
+from scripts.provider_failure import classify_provider_failure
+from scripts.retry_after_policy import retry_delay_decision
 
 CONTRACT_ID = "audio.production.v2"
 SCHEMA_VERSION = 2
@@ -24,6 +27,18 @@ AUDIT_FILENAME = "audio-production-contract-v2.json"
 DEFAULT_GEMINI_AUDIT_MODEL = "gemini-3.7-flash"
 MAX_PROVIDER_ATTEMPTS = 2
 MAX_INLINE_AUDIO_BYTES = 19_000_000
+
+# Real production evidence (req-c39f532991c1): the Gemini fallback auditor hit a plain
+# 429 RESOURCE_EXHAUSTED mid-run while the primary Groq transcript was a borderline
+# semantic_review, so the contract correctly failed closed with AUDIT_UNAVAILABLE --
+# the mismatch was never confirmed because the independent auditor never got to run.
+# Neither transcriber call has ever had any retry. This gives each one bounded retry,
+# but ONLY when the provider itself supplies a parseable retry delay (classify_provider_
+# failure's retry_after_seconds, the same evidence retry_after_policy.py already treats
+# as a minimum, not a suggestion, everywhere else in this codebase) -- never a locally
+# invented wait for an unconfirmed capacity/backoff guess. A quota exhaustion with no
+# such hint, or any non-429 failure, is retried zero times, identical to today.
+PROVIDER_AUDIT_RETRY_WAIT_BUDGET_SECONDS = 30.0
 
 AUDIO_OWNER_MAP = {
     "synthesis_provider_retry": "voice_mesh",
@@ -264,6 +279,34 @@ def _gemini_transcribe(audio_path: Path) -> str:
     )
 
 
+def _transcribe_with_bounded_capacity_retry(
+    provider: str, audio_path: Path, transcriber: Callable[[Path], str]
+) -> str:
+    """Give one technically-failed transcription attempt a single bounded retry, but
+    only when the provider itself supplies a parseable retry delay; never invent one."""
+    try:
+        return transcriber(audio_path)
+    except Exception as exc:
+        try:
+            failure = classify_provider_failure(provider, exc)
+        except Exception:
+            raise exc
+        if failure.telemetry_result != "429" or failure.retry_after_seconds is None:
+            raise
+        decision = retry_delay_decision(
+            provider_hint=failure.retry_after_seconds,
+            wait_budget_seconds=PROVIDER_AUDIT_RETRY_WAIT_BUDGET_SECONDS,
+        )
+        if decision.action != "retry" or decision.delay_seconds is None:
+            raise
+        print(
+            "Audio Production Contract V2 bounded capacity retry: "
+            f"provider={provider} retry_after={decision.delay_seconds:.2f}s"
+        )
+        time.sleep(decision.delay_seconds)
+        return transcriber(audio_path)
+
+
 def _provider_attempt(
     *,
     provider: str,
@@ -272,7 +315,7 @@ def _provider_attempt(
     transcriber: Callable[[Path], str],
 ) -> tuple[dict[str, Any], bool]:
     try:
-        actual = transcriber(audio_path)
+        actual = _transcribe_with_bounded_capacity_retry(provider, audio_path, transcriber)
         comparison = compare_transcripts(expected.transcript, actual)
         passed = comparison.get("decision") == "pass"
         return (
