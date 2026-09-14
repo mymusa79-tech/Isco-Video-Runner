@@ -124,7 +124,9 @@ class PlannerWireAccountingTests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(gemini.call_count, 1)
         summary = ledger.to_summary()
-        self.assertEqual(summary["logical_tasks"]["total"], 1)
+        # Once the legacy cache no longer short-circuits execution, the normal router
+        # creates its bounded PLANNING_SUBTASK child under the OUTLINE_PLAN parent.
+        self.assertEqual(summary["logical_tasks"]["total"], 2)
         self.assertEqual(summary["provider_attempts"]["total"], 1)
         self.assertEqual(summary["provider_attempts"]["by_provider"], {"gemini": 1})
 
