@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 import unittest
 from pathlib import Path
 
@@ -27,6 +28,24 @@ def _calls(fn: ast.FunctionDef) -> set[str]:
         elif isinstance(target, ast.Attribute):
             names.add(target.attr)
     return names
+
+
+def _production_files_referencing(symbol: str) -> set[str]:
+    """Return production Python files containing an exact symbol reference.
+
+    This is an authority-boundary test, not a generic topology snapshot: it protects
+    the small allow-list of modules permitted to mention the retired authority seams.
+    Test modules are excluded because they intentionally exercise those seams.
+    """
+    pattern = re.compile(rf"\b{re.escape(symbol)}\b")
+    found: set[str] = set()
+    for path in ROOT.glob("*.py"):
+        if path.name.startswith("test_"):
+            continue
+        text = path.read_text(encoding="utf-8")
+        if pattern.search(text):
+            found.add(path.name)
+    return found
 
 
 class LegacyPlanningAuthorityRemovalTests(unittest.TestCase):
@@ -73,6 +92,35 @@ class LegacyPlanningAuthorityRemovalTests(unittest.TestCase):
         text = ast.get_source_segment(self.source, fn) or ""
         self.assertNotIn("CACHE_PATH", text)
         self.assertNotIn("Planning checkpoint hit", text)
+
+    def test_repo_wide_prompt_schema_authority_call_sites_are_closed(self) -> None:
+        self.assertEqual(
+            _production_files_referencing("_structured_schema_for_prompt"),
+            {
+                "task_level_planner_router.py",
+                "planning_stage_contract.py",
+                "planning_legacy_authority_guard.py",
+            },
+        )
+
+    def test_repo_wide_legacy_checkpoint_read_call_sites_are_closed(self) -> None:
+        self.assertEqual(
+            _production_files_referencing("_load_checkpoint"),
+            {
+                "task_level_planner_router.py",
+                "planning_legacy_authority_guard.py",
+            },
+        )
+
+    def test_repo_wide_checkpoint_write_name_is_limited_to_owner_and_guard(self) -> None:
+        self.assertEqual(
+            _production_files_referencing("_save_checkpoint"),
+            {
+                "task_level_planner_router.py",
+                "planning_stage_contract.py",
+                "planning_legacy_authority_guard.py",
+            },
+        )
 
     def test_live_provider_helpers_are_preserved(self) -> None:
         names = {node.name for node in self.tree.body if isinstance(node, ast.FunctionDef)}
