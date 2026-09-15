@@ -30,6 +30,17 @@ _ACTIVE_CLOSER: ContextVar[str | None] = ContextVar("isco_append_retry_active_cl
 # still protects the aggregate 1450-word ceiling when headroom is tight.
 _RESIDUAL_SAFETY_WORDS = 30
 
+_APPEND_ONLY_DECLARATIVE_CONTRACT = """
+APPEND_TEXT CONTENT CONTRACT (mandatory):
+- append_text must contain declarative prose only.
+- Do not add the Arabic question mark "؟" or the ASCII question mark "?" anywhere in append_text.
+- Do not create any new rhetorical or interrogative sentence.
+- Deepen the SAME existing idea only with natural declarative sentences: a concrete example, consequence, distinction,
+  clarification, or practical implication.
+- Leave every question already present in current_narration unchanged.
+- Do not delete, rewrite, paraphrase, or replace any previous narration; preserve strict append-only semantics.
+""".strip()
+
 
 def _word_count(text: str) -> int:
     return staged._word_count(text)
@@ -360,6 +371,8 @@ and this JSON accidentally omits otherwise-valid targets, or returns a structura
 leave that section below {section_minimum}, the host may make at most one bounded target-completion request. No partial
 text is applied before the complete set passes every hard bound.
 
+{_APPEND_ONLY_DECLARATIVE_CONTRACT}
+
 Deepen the SAME existing key_point with genuinely new spoken Arabic: a concrete example, consequence, distinction,
 clarification, or practical implication. Do not repeat the current narration merely to inflate length. Do not add generic
 motivational filler, unsupported factual/medical claims, Quran/hadith quotations, or new religious attributions.
@@ -428,6 +441,8 @@ Selected narrative_format: {narrative_format} — {format_rule}
 Hard individual Film section band: {section_minimum}-{section_maximum} words each.
 Remaining aggregate headroom after held valid additions: {completion_headroom} words.
 
+{_APPEND_ONLY_DECLARATIVE_CONTRACT}
+
 TARGETS_TO_COMPLETE:
 {json.dumps(pending_specs, ensure_ascii=False)}
 
@@ -491,6 +506,8 @@ Topic: {json.dumps(topic, ensure_ascii=False)}
 Selected narrative_format: {narrative_format} — {format_rule}
 Hard individual Film section band: {section_minimum}-{section_maximum} words each.
 Remaining aggregate headroom: {rescue_headroom} words.
+
+{_APPEND_ONLY_DECLARATIVE_CONTRACT}
 
 TARGETS_TO_COMPLETE:
 {json.dumps(rescue_specs, ensure_ascii=False)}
