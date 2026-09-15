@@ -179,7 +179,17 @@ def install_structural_editorial_contract() -> None:
     if current_append_owner is not None and not getattr(
         current_append_owner, _APPEND_WRAPPER_MARKER, False
     ):
-        staged._script_doctor_underlength_retry = _with_pre_append_probe(current_append_owner)
+        wrapped_append_owner = _with_pre_append_probe(current_append_owner)
+        staged._script_doctor_underlength_retry = wrapped_append_owner
+
+        # word_band_repair_contract deliberately binds BOTH this Engine hook and the
+        # append_retry_guard module global to the same final projected repair owner.
+        # Preserve that single-owner identity when adding the structural boundary
+        # probe, otherwise the post-build residual path could bypass the same guard.
+        from scripts import append_retry_guard as append_guard
+
+        if getattr(append_guard, "_repair_all_residual_underlength", None) is current_append_owner:
+            append_guard._repair_all_residual_underlength = wrapped_append_owner
 
     current_build = staged.build_plan
     if not getattr(current_build, _BUILD_WRAPPER_MARKER, False):
