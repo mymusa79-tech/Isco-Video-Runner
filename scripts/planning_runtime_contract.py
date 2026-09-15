@@ -132,6 +132,10 @@ def install_entrypoint_planning_contracts() -> None:
     install_structural_editorial_contract()
     install_attempt9_schema_normalizer()
     install_append_retry_guard()
+    # append_retry_guard intentionally replaces the Engine under-length repair hook.
+    # Re-run the SAME idempotent structural owner so its post-Doctor/pre-append probe
+    # binds to the final append function rather than adding a second repair lifecycle.
+    install_structural_editorial_contract()
     install_word_band_repair_contract()
     install_planning_stage_boundaries()
     assert_planning_stage_contract_installed()
