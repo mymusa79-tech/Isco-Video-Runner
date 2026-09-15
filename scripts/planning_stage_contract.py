@@ -1027,11 +1027,18 @@ def _provider_failure(
     # excluded here, since only a real TPM ceiling (not a window preflight) is genuinely
     # permanent.
     time_window_capacity_markers = ("tpm_capacity_preflight", "tpm_window")
-    code = (
-        PlanningErrorCode.CAPACITY
-        if any(marker in lower for marker in capacity_markers)
-        else PlanningErrorCode.PROVIDER_TRANSIENT
-    )
+    # Run #267 reached Groq on-wire for planning.full_script, received syntactically
+    # valid JSON with a non-object root, and router._parse_json raised this exact
+    # response-contract error before json_text could return a dict. This is structural
+    # output failure, not provider availability. Keep this marker local to Planning so
+    # the shared provider classifier/budget/circuit semantics remain unchanged.
+    structural_response_markers = ("provider json must be an object",)
+    if any(marker in lower for marker in capacity_markers):
+        code = PlanningErrorCode.CAPACITY
+    elif any(marker in lower for marker in structural_response_markers):
+        code = PlanningErrorCode.STRUCTURAL_INVALID
+    else:
+        code = PlanningErrorCode.PROVIDER_TRANSIENT
     retryable = (
         code == PlanningErrorCode.CAPACITY
         and any(marker in lower for marker in time_window_capacity_markers)
