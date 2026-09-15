@@ -3,10 +3,13 @@ from __future__ import annotations
 """Single-owner Film word-band preservation and local-repair context contract.
 
 This module adds no provider, retry, or quality-gate owner. It composes the existing
-append_retry_guard with two deterministic policies:
+append_retry_guard with deterministic policies:
 1) Script Doctor may improve Film sections, but it may not turn a section that was
    already inside the hard 110-170 word band into a new word-band defect.
 2) Residual append repair receives only the minimum sufficient editorial context.
+3) Immediately before append-only repair, the authoritative Engine structural detector
+   records whether excessive rhetorical questions survived Script Doctor. If Doctor
+   cleared that flag, append-only text may not reintroduce an Arabic question sentence.
    The existing Planning Stage Contract remains the sole retry/capacity owner.
 """
 
@@ -15,17 +18,25 @@ from typing import Any
 
 import isco_video_agent.repair_dossier as repair_dossier
 import isco_video_agent.resilient_planner as staged
+from isco_video_agent.editorial_room import structural_ai_flags
 from scripts import append_retry_guard as append_guard
 
 
 _REPAIR_MARKER = "_isco_word_band_projected_context"
 _DOCTOR_MARKER = "_isco_word_band_doctor_preservation"
+_RHETORICAL_QUESTIONS_FLAG = "excessive_rhetorical_questions"
 
 _LOCAL_REPAIR_RULE = (
     "Do not introduce any new externally verifiable factual, medical, scientific, "
     "legal, or religious claim. Deepen only the target's existing idea using wording, "
     "reasoning, consequences, distinctions, or everyday examples already supported by "
     "the current narration and canonical editorial intent."
+)
+_APPEND_NO_NEW_RHETORICAL_RULE = (
+    "Script Doctor already cleared the authoritative excessive-rhetorical-questions "
+    "signal before this append-only length repair. Do not introduce any new Arabic "
+    "question-mark sentence (؟) in append_text; deepen the same idea with direct "
+    "statements instead."
 )
 
 
@@ -39,7 +50,7 @@ def _json_object(raw: str, label: str) -> dict[str, Any]:
     return value
 
 
-def _project_policy_json(raw: str) -> str:
+def _project_policy_json(raw: str, *, prohibit_new_rhetorical_questions: bool = False) -> str:
     """Drop only known non-narration media/identity policy from local text repair.
 
     Preserve every current or future editorial-policy field by default. Only the three
@@ -55,6 +66,8 @@ def _project_policy_json(raw: str) -> str:
         if key not in {"visuals", "audio", "brand_signature"}
     }
     payload["local_repair_rule"] = _LOCAL_REPAIR_RULE
+    if prohibit_new_rhetorical_questions:
+        payload["append_only_rhetorical_rule"] = _APPEND_NO_NEW_RHETORICAL_RULE
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -89,6 +102,44 @@ def _strip_host_identity(text: str, opener: str, closer: str) -> str:
         result = strip_fn(result, opener)
         result = strip_fn(result, closer)
     return str(result or "").strip()
+
+
+def _joined_narration(sections: object) -> str:
+    if not isinstance(sections, list):
+        return ""
+    return " ".join(
+        " ".join(str(getattr(section, "narration", "") or "").strip().split())
+        for section in sections
+        if str(getattr(section, "narration", "") or "").strip()
+    )
+
+
+def _pre_append_rhetorical_residual(sections: object) -> bool:
+    """Use Engine's detector verbatim; Runner owns no copied threshold or pattern."""
+    narration = _joined_narration(sections)
+    if not narration:
+        return False
+    return _RHETORICAL_QUESTIONS_FLAG in structural_ai_flags(narration, short_form=False)
+
+
+def _validate_append_rhetorical_regression(
+    additions: dict[str, str],
+    *,
+    doctor_was_clear: bool,
+) -> None:
+    """When Doctor cleared the flag, append-only repair cannot add question sentences."""
+    if not doctor_was_clear:
+        return
+    offenders = [
+        str(section_id)
+        for section_id, text in additions.items()
+        if "؟" in str(text or "")
+    ]
+    if offenders:
+        raise RuntimeError(
+            "Append-only repair introduced Arabic question-mark text after Script Doctor "
+            "cleared excessive_rhetorical_questions: " + ", ".join(offenders)
+        )
 
 
 def _install_script_doctor_band_preservation() -> None:
@@ -185,18 +236,33 @@ def _install_projected_append_context() -> None:
         minimum: int,
         editorial_intent_json: str = "",
     ) -> dict[str, str]:
-        return original(
+        doctor_residual = _pre_append_rhetorical_residual(sections)
+        print(
+            "Structural Editorial pre-append measurement: "
+            + f"current_words={current_words} {_RHETORICAL_QUESTIONS_FLAG}="
+            + ("present diagnosis=doctor_residual" if doctor_residual else "clear diagnosis=doctor_clear")
+        )
+
+        additions = original(
             api_key,
             topic=topic,
             model=model,
             sections=sections,
-            policy_json=_project_policy_json(policy_json),
+            policy_json=_project_policy_json(
+                policy_json,
+                prohibit_new_rhetorical_questions=not doctor_residual,
+            ),
             research_json=_project_research_json(research_json),
             narrative_format=narrative_format,
             current_words=current_words,
             minimum=minimum,
             editorial_intent_json=editorial_intent_json,
         )
+        _validate_append_rhetorical_regression(
+            additions,
+            doctor_was_clear=not doctor_residual,
+        )
+        return additions
 
     setattr(projected_repair, _REPAIR_MARKER, True)
 
@@ -215,6 +281,7 @@ def install_word_band_repair_contract() -> None:
     print(
         "Word-band repair contract installed: Film Script Doctor cannot create new "
         "110-170 defects from previously valid sections; residual append repair uses "
-        "projected text-policy/factuality context; provider order, retry ownership, "
-        "800-1450 aggregate gate, Stage Contract, and final quality gates unchanged"
+        "projected text-policy/factuality context plus pre-append structural measurement; "
+        "provider order, retry ownership, 800-1450 aggregate gate, Stage Contract, and "
+        "final quality gates unchanged"
     )
