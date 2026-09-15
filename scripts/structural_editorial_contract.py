@@ -28,12 +28,10 @@ _BUILD_WRAPPER_MARKER = "_isco_structural_editorial_final_gate"
 
 # Run #249 (real production log, Long/film): the bounded Script Doctor received only
 # the flag's bare machine name ("excessive_rhetorical_questions") and still failed to
-# clear it in its one allowed pass, failing the whole production closed. This adds a
-# plain-language explanation of what that specific flag name means and how to act on
-# it - it does not compute a count, does not know or state the detector's threshold,
-# and does not touch the detector itself, so it carries no drift risk with Engine's
-# real pattern/threshold. It only helps the existing single bounded pass understand
-# an otherwise-opaque machine label well enough to actually succeed.
+# clear it in its one allowed pass, failing the whole production closed. Run #265 then
+# reproduced the same family after a three-batch Doctor and a later append-only length
+# repair. The pre-append owner now measures which side actually retained/introduced the
+# flag; this guidance only strengthens the already-existing Doctor pass and adds no call.
 _RHETORICAL_QUESTIONS_FLAG = "excessive_rhetorical_questions"
 
 
@@ -70,11 +68,12 @@ def _rhetorical_question_guidance() -> str:
         f"DETERMINISTIC_ACCEPTANCE_RULE {_RHETORICAL_QUESTIONS_FLAG}: this machine "
         "label means too many sentences across the whole script end in a question mark "
         "(؟) used rhetorically rather than to genuinely ask the viewer something. Reread "
-        "every section's narration, find sentences ending in ؟, and rephrase most of "
-        "them into direct statements - prioritize sections that have more than one - "
-        "until only a few natural, purposeful questions remain. Restate each one as a "
-        "direct statement rather than deleting it, and preserve each section's meaning "
-        "and role."
+        "every section's narration and rephrase every nonessential question-mark sentence "
+        "into a direct statement while preserving its meaning and section role. Do not "
+        "introduce new ؟ sentences in rewritten sections. Before returning the complete "
+        "repaired script, perform one final pass across every section and keep rewriting "
+        "until this exact detector flag is clear; a merely smaller but still flagged set "
+        "is not an acceptable repair."
     )
 
 
