@@ -80,11 +80,12 @@ def _rhetorical_question_guidance() -> str:
         "label means too many sentences across the whole script end in the Arabic "
         "question mark (؟) rhetorically. Reread EVERY section before returning the "
         "corrected script. Convert every rhetorical question you can into a direct "
-        "declarative sentence while preserving its meaning; do not merely remove the "
-        "punctuation. Keep at most one genuinely necessary viewer-facing question in "
-        "the whole script, and do not introduce any new question-mark sentence while "
-        "repairing length, cadence, transitions, or section structure. This is a final "
-        "acceptance requirement for this single bounded Doctor pass, not a suggestion."
+        "statement written as a direct declarative sentence while preserving its meaning; "
+        "do not merely remove the punctuation. Keep at most one genuinely necessary "
+        "viewer-facing question in the whole script, and do not introduce any new "
+        "question-mark sentence while repairing length, cadence, transitions, or section "
+        "structure. This is a final acceptance requirement for this single bounded Doctor "
+        "pass, not a suggestion."
     )
 
 
