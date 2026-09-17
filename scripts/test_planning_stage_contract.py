@@ -97,7 +97,16 @@ class PlanningStageContractTests(unittest.TestCase):
             (contract.script_stage_spec("full_script", ["s1", "s2"]), "script_writer_2", 1300),
             (contract.script_stage_spec("script_doctor", ["s1"]), "script_doctor_1", 900),
             (contract.script_stage_spec("dossier_repair", ["s1", "s2"]), "dossier_repair_2", 1400),
-            (contract.append_stage_spec(["s1", "s2", "s3"]), "append_repair_3", 1000),
+            (
+                contract.append_stage_spec(
+                    ["s1", "s2", "s3"],
+                    required_floor_words=30,
+                    minimum_append_words=120,
+                    maximum_append_words=174,
+                ),
+                "append_repair_3",
+                656,
+            ),
         )
         for spec, expected_name, expected_budget in cases:
             with self.subTest(expected_name=expected_name):
