@@ -50,10 +50,20 @@ class Run123PlanningLatencyHardeningTests(unittest.TestCase):
                 self.assertEqual(first[0], expected)
                 self.assertEqual(second[0], expected)
                 self.assertEqual(first, second)
-                self.assertEqual(
-                    spec.provider_policy.completion_tokens,
-                    hardening._SHARD_COMPLETION_BUDGETS[expected],
-                )
+                if expected.startswith("append_repair_"):
+                    self.assertEqual(
+                        spec.semantic_rules["append_completion_budget"],
+                        spec.provider_policy.completion_tokens,
+                    )
+                    self.assertEqual(
+                        spec.semantic_rules["append_budget_basis"],
+                        "contract_max",
+                    )
+                else:
+                    self.assertEqual(
+                        spec.provider_policy.completion_tokens,
+                        hardening._SHARD_COMPLETION_BUDGETS[expected],
+                    )
 
     def test_dossier_completion_budget_is_smaller_than_legacy_full_script(self) -> None:
         self.assertLess(hardening._SHARD_COMPLETION_BUDGETS["dossier_repair_1"], 2400)
