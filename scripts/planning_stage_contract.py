@@ -149,10 +149,12 @@ def _planning_provider_order() -> tuple[str, ...]:
         return ("gemini", "groq", "mistral", "openrouter")
     return _PROVIDER_ORDER
 
-# One explicit provider-output budget per bounded Planning transport contract.  These
+# One explicit provider-output budget per bounded Planning transport contract. These
 # names are produced from stage identity + expected ids below; prompt text has no role
-# in selecting either the name or the budget.  Run123 consumes this same table for its
-# latency/provider adapters, so the Stage Contract remains the single policy owner.
+# in selecting either the name or the budget. Run123 consumes this same table for its
+# latency/provider adapters, so the historical append rows remain available for that
+# compatibility surface and incident baselines. append_stage_spec itself deliberately
+# no longer uses the append rows: its reserve is derived from the guard-owned workload.
 SHARD_COMPLETION_TOKEN_BUDGETS = {
     "script_writer_1": 900,
     "script_writer_2": 1300,
@@ -172,6 +174,14 @@ SHARD_COMPLETION_TOKEN_BUDGETS = {
     "append_repair_8": 2000,
 }
 
+# Append output is Arabic prose wrapped in strict JSON. The word envelope is owned by
+# append_retry_guard; this owner only converts that already-bounded workload into a
+# provider-neutral completion reserve. Three tokens per spoken word is intentionally
+# conservative for multilingual/Arabic variance; JSON/ids are reserved separately by
+# their actual compact UTF-8 shell size, and the final 32 tokens are a small fixed pad.
+_APPEND_CONTENT_TOKENS_PER_WORD = 3
+_APPEND_COMPLETION_SAFETY_TOKENS = 32
+
 
 def _transport_completion_tokens(profile: str, expected_items: int) -> int:
     if profile == "editorial_outline":
@@ -186,6 +196,79 @@ def _transport_completion_tokens(profile: str, expected_items: int) -> int:
             PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
             f"unsupported bounded Planning transport contract={name}",
         ) from exc
+
+
+def _append_completion_budget(
+    ids: list[str],
+    *,
+    required_floor_words: int | None,
+    minimum_append_words: int | None,
+    maximum_append_words: int | None,
+) -> tuple[int, dict]:
+    supplied = (
+        required_floor_words is not None,
+        minimum_append_words is not None,
+        maximum_append_words is not None,
+    )
+    if any(supplied) and not all(supplied):
+        raise PlanningStageError(
+            PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+            "append workload budget requires floor/minimum/maximum words together",
+            stage_id="planning.append_only_repair",
+        )
+
+    aggregate_maximum = int(staged._DURATION_WORD_BOUNDS["film"][1])
+    section_maximum = int(repair_dossier.FILM_SECTION_MAX_WORDS)
+    contract_maximum_words = min(aggregate_maximum, section_maximum * len(ids))
+
+    if all(supplied):
+        values = (required_floor_words, minimum_append_words, maximum_append_words)
+        if any(isinstance(value, bool) or not isinstance(value, int) for value in values):
+            raise PlanningStageError(
+                PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+                "append workload budget words must be integers",
+                stage_id="planning.append_only_repair",
+            )
+        required = int(required_floor_words)
+        minimum = int(minimum_append_words)
+        maximum = int(maximum_append_words)
+        if not 0 <= required <= minimum <= maximum <= contract_maximum_words:
+            raise PlanningStageError(
+                PlanningErrorCode.INTERNAL_CONTRACT_ERROR,
+                "append workload budget violates bounded Film envelope: "
+                f"floor={required} minimum={minimum} maximum={maximum} "
+                f"contract_maximum={contract_maximum_words}",
+                stage_id="planning.append_only_repair",
+            )
+        basis = "workload"
+    else:
+        # Outer stage-boundary wrappers do not own the guard's exact target_specs. They
+        # therefore get a fail-safe contract maximum, never the historical target-count
+        # ladder. The inner guard call supplies the precise envelope before model contact.
+        required = 0
+        minimum = 0
+        maximum = contract_maximum_words
+        basis = "contract_max"
+
+    shell = json.dumps(
+        {"additions": [{"id": section_id, "append_text": ""} for section_id in ids]},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    json_shell_tokens = len(shell.encode("utf-8"))
+    completion_tokens = (
+        maximum * _APPEND_CONTENT_TOKENS_PER_WORD
+        + json_shell_tokens
+        + _APPEND_COMPLETION_SAFETY_TOKENS
+    )
+    return completion_tokens, {
+        "append_target_count": len(ids),
+        "append_required_floor_words": required,
+        "append_minimum_words": minimum,
+        "append_maximum_words": maximum,
+        "append_completion_budget": completion_tokens,
+        "append_budget_basis": basis,
+    }
 
 
 def _strict_object(properties: dict, required: list[str]) -> dict:
@@ -440,6 +523,9 @@ def append_stage_spec(
     expected_ids: list[str],
     *,
     allow_ordered_subset: bool = False,
+    required_floor_words: int | None = None,
+    minimum_append_words: int | None = None,
+    maximum_append_words: int | None = None,
 ) -> PlanningStageSpec:
     ids = [str(item).strip() for item in expected_ids]
     if not ids or any(not item for item in ids) or len(ids) != len(set(ids)):
@@ -448,6 +534,12 @@ def append_stage_spec(
             "append contract requires unique nonempty expected ids",
             stage_id="planning.append_only_repair",
         )
+    completion_budget, budget_meta = _append_completion_budget(
+        ids,
+        required_floor_words=required_floor_words,
+        minimum_append_words=minimum_append_words,
+        maximum_append_words=maximum_append_words,
+    )
     suffix = "candidate.v1" if allow_ordered_subset else "exact.v1"
     # Append repair is a compound transaction with downstream word-band and aggregate
     # validation. Its provider fragments are deliberately never durable cache authority.
@@ -464,10 +556,9 @@ def append_stage_spec(
             "exact_order": not allow_ordered_subset,
             "ordered_subset_allowed": allow_ordered_subset,
             "nonempty_append_text": True,
+            **budget_meta,
         },
-        provider_policy=_provider_policy(
-            _transport_completion_tokens("append_repair", len(ids))
-        ),
+        provider_policy=_provider_policy(completion_budget),
         cache_policy=no_fragment_cache,
     )
 
@@ -929,7 +1020,7 @@ def _explicit_schema_adapter(_prompt: str) -> tuple[str, dict]:
     owner: PlanningStageContract | PlanningStageSpec | None = _ACTIVE_REQUEST_CONTRACT.get()
     if owner is None:
         # Capacity admission legitimately runs before the provider router binds the
-        # effective prompt/input hash.  Its caller must still have installed an exact
+        # effective prompt/input hash. Its caller must still have installed an exact
         # request StageSpec; that spec owns the same schema and provider policy.
         owner = _ACTIVE_STAGE_SPEC.get()
     if owner is None:
@@ -952,7 +1043,7 @@ def _admission_metadata(contract: PlanningStageContract, prompt: str) -> dict:
     expected_items = contract.semantic_rules.get("expected_count")
     if expected_items is None:
         expected_items = len(contract.semantic_rules.get("expected_ids") or []) or 1
-    return {
+    metadata = {
         "stage_id": contract.stage_id,
         "contract_id": contract.contract_id,
         "input_hash": contract.input_hash,
@@ -961,6 +1052,17 @@ def _admission_metadata(contract: PlanningStageContract, prompt: str) -> dict:
         "planned_completion_tokens": contract.provider_policy.completion_tokens,
         "max_total_attempts": contract.provider_policy.max_total_attempts,
     }
+    if contract.semantic_rules.get("kind") == "append":
+        for key in (
+            "append_target_count",
+            "append_required_floor_words",
+            "append_minimum_words",
+            "append_maximum_words",
+            "append_completion_budget",
+            "append_budget_basis",
+        ):
+            metadata[key] = contract.semantic_rules[key]
+    return metadata
 
 
 def _admit_provider(contract: PlanningStageContract, prompt: str, provider: str) -> None:
@@ -1116,7 +1218,7 @@ def _provider_result(
 ):
     if provider == "gemini":
         # Engine config.secret() deliberately consumes and deletes the one-time file
-        # before build_plan().  Its api_key argument is therefore the only canonical
+        # before build_plan(). Its api_key argument is therefore the only canonical
         # request-scoped credential at this boundary; re-reading *_FILE here breaks the
         # secure one-time lifecycle and caused the uploaded Production run to fail
         # before any provider request was made.
