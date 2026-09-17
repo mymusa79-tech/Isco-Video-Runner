@@ -118,6 +118,7 @@ class WordBandRepairContractTests(unittest.TestCase):
         self.assertEqual(sum(counts), 797)
         sections = self._sections(counts)
         prompts: list[str] = []
+        append_specs: list[stage_contract.PlanningStageSpec] = []
 
         policy = {
             "version": 1,
@@ -143,6 +144,9 @@ class WordBandRepairContractTests(unittest.TestCase):
         def fake_json(api_key, prompt, model):
             del api_key, model
             prompts.append(prompt)
+            spec = stage_contract._ACTIVE_STAGE_SPEC.get()
+            self.assertIsNotNone(spec)
+            append_specs.append(spec)
             return {
                 "additions": [
                     {
@@ -190,16 +194,12 @@ class WordBandRepairContractTests(unittest.TestCase):
         self.assertIn("content_boundaries", prompt)
         self.assertIn("Do not introduce any new externally verifiable", prompt)
 
-        # The regression is capacity, not merely raw bytes. Read the reserved output
-        # budget from the exact append Stage Contract, then feed that budget into the
-        # same conservative Groq estimator used by runtime admission. This keeps one
-        # policy owner and prevents the test from going stale if append transport
-        # budgets change later.
-        target_ids = [f"sec_{index}" for index in range(1, 9)]
-        append_spec = stage_contract.append_stage_spec(
-            target_ids,
-            allow_ordered_subset=True,
-        )
+        # The regression is capacity, not merely raw bytes. Capture the exact
+        # workload-bound Stage Contract that guarded the real provider call instead of
+        # reconstructing a target-count fallback after the fact.
+        self.assertEqual(len(append_specs), 1)
+        append_spec = append_specs[0]
+        rules = append_spec.semantic_rules
         reserved_completion = append_spec.provider_policy.completion_tokens_for("groq")
         estimate = capacity.groq_capacity_estimate(
             prompt,
@@ -208,9 +208,13 @@ class WordBandRepairContractTests(unittest.TestCase):
             contract_name=append_spec.contract_id,
         )
         self.assertEqual(append_spec.stage_id, "planning.append_only_repair")
-        self.assertEqual(reserved_completion, 2000)
+        self.assertEqual(rules["append_required_floor_words"], 83)
+        self.assertEqual(rules["append_minimum_words"], 323)
+        self.assertEqual(rules["append_maximum_words"], 467)
+        self.assertEqual(rules["append_budget_basis"], "workload")
+        self.assertEqual(reserved_completion, 1704)
         self.assertLessEqual(estimate["estimated_request_tokens"], 6500)
-        self.assertEqual(list(additions), target_ids)
+        self.assertEqual(list(additions), [f"sec_{index}" for index in range(1, 9)])
 
     def test_projection_does_not_create_an_extra_provider_retry(self) -> None:
         sections = self._sections([120, 100, 120, 120, 120, 120, 120, 120])
