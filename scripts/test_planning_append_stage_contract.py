@@ -104,13 +104,29 @@ class PlanningAppendStageContractTests(unittest.TestCase):
         self.assertEqual(len(calls), 3, calls)
         self.assertTrue(all(scoped for _line, scoped in calls), calls)
 
-        source = source_path.read_text(encoding="utf-8")
+        append_spec_calls = [
+            node
+            for node in ast.walk(target)
+            if isinstance(node, ast.Call)
+            and ast.unparse(node.func) == "stage_contract.append_stage_spec"
+        ]
+        self.assertEqual(len(append_spec_calls), 3)
+        required_workload_keywords = {
+            "required_floor_words",
+            "minimum_append_words",
+            "maximum_append_words",
+        }
+        for call in append_spec_calls:
+            with self.subTest(line=call.lineno):
+                keyword_names = {keyword.arg for keyword in call.keywords}
+                self.assertTrue(
+                    required_workload_keywords.issubset(keyword_names),
+                    keyword_names,
+                )
         self.assertIn(
-            "allow_ordered_subset=current_words < minimum",
-            source,
+            "allow_ordered_subset",
+            {keyword.arg for keyword in append_spec_calls[0].keywords},
         )
-        self.assertIn("append_stage_spec(pending_ids)", source)
-        self.assertIn("append_stage_spec(rescue_ids)", source)
 
 
 if __name__ == "__main__":
