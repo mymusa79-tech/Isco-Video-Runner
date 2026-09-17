@@ -202,6 +202,15 @@ class AppendWorkloadBudget268Tests(unittest.TestCase):
         self.assertEqual(metadata["append_completion_budget"], 253)
         self.assertEqual(metadata["append_budget_basis"], "workload")
         self.assertEqual(metadata["planned_completion_tokens"], 253)
+        expected_capacity = capacity.groq_capacity_estimate(
+            "prompt",
+            reserved_completion_tokens=253,
+            contract_name=bound.contract_id,
+        )
+        self.assertEqual(
+            metadata["estimated_request_tokens"],
+            expected_capacity["estimated_request_tokens"],
+        )
 
     def test_budget_is_deterministic_and_independent_of_provider_limits(self) -> None:
         kwargs = dict(
