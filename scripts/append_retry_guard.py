@@ -398,6 +398,9 @@ Return ONLY JSON: {{"additions": [{{"id": "...", "append_text": "..."}}, ...]}} 
     first_spec = stage_contract.append_stage_spec(
         target_ids,
         allow_ordered_subset=current_words < minimum,
+        required_floor_words=required_floor_addition,
+        minimum_append_words=sum(int(spec["minimum_append_words"]) for spec in target_specs),
+        maximum_append_words=sum(int(spec["maximum_append_words"]) for spec in target_specs),
     )
     with stage_contract.request_stage_scope(first_spec):
         data = staged.json_text(api_key, prompt, model=model)
@@ -466,7 +469,22 @@ Return ONLY JSON: {{"additions": [{{"id": "...", "append_text": "..."}}, ...]}} 
 {len(pending_ids)} entries using these exact ids and this exact order:
 {json.dumps(pending_ids, ensure_ascii=False)}.
 """
-            completion_spec = stage_contract.append_stage_spec(pending_ids)
+            completion_spec = stage_contract.append_stage_spec(
+                pending_ids,
+                required_floor_words=sum(
+                    max(
+                        0,
+                        int(spec["hard_section_band"][0]) - int(spec["current_words"]),
+                    )
+                    for spec in pending_specs
+                ),
+                minimum_append_words=sum(
+                    int(spec["minimum_append_words"]) for spec in pending_specs
+                ),
+                maximum_append_words=sum(
+                    int(spec["maximum_append_words"]) for spec in pending_specs
+                ),
+            )
             with stage_contract.request_stage_scope(completion_spec):
                 completion_data = staged.json_text(api_key, completion_prompt, model=model)
             completion_additions = _parse_safe_partial_additions(completion_data, pending_ids)
@@ -532,7 +550,22 @@ Return ONLY JSON: {{"additions": [{{"id": "...", "append_text": "..."}}, ...]}} 
 {len(rescue_ids)} entries using these exact ids and this exact order:
 {json.dumps(rescue_ids, ensure_ascii=False)}.
 """
-                rescue_spec = stage_contract.append_stage_spec(rescue_ids)
+                rescue_spec = stage_contract.append_stage_spec(
+                    rescue_ids,
+                    required_floor_words=sum(
+                        max(
+                            0,
+                            int(spec["hard_section_band"][0]) - int(spec["current_words"]),
+                        )
+                        for spec in rescue_specs
+                    ),
+                    minimum_append_words=sum(
+                        int(spec["minimum_append_words"]) for spec in rescue_specs
+                    ),
+                    maximum_append_words=sum(
+                        int(spec["maximum_append_words"]) for spec in rescue_specs
+                    ),
+                )
                 with stage_contract.request_stage_scope(rescue_spec):
                     rescue_data = staged.json_text(api_key, rescue_prompt, model=model)
                 rescue_additions = _parse_safe_partial_additions(rescue_data, rescue_ids)
