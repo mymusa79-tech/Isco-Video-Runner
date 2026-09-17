@@ -20,6 +20,7 @@ import isco_video_agent.repair_dossier as repair_dossier
 import isco_video_agent.resilient_planner as staged
 from isco_video_agent.ai_budget import TaskSpec, budget_task_scope, get_active_budget_task
 
+from scripts import provider_capacity_hardening as capacity
 from scripts import task_level_planner_router as router
 
 
@@ -1062,6 +1063,14 @@ def _admission_metadata(contract: PlanningStageContract, prompt: str) -> dict:
             "append_budget_basis",
         ):
             metadata[key] = contract.semantic_rules[key]
+        request_capacity = capacity.groq_capacity_estimate(
+            prompt,
+            reserved_completion_tokens=contract.provider_policy.completion_tokens,
+            contract_name=contract.contract_id,
+        )
+        metadata["estimated_request_tokens"] = request_capacity[
+            "estimated_request_tokens"
+        ]
     return metadata
 
 
