@@ -17,26 +17,25 @@ class Run268AppendBudgetBaselineTests(unittest.TestCase):
         self.assertEqual(len(deficits), 8)
         self.assertTrue(all(deficit > 0 for deficit in deficits))
 
-        target_ids = [f"sec_{index}" for index in range(1, 9)]
-        spec = stage_contract.append_stage_spec(
-            target_ids,
-            allow_ordered_subset=True,
-        )
-        completion_reserve = spec.provider_policy.completion_tokens_for("groq")
+        # Historical pre-fix owner: target-count-only append_repair_8 -> 2000.
+        # Keep this baseline pinned to the old table so the new workload owner can
+        # change append_stage_spec without erasing the incident reproduction.
+        completion_reserve = stage_contract.SHARD_COMPLETION_TOKEN_BUDGETS[
+            "append_repair_8"
+        ]
 
-        # Exact observed Run #268 prompt geometry. The existing estimator turns
-        # 21,538 UTF-8 bytes + the historical 2,000 completion reserve into 7,318.
+        # Exact observed Run #268 prompt geometry. This synthetic prompt is ONLY the
+        # capacity fixture for the old incident; it is not an input to the new budget.
         prompt = "x" * 21_538
         estimate = capacity.groq_capacity_estimate(
             prompt,
             model_name="openai/gpt-oss-120b",
             reserved_completion_tokens=completion_reserve,
-            contract_name=spec.contract_id,
+            contract_name="planning.append_only_repair.candidate.v1",
         )
         raw_tpm_limit = 8_000
         effective_tpm_limit = int(raw_tpm_limit * 0.90)
 
-        self.assertEqual(len(target_ids), 8)
         self.assertEqual(completion_reserve, 2_000)
         self.assertEqual(estimate["estimated_request_tokens"], 7_318)
         self.assertEqual(effective_tpm_limit, 7_200)
