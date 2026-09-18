@@ -31,7 +31,7 @@ jobs:
       SOURCE_ARTIFACT_ID: "10570908873"
       ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
-      PREQC_ROOT: ${{ runner.temp }}/visualqa-preqc
+      PREQC_ROOT: ${{ github.workspace }}/.visualqa-preqc
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
 
     steps:
@@ -77,7 +77,7 @@ jobs:
           set -euo pipefail
           rm -rf "$PREQC_ROOT"
           mkdir -p "$PREQC_ROOT"
-          curl -fsSL             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT_ID/zip"             -o "$RUNNER_TEMP/preqc.zip"
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/artifacts/$SOURCE_ARTIFACT_ID/zip" -o "$RUNNER_TEMP/preqc.zip"
           unzip -q "$RUNNER_TEMP/preqc.zip" -d "$PREQC_ROOT"
 
       - name: Verify frozen pre-QC identity
@@ -93,21 +93,19 @@ jobs:
           test "$(jq -r '.sections | length' script.json)" = "5"
           test "$(jq -r '.assets | length' rights-manifest.json)" = "5"
           test "$(jq -r '.stages[0:5] | map(.status) | unique | join(",")' run-manifest.json)" = "pass"
-
-          cat > "$RUNNER_TEMP/preqc.sha256" <<'EOF'
-994e03809132afdc76f41cfec5611093cd7561ce89ff518eebc41ba6bf5f895b  brief.json
-0b1611890b7dae692beb13de9ca542f0a41b949e55cfab19cf35f8ae50a6f7f4  plan.json
-a40d6135853b85e267a25bbf9867760412a8b01843462b60ebfeb1ec81efc805  script.json
-2d2d0fd3e2026f257d23d75dbda0fd1ad954914a3b600ed2813398bf22712e92  rights-manifest.json
-813d14b31491f8f7cef64d89d718d8453aa9ecc5f2d720a3a035b54cc0a27cc7  narration.wav
-3b83e21be7c26c471bfd854248367f24afd09965316d62a3f61d7004d2db25cc  visuals/visual-01.mp4
-ff0a1e3166913bc18f60e42b73d01999ed910604f386069a099ca9108ddf1657  visuals/visual-02.mp4
-7fdf813fa3debdc57d09a8214535d1da94dac410e0946627543626eb1388fe29  visuals/visual-03.mp4
-4c58bdaea388a5836f65333fcf100e4868b4e3d3f729527fc6b9699cd496d312  visuals/visual-04.mp4
-bf8aa370af8d004084c0c1146275ca8a778d88abacd6cdde0b1682af243da4c2  visuals/visual-05.mp4
-EOF
+          {
+            echo "994e03809132afdc76f41cfec5611093cd7561ce89ff518eebc41ba6bf5f895b  brief.json"
+            echo "0b1611890b7dae692beb13de9ca542f0a41b949e55cfab19cf35f8ae50a6f7f4  plan.json"
+            echo "a40d6135853b85e267a25bbf9867760412a8b01843462b60ebfeb1ec81efc805  script.json"
+            echo "2d2d0fd3e2026f257d23d75dbda0fd1ad954914a3b600ed2813398bf22712e92  rights-manifest.json"
+            echo "813d14b31491f8f7cef64d89d718d8453aa9ecc5f2d720a3a035b54cc0a27cc7  narration.wav"
+            echo "3b83e21be7c26c471bfd854248367f24afd09965316d62a3f61d7004d2db25cc  visuals/visual-01.mp4"
+            echo "ff0a1e3166913bc18f60e42b73d01999ed910604f386069a099ca9108ddf1657  visuals/visual-02.mp4"
+            echo "7fdf813fa3debdc57d09a8214535d1da94dac410e0946627543626eb1388fe29  visuals/visual-03.mp4"
+            echo "4c58bdaea388a5836f65333fcf100e4868b4e3d3f729527fc6b9699cd496d312  visuals/visual-04.mp4"
+            echo "bf8aa370af8d004084c0c1146275ca8a778d88abacd6cdde0b1682af243da4c2  visuals/visual-05.mp4"
+          } > "$RUNNER_TEMP/preqc.sha256"
           sha256sum -c "$RUNNER_TEMP/preqc.sha256"
-
           rm -rf visual-qa
           rm -f visual-audit.json visual-qa-budget.json final-cut-visual-qa.json visualqa-only-verdict.json visualqa-only-traceback.txt
 
@@ -123,22 +121,14 @@ EOF
           import os
           import traceback
           from pathlib import Path
-
-          from clean_v2.visual_qa import (
-              CleanV2VisualQABlock,
-              CleanV2VisualQAInfrastructure,
-              run_final_cut_visual_qa,
-          )
+          from clean_v2.visual_qa import CleanV2VisualQABlock, CleanV2VisualQAInfrastructure, run_final_cut_visual_qa
 
           root = Path(os.environ["PREQC_ROOT"])
           verdict_path = root / "visualqa-only-verdict.json"
           traceback_path = root / "visualqa-only-traceback.txt"
-
           plan = json.loads((root / "plan.json").read_text(encoding="utf-8"))
           script = json.loads((root / "script.json").read_text(encoding="utf-8"))
-          rights_payload = json.loads((root / "rights-manifest.json").read_text(encoding="utf-8"))
-          rights = rights_payload["assets"]
-
+          rights = json.loads((root / "rights-manifest.json").read_text(encoding="utf-8"))["assets"]
           verdict = {
               "schema_version": 1,
               "attempt": int(os.environ["ATTEMPT"]),
@@ -149,44 +139,18 @@ EOF
               "topic": "لماذا تفشل خطط إدارة الوقت في الحياة اليومية",
               "stage": "final_cut_visual_qa",
           }
-
           try:
-              report = run_final_cut_visual_qa(
-                  output_dir=root,
-                  plan=plan,
-                  script=script,
-                  rights=rights,
-                  fmt="film",
-              )
+              report = run_final_cut_visual_qa(output_dir=root, plan=plan, script=script, rights=rights, fmt="film")
           except CleanV2VisualQAInfrastructure as exc:
-              verdict.update(
-                  status="failure",
-                  classification="infrastructure",
-                  error_type=type(exc).__name__,
-                  error=str(exc),
-              )
+              verdict.update(status="failure", classification="infrastructure", error_type=type(exc).__name__, error=str(exc))
               traceback_path.write_text(traceback.format_exc(), encoding="utf-8")
           except CleanV2VisualQABlock as exc:
               detail = str(exc)
-              classification = (
-                  "QC-block"
-                  if "selected_visual_not_final_cut_ready" in detail
-                  else "pre-QC"
-              )
-              verdict.update(
-                  status="failure",
-                  classification=classification,
-                  error_type=type(exc).__name__,
-                  error=detail,
-              )
+              classification = "QC-block" if "selected_visual_not_final_cut_ready" in detail else "pre-QC"
+              verdict.update(status="failure", classification=classification, error_type=type(exc).__name__, error=detail)
               traceback_path.write_text(traceback.format_exc(), encoding="utf-8")
           except Exception as exc:
-              verdict.update(
-                  status="failure",
-                  classification="pre-QC",
-                  error_type=type(exc).__name__,
-                  error=str(exc),
-              )
+              verdict.update(status="failure", classification="pre-QC", error_type=type(exc).__name__, error=str(exc))
               traceback_path.write_text(traceback.format_exc(), encoding="utf-8")
           else:
               verdict.update(
@@ -197,11 +161,7 @@ EOF
                   final_cut_readiness_target=report.get("final_cut_readiness_target"),
                   provider_attempts=report.get("provider_attempts"),
               )
-
-          verdict_path.write_text(
-              json.dumps(verdict, ensure_ascii=False, indent=2) + "\n",
-              encoding="utf-8",
-          )
+          verdict_path.write_text(json.dumps(verdict, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
           print(json.dumps(verdict, ensure_ascii=False, sort_keys=True))
           PY
 
