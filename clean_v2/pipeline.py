@@ -220,23 +220,25 @@ class _Journal:
                 and "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE" not in message
             )
             quality_stage_failure = name in QUALITY_STAGES
+            quality_pending = quality_stage_failure and not infrastructure
             failure_classification = (
                 "infrastructure"
                 if infrastructure
                 else ("new-layer-block" if new_layer_block else "pre-layer")
             )
-            record["status"] = "blocked" if quality_stage_failure else "failed"
+            record["status"] = "blocked" if quality_pending else "failed"
             record["finished_at"] = _utc_now()
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
             record["failure_classification"] = failure_classification
             self.payload["failure_classification"] = failure_classification
-            if quality_stage_failure:
+            if quality_pending:
                 self.payload["status"] = "quality_pending"
                 self.payload["quality_pending_stage"] = name
                 self.payload["failure_origin_stage"] = name
             else:
                 self.payload["status"] = "failed"
+                self.payload["failure_origin_stage"] = name
             self.payload["finished_at"] = record["finished_at"]
             self._write()
             raise
