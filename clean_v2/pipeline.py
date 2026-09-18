@@ -379,7 +379,7 @@ class CleanV2Pipeline:
                 {
                     "schema_version": 1,
                     "assets": rights,
-                    "note": "Provider metadata captured at acquisition; no visual quality audit executed in Clean V2 bootstrap.",
+                    "note": "Provider metadata captured at acquisition; selected clips are audited by Final-cut Visual QA before render.",
                 },
             )
             self._write_runtime_events(output_dir)
