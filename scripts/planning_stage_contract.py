@@ -139,7 +139,7 @@ _GROQ_TEMPORAL_PRECHECK_MARKERS = (
     "groq_tpm_window_busy_precheck",
     "groq_rpm_window_busy_precheck",
 )
-_GROQ_TEMPORAL_RESET_RE = re.compile(r"reset_in=(\\d+(?:\\.\\d+)?)s", flags=re.I)
+_GROQ_TEMPORAL_RESET_RE = re.compile(r"reset_in=(\d+(?:\.\d+)?)s", flags=re.I)
 # Must remain aligned with the existing Run124 bounded temporal-recovery contract.
 # This is a classifier bound only: Stage Contract never waits on this value.
 _RUN124_TEMPORAL_RESET_LIMIT_SECONDS = 60.0
