@@ -373,6 +373,13 @@ class CleanV2Pipeline:
                 "voice",
                 lambda: self.voice_synthesizer.synthesize(transcript, narration_path),
             )
+            voice_provider = getattr(self.voice_synthesizer, "last_provider", None)
+            if voice_provider is not None:
+                journal.payload["voice_provider"] = str(voice_provider)
+                journal.payload["voice_fallback_used"] = bool(
+                    getattr(self.voice_synthesizer, "fallback_used", False)
+                )
+                journal._write()
 
             visuals_dir = output_dir / "visuals"
             # Security V1 and M8 are part of the restored layer and execute inside

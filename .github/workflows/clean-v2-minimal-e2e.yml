@@ -7,6 +7,7 @@ on:
     paths:
       - "clean_v2/**"
       - "scripts/test_clean_v2.py"
+      - "scripts/test_clean_v2_voice.py"
       - "scripts/test_clean_v2_final_master_qc.py"
       - "scripts/test_clean_v2_legacy_cinematic.py"
       - "docs/clean-v2/**"
@@ -57,6 +58,7 @@ jobs:
       ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
       ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
+      GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
       OPENROUTER_CONTENT_MODEL: openrouter/free
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2/${{ github.run_id }}-${{ github.run_attempt }}
@@ -187,6 +189,10 @@ jobs:
           set -euo pipefail
           test -s "$CLEAN_V2_OUTPUT/final.mp4"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/run-manifest.json")" = "pass"
+          case "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" in
+            "gemini:Charon"|"piper-local:ar_JO-kareem-medium") ;;
+            *) echo "Unexpected Clean V2 voice provider" >&2; exit 1 ;;
+          esac
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/security-cinematic-v2.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "pass"
