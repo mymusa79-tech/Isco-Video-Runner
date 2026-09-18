@@ -8,11 +8,11 @@ from pathlib import Path
 from .legacy_cinematic import (
     m8_normalize_media,
     security_media_preflight,
-    security_query_normalizer,
 )
 from .media import PiperVoiceSynthesizer, StockVisualSource
 from .pipeline import CleanV2Pipeline
 from .providers import ProviderRouter
+from .security_query_adapter import normalize_clean_v2_stock_query
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -49,7 +49,7 @@ def main() -> None:
             args.piper_model, args.voice_manifest
         ),
         visual_source=StockVisualSource(
-            query_normalizer=security_query_normalizer,
+            query_normalizer=normalize_clean_v2_stock_query,
             media_preflight=security_media_preflight,
             media_transform=m8_normalize_media,
         ),
