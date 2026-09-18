@@ -464,6 +464,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 router=_FakeRouter(),
                 voice_synthesizer=_FakeVoice(),
                 visual_source=_FakeVisuals(),
+                visual_qa_layer=_passing_visual_qa,
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_blocking_final_master_qc,
             )
