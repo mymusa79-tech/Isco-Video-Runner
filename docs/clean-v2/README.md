@@ -57,8 +57,9 @@ The artifact contains:
 A run is successful only when all nine stages are `pass`, the Security/Cinematic report is
 `pass`, the structural final-file check passes, and `final-master-qc.json` is `pass`.
 A Security/Cinematic or Final Master block fails closed and records
-`status=quality_pending`; the restored layer is separately attributable as
-`failure_classification=new-layer-block`.
+`status=quality_pending`. Attribution stays explicit: a Security/Cinematic block is
+`new-layer-block`, a pre-existing Final Master block is `pre-layer`, and bounded
+content-provider exhaustion is `infrastructure`.
 
 ## Second-layer stability cohort
 
