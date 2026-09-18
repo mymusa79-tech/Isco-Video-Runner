@@ -170,18 +170,51 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("engine/production/approved_brief.json", text)
         self.assertIn("python -m clean_v2", text)
 
-    def test_workflow_does_not_invoke_legacy_or_quality_paths(self) -> None:
+    def test_workflow_invokes_only_final_master_qc_as_quality_layer(self) -> None:
         text = self.WORKFLOW.read_text(encoding="utf-8").casefold()
+        self.assertIn("final-master-qc.json", text)
+        self.assertIn("pythonpath", text)
         for forbidden in (
             "produce-resilient-v4",
             "run_v3_voice",
             "text_audit",
             "gold_enforce",
-            "final_master",
             "viewer_quality",
             "create release",
         ):
             self.assertNotIn(forbidden, text)
+
+
+def _passing_final_master_qc(output_dir: Path) -> dict:
+    report = {
+        "schema_version": 1,
+        "status": "pass",
+        "production_stage": "post_render_pre_gold_acceptance",
+        "ai_calls_added": 0,
+        "final_media_mutated": False,
+        "blocking_findings": [],
+        "warnings": [],
+    }
+    (output_dir / "final-master-qc.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    return report
+
+
+def _blocking_final_master_qc(output_dir: Path) -> dict:
+    report = {
+        "schema_version": 1,
+        "status": "block",
+        "production_stage": "post_render_pre_gold_acceptance",
+        "ai_calls_added": 0,
+        "final_media_mutated": False,
+        "blocking_findings": ["fixture_block"],
+        "warnings": [],
+    }
+    (output_dir / "final-master-qc.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    raise RuntimeError("Final Master QC blocked release")
 
 
 class _FakeRouter:
@@ -290,6 +323,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 router=_FakeRouter(),
                 voice_synthesizer=_FakeVoice(),
                 visual_source=_FakeVisuals(),
+                final_master_qc=_passing_final_master_qc,
             )
             result = pipeline.run(
                 brief_path=brief_path,
@@ -307,14 +341,57 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(manifest["status"], "pass")
             self.assertEqual([item["name"] for item in manifest["stages"]], list(STAGES))
-            self.assertEqual(manifest["quality_layers_executed"], [])
+            self.assertEqual(manifest["quality_layers_executed"], ["final_master_qc"])
+            self.assertEqual(manifest["final_master_qc_status"], "pass")
             final = json.loads((output / "final.json").read_text(encoding="utf-8"))
             self.assertEqual(final["status"], "pass")
             self.assertGreaterEqual(final["video_streams"], 1)
             self.assertGreaterEqual(final["audio_streams"], 1)
-            forbidden = {"gold", "text-audit", "final-master", "viewer-quality"}
+            qc_report = json.loads(
+                (output / "final-master-qc.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(qc_report["status"], "pass")
+            forbidden = {"gold", "text-audit", "viewer-quality"}
             names = {path.name.lower() for path in output.rglob("*")}
             self.assertFalse(any(any(token in name for token in forbidden) for name in names))
+
+    def test_final_master_block_preserves_completed_work_as_quality_pending(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                final_master_qc=_blocking_final_master_qc,
+            )
+            with self.assertRaisesRegex(RuntimeError, "blocked release"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+
+            self.assertTrue((output / "final.mp4").is_file())
+            self.assertTrue((output / "final.json").is_file())
+            self.assertTrue((output / "final-master-qc.json").is_file())
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "quality_pending")
+            self.assertEqual(manifest["quality_pending_stage"], "final_master_qc")
+            self.assertEqual(manifest["quality_layers_executed"], ["final_master_qc"])
+            self.assertTrue(all(
+                item["status"] == "pass" for item in manifest["stages"][:-1]
+            ))
+            self.assertEqual(manifest["stages"][-1]["name"], "final_master_qc")
+            self.assertEqual(manifest["stages"][-1]["status"], "blocked")
 
 
 if __name__ == "__main__":
