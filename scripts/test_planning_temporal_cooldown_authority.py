@@ -271,7 +271,8 @@ class Run270PlanningTemporalCooldownAuthorityTests(unittest.TestCase):
         _classified, retryable, _retry_after, _failure = contract._safe_provider_failure(
             bound, "gemini", exc
         )
-        self.assertTrue(retryable)
+        self.assertEqual(_failure.quota_scope, "short_window")
+        self.assertEqual(float(_retry_after), 29.0)
         self.assertFalse(
             contract._run124_owned_groq_temporal_prewire_failure(
                 "gemini",
