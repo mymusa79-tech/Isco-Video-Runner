@@ -224,6 +224,16 @@ class Run269TextAuditCooldownHandoffTests(unittest.TestCase):
         self.assertEqual(result.provider, "gemini")
         self.assertEqual(calls, ["gemini"])
 
+    def test_handoff_exports_remaining_time_only_and_ignores_wall_clock(self) -> None:
+        self._arm_run269_short_window(58.5)
+        with mock.patch.object(planning.time, "time", return_value=9_999_999_999.0):
+            evidence = planning.planning_provider_cooldown_evidence("gemini")
+
+        self.assertIsNotNone(evidence)
+        self.assertAlmostEqual(evidence["remaining_seconds"], 58.5, delta=0.01)
+        self.assertNotIn("deadline_monotonic", evidence)
+        self.assertNotIn("deadline_epoch", evidence)
+
     def test_daily_quota_is_not_exported_as_short_window_handoff(self) -> None:
         valid = {
             "additions": [
