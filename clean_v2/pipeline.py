@@ -306,7 +306,7 @@ class CleanV2Pipeline:
         output_dir: Path,
         engine_sha: str,
         runner_sha: str | None = None,
-        max_visuals: int = 5,
+        max_visuals: int = 6,
     ) -> dict[str, Any]:
         engine_sha = require_exact_engine_sha(engine_sha)
         if output_dir.exists() and any(output_dir.iterdir()):
