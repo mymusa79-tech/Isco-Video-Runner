@@ -11,6 +11,7 @@ from clean_v2.contracts import (
     ContractError,
     compute_brief_sha256,
     load_approved_brief,
+    validate_plan,
 )
 from clean_v2.pipeline import CINEMATIC_STAGE, VISUAL_QA_STAGE, STAGES, CleanV2Pipeline
 from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
@@ -89,6 +90,41 @@ class ApprovedBriefContractTests(unittest.TestCase):
             path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
             with self.assertRaisesRegex(ContractError, "changed after approval"):
                 load_approved_brief(path, digest)
+
+    def test_film_plan_ceiling_matches_six_visual_cut(self) -> None:
+        brief = _brief()
+        plan = _plan()
+        seed = plan["sections"][0]
+        plan["sections"] = [
+            {
+                **seed,
+                "id": f"s{index}",
+                "heading": f"قسم {index}",
+                "purpose": f"غرض {index}",
+                "visual_query_en": f"quiet desk notebook wide shot {index}",
+            }
+            for index in range(1, 7)
+        ]
+        self.assertEqual(len(validate_plan(plan, brief)["sections"]), 6)
+
+        plan["sections"].append(
+            {
+                **seed,
+                "id": "s7",
+                "heading": "قسم 7",
+                "purpose": "غرض 7",
+                "visual_query_en": "quiet desk notebook wide shot seven",
+            }
+        )
+        with self.assertRaisesRegex(ContractError, "between 3 and 6"):
+            validate_plan(plan, brief)
+
+
+class VisualCoverageContractTests(unittest.TestCase):
+    def test_renderer_keeps_all_six_supported_visuals(self) -> None:
+        text = Path("clean_v2/media.py").read_text(encoding="utf-8")
+        self.assertIn("paths = visual_paths[:6]", text)
+        self.assertNotIn("paths = visual_paths[:5]", text)
 
 
 class ProviderAccountingTests(unittest.TestCase):
@@ -170,6 +206,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("engine/production/approved_brief.json", text)
         self.assertIn("python -m clean_v2", text)
         self.assertIn("لماذا تفشل خطط إدارة الوقت في الحياة اليومية", text)
+        self.assertIn("--max-visuals 6", text)
 
     def test_workflow_invokes_security_cinematic_then_final_master_without_legacy_orchestrator(self) -> None:
         text = self.WORKFLOW.read_text(encoding="utf-8").casefold()
