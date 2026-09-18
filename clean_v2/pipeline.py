@@ -47,6 +47,7 @@ def _run_legacy_final_master_qc(output_dir: Path) -> dict[str, Any]:
 def _run_final_cut_visual_qa(
     *,
     output_dir: Path,
+    clips: list[Path],
     plan: dict[str, Any],
     script: dict[str, Any],
     rights: list[dict[str, Any]],
@@ -56,6 +57,7 @@ def _run_final_cut_visual_qa(
 
     return run_final_cut_visual_qa(
         output_dir=output_dir,
+        clips=clips,
         plan=plan,
         script=script,
         rights=rights,
@@ -214,30 +216,25 @@ class _Journal:
             )
             new_layer_block = (
                 not infrastructure
-                and (
-                    name in {CINEMATIC_STAGE, VISUAL_QA_STAGE}
-                    or "CLEAN_V2_NEW_LAYER_BLOCK" in message
-                    or "CLEAN_V2_VISUAL_QA_BLOCK" in message
-                )
+                and name == VISUAL_QA_STAGE
+                and "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE" not in message
             )
+            quality_stage_failure = name in QUALITY_STAGES
             failure_classification = (
                 "infrastructure"
                 if infrastructure
                 else ("new-layer-block" if new_layer_block else "pre-layer")
             )
-            record["status"] = "blocked" if new_layer_block or name == QUALITY_STAGE else "failed"
+            record["status"] = "blocked" if quality_stage_failure else "failed"
             record["finished_at"] = _utc_now()
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
             record["failure_classification"] = failure_classification
             self.payload["failure_classification"] = failure_classification
-            if new_layer_block:
+            if quality_stage_failure:
                 self.payload["status"] = "quality_pending"
                 self.payload["quality_pending_stage"] = name
                 self.payload["failure_origin_stage"] = name
-            elif name == QUALITY_STAGE:
-                self.payload["status"] = "quality_pending"
-                self.payload["quality_pending_stage"] = name
             else:
                 self.payload["status"] = "failed"
             self.payload["finished_at"] = record["finished_at"]
@@ -379,7 +376,7 @@ class CleanV2Pipeline:
                 {
                     "schema_version": 1,
                     "assets": rights,
-                    "note": "Provider metadata captured at acquisition; no visual quality audit executed in Clean V2 bootstrap.",
+                    "note": "Provider metadata captured at acquisition; selected clips are audited by Final-cut Visual QA before render.",
                 },
             )
             self._write_runtime_events(output_dir)
@@ -393,6 +390,7 @@ class CleanV2Pipeline:
                 VISUAL_QA_STAGE,
                 lambda: self.visual_qa(
                     output_dir=output_dir,
+                    clips=clips,
                     plan=plan,
                     script=script,
                     rights=rights,
