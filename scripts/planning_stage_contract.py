@@ -1336,7 +1336,7 @@ def install_planning_contract_router() -> None:
         evidence_model = item.get("model")
         if evidence_model is not None and str(evidence_model) != str(model or ""):
             return None
-        deadline = transient_cooldown_until.get(provider)
+        deadline = item.get("deadline_monotonic")
         if not isinstance(deadline, (int, float)):
             transient_cooldown_evidence.pop(provider, None)
             return None
@@ -1351,7 +1351,6 @@ def install_planning_contract_router() -> None:
             "expired": remaining <= 0.0,
         }
         if remaining <= 0.0:
-            transient_cooldown_until.pop(provider, None)
             transient_cooldown_evidence.pop(provider, None)
         return exported
 
@@ -1535,12 +1534,29 @@ def install_planning_contract_router() -> None:
                                 ):
                                     armed_for = extend_transient_cooldown(provider, retry_after)
                                     if armed_for is not None:
+                                        try:
+                                            provider_delay = float(retry_after)
+                                        except (TypeError, ValueError):
+                                            provider_delay = 0.0
+                                        previous_evidence = transient_cooldown_evidence.get(provider)
+                                        previous_deadline = (
+                                            previous_evidence.get("deadline_monotonic")
+                                            if isinstance(previous_evidence, dict)
+                                            else None
+                                        )
+                                        provider_deadline = time.monotonic() + provider_delay
+                                        if isinstance(previous_deadline, (int, float)):
+                                            provider_deadline = max(
+                                                provider_deadline, float(previous_deadline)
+                                            )
                                         transient_cooldown_evidence[provider] = {
                                             "provider": provider,
                                             # Planning's live cooldown key is provider-scoped.
                                             # Do not invent model scope the source does not own.
                                             "model": None,
                                             "scope": "provider",
+                                            # Internal only. Downstream receives remaining seconds.
+                                            "deadline_monotonic": provider_deadline,
                                         }
                                         print(
                                             "Planning provider short-window cooldown armed: "
