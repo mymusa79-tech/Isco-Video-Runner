@@ -276,11 +276,6 @@ def _classify_http(status: int, message: str) -> VisionErrorCode:
         return VisionErrorCode.AUTH_CONFIG
     if status == 404 and ("provider" in lowered or "endpoint" in lowered or "parameter" in lowered):
         return VisionErrorCode.CAPACITY
-    if status == 413 and (
-        "input tokens per minute" in lowered
-        or "itpm" in lowered
-    ):
-        return VisionErrorCode.PROVIDER_TRANSIENT
     if status in {408, 409, 429, 500, 502, 503, 504}:
         return VisionErrorCode.PROVIDER_TRANSIENT
     if status in {400, 404, 422} and ("schema" in lowered or "parameter" in lowered or "support" in lowered):
