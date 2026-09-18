@@ -9,6 +9,7 @@ it never selects a schema, semantic contract, provider policy, or cache policy.
 import functools
 import hashlib
 import json
+import re
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -128,6 +129,53 @@ _ACTIVE_REQUEST_CONTRACT: ContextVar[PlanningStageContract | None] = ContextVar(
 )
 
 _PLANNING_TRANSIENT_COOLDOWN_READER = None
+
+_GROQ_TEMPORAL_PRECHECK_REASONS = frozenset({
+    "GROQ_TPM_WINDOW_BUSY_PRECHECK",
+    "GROQ_RPM_WINDOW_BUSY_PRECHECK",
+    "temporal_capacity_window",
+})
+_GROQ_TEMPORAL_PRECHECK_MARKERS = (
+    "groq_tpm_window_busy_precheck",
+    "groq_rpm_window_busy_precheck",
+)
+_GROQ_TEMPORAL_RESET_RE = re.compile(r"reset_in=(\d+(?:\.\d+)?)s", flags=re.I)
+# Must remain aligned with the existing Run124 bounded temporal-recovery contract.
+# This is a classifier bound only: Stage Contract never waits on this value.
+_RUN124_TEMPORAL_RESET_LIMIT_SECONDS = 60.0
+
+
+def _run124_owned_groq_temporal_prewire_failure(
+    provider: str,
+    error: BaseException,
+    *,
+    wire_attempted: bool,
+    retryable: bool,
+) -> bool:
+    """Return True only when Run124 already owns this exact Groq temporal window.
+
+    The suppression is intentionally narrower than generic no-wire handling: it needs
+    typed no-wire proof, a Groq TPM/RPM precheck marker, numeric bounded reset evidence,
+    and a retryable classification. Unknown reset windows, real HTTP failures, other
+    providers, and unrelated local no-wire failures keep Stage Contract's historical
+    provider cooldown behavior.
+    """
+    if str(provider).strip().lower() != "groq" or wire_attempted or not retryable:
+        return False
+    if getattr(error, "wire_attempted", None) is not False:
+        return False
+    detail = str(error)
+    lower = detail.lower()
+    if not any(marker in lower for marker in _GROQ_TEMPORAL_PRECHECK_MARKERS):
+        return False
+    match = _GROQ_TEMPORAL_RESET_RE.search(detail)
+    if match is None:
+        return False
+    try:
+        reset_seconds = float(match.group(1))
+    except (TypeError, ValueError):
+        return False
+    return 0.0 <= reset_seconds <= _RUN124_TEMPORAL_RESET_LIMIT_SECONDS
 
 
 def planning_provider_cooldown_evidence(
@@ -1140,6 +1188,7 @@ def _provider_failure(
         "payload_too_large",
         "tpm_capacity",
         "tpm_window",
+        "rpm_window",
         "context_length",
         "max_tokens",
         "http_413",
@@ -1161,7 +1210,7 @@ def _provider_failure(
     # latter's own comment there says it "can never heal with time" and is deliberately
     # excluded here, since only a real TPM ceiling (not a window preflight) is genuinely
     # permanent.
-    time_window_capacity_markers = ("tpm_capacity_preflight", "tpm_window")
+    time_window_capacity_markers = ("tpm_capacity_preflight", "tpm_window", "rpm_window")
     # Run #267 reached Groq on-wire for planning.full_script, received syntactically
     # valid JSON with a non-object root, and router._parse_json raised this exact
     # response-contract error before json_text could return a dict. This is structural
@@ -1573,9 +1622,24 @@ def install_planning_contract_router() -> None:
                                             and total_attempts < contract.provider_policy.max_total_attempts
                                         ):
                                             next_round_candidates.add(provider)
-                                        extend_transient_cooldown(
-                                            provider, router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
-                                        )
+                                        if _run124_owned_groq_temporal_prewire_failure(
+                                            provider,
+                                            exc,
+                                            wire_attempted=wire_attempted,
+                                            retryable=retryable,
+                                        ):
+                                            print(
+                                                "Planning stage generic cooldown suppressed: "
+                                                "stage_generic_cooldown_suppressed=true "
+                                                f"provider={provider} "
+                                                "reason=evidence_backed_model_temporal_precheck "
+                                                "temporal_owner=run124_capacity_recovery "
+                                                "wire_attempted=false"
+                                            )
+                                        else:
+                                            extend_transient_cooldown(
+                                                provider, router.TRANSIENT_PROVIDER_COOLDOWN_SECONDS
+                                            )
                                     break
                                 has_retry = provider_attempt + 1 < contract.provider_policy.max_attempts_per_provider
                                 if (
