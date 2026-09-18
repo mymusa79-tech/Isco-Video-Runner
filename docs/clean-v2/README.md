@@ -1,21 +1,26 @@
 # Clean V2 bootstrap runbook
 
 Clean V2 has one objective: keep the minimal production path stable while adding quality
-layers one at a time. Final Master QC is the accepted first layer. The isolated second-layer
-candidate restores the already-tested Security V1 + Cinematic V2 (M7-M11) owners without
-rewriting their kernels. Gold, Text Audit, and Viewer Quality remain disabled.
+layers one at a time. Final Master QC is the accepted first layer and Security V1 +
+Cinematic V2 (M7-M11) is the accepted second layer. The third controlled candidate is
+Final-cut Visual QA over the exact clips already selected by Clean V2. Gold, Text Audit,
+Viewer Quality, packaging, thumbnails, and Shorts remain disabled.
 
 ## Runtime path
 
-`Brief → Planning → Script → Voice → Visuals[Security V1 + M8] → Render → M7/M9/M10/M11 compatibility stage → Final file → Final Master QC`
+`Brief → Planning → Script → Voice → Visuals[Security V1 + M8] → Final-cut Visual QA → Render → M7/M9/M10/M11 compatibility stage → Final file → Final Master QC`
 
 - Brief: exact human-approved Engine brief, bound by SHA-256.
-- Planning: one bounded provider route.
+- Planning: one bounded provider route. Film is fixed to exactly five sections so every
+  section can map to one of Clean V2's existing maximum five final-cut visuals.
 - Script: one bounded provider route.
 - Voice: verified local Piper voice, chunked deterministically.
 - Visuals: Pexels, then Pixabay, then a deterministic local fallback if stock is unavailable.
   Stock queries and downloaded stock cross the existing Security V1 boundaries. Admitted
   clips then pass through the existing Engine M8 BT.709/SDR kernel before render.
+- Final-cut Visual QA: audits only already-selected clips with the existing Engine
+  visual normalizer, unchanged 0.85 final-cut readiness target, and bounded
+  Gemini → Groq → OpenRouter Vision mesh. It cannot re-search or replace footage.
 - Render: FFmpeg H.264/AAC at 1920×1080 for Film or 1080×1920 for Moment/Story,
   with 48 kHz AAC so the unchanged legacy Final Master QC media contract can be reused.
 - M7-M11 compatibility: the existing Engine M7 legacy fallback compiles the already-selected
@@ -29,8 +34,9 @@ rewriting their kernels. Gold, Text Audit, and Viewer Quality remain disabled.
   It adds zero AI calls and never mutates `final.mp4`.
 
 There is no Gold, Text Audit, Viewer Quality, thumbnail, sibling Short, release, or
-publication stage. This candidate adds no AI/provider call to the M7-M11 compatibility
-stage and does not alter the provider order used by Planning/Script.
+publication stage. Final-cut Visual QA is the only newly introduced AI quality stage;
+the M7-M11 compatibility stage still adds no AI/provider call and Planning/Script
+provider order remains unchanged.
 
 ## Manual production
 
@@ -49,17 +55,18 @@ The artifact contains:
 - `final.json`
 - `visual-timeline.json`, `m9-transitions.json`, `m10-cards.json`, and `m11-report.json`
 - `security-cinematic-v2.json` and per-clip `visuals/*.m8.json`
+- `visual-audit.json`, `final-cut-visual-qa.json`, and `visual-qa-budget.json`
 - `quality-final.json` compatibility evidence for the unchanged Final Master core
 - `final-master-qc.json`
 
 ## First-success definition
 
-A run is successful only when all nine stages are `pass`, the Security/Cinematic report is
-`pass`, the structural final-file check passes, and `final-master-qc.json` is `pass`.
-A Security/Cinematic or Final Master block fails closed and records
-`status=quality_pending`. Attribution stays explicit: a Security/Cinematic block is
-`new-layer-block`, a pre-existing Final Master block is `pre-layer`, and bounded
-content-provider exhaustion is `infrastructure`.
+A run is successful only when all ten stages are `pass`, `final-cut-visual-qa.json`
+is `pass`, the Security/Cinematic report is `pass`, the structural final-file check
+passes, and `final-master-qc.json` is `pass`. Quality failures fail closed with
+`status=quality_pending`. For the Layer-3 cohort, a Visual QA semantic/readiness block
+is `new-layer-block`; already accepted Security/Cinematic or Final Master failures are
+`pre-layer`; bounded provider-mesh exhaustion is `infrastructure`.
 
 ## Second-layer stability cohort
 

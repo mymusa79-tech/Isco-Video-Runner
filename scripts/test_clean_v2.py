@@ -11,8 +11,15 @@ from clean_v2.contracts import (
     ContractError,
     compute_brief_sha256,
     load_approved_brief,
+    validate_plan,
 )
-from clean_v2.pipeline import CINEMATIC_STAGE, VISUAL_QA_STAGE, STAGES, CleanV2Pipeline
+from clean_v2.pipeline import (
+    CINEMATIC_STAGE,
+    VISUAL_QA_STAGE,
+    STAGES,
+    CleanV2Pipeline,
+    _planning_prompt,
+)
 from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
 
 
@@ -52,6 +59,18 @@ def _plan() -> dict:
                 "purpose": "دعوة عملية",
                 "visual_query_en": "morning workspace sunlight no face",
             },
+            {
+                "id": "s4",
+                "heading": "المراجعة",
+                "purpose": "مراجعة أثر الخطوة الأولى",
+                "visual_query_en": "checking simple task list on desk",
+            },
+            {
+                "id": "s5",
+                "heading": "الاستمرار",
+                "purpose": "تثبيت خطوة تالية واضحة",
+                "visual_query_en": "calendar and notebook calm workspace",
+            },
         ],
     }
 
@@ -72,6 +91,14 @@ def _script() -> dict:
                 "id": "s3",
                 "narration": "اختر اليوم خطوة يمكن تنفيذها الآن، ثم اترك النتيجة التالية لما بعد البداية.",
             },
+            {
+                "id": "s4",
+                "narration": "بعد التنفيذ راجع ما حدث بهدوء، وما الذي جعل الخطوة ممكنة في هذه المرة.",
+            },
+            {
+                "id": "s5",
+                "narration": "ثبت ما نجح واختر خطوة تالية صغيرة وواضحة حتى يتحول التقدم إلى عادة عملية.",
+            },
         ],
     }
 
@@ -89,6 +116,31 @@ class ApprovedBriefContractTests(unittest.TestCase):
             path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
             with self.assertRaisesRegex(ContractError, "changed after approval"):
                 load_approved_brief(path, digest)
+
+
+class PlanningCardinalityTests(unittest.TestCase):
+    def test_film_prompt_and_validator_require_exactly_five_sections(self) -> None:
+        brief = _brief()
+        brief["format"] = "film"
+        prompt = _planning_prompt(brief)
+        self.assertIn("Use exactly 5 sections", prompt)
+        self.assertNotIn("5 to 6", prompt)
+        self.assertEqual(len(validate_plan(_plan(), brief)["sections"]), 5)
+
+        six = _plan()
+        six["sections"].append(
+            {
+                "id": "s6",
+                "heading": "سادس",
+                "purpose": "يجب رفضه",
+                "visual_query_en": "extra calm workspace shot",
+            }
+        )
+        with self.assertRaisesRegex(
+            ContractError,
+            "exactly 5 for film",
+        ):
+            validate_plan(six, brief)
 
 
 class ProviderAccountingTests(unittest.TestCase):
@@ -527,7 +579,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
 
 
-    def test_cinematic_block_is_attributed_to_new_layer_and_stops_before_final_master(self) -> None:
+    def test_cinematic_block_is_pre_layer_after_accepted_m7_m11_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             brief_path = root / "approved-brief.json"
@@ -557,7 +609,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(manifest["status"], "quality_pending")
             self.assertEqual(manifest["quality_pending_stage"], CINEMATIC_STAGE)
-            self.assertEqual(manifest["failure_classification"], "new-layer-block")
+            self.assertEqual(manifest["failure_classification"], "pre-layer")
             self.assertEqual(
                 manifest["quality_layers_executed"],
                 [CINEMATIC_STAGE, VISUAL_QA_STAGE],
