@@ -102,7 +102,7 @@ class PlanningCardinalityTests(unittest.TestCase):
         brief = _brief()
         brief["format"] = "film"
         prompt = _planning_prompt(brief)
-        self.assertIn("Use exactly exactly 5 sections", prompt)
+        self.assertIn("Use exactly 5 sections", prompt)
         self.assertNotIn("5 to 6", prompt)
 
 
