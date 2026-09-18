@@ -9,6 +9,7 @@ on:
       - "scripts/test_clean_v2.py"
       - "scripts/test_clean_v2_final_master_qc.py"
       - "scripts/test_clean_v2_legacy_cinematic.py"
+      - "scripts/test_clean_v2_visual_qa.py"
       - "docs/clean-v2/**"
       - ".github/workflows/clean-v2-minimal-e2e.yml"
 
@@ -40,11 +41,12 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 update
           sudo apt-get -o Acquire::Retries=3 install -y ffmpeg
 
-      - name: Run Clean V2 contracts, E2E render, legacy-layer adapter, and Final Master QC
+      - name: Run Clean V2 contracts, Final-cut Visual QA, legacy-layer adapter, and Final Master QC
         run: |
           python -m unittest \
             scripts.test_clean_v2 \
             scripts.test_clean_v2_legacy_cinematic \
+            scripts.test_clean_v2_visual_qa \
             scripts.test_clean_v2_final_master_qc \
             -v
 
@@ -188,10 +190,13 @@ jobs:
           test -s "$CLEAN_V2_OUTPUT/final.mp4"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/run-manifest.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final.json")" = "pass"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/visual-qa-report.json")" = "pass"
+          test "$(jq -r 'length' "$CLEAN_V2_OUTPUT/visual-audit.json")" -ge 1
+          test -s "$CLEAN_V2_OUTPUT/visual-qa-budget.json"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/security-cinematic-v2.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-master-qc.json")" = "pass"
-          test "$(jq -r '.stages | length' "$CLEAN_V2_OUTPUT/run-manifest.json")" = "9"
-          test "$(jq -r '.quality_layers_executed | join(",")' "$CLEAN_V2_OUTPUT/run-manifest.json")" = "security_v1_cinematic_v2_m7_m11,final_master_qc"
+          test "$(jq -r '.stages | length' "$CLEAN_V2_OUTPUT/run-manifest.json")" = "10"
+          test "$(jq -r '.quality_layers_executed | join(",")' "$CLEAN_V2_OUTPUT/run-manifest.json")" = "security_v1_cinematic_v2_m7_m11,final_cut_visual_qa_v1,final_master_qc"
           test "$(jq -r .timeline_mode "$CLEAN_V2_OUTPUT/visual-timeline.json")" = "legacy_section_fallback"
           test -s "$CLEAN_V2_OUTPUT/m9-transitions.json"
           test -s "$CLEAN_V2_OUTPUT/m10-cards.json"
