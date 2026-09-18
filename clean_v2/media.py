@@ -142,6 +142,101 @@ class PiperVoiceSynthesizer:
         return output_path
 
 
+def _legacy_voice_identity() -> tuple[str, str]:
+    """Reuse the pinned Engine voice identity owner; do not duplicate its policy here."""
+    from isco_video_agent.providers.gemini import _voice_identity
+
+    return _voice_identity()
+
+
+def _legacy_gemini_synthesize(
+    api_key: str,
+    transcript: str,
+    output_path: Path,
+    *,
+    model: str,
+    voice: str,
+) -> Path:
+    """Reuse the legacy Gemini TTS implementation with exactly one provider attempt."""
+    from isco_video_agent.providers.gemini import synthesize_wav
+
+    return synthesize_wav(
+        api_key,
+        transcript,
+        output_path,
+        model=model,
+        voice=voice,
+        style="",
+        attempts=1,
+    )
+
+
+class GeminiPrimaryPiperFallbackSynthesizer:
+    """Clean V2 voice route: approved Gemini identity first, verified Piper second."""
+
+    EXPECTED_PRIMARY_VOICE = "Charon"
+
+    def __init__(
+        self,
+        api_key: str,
+        piper_model_path: Path,
+        manifest_path: Path | None = None,
+        *,
+        tts_model: str = "gemini-3.1-flash-tts-preview",
+    ) -> None:
+        self.api_key = str(api_key or "").strip()
+        self.tts_model = str(tts_model or "").strip() or "gemini-3.1-flash-tts-preview"
+        self.piper = PiperVoiceSynthesizer(piper_model_path, manifest_path)
+        self.last_provider: str | None = None
+        self.fallback_used: bool | None = None
+
+    def _fallback(self, transcript: str, output_path: Path) -> Path:
+        result = self.piper.synthesize(transcript, output_path)
+        self.last_provider = f"piper-local:{self.piper.model_path.stem}"
+        self.fallback_used = True
+        print(f"Clean V2 voice provider selected: {self.last_provider}")
+        return result
+
+    def synthesize(self, transcript: str, output_path: Path) -> Path:
+        if not transcript.strip():
+            raise RuntimeError("cannot synthesize an empty transcript")
+
+        primary_voice, _ = _legacy_voice_identity()
+        if primary_voice != self.EXPECTED_PRIMARY_VOICE:
+            raise RuntimeError(
+                "Clean V2 primary voice identity mismatch: "
+                f"expected={self.EXPECTED_PRIMARY_VOICE} actual={primary_voice}"
+            )
+
+        if not self.api_key:
+            print("Clean V2 Gemini TTS unavailable: missing_api_key; using Piper fallback")
+            return self._fallback(transcript, output_path)
+
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            _legacy_gemini_synthesize(
+                self.api_key,
+                transcript,
+                output_path,
+                model=self.tts_model,
+                voice=primary_voice,
+            )
+            if not output_path.is_file() or output_path.stat().st_size < 1024:
+                raise RuntimeError("Gemini TTS produced an empty narration file")
+        except Exception as exc:
+            output_path.unlink(missing_ok=True)
+            print(
+                "Clean V2 Gemini TTS failed; using Piper fallback: "
+                f"error_type={type(exc).__name__}"
+            )
+            return self._fallback(transcript, output_path)
+
+        self.last_provider = f"gemini:{primary_voice}"
+        self.fallback_used = False
+        print(f"Clean V2 voice provider selected: {self.last_provider}")
+        return output_path
+
+
 def _get_json(
     url: str,
     *,
