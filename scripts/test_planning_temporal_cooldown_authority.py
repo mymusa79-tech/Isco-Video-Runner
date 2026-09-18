@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import isco_video_agent.resilient_planner as staged
 
+from provider_failure import classify_provider_failure as base_classify_provider_failure
 from scripts import checkpoint_namespace_guard as checkpoint_guard
 from scripts import planning_stage_contract as contract
 from scripts import run124_terminal_provider_recovery as recovery
@@ -51,6 +52,10 @@ class Run270PlanningTemporalCooldownAuthorityTests(unittest.TestCase):
 
         self.old_json_text = staged.json_text
         self.old_schema_adapter = router._structured_schema_for_prompt
+        self.classifier = patch.object(
+            router, "classify_provider_failure", base_classify_provider_failure
+        )
+        self.classifier.start()
         staged.json_text = lambda *_args, **_kwargs: {}
         router._TELEMETRY.clear()
         router._USED_PROVIDERS.clear()
@@ -70,6 +75,7 @@ class Run270PlanningTemporalCooldownAuthorityTests(unittest.TestCase):
     def tearDown(self) -> None:
         staged.json_text = self.old_json_text
         router._structured_schema_for_prompt = self.old_schema_adapter
+        self.classifier.stop()
         self.sleep.stop()
         self.monotonic.stop()
         self.cache.stop()
