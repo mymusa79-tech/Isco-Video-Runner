@@ -109,10 +109,12 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     if not title or not promise or not isinstance(raw_sections, list):
         raise ContractError("plan requires title, promise, and sections")
     fmt = str(brief.get("format") or "")
-    minimum, maximum = ((3, 8) if fmt == "film" else (1, 5))
-    if not minimum <= len(raw_sections) <= maximum:
+    if fmt == "film":
+        if len(raw_sections) != 5:
+            raise ContractError("plan section count must be exactly 5 for film")
+    elif not 1 <= len(raw_sections) <= 5:
         raise ContractError(
-            f"plan section count must be between {minimum} and {maximum} for {fmt}"
+            f"plan section count must be between 1 and 5 for {fmt}"
         )
     sections: list[dict[str, str]] = []
     seen: set[str] = set()
