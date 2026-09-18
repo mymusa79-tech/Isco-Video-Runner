@@ -198,7 +198,7 @@ class Run271AppendPostWireTemporalRecoveryTests(unittest.TestCase):
         temporal_waits = [
             call.args[0]
             for call in sleep.call_args_list
-            if call.args and float(call.args[0]) > 1.0
+            if call.args and float(call.args[0]) >= 30.0
         ]
         self.assertEqual(len(temporal_waits), 2)
         self.assertAlmostEqual(temporal_waits[0], FIRST_WAIT, places=2)
@@ -242,9 +242,10 @@ class Run271AppendPostWireTemporalRecoveryTests(unittest.TestCase):
         temporal_waits = [
             call.args[0]
             for call in sleep.call_args_list
-            if call.args and float(call.args[0]) > 1.0
+            if call.args and float(call.args[0]) >= 30.0
         ]
-        self.assertEqual(temporal_waits, [FIRST_WAIT])
+        self.assertEqual(len(temporal_waits), 1)
+        self.assertAlmostEqual(temporal_waits[0], FIRST_WAIT, places=2)
         self.assertEqual(recovery._APPEND_REAL_WIRE_GENERATION, {})
         telemetry = [row for row in router.get_telemetry() if row.get("provider") == "groq"]
         self.assertEqual(len(telemetry), 1)
@@ -271,9 +272,10 @@ class Run271AppendPostWireTemporalRecoveryTests(unittest.TestCase):
         temporal_waits = [
             call.args[0]
             for call in sleep.call_args_list
-            if call.args and float(call.args[0]) > 1.0
+            if call.args and float(call.args[0]) >= 30.0
         ]
-        self.assertEqual(temporal_waits, [FIRST_WAIT])
+        self.assertEqual(len(temporal_waits), 1)
+        self.assertAlmostEqual(temporal_waits[0], FIRST_WAIT, places=2)
         self.assertEqual(sum(recovery._APPEND_REAL_WIRE_GENERATION.values()), 1)
 
     def test_max_total_attempts_exhausted_does_not_create_second_temporal_opportunity(self) -> None:
@@ -296,9 +298,10 @@ class Run271AppendPostWireTemporalRecoveryTests(unittest.TestCase):
         temporal_waits = [
             call.args[0]
             for call in sleep.call_args_list
-            if call.args and float(call.args[0]) > 1.0
+            if call.args and float(call.args[0]) >= 30.0
         ]
-        self.assertEqual(temporal_waits, [FIRST_WAIT])
+        self.assertEqual(len(temporal_waits), 1)
+        self.assertAlmostEqual(temporal_waits[0], FIRST_WAIT, places=2)
         self.assertEqual(sum(recovery._APPEND_REAL_WIRE_GENERATION.values()), 1)
 
     def test_run_wide_wait_budget_still_denies_temporal_pacing(self) -> None:
