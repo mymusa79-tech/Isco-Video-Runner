@@ -536,7 +536,7 @@ def render_video(
     duration = probe_duration(narration_path)
     portrait = fmt in {"moment", "story"}
     width, height = ((1080, 1920) if portrait else (1920, 1080))
-    paths = visual_paths[:5]
+    paths = visual_paths[:6]
     slot = (duration / len(paths)) + 0.12
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
     for path in paths:
