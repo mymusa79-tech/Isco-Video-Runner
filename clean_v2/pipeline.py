@@ -17,7 +17,9 @@ from .contracts import (
 from .media import inspect_final, render_video
 
 
+CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 QUALITY_STAGE = "final_master_qc"
+QUALITY_STAGES = frozenset({CINEMATIC_STAGE, QUALITY_STAGE})
 
 STAGES = (
     "brief",
@@ -26,6 +28,7 @@ STAGES = (
     "voice",
     "visuals",
     "render",
+    CINEMATIC_STAGE,
     "final_file",
     QUALITY_STAGE,
 )
@@ -37,6 +40,30 @@ def _run_legacy_final_master_qc(output_dir: Path) -> dict[str, Any]:
     from scripts.final_master_qc import run_final_master_qc
 
     return run_final_master_qc(output_dir)
+
+
+def _run_legacy_cinematic_layer(
+    *,
+    output_dir: Path,
+    final_path: Path,
+    narration_path: Path,
+    plan: dict[str, Any],
+    script: dict[str, Any],
+    rights: list[dict[str, Any]],
+    fmt: str,
+) -> dict[str, Any]:
+    # Deliberately reuse the old tested Security V1 + Cinematic V2 owners.
+    from clean_v2.legacy_cinematic import apply_post_render_layer
+
+    return apply_post_render_layer(
+        output_dir=output_dir,
+        final_path=final_path,
+        narration_path=narration_path,
+        plan=plan,
+        script=script,
+        rights=rights,
+        fmt=fmt,
+    )
 
 
 def _utc_now() -> str:
@@ -155,13 +182,14 @@ class _Journal:
         try:
             result = operation()
         except Exception as exc:
-            record["status"] = "blocked" if name == QUALITY_STAGE else "failed"
+            record["status"] = "blocked" if name in QUALITY_STAGES else "failed"
             record["finished_at"] = _utc_now()
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
-            if name == QUALITY_STAGE:
+            if name in QUALITY_STAGES:
                 self.payload["status"] = "quality_pending"
                 self.payload["quality_pending_stage"] = name
+                self.payload["failure_classification"] = "new-layer-block"
             else:
                 self.payload["status"] = "failed"
             self.payload["finished_at"] = record["finished_at"]
@@ -193,6 +221,7 @@ class CleanV2Pipeline:
         visual_source: Any,
         renderer: Callable[[Path, list[Path], Path, str], Path] = render_video,
         final_inspector: Callable[[Path], dict[str, Any]] = inspect_final,
+        cinematic_layer: Callable[..., dict[str, Any]] = _run_legacy_cinematic_layer,
         final_master_qc: Callable[[Path], dict[str, Any]] = _run_legacy_final_master_qc,
     ) -> None:
         self.router = router
@@ -200,6 +229,7 @@ class CleanV2Pipeline:
         self.visual_source = visual_source
         self.renderer = renderer
         self.final_inspector = final_inspector
+        self.cinematic_layer = cinematic_layer
         self.final_master_qc = final_master_qc
 
     def _write_runtime_events(self, output_dir: Path) -> None:
@@ -310,6 +340,22 @@ class CleanV2Pipeline:
                     str(brief["format"]),
                 ),
             )
+
+            journal.payload["quality_layers_executed"] = [CINEMATIC_STAGE]
+            journal._write()
+            cinematic_report = journal.run(
+                CINEMATIC_STAGE,
+                lambda: self.cinematic_layer(
+                    output_dir=output_dir,
+                    final_path=final_path,
+                    narration_path=narration_path,
+                    plan=plan,
+                    script=script,
+                    rights=rights,
+                    fmt=str(brief["format"]),
+                ),
+            )
+
             final_report = journal.run(
                 "final_file", lambda: self.final_inspector(final_path)
             )
@@ -343,7 +389,7 @@ class CleanV2Pipeline:
                     "duration_seconds": final_report["duration_seconds"],
                 },
             )
-            journal.payload["quality_layers_executed"] = [QUALITY_STAGE]
+            journal.payload["quality_layers_executed"] = [CINEMATIC_STAGE, QUALITY_STAGE]
             journal._write()
             final_master_report = journal.run(
                 QUALITY_STAGE, lambda: self.final_master_qc(output_dir)
@@ -353,6 +399,7 @@ class CleanV2Pipeline:
                 final_file=final_path.name,
                 final_sha256=final_report["sha256"],
                 final_duration_seconds=final_report["duration_seconds"],
+                cinematic_v2_status=cinematic_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
                 provider_wire_attempts=sum(
                     1
@@ -366,6 +413,7 @@ class CleanV2Pipeline:
                 "final_file": str(final_path),
                 "duration_seconds": final_report["duration_seconds"],
                 "sha256": final_report["sha256"],
+                "cinematic_v2_status": cinematic_report.get("status"),
                 "final_master_qc_status": final_master_report.get("status"),
             }
         except Exception:
