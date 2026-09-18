@@ -12,6 +12,7 @@ import isco_video_agent.text_audit_router as engine_audit_router
 import isco_video_agent.tone_quality as tone_quality
 from isco_video_agent.ai_budget import get_active_budget_task
 
+from scripts import planning_stage_contract as planning_stage
 from scripts import provider_capacity_hardening as capacity
 from scripts import run125_capacity_routing_closure as run125
 from scripts import task_level_planner_router as planner_router
@@ -74,6 +75,53 @@ _REQUIRED_ARRAYS_BY_TASK_KIND = {
 
 class TextAuditUnavailableError(RuntimeError):
     """A mandatory independent audit could not obtain a valid provider verdict."""
+
+
+def _planning_cooldown_guard(
+    route_name: str,
+    call: Callable[[str], dict],
+) -> Callable[[str], dict]:
+    """Honor only inherited short-window Planning cooldowns before Text Audit wire.
+
+    Groq remains entirely under its existing model-scoped Text Audit capacity owner.
+    This handoff is for provider-scoped routes only and never writes Engine circuit state.
+    """
+    provider = str(route_name).strip()
+    if not provider or provider.startswith(_GROQ_ROUTE_PREFIX):
+        return call
+
+    def guarded(prompt: str) -> dict:
+        evidence = planning_stage.planning_provider_cooldown_evidence(provider)
+        if not isinstance(evidence, dict):
+            return call(prompt)
+
+        reason = str(evidence.get("reason") or "")
+        source = str(evidence.get("source") or "")
+        remaining = float(evidence.get("remaining_seconds") or 0.0)
+        if evidence.get("expired") is True or remaining <= 0.0:
+            print(
+                "Text Audit inherited provider cooldown expired: "
+                "inherited_provider_cooldown_expired=true "
+                f"provider={provider} source={source or 'planning'} "
+                f"reason={reason or 'short_window_retry_after'}"
+            )
+            return call(prompt)
+
+        print(
+            "Text Audit inherited provider cooldown: "
+            "inherited_provider_cooldown=true "
+            f"provider={provider} source={source or 'planning'} "
+            f"reason={reason or 'short_window_retry_after'} "
+            f"remaining_seconds={remaining:.2f} action=skip_without_wire"
+        )
+        raise planner_router.NoWireProviderFailure(
+            "INHERITED_PROVIDER_COOLDOWN",
+            f"provider={provider} source=planning "
+            f"reason={reason or 'short_window_retry_after'} "
+            f"remaining_seconds={remaining:.2f} action=skip_without_wire",
+        )
+
+    return guarded
 
 
 def _groq_secret_available() -> bool:
@@ -340,6 +388,10 @@ def _mesh_route(
 
         routed.append((name, _contract_validated(call)))
 
+    routed = [
+        (name, _planning_cooldown_guard(name, call))
+        for name, call in routed
+    ]
     result = engine_audit_router.route_text_audit(routed, prompt, cooldown=cooldown)
     _record_route_telemetry(result)
     return result

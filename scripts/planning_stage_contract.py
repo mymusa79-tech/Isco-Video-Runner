@@ -127,6 +127,30 @@ _ACTIVE_REQUEST_CONTRACT: ContextVar[PlanningStageContract | None] = ContextVar(
     "isco_planning_request_contract", default=None
 )
 
+_PLANNING_TRANSIENT_COOLDOWN_READER = None
+
+
+def planning_provider_cooldown_evidence(
+    provider: str,
+    *,
+    model: str | None = None,
+) -> dict | None:
+    """Expose only active short-window Planning cooldown evidence to downstream Text Audit.
+
+    The live Planning owner keeps its deadline in the monotonic clock domain. This
+    boundary never exports that raw deadline: the owning closure converts it to
+    remaining seconds at read time, so downstream callers cannot compare monotonic
+    values against wall-clock/epoch timestamps by mistake.
+    """
+    if not _contains_marker(staged.json_text, _ROUTER_MARKER):
+        return None
+    reader = _PLANNING_TRANSIENT_COOLDOWN_READER
+    if reader is None:
+        return None
+    evidence = reader(str(provider), model=model)
+    return dict(evidence) if isinstance(evidence, dict) else None
+
+
 _PROVIDER_ORDER = ("gemini", "groq", "openrouter")
 _STAGE_WRAPPER_MARKER = "_isco_explicit_planning_stage_contract"
 _ROUTER_MARKER = "_isco_explicit_planning_contract_router"
@@ -1270,6 +1294,7 @@ def _provider_result(
 
 def install_planning_contract_router() -> None:
     """Replace prompt-inferred routing with one explicit-contract request owner."""
+    global _PLANNING_TRANSIENT_COOLDOWN_READER
     if _contains_marker(staged.json_text, _ROUTER_MARKER):
         # Idempotent lifecycle reassertion must also restore the one schema authority;
         # a historical installer is not allowed to survive merely because the routed
@@ -1280,6 +1305,7 @@ def install_planning_contract_router() -> None:
     checkpoint = _load_checkpoint_strict()
     cooldown: set[str] = set()
     transient_cooldown_until: dict[str, float] = {}
+    transient_cooldown_evidence: dict[str, dict[str, object]] = {}
     last_call_at: dict[str, float] = {}
     sequence = 0
 
@@ -1298,6 +1324,37 @@ def install_planning_contract_router() -> None:
             deadline = max(deadline, float(previous))
         transient_cooldown_until[provider] = deadline
         return max(0.0, deadline - now)
+
+    def read_transient_cooldown_evidence(
+        provider: str,
+        *,
+        model: str | None = None,
+    ) -> dict | None:
+        item = transient_cooldown_evidence.get(provider)
+        if not isinstance(item, dict):
+            return None
+        evidence_model = item.get("model")
+        if evidence_model is not None and str(evidence_model) != str(model or ""):
+            return None
+        deadline = item.get("deadline_monotonic")
+        if not isinstance(deadline, (int, float)):
+            transient_cooldown_evidence.pop(provider, None)
+            return None
+        remaining = max(0.0, float(deadline) - time.monotonic())
+        exported = {
+            "provider": provider,
+            "model": evidence_model,
+            "scope": str(item.get("scope") or "provider"),
+            "source": "planning",
+            "reason": "short_window_retry_after",
+            "remaining_seconds": remaining,
+            "expired": remaining <= 0.0,
+        }
+        if remaining <= 0.0:
+            transient_cooldown_evidence.pop(provider, None)
+        return exported
+
+    _PLANNING_TRANSIENT_COOLDOWN_READER = read_transient_cooldown_evidence
 
     # Every old low-level caller that still asks for a response schema now resolves it
     # from the active request contract. The prompt argument is deliberately ignored.
@@ -1477,6 +1534,30 @@ def install_planning_contract_router() -> None:
                                 ):
                                     armed_for = extend_transient_cooldown(provider, retry_after)
                                     if armed_for is not None:
+                                        try:
+                                            provider_delay = float(retry_after)
+                                        except (TypeError, ValueError):
+                                            provider_delay = 0.0
+                                        previous_evidence = transient_cooldown_evidence.get(provider)
+                                        previous_deadline = (
+                                            previous_evidence.get("deadline_monotonic")
+                                            if isinstance(previous_evidence, dict)
+                                            else None
+                                        )
+                                        provider_deadline = time.monotonic() + provider_delay
+                                        if isinstance(previous_deadline, (int, float)):
+                                            provider_deadline = max(
+                                                provider_deadline, float(previous_deadline)
+                                            )
+                                        transient_cooldown_evidence[provider] = {
+                                            "provider": provider,
+                                            # Planning's live cooldown key is provider-scoped.
+                                            # Do not invent model scope the source does not own.
+                                            "model": None,
+                                            "scope": "provider",
+                                            # Internal only. Downstream receives remaining seconds.
+                                            "deadline_monotonic": provider_deadline,
+                                        }
                                         print(
                                             "Planning provider short-window cooldown armed: "
                                             f"provider={provider} retry_after={armed_for:.2f}s "
@@ -1533,6 +1614,7 @@ def install_planning_contract_router() -> None:
                                 # A successful real response proves any prior short-window
                                 # deadline for this provider has healed.
                                 transient_cooldown_until.pop(provider, None)
+                                transient_cooldown_evidence.pop(provider, None)
                                 router._record_provider_used(provider)
                                 router._record_attempt(
                                     provider,
