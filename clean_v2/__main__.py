@@ -37,7 +37,7 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
     parser.add_argument("--voice-manifest", type=Path)
-    parser.add_argument("--max-visuals", type=int, choices=range(1, 6), default=5)
+    parser.add_argument("--max-visuals", type=int, choices=range(1, 7), default=6)
     return parser
 
 
