@@ -269,6 +269,18 @@ class _FakeRouter:
         return validator(value)
 
 
+class _InfrastructureRouter:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def route(self, *, stage, prompt, max_tokens, validator):
+        del prompt, max_tokens, validator
+        raise RuntimeError(
+            f"{stage} exhausted bounded provider route: "
+            "gemini:http_429, groq:http_429, openrouter:http_429"
+        )
+
+
 class _FakeVoice:
     def synthesize(self, transcript: str, output_path: Path) -> Path:
         if not transcript.strip():
@@ -434,6 +446,40 @@ class CleanV2EndToEndTests(unittest.TestCase):
             ))
             self.assertEqual(manifest["stages"][-1]["name"], "final_master_qc")
             self.assertEqual(manifest["stages"][-1]["status"], "blocked")
+
+
+    def test_provider_exhaustion_is_attributed_to_infrastructure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_InfrastructureRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+            )
+            with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "failed")
+            self.assertEqual(manifest["failure_classification"], "infrastructure")
+            self.assertEqual(manifest["stages"][-1]["name"], "planning")
+            self.assertEqual(
+                manifest["stages"][-1]["failure_classification"], "infrastructure"
+            )
 
 
     def test_cinematic_block_is_attributed_to_new_layer_and_stops_before_final_master(self) -> None:
