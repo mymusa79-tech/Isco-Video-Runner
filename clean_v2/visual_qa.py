@@ -75,6 +75,7 @@ def _infrastructure_error(exc: BaseException) -> bool:
 def run_final_cut_visual_qa(
     *,
     output_dir: Path,
+    clips: list[Path],
     plan: dict[str, Any],
     script: dict[str, Any],
     rights: list[dict[str, Any]],
@@ -102,29 +103,41 @@ def run_final_cut_visual_qa(
 
     output_dir = Path(output_dir)
     sections = list(plan.get("sections") or [])
+    plan_by_id = {
+        str(item.get("id") or ""): item
+        for item in sections
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    }
     script_by_id = {
         str(item.get("id") or ""): str(item.get("narration") or "")
         for item in (script.get("sections") or [])
         if isinstance(item, dict)
     }
-    right_by_section: dict[str, list[dict[str, Any]]] = {}
-    for row in rights:
-        if not isinstance(row, dict):
-            continue
-        section_id = str(row.get("section_id") or "").strip()
-        right_by_section.setdefault(section_id, []).append(row)
 
-    expected_ids = [str(item.get("id") or "").strip() for item in sections]
-    if (
-        not expected_ids
-        or any(not section_id for section_id in expected_ids)
-        or len(expected_ids) != len(set(expected_ids))
-        or set(right_by_section) != set(expected_ids)
-        or any(len(right_by_section.get(section_id, [])) != 1 for section_id in expected_ids)
-    ):
+    if not clips or len(clips) != len(rights):
         raise CleanV2VisualQABlock(
-            "CLEAN_V2_VISUAL_QA_BLOCK reason=selected_visual_section_coverage_mismatch"
+            "CLEAN_V2_VISUAL_QA_BLOCK reason=clip_rights_cardinality_mismatch"
         )
+
+    selected_rows: list[tuple[Path, dict[str, Any], dict[str, Any]]] = []
+    seen_sections: set[str] = set()
+    for clip, row in zip(clips, rights):
+        if not isinstance(row, dict):
+            raise CleanV2VisualQABlock(
+                "CLEAN_V2_VISUAL_QA_BLOCK reason=invalid_rights_row"
+            )
+        section_id = str(row.get("section_id") or "").strip()
+        if (
+            not section_id
+            or section_id not in plan_by_id
+            or section_id in seen_sections
+        ):
+            raise CleanV2VisualQABlock(
+                "CLEAN_V2_VISUAL_QA_BLOCK "
+                f"reason=selected_visual_section_binding_invalid section={section_id or '<empty>'}"
+            )
+        seen_sections.add(section_id)
+        selected_rows.append((Path(clip), row, plan_by_id[section_id]))
 
     gemini = _secret("GEMINI_API_KEY")
     model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
@@ -143,19 +156,21 @@ def run_final_cut_visual_qa(
 
     try:
         with vision_provider_circuit_scope():
-            for index, section in enumerate(sections, start=1):
+            for index, (clip, row, section) in enumerate(selected_rows, start=1):
                 section_id = str(section.get("id") or "").strip()
-                row = right_by_section[section_id][0]
                 local_file = str(row.get("local_file") or "").strip()
-                clip = output_dir / "visuals" / local_file
-                if not local_file or not clip.is_file():
+                if (
+                    not local_file
+                    or Path(clip).name != local_file
+                    or not Path(clip).is_file()
+                ):
                     raise CleanV2VisualQABlock(
-                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} reason=selected_visual_missing"
+                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} reason=selected_visual_missing_or_mismatched"
                     )
 
                 preview = preview_dir / f"{index:02d}-{section_id}-preview.mp4"
                 make_review_preview(
-                    clip,
+                    Path(clip),
                     preview,
                     portrait=fmt in {"moment", "story"},
                 )
@@ -234,7 +249,8 @@ def run_final_cut_visual_qa(
         "status": "pass",
         "mode": "selected_clips_only",
         "repair_or_replacement_enabled": False,
-        "section_count": len(expected_ids),
+        "plan_section_count": len(sections),
+        "selected_clip_count": len(selected_rows),
         "audited_selected_clip_count": len(audits),
         "final_cut_readiness_target": FINAL_CUT_TARGET_SEMANTIC_FLOOR,
         "provider_attempts": ledger.to_summary().get("provider_attempts", {}),
