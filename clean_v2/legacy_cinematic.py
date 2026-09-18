@@ -263,6 +263,11 @@ def apply_post_render_layer(
         final_path = Path(final_path)
         total_seconds = probe_duration(Path(narration_path))
         compat_plan = _compatibility_plan(plan, script, rights, fmt=fmt)
+        compat_plan_path = output_dir / "m7-compat-plan.json"
+        compat_plan_path.write_text(
+            json.dumps(compat_plan.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         durations = _slot_durations(total_seconds, len(compat_plan.sections))
 
         legacy_entries: list[dict[str, Any]] = []
@@ -301,7 +306,7 @@ def apply_post_render_layer(
             scene_plan=None,
             candidate_manifest=None,
             legacy_final_cut_visuals=legacy_entries,
-            plan_path=output_dir / "plan.json",
+            plan_path=compat_plan_path,
         )
         timeline = apply_human_editorial_intent(
             timeline,
