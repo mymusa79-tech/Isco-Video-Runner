@@ -93,7 +93,7 @@ def _utc_now() -> str:
 
 def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
-    section_target = "5 to 6" if fmt == "film" else "2 to 4"
+    section_target = "exactly 5" if fmt == "film" else "2 to 4"
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     return f"""
 You are planning one complete video for the Arabic YouTube channel نداء اليقظة.
@@ -215,29 +215,40 @@ class _Journal:
             new_layer_block = (
                 not infrastructure
                 and (
-                    name in {CINEMATIC_STAGE, VISUAL_QA_STAGE}
-                    or "CLEAN_V2_NEW_LAYER_BLOCK" in message
+                    name == VISUAL_QA_STAGE
                     or "CLEAN_V2_VISUAL_QA_BLOCK" in message
                 )
+            )
+            accepted_quality_block = (
+                name in {CINEMATIC_STAGE, QUALITY_STAGE}
+                or "CLEAN_V2_NEW_LAYER_BLOCK" in message
             )
             failure_classification = (
                 "infrastructure"
                 if infrastructure
                 else ("new-layer-block" if new_layer_block else "pre-layer")
             )
-            record["status"] = "blocked" if new_layer_block or name == QUALITY_STAGE else "failed"
+            quality_failure = (
+                name in QUALITY_STAGES
+                or new_layer_block
+                or accepted_quality_block
+            )
+            record["status"] = "blocked" if quality_failure else "failed"
             record["finished_at"] = _utc_now()
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
             record["failure_classification"] = failure_classification
             self.payload["failure_classification"] = failure_classification
-            if new_layer_block:
+            if quality_failure:
                 self.payload["status"] = "quality_pending"
-                self.payload["quality_pending_stage"] = name
+                if name == VISUAL_QA_STAGE or "CLEAN_V2_VISUAL_QA_" in message:
+                    pending_stage = VISUAL_QA_STAGE
+                elif name == CINEMATIC_STAGE or "CLEAN_V2_NEW_LAYER_BLOCK" in message:
+                    pending_stage = CINEMATIC_STAGE
+                else:
+                    pending_stage = QUALITY_STAGE
+                self.payload["quality_pending_stage"] = pending_stage
                 self.payload["failure_origin_stage"] = name
-            elif name == QUALITY_STAGE:
-                self.payload["status"] = "quality_pending"
-                self.payload["quality_pending_stage"] = name
             else:
                 self.payload["status"] = "failed"
             self.payload["finished_at"] = record["finished_at"]
