@@ -12,7 +12,7 @@ from clean_v2.contracts import (
     compute_brief_sha256,
     load_approved_brief,
 )
-from clean_v2.pipeline import CINEMATIC_STAGE, STAGES, CleanV2Pipeline
+from clean_v2.pipeline import CINEMATIC_STAGE, VISUAL_QA_STAGE, STAGES, CleanV2Pipeline
 from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
 
 
@@ -187,6 +187,48 @@ class WorkflowContractTests(unittest.TestCase):
             "create release",
         ):
             self.assertNotIn(forbidden, text)
+
+
+def _passing_visual_qa(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    report = {
+        "schema_version": 1,
+        "layer": VISUAL_QA_STAGE,
+        "status": "pass",
+        "repair_or_replacement_enabled": False,
+    }
+    (output_dir / "visual-audit.json").write_text(
+        json.dumps(
+            [
+                {
+                    "section": "s1",
+                    "status": "pass",
+                    "is_selected": True,
+                    "relevance": 0.9,
+                    "visual_quality": 0.9,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (output_dir / "final-cut-visual-qa.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    return report
+
+
+def _blocking_visual_qa(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    (output_dir / "visual-audit.json").write_text("[]", encoding="utf-8")
+    raise RuntimeError(
+        "CLEAN_V2_VISUAL_QA_BLOCK section=s1 reason=selected_visual_not_final_cut_ready"
+    )
+
+
+def _infrastructure_visual_qa(**kwargs) -> dict:
+    raise RuntimeError(
+        "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section=s1 error_type=VisionProviderMeshUnavailableError"
+    )
 
 
 def _passing_cinematic_layer(**kwargs) -> dict:
@@ -367,6 +409,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 router=_FakeRouter(),
                 voice_synthesizer=_FakeVoice(),
                 visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
             )
@@ -388,7 +431,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual([item["name"] for item in manifest["stages"]], list(STAGES))
             self.assertEqual(
                 manifest["quality_layers_executed"],
-                [CINEMATIC_STAGE, "final_master_qc"],
+                [CINEMATIC_STAGE, VISUAL_QA_STAGE, "final_master_qc"],
             )
             self.assertEqual(manifest["cinematic_v2_status"], "pass")
             self.assertEqual(manifest["final_master_qc_status"], "pass")
@@ -415,6 +458,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 router=_FakeRouter(),
                 voice_synthesizer=_FakeVoice(),
                 visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_blocking_final_master_qc,
             )
@@ -439,7 +483,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["failure_classification"], "pre-layer")
             self.assertEqual(
                 manifest["quality_layers_executed"],
-                [CINEMATIC_STAGE, "final_master_qc"],
+                [CINEMATIC_STAGE, VISUAL_QA_STAGE, "final_master_qc"],
             )
             self.assertTrue(all(
                 item["status"] == "pass" for item in manifest["stages"][:-1]
@@ -459,6 +503,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 router=_InfrastructureRouter(),
                 voice_synthesizer=_FakeVoice(),
                 visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
             )
@@ -493,6 +538,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 router=_FakeRouter(),
                 voice_synthesizer=_FakeVoice(),
                 visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
                 cinematic_layer=_blocking_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
             )
@@ -512,9 +558,77 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["status"], "quality_pending")
             self.assertEqual(manifest["quality_pending_stage"], CINEMATIC_STAGE)
             self.assertEqual(manifest["failure_classification"], "new-layer-block")
-            self.assertEqual(manifest["quality_layers_executed"], [CINEMATIC_STAGE])
+            self.assertEqual(
+                manifest["quality_layers_executed"],
+                [CINEMATIC_STAGE, VISUAL_QA_STAGE],
+            )
             self.assertFalse((output / "final.json").exists())
             self.assertFalse((output / "final-master-qc.json").exists())
+
+
+    def test_visual_qa_block_is_new_layer_block_and_stops_before_render(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_blocking_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+            )
+            with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_BLOCK"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "quality_pending")
+            self.assertEqual(manifest["quality_pending_stage"], VISUAL_QA_STAGE)
+            self.assertEqual(manifest["failure_classification"], "new-layer-block")
+            self.assertEqual(manifest["stages"][-1]["name"], VISUAL_QA_STAGE)
+            self.assertFalse((output / "final.mp4").exists())
+
+    def test_visual_qa_provider_exhaustion_is_infrastructure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_infrastructure_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+            )
+            with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "failed")
+            self.assertEqual(manifest["failure_classification"], "infrastructure")
+            self.assertEqual(manifest["stages"][-1]["name"], VISUAL_QA_STAGE)
 
 
 if __name__ == "__main__":

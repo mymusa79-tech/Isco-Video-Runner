@@ -18,8 +18,9 @@ from .media import inspect_final, render_video
 
 
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
+VISUAL_QA_STAGE = "final_cut_visual_qa"
 QUALITY_STAGE = "final_master_qc"
-QUALITY_STAGES = frozenset({CINEMATIC_STAGE, QUALITY_STAGE})
+QUALITY_STAGES = frozenset({CINEMATIC_STAGE, VISUAL_QA_STAGE, QUALITY_STAGE})
 
 STAGES = (
     "brief",
@@ -27,6 +28,7 @@ STAGES = (
     "script",
     "voice",
     "visuals",
+    VISUAL_QA_STAGE,
     "render",
     CINEMATIC_STAGE,
     "final_file",
@@ -40,6 +42,25 @@ def _run_legacy_final_master_qc(output_dir: Path) -> dict[str, Any]:
     from scripts.final_master_qc import run_final_master_qc
 
     return run_final_master_qc(output_dir)
+
+
+def _run_final_cut_visual_qa(
+    *,
+    output_dir: Path,
+    plan: dict[str, Any],
+    script: dict[str, Any],
+    rights: list[dict[str, Any]],
+    fmt: str,
+) -> dict[str, Any]:
+    from clean_v2.visual_qa import run_final_cut_visual_qa
+
+    return run_final_cut_visual_qa(
+        output_dir=output_dir,
+        plan=plan,
+        script=script,
+        rights=rights,
+        fmt=fmt,
+    )
 
 
 def _run_legacy_cinematic_layer(
@@ -183,15 +204,26 @@ class _Journal:
             result = operation()
         except Exception as exc:
             message = str(exc)
-            new_layer_block = (
-                name == CINEMATIC_STAGE
-                or "CLEAN_V2_NEW_LAYER_BLOCK" in message
+            visual_qa_infrastructure = (
+                name == VISUAL_QA_STAGE
+                and "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE" in message
             )
-            infrastructure = "exhausted bounded provider route" in message
+            infrastructure = (
+                "exhausted bounded provider route" in message
+                or visual_qa_infrastructure
+            )
+            new_layer_block = (
+                not infrastructure
+                and (
+                    name in {CINEMATIC_STAGE, VISUAL_QA_STAGE}
+                    or "CLEAN_V2_NEW_LAYER_BLOCK" in message
+                    or "CLEAN_V2_VISUAL_QA_BLOCK" in message
+                )
+            )
             failure_classification = (
-                "new-layer-block"
-                if new_layer_block
-                else ("infrastructure" if infrastructure else "pre-layer")
+                "infrastructure"
+                if infrastructure
+                else ("new-layer-block" if new_layer_block else "pre-layer")
             )
             record["status"] = "blocked" if new_layer_block or name == QUALITY_STAGE else "failed"
             record["finished_at"] = _utc_now()
@@ -201,7 +233,7 @@ class _Journal:
             self.payload["failure_classification"] = failure_classification
             if new_layer_block:
                 self.payload["status"] = "quality_pending"
-                self.payload["quality_pending_stage"] = CINEMATIC_STAGE
+                self.payload["quality_pending_stage"] = name
                 self.payload["failure_origin_stage"] = name
             elif name == QUALITY_STAGE:
                 self.payload["status"] = "quality_pending"
@@ -237,6 +269,7 @@ class CleanV2Pipeline:
         visual_source: Any,
         renderer: Callable[[Path, list[Path], Path, str], Path] = render_video,
         final_inspector: Callable[[Path], dict[str, Any]] = inspect_final,
+        visual_qa: Callable[..., dict[str, Any]] = _run_final_cut_visual_qa,
         cinematic_layer: Callable[..., dict[str, Any]] = _run_legacy_cinematic_layer,
         final_master_qc: Callable[[Path], dict[str, Any]] = _run_legacy_final_master_qc,
     ) -> None:
@@ -245,6 +278,7 @@ class CleanV2Pipeline:
         self.visual_source = visual_source
         self.renderer = renderer
         self.final_inspector = final_inspector
+        self.visual_qa = visual_qa
         self.cinematic_layer = cinematic_layer
         self.final_master_qc = final_master_qc
 
@@ -350,6 +384,22 @@ class CleanV2Pipeline:
             )
             self._write_runtime_events(output_dir)
 
+            journal.payload["quality_layers_executed"] = [
+                CINEMATIC_STAGE,
+                VISUAL_QA_STAGE,
+            ]
+            journal._write()
+            visual_qa_report = journal.run(
+                VISUAL_QA_STAGE,
+                lambda: self.visual_qa(
+                    output_dir=output_dir,
+                    plan=plan,
+                    script=script,
+                    rights=rights,
+                    fmt=str(brief["format"]),
+                ),
+            )
+
             final_path = output_dir / "final.mp4"
             journal.run(
                 "render",
@@ -361,7 +411,10 @@ class CleanV2Pipeline:
                 ),
             )
 
-            journal.payload["quality_layers_executed"] = [CINEMATIC_STAGE]
+            journal.payload["quality_layers_executed"] = [
+                CINEMATIC_STAGE,
+                VISUAL_QA_STAGE,
+            ]
             journal._write()
             cinematic_report = journal.run(
                 CINEMATIC_STAGE,
@@ -410,7 +463,11 @@ class CleanV2Pipeline:
                         "duration_seconds": final_report["duration_seconds"],
                     },
                 )
-            journal.payload["quality_layers_executed"] = [CINEMATIC_STAGE, QUALITY_STAGE]
+            journal.payload["quality_layers_executed"] = [
+                CINEMATIC_STAGE,
+                VISUAL_QA_STAGE,
+                QUALITY_STAGE,
+            ]
             journal._write()
             final_master_report = journal.run(
                 QUALITY_STAGE, lambda: self.final_master_qc(output_dir)
@@ -420,6 +477,7 @@ class CleanV2Pipeline:
                 final_file=final_path.name,
                 final_sha256=final_report["sha256"],
                 final_duration_seconds=final_report["duration_seconds"],
+                visual_qa_status=visual_qa_report.get("status"),
                 cinematic_v2_status=cinematic_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
                 provider_wire_attempts=sum(
@@ -434,6 +492,7 @@ class CleanV2Pipeline:
                 "final_file": str(final_path),
                 "duration_seconds": final_report["duration_seconds"],
                 "sha256": final_report["sha256"],
+                "visual_qa_status": visual_qa_report.get("status"),
                 "cinematic_v2_status": cinematic_report.get("status"),
                 "final_master_qc_status": final_master_report.get("status"),
             }
