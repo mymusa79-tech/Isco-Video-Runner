@@ -1,0 +1,292 @@
+name: Clean V2 Visual-QA-Only Cohort a9072c9
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/clean-v2-visualqa-only-cohort-a9072c9.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: clean-v2-visualqa-only-cohort-a9072c9
+  cancel-in-progress: false
+
+jobs:
+  cohort:
+    name: visualqa-${{ matrix.attempt }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        attempt: [1, 2, 3, 4, 5]
+    env:
+      CANDIDATE_RUNNER_SHA: a9072c99113caf0f4152bdbc4454e1a9f074d160
+      SOURCE_RUNNER_SHA: 4d6f1b6b4cca26988ddbba58c4882f3f4f85bf13
+      ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+      APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
+      APPROVED_TOPIC: لماذا تفشل خطط إدارة الوقت في الحياة اليومية
+      SOURCE_RUN_ID: "35401902573"
+      SOURCE_ARTIFACT: clean-v2-cohort-visualqa-4d6f1b6-5
+      FIXTURE_DIR: ${{ github.workspace }}/fixture
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+      GEMINI_CONTENT_MODEL: gemini-3.7-flash
+
+    steps:
+      - name: Checkout exact Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: a9072c99113caf0f4152bdbc4454e1a9f074d160
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Runner SHA
+        run: test "$(git rev-parse HEAD)" = "$CANDIDATE_RUNNER_SHA"
+
+      - name: Checkout frozen private Engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine SHA
+        run: test "$(git -C engine rev-parse HEAD)" = "$ENGINE_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install Visual QA runtime
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg
+          python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-deps -e engine
+
+      - name: Download frozen pre-QC fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "$FIXTURE_DIR"
+          mkdir -p "$FIXTURE_DIR"
+          gh run download "$SOURCE_RUN_ID"             --repo "$GITHUB_REPOSITORY"             --name "$SOURCE_ARTIFACT"             --dir "$FIXTURE_DIR"
+
+      - name: Verify frozen pre-QC source
+        env:
+          MATRIX_ATTEMPT: ${{ matrix.attempt }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["FIXTURE_DIR"])
+          result_path = root / "cohort-result.json"
+
+          def fail(reason: str) -> None:
+              result_path.write_text(
+                  json.dumps(
+                      {
+                          "attempt": int(os.environ["MATRIX_ATTEMPT"]),
+                          "status": "failure",
+                          "classification": "pre-QC",
+                          "reason": reason,
+                      },
+                      indent=2,
+                      sort_keys=True,
+                  ) + "\n",
+                  encoding="utf-8",
+              )
+              raise SystemExit(reason)
+
+          required = [
+              "brief.json",
+              "plan.json",
+              "script.json",
+              "rights-manifest.json",
+              "run-manifest.json",
+          ]
+          for name in required:
+              if not (root / name).is_file():
+                  fail(f"missing_source_file:{name}")
+
+          brief = json.loads((root / "brief.json").read_text(encoding="utf-8"))
+          plan = json.loads((root / "plan.json").read_text(encoding="utf-8"))
+          script = json.loads((root / "script.json").read_text(encoding="utf-8"))
+          rights_doc = json.loads((root / "rights-manifest.json").read_text(encoding="utf-8"))
+          manifest = json.loads((root / "run-manifest.json").read_text(encoding="utf-8"))
+          rights = list(rights_doc.get("assets") or [])
+
+          if brief.get("approved_topic") != os.environ["APPROVED_TOPIC"]:
+              fail("topic_mismatch")
+          if manifest.get("topic") != os.environ["APPROVED_TOPIC"]:
+              fail("manifest_topic_mismatch")
+          if manifest.get("runner_sha") != os.environ["SOURCE_RUNNER_SHA"]:
+              fail("source_runner_sha_mismatch")
+          if manifest.get("engine_sha") != os.environ["ENGINE_SHA"]:
+              fail("engine_sha_mismatch")
+          if manifest.get("approved_brief_sha256") != os.environ["APPROVED_BRIEF_SHA256"]:
+              fail("approved_brief_sha_mismatch")
+
+          expected_pre_qc = ["brief", "planning", "script", "voice", "visuals"]
+          stages = list(manifest.get("stages") or [])
+          observed = [(row.get("name"), row.get("status")) for row in stages[:5]]
+          if observed != [(name, "pass") for name in expected_pre_qc]:
+              fail(f"pre_qc_stage_receipt_invalid:{observed}")
+
+          plan_ids = [str(x.get("id") or "") for x in plan.get("sections") or []]
+          script_ids = [str(x.get("id") or "") for x in script.get("sections") or []]
+          rights_ids = [str(x.get("section_id") or "") for x in rights]
+          if len(plan_ids) != 5 or script_ids != plan_ids or rights_ids != plan_ids:
+              fail("five_section_binding_mismatch")
+
+          fingerprints = {}
+          for row in rights:
+              local = str(row.get("local_file") or "")
+              path = root / "visuals" / local
+              if not local or not path.is_file() or path.stat().st_size <= 0:
+                  fail(f"selected_visual_missing:{local}")
+              fingerprints[local] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          (root / "source-fingerprint.json").write_text(
+              json.dumps(
+                  {
+                      "source_run_id": os.environ["SOURCE_RUN_ID"],
+                      "source_artifact": os.environ["SOURCE_ARTIFACT"],
+                      "source_runner_sha": os.environ["SOURCE_RUNNER_SHA"],
+                      "candidate_runner_sha": os.environ["CANDIDATE_RUNNER_SHA"],
+                      "engine_sha": os.environ["ENGINE_SHA"],
+                      "topic": os.environ["APPROVED_TOPIC"],
+                      "visual_sha256": fingerprints,
+                  },
+                  indent=2,
+                  sort_keys=True,
+                  ensure_ascii=False,
+              ) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Remove prior failed-QA residue
+        run: |
+          rm -rf "$FIXTURE_DIR/visual-qa"
+          rm -f             "$FIXTURE_DIR/visual-audit.json"             "$FIXTURE_DIR/final-cut-visual-qa.json"             "$FIXTURE_DIR/visual-qa-budget.json"
+
+      - name: Run Visual QA only
+        env:
+          MATRIX_ATTEMPT: ${{ matrix.attempt }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          from clean_v2.visual_qa import (
+              CleanV2VisualQABlock,
+              CleanV2VisualQAInfrastructure,
+              run_final_cut_visual_qa,
+          )
+
+          root = Path(os.environ["FIXTURE_DIR"])
+          result_path = root / "cohort-result.json"
+          plan = json.loads((root / "plan.json").read_text(encoding="utf-8"))
+          script = json.loads((root / "script.json").read_text(encoding="utf-8"))
+          rights = json.loads((root / "rights-manifest.json").read_text(encoding="utf-8"))["assets"]
+
+          result = {
+              "attempt": int(os.environ["MATRIX_ATTEMPT"]),
+              "candidate_runner_sha": os.environ["CANDIDATE_RUNNER_SHA"],
+              "source_runner_sha": os.environ["SOURCE_RUNNER_SHA"],
+              "engine_sha": os.environ["ENGINE_SHA"],
+              "topic": os.environ["APPROVED_TOPIC"],
+              "source_run_id": os.environ["SOURCE_RUN_ID"],
+              "source_artifact": os.environ["SOURCE_ARTIFACT"],
+          }
+
+          try:
+              report = run_final_cut_visual_qa(
+                  output_dir=root,
+                  plan=plan,
+                  script=script,
+                  rights=rights,
+                  fmt="film",
+              )
+          except CleanV2VisualQAInfrastructure as exc:
+              result.update(
+                  status="failure",
+                  classification="infrastructure",
+                  error_type=type(exc).__name__,
+                  reason=str(exc),
+              )
+          except CleanV2VisualQABlock as exc:
+              result.update(
+                  status="failure",
+                  classification="QC-block",
+                  error_type=type(exc).__name__,
+                  reason=str(exc),
+              )
+          except Exception as exc:
+              result.update(
+                  status="failure",
+                  classification="QC-block",
+                  error_type=type(exc).__name__,
+                  reason=str(exc),
+              )
+          else:
+              result.update(
+                  status="success",
+                  classification="pass",
+                  qc_status=report.get("status"),
+                  audited_selected_clip_count=report.get("audited_selected_clip_count"),
+                  final_cut_readiness_target=report.get("final_cut_readiness_target"),
+              )
+
+          result_path.write_text(
+              json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          if result["status"] != "success":
+              sys.exit(1)
+          PY
+
+      - name: Require Visual QA pass receipt
+        if: success()
+        run: |
+          set -euo pipefail
+          test "$(jq -r .status "$FIXTURE_DIR/cohort-result.json")" = "success"
+          test "$(jq -r .classification "$FIXTURE_DIR/cohort-result.json")" = "pass"
+          test "$(jq -r .status "$FIXTURE_DIR/final-cut-visual-qa.json")" = "pass"
+          test "$(jq -r .audited_selected_clip_count "$FIXTURE_DIR/final-cut-visual-qa.json")" = "5"
+          test "$(jq 'length' "$FIXTURE_DIR/visual-audit.json")" = "5"
+
+      - name: Upload Visual QA cohort evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: visualqa-only-a9072c9-${{ matrix.attempt }}
+          path: |
+            ${{ env.FIXTURE_DIR }}/cohort-result.json
+            ${{ env.FIXTURE_DIR }}/source-fingerprint.json
+            ${{ env.FIXTURE_DIR }}/visual-audit.json
+            ${{ env.FIXTURE_DIR }}/final-cut-visual-qa.json
+            ${{ env.FIXTURE_DIR }}/visual-qa-budget.json
+          if-no-files-found: warn
+          retention-days: 7
