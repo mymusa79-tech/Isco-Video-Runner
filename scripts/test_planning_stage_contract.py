@@ -504,6 +504,96 @@ class PlanningStageContractTests(unittest.TestCase):
         self.assertIs(gemini_events[1].get("wire_attempted"), False)
         self.assertIsNone(gemini_events[1].get("provider_attempt"))
 
+    def test_run272_fingerprint_local_block_preserves_existing_wire_budget_slot(self) -> None:
+        from scripts import planning_outline_split_contract as split
+
+        split._TERMINAL_REQUEST_FINGERPRINTS.clear()
+        marker = "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD_V2"
+        had_marker = hasattr(router, marker)
+        old_marker = getattr(router, marker, None)
+        if had_marker:
+            delattr(router, marker)
+
+        gemini_calls = 0
+        groq_calls = 0
+
+        def gemini_503(*_args, **_kwargs):
+            nonlocal gemini_calls
+            gemini_calls += 1
+            raise RuntimeError("GEMINI_HTTP_503 status=503 service_unavailable")
+
+        def groq_structured_failure(_prompt):
+            nonlocal groq_calls
+            groq_calls += 1
+            raise RuntimeError(
+                "GROQ_JSON_VALIDATE_FAILED status=400 code=json_validate_failed"
+            )
+
+        base = split.outline_core_stage_spec(1)
+        spec = contract.PlanningStageSpec(
+            stage_id=base.stage_id,
+            contract_id=base.contract_id,
+            output_schema=base.output_schema,
+            semantic_rules=base.semantic_rules,
+            provider_policy=contract.ProviderPolicy(
+                providers=("gemini", "groq"),
+                max_attempts_per_provider=1,
+                max_total_attempts=4,
+                completion_tokens=base.provider_policy.completion_tokens,
+                max_prompt_utf8_bytes=(),
+                second_pass_after_full_exhaustion=True,
+                completion_tokens_by_provider=base.provider_policy.completion_tokens_by_provider,
+            ),
+            cache_policy=contract.CachePolicy(read=False, write=False),
+        )
+
+        self._install()
+        try:
+            with patch.object(router, "gemini_json_text", side_effect=gemini_503), \
+                    patch.object(router, "_groq_call", side_effect=groq_structured_failure):
+                split._install_same_fingerprint_guard()
+                with contract.request_stage_scope(spec):
+                    with self.assertRaisesRegex(
+                        contract.PlanningStageError,
+                        r"after 4/4 attempts \(wire_only=true\)",
+                    ):
+                        staged.json_text("unused", "run-272 fingerprint accounting control")
+        finally:
+            split._TERMINAL_REQUEST_FINGERPRINTS.clear()
+            if had_marker:
+                setattr(router, marker, old_marker)
+            elif hasattr(router, marker):
+                delattr(router, marker)
+
+        # The real Groq transport is contacted exactly once. Its later same-fingerprint
+        # opportunity is rejected locally, so the preserved fourth wire slot is consumed
+        # by Gemini rather than by a fake Groq provider attempt.
+        self.assertEqual(groq_calls, 1)
+        self.assertEqual(gemini_calls, 3)
+
+        groq_events = [
+            item for item in router.get_telemetry()
+            if item.get("provider") == "groq"
+        ]
+        self.assertEqual(len(groq_events), 2)
+        self.assertEqual(groq_events[0].get("result"), "generation_error")
+        self.assertIs(groq_events[0].get("wire_attempted"), True)
+        self.assertEqual(groq_events[0].get("provider_attempt"), 1)
+
+        local_block = groq_events[1]
+        self.assertIn(
+            "same_fingerprint_blocked_after_structured_generation_failure",
+            str(local_block.get("error_detail") or ""),
+        )
+        self.assertIs(local_block.get("wire_attempted"), False)
+        self.assertIsNone(local_block.get("provider_attempt"))
+
+        wire_events = [
+            item for item in router.get_telemetry()
+            if item.get("wire_attempted") is True
+        ]
+        self.assertEqual(len(wire_events), 4)
+
     def test_explicit_local_preflight_failure_does_not_consume_wire_budget(self) -> None:
         base = contract.script_stage_spec("full_script", ["s1"])
         only_openrouter = contract.PlanningStageSpec(
