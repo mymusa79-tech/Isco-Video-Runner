@@ -505,7 +505,7 @@ def render_video(
         raise RuntimeError("render requires at least one visual")
     duration = probe_duration(narration_path)
     portrait = fmt in {"moment", "story"}
-    width, height = ((720, 1280) if portrait else (1280, 720))
+    width, height = ((1080, 1920) if portrait else (1920, 1080))
     paths = visual_paths[:5]
     slot = (duration / len(paths)) + 0.12
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
@@ -546,6 +546,8 @@ def render_video(
             "aac",
             "-b:a",
             "160k",
+            "-ar",
+            "48000",
             "-movflags",
             "+faststart",
             "-shortest",
