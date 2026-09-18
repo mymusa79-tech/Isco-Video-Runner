@@ -13,7 +13,7 @@ import urllib.request
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 
 MAX_MEDIA_BYTES = 160 * 1024 * 1024
@@ -224,9 +224,18 @@ def _pexels_file(video: Mapping[str, Any], *, portrait: bool) -> Mapping[str, An
 
 
 class StockVisualSource:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        query_normalizer: Callable[[str], str] | None = None,
+        media_preflight: Callable[[Path], dict[str, Any] | None] | None = None,
+        media_transform: Callable[[Path], Path] | None = None,
+    ) -> None:
         self.events: list[dict[str, Any]] = []
         self._used: set[tuple[str, str]] = set()
+        self.query_normalizer = query_normalizer
+        self.media_preflight = media_preflight
+        self.media_transform = media_transform
 
     def _event(
         self,
@@ -372,6 +381,8 @@ class StockVisualSource:
             query = str(section.get("visual_query_en") or "").strip()
             if not query:
                 continue
+            if self.query_normalizer is not None:
+                query = self.query_normalizer(query)
             for finder in (self._pexels, self._pixabay):
                 candidate = finder(query, portrait=portrait)
                 if candidate is None:
@@ -388,12 +399,27 @@ class StockVisualSource:
                         reason=str(exc)[:80],
                     )
                     continue
+                if self.media_preflight is not None:
+                    blocked = self.media_preflight(destination)
+                    if blocked is not None:
+                        self._event(
+                            str(candidate["provider"]),
+                            query,
+                            "security_blocked",
+                            wire_attempted=False,
+                            reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
+                        )
+                        destination.unlink(missing_ok=True)
+                        continue
+                if self.media_transform is not None:
+                    destination = Path(self.media_transform(destination))
                 candidate = {
                     key: value
                     for key, value in candidate.items()
                     if key != "download_url"
                 }
                 candidate["local_file"] = destination.name
+                candidate["section_id"] = str(section.get("id") or "")
                 clips.append(destination)
                 rights.append(candidate)
                 break
@@ -401,7 +427,10 @@ class StockVisualSource:
         if not clips:
             fallback = output_dir / "visual-fallback.mp4"
             create_fallback_visual(fallback, portrait=portrait)
+            if self.media_transform is not None:
+                fallback = Path(self.media_transform(fallback))
             clips.append(fallback)
+            fallback_section = str(sections[0].get("id") or "") if sections else ""
             rights.append(
                 {
                     "provider": "generated_local",
@@ -411,6 +440,7 @@ class StockVisualSource:
                     "creator_url": None,
                     "query": None,
                     "local_file": fallback.name,
+                    "section_id": fallback_section,
                 }
             )
             self._event(

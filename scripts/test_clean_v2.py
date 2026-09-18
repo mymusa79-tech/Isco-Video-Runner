@@ -12,7 +12,7 @@ from clean_v2.contracts import (
     compute_brief_sha256,
     load_approved_brief,
 )
-from clean_v2.pipeline import STAGES, CleanV2Pipeline
+from clean_v2.pipeline import CINEMATIC_STAGE, STAGES, CleanV2Pipeline
 from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
 
 
@@ -169,10 +169,14 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(text.count(brief_sha), 1)
         self.assertIn("engine/production/approved_brief.json", text)
         self.assertIn("python -m clean_v2", text)
+        self.assertIn("لماذا تفشل خطط إدارة الوقت في الحياة اليومية", text)
 
-    def test_workflow_invokes_only_final_master_qc_as_quality_layer(self) -> None:
+    def test_workflow_invokes_security_cinematic_then_final_master_without_legacy_orchestrator(self) -> None:
         text = self.WORKFLOW.read_text(encoding="utf-8").casefold()
         self.assertIn("final-master-qc.json", text)
+        self.assertIn("security-cinematic-v2.json", text)
+        self.assertIn("tesseract-ocr", text)
+        self.assertIn("fonts-noto-core", text)
         self.assertIn("pythonpath", text)
         for forbidden in (
             "produce-resilient-v4",
@@ -183,6 +187,34 @@ class WorkflowContractTests(unittest.TestCase):
             "create release",
         ):
             self.assertNotIn(forbidden, text)
+
+
+def _passing_cinematic_layer(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    report = {
+        "schema_version": 1,
+        "layer": CINEMATIC_STAGE,
+        "status": "pass",
+        "reuse_not_rewrite": True,
+        "ai_calls_added": 0,
+    }
+    (output_dir / "security-cinematic-v2.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    return report
+
+
+def _blocking_cinematic_layer(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    report = {
+        "schema_version": 1,
+        "layer": CINEMATIC_STAGE,
+        "status": "block",
+    }
+    (output_dir / "security-cinematic-v2.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    raise RuntimeError("synthetic new layer block")
 
 
 def _passing_final_master_qc(output_dir: Path) -> dict:
@@ -235,6 +267,18 @@ class _FakeRouter:
             }
         )
         return validator(value)
+
+
+class _InfrastructureRouter:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def route(self, *, stage, prompt, max_tokens, validator):
+        del prompt, max_tokens, validator
+        raise RuntimeError(
+            f"{stage} exhausted bounded provider route: "
+            "gemini:http_429, groq:http_429, openrouter:http_429"
+        )
 
 
 class _FakeVoice:
@@ -323,6 +367,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 router=_FakeRouter(),
                 voice_synthesizer=_FakeVoice(),
                 visual_source=_FakeVisuals(),
+                cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
             )
             result = pipeline.run(
@@ -341,7 +386,11 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(manifest["status"], "pass")
             self.assertEqual([item["name"] for item in manifest["stages"]], list(STAGES))
-            self.assertEqual(manifest["quality_layers_executed"], ["final_master_qc"])
+            self.assertEqual(
+                manifest["quality_layers_executed"],
+                [CINEMATIC_STAGE, "final_master_qc"],
+            )
+            self.assertEqual(manifest["cinematic_v2_status"], "pass")
             self.assertEqual(manifest["final_master_qc_status"], "pass")
             final = json.loads((output / "final.json").read_text(encoding="utf-8"))
             self.assertEqual(final["status"], "pass")
@@ -366,6 +415,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 router=_FakeRouter(),
                 voice_synthesizer=_FakeVoice(),
                 visual_source=_FakeVisuals(),
+                cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_blocking_final_master_qc,
             )
             with self.assertRaisesRegex(RuntimeError, "blocked release"):
@@ -386,12 +436,85 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(manifest["status"], "quality_pending")
             self.assertEqual(manifest["quality_pending_stage"], "final_master_qc")
-            self.assertEqual(manifest["quality_layers_executed"], ["final_master_qc"])
+            self.assertEqual(manifest["failure_classification"], "pre-layer")
+            self.assertEqual(
+                manifest["quality_layers_executed"],
+                [CINEMATIC_STAGE, "final_master_qc"],
+            )
             self.assertTrue(all(
                 item["status"] == "pass" for item in manifest["stages"][:-1]
             ))
             self.assertEqual(manifest["stages"][-1]["name"], "final_master_qc")
             self.assertEqual(manifest["stages"][-1]["status"], "blocked")
+
+
+    def test_provider_exhaustion_is_attributed_to_infrastructure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_InfrastructureRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+            )
+            with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "failed")
+            self.assertEqual(manifest["failure_classification"], "infrastructure")
+            self.assertEqual(manifest["stages"][-1]["name"], "planning")
+            self.assertEqual(
+                manifest["stages"][-1]["failure_classification"], "infrastructure"
+            )
+
+
+    def test_cinematic_block_is_attributed_to_new_layer_and_stops_before_final_master(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                cinematic_layer=_blocking_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+            )
+            with self.assertRaisesRegex(RuntimeError, "new layer block"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "quality_pending")
+            self.assertEqual(manifest["quality_pending_stage"], CINEMATIC_STAGE)
+            self.assertEqual(manifest["failure_classification"], "new-layer-block")
+            self.assertEqual(manifest["quality_layers_executed"], [CINEMATIC_STAGE])
+            self.assertFalse((output / "final.json").exists())
+            self.assertFalse((output / "final-master-qc.json").exists())
 
 
 if __name__ == "__main__":

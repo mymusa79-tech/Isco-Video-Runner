@@ -17,7 +17,9 @@ from .contracts import (
 from .media import inspect_final, render_video
 
 
+CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 QUALITY_STAGE = "final_master_qc"
+QUALITY_STAGES = frozenset({CINEMATIC_STAGE, QUALITY_STAGE})
 
 STAGES = (
     "brief",
@@ -26,6 +28,7 @@ STAGES = (
     "voice",
     "visuals",
     "render",
+    CINEMATIC_STAGE,
     "final_file",
     QUALITY_STAGE,
 )
@@ -37,6 +40,30 @@ def _run_legacy_final_master_qc(output_dir: Path) -> dict[str, Any]:
     from scripts.final_master_qc import run_final_master_qc
 
     return run_final_master_qc(output_dir)
+
+
+def _run_legacy_cinematic_layer(
+    *,
+    output_dir: Path,
+    final_path: Path,
+    narration_path: Path,
+    plan: dict[str, Any],
+    script: dict[str, Any],
+    rights: list[dict[str, Any]],
+    fmt: str,
+) -> dict[str, Any]:
+    # Deliberately reuse the old tested Security V1 + Cinematic V2 owners.
+    from clean_v2.legacy_cinematic import apply_post_render_layer
+
+    return apply_post_render_layer(
+        output_dir=output_dir,
+        final_path=final_path,
+        narration_path=narration_path,
+        plan=plan,
+        script=script,
+        rights=rights,
+        fmt=fmt,
+    )
 
 
 def _utc_now() -> str:
@@ -155,11 +182,28 @@ class _Journal:
         try:
             result = operation()
         except Exception as exc:
-            record["status"] = "blocked" if name == QUALITY_STAGE else "failed"
+            message = str(exc)
+            new_layer_block = (
+                name == CINEMATIC_STAGE
+                or "CLEAN_V2_NEW_LAYER_BLOCK" in message
+            )
+            infrastructure = "exhausted bounded provider route" in message
+            failure_classification = (
+                "new-layer-block"
+                if new_layer_block
+                else ("infrastructure" if infrastructure else "pre-layer")
+            )
+            record["status"] = "blocked" if new_layer_block or name == QUALITY_STAGE else "failed"
             record["finished_at"] = _utc_now()
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
-            if name == QUALITY_STAGE:
+            record["failure_classification"] = failure_classification
+            self.payload["failure_classification"] = failure_classification
+            if new_layer_block:
+                self.payload["status"] = "quality_pending"
+                self.payload["quality_pending_stage"] = CINEMATIC_STAGE
+                self.payload["failure_origin_stage"] = name
+            elif name == QUALITY_STAGE:
                 self.payload["status"] = "quality_pending"
                 self.payload["quality_pending_stage"] = name
             else:
@@ -193,6 +237,7 @@ class CleanV2Pipeline:
         visual_source: Any,
         renderer: Callable[[Path, list[Path], Path, str], Path] = render_video,
         final_inspector: Callable[[Path], dict[str, Any]] = inspect_final,
+        cinematic_layer: Callable[..., dict[str, Any]] = _run_legacy_cinematic_layer,
         final_master_qc: Callable[[Path], dict[str, Any]] = _run_legacy_final_master_qc,
     ) -> None:
         self.router = router
@@ -200,6 +245,7 @@ class CleanV2Pipeline:
         self.visual_source = visual_source
         self.renderer = renderer
         self.final_inspector = final_inspector
+        self.cinematic_layer = cinematic_layer
         self.final_master_qc = final_master_qc
 
     def _write_runtime_events(self, output_dir: Path) -> None:
@@ -281,6 +327,10 @@ class CleanV2Pipeline:
             )
 
             visuals_dir = output_dir / "visuals"
+            # Security V1 and M8 are part of the restored layer and execute inside
+            # StockVisualSource admission/transform hooks during this stage.
+            journal.payload["quality_layers_executed"] = [CINEMATIC_STAGE]
+            journal._write()
             clips, rights = journal.run(
                 "visuals",
                 lambda: self.visual_source.acquire(
@@ -310,6 +360,22 @@ class CleanV2Pipeline:
                     str(brief["format"]),
                 ),
             )
+
+            journal.payload["quality_layers_executed"] = [CINEMATIC_STAGE]
+            journal._write()
+            cinematic_report = journal.run(
+                CINEMATIC_STAGE,
+                lambda: self.cinematic_layer(
+                    output_dir=output_dir,
+                    final_path=final_path,
+                    narration_path=narration_path,
+                    plan=plan,
+                    script=script,
+                    rights=rights,
+                    fmt=str(brief["format"]),
+                ),
+            )
+
             final_report = journal.run(
                 "final_file", lambda: self.final_inspector(final_path)
             )
@@ -317,8 +383,8 @@ class CleanV2Pipeline:
             self._write_runtime_events(output_dir)
 
             # Compatibility evidence for the unchanged legacy Final Master QC core.
-            # Clean V2 has no M7 timeline or Engine quality-final stage, so the
-            # already-probed final duration is the technical body boundary here.
+            # The restored Cinematic layer already writes the real M7 legacy-fallback
+            # timeline. Keep that evidence intact; only quality-final.json is adapted.
             qc_format = (
                 "moment"
                 if str(brief["format"]) in {"moment", "story"}
@@ -335,15 +401,16 @@ class CleanV2Pipeline:
                     "audio_ok": final_report["audio_streams"] >= 1,
                 },
             )
-            atomic_write_json(
-                output_dir / "visual-timeline.json",
-                {
-                    "schema_version": 1,
-                    "source": "clean-v2-final-file-adapter",
-                    "duration_seconds": final_report["duration_seconds"],
-                },
-            )
-            journal.payload["quality_layers_executed"] = [QUALITY_STAGE]
+            if not (output_dir / "visual-timeline.json").is_file():
+                atomic_write_json(
+                    output_dir / "visual-timeline.json",
+                    {
+                        "schema_version": 1,
+                        "source": "clean-v2-final-file-adapter",
+                        "duration_seconds": final_report["duration_seconds"],
+                    },
+                )
+            journal.payload["quality_layers_executed"] = [CINEMATIC_STAGE, QUALITY_STAGE]
             journal._write()
             final_master_report = journal.run(
                 QUALITY_STAGE, lambda: self.final_master_qc(output_dir)
@@ -353,6 +420,7 @@ class CleanV2Pipeline:
                 final_file=final_path.name,
                 final_sha256=final_report["sha256"],
                 final_duration_seconds=final_report["duration_seconds"],
+                cinematic_v2_status=cinematic_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
                 provider_wire_attempts=sum(
                     1
@@ -366,6 +434,7 @@ class CleanV2Pipeline:
                 "final_file": str(final_path),
                 "duration_seconds": final_report["duration_seconds"],
                 "sha256": final_report["sha256"],
+                "cinematic_v2_status": cinematic_report.get("status"),
                 "final_master_qc_status": final_master_report.get("status"),
             }
         except Exception:
