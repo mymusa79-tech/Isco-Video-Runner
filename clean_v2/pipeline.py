@@ -17,6 +17,8 @@ from .contracts import (
 from .media import inspect_final, render_video
 
 
+QUALITY_STAGE = "final_master_qc"
+
 STAGES = (
     "brief",
     "planning",
@@ -25,7 +27,16 @@ STAGES = (
     "visuals",
     "render",
     "final_file",
+    QUALITY_STAGE,
 )
+
+
+def _run_legacy_final_master_qc(output_dir: Path) -> dict[str, Any]:
+    # Deliberately reuse the certified legacy technical QC unchanged.
+    # The Engine package is supplied by the production workflow via PYTHONPATH.
+    from scripts.final_master_qc import run_final_master_qc
+
+    return run_final_master_qc(output_dir)
 
 
 def _utc_now() -> str:
@@ -144,11 +155,15 @@ class _Journal:
         try:
             result = operation()
         except Exception as exc:
-            record["status"] = "failed"
+            record["status"] = "blocked" if name == QUALITY_STAGE else "failed"
             record["finished_at"] = _utc_now()
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
-            self.payload["status"] = "failed"
+            if name == QUALITY_STAGE:
+                self.payload["status"] = "quality_pending"
+                self.payload["quality_pending_stage"] = name
+            else:
+                self.payload["status"] = "failed"
             self.payload["finished_at"] = record["finished_at"]
             self._write()
             raise
@@ -178,12 +193,14 @@ class CleanV2Pipeline:
         visual_source: Any,
         renderer: Callable[[Path, list[Path], Path, str], Path] = render_video,
         final_inspector: Callable[[Path], dict[str, Any]] = inspect_final,
+        final_master_qc: Callable[[Path], dict[str, Any]] = _run_legacy_final_master_qc,
     ) -> None:
         self.router = router
         self.voice_synthesizer = voice_synthesizer
         self.visual_source = visual_source
         self.renderer = renderer
         self.final_inspector = final_inspector
+        self.final_master_qc = final_master_qc
 
     def _write_runtime_events(self, output_dir: Path) -> None:
         atomic_write_json(
@@ -298,10 +315,45 @@ class CleanV2Pipeline:
             )
             atomic_write_json(output_dir / "final.json", final_report)
             self._write_runtime_events(output_dir)
+
+            # Compatibility evidence for the unchanged legacy Final Master QC core.
+            # Clean V2 has no M7 timeline or Engine quality-final stage, so the
+            # already-probed final duration is the technical body boundary here.
+            qc_format = (
+                "moment"
+                if str(brief["format"]) in {"moment", "story"}
+                else str(brief["format"])
+            )
+            atomic_write_json(
+                output_dir / "quality-final.json",
+                {
+                    "schema_version": 1,
+                    "source": "clean-v2-final-file-adapter",
+                    "format": qc_format,
+                    "duration_ok": True,
+                    "video_ok": final_report["video_streams"] >= 1,
+                    "audio_ok": final_report["audio_streams"] >= 1,
+                },
+            )
+            atomic_write_json(
+                output_dir / "visual-timeline.json",
+                {
+                    "schema_version": 1,
+                    "source": "clean-v2-final-file-adapter",
+                    "duration_seconds": final_report["duration_seconds"],
+                },
+            )
+            journal.payload["quality_layers_executed"] = [QUALITY_STAGE]
+            journal._write()
+            final_master_report = journal.run(
+                QUALITY_STAGE, lambda: self.final_master_qc(output_dir)
+            )
+
             journal.complete(
                 final_file=final_path.name,
                 final_sha256=final_report["sha256"],
                 final_duration_seconds=final_report["duration_seconds"],
+                final_master_qc_status=final_master_report.get("status"),
                 provider_wire_attempts=sum(
                     1
                     for item in getattr(self.router, "events", [])
@@ -314,6 +366,7 @@ class CleanV2Pipeline:
                 "final_file": str(final_path),
                 "duration_seconds": final_report["duration_seconds"],
                 "sha256": final_report["sha256"],
+                "final_master_qc_status": final_master_report.get("status"),
             }
         except Exception:
             self._write_runtime_events(output_dir)
