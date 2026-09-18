@@ -14,7 +14,7 @@ Viewer Quality, packaging, thumbnails, and Shorts remain disabled.
 - Planning: one bounded provider route. Film is fixed to exactly five sections so every
   section can map to one of Clean V2's existing maximum five final-cut visuals.
 - Script: one bounded provider route.
-- Voice: verified local Piper voice, chunked deterministically.
+- Voice: Gemini TTS uses the pinned Engine voice identity (Charon) for one primary attempt; verified local Piper `ar_JO-kareem-medium` is the bounded fallback only when Gemini TTS is unavailable or fails.
 - Visuals: Pexels, then Pixabay, then a deterministic local fallback if stock is unavailable.
   Stock queries and downloaded stock cross the existing Security V1 boundaries. Admitted
   clips then pass through the existing Engine M8 BT.709/SDR kernel before render.
