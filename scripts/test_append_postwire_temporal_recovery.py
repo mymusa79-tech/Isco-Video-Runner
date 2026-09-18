@@ -106,7 +106,7 @@ class Run271AppendPostWireTemporalRecoveryTests(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
-    def _spec(self, *, max_per_provider: int = 2, max_total: int = 2):
+    def _spec(self, *, max_per_provider: int = 2, max_total: int = 8):
         base = stage_contract.append_stage_spec(["s1"])
         return replace(
             base,
@@ -119,7 +119,7 @@ class Run271AppendPostWireTemporalRecoveryTests(unittest.TestCase):
             ),
         )
 
-    def _run(self, provider_result, *, max_per_provider: int = 2, max_total: int = 2):
+    def _run(self, provider_result, *, max_per_provider: int = 2, max_total: int = 8):
         stage_contract._provider_result = provider_result
         recovery._install_stage_temporal_capacity_bridge()
         with stage_contract.request_stage_scope(
@@ -159,7 +159,7 @@ class Run271AppendPostWireTemporalRecoveryTests(unittest.TestCase):
             with self.assertRaises(stage_contract.PlanningStageError) as captured:
                 self._run(provider_result)
 
-        self.assertIn("all providers exhausted after 1/2 attempts", str(captured.exception))
+        self.assertIn("all providers exhausted after 1/8 attempts", str(captured.exception))
         self.assertEqual(calls, ["prewire-1", "wire-1", "prewire-2"])
         self.assertEqual(sleep.call_count, 2)  # temporal wait + existing retry delay(0)
         self.assertAlmostEqual(sleep.call_args_list[0].args[0], FIRST_WAIT, places=2)
