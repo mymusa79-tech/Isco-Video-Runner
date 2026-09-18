@@ -527,7 +527,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
 
 
-    def test_cinematic_block_is_attributed_to_new_layer_and_stops_before_final_master(self) -> None:
+    def test_cinematic_block_is_pre_layer_after_baseline_acceptance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             brief_path = root / "approved-brief.json"
@@ -557,13 +557,41 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(manifest["status"], "quality_pending")
             self.assertEqual(manifest["quality_pending_stage"], CINEMATIC_STAGE)
-            self.assertEqual(manifest["failure_classification"], "new-layer-block")
+            self.assertEqual(manifest["failure_classification"], "pre-layer")
             self.assertEqual(
                 manifest["quality_layers_executed"],
                 [CINEMATIC_STAGE, VISUAL_QA_STAGE],
             )
             self.assertFalse((output / "final.json").exists())
             self.assertFalse((output / "final-master-qc.json").exists())
+
+
+    def test_max_visuals_cannot_exceed_renderer_capacity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+            )
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "max_visuals must be between 1 and 5",
+            ):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=root / "output",
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=6,
+                )
 
 
     def test_visual_qa_block_is_new_layer_block_and_stops_before_render(self) -> None:
