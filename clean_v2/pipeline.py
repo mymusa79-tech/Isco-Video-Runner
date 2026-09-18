@@ -229,9 +229,12 @@ class _Journal:
                 else ("new-layer-block" if new_layer_block else "pre-layer")
             )
             quality_failure = (
-                name in QUALITY_STAGES
-                or new_layer_block
-                or accepted_quality_block
+                not infrastructure
+                and (
+                    name in QUALITY_STAGES
+                    or new_layer_block
+                    or accepted_quality_block
+                )
             )
             record["status"] = "blocked" if quality_failure else "failed"
             record["finished_at"] = _utc_now()
