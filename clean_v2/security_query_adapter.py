@@ -12,6 +12,19 @@ still has to pass the unchanged Security V1 visual-query validator.
 from .legacy_cinematic import CleanV2LayerBlock, _block, security_query_normalizer
 
 
+def _validate_original_query(value: str) -> str:
+    """Run the existing full-value Security V1 text firewall before compatibility work."""
+    from isco_video_agent.model_output_schemas import validate_cross_provider_text
+
+    return validate_cross_provider_text(value).as_downstream_data()
+
+
+def _normalize_observed_separators(value: str) -> str:
+    """Normalize only punctuation forms proven by the failed five-run cohort."""
+    compatible = value.replace(",", " ").replace("\u2011", "-")
+    return " ".join(compatible.split())
+
+
 def normalize_clean_v2_stock_query(value: str) -> str:
     """Bridge only the punctuation forms observed in the failed five-run cohort.
 
@@ -24,11 +37,8 @@ def normalize_clean_v2_stock_query(value: str) -> str:
     """
 
     try:
-        from isco_video_agent.model_output_schemas import validate_cross_provider_text
-
-        original = validate_cross_provider_text(value).as_downstream_data()
-        compatible = original.replace(",", " ").replace("\u2011", "-")
-        compatible = " ".join(compatible.split())
+        original = _validate_original_query(value)
+        compatible = _normalize_observed_separators(original)
         return security_query_normalizer(compatible)
     except CleanV2LayerBlock:
         raise
