@@ -79,6 +79,16 @@ def _quota_or_rate_failure(detail: object) -> bool:
     )
 
 
+def _classify_groq_vision_http(status: int, message: str) -> contract.VisionErrorCode:
+    lowered = str(message or "").casefold()
+    if status == 413 and (
+        "input tokens per minute" in lowered
+        or "itpm" in lowered
+    ):
+        return contract.VisionErrorCode.PROVIDER_TRANSIENT
+    return contract._classify_http(status, message)
+
+
 def _publish_gemini_generation_unavailable(detail: object, *, source: str) -> None:
     if not _quota_or_rate_failure(detail):
         return
@@ -334,7 +344,7 @@ def _groq_visual_call(
     if not response.ok:
         message = contract._extract_error_message(body)
         raise contract.VisionStageError(
-            contract._classify_http(int(response.status_code), message),
+            _classify_groq_vision_http(int(response.status_code), message),
             f"HTTP_{response.status_code} message={message}",
             provider="groq",
             requested_model=GROQ_VISION_MODEL,
