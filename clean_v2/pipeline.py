@@ -93,7 +93,7 @@ def _utc_now() -> str:
 
 def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
-    section_target = "exactly 5" if fmt == "film" else "2 to 4"
+    section_requirement = "exactly 5 sections" if fmt == "film" else "2 to 4 sections"
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     return f"""
 You are planning one complete video for the Arabic YouTube channel نداء اليقظة.
@@ -103,7 +103,7 @@ APPROVED_BRIEF:
 {payload}
 
 Build a simple production plan. Do not add research, statistics, quotations, diagnoses, or claims
-outside the approved brief and its research_pack. Use exactly {section_target} sections for format
+outside the approved brief and its research_pack. Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct. Each visual query must be a concrete
 English stock-footage search phrase. Prefer environments, hands, objects, routines, and wide shots
 without identifiable faces. Keep visuals modest and suitable for a broad Arab/Muslim audience.
