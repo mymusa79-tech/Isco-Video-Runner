@@ -291,16 +291,16 @@ class PlanningOutlineSplitFailureAwareRetryTests(unittest.TestCase):
         self.original_gemini = router.gemini_json_text
         self.original_groq = router._groq_call
         self.original_unavailable = run125._is_model_unavailable
-        self.had_fingerprint_marker = hasattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD")
+        self.had_fingerprint_marker = hasattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD_V2")
         self.old_fingerprint_marker = getattr(
-            router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD", None
+            router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD_V2", None
         )
         self.had_model_marker = hasattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2")
         self.old_model_marker = getattr(
             run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2", None
         )
         if self.had_fingerprint_marker:
-            delattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD")
+            delattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD_V2")
         if self.had_model_marker:
             delattr(run125, "_ISCO_OUTLINE_SPLIT_SCHEMA_MODEL_FAILOVER_V2")
 
@@ -311,11 +311,11 @@ class PlanningOutlineSplitFailureAwareRetryTests(unittest.TestCase):
         if self.had_fingerprint_marker:
             setattr(
                 router,
-                "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD",
+                "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD_V2",
                 self.old_fingerprint_marker,
             )
-        elif hasattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD"):
-            delattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD")
+        elif hasattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD_V2"):
+            delattr(router, "_ISCO_OUTLINE_SPLIT_FINGERPRINT_GUARD_V2")
         if self.had_model_marker:
             setattr(
                 run125,
@@ -345,14 +345,64 @@ class PlanningOutlineSplitFailureAwareRetryTests(unittest.TestCase):
         try:
             with self.assertRaisesRegex(RuntimeError, "OUTPUT_TRUNCATED"):
                 router.gemini_json_text("key", "prompt", model="model")
-            with self.assertRaises(stage_contract.PlanningStageError) as caught:
+            with self.assertRaises(router.NoWireProviderFailure) as caught:
                 router.gemini_json_text("key", "prompt", model="model")
         finally:
             stage_contract._ACTIVE_REQUEST_CONTRACT.reset(token)
 
         self.assertEqual(calls, 1)
-        self.assertEqual(caught.exception.code, stage_contract.PlanningErrorCode.CAPACITY)
-        self.assertIn("same_fingerprint_blocked", str(caught.exception))
+        self.assertFalse(caught.exception.wire_attempted)
+        self.assertEqual(
+            caught.exception.reason_code,
+            "same_fingerprint_blocked_after_output_truncation",
+        )
+        self.assertIn("provider=gemini", str(caught.exception))
+
+    def test_run272_groq_same_fingerprint_block_is_explicit_no_wire_and_still_terminal(self) -> None:
+        calls = 0
+
+        def structured_failure(_prompt):
+            nonlocal calls
+            calls += 1
+            raise RuntimeError(
+                "GROQ_JSON_VALIDATE_FAILED status=400 code=json_validate_failed"
+            )
+
+        router._groq_call = structured_failure
+        router.gemini_json_text = lambda *_args, **_kwargs: {"ok": True}
+        self.split._install_same_fingerprint_guard()
+
+        spec = self.split.outline_core_stage_spec(6)
+        contract = stage_contract.bind_request_contract(spec, "same-core-request")
+        token = stage_contract._ACTIVE_REQUEST_CONTRACT.set(contract)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "json_validate_failed"):
+                router._groq_call("prompt")
+            self.assertIn(
+                ("groq", contract.contract_id, contract.input_hash),
+                self.split._TERMINAL_REQUEST_FINGERPRINTS,
+            )
+            with self.assertRaises(router.NoWireProviderFailure) as caught:
+                router._groq_call("prompt")
+        finally:
+            stage_contract._ACTIVE_REQUEST_CONTRACT.reset(token)
+
+        self.assertEqual(calls, 1)
+        self.assertFalse(caught.exception.wire_attempted)
+        self.assertEqual(
+            caught.exception.reason_code,
+            "same_fingerprint_blocked_after_structured_generation_failure",
+        )
+        self.assertIn("provider=groq", str(caught.exception))
+
+        different = stage_contract.bind_request_contract(spec, "different-core-request")
+        token = stage_contract._ACTIVE_REQUEST_CONTRACT.set(different)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "json_validate_failed"):
+                router._groq_call("prompt")
+        finally:
+            stage_contract._ACTIVE_REQUEST_CONTRACT.reset(token)
+        self.assertEqual(calls, 2)
 
     def test_groq_schema_failure_is_model_diverse_only_for_split_outline(self) -> None:
         run125._is_model_unavailable = lambda error: False

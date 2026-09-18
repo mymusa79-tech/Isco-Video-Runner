@@ -536,11 +536,9 @@ def _install_same_fingerprint_guard() -> None:
         fingerprint = _active_fingerprint("gemini")
         if fingerprint is not None and fingerprint in _TERMINAL_REQUEST_FINGERPRINTS:
             owner = stage_contract._ACTIVE_REQUEST_CONTRACT.get()
-            raise stage_contract.PlanningStageError(
-                stage_contract.PlanningErrorCode.CAPACITY,
+            raise router.NoWireProviderFailure(
                 "same_fingerprint_blocked_after_output_truncation",
-                stage_id=getattr(owner, "stage_id", None),
-                provider="gemini",
+                f"stage={getattr(owner, 'stage_id', None)} provider=gemini",
             )
         try:
             return original_gemini(*args, **kwargs)
@@ -556,11 +554,9 @@ def _install_same_fingerprint_guard() -> None:
         fingerprint = _active_fingerprint("groq")
         if fingerprint is not None and fingerprint in _TERMINAL_REQUEST_FINGERPRINTS:
             owner = stage_contract._ACTIVE_REQUEST_CONTRACT.get()
-            raise stage_contract.PlanningStageError(
-                stage_contract.PlanningErrorCode.CAPACITY,
+            raise router.NoWireProviderFailure(
                 "same_fingerprint_blocked_after_structured_generation_failure",
-                stage_id=getattr(owner, "stage_id", None),
-                provider="groq",
+                f"stage={getattr(owner, 'stage_id', None)} provider=groq",
             )
         try:
             return original_groq(prompt)
