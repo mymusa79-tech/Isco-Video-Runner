@@ -1,0 +1,155 @@
+name: Clean V2 Minimal E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "clean_v2/**"
+      - "scripts/test_clean_v2.py"
+      - "docs/clean-v2/**"
+      - ".github/workflows/clean-v2-minimal-e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clean-v2-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Run Clean V2 contracts and local End-to-End render
+        run: python -m unittest scripts.test_clean_v2 -v
+
+  produce:
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+      ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
+      GEMINI_CONTENT_MODEL: gemini-3.7-flash
+      GROQ_CONTENT_MODEL: openai/gpt-oss-20b
+      OPENROUTER_CONTENT_MODEL: openrouter/free
+      CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2/${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout exact Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Runner checkout
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Checkout frozen private Engine source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine pin
+        run: test "$(git -C engine rev-parse HEAD)" = "$ISCO_ENGINE_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install only render and local voice dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y ffmpeg
+          python -m pip install --disable-pip-version-check 'piper-tts==1.4.2'
+
+      - name: Restore verified Piper voice cache
+        id: voice_cache
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/piper-voices
+          key: clean-v2-piper-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}
+
+      - name: Download Piper voice on cache miss
+        if: steps.voice_cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/piper-voices"
+          python -m piper.download_voices \
+            --data-dir "$RUNNER_TEMP/piper-voices" \
+            ar_JO-kareem-medium
+
+      - name: Verify Piper voice identity
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from clean_v2.media import verify_voice_assets
+
+          verify_voice_assets(
+              Path(os.environ["RUNNER_TEMP"]) / "piper-voices/ar_JO-kareem-medium.onnx",
+              Path("engine/security/piper_voice_hashes.json"),
+          )
+          print("Piper voice identity verified")
+          PY
+
+      - name: Save verified Piper voice cache candidate
+        if: steps.voice_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/piper-voices
+          key: clean-v2-piper-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}
+
+      - name: Produce one Clean V2 video
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -euo pipefail
+          python -m clean_v2 \
+            --brief "$GITHUB_WORKSPACE/engine/production/approved_brief.json" \
+            --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
+            --engine-sha "$ISCO_ENGINE_SHA" \
+            --runner-sha "$GITHUB_SHA" \
+            --piper-model "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx" \
+            --voice-manifest "$GITHUB_WORKSPACE/engine/security/piper_voice_hashes.json" \
+            --max-visuals 5 \
+            --output "$CLEAN_V2_OUTPUT"
+
+      - name: Require complete final file
+        run: |
+          set -euo pipefail
+          test -s "$CLEAN_V2_OUTPUT/final.mp4"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/run-manifest.json")" = "pass"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/final.json")" = "pass"
+          test "$(jq -r '.stages | length' "$CLEAN_V2_OUTPUT/run-manifest.json")" = "7"
+
+      - name: Upload Clean V2 evidence and final file
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: clean-v2-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ env.CLEAN_V2_OUTPUT }}
+          if-no-files-found: warn
+          retention-days: 7

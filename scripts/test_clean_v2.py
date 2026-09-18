@@ -1,0 +1,321 @@
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+from clean_v2.contracts import (
+    ContractError,
+    compute_brief_sha256,
+    load_approved_brief,
+)
+from clean_v2.pipeline import STAGES, CleanV2Pipeline
+from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
+
+
+def _brief() -> dict:
+    return {
+        "approved_by_user": True,
+        "approved_topic": "كيف تبدأ بخطوة صغيرة",
+        "format": "film",
+        "language": "ar",
+        "audience": "Arabic-speaking adults",
+        "editorial_intent": "شرح عملي هادئ دون وعود مبالغ فيها.",
+        "research_pack": [],
+        "hard_constraints": ["No fabricated facts."],
+    }
+
+
+def _plan() -> dict:
+    return {
+        "title": "خطوة واحدة",
+        "promise": "فهم طريقة عملية للبدء",
+        "sections": [
+            {
+                "id": "s1",
+                "heading": "المشكلة",
+                "purpose": "تسمية العائق",
+                "visual_query_en": "quiet desk notebook wide shot",
+            },
+            {
+                "id": "s2",
+                "heading": "الفكرة",
+                "purpose": "شرح الخطوة الصغيرة",
+                "visual_query_en": "hand writing one task in notebook",
+            },
+            {
+                "id": "s3",
+                "heading": "التطبيق",
+                "purpose": "دعوة عملية",
+                "visual_query_en": "morning workspace sunlight no face",
+            },
+        ],
+    }
+
+
+def _script() -> dict:
+    return {
+        "title": "خطوة واحدة",
+        "sections": [
+            {
+                "id": "s1",
+                "narration": "نؤجل البداية أحيانًا لأن المهمة تبدو أكبر من اللحظة المتاحة أمامنا.",
+            },
+            {
+                "id": "s2",
+                "narration": "حين نصغر الفعل الأول يصبح البدء أوضح، ونختبر الواقع بدل أن نبقى داخل الخطة.",
+            },
+            {
+                "id": "s3",
+                "narration": "اختر اليوم خطوة يمكن تنفيذها الآن، ثم اترك النتيجة التالية لما بعد البداية.",
+            },
+        ],
+    }
+
+
+class ApprovedBriefContractTests(unittest.TestCase):
+    def test_hash_binding_accepts_exact_brief_and_rejects_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "brief.json"
+            brief = _brief()
+            path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            digest = compute_brief_sha256(brief)
+            self.assertEqual(load_approved_brief(path, digest)["approved_topic"], brief["approved_topic"])
+
+            brief["approved_topic"] = "موضوع مختلف"
+            path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            with self.assertRaisesRegex(ContractError, "changed after approval"):
+                load_approved_brief(path, digest)
+
+
+class ProviderAccountingTests(unittest.TestCase):
+    def test_local_unavailable_route_is_no_wire_and_does_not_take_attempt_number(self) -> None:
+        def missing(_prompt: str, _tokens: int) -> dict:
+            raise NoWireFailure("missing_api_key")
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("missing", missing),
+                ProviderAdapter("working", lambda _prompt, _tokens: {"ok": True}),
+            )
+        )
+        result = router.route(
+            stage="planning",
+            prompt="small",
+            max_tokens=100,
+            validator=lambda value: value,
+        )
+        self.assertEqual(result, {"ok": True})
+        self.assertFalse(router.events[0]["wire_attempted"])
+        self.assertIsNone(router.events[0]["provider_attempt"])
+        self.assertIsNone(router.events[0]["stage_wire_attempt"])
+        self.assertTrue(router.events[1]["wire_attempted"])
+        self.assertEqual(router.events[1]["stage_wire_attempt"], 1)
+
+    def test_invalid_post_wire_output_counts_then_falls_forward_once(self) -> None:
+        router = ProviderRouter(
+            (
+                ProviderAdapter("bad", lambda _prompt, _tokens: {"wrong": True}),
+                ProviderAdapter("good", lambda _prompt, _tokens: {"ok": True}),
+            )
+        )
+
+        def validate(value: dict) -> dict:
+            if value.get("ok") is not True:
+                raise ContractError("bad shape")
+            return value
+
+        self.assertEqual(
+            router.route(
+                stage="script",
+                prompt="small",
+                max_tokens=100,
+                validator=validate,
+            ),
+            {"ok": True},
+        )
+        self.assertEqual(
+            [event["stage_wire_attempt"] for event in router.events], [1, 2]
+        )
+        self.assertEqual(router.events[0]["result"], "invalid_output")
+
+    def test_oversized_prompt_is_a_single_local_no_wire_block(self) -> None:
+        router = ProviderRouter(
+            (ProviderAdapter("unused", lambda _prompt, _tokens: {"ok": True}),)
+        )
+        with self.assertRaisesRegex(NoWireFailure, "prompt_too_large"):
+            router.route(
+                stage="planning",
+                prompt="x" * (65 * 1024),
+                max_tokens=100,
+                validator=lambda value: value,
+            )
+        self.assertEqual(len(router.events), 1)
+        self.assertFalse(router.events[0]["wire_attempted"])
+        self.assertIsNone(router.events[0]["provider_attempt"])
+
+
+class WorkflowContractTests(unittest.TestCase):
+    WORKFLOW = Path(".github/workflows/clean-v2-minimal-e2e.yml")
+
+    def test_workflow_uses_frozen_engine_and_approved_brief(self) -> None:
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+        engine_sha = "3cbd689819e6b0e0b2ea9904d1998e24a5e2a293"
+        brief_sha = "bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129"
+        self.assertGreaterEqual(text.count(engine_sha), 2)
+        self.assertEqual(text.count(brief_sha), 1)
+        self.assertIn("engine/production/approved_brief.json", text)
+        self.assertIn("python -m clean_v2", text)
+
+    def test_workflow_does_not_invoke_legacy_or_quality_paths(self) -> None:
+        text = self.WORKFLOW.read_text(encoding="utf-8").casefold()
+        for forbidden in (
+            "produce-resilient-v4",
+            "run_v3_voice",
+            "text_audit",
+            "gold_enforce",
+            "final_master",
+            "viewer_quality",
+            "create release",
+        ):
+            self.assertNotIn(forbidden, text)
+
+
+class _FakeRouter:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def route(self, *, stage, prompt, max_tokens, validator):
+        del prompt, max_tokens
+        value = _plan() if stage == "planning" else _script()
+        self.events.append(
+            {
+                "stage": stage,
+                "provider": "fixture",
+                "result": "success",
+                "wire_attempted": True,
+                "provider_attempt": 1,
+                "stage_wire_attempt": 1,
+            }
+        )
+        return validator(value)
+
+
+class _FakeVoice:
+    def synthesize(self, transcript: str, output_path: Path) -> Path:
+        if not transcript.strip():
+            raise RuntimeError("empty fixture transcript")
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=220:sample_rate=24000:duration=3",
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                str(output_path),
+            ],
+            check=True,
+        )
+        return output_path
+
+
+class _FakeVisuals:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def acquire(self, plan, output_dir, fmt, max_visuals):
+        del plan, fmt, max_visuals
+        output_dir.mkdir(parents=True, exist_ok=True)
+        clips = []
+        for index, color in enumerate(("#172033", "#6d4c41"), start=1):
+            path = output_dir / f"fixture-{index}.mp4"
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    f"color=c={color}:s=640x360:r=30:d=2",
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-an",
+                    "-y",
+                    str(path),
+                ],
+                check=True,
+            )
+            clips.append(path)
+        self.events.append(
+            {
+                "provider": "fixture",
+                "result": "selected",
+                "wire_attempted": False,
+            }
+        )
+        rights = [
+            {
+                "provider": "fixture",
+                "asset_id": str(index),
+                "local_file": path.name,
+            }
+            for index, path in enumerate(clips, start=1)
+        ]
+        return clips, rights
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+class CleanV2EndToEndTests(unittest.TestCase):
+    def test_minimal_path_produces_structurally_complete_final_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+            )
+            result = pipeline.run(
+                brief_path=brief_path,
+                approved_sha256=compute_brief_sha256(brief),
+                output_dir=output,
+                engine_sha="a" * 40,
+                runner_sha="b" * 40,
+                max_visuals=2,
+            )
+
+            self.assertEqual(result["status"], "pass")
+            self.assertTrue((output / "final.mp4").is_file())
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "pass")
+            self.assertEqual([item["name"] for item in manifest["stages"]], list(STAGES))
+            self.assertEqual(manifest["quality_layers_executed"], [])
+            final = json.loads((output / "final.json").read_text(encoding="utf-8"))
+            self.assertEqual(final["status"], "pass")
+            self.assertGreaterEqual(final["video_streams"], 1)
+            self.assertGreaterEqual(final["audio_streams"], 1)
+            forbidden = {"gold", "text-audit", "final-master", "viewer-quality"}
+            names = {path.name.lower() for path in output.rglob("*")}
+            self.assertFalse(any(any(token in name for token in forbidden) for name in names))
+
+
+if __name__ == "__main__":
+    unittest.main()
