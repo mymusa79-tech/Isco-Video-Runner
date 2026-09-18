@@ -327,6 +327,10 @@ class CleanV2Pipeline:
             )
 
             visuals_dir = output_dir / "visuals"
+            # Security V1 and M8 are part of the restored layer and execute inside
+            # StockVisualSource admission/transform hooks during this stage.
+            journal.payload["quality_layers_executed"] = [CINEMATIC_STAGE]
+            journal._write()
             clips, rights = journal.run(
                 "visuals",
                 lambda: self.visual_source.acquire(
