@@ -95,33 +95,36 @@ Therefore **5/5 = 100%** is the accepted Clean V2 stability baseline for
 The temporary automation/verifier PR #671 used only to execute this cohort was closed
 without merge after the evidence was collected.
 
-## Next controlled layer — Gold only
+## Next controlled layer — Final-cut Visual QA prerequisite to Gold
 
-The next experiment is **Gold evaluation only** on the already accepted long-form
-artifact.
+The next controlled experiment is **Final-cut Visual QA only** over the exact clips
+already selected by Clean V2.
 
-Sequencing rationale:
+This is a prerequisite correction discovered while verifying the old Gold contract,
+not a change in the one-layer methodology:
 
-- Gold belongs to the preserved long-form quality stack.
-- Sibling Shorts are a secondary deliverable and remain disabled until the long-form
-  quality path is stable.
-- Viewer Quality, packaging/release authority, thumbnails, Text Audit, Final Critic
-  side layers, and sibling Shorts must not be activated as part of this experiment.
+- Authoritative Gold Phase 4 requires truthful selected-final-cut visual audit evidence.
+- Clean V2 intentionally had no `visual-audit.json` because the accepted M7–M11
+  compatibility layer did not fabricate Director/Visual-QA evidence.
+- Enabling Gold directly would therefore either block deterministically on missing
+  visual-selection evidence or require fabricated PASS rows. Fabricating that evidence
+  would weaken the quality contract and is forbidden.
+- Sibling Shorts remain a later secondary deliverable and are not part of this layer.
 
-Rules for the Gold experiment:
+Rules for the Visual QA experiment:
 
 1. One isolated branch and one separate PR.
-2. Reuse the existing tested Gold critic implementation; do not create a new quality
-   algorithm.
-3. Keep Runner/Engine/Approved Brief/topic/provider order/media order/voice/render
-   settings fixed.
-4. Gold must evaluate the exact accepted `final.mp4` bytes and must not mutate them.
-5. Do not enable Viewer Quality, packaging, publishing, thumbnails, Shorts, or another
-   quality layer in the same PR.
-6. Do not merge before review and regression checks.
-7. After merge approval, run exactly five consecutive production attempts.
-8. Classify each failure as exactly:
-   - `pre-layer`
-   - `new-layer-block`
-   - `infrastructure`
-9. Do not add the next layer until the five-run Gold cohort is reviewed.
+2. Reuse the existing Engine Visual Audit normalizer, final-cut semantic floor, and
+   Runner Vision provider mesh; do not create a new scoring algorithm.
+3. Audit only clips already selected for the final cut. Do not re-search, replace,
+   repair, or rerender footage inside this layer.
+4. Keep the final-cut readiness target unchanged at **0.85**.
+5. Keep provider order **Gemini → Groq → OpenRouter** and the existing bounded
+   three-attempt Vision mesh.
+6. Do not enable Gold, Viewer Quality, packaging, thumbnails, Text Audit, publishing,
+   or Shorts in the same PR.
+7. After review and merge, run exactly five consecutive production attempts with all
+   prior pins/settings frozen.
+8. Classify every failure as exactly `pre-layer`, `new-layer-block`, or
+   `infrastructure`.
+9. Only after the five-run Visual QA cohort is reviewed may Gold become the next layer.
