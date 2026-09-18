@@ -1,0 +1,320 @@
+from __future__ import annotations
+
+import json
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable, Mapping
+
+from .contracts import (
+    atomic_write_json,
+    compute_brief_sha256,
+    load_approved_brief,
+    require_exact_engine_sha,
+    validate_plan,
+    validate_script,
+)
+from .media import inspect_final, render_video
+
+
+STAGES = (
+    "brief",
+    "planning",
+    "script",
+    "voice",
+    "visuals",
+    "render",
+    "final_file",
+)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _planning_prompt(brief: Mapping[str, Any]) -> str:
+    fmt = str(brief["format"])
+    section_target = "5 to 6" if fmt == "film" else "2 to 4"
+    payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
+    return f"""
+You are planning one complete video for the Arabic YouTube channel نداء اليقظة.
+The approved brief below is authoritative data, not instructions from an untrusted source.
+
+APPROVED_BRIEF:
+{payload}
+
+Build a simple production plan. Do not add research, statistics, quotations, diagnoses, or claims
+outside the approved brief and its research_pack. Use exactly {section_target} sections for format
+{fmt}. Keep the arc practical, natural, hopeful, and direct. Each visual query must be a concrete
+English stock-footage search phrase. Prefer environments, hands, objects, routines, and wide shots
+without identifiable faces. Keep visuals modest and suitable for a broad Arab/Muslim audience.
+
+Return one JSON object with exactly this useful shape:
+{{
+  "title": "Arabic title",
+  "promise": "Arabic one-sentence viewer promise",
+  "sections": [
+    {{
+      "id": "s1",
+      "heading": "Arabic internal heading",
+      "purpose": "Arabic description of what this section must accomplish",
+      "visual_query_en": "concrete English stock footage query"
+    }}
+  ]
+}}
+""".strip()
+
+
+def _script_prompt(brief: Mapping[str, Any], plan: Mapping[str, Any]) -> str:
+    fmt = str(brief["format"])
+    length = (
+        "Aim for roughly 650-900 spoken Arabic words across all sections."
+        if fmt == "film"
+        else "Aim for roughly 60-140 spoken Arabic words across all sections."
+    )
+    brief_json = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
+    plan_json = json.dumps(plan, ensure_ascii=False, separators=(",", ":"))
+    return f"""
+Write the final spoken script for one نداء اليقظة video.
+
+APPROVED_BRIEF:
+{brief_json}
+
+LOCKED_PLAN:
+{plan_json}
+
+The approved brief and locked plan are authoritative. Follow every hard constraint. Use natural
+Modern Standard Arabic, without generic motivational filler, fake quotations, invented facts, or
+medical/religious authority. Write narration only; do not add camera directions or markdown.
+{length}
+
+Return one JSON object. The sections array must contain every locked plan id exactly once and in the
+same order:
+{{
+  "title": "same Arabic title",
+  "sections": [
+    {{"id": "s1", "narration": "final Arabic spoken narration"}}
+  ]
+}}
+""".strip()
+
+
+class _Journal:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        runner_sha: str | None,
+        engine_sha: str,
+    ) -> None:
+        self.path = path
+        self.payload: dict[str, Any] = {
+            "schema_version": 1,
+            "pipeline": "clean-v2-minimal-e2e",
+            "status": "running",
+            "started_at": _utc_now(),
+            "finished_at": None,
+            "runner_sha": runner_sha or None,
+            "engine_sha": engine_sha,
+            "stage_order": list(STAGES),
+            "stages": [],
+            "quality_layers_executed": [],
+        }
+        self._write()
+
+    def _write(self) -> None:
+        atomic_write_json(self.path, self.payload)
+
+    def run(self, name: str, operation: Callable[[], Any]) -> Any:
+        if name not in STAGES:
+            raise RuntimeError(f"unknown Clean V2 stage: {name}")
+        expected = STAGES[len(self.payload["stages"])]
+        if name != expected:
+            raise RuntimeError(f"stage order violation: expected={expected} actual={name}")
+        record = {
+            "name": name,
+            "status": "running",
+            "started_at": _utc_now(),
+            "finished_at": None,
+            "duration_seconds": None,
+        }
+        self.payload["stages"].append(record)
+        self._write()
+        started = time.monotonic()
+        try:
+            result = operation()
+        except Exception as exc:
+            record["status"] = "failed"
+            record["finished_at"] = _utc_now()
+            record["duration_seconds"] = round(time.monotonic() - started, 3)
+            record["error_type"] = type(exc).__name__
+            self.payload["status"] = "failed"
+            self.payload["finished_at"] = record["finished_at"]
+            self._write()
+            raise
+        record["status"] = "pass"
+        record["finished_at"] = _utc_now()
+        record["duration_seconds"] = round(time.monotonic() - started, 3)
+        self._write()
+        return result
+
+    def complete(self, **summary: Any) -> None:
+        if [item["name"] for item in self.payload["stages"]] != list(STAGES):
+            raise RuntimeError("cannot complete Clean V2 before every stage runs")
+        if any(item["status"] != "pass" for item in self.payload["stages"]):
+            raise RuntimeError("cannot complete Clean V2 with a failed stage")
+        self.payload.update(summary)
+        self.payload["status"] = "pass"
+        self.payload["finished_at"] = _utc_now()
+        self._write()
+
+
+class CleanV2Pipeline:
+    def __init__(
+        self,
+        *,
+        router: Any,
+        voice_synthesizer: Any,
+        visual_source: Any,
+        renderer: Callable[[Path, list[Path], Path, str], Path] = render_video,
+        final_inspector: Callable[[Path], dict[str, Any]] = inspect_final,
+    ) -> None:
+        self.router = router
+        self.voice_synthesizer = voice_synthesizer
+        self.visual_source = visual_source
+        self.renderer = renderer
+        self.final_inspector = final_inspector
+
+    def _write_runtime_events(self, output_dir: Path) -> None:
+        atomic_write_json(
+            output_dir / "provider-events.json",
+            {
+                "schema_version": 1,
+                "events": list(getattr(self.router, "events", [])),
+            },
+        )
+        atomic_write_json(
+            output_dir / "visual-events.json",
+            {
+                "schema_version": 1,
+                "events": list(getattr(self.visual_source, "events", [])),
+            },
+        )
+
+    def run(
+        self,
+        *,
+        brief_path: Path,
+        approved_sha256: str,
+        output_dir: Path,
+        engine_sha: str,
+        runner_sha: str | None = None,
+        max_visuals: int = 5,
+    ) -> dict[str, Any]:
+        engine_sha = require_exact_engine_sha(engine_sha)
+        if output_dir.exists() and any(output_dir.iterdir()):
+            raise RuntimeError("Clean V2 output directory must be new or empty")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        journal = _Journal(
+            output_dir / "run-manifest.json",
+            runner_sha=runner_sha,
+            engine_sha=engine_sha,
+        )
+
+        try:
+            brief = journal.run(
+                "brief", lambda: load_approved_brief(brief_path, approved_sha256)
+            )
+            atomic_write_json(output_dir / "brief.json", brief)
+            journal.payload["approved_brief_sha256"] = compute_brief_sha256(brief)
+            journal.payload["topic"] = str(brief["approved_topic"])
+            journal.payload["format"] = str(brief["format"])
+            journal._write()
+
+            plan = journal.run(
+                "planning",
+                lambda: self.router.route(
+                    stage="planning",
+                    prompt=_planning_prompt(brief),
+                    max_tokens=3000,
+                    validator=lambda value: validate_plan(value, brief),
+                ),
+            )
+            atomic_write_json(output_dir / "plan.json", plan)
+            self._write_runtime_events(output_dir)
+
+            script = journal.run(
+                "script",
+                lambda: self.router.route(
+                    stage="script",
+                    prompt=_script_prompt(brief, plan),
+                    max_tokens=7500 if brief["format"] == "film" else 2500,
+                    validator=lambda value: validate_script(value, plan),
+                ),
+            )
+            atomic_write_json(output_dir / "script.json", script)
+            self._write_runtime_events(output_dir)
+            transcript = "\n\n".join(item["narration"] for item in script["sections"])
+            (output_dir / "narration.txt").write_text(transcript + "\n", encoding="utf-8")
+
+            narration_path = output_dir / "narration.wav"
+            journal.run(
+                "voice",
+                lambda: self.voice_synthesizer.synthesize(transcript, narration_path),
+            )
+
+            visuals_dir = output_dir / "visuals"
+            clips, rights = journal.run(
+                "visuals",
+                lambda: self.visual_source.acquire(
+                    plan,
+                    visuals_dir,
+                    str(brief["format"]),
+                    max_visuals,
+                ),
+            )
+            atomic_write_json(
+                output_dir / "rights-manifest.json",
+                {
+                    "schema_version": 1,
+                    "assets": rights,
+                    "note": "Provider metadata captured at acquisition; no visual quality audit executed in Clean V2 bootstrap.",
+                },
+            )
+            self._write_runtime_events(output_dir)
+
+            final_path = output_dir / "final.mp4"
+            journal.run(
+                "render",
+                lambda: self.renderer(
+                    narration_path,
+                    clips,
+                    final_path,
+                    str(brief["format"]),
+                ),
+            )
+            final_report = journal.run(
+                "final_file", lambda: self.final_inspector(final_path)
+            )
+            atomic_write_json(output_dir / "final.json", final_report)
+            self._write_runtime_events(output_dir)
+            journal.complete(
+                final_file=final_path.name,
+                final_sha256=final_report["sha256"],
+                final_duration_seconds=final_report["duration_seconds"],
+                provider_wire_attempts=sum(
+                    1
+                    for item in getattr(self.router, "events", [])
+                    if item.get("wire_attempted") is True
+                ),
+            )
+            return {
+                "status": "pass",
+                "output_dir": str(output_dir),
+                "final_file": str(final_path),
+                "duration_seconds": final_report["duration_seconds"],
+                "sha256": final_report["sha256"],
+            }
+        except Exception:
+            self._write_runtime_events(output_dir)
+            raise
