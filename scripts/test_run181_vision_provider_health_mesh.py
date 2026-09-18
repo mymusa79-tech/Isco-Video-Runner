@@ -463,7 +463,10 @@ class Run181RoutingTests(unittest.TestCase):
 
     def test_unrelated_http_413_remains_internal_contract_error(self) -> None:
         self.assertIs(
-            v2._classify_http(413, "payload too large for unrelated request contract"),
+            closure._classify_groq_vision_http(
+                413,
+                "payload too large for unrelated request contract",
+            ),
             v2.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
         )
 
