@@ -5,6 +5,11 @@ import json
 import os
 from pathlib import Path
 
+from .legacy_cinematic import (
+    m8_normalize_media,
+    security_media_preflight,
+    security_query_normalizer,
+)
 from .media import PiperVoiceSynthesizer, StockVisualSource
 from .pipeline import CleanV2Pipeline
 from .providers import ProviderRouter
@@ -43,7 +48,11 @@ def main() -> None:
         voice_synthesizer=PiperVoiceSynthesizer(
             args.piper_model, args.voice_manifest
         ),
-        visual_source=StockVisualSource(),
+        visual_source=StockVisualSource(
+            query_normalizer=security_query_normalizer,
+            media_preflight=security_media_preflight,
+            media_transform=m8_normalize_media,
+        ),
     )
     result = pipeline.run(
         brief_path=args.brief,
