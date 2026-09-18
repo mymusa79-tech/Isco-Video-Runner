@@ -162,8 +162,7 @@ def _run124_owned_groq_temporal_prewire_failure(
     """
     if str(provider).strip().lower() != "groq" or wire_attempted or not retryable:
         return False
-    reason_code = str(getattr(error, "reason_code", "") or "").strip()
-    if reason_code not in _GROQ_TEMPORAL_PRECHECK_REASONS:
+    if getattr(error, "wire_attempted", None) is not False:
         return False
     detail = str(error)
     lower = detail.lower()
@@ -1189,6 +1188,7 @@ def _provider_failure(
         "payload_too_large",
         "tpm_capacity",
         "tpm_window",
+        "rpm_window",
         "context_length",
         "max_tokens",
         "http_413",
@@ -1210,7 +1210,7 @@ def _provider_failure(
     # latter's own comment there says it "can never heal with time" and is deliberately
     # excluded here, since only a real TPM ceiling (not a window preflight) is genuinely
     # permanent.
-    time_window_capacity_markers = ("tpm_capacity_preflight", "tpm_window")
+    time_window_capacity_markers = ("tpm_capacity_preflight", "tpm_window", "rpm_window")
     # Run #267 reached Groq on-wire for planning.full_script, received syntactically
     # valid JSON with a non-object root, and router._parse_json raised this exact
     # response-contract error before json_text could return a dict. This is structural
