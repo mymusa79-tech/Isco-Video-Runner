@@ -126,6 +126,12 @@ class VisualCoverageContractTests(unittest.TestCase):
         self.assertIn("paths = visual_paths[:6]", text)
         self.assertNotIn("paths = visual_paths[:5]", text)
 
+    def test_cli_and_pipeline_defaults_allow_six_visuals(self) -> None:
+        cli = Path("clean_v2/__main__.py").read_text(encoding="utf-8")
+        pipeline = Path("clean_v2/pipeline.py").read_text(encoding="utf-8")
+        self.assertIn("choices=range(1, 7), default=6", cli)
+        self.assertIn("max_visuals: int = 6", pipeline)
+
 
 class ProviderAccountingTests(unittest.TestCase):
     def test_local_unavailable_route_is_no_wire_and_does_not_take_attempt_number(self) -> None:
