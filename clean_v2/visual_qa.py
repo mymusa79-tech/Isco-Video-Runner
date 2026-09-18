@@ -37,6 +37,46 @@ def _write_json(path: Path, value: Any) -> None:
     )
 
 
+def _bind_selected_rows(
+    *,
+    clips: list[Path],
+    rights: list[dict[str, Any]],
+    plan: dict[str, Any],
+) -> list[tuple[Path, dict[str, Any], dict[str, Any]]]:
+    sections = list(plan.get("sections") or [])
+    plan_by_id = {
+        str(item.get("id") or ""): item
+        for item in sections
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    }
+
+    if not clips or len(clips) != len(rights):
+        raise CleanV2VisualQABlock(
+            "CLEAN_V2_VISUAL_QA_BLOCK reason=clip_rights_cardinality_mismatch"
+        )
+
+    selected_rows: list[tuple[Path, dict[str, Any], dict[str, Any]]] = []
+    seen_sections: set[str] = set()
+    for clip, row in zip(clips, rights):
+        if not isinstance(row, dict):
+            raise CleanV2VisualQABlock(
+                "CLEAN_V2_VISUAL_QA_BLOCK reason=invalid_rights_row"
+            )
+        section_id = str(row.get("section_id") or "").strip()
+        if (
+            not section_id
+            or section_id not in plan_by_id
+            or section_id in seen_sections
+        ):
+            raise CleanV2VisualQABlock(
+                "CLEAN_V2_VISUAL_QA_BLOCK "
+                f"reason=selected_visual_section_binding_invalid section={section_id or '<empty>'}"
+            )
+        seen_sections.add(section_id)
+        selected_rows.append((Path(clip), row, plan_by_id[section_id]))
+    return selected_rows
+
+
 def _infrastructure_error(exc: BaseException) -> bool:
     try:
         from scripts.vision_provider_reliability import VisionProviderMeshUnavailableError
@@ -103,41 +143,16 @@ def run_final_cut_visual_qa(
 
     output_dir = Path(output_dir)
     sections = list(plan.get("sections") or [])
-    plan_by_id = {
-        str(item.get("id") or ""): item
-        for item in sections
-        if isinstance(item, dict) and str(item.get("id") or "").strip()
-    }
     script_by_id = {
         str(item.get("id") or ""): str(item.get("narration") or "")
         for item in (script.get("sections") or [])
         if isinstance(item, dict)
     }
-
-    if not clips or len(clips) != len(rights):
-        raise CleanV2VisualQABlock(
-            "CLEAN_V2_VISUAL_QA_BLOCK reason=clip_rights_cardinality_mismatch"
-        )
-
-    selected_rows: list[tuple[Path, dict[str, Any], dict[str, Any]]] = []
-    seen_sections: set[str] = set()
-    for clip, row in zip(clips, rights):
-        if not isinstance(row, dict):
-            raise CleanV2VisualQABlock(
-                "CLEAN_V2_VISUAL_QA_BLOCK reason=invalid_rights_row"
-            )
-        section_id = str(row.get("section_id") or "").strip()
-        if (
-            not section_id
-            or section_id not in plan_by_id
-            or section_id in seen_sections
-        ):
-            raise CleanV2VisualQABlock(
-                "CLEAN_V2_VISUAL_QA_BLOCK "
-                f"reason=selected_visual_section_binding_invalid section={section_id or '<empty>'}"
-            )
-        seen_sections.add(section_id)
-        selected_rows.append((Path(clip), row, plan_by_id[section_id]))
+    selected_rows = _bind_selected_rows(
+        clips=clips,
+        rights=rights,
+        plan=plan,
+    )
 
     gemini = _secret("GEMINI_API_KEY")
     model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
