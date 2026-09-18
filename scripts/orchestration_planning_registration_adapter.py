@@ -18,7 +18,7 @@ from scripts.orchestration_stage_registry import (
 
 PLANNING_RESOLVER_ID = "planning-canonical-v1"
 PLANNING_CONTRACT_SOURCE_PATH = "scripts/planning_stage_contract.py"
-PLANNING_CONTRACT_SOURCE_SHA = "15352df5edff524411c5625c1d4f226b7b0f5eea"
+PLANNING_CONTRACT_SOURCE_SHA = "93e70a346d510f44177204053dc2082ba379d254"
 
 
 class PlanningRegistrationError(StageRegistryError):
