@@ -182,14 +182,30 @@ class _Journal:
         try:
             result = operation()
         except Exception as exc:
-            record["status"] = "blocked" if name in QUALITY_STAGES else "failed"
+            message = str(exc)
+            new_layer_block = (
+                name == CINEMATIC_STAGE
+                or "CLEAN_V2_NEW_LAYER_BLOCK" in message
+            )
+            infrastructure = "exhausted bounded provider route" in message
+            failure_classification = (
+                "new-layer-block"
+                if new_layer_block
+                else ("infrastructure" if infrastructure else "pre-layer")
+            )
+            record["status"] = "blocked" if new_layer_block or name == QUALITY_STAGE else "failed"
             record["finished_at"] = _utc_now()
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
-            if name in QUALITY_STAGES:
+            record["failure_classification"] = failure_classification
+            self.payload["failure_classification"] = failure_classification
+            if new_layer_block:
+                self.payload["status"] = "quality_pending"
+                self.payload["quality_pending_stage"] = CINEMATIC_STAGE
+                self.payload["failure_origin_stage"] = name
+            elif name == QUALITY_STAGE:
                 self.payload["status"] = "quality_pending"
                 self.payload["quality_pending_stage"] = name
-                self.payload["failure_classification"] = "new-layer-block"
             else:
                 self.payload["status"] = "failed"
             self.payload["finished_at"] = record["finished_at"]
@@ -363,8 +379,8 @@ class CleanV2Pipeline:
             self._write_runtime_events(output_dir)
 
             # Compatibility evidence for the unchanged legacy Final Master QC core.
-            # Clean V2 has no M7 timeline or Engine quality-final stage, so the
-            # already-probed final duration is the technical body boundary here.
+            # The restored Cinematic layer already writes the real M7 legacy-fallback
+            # timeline. Keep that evidence intact; only quality-final.json is adapted.
             qc_format = (
                 "moment"
                 if str(brief["format"]) in {"moment", "story"}
@@ -381,14 +397,15 @@ class CleanV2Pipeline:
                     "audio_ok": final_report["audio_streams"] >= 1,
                 },
             )
-            atomic_write_json(
-                output_dir / "visual-timeline.json",
-                {
-                    "schema_version": 1,
-                    "source": "clean-v2-final-file-adapter",
-                    "duration_seconds": final_report["duration_seconds"],
-                },
-            )
+            if not (output_dir / "visual-timeline.json").is_file():
+                atomic_write_json(
+                    output_dir / "visual-timeline.json",
+                    {
+                        "schema_version": 1,
+                        "source": "clean-v2-final-file-adapter",
+                        "duration_seconds": final_report["duration_seconds"],
+                    },
+                )
             journal.payload["quality_layers_executed"] = [CINEMATIC_STAGE, QUALITY_STAGE]
             journal._write()
             final_master_report = journal.run(
