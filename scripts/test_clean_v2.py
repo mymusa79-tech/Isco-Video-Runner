@@ -12,7 +12,13 @@ from clean_v2.contracts import (
     compute_brief_sha256,
     load_approved_brief,
 )
-from clean_v2.pipeline import CINEMATIC_STAGE, VISUAL_QA_STAGE, STAGES, CleanV2Pipeline
+from clean_v2.pipeline import (
+    CINEMATIC_STAGE,
+    VISUAL_QA_STAGE,
+    STAGES,
+    CleanV2Pipeline,
+    _planning_prompt,
+)
 from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
 
 
@@ -89,6 +95,15 @@ class ApprovedBriefContractTests(unittest.TestCase):
             path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
             with self.assertRaisesRegex(ContractError, "changed after approval"):
                 load_approved_brief(path, digest)
+
+
+class PlanningCardinalityTests(unittest.TestCase):
+    def test_film_prompt_requires_exactly_five_sections_to_match_render_capacity(self) -> None:
+        brief = _brief()
+        brief["format"] = "film"
+        prompt = _planning_prompt(brief)
+        self.assertIn("Use exactly exactly 5 sections", prompt)
+        self.assertNotIn("5 to 6", prompt)
 
 
 class ProviderAccountingTests(unittest.TestCase):
@@ -527,7 +542,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
 
 
-    def test_cinematic_block_is_attributed_to_new_layer_and_stops_before_final_master(self) -> None:
+    def test_cinematic_block_is_pre_layer_after_accepted_m7_m11_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             brief_path = root / "approved-brief.json"
@@ -557,7 +572,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(manifest["status"], "quality_pending")
             self.assertEqual(manifest["quality_pending_stage"], CINEMATIC_STAGE)
-            self.assertEqual(manifest["failure_classification"], "new-layer-block")
+            self.assertEqual(manifest["failure_classification"], "pre-layer")
             self.assertEqual(
                 manifest["quality_layers_executed"],
                 [CINEMATIC_STAGE, VISUAL_QA_STAGE],
