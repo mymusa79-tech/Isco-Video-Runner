@@ -169,6 +169,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(text.count(brief_sha), 1)
         self.assertIn("engine/production/approved_brief.json", text)
         self.assertIn("python -m clean_v2", text)
+        self.assertIn("لماذا تفشل خطط إدارة الوقت في الحياة اليومية", text)
 
     def test_workflow_invokes_security_cinematic_then_final_master_without_legacy_orchestrator(self) -> None:
         text = self.WORKFLOW.read_text(encoding="utf-8").casefold()
@@ -423,6 +424,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(manifest["status"], "quality_pending")
             self.assertEqual(manifest["quality_pending_stage"], "final_master_qc")
+            self.assertEqual(manifest["failure_classification"], "pre-layer")
             self.assertEqual(
                 manifest["quality_layers_executed"],
                 [CINEMATIC_STAGE, "final_master_qc"],
