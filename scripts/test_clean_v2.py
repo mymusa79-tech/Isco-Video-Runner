@@ -11,6 +11,7 @@ from clean_v2.contracts import (
     ContractError,
     compute_brief_sha256,
     load_approved_brief,
+    validate_plan,
 )
 from clean_v2.pipeline import (
     CINEMATIC_STAGE,
@@ -58,6 +59,18 @@ def _plan() -> dict:
                 "purpose": "دعوة عملية",
                 "visual_query_en": "morning workspace sunlight no face",
             },
+            {
+                "id": "s4",
+                "heading": "المراجعة",
+                "purpose": "مراجعة أثر الخطوة الأولى",
+                "visual_query_en": "checking simple task list on desk",
+            },
+            {
+                "id": "s5",
+                "heading": "الاستمرار",
+                "purpose": "تثبيت خطوة تالية واضحة",
+                "visual_query_en": "calendar and notebook calm workspace",
+            },
         ],
     }
 
@@ -77,6 +90,14 @@ def _script() -> dict:
             {
                 "id": "s3",
                 "narration": "اختر اليوم خطوة يمكن تنفيذها الآن، ثم اترك النتيجة التالية لما بعد البداية.",
+            },
+            {
+                "id": "s4",
+                "narration": "بعد التنفيذ راجع ما حدث بهدوء، وما الذي جعل الخطوة ممكنة في هذه المرة.",
+            },
+            {
+                "id": "s5",
+                "narration": "ثبت ما نجح واختر خطوة تالية صغيرة وواضحة حتى يتحول التقدم إلى عادة عملية.",
             },
         ],
     }
@@ -98,12 +119,28 @@ class ApprovedBriefContractTests(unittest.TestCase):
 
 
 class PlanningCardinalityTests(unittest.TestCase):
-    def test_film_prompt_requires_exactly_five_sections_to_match_render_capacity(self) -> None:
+    def test_film_prompt_and_validator_require_exactly_five_sections(self) -> None:
         brief = _brief()
         brief["format"] = "film"
         prompt = _planning_prompt(brief)
         self.assertIn("Use exactly 5 sections", prompt)
         self.assertNotIn("5 to 6", prompt)
+        self.assertEqual(len(validate_plan(_plan(), brief)["sections"]), 5)
+
+        six = _plan()
+        six["sections"].append(
+            {
+                "id": "s6",
+                "heading": "سادس",
+                "purpose": "يجب رفضه",
+                "visual_query_en": "extra calm workspace shot",
+            }
+        )
+        with self.assertRaisesRegex(
+            ContractError,
+            "exactly 5 for film",
+        ):
+            validate_plan(six, brief)
 
 
 class ProviderAccountingTests(unittest.TestCase):
