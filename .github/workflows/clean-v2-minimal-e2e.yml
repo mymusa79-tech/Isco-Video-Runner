@@ -87,9 +87,21 @@ jobs:
         with:
           path: ${{ runner.temp }}/piper-voices
           key: clean-v2-piper-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}
+          restore-keys: |
+            piper-voice-v2-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}-
+
+      - name: Check restored Piper voice files
+        id: voice_files
+        run: |
+          if test -s "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx" \
+            && test -s "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"; then
+            echo "download=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "download=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Download Piper voice on cache miss
-        if: steps.voice_cache.outputs.cache-hit != 'true'
+        if: steps.voice_files.outputs.download == 'true'
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/piper-voices"
