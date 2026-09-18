@@ -410,6 +410,63 @@ class Run181RoutingTests(unittest.TestCase):
         groq.assert_called_once()
         openrouter.assert_called_once()
 
+    def test_groq_http_413_itpm_falls_through_to_openrouter(self) -> None:
+        class Groq413Response:
+            ok = False
+            status_code = 413
+
+            def json(self):
+                return {
+                    "error": {
+                        "message": (
+                            "Request too large for model qwen/qwen3.8-27b "
+                            "on input tokens per minute (ITPM): "
+                            "Limit 7000, Requested 7094"
+                        )
+                    }
+                }
+
+        closure._GROQ_MODEL_CERTIFIED.set(True)
+        with tempfile.TemporaryDirectory() as root, legacy.vision_provider_circuit_scope(), mock.patch.dict(
+            os.environ,
+            {"GROQ_API_KEY": "test-key"},
+            clear=False,
+        ), mock.patch.object(
+            v2.legacy,
+            "_sample_preview_frames",
+            return_value=[b"a", b"b", b"c"],
+        ), mock.patch.object(
+            closure.requests,
+            "post",
+            return_value=Groq413Response(),
+        ), mock.patch.object(
+            v2,
+            "_run_openrouter_attempt",
+            return_value=(dict(_PASS), "resolved/free"),
+        ) as openrouter:
+            result = self._route_with_empty_telemetry(
+                None,
+                _spec(),
+                "gemini",
+                "gemini-3.7-flash",
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    RuntimeError("429 RESOURCE_EXHAUSTED")
+                ),
+                "gem-key",
+                _preview(root),
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+
+        self.assertEqual(result["status"], "pass")
+        openrouter.assert_called_once()
+
+    def test_unrelated_http_413_remains_internal_contract_error(self) -> None:
+        self.assertIs(
+            v2._classify_http(413, "payload too large for unrelated request contract"),
+            v2.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
+        )
+
     def test_skipped_gemini_preserves_slot_for_existing_openrouter_schema_recovery(self) -> None:
         health.publish_provider_unavailable(
             "gemini",
