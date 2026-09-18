@@ -58,7 +58,14 @@ jobs:
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
       OPENROUTER_CONTENT_MODEL: openrouter/free
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2/${{ github.run_id }}-${{ github.run_attempt }}
-      PYTHONPATH: ${{ github.workspace }}/engine:${{ github.workspace }}
+      # isco_video_agent (imported by scripts/final_master_qc.py for the ffmpeg probe
+      # and secret_free_subprocess_env helpers) lives under engine/src per the Engine
+      # repo's setuptools src-layout (pyproject.toml: packages.find where=["src"]), not
+      # at the Engine checkout's root. Pointing PYTHONPATH at "engine" instead of
+      # "engine/src" made every Final Master QC invocation crash with
+      # ModuleNotFoundError before it could produce any verdict -- confirmed across a
+      # 5-attempt cohort where all runs that reached this stage failed identically.
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
     steps:
       - name: Checkout exact Runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
