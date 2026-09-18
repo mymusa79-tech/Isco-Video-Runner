@@ -179,7 +179,7 @@ jobs:
             --runner-sha "$GITHUB_SHA" \
             --piper-model "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx" \
             --voice-manifest "$GITHUB_WORKSPACE/engine/security/piper_voice_hashes.json" \
-            --max-visuals 5 \
+            --max-visuals 6 \
             --output "$CLEAN_V2_OUTPUT"
 
       - name: Require complete final file
