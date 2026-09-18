@@ -32,6 +32,7 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
         recovery.capacity.reset_groq_capacity_state_for_tests()
         recovery._RECOVERED_TERMINAL_SHARDS.clear()
         recovery._WAITED_APPEND_STAGE_WINDOWS.clear()
+        recovery._APPEND_REAL_WIRE_GENERATION.clear()
         recovery._TERMINAL_RECOVERY_COUNT = 0
         recovery._TERMINAL_WAIT_SPENT_SECONDS = 0.0
 
@@ -42,6 +43,7 @@ class Run124TerminalProviderRecoveryTests(unittest.TestCase):
         recovery.capacity.reset_groq_capacity_state_for_tests()
         recovery._RECOVERED_TERMINAL_SHARDS.clear()
         recovery._WAITED_APPEND_STAGE_WINDOWS.clear()
+        recovery._APPEND_REAL_WIRE_GENERATION.clear()
         recovery._TERMINAL_RECOVERY_COUNT = 0
         recovery._TERMINAL_WAIT_SPENT_SECONDS = 0.0
         if self.had_flag:

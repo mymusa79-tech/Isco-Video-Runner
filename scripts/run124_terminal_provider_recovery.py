@@ -29,11 +29,17 @@ from scripts.provider_failure import NoWireProviderFailure
 #
 # Run #255 exposed the production shape that the first #254 replay missed: live Groq
 # pacing raises NoWireProviderFailure directly BEFORE HTTP. A typed PlanningStageError is
-# therefore not guaranteed to exist at this boundary. For append-only repair only, one
-# evidence-backed raw no-wire temporal signal may consume the same Run124 wait budget,
-# clear that model's window, and continue the SAME pre-wire provider attempt once. This
-# is not an extra provider retry: no HTTP request or BudgetLedger attempt occurred before
-# the pacing signal. Any second temporal signal bubbles out immediately with no new wait.
+# therefore not guaranteed to exist at this boundary. For append-only repair, temporal
+# pacing belongs to the existing provider wire opportunity: one evidence-backed no-wire
+# signal may consume the same Run124 wait budget, clear that model's window, and continue
+# the SAME pre-wire provider attempt once. This is not an extra provider retry.
+#
+# Run #271 proved that request-global "already waited" state is too coarse. The first
+# temporal wait can legitimately reach a real HTTP attempt that fails transiently; when
+# Stage Contract then authorizes its already-existing retry slot, a new pre-wire temporal
+# window belongs to that new wire opportunity. Track only the number of real Groq wires
+# observed for the bound append request. A second wait is allowed only after that number
+# advances; repeated pre-wire windows with no intervening HTTP still fail closed.
 #
 # Keep two failure families separate:
 #   * payload/shape pressure -> existing bounded semantic sharding (3 -> 2+1 -> 1+1)
@@ -65,7 +71,10 @@ _STAGE_PROVIDER_BRIDGE_MARKER = "_run124_temporal_capacity_bridge_installed"
 # already-certified topology instead of creating another retry budget.
 _MAX_APPEND_LOGICAL_WAITS_PER_RUN = 3
 _RECOVERED_TERMINAL_SHARDS: set[tuple[str, tuple[str, ...], str]] = set()
-_WAITED_APPEND_STAGE_WINDOWS: set[str] = set()
+# A wait key is (bound append request identity, number of real Groq wires already
+# observed for that request). Generation 0 is the initial provider opportunity.
+_WAITED_APPEND_STAGE_WINDOWS: set[tuple[str, int]] = set()
+_APPEND_REAL_WIRE_GENERATION: dict[str, int] = {}
 _TERMINAL_RECOVERY_COUNT = 0
 _TERMINAL_WAIT_SPENT_SECONDS = 0.0
 
@@ -184,6 +193,51 @@ def _active_request_identity(stage_contract, args: tuple, kwargs: dict) -> str:
     return f"{contract_id}:{input_hash}"
 
 
+def _append_real_wire_generation(request_identity: str) -> int:
+    logical_request = str(request_identity or "").strip()
+    return int(_APPEND_REAL_WIRE_GENERATION.get(logical_request, 0))
+
+
+def _record_append_real_wire(
+    stage_contract,
+    provider: str,
+    exc: BaseException,
+    args: tuple,
+    kwargs: dict,
+) -> None:
+    """Observe transport already spent; never authorize a retry.
+
+    Stage Contract remains the only retry owner. This observer runs only around the
+    provider call that Stage Contract already invoked. Explicit no-wire failures and
+    typed temporal prechecks are excluded, so only a real Groq transport failure advances
+    the append wire generation.
+    """
+    if str(provider).strip().lower() != "groq":
+        return
+    stage_id = _active_stage_id(stage_contract, exc)
+    if stage_id != _APPEND_STAGE_ID:
+        return
+    is_explicit_no_wire = stage_contract.router.is_no_wire_provider_failure(exc)
+    is_typed_temporal_no_wire = (
+        isinstance(exc, stage_contract.PlanningStageError)
+        and exc.code == stage_contract.PlanningErrorCode.CAPACITY
+        and _is_groq_temporal_window_busy(exc)
+    )
+    if is_explicit_no_wire or is_typed_temporal_no_wire:
+        return
+    logical_request = _active_request_identity(stage_contract, args, kwargs)
+    if not logical_request:
+        return
+    generation = _append_real_wire_generation(logical_request) + 1
+    _APPEND_REAL_WIRE_GENERATION[logical_request] = generation
+    print(
+        "Run271 append real wire observed: "
+        "append_real_wire_observed=true provider=groq "
+        f"request_wire_generation={generation} "
+        f"wire_attempted=true"
+    )
+
+
 def _wait_once_for_append_temporal_window(
     exc: BaseException,
     *,
@@ -192,10 +246,11 @@ def _wait_once_for_append_temporal_window(
 ) -> bool:
     """Pace one append-only Groq window without spending a provider HTTP attempt.
 
-    The live Run255 path reaches this owner before transport, so the continuation after
-    the wait is still the same logical provider attempt. Timing shares Run124's existing
-    run-wide wait budget and may happen at most once per bound append request. The three
-    logical append calls already allowed by append_retry_guard are the absolute run cap.
+    Permission is derived from the existing wire opportunity, not from a retry counter
+    owned here. Generation 0 is the initial Stage-authorized opportunity. A real Groq
+    transport failure advances the generation; only if Stage Contract independently
+    invokes the provider again can the next generation be observed and paced. Repeated
+    pre-wire signals in the same generation never wait twice.
     """
     global _TERMINAL_RECOVERY_COUNT, _TERMINAL_WAIT_SPENT_SECONDS
 
@@ -208,8 +263,17 @@ def _wait_once_for_append_temporal_window(
 
     waited_model = _model_from_error(exc) or "groq"
     logical_request = str(request_identity or "").strip() or resolved_stage
-    key = logical_request
+    wire_generation = _append_real_wire_generation(logical_request)
+    key = (logical_request, wire_generation)
     if key in _WAITED_APPEND_STAGE_WINDOWS:
+        print(
+            "Run271 append temporal wait denied: "
+            "append_temporal_wait_denied=true provider=groq "
+            "reason=no_real_wire_since_previous_wait "
+            f"prior_real_wire_attempt={wire_generation} "
+            f"next_wire_attempt={wire_generation + 1} "
+            "wire_attempted=false"
+        )
         return False
     if len(_WAITED_APPEND_STAGE_WINDOWS) >= _MAX_APPEND_LOGICAL_WAITS_PER_RUN:
         print(
@@ -235,6 +299,14 @@ def _wait_once_for_append_temporal_window(
         return False
 
     _WAITED_APPEND_STAGE_WINDOWS.add(key)
+    print(
+        "Run271 append temporal wait authorized: "
+        "append_temporal_wait_authorized=true provider=groq "
+        f"reason={'initial_existing_wire_opportunity' if wire_generation == 0 else 'new_existing_wire_opportunity'} "
+        f"prior_real_wire_attempt={wire_generation} "
+        f"next_wire_attempt={wire_generation + 1} "
+        "wire_attempted=false"
+    )
     _TERMINAL_RECOVERY_COUNT += 1
     _TERMINAL_WAIT_SPENT_SECONDS += wait_seconds
     print(
@@ -268,8 +340,21 @@ def _install_stage_temporal_capacity_bridge() -> None:
         return
 
     def temporal_capacity_aware_provider_result(provider: str, *args, **kwargs):
+        def call_current_with_wire_observation():
+            try:
+                return current(provider, *args, **kwargs)
+            except Exception as observed_exc:
+                _record_append_real_wire(
+                    stage_contract,
+                    provider,
+                    observed_exc,
+                    args,
+                    kwargs,
+                )
+                raise
+
         try:
-            return current(provider, *args, **kwargs)
+            return call_current_with_wire_observation()
         except stage_contract.PlanningStageError as exc:
             if (
                 str(provider).strip().lower() == "groq"
@@ -307,7 +392,7 @@ def _install_stage_temporal_capacity_bridge() -> None:
                     # logical provider attempt once after the provider reset. If this
                     # second call still reports a no-wire busy window, it bubbles out;
                     # this wrapper is not re-entered and cannot create a wait loop.
-                    return current(provider, *args, **kwargs)
+                    return call_current_with_wire_observation()
             raise
 
     setattr(temporal_capacity_aware_provider_result, _STAGE_PROVIDER_BRIDGE_MARKER, True)
@@ -401,7 +486,7 @@ def install_run124_terminal_provider_recovery() -> None:
     print(
         "Run124 coordinated terminal provider recovery installed: "
         "groq_window_is_temporal_not_payload=true stage_temporal_bridge=true "
-        "append_stage_live_prewire_wait_once=true model_scoped_reset=true "
+        "append_stage_live_prewire_wait_per_wire_opportunity=true model_scoped_reset=true "
         "semantic_batch_wait<=60s retry_same_batch_once=true "
         "payload_split_owner=existing recovery_count=telemetry_only "
         f"run_wait_cap={_MAX_TERMINAL_WAIT_SECONDS_PER_RUN:.0f}s "
