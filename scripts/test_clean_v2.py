@@ -21,6 +21,7 @@ from clean_v2.pipeline import (
     STAGES,
     CleanV2Pipeline,
     _planning_prompt,
+    _script_prompt,
 )
 from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
 
@@ -118,6 +119,32 @@ class ApprovedBriefContractTests(unittest.TestCase):
             path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
             with self.assertRaisesRegex(ContractError, "changed after approval"):
                 load_approved_brief(path, digest)
+
+
+class ScriptGroundingPromptTests(unittest.TestCase):
+    def test_research_claim_scopes_are_explicit_allowlist_not_inspiration(self) -> None:
+        brief = _brief()
+        brief["research_pack"] = [
+            {
+                "source_title": "Fixture source",
+                "source_url": "https://example.invalid/source",
+                "claim_scope": (
+                    "Use only to support task-specific self-efficacy and task aversiveness. "
+                    "Do not generalize to global self-confidence."
+                ),
+            }
+        ]
+        prompt = _script_prompt(brief, _plan())
+        self.assertIn("RESEARCH_CLAIM_ALLOWLIST", prompt)
+        self.assertIn("ALLOWLIST boundary", prompt)
+        self.assertIn("directly entailed by one allowed claim_scope", prompt)
+        self.assertIn("do not broaden", prompt)
+        self.assertIn("Do NOT add:", prompt)
+        self.assertIn("extra interventions, remedies, tips", prompt)
+        self.assertIn("promises or predictions", prompt)
+        self.assertIn("unsupported causal chains", prompt)
+        self.assertIn("task-specific self-efficacy", prompt)
+        self.assertIn("Do not generalize to global self-confidence", prompt)
 
 
 class PlanningCardinalityTests(unittest.TestCase):
