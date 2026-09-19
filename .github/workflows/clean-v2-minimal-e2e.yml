@@ -103,13 +103,15 @@ jobs:
         run: |
           test "$(jq -r .approved_topic engine/production/approved_brief.json)" = "لماذا تفشل خطط إدارة الوقت في الحياة اليومية"
 
-      - name: Start exact-main E2E without prior checkpoint
+      - name: Restore checkpoint from first exact-main attempt
         id: clean_v2_resume
-        run: |
-          set -euo pipefail
-          rm -rf "$CLEAN_V2_RESUME"
-          mkdir -p "$CLEAN_V2_RESUME"
-          echo "cache-hit=false" >> "$GITHUB_OUTPUT"
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ env.CLEAN_V2_RESUME }}
+          key: clean-v2-pre-qc-Linux-45c4584950f5abeceaefc2b285d7b5980d534010-3cbd689819e6b0e0b2ea9904d1998e24a5e2a293-bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129-35445003100-1
+
+      - name: Require first-attempt checkpoint restore
+        run: test "${{ steps.clean_v2_resume.outputs.cache-hit }}" = "true"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
