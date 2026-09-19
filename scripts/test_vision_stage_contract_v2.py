@@ -54,7 +54,7 @@ class VisionStageContractShapeTests(unittest.TestCase):
         self.assertEqual(v2.VISION_STAGE_SPEC.stage_id, "vision.visual_audit")
         self.assertEqual(v2.VISION_STAGE_SPEC.contract_id, "vision.visual_audit.v2")
         self.assertEqual(v2.VISION_STAGE_SPEC.provider_policy.providers, ("gemini", "openrouter"))
-        self.assertEqual(v2.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts, 3)
+        self.assertEqual(v2.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts, 5)
         self.assertTrue(v2.VISION_STAGE_SPEC.provider_policy.semantic_block_is_final)
 
     def test_openrouter_payload_requires_native_strict_schema(self) -> None:
@@ -401,7 +401,7 @@ class SharedLongShortRoutingTests(unittest.TestCase):
         summary = ledger.to_summary()["provider_attempts"]
         self.assertEqual(summary["total"], 3)
         self.assertEqual(summary["by_provider"], {"gemini": 1, "openrouter": 2})
-        self.assertEqual(ledger._tasks["VISUAL_AUDIT_S01_C01"].max_provider_attempts, 3)
+        self.assertEqual(ledger._tasks["VISUAL_AUDIT_S01_C01"].max_provider_attempts, 5)
 
     def test_new_production_scope_resets_both_circuits(self) -> None:
         with legacy.vision_provider_circuit_scope() as first:
