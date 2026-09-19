@@ -91,8 +91,29 @@ def _enabled() -> bool:
     )
 
 
+def _shared_enabled() -> bool:
+    return (
+        str(os.environ.get("CLOUDFLARE_VISION_FREE_ONLY") or "")
+        .strip()
+        .lower()
+        == "true"
+    )
+
+
+def shared_vision_configured() -> bool:
+    if not _shared_enabled():
+        return False
+    token = _read_secret("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN_FILE")
+    account_id = _read_secret("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID_FILE")
+    return bool(token and account_id)
+
+
 def _quota_path() -> Path:
-    explicit = str(os.environ.get("CLOUDFLARE_GOLD_VISION_QUOTA_FILE") or "").strip()
+    explicit = str(
+        os.environ.get("CLOUDFLARE_VISION_QUOTA_FILE")
+        or os.environ.get("CLOUDFLARE_GOLD_VISION_QUOTA_FILE")
+        or ""
+    ).strip()
     if explicit:
         return Path(explicit)
     runner_temp = str(os.environ.get("RUNNER_TEMP") or "").strip()
@@ -105,7 +126,8 @@ def _quota_path() -> Path:
 
 def _max_calls_per_workflow() -> int:
     raw = str(
-        os.environ.get("CLOUDFLARE_GOLD_VISION_MAX_CALLS_PER_WORKFLOW")
+        os.environ.get("CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW")
+        or os.environ.get("CLOUDFLARE_GOLD_VISION_MAX_CALLS_PER_WORKFLOW")
         or CLOUDFLARE_MAX_CALLS_PER_WORKFLOW
     ).strip()
     try:
@@ -473,11 +495,14 @@ def _wire_call(
         ) from exc
     if not response.ok:
         detail = _error_text(body)
+        status = int(response.status_code)
         raise contract.VisionStageError(
-            _cloudflare_http_code(int(response.status_code), body),
-            f"Cloudflare Workers AI HTTP_{response.status_code} {detail}",
+            _cloudflare_http_code(status, body),
+            f"Cloudflare Workers AI HTTP_{status} {detail}",
             provider=CLOUDFLARE_VISION_PROVIDER,
             requested_model=CLOUDFLARE_VISION_MODEL,
+            http_status=status,
+            http_message=detail,
         )
     return _parse_normalized_response(body)
 
@@ -510,6 +535,69 @@ def run_gold_cloudflare_attempt(
     _prove_model_access(token, account_id)
 
     _reserve_workflow_call()
+    contract._authorize(ledger, spec)
+    try:
+        result = _wire_call(
+            token,
+            account_id,
+            Path(preview),
+            narration_context=narration_context,
+            intended_visual=intended_visual,
+        )
+    except Exception as exc:
+        contract._record(
+            ledger,
+            spec,
+            provider=CLOUDFLARE_VISION_PROVIDER,
+            requested_model=CLOUDFLARE_VISION_MODEL,
+            resolved_model=CLOUDFLARE_VISION_MODEL,
+            outcome=contract._attempt_outcome(exc),
+            detail=contract.legacy._safe_exception_detail(exc),
+        )
+        raise
+    contract._record(
+        ledger,
+        spec,
+        provider=CLOUDFLARE_VISION_PROVIDER,
+        requested_model=CLOUDFLARE_VISION_MODEL,
+        resolved_model=CLOUDFLARE_VISION_MODEL,
+        outcome=(
+            AttemptOutcome.CONTENT_BLOCKED
+            if result.get("status") == "block"
+            else AttemptOutcome.SUCCESS
+        ),
+    )
+    return result
+
+
+def run_shared_cloudflare_attempt(
+    ledger,
+    spec,
+    *,
+    preview: Path,
+    narration_context: str,
+    intended_visual: str,
+) -> dict[str, Any]:
+    """One bounded zero-cost Cloudflare attempt for the shared Vision mesh.
+
+    This reuses the exact Gold transport, model, zero-cost proof, quota reservation,
+    schema and Engine normalizer. It is opt-in independently from Gold and is only
+    callable for a VISUAL_AUDIT task.
+    """
+    if getattr(spec, "kind", "") != "VISUAL_AUDIT":
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare shared Vision route is Visual-Audit-only"
+        )
+    if not _shared_enabled():
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare zero-cost shared Vision route is disabled"
+        )
+
+    token, account_id = _credentials()
+    _prove_workers_free(token, account_id)
+    _prove_model_access(token, account_id)
+    _reserve_workflow_call()
+
     contract._authorize(ledger, spec)
     try:
         result = _wire_call(

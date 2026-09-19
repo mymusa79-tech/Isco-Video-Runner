@@ -98,7 +98,10 @@ def run_final_cut_visual_qa(
     )
     from scripts.run181_vision_mesh_closure import install_run181_vision_mesh_closure
     from scripts.vision_provider_reliability import vision_provider_circuit_scope
-    from scripts.vision_stage_contract_v2 import install_vision_provider_reliability
+    from scripts.vision_stage_contract_v2 import (
+        VisionStageError,
+        install_vision_provider_reliability,
+    )
 
     output_dir = Path(output_dir)
     sections = list(plan.get("sections") or [])
@@ -166,7 +169,7 @@ def run_final_cut_visual_qa(
                     kind="VISUAL_AUDIT",
                     priority=Priority.P0,
                     capability=Capability.VISION,
-                    max_provider_attempts=3,
+                    max_provider_attempts=5,
                     schema_repair_allowed=False,
                     local_fallback=False,
                     semantic_block_is_final=True,
@@ -185,6 +188,23 @@ def run_final_cut_visual_qa(
                         model=model,
                     )
                 except Exception as exc:
+                    if isinstance(exc, VisionStageError):
+                        _write_json(
+                            output_dir / "visual-qa-diagnostics.json",
+                            {
+                                "schema_version": 1,
+                                "stage": STAGE_ID,
+                                "section": section_id,
+                                "error_type": type(exc).__name__,
+                                "error_code": exc.code.value,
+                                "provider": exc.provider,
+                                "requested_model": exc.requested_model,
+                                "resolved_model": exc.resolved_model,
+                                "http_status": exc.http_status,
+                                "http_message": exc.http_message,
+                                "detail": exc.detail,
+                            },
+                        )
                     if _infrastructure_error(exc):
                         raise CleanV2VisualQAInfrastructure(
                             f"CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section={section_id} "

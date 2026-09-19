@@ -27,6 +27,19 @@ def _spec() -> TaskSpec:
     )
 
 
+def _shared_spec() -> TaskSpec:
+    return TaskSpec(
+        task_id="CLEAN_V2_VISUAL_AUDIT_S01",
+        kind="VISUAL_AUDIT",
+        priority=Priority.P0,
+        capability=Capability.VISION,
+        max_provider_attempts=5,
+        schema_repair_allowed=False,
+        local_fallback=False,
+        semantic_block_is_final=True,
+    )
+
+
 def _preview(root: str) -> Path:
     path = Path(root) / "opening-preview.mp4"
     path.write_bytes(b"preview")
@@ -46,6 +59,20 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             clear=True,
         ):
             self.assertTrue(cloudflare._enabled())
+
+    def test_shared_vision_route_has_separate_free_only_opt_in(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(cloudflare.shared_vision_configured())
+        with patch.dict(
+            os.environ,
+            {
+                "CLOUDFLARE_VISION_FREE_ONLY": "true",
+                "CLOUDFLARE_API_TOKEN": "token",
+                "CLOUDFLARE_ACCOUNT_ID": "a" * 32,
+            },
+            clear=True,
+        ):
+            self.assertTrue(cloudflare.shared_vision_configured())
 
     def test_cloudflare_account_identity_must_be_exact_32_hex(self) -> None:
         with patch.dict(
@@ -302,6 +329,76 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             {cloudflare.CLOUDFLARE_VISION_PROVIDER: 1},
         )
 
+    def test_shared_vision_reuses_zero_cost_owner_and_records_one_attempt(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        with tempfile.TemporaryDirectory() as root, patch.dict(
+            os.environ,
+            {
+                "CLOUDFLARE_VISION_FREE_ONLY": "true",
+                "CLOUDFLARE_VISION_QUOTA_FILE": str(Path(root) / "shared-quota.json"),
+            },
+            clear=False,
+        ), patch.object(
+            cloudflare,
+            "_credentials",
+            return_value=("token", "a" * 32),
+        ), patch.object(
+            cloudflare,
+            "_prove_workers_free",
+        ) as free_proof, patch.object(
+            cloudflare,
+            "_prove_model_access",
+        ) as model_probe, patch.object(
+            cloudflare,
+            "_wire_call",
+            return_value={"status": "pass"},
+        ) as wire:
+            result = cloudflare.run_shared_cloudflare_attempt(
+                ledger,
+                _shared_spec(),
+                preview=_preview(root),
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+        self.assertEqual(result["status"], "pass")
+        free_proof.assert_called_once_with("token", "a" * 32)
+        model_probe.assert_called_once_with("token", "a" * 32)
+        wire.assert_called_once()
+        summary = ledger.to_summary()["provider_attempts"]
+        self.assertEqual(summary["total"], 1)
+        self.assertEqual(
+            summary["by_provider"],
+            {cloudflare.CLOUDFLARE_VISION_PROVIDER: 1},
+        )
+
+    def test_cloudflare_http_failure_retains_raw_status_and_message(self) -> None:
+        response = Mock()
+        response.ok = False
+        response.status_code = 418
+        response.json.return_value = {
+            "success": False,
+            "errors": [{"code": 9999, "message": "unexpected provider contract"}],
+        }
+        with patch.object(
+            contract.legacy,
+            "_sample_preview_frames",
+            return_value=[b"one", b"two", b"three"],
+        ), patch.object(
+            cloudflare.requests,
+            "post",
+            return_value=response,
+        ):
+            with self.assertRaises(contract.VisionStageError) as raised:
+                cloudflare._wire_call(
+                    "token",
+                    "a" * 32,
+                    Path("opening-preview.mp4"),
+                    narration_context="ctx",
+                    intended_visual="intent",
+                )
+        self.assertEqual(raised.exception.http_status, 418)
+        self.assertIn("unexpected provider contract", raised.exception.http_message or "")
+
     def test_failed_free_preflight_is_not_retried_in_the_same_scope(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
         with tempfile.TemporaryDirectory() as root, patch.dict(
@@ -423,6 +520,16 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
                 workflow,
             )
         self.assertIn("engine/output/*/short-*", canonical)
+
+    def test_clean_v2_workflow_wires_shared_free_only_cloudflare_vision(self) -> None:
+        clean_v2 = Path(".github/workflows/clean-v2-minimal-e2e.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('CLOUDFLARE_VISION_FREE_ONLY: "true"', clean_v2)
+        self.assertIn('CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"', clean_v2)
+        self.assertIn("CLOUDFLARE_API_TOKEN:", clean_v2)
+        self.assertIn("CLOUDFLARE_ACCOUNT_ID:", clean_v2)
+        self.assertIn("CLOUDFLARE_VISION_QUOTA_FILE:", clean_v2)
 
 
 if __name__ == "__main__":
