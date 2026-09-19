@@ -1027,14 +1027,15 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertFalse((output / "final-master-qc.json").exists())
 
 
-    def test_visual_qa_block_is_new_layer_block_and_stops_before_render(self) -> None:
+    def test_visual_qa_content_block_downgrades_checkpoint_to_voice(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             brief_path = root / "approved-brief.json"
             brief = _brief()
             brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
-            output = root / "output"
-            pipeline = CleanV2Pipeline(
+            approved = compute_brief_sha256(brief)
+            first_output = root / "first"
+            first = CleanV2Pipeline(
                 router=_FakeRouter(),
                 voice_synthesizer=_FakeVoice(),
                 visual_source=_FakeVisuals(),
@@ -1046,22 +1047,80 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_BLOCK"):
-                pipeline.run(
+                first.run(
                     brief_path=brief_path,
-                    approved_sha256=compute_brief_sha256(brief),
-                    output_dir=output,
+                    approved_sha256=approved,
+                    output_dir=first_output,
                     engine_sha="a" * 40,
                     runner_sha="b" * 40,
                     max_visuals=2,
                 )
+
             manifest = json.loads(
-                (output / "run-manifest.json").read_text(encoding="utf-8")
+                (first_output / "run-manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual(manifest["status"], "quality_pending")
             self.assertEqual(manifest["quality_pending_stage"], VISUAL_QA_STAGE)
             self.assertEqual(manifest["failure_classification"], "new-layer-block")
             self.assertEqual(manifest["stages"][-1]["name"], VISUAL_QA_STAGE)
-            self.assertFalse((output / "final.mp4").exists())
+            self.assertFalse((first_output / "final.mp4").exists())
+
+            checkpoint = json.loads(
+                (first_output / "resume-checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(checkpoint["completed_stage"], "voice")
+            self.assertEqual(
+                checkpoint["voice_provider"], "piper-local:ar_JO-kareem-medium"
+            )
+            self.assertTrue(checkpoint["voice_fallback_used"])
+            self.assertNotIn("rights-manifest.json", checkpoint["artifacts"])
+            self.assertFalse(
+                any(path.startswith("visuals/") for path in checkpoint["artifacts"])
+            )
+
+            class _ForbiddenRouter:
+                events: list[dict] = []
+
+                def route(self, **_kwargs):
+                    raise AssertionError("planning and script must be resumed")
+
+            class _ForbiddenVoice:
+                def synthesize(self, *_args, **_kwargs):
+                    raise AssertionError("voice must be resumed")
+
+            second_visuals = _FakeVisuals()
+            second_output = root / "second"
+            second = CleanV2Pipeline(
+                router=_ForbiddenRouter(),
+                voice_synthesizer=_ForbiddenVoice(),
+                visual_source=second_visuals,
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
+            )
+            result = second.run(
+                brief_path=brief_path,
+                approved_sha256=approved,
+                output_dir=second_output,
+                engine_sha="a" * 40,
+                runner_sha="b" * 40,
+                max_visuals=2,
+                resume_from=first_output,
+            )
+            self.assertEqual(result["status"], "pass")
+            self.assertEqual(second_visuals.calls, 1)
+            second_manifest = json.loads(
+                (second_output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                second_manifest["resumed_stages"],
+                ["planning", IDENTITY_STAGE, "script", "voice"],
+            )
+            self.assertTrue(second_manifest["resume_checkpoint_accepted"])
+            self.assertEqual(second_manifest["resume_completed_stage"], "voice")
 
     def test_visual_qa_provider_exhaustion_is_infrastructure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1096,6 +1155,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["status"], "failed")
             self.assertEqual(manifest["failure_classification"], "infrastructure")
             self.assertEqual(manifest["stages"][-1]["name"], VISUAL_QA_STAGE)
+            checkpoint = json.loads(
+                (output / "resume-checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(checkpoint["completed_stage"], "visuals")
 
     def test_text_audit_block_is_pre_layer_and_stops_before_voice(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
