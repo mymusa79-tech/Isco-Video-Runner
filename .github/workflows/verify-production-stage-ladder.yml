@@ -96,7 +96,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
           CLOUDFLARE_VISION_FREE_ONLY: "true"
-          CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
+          CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "2"
           CLOUDFLARE_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-preflight-post693-quota.json
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -156,6 +156,95 @@ jobs:
           name: cloudflare-preflight-post693
           path: ${{ runner.temp }}/cloudflare-preflight-post693.json
           if-no-files-found: error
+          retention-days: 7
+
+      - name: Cloudflare Vision one-wire qualification
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          CLOUDFLARE_VISION_FREE_ONLY: "true"
+          CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "2"
+          CLOUDFLARE_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-preflight-post693-quota.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/cloudflare-one-wire"
+          mkdir -p "$root/visual-qa"
+          ffmpeg -hide_banner -loglevel error -y \
+            -f lavfi -i "color=c=blue:s=640x360:d=2:r=24" \
+            -c:v libx264 -pix_fmt yuv420p \
+            "$root/visual-qa/qualification-preview.mp4"
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from isco_video_agent.ai_budget import BudgetLedger, Capability, Priority, TaskSpec
+          from scripts import gold_cloudflare_vision_fallback as cf
+          from scripts import vision_stage_contract_v2 as contract
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "cloudflare-one-wire"
+          preview = root / "visual-qa" / "qualification-preview.mp4"
+          output = root / "cloudflare-one-wire-result.json"
+
+          spec = TaskSpec(
+              task_id="CLOUDFLARE_VISION_QUALIFICATION_ONE_WIRE",
+              kind="VISUAL_AUDIT",
+              priority=Priority.P0,
+              capability=Capability.VISION,
+              max_provider_attempts=5,
+              schema_repair_allowed=False,
+              local_fallback=False,
+              semantic_block_is_final=True,
+          )
+          ledger = BudgetLedger("film", enforce=True)
+          payload = {
+              "schema_version": 1,
+              "runner_sha": os.environ.get("CANDIDATE_SHA", ""),
+              "provider": cf.CLOUDFLARE_VISION_PROVIDER,
+              "model": cf.CLOUDFLARE_VISION_MODEL,
+              "qualification": "single_real_inference",
+              "paid_recovery_allowed": False,
+          }
+
+          try:
+              result = cf.run_shared_cloudflare_attempt(
+                  ledger,
+                  spec,
+                  preview=preview,
+                  narration_context="A plain blue visual used only to qualify the Vision transport.",
+                  intended_visual="A simple solid blue frame with no people and no unsafe content.",
+              )
+          except Exception as exc:
+              payload["status"] = "wire_error"
+              payload["error_type"] = type(exc).__name__
+              payload["detail"] = contract.legacy._safe_exception_detail(exc)
+          else:
+              payload["status"] = "wire_success"
+              payload["normalized_result"] = result
+
+          summary = ledger.to_summary()
+          payload["provider_attempts"] = summary.get("provider_attempts", {})
+          payload["inference_attempts_recorded"] = int(
+              payload["provider_attempts"].get("total", 0)
+          )
+          output.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload Cloudflare one-wire qualification
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cloudflare-one-wire-qualification
+          path: |
+            ${{ runner.temp }}/cloudflare-one-wire/cloudflare-one-wire-result.json
+            ${{ runner.temp }}/cloudflare-one-wire/cloudflare-vision-preflight.json
+          if-no-files-found: warn
           retention-days: 7
 
       - name: P0 runtime environment state isolation
