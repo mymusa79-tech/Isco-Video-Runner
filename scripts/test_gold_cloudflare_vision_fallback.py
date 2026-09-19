@@ -232,7 +232,7 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             ):
                 cloudflare._reserve_workflow_call()
 
-    def test_gemma_payload_places_three_frames_before_text(self) -> None:
+    def test_scout_payload_places_three_frames_before_text_and_uses_guided_json(self) -> None:
         response = Mock()
         response.ok = True
         response.json.return_value = {"success": True, "result": {"response": "{}"}}
@@ -269,11 +269,13 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             ["image_url", "image_url", "image_url", "text"],
         )
         self.assertEqual(content[-1]["text"], "strict prompt")
-        self.assertEqual(payload["max_completion_tokens"], 700)
-        self.assertEqual(payload["service_tier"], "default")
-        self.assertIs(payload["store"], False)
-        self.assertEqual(payload["response_format"], contract._strict_response_format())
-        self.assertIn("/@cf/google/gemma-4-26b-a4b-it", post.call_args.args[0])
+        self.assertEqual(payload["max_tokens"], 700)
+        self.assertNotIn("max_completion_tokens", payload)
+        self.assertNotIn("service_tier", payload)
+        self.assertNotIn("store", payload)
+        self.assertEqual(payload["guided_json"], contract.VISUAL_AUDIT_SCHEMA)
+        self.assertNotIn("response_format", payload)
+        self.assertIn("/@cf/meta/llama-4-scout-17b-16e-instruct", post.call_args.args[0])
 
     def test_exact_cloudflare_model_and_one_attempt_only(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
@@ -592,7 +594,7 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
         self.assertNotIn("prepaid", source.casefold())
         self.assertEqual(
             cloudflare.CLOUDFLARE_VISION_MODEL,
-            "@cf/google/gemma-4-26b-a4b-it",
+            "@cf/meta/llama-4-scout-17b-16e-instruct",
         )
         self.assertEqual(cloudflare.CLOUDFLARE_MAX_CALLS_PER_WORKFLOW, 5)
 
