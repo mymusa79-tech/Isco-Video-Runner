@@ -50,7 +50,7 @@ jobs:
             -v
 
   produce:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request'
     needs: test
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -74,14 +74,15 @@ jobs:
       # 5-attempt cohort where all runs that reached this stage failed identically.
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
     steps:
-      - name: Checkout exact Runner
+      - name: Checkout exact production Runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: dae945144092ace55c63425c2fb413dcbdb2906c
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Verify exact Runner checkout
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify exact production Runner checkout
+        run: test "$(git rev-parse HEAD)" = "dae945144092ace55c63425c2fb413dcbdb2906c"
 
       - name: Checkout frozen private Engine source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -177,6 +178,9 @@ jobs:
           path: ${{ runner.temp }}/piper-voices
           key: clean-v2-piper-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}
 
+      - name: Force cold start for full E2E proof
+        run: rm -rf "$CLEAN_V2_RESUME"
+
       - name: Produce one Clean V2 video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -193,7 +197,7 @@ jobs:
             --brief "$GITHUB_WORKSPACE/engine/production/approved_brief.json" \
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
             --engine-sha "$ISCO_ENGINE_SHA" \
-            --runner-sha "$GITHUB_SHA" \
+            --runner-sha "dae945144092ace55c63425c2fb413dcbdb2906c" \
             --piper-model "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx" \
             --voice-manifest "$GITHUB_WORKSPACE/engine/security/piper_voice_hashes.json" \
             --resume-from "$CLEAN_V2_RESUME" \
