@@ -857,15 +857,30 @@ class CleanV2Pipeline:
                     clips.append(clip)
                 journal.reuse("visuals")
             else:
-                clips, rights = journal.run(
-                    "visuals",
-                    lambda: self.visual_source.acquire(
-                        plan,
-                        visuals_dir,
-                        str(brief["format"]),
-                        max_visuals,
-                    ),
-                )
+                try:
+                    clips, rights = journal.run(
+                        "visuals",
+                        lambda: self.visual_source.acquire(
+                            plan,
+                            visuals_dir,
+                            str(brief["format"]),
+                            max_visuals,
+                        ),
+                    )
+                except Exception:
+                    if journal.payload.get("status") == "quality_pending":
+                        # The "voice" checkpoint just written above carries this
+                        # exact plan/script forward. A genuine content block here
+                        # (as opposed to a transient infrastructure failure) proves
+                        # that plan/script combination produces an unusable visual
+                        # query - persisting the checkpoint would let every future
+                        # resumed attempt keep re-inheriting, and re-saving, the
+                        # same unusable output forever (task #21: a bad visual
+                        # query stuck across resume checkpoints). Drop it so the
+                        # next attempt regenerates planning/script fresh instead of
+                        # repeating this exact same failure indefinitely.
+                        (output_dir / "resume-checkpoint.json").unlink(missing_ok=True)
+                    raise
                 atomic_write_json(
                     output_dir / "rights-manifest.json",
                     {

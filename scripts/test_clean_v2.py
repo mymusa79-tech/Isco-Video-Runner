@@ -545,6 +545,23 @@ class _FakeVisuals:
         return clips, rights
 
 
+class _StuckQueryVisuals:
+    """Mirrors the real Security V1 query normalizer's failure signature for a
+    visual_query_en baked into plan.json that never validates - task #21."""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+        self.calls = 0
+
+    def acquire(self, plan, output_dir, fmt, max_visuals):
+        self.calls += 1
+        del plan, output_dir, fmt, max_visuals
+        raise RuntimeError(
+            "CLEAN_V2_NEW_LAYER_BLOCK stage=security_v1.query "
+            "error=ModelOutputSchemaError:visual_query_not_plain_english_search_terms"
+        )
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
 class CleanV2EndToEndTests(unittest.TestCase):
     def test_minimal_path_produces_structurally_complete_final_file(self) -> None:
@@ -767,6 +784,88 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(manifest["resumed_stages"], [])
             self.assertNotIn("resume_checkpoint_accepted", manifest)
+
+    def test_visuals_content_block_invalidates_resume_checkpoint(self) -> None:
+        # Task #21: a plan/script whose visual_query_en fails Security V1's
+        # content check at the "visuals" stage must not be handed to future
+        # attempts via the resume checkpoint - otherwise every resumed retry
+        # keeps re-inheriting, and re-saving, the exact same unusable output
+        # forever, reproducing the stuck-query pattern observed across three
+        # separate cohort attempts (#93, #94, #98).
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(
+                json.dumps(brief, ensure_ascii=False), encoding="utf-8"
+            )
+            approved = compute_brief_sha256(brief)
+
+            first_output = root / "first"
+            first = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_StuckQueryVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+            )
+            with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_NEW_LAYER_BLOCK"):
+                first.run(
+                    brief_path=brief_path,
+                    approved_sha256=approved,
+                    output_dir=first_output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+
+            # The "voice" checkpoint (the last stage that did succeed) must not
+            # survive a genuine content block at the very next stage.
+            self.assertFalse((first_output / "resume-checkpoint.json").exists())
+            manifest = json.loads(
+                (first_output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "quality_pending")
+            self.assertEqual(manifest["stages"][-1]["name"], "visuals")
+            self.assertEqual(manifest["stages"][-1]["status"], "blocked")
+
+            # A second attempt that tries to resume from the first run's output
+            # must find nothing usable and regenerate planning/script fresh -
+            # not silently inherit and repeat the same stuck query.
+            second_output = root / "second"
+            second_router = _FakeRouter()
+            second = CleanV2Pipeline(
+                router=second_router,
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+            )
+            result = second.run(
+                brief_path=brief_path,
+                approved_sha256=approved,
+                output_dir=second_output,
+                engine_sha="a" * 40,
+                runner_sha="b" * 40,
+                max_visuals=2,
+                resume_from=first_output,
+            )
+            self.assertEqual(result["status"], "pass")
+            second_manifest = json.loads(
+                (second_output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(second_manifest["resumed_stages"], [])
+            self.assertNotIn("resume_checkpoint_accepted", second_manifest)
+            self.assertEqual(
+                [event["stage"] for event in second_router.events],
+                ["planning", "script"],
+            )
 
     def test_final_master_block_preserves_completed_work_as_quality_pending(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
