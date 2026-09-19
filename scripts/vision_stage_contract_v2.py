@@ -63,12 +63,16 @@ class VisionStageError(RuntimeError):
         provider: str | None = None,
         requested_model: str | None = None,
         resolved_model: str | None = None,
+        http_status: int | None = None,
+        http_message: str | None = None,
     ) -> None:
         self.code = code
         self.detail = detail
         self.provider = provider
         self.requested_model = requested_model
         self.resolved_model = resolved_model
+        self.http_status = http_status
+        self.http_message = http_message
         parts = [code.value, f"stage={VISION_STAGE_ID}"]
         if provider:
             parts.append(f"provider={provider}")
@@ -83,7 +87,7 @@ class VisionStageError(RuntimeError):
 @dataclass(frozen=True)
 class VisionProviderPolicy:
     providers: tuple[str, ...] = ("gemini", "openrouter")
-    max_total_inference_attempts: int = 3
+    max_total_inference_attempts: int = 5
     max_openrouter_model_attempts: int = OPENROUTER_MAX_MODEL_ATTEMPTS
     require_structured_outputs: bool = True
     require_provider_parameters: bool = True
@@ -266,7 +270,7 @@ def _parse_and_normalize(raw: object, *, resolved_model: str | None = None) -> d
 
 def _extract_error_message(body: object) -> str:
     if isinstance(body, dict) and isinstance(body.get("error"), dict):
-        return str(body["error"].get("message") or "").replace("\n", " ").strip()[:180]
+        return str(body["error"].get("message") or "").replace("\n", " ").strip()[:1000]
     return ""
 
 
@@ -348,6 +352,8 @@ def _openrouter_call(
             f"HTTP_{status} message={message}",
             provider="openrouter",
             requested_model=model,
+            http_status=status,
+            http_message=message,
         )
     resolved = str(body.get("model") or model).strip()
     choices = body.get("choices") if isinstance(body, dict) else None
