@@ -11,7 +11,7 @@ Zero-cost safety is fail-closed:
 * the existing Cloudflare token/account secrets must be present;
 * the same token must prove there is no active billable account subscription;
 * the token must prove Workers AI access to the exact Cloudflare-hosted model;
-* only @cf/google/gemma-4-26b-a4b-it is allowed; no paid/unified-billing route;
+* only @cf/meta/llama-4-scout-17b-16e-instruct is allowed; no paid/unified-billing route;
 * one inference attempt maximum per Gold opening-Vision task;
 * one workflow (Long plus sibling Shorts included) can reserve at most five calls;
 * paid-plan requirements, daily-free-allocation exhaustion and capacity errors are
@@ -38,7 +38,7 @@ from isco_video_agent.ai_budget import AttemptOutcome
 from scripts import vision_stage_contract_v2 as contract
 
 
-CLOUDFLARE_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+CLOUDFLARE_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
 CLOUDFLARE_VISION_PROVIDER = "cloudflare_workers_ai"
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CLOUDFLARE_TIMEOUT_SECONDS = 60
@@ -493,8 +493,7 @@ def _wire_call(
         intended_visual=intended_visual,
     )
     frames = contract.legacy._sample_preview_frames(Path(preview))
-    # Gemma 4's model card recommends placing images before text for multimodal
-    # understanding. Keep the same three bounded frames and unchanged Gold schema.
+    # Keep the same three bounded frames and unchanged Visual Audit schema.
     content: list[dict[str, Any]] = [
         {
             "type": "image_url",
@@ -508,10 +507,8 @@ def _wire_call(
     payload = {
         "messages": [{"role": "user", "content": content}],
         "temperature": 0,
-        "max_completion_tokens": 700,
-        "service_tier": "default",
-        "store": False,
-        "response_format": contract._strict_response_format(),
+        "max_tokens": 700,
+        "guided_json": contract.VISUAL_AUDIT_SCHEMA,
     }
     encoded_model = "/".join(
         quote(part, safe="@") for part in CLOUDFLARE_VISION_MODEL.split("/")
