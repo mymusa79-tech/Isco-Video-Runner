@@ -15,12 +15,13 @@ import isco_video_agent.orchestrator as orchestrator
 from isco_video_agent.ai_budget import AttemptOutcome, Capability, TaskSpec
 from isco_video_agent.providers import gemini as gemini_provider
 from scripts import vision_provider_reliability as legacy
+from scripts import canonical_visual_evidence_v1 as canonical_evidence
 
 
 VISION_STAGE_ID = "vision.visual_audit"
 VISION_CONTRACT_ID = "vision.visual_audit.v2"
 VISION_SEMANTIC_POLICY = "engine.visual_audit_normalizer.v1"
-OPENROUTER_PRIMARY_MODEL = "openrouter/free"
+OPENROUTER_PRIMARY_MODEL = "nex-agi/nex-n2.5-pro:free"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models?input_modalities=image"
 OPENROUTER_CATALOG_TIMEOUT_SECONDS = 15
 OPENROUTER_MAX_MODEL_ATTEMPTS = 2
@@ -143,7 +144,20 @@ def vision_contract_fingerprint() -> str:
     return hashlib.sha256(_canonical_json(payload)).hexdigest()
 
 
-def vision_input_hash(preview: Path, *, narration_context: str, intended_visual: str) -> str:
+def vision_input_hash(
+    preview: Path,
+    *,
+    narration_context: str,
+    intended_visual: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
+) -> str:
+    if canonical_visual_evidence is not None:
+        evidence = canonical_evidence.require_canonical_evidence(canonical_visual_evidence)
+        payload = {
+            "contract": vision_contract_fingerprint(),
+            "canonical_evidence_input_hash": evidence.input_hash(),
+        }
+        return hashlib.sha256(_canonical_json(payload)).hexdigest()
     payload = {
         "contract": vision_contract_fingerprint(),
         "preview_sha256": _sha256_file(Path(preview)),
@@ -179,7 +193,7 @@ def _openrouter_request_payload(
         "messages": [
             {
                 "role": "user",
-                "content": [{"type": "text", "text": prompt}, *frame_items],
+                "content": [*frame_items, {"type": "text", "text": prompt}],
             }
         ],
         "temperature": 0,
@@ -293,6 +307,7 @@ def _openrouter_call(
     narration_context: str,
     intended_visual: str,
     model: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
 ) -> tuple[dict[str, Any], str]:
     token = _openrouter_key()
     if not token:
@@ -302,27 +317,32 @@ def _openrouter_call(
             provider="openrouter",
             requested_model=model,
         )
-    payload_bytes = Path(preview).read_bytes()
-    if not payload_bytes or len(payload_bytes) > legacy.MAX_PREVIEW_BYTES:
-        raise VisionStageError(
-            VisionErrorCode.INTERNAL_CONTRACT_ERROR,
-            "preview size is invalid before OpenRouter call",
-            provider="openrouter",
-            requested_model=model,
+    if canonical_visual_evidence is not None:
+        evidence = canonical_evidence.require_canonical_evidence(canonical_visual_evidence)
+        prompt = evidence.prompt
+        frame_items = canonical_evidence.openai_image_content(evidence)
+    else:
+        payload_bytes = Path(preview).read_bytes()
+        if not payload_bytes or len(payload_bytes) > legacy.MAX_PREVIEW_BYTES:
+            raise VisionStageError(
+                VisionErrorCode.INTERNAL_CONTRACT_ERROR,
+                "preview size is invalid before OpenRouter call",
+                provider="openrouter",
+                requested_model=model,
+            )
+        prompt = legacy._visual_prompt(
+            narration_context=narration_context,
+            intended_visual=intended_visual,
         )
-    prompt = legacy._visual_prompt(
-        narration_context=narration_context,
-        intended_visual=intended_visual,
-    )
-    frame_items = [
-        {
-            "type": "image_url",
-            "image_url": {
-                "url": "data:image/jpeg;base64," + base64.b64encode(frame).decode("ascii")
-            },
-        }
-        for frame in legacy._sample_preview_frames(Path(preview))
-    ]
+        frame_items = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "data:image/jpeg;base64," + base64.b64encode(frame).decode("ascii")
+                },
+            }
+            for frame in legacy._sample_preview_frames(Path(preview))
+        ]
     response = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={
@@ -515,6 +535,7 @@ def _run_openrouter_attempt(
     narration_context: str,
     intended_visual: str,
     requested_model: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
 ) -> tuple[dict[str, Any], str]:
     _authorize(ledger, spec)
     try:
@@ -523,6 +544,7 @@ def _run_openrouter_attempt(
             narration_context=narration_context,
             intended_visual=intended_visual,
             model=requested_model,
+            canonical_visual_evidence=canonical_visual_evidence,
         )
     except Exception as exc:
         resolved = getattr(exc, "resolved_model", None) or requested_model
