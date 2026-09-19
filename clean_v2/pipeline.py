@@ -1101,16 +1101,33 @@ class CleanV2Pipeline:
                 VISUAL_QA_STAGE,
             ]
             journal._write()
-            visual_qa_report = journal.run(
-                VISUAL_QA_STAGE,
-                lambda: self.visual_qa(
-                    output_dir=output_dir,
-                    plan=plan,
-                    script=script,
-                    rights=rights,
-                    fmt=str(brief["format"]),
-                ),
-            )
+            try:
+                visual_qa_report = journal.run(
+                    VISUAL_QA_STAGE,
+                    lambda: self.visual_qa(
+                        output_dir=output_dir,
+                        plan=plan,
+                        script=script,
+                        rights=rights,
+                        fmt=str(brief["format"]),
+                    ),
+                )
+            except Exception:
+                if (
+                    journal.payload.get("status") == "quality_pending"
+                    and journal.payload.get("quality_pending_stage") == VISUAL_QA_STAGE
+                ):
+                    _write_resume_checkpoint(
+                        output_dir,
+                        completed_stage="voice",
+                        approved_brief_sha256=approved_brief_digest,
+                        engine_sha=engine_sha,
+                        runner_sha=runner_sha,
+                        max_visuals=max_visuals,
+                        voice_provider=str(journal.payload.get("voice_provider") or ""),
+                        voice_fallback_used=journal.payload.get("voice_fallback_used"),
+                    )
+                raise
 
             final_path = output_dir / "final.mp4"
             journal.run(
