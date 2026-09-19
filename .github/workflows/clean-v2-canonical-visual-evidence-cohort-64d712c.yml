@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: ["main"]
     paths:
-      - ".github/workflows/clean-v2-visualqa-only-cohort-64d712c.yml"
+      - ".github/workflows/clean-v2-canonical-visual-evidence-cohort-64d712c.yml"
 
 permissions:
   contents: read
