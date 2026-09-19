@@ -481,7 +481,10 @@ def _cloudflare_or_mesh(
     intended_visual: str,
     input_hash: str,
 ) -> dict[str, Any]:
-    if attempts >= max_attempts or not cloudflare_vision.shared_vision_configured():
+    if attempts >= max_attempts:
+        raise _mesh_unavailable(state)
+    if not cloudflare_vision.shared_vision_configured():
+        cloudflare_vision.record_shared_configuration_unavailable(Path(preview))
         raise _mesh_unavailable(state)
     try:
         result = _run_cloudflare_attempt(
