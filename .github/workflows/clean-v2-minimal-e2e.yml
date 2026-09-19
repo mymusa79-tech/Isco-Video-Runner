@@ -64,6 +64,7 @@ jobs:
       CLOUDFLARE_VISION_FREE_ONLY: "true"
       CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2/${{ github.run_id }}-${{ github.run_attempt }}
+      CLEAN_V2_RESUME: ${{ github.workspace }}/.clean-v2-resume
       # isco_video_agent (imported by scripts/final_master_qc.py for the ffmpeg probe
       # and secret_free_subprocess_env helpers) lives under engine/src per the Engine
       # repo's setuptools src-layout (pyproject.toml: packages.find where=["src"]), not
@@ -98,6 +99,15 @@ jobs:
       - name: Verify frozen five-run cohort topic
         run: |
           test "$(jq -r .approved_topic engine/production/approved_brief.json)" = "لماذا تفشل خطط إدارة الوقت في الحياة اليومية"
+
+      - name: Restore Clean V2 pre-QC checkpoint
+        id: clean_v2_resume
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ env.CLEAN_V2_RESUME }}
+          key: clean-v2-pre-qc-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ env.ISCO_APPROVED_BRIEF_SHA256 }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            clean-v2-pre-qc-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ env.ISCO_APPROVED_BRIEF_SHA256 }}-
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -186,6 +196,7 @@ jobs:
             --runner-sha "$GITHUB_SHA" \
             --piper-model "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx" \
             --voice-manifest "$GITHUB_WORKSPACE/engine/security/piper_voice_hashes.json" \
+            --resume-from "$CLEAN_V2_RESUME" \
             --max-visuals 5 \
             --output "$CLEAN_V2_OUTPUT"
 
@@ -210,6 +221,55 @@ jobs:
           test -s "$CLEAN_V2_OUTPUT/m9-transitions.json"
           test -s "$CLEAN_V2_OUTPUT/m10-cards.json"
           test -s "$CLEAN_V2_OUTPUT/m11-report.json"
+
+      - name: Prepare Clean V2 pre-QC checkpoint
+        if: always()
+        id: clean_v2_checkpoint
+        run: |
+          set -euo pipefail
+          rm -rf "$CLEAN_V2_RESUME"
+          if test ! -s "$CLEAN_V2_OUTPUT/resume-checkpoint.json"; then
+            echo "save=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p "$CLEAN_V2_RESUME"
+          python - <<'PY'
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          source = Path(os.environ["CLEAN_V2_OUTPUT"])
+          target = Path(os.environ["CLEAN_V2_RESUME"])
+          checkpoint = json.loads(
+              (source / "resume-checkpoint.json").read_text(encoding="utf-8")
+          )
+          artifacts = checkpoint.get("artifacts")
+          if not isinstance(artifacts, dict) or not artifacts:
+              raise SystemExit("resume checkpoint has no artifacts")
+          shutil.copy2(
+              source / "resume-checkpoint.json",
+              target / "resume-checkpoint.json",
+          )
+          for raw in artifacts:
+              relative = Path(str(raw))
+              if relative.is_absolute() or ".." in relative.parts:
+                  raise SystemExit("unsafe resume artifact path")
+              src = source / relative
+              dst = target / relative
+              if not src.is_file():
+                  raise SystemExit(f"missing resume artifact: {relative}")
+              dst.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(src, dst)
+          PY
+          echo "save=true" >> "$GITHUB_OUTPUT"
+
+      - name: Save Clean V2 pre-QC checkpoint
+        if: always() && steps.clean_v2_checkpoint.outputs.save == 'true'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ env.CLEAN_V2_RESUME }}
+          key: clean-v2-pre-qc-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ env.ISCO_APPROVED_BRIEF_SHA256 }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload Clean V2 evidence and final file
         if: always()
