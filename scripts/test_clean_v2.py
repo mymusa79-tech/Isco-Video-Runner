@@ -15,6 +15,7 @@ from clean_v2.contracts import (
 )
 from clean_v2.pipeline import (
     CINEMATIC_STAGE,
+    TEXT_AUDIT_STAGE,
     VISUAL_QA_STAGE,
     STAGES,
     CleanV2Pipeline,
@@ -233,7 +234,6 @@ class WorkflowContractTests(unittest.TestCase):
         for forbidden in (
             "produce-resilient-v4",
             "run_v3_voice",
-            "text_audit",
             "gold_enforce",
             "viewer_quality",
             "create release",
@@ -280,6 +280,47 @@ def _blocking_visual_qa(**kwargs) -> dict:
 def _infrastructure_visual_qa(**kwargs) -> dict:
     raise RuntimeError(
         "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section=s1 error_type=VisionProviderMeshUnavailableError"
+    )
+
+
+def _passing_text_audit(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-legacy-factuality-audit",
+        "status": "pass",
+        "unsupported_claims": [],
+        "professional_advice_flags": [],
+        "expert_persona_flags": [],
+        "notes": [],
+    }
+    (output_dir / "factuality-audit.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    return report
+
+
+def _blocking_text_audit(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-legacy-factuality-audit",
+        "status": "block",
+        "unsupported_claims": ["fixture_unsupported_claim"],
+        "professional_advice_flags": [],
+        "expert_persona_flags": [],
+        "notes": [],
+    }
+    (output_dir / "factuality-audit.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    raise RuntimeError("Independent factuality/AI-expert gate blocked real production")
+
+
+def _infrastructure_text_audit(**kwargs) -> dict:
+    raise RuntimeError(
+        "text_audit exhausted bounded provider route: "
+        "gemini:http_429, groq:http_429, openrouter:http_429"
     )
 
 
@@ -464,6 +505,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 visual_qa=_passing_visual_qa,
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
             )
             result = pipeline.run(
                 brief_path=brief_path,
@@ -483,8 +525,9 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual([item["name"] for item in manifest["stages"]], list(STAGES))
             self.assertEqual(
                 manifest["quality_layers_executed"],
-                [CINEMATIC_STAGE, VISUAL_QA_STAGE, "final_master_qc"],
+                [TEXT_AUDIT_STAGE, CINEMATIC_STAGE, VISUAL_QA_STAGE, "final_master_qc"],
             )
+            self.assertEqual(manifest["text_audit_status"], "pass")
             self.assertEqual(manifest["cinematic_v2_status"], "pass")
             self.assertEqual(manifest["final_master_qc_status"], "pass")
             final = json.loads((output / "final.json").read_text(encoding="utf-8"))
@@ -513,6 +556,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 visual_qa=_passing_visual_qa,
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_blocking_final_master_qc,
+                text_audit=_passing_text_audit,
             )
             with self.assertRaisesRegex(RuntimeError, "blocked release"):
                 pipeline.run(
@@ -535,7 +579,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["failure_classification"], "pre-layer")
             self.assertEqual(
                 manifest["quality_layers_executed"],
-                [CINEMATIC_STAGE, VISUAL_QA_STAGE, "final_master_qc"],
+                [TEXT_AUDIT_STAGE, CINEMATIC_STAGE, VISUAL_QA_STAGE, "final_master_qc"],
             )
             self.assertTrue(all(
                 item["status"] == "pass" for item in manifest["stages"][:-1]
@@ -558,6 +602,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 visual_qa=_passing_visual_qa,
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
             )
             with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
                 pipeline.run(
@@ -593,6 +638,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 visual_qa=_passing_visual_qa,
                 cinematic_layer=_blocking_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
             )
             with self.assertRaisesRegex(RuntimeError, "new layer block"):
                 pipeline.run(
@@ -612,7 +658,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["failure_classification"], "pre-layer")
             self.assertEqual(
                 manifest["quality_layers_executed"],
-                [CINEMATIC_STAGE, VISUAL_QA_STAGE],
+                [TEXT_AUDIT_STAGE, CINEMATIC_STAGE, VISUAL_QA_STAGE],
             )
             self.assertFalse((output / "final.json").exists())
             self.assertFalse((output / "final-master-qc.json").exists())
@@ -632,6 +678,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 visual_qa=_blocking_visual_qa,
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
             )
             with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_BLOCK"):
                 pipeline.run(
@@ -665,6 +712,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 visual_qa=_infrastructure_visual_qa,
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
             )
             with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"):
                 pipeline.run(
@@ -681,6 +729,76 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["status"], "failed")
             self.assertEqual(manifest["failure_classification"], "infrastructure")
             self.assertEqual(manifest["stages"][-1]["name"], VISUAL_QA_STAGE)
+
+    def test_text_audit_block_is_pre_layer_and_stops_before_voice(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_blocking_text_audit,
+            )
+            with self.assertRaisesRegex(RuntimeError, "blocked real production"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "quality_pending")
+            self.assertEqual(manifest["quality_pending_stage"], TEXT_AUDIT_STAGE)
+            self.assertEqual(manifest["failure_classification"], "pre-layer")
+            self.assertEqual(manifest["quality_layers_executed"], [TEXT_AUDIT_STAGE])
+            self.assertEqual(manifest["stages"][-1]["name"], TEXT_AUDIT_STAGE)
+            self.assertEqual(manifest["stages"][-1]["status"], "blocked")
+            self.assertTrue((output / "factuality-audit.json").is_file())
+            self.assertFalse((output / "narration.wav").exists())
+
+    def test_text_audit_provider_exhaustion_is_infrastructure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_infrastructure_text_audit,
+            )
+            with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "failed")
+            self.assertEqual(manifest["failure_classification"], "infrastructure")
+            self.assertEqual(manifest["stages"][-1]["name"], TEXT_AUDIT_STAGE)
 
 
 if __name__ == "__main__":

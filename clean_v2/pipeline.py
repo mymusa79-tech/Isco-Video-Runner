@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,13 +20,17 @@ from .media import inspect_final, render_video
 
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 VISUAL_QA_STAGE = "final_cut_visual_qa"
+TEXT_AUDIT_STAGE = "text_audit"
 QUALITY_STAGE = "final_master_qc"
-QUALITY_STAGES = frozenset({CINEMATIC_STAGE, VISUAL_QA_STAGE, QUALITY_STAGE})
+QUALITY_STAGES = frozenset(
+    {CINEMATIC_STAGE, VISUAL_QA_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
+)
 
 STAGES = (
     "brief",
     "planning",
     "script",
+    TEXT_AUDIT_STAGE,
     "voice",
     "visuals",
     VISUAL_QA_STAGE,
@@ -34,6 +39,22 @@ STAGES = (
     "final_file",
     QUALITY_STAGE,
 )
+
+
+def _read_secret(name: str) -> str:
+    direct = str(os.environ.get(name) or "").strip()
+    if direct:
+        return direct
+    file_value = str(os.environ.get(f"{name}_FILE") or "").strip()
+    if not file_value:
+        return ""
+    path = Path(file_value)
+    try:
+        if not path.is_file():
+            return ""
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def _run_legacy_final_master_qc(output_dir: Path) -> dict[str, Any]:
@@ -61,6 +82,75 @@ def _run_final_cut_visual_qa(
         rights=rights,
         fmt=fmt,
     )
+
+
+def _build_production_plan_for_audit(
+    *,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: Mapping[str, Any],
+) -> Any:
+    from isco_video_agent.models import ProductionPlan, ScriptSection
+
+    narrations = {
+        str(item["id"]): str(item.get("narration") or "")
+        for item in script["sections"]
+    }
+    sections = [
+        ScriptSection(
+            id=str(item["id"]),
+            narration=narrations.get(str(item["id"]), ""),
+            visual_query=str(item.get("visual_query_en") or ""),
+            key_point=str(item.get("purpose") or ""),
+        )
+        for item in plan["sections"]
+    ]
+    return ProductionPlan(
+        topic=str(brief.get("approved_topic") or ""),
+        pillar=str(brief.get("pillar") or ""),
+        format=str(brief.get("format") or ""),
+        hook="",
+        title_options=[str(plan.get("title") or "")],
+        thumbnail_concepts=[],
+        sections=sections,
+        cta="",
+        closing_payoff=str(plan.get("promise") or ""),
+    )
+
+
+def _run_legacy_factuality_audit(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: Mapping[str, Any],
+) -> dict[str, Any]:
+    # Deliberately reuse the old tested independent factuality/AI-expert reviewer.
+    # The Engine package is supplied by the production workflow via PYTHONPATH.
+    from isco_video_agent.factuality import audit_plan
+
+    api_key = _read_secret("GEMINI_API_KEY")
+    model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
+    production_plan = _build_production_plan_for_audit(brief=brief, plan=plan, script=script)
+    research_context = brief.get("research_pack") or []
+    diagnostics: dict[str, Any] = {}
+    result = audit_plan(api_key, production_plan, research_context, model, diagnostics=diagnostics)
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-legacy-factuality-audit",
+        **result,
+        "diagnostics": diagnostics,
+    }
+    atomic_write_json(output_dir / "factuality-audit.json", report)
+    if diagnostics.get("validation") != "valid":
+        attempts = diagnostics.get("attempts") or []
+        summary = ", ".join(
+            f"{item.get('provider')}:{item.get('outcome')}" for item in attempts
+        ) or "no providers configured"
+        raise RuntimeError(f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: {summary}")
+    if result.get("status") == "block":
+        raise RuntimeError("Independent factuality/AI-expert gate blocked real production")
+    return report
 
 
 def _run_legacy_cinematic_layer(
@@ -220,7 +310,7 @@ class _Journal:
                 )
             )
             accepted_quality_block = (
-                name in {CINEMATIC_STAGE, QUALITY_STAGE}
+                name in {CINEMATIC_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
                 or "CLEAN_V2_NEW_LAYER_BLOCK" in message
             )
             failure_classification = (
@@ -248,6 +338,8 @@ class _Journal:
                     pending_stage = VISUAL_QA_STAGE
                 elif name == CINEMATIC_STAGE or "CLEAN_V2_NEW_LAYER_BLOCK" in message:
                     pending_stage = CINEMATIC_STAGE
+                elif name == TEXT_AUDIT_STAGE:
+                    pending_stage = TEXT_AUDIT_STAGE
                 else:
                     pending_stage = QUALITY_STAGE
                 self.payload["quality_pending_stage"] = pending_stage
@@ -286,6 +378,7 @@ class CleanV2Pipeline:
         visual_qa: Callable[..., dict[str, Any]] = _run_final_cut_visual_qa,
         cinematic_layer: Callable[..., dict[str, Any]] = _run_legacy_cinematic_layer,
         final_master_qc: Callable[[Path], dict[str, Any]] = _run_legacy_final_master_qc,
+        text_audit: Callable[..., dict[str, Any]] = _run_legacy_factuality_audit,
     ) -> None:
         self.router = router
         self.voice_synthesizer = voice_synthesizer
@@ -295,6 +388,7 @@ class CleanV2Pipeline:
         self.visual_qa = visual_qa
         self.cinematic_layer = cinematic_layer
         self.final_master_qc = final_master_qc
+        self.text_audit = text_audit
 
     def _write_runtime_events(self, output_dir: Path) -> None:
         atomic_write_json(
@@ -365,6 +459,19 @@ class CleanV2Pipeline:
             )
             atomic_write_json(output_dir / "script.json", script)
             self._write_runtime_events(output_dir)
+
+            journal.payload["quality_layers_executed"] = [TEXT_AUDIT_STAGE]
+            journal._write()
+            text_audit_report = journal.run(
+                TEXT_AUDIT_STAGE,
+                lambda: self.text_audit(
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
+                ),
+            )
+
             transcript = "\n\n".join(item["narration"] for item in script["sections"])
             (output_dir / "narration.txt").write_text(transcript + "\n", encoding="utf-8")
 
@@ -384,7 +491,10 @@ class CleanV2Pipeline:
             visuals_dir = output_dir / "visuals"
             # Security V1 and M8 are part of the restored layer and execute inside
             # StockVisualSource admission/transform hooks during this stage.
-            journal.payload["quality_layers_executed"] = [CINEMATIC_STAGE]
+            journal.payload["quality_layers_executed"] = [
+                TEXT_AUDIT_STAGE,
+                CINEMATIC_STAGE,
+            ]
             journal._write()
             clips, rights = journal.run(
                 "visuals",
@@ -406,6 +516,7 @@ class CleanV2Pipeline:
             self._write_runtime_events(output_dir)
 
             journal.payload["quality_layers_executed"] = [
+                TEXT_AUDIT_STAGE,
                 CINEMATIC_STAGE,
                 VISUAL_QA_STAGE,
             ]
@@ -433,6 +544,7 @@ class CleanV2Pipeline:
             )
 
             journal.payload["quality_layers_executed"] = [
+                TEXT_AUDIT_STAGE,
                 CINEMATIC_STAGE,
                 VISUAL_QA_STAGE,
             ]
@@ -485,6 +597,7 @@ class CleanV2Pipeline:
                     },
                 )
             journal.payload["quality_layers_executed"] = [
+                TEXT_AUDIT_STAGE,
                 CINEMATIC_STAGE,
                 VISUAL_QA_STAGE,
                 QUALITY_STAGE,
@@ -498,6 +611,7 @@ class CleanV2Pipeline:
                 final_file=final_path.name,
                 final_sha256=final_report["sha256"],
                 final_duration_seconds=final_report["duration_seconds"],
+                text_audit_status=text_audit_report.get("status"),
                 visual_qa_status=visual_qa_report.get("status"),
                 cinematic_v2_status=cinematic_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
@@ -513,6 +627,7 @@ class CleanV2Pipeline:
                 "final_file": str(final_path),
                 "duration_seconds": final_report["duration_seconds"],
                 "sha256": final_report["sha256"],
+                "text_audit_status": text_audit_report.get("status"),
                 "visual_qa_status": visual_qa_report.get("status"),
                 "cinematic_v2_status": cinematic_report.get("status"),
                 "final_master_qc_status": final_master_report.get("status"),
