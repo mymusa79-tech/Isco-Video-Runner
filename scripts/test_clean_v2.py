@@ -683,5 +683,23 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["stages"][-1]["name"], VISUAL_QA_STAGE)
 
 
+class VisualQADiagnosticsTests(unittest.TestCase):
+    def test_contract_error_preserves_raw_provider_http_evidence_before_wrapping(self) -> None:
+        source = Path("clean_v2/visual_qa.py").read_text(encoding="utf-8")
+        diagnostic = source.index("visual-qa-diagnostics.json")
+        wrapped = source.index("reason=visual_audit_contract_error")
+        self.assertLess(diagnostic, wrapped)
+        for field in (
+            '"error_code"',
+            '"provider"',
+            '"requested_model"',
+            '"resolved_model"',
+            '"http_status"',
+            '"http_message"',
+            '"detail"',
+        ):
+            self.assertIn(field, source)
+
+
 if __name__ == "__main__":
     unittest.main()
