@@ -1152,6 +1152,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             result = second.run(
                 brief_path=brief_path,
