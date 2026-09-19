@@ -461,6 +461,55 @@ class Run181RoutingTests(unittest.TestCase):
         self.assertEqual(result["status"], "pass")
         openrouter.assert_called_once()
 
+    def test_openrouter_http_400_provider_returned_error_falls_through_to_cloudflare(self) -> None:
+        message = "Provider returned error"
+        provider_error = v2.VisionStageError(
+            v2.VisionErrorCode.PROVIDER_TRANSIENT,
+            "HTTP_400 message=Provider returned error",
+            provider="openrouter",
+            requested_model=v2.OPENROUTER_PRIMARY_MODEL,
+            http_status=400,
+            http_message=message,
+        )
+        with tempfile.TemporaryDirectory() as root, legacy.vision_provider_circuit_scope(), mock.patch.object(
+            closure,
+            "_run_groq_attempt",
+            side_effect=v2.VisionStageError(
+                v2.VisionErrorCode.PROVIDER_TRANSIENT,
+                "Groq 413",
+                provider="groq",
+            ),
+        ), mock.patch.object(
+            v2,
+            "_run_openrouter_attempt",
+            side_effect=provider_error,
+        ) as openrouter, mock.patch.object(
+            closure.cloudflare_vision,
+            "shared_vision_configured",
+            return_value=True,
+        ), mock.patch.object(
+            closure,
+            "_run_cloudflare_attempt",
+            return_value=dict(_PASS),
+        ) as cloudflare:
+            result = self._route_with_empty_telemetry(
+                None,
+                _spec(),
+                "gemini",
+                "gemini-3.7-flash",
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    RuntimeError("429 RESOURCE_EXHAUSTED")
+                ),
+                "gem-key",
+                _preview(root),
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+
+        self.assertEqual(result["status"], "pass")
+        openrouter.assert_called_once()
+        cloudflare.assert_called_once()
+
     def test_unrelated_http_413_remains_internal_contract_error(self) -> None:
         self.assertIs(
             closure._classify_groq_vision_http(
