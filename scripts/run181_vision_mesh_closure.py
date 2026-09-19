@@ -51,6 +51,7 @@ GROQ_CATALOG_TIMEOUT_SECONDS = 15
 GEMINI_GENERATION_QUOTA_DOMAIN = "generate_content"
 GROQ_VISION_QUOTA_DOMAIN = "vision"
 CLOUDFLARE_VISION_MODEL = cloudflare_vision.CLOUDFLARE_VISION_MODEL
+CLOUDFLARE_VISION_PROVIDER = cloudflare_vision.CLOUDFLARE_VISION_PROVIDER
 CLOUDFLARE_VISION_QUOTA_DOMAIN = "vision"
 
 _INSTALLED = False
@@ -439,7 +440,7 @@ def _mesh_unavailable(state) -> contract.legacy.VisionProviderMeshUnavailableErr
         quota_domain=GROQ_VISION_QUOTA_DOMAIN,
     )
     cloudflare = health.provider_unavailable(
-        "cloudflare",
+        CLOUDFLARE_VISION_PROVIDER,
         model=CLOUDFLARE_VISION_MODEL,
         quota_domain=CLOUDFLARE_VISION_QUOTA_DOMAIN,
     )
