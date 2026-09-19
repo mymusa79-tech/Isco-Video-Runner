@@ -350,11 +350,14 @@ def _groq_visual_call(
         ) from exc
     if not response.ok:
         message = contract._extract_error_message(body)
+        status = int(response.status_code)
         raise contract.VisionStageError(
-            _classify_groq_vision_http(int(response.status_code), message),
-            f"HTTP_{response.status_code} message={message}",
+            _classify_groq_vision_http(status, message),
+            f"HTTP_{status} message={message}",
             provider="groq",
             requested_model=GROQ_VISION_MODEL,
+            http_status=status,
+            http_message=message,
         )
     choices = body.get("choices") if isinstance(body, dict) else None
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
@@ -490,7 +493,7 @@ def _cloudflare_or_mesh(
         )
     except cloudflare_vision.CloudflareGoldVisionUnavailable as exc:
         health.publish_provider_unavailable(
-            "cloudflare",
+            CLOUDFLARE_VISION_PROVIDER,
             model=CLOUDFLARE_VISION_MODEL,
             quota_domain=CLOUDFLARE_VISION_QUOTA_DOMAIN,
             reason=contract.legacy._safe_exception_detail(exc),
@@ -504,7 +507,7 @@ def _cloudflare_or_mesh(
         ):
             raise
         health.publish_provider_unavailable(
-            "cloudflare",
+            CLOUDFLARE_VISION_PROVIDER,
             model=CLOUDFLARE_VISION_MODEL,
             quota_domain=CLOUDFLARE_VISION_QUOTA_DOMAIN,
             reason=contract.legacy._safe_exception_detail(exc),
