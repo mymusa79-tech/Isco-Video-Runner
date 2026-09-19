@@ -64,7 +64,7 @@ jobs:
       CLOUDFLARE_VISION_FREE_ONLY: "true"
       CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2/${{ github.run_id }}-${{ github.run_attempt }}
-      CLEAN_V2_RESUME: ${{ runner.temp }}/clean-v2-resume
+      CLEAN_V2_RESUME: ${{ github.workspace }}/.clean-v2-resume
       # isco_video_agent (imported by scripts/final_master_qc.py for the ffmpeg probe
       # and secret_free_subprocess_env helpers) lives under engine/src per the Engine
       # repo's setuptools src-layout (pyproject.toml: packages.find where=["src"]), not
