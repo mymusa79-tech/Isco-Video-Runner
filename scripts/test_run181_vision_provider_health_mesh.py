@@ -256,6 +256,7 @@ class GroqVisionContractTests(unittest.TestCase):
         self.assertEqual(normalized["status"], "block")
 
 
+
 class Run181RoutingTests(unittest.TestCase):
     def setUp(self) -> None:
         health.reset_provider_health()
@@ -378,7 +379,7 @@ class Run181RoutingTests(unittest.TestCase):
         openrouter.assert_not_called()
         self.assertIn("spend capacity exhausted", str(raised.exception))
 
-    def test_gemini_and_groq_wire_failures_fall_to_openrouter_with_three_attempt_cap(self) -> None:
+    def test_gemini_and_groq_wire_failures_fall_to_openrouter_with_vision_cap_five(self) -> None:
         with tempfile.TemporaryDirectory() as root, legacy.vision_provider_circuit_scope(), mock.patch.object(
             closure,
             "_run_groq_attempt",
@@ -515,6 +516,116 @@ class Run181RoutingTests(unittest.TestCase):
             )
         self.assertEqual(result["status"], "pass")
         self.assertEqual(openrouter.call_count, 2)
+
+    def test_two_earlier_provider_failures_still_allow_openrouter_schema_recovery(self) -> None:
+        first_error = v2.VisionStageError(
+            v2.VisionErrorCode.STRUCTURAL_INVALID,
+            "schema fields mismatch",
+            provider="openrouter",
+            requested_model=v2.OPENROUTER_PRIMARY_MODEL,
+            resolved_model="free/model-a",
+        )
+        with tempfile.TemporaryDirectory() as root, legacy.vision_provider_circuit_scope(), mock.patch.object(
+            closure,
+            "_run_groq_attempt",
+            side_effect=v2.VisionStageError(
+                v2.VisionErrorCode.PROVIDER_TRANSIENT,
+                "Groq ITPM exhausted",
+                provider="groq",
+            ),
+        ), mock.patch.object(
+            v2,
+            "_discover_alternate_free_vision_model",
+            return_value="free/model-b",
+        ), mock.patch.object(
+            v2,
+            "_run_openrouter_attempt",
+            side_effect=[first_error, (dict(_PASS), "free/model-b")],
+        ) as openrouter, mock.patch.object(
+            closure,
+            "_run_cloudflare_attempt",
+        ) as cloudflare:
+            result = self._route_with_empty_telemetry(
+                None,
+                _spec(),
+                "gemini",
+                "gemini-3.7-flash",
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    RuntimeError("429 RESOURCE_EXHAUSTED")
+                ),
+                "gem-key",
+                _preview(root),
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(openrouter.call_count, 2)
+        self.assertEqual(
+            openrouter.call_args_list[1].args[1].max_provider_attempts,
+            5,
+        )
+        cloudflare.assert_not_called()
+
+    def test_cloudflare_gets_fifth_slot_after_two_openrouter_schema_failures(self) -> None:
+        first_error = v2.VisionStageError(
+            v2.VisionErrorCode.STRUCTURAL_INVALID,
+            "first schema invalid",
+            provider="openrouter",
+            resolved_model="free/model-a",
+        )
+        second_error = v2.VisionStageError(
+            v2.VisionErrorCode.STRUCTURAL_INVALID,
+            "second schema invalid",
+            provider="openrouter",
+            resolved_model="free/model-b",
+        )
+        with tempfile.TemporaryDirectory() as root, legacy.vision_provider_circuit_scope(), mock.patch.object(
+            closure,
+            "_run_groq_attempt",
+            side_effect=v2.VisionStageError(
+                v2.VisionErrorCode.PROVIDER_TRANSIENT,
+                "Groq capacity unavailable",
+                provider="groq",
+            ),
+        ), mock.patch.object(
+            v2,
+            "_discover_alternate_free_vision_model",
+            return_value="free/model-b",
+        ), mock.patch.object(
+            v2,
+            "_run_openrouter_attempt",
+            side_effect=[first_error, second_error],
+        ) as openrouter, mock.patch.object(
+            closure.cloudflare_vision,
+            "shared_vision_configured",
+            return_value=True,
+        ), mock.patch.object(
+            closure,
+            "_run_cloudflare_attempt",
+            return_value=dict(_PASS),
+        ) as cloudflare:
+            result = self._route_with_empty_telemetry(
+                None,
+                _spec(),
+                "gemini",
+                "gemini-3.7-flash",
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    RuntimeError("429 RESOURCE_EXHAUSTED")
+                ),
+                "gem-key",
+                _preview(root),
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(openrouter.call_count, 2)
+        cloudflare.assert_called_once()
+        self.assertEqual(
+            cloudflare.call_args.args[1].max_provider_attempts,
+            5,
+        )
 
 
 if __name__ == "__main__":
