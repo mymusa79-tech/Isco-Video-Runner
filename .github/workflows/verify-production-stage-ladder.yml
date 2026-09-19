@@ -159,6 +159,14 @@ jobs:
               cf._reserve_workflow_call()
               evidence["workflow_quota_reservation"] = "pass"
               evidence["status"] = "ready_for_wire"
+              evidence["response_format_contract"] = "cloudflare_json_mode_native_schema"
+              # Qualification-only adapter: Cloudflare JSON Mode expects json_schema
+              # to contain the schema directly rather than OpenAI's name/strict/schema wrapper.
+              cf.contract._strict_response_format = lambda: {
+                  "type": "json_schema",
+                  "json_schema": cf.contract.VISUAL_AUDIT_SCHEMA,
+              }
+              evidence["inference_attempts_performed"] = 1
               result = cf._wire_call(
                   token,
                   account_id,
@@ -166,7 +174,6 @@ jobs:
                   narration_context=section_script["narration"],
                   intended_visual=section_plan["visual_query_en"],
               )
-              evidence["inference_attempts_performed"] = 1
               evidence["status"] = "inference_complete"
               evidence["normalized_result"] = result
           except Exception as exc:
