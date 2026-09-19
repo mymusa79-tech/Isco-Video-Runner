@@ -144,7 +144,36 @@ jobs:
 
           if status == "ready_for_wire" and credentials is not None:
               token, account_id = credentials
-              gate("zero_cost_subscription_proof", cf._prove_workers_free, token, account_id)
+
+              def verify_token():
+                  response = cf.requests.get(
+                      f"{cf.CLOUDFLARE_API_BASE}/user/tokens/verify",
+                      headers={
+                          "Authorization": "Bearer " + token,
+                          "Content-Type": "application/json",
+                      },
+                      timeout=cf.CLOUDFLARE_PROBE_TIMEOUT_SECONDS,
+                  )
+                  try:
+                      body = response.json()
+                  except Exception as exc:
+                      raise cf.CloudflareGoldVisionUnavailable(
+                          "Cloudflare token verification returned non-JSON"
+                      ) from exc
+                  if (
+                      not response.ok
+                      or not isinstance(body, dict)
+                      or body.get("success") is not True
+                      or not isinstance(body.get("result"), dict)
+                      or str(body["result"].get("status") or "").lower() != "active"
+                  ):
+                      raise cf.CloudflareGoldVisionUnavailable(
+                          "Cloudflare API token is not verified active: " + cf._error_text(body)
+                      )
+
+              gate("token_active_verification", verify_token)
+              if status == "ready_for_wire":
+                  gate("zero_cost_subscription_proof", cf._prove_workers_free, token, account_id)
               if status == "ready_for_wire":
                   gate("model_schema_probe", cf._prove_model_access, token, account_id)
               if status == "ready_for_wire":
