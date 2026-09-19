@@ -137,6 +137,7 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             ):
                 cloudflare._prove_workers_free("token", "a" * 32)
         get.assert_called_once()
+        self.assertEqual(get.call_args.kwargs["params"], {"per_page": 50})
 
     def test_missing_billing_read_fails_closed_before_inference(self) -> None:
         response = Mock()
