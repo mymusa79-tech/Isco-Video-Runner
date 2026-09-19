@@ -1,0 +1,128 @@
+name: Cloudflare Vision Preflight Probe
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/cloudflare-vision-preflight-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+      CLOUDFLARE_VISION_FREE_ONLY: "true"
+      CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
+      CLOUDFLARE_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-preflight-probe-quota.json
+
+    steps:
+      - name: Checkout exact Runner probe
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout frozen private Engine source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-build-isolation --no-deps -e engine
+
+      - name: Run zero-inference Cloudflare preflight probe
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from scripts import gold_cloudflare_vision_fallback as cf
+
+          output = Path(os.environ["RUNNER_TEMP"]) / "cloudflare-vision-preflight-probe.json"
+          gates = []
+          status = "ready_for_wire"
+          failed_stage = None
+          detail = None
+
+          def gate(stage, fn, *args):
+              global status, failed_stage, detail
+              try:
+                  value = fn(*args)
+              except cf.CloudflareGoldVisionUnavailable as exc:
+                  gates.append({"stage": stage, "status": "fail"})
+                  status = "no_wire"
+                  failed_stage = stage
+                  detail = str(exc)[:1000]
+                  return None
+              gates.append({"stage": stage, "status": "pass"})
+              return value
+
+          config_reason = cf.shared_vision_configuration_reason()
+          if config_reason is not None:
+              gates.append({"stage": "configuration", "status": "fail"})
+              status = "no_wire"
+              failed_stage = "configuration"
+              detail = config_reason
+          else:
+              gates.append({"stage": "configuration", "status": "pass"})
+
+          credentials = None
+          if status == "ready_for_wire":
+              credentials = gate("credentials", cf._credentials)
+
+          if status == "ready_for_wire" and credentials is not None:
+              token, account_id = credentials
+              gate("zero_cost_subscription_proof", cf._prove_workers_free, token, account_id)
+              if status == "ready_for_wire":
+                  gate("model_schema_probe", cf._prove_model_access, token, account_id)
+              if status == "ready_for_wire":
+                  gate("workflow_quota_reservation", cf._reserve_workflow_call)
+
+          payload = {
+              "schema_version": 1,
+              "runner_sha": os.environ.get("GITHUB_SHA", ""),
+              "engine_sha": os.environ["ISCO_ENGINE_SHA"],
+              "provider": cf.CLOUDFLARE_VISION_PROVIDER,
+              "model": cf.CLOUDFLARE_VISION_MODEL,
+              "route": "shared_visual_audit",
+              "probe_mode": "preflight_only_no_inference",
+              "status": status,
+              "failed_stage": failed_stage,
+              "detail": detail,
+              "inference_attempt_performed": False,
+              "gates": gates,
+          }
+          output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload preflight evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cloudflare-vision-preflight-probe
+          path: ${{ runner.temp }}/cloudflare-vision-preflight-probe.json
+          if-no-files-found: error
+          retention-days: 7
