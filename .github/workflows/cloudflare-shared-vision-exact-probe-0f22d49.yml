@@ -208,6 +208,47 @@ jobs:
           raise SystemExit(exit_code)
           PY
 
+      - name: Probe Workers AI model permission without inference
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from scripts import gold_cloudflare_vision_fallback as cloudflare
+
+          root = Path(os.environ["FIXTURE_DIR"])
+          result = {
+              "schema_version": 1,
+              "provider": cloudflare.CLOUDFLARE_VISION_PROVIDER,
+              "model": cloudflare.CLOUDFLARE_VISION_MODEL,
+              "operation": "model_schema_get_only",
+              "inference_performed": False,
+          }
+          try:
+              token, account_id = cloudflare._credentials()
+              cloudflare._prove_model_access(token, account_id)
+          except Exception as exc:
+              result.update(
+                  status="failure",
+                  error_type=type(exc).__name__,
+                  reason=str(exc)[:1000],
+              )
+          else:
+              result["status"] = "success"
+
+          (root / "cloudflare-model-schema-probe.json").write_text(
+              json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          PY
+
       - name: Upload exact Cloudflare probe evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -217,5 +258,6 @@ jobs:
             ${{ env.FIXTURE_DIR }}/cloudflare-exact-probe-result.json
             ${{ env.FIXTURE_DIR }}/cloudflare-vision-preflight.json
             ${{ env.FIXTURE_DIR }}/cloudflare-exact-probe-budget.json
+            ${{ env.FIXTURE_DIR }}/cloudflare-model-schema-probe.json
           if-no-files-found: warn
           retention-days: 7
