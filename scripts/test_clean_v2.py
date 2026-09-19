@@ -857,12 +857,13 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertFalse((output / "final-master-qc.json").exists())
 
 
-    def test_visual_qa_block_is_new_layer_block_and_stops_before_render(self) -> None:
+    def test_visual_qa_block_rolls_resume_back_to_voice_and_reacquires_visuals(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             brief_path = root / "approved-brief.json"
             brief = _brief()
             brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            approved = compute_brief_sha256(brief)
             output = root / "output"
             pipeline = CleanV2Pipeline(
                 router=_FakeRouter(),
@@ -876,7 +877,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_BLOCK"):
                 pipeline.run(
                     brief_path=brief_path,
-                    approved_sha256=compute_brief_sha256(brief),
+                    approved_sha256=approved,
                     output_dir=output,
                     engine_sha="a" * 40,
                     runner_sha="b" * 40,
@@ -889,7 +890,62 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["quality_pending_stage"], VISUAL_QA_STAGE)
             self.assertEqual(manifest["failure_classification"], "new-layer-block")
             self.assertEqual(manifest["stages"][-1]["name"], VISUAL_QA_STAGE)
+            self.assertEqual(manifest["resume_rollback_stage"], "voice")
+            self.assertEqual(
+                manifest["resume_rollback_reason"], "visual_qa_quality_block"
+            )
             self.assertFalse((output / "final.mp4").exists())
+
+            checkpoint = json.loads(
+                (output / "resume-checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(checkpoint["completed_stage"], "voice")
+            self.assertIn("narration.wav", checkpoint["artifacts"])
+            self.assertNotIn("rights-manifest.json", checkpoint["artifacts"])
+            self.assertFalse(
+                any(key.startswith("visuals/") for key in checkpoint["artifacts"])
+            )
+
+            class _ForbiddenRouter:
+                events: list[dict] = []
+
+                def route(self, **_kwargs):
+                    raise AssertionError("planning/script provider route must be resumed")
+
+            class _ForbiddenVoice:
+                def synthesize(self, *_args, **_kwargs):
+                    raise AssertionError("voice must be resumed")
+
+            retry_visuals = _FakeVisuals()
+            retry_output = root / "retry"
+            retry = CleanV2Pipeline(
+                router=_ForbiddenRouter(),
+                voice_synthesizer=_ForbiddenVoice(),
+                visual_source=retry_visuals,
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+            )
+            result = retry.run(
+                brief_path=brief_path,
+                approved_sha256=approved,
+                output_dir=retry_output,
+                engine_sha="a" * 40,
+                runner_sha="b" * 40,
+                max_visuals=2,
+                resume_from=output,
+            )
+            self.assertEqual(result["status"], "pass")
+            self.assertEqual(retry_visuals.calls, 1)
+            retry_manifest = json.loads(
+                (retry_output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                retry_manifest["resumed_stages"],
+                ["planning", "script", "voice"],
+            )
+            self.assertNotIn("visuals", retry_manifest["resumed_stages"])
 
     def test_visual_qa_provider_exhaustion_is_infrastructure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -922,6 +978,12 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["status"], "failed")
             self.assertEqual(manifest["failure_classification"], "infrastructure")
             self.assertEqual(manifest["stages"][-1]["name"], VISUAL_QA_STAGE)
+            checkpoint = json.loads(
+                (output / "resume-checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(checkpoint["completed_stage"], "visuals")
+            self.assertIn("rights-manifest.json", checkpoint["artifacts"])
+            self.assertNotIn("resume_rollback_stage", manifest)
 
     def test_text_audit_block_is_pre_layer_and_stops_before_voice(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
