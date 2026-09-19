@@ -233,6 +233,16 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn(f'if model != "{expected}":', providers)
         self.assertNotIn('{"openrouter/free", "google/gemma-4-26b-a4b-it:free"}', providers)
 
+    def test_workflow_persists_exact_sha_pre_qc_resume_checkpoint(self) -> None:
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("Restore Clean V2 pre-QC checkpoint", text)
+        self.assertIn("Save Clean V2 pre-QC checkpoint", text)
+        self.assertIn('CLEAN_V2_RESUME:', text)
+        self.assertIn('--resume-from "$CLEAN_V2_RESUME"', text)
+        self.assertIn("clean-v2-pre-qc-${{ runner.os }}-${{ github.sha }}", text)
+        self.assertIn("${{ env.ISCO_ENGINE_SHA }}", text)
+        self.assertIn("${{ env.ISCO_APPROVED_BRIEF_SHA256 }}", text)
+
     def test_workflow_invokes_security_cinematic_then_final_master_without_legacy_orchestrator(self) -> None:
         text = self.WORKFLOW.read_text(encoding="utf-8").casefold()
         self.assertIn("final-master-qc.json", text)
@@ -386,7 +396,13 @@ class _InfrastructureRouter:
 
 
 class _FakeVoice:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.last_provider = "piper-local:ar_JO-kareem-medium"
+        self.fallback_used = True
+
     def synthesize(self, transcript: str, output_path: Path) -> Path:
+        self.calls += 1
         if not transcript.strip():
             raise RuntimeError("empty fixture transcript")
         subprocess.run(
@@ -412,8 +428,10 @@ class _FakeVoice:
 class _FakeVisuals:
     def __init__(self) -> None:
         self.events: list[dict] = []
+        self.calls = 0
 
     def acquire(self, plan, output_dir, fmt, max_visuals):
+        self.calls += 1
         del plan, fmt, max_visuals
         output_dir.mkdir(parents=True, exist_ok=True)
         clips = []
@@ -508,6 +526,163 @@ class CleanV2EndToEndTests(unittest.TestCase):
             forbidden = {"gold", "text-audit", "viewer-quality"}
             names = {path.name.lower() for path in output.rglob("*")}
             self.assertFalse(any(any(token in name for token in forbidden) for name in names))
+
+    def test_pre_qc_resume_skips_provider_voice_and_visual_rework(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(
+                json.dumps(brief, ensure_ascii=False), encoding="utf-8"
+            )
+            approved = compute_brief_sha256(brief)
+            first_output = root / "first"
+            first_router = _FakeRouter()
+            first_voice = _FakeVoice()
+            first_visuals = _FakeVisuals()
+            first = CleanV2Pipeline(
+                router=first_router,
+                voice_synthesizer=first_voice,
+                visual_source=first_visuals,
+                visual_qa=_infrastructure_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+            )
+            with self.assertRaisesRegex(
+                RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"
+            ):
+                first.run(
+                    brief_path=brief_path,
+                    approved_sha256=approved,
+                    output_dir=first_output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+
+            checkpoint = json.loads(
+                (first_output / "resume-checkpoint.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(checkpoint["completed_stage"], "visuals")
+            self.assertEqual(
+                [event["stage"] for event in first_router.events],
+                ["planning", "script"],
+            )
+            self.assertEqual(first_voice.calls, 1)
+            self.assertEqual(first_visuals.calls, 1)
+
+            class _ForbiddenRouter:
+                events: list[dict] = []
+
+                def route(self, **_kwargs):
+                    raise AssertionError("provider route must be resumed")
+
+            class _ForbiddenVoice:
+                def synthesize(self, *_args, **_kwargs):
+                    raise AssertionError("voice must be resumed")
+
+            class _ForbiddenVisuals:
+                events: list[dict] = []
+
+                def acquire(self, *_args, **_kwargs):
+                    raise AssertionError("visual acquisition must be resumed")
+
+            second_output = root / "second"
+            second = CleanV2Pipeline(
+                router=_ForbiddenRouter(),
+                voice_synthesizer=_ForbiddenVoice(),
+                visual_source=_ForbiddenVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+            )
+            result = second.run(
+                brief_path=brief_path,
+                approved_sha256=approved,
+                output_dir=second_output,
+                engine_sha="a" * 40,
+                runner_sha="b" * 40,
+                max_visuals=2,
+                resume_from=first_output,
+            )
+            self.assertEqual(result["status"], "pass")
+            manifest = json.loads(
+                (second_output / "run-manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                manifest["resumed_stages"],
+                ["planning", "script", "voice", "visuals"],
+            )
+            self.assertTrue(manifest["resume_checkpoint_accepted"])
+            self.assertEqual(manifest["resume_completed_stage"], "visuals")
+            for stage in manifest["stages"][1:5]:
+                self.assertTrue(stage.get("resumed"))
+
+    def test_tampered_resume_checkpoint_fails_closed_to_normal_routing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(
+                json.dumps(brief, ensure_ascii=False), encoding="utf-8"
+            )
+            approved = compute_brief_sha256(brief)
+            first_output = root / "first"
+            first = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_infrastructure_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+            )
+            with self.assertRaisesRegex(
+                RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"
+            ):
+                first.run(
+                    brief_path=brief_path,
+                    approved_sha256=approved,
+                    output_dir=first_output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+            (first_output / "plan.json").write_text(
+                '{"tampered":true}\n', encoding="utf-8"
+            )
+
+            second_output = root / "second"
+            second = CleanV2Pipeline(
+                router=_InfrastructureRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+            )
+            with self.assertRaisesRegex(
+                RuntimeError, "planning exhausted bounded provider route"
+            ):
+                second.run(
+                    brief_path=brief_path,
+                    approved_sha256=approved,
+                    output_dir=second_output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                    resume_from=first_output,
+                )
+            manifest = json.loads(
+                (second_output / "run-manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(manifest["resumed_stages"], [])
+            self.assertNotIn("resume_checkpoint_accepted", manifest)
 
     def test_final_master_block_preserves_completed_work_as_quality_pending(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
