@@ -12,8 +12,9 @@ only the raw HTTP boundary and the narrow composition adapters required by Run18
 - reuse Groq rate evidence only when it names the exact Qwen Vision model;
 - classify a statically unavailable Groq credential as zero-inference readiness evidence.
 
-No visual semantic rule, threshold, Security gate, candidate cap, or total inference
-attempt ceiling is changed here.
+No visual semantic rule, threshold, Security gate, or candidate cap is changed here.
+The transport adapter mirrors the canonical Vision-only inference ceiling owned by the
+Stage Contract; it does not create an independent budget.
 """
 
 from contextvars import ContextVar
@@ -252,10 +253,10 @@ def _install_run181_route_adapter() -> None:
         max_attempts = int(
             contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts
         )
-        if max_attempts != 3:
+        if max_attempts != 5:
             raise contract.VisionStageError(
                 contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
-                f"Run181 route requires existing Vision attempt cap=3, found={max_attempts}",
+                f"Run181 route requires canonical Vision attempt cap=5, found={max_attempts}",
                 provider="internal",
             )
 
