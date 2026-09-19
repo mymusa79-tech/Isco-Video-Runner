@@ -1098,6 +1098,42 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["stages"][-1]["status"], "blocked")
             self.assertTrue((output / "factuality-audit.json").is_file())
             self.assertFalse((output / "narration.wav").exists())
+            self.assertFalse((output / "resume-checkpoint.json").exists())
+
+            # A genuine factuality block makes this exact script unusable. A later
+            # attempt must regenerate planning/script instead of inheriting the
+            # rejected checkpoint.
+            second_output = root / "second"
+            second_router = _FakeRouter()
+            second = CleanV2Pipeline(
+                router=second_router,
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+            )
+            result = second.run(
+                brief_path=brief_path,
+                approved_sha256=compute_brief_sha256(brief),
+                output_dir=second_output,
+                engine_sha="a" * 40,
+                runner_sha="b" * 40,
+                max_visuals=2,
+                resume_from=output,
+            )
+            self.assertEqual(result["status"], "pass")
+            second_manifest = json.loads(
+                (second_output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(second_manifest["resumed_stages"], [])
+            self.assertNotIn("resume_checkpoint_accepted", second_manifest)
+            self.assertEqual(
+                [event["stage"] for event in second_router.events],
+                ["planning", "script"],
+            )
 
     def test_text_audit_provider_exhaustion_is_infrastructure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1131,6 +1167,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["status"], "failed")
             self.assertEqual(manifest["failure_classification"], "infrastructure")
             self.assertEqual(manifest["stages"][-1]["name"], TEXT_AUDIT_STAGE)
+            checkpoint = json.loads(
+                (output / "resume-checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(checkpoint["completed_stage"], "script")
 
     def test_audio_mastering_failure_is_a_plain_technical_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

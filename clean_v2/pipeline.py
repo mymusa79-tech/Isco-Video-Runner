@@ -758,15 +758,28 @@ class CleanV2Pipeline:
             # attempt) means a resume can never silently skip the factuality check.
             journal.payload["quality_layers_executed"] = [TEXT_AUDIT_STAGE]
             journal._write()
-            text_audit_report = journal.run(
-                TEXT_AUDIT_STAGE,
-                lambda: self.text_audit(
-                    output_dir=output_dir,
-                    brief=brief,
-                    plan=plan,
-                    script=script,
-                ),
-            )
+            try:
+                text_audit_report = journal.run(
+                    TEXT_AUDIT_STAGE,
+                    lambda: self.text_audit(
+                        output_dir=output_dir,
+                        brief=brief,
+                        plan=plan,
+                        script=script,
+                    ),
+                )
+            except Exception:
+                if (
+                    journal.payload.get("status") == "quality_pending"
+                    and journal.payload.get("quality_pending_stage") == TEXT_AUDIT_STAGE
+                ):
+                    # A genuine factuality/content block proves this exact script is
+                    # unsuitable. Keeping the script checkpoint would make every
+                    # resumed attempt re-audit the same rejected content forever.
+                    # Infrastructure exhaustion is not quality_pending, so transient
+                    # provider failures still preserve resumable work.
+                    (output_dir / "resume-checkpoint.json").unlink(missing_ok=True)
+                raise
 
             narration_path = output_dir / "narration.wav"
             if resume is not None and _resume_includes(resume[1], "voice"):
