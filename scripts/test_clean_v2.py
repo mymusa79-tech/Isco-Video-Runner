@@ -226,12 +226,12 @@ class WorkflowContractTests(unittest.TestCase):
     def test_content_fallback_pins_specific_free_openrouter_model(self) -> None:
         workflow = self.WORKFLOW.read_text(encoding="utf-8")
         providers = Path("clean_v2/providers.py").read_text(encoding="utf-8")
-        expected = "openai/gpt-oss-20b:free"
+        expected = "google/gemma-4-26b-a4b-it:free"
         self.assertIn(f"OPENROUTER_CONTENT_MODEL: {expected}", workflow)
         self.assertNotIn("OPENROUTER_CONTENT_MODEL: openrouter/free", workflow)
         self.assertIn(f'or "{expected}"', providers)
         self.assertIn(f'if model != "{expected}":', providers)
-        self.assertNotIn('{"openrouter/free", "openai/gpt-oss-20b:free"}', providers)
+        self.assertNotIn('{"openrouter/free", "google/gemma-4-26b-a4b-it:free"}', providers)
 
     def test_workflow_invokes_security_cinematic_then_final_master_without_legacy_orchestrator(self) -> None:
         text = self.WORKFLOW.read_text(encoding="utf-8").casefold()
