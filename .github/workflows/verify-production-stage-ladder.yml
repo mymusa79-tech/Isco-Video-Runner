@@ -95,7 +95,7 @@ jobs:
       - name: Cloudflare Vision preflight probe only
         env:
           PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
-          ISCO_ENGINE_SHA: 3cbd689819e6b0e2ea9904d1998e24a5e2a293
+          ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
           CLOUDFLARE_VISION_FREE_ONLY: "true"
           CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
           CLOUDFLARE_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-preflight-probe-quota.json
@@ -174,8 +174,18 @@ jobs:
               gate("token_active_verification", verify_token)
               if status == "ready_for_wire":
                   gate("zero_cost_subscription_proof", cf._prove_workers_free, token, account_id)
-              if status == "ready_for_wire":
-                  gate("model_schema_probe", cf._prove_model_access, token, account_id)
+
+              # Read-only independent qualification: even if Billing Read is denied,
+              # prove whether the exact Workers AI model itself is accessible.
+              try:
+                  cf._prove_model_access(token, account_id)
+              except cf.CloudflareGoldVisionUnavailable as exc:
+                  gates.append({"stage": "model_schema_probe_independent", "status": "fail"})
+                  model_probe_detail = str(exc)[:1000]
+              else:
+                  gates.append({"stage": "model_schema_probe_independent", "status": "pass"})
+                  model_probe_detail = None
+
               if status == "ready_for_wire":
                   gate("workflow_quota_reservation", cf._reserve_workflow_call)
 
@@ -190,6 +200,7 @@ jobs:
               "status": status,
               "failed_stage": failed_stage,
               "detail": detail,
+              "model_probe_detail": locals().get("model_probe_detail"),
               "inference_attempt_performed": False,
               "gates": gates,
           }
