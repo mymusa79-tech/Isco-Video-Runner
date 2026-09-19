@@ -1,0 +1,142 @@
+name: Probe Mistral Visual QA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - probe/mistral-visual-qa-capability-20260920
+    paths:
+      - .github/workflows/probe-mistral.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+
+    steps:
+      - name: Probe Mistral
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MISTRAL_API_KEY:-}" ]; then
+            echo "connection=FAIL reason=missing_secret"
+            exit 1
+          fi
+
+          python - <<'PY' > request.json
+          import json
+
+          fields = {
+              "status": {"type": "string", "enum": ["pass", "block"]},
+              "relevance": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+              "visual_quality": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+              "identifiable_person": {"type": "boolean"},
+              "sensitive_trait_implication_risk": {"type": "boolean"},
+              "prominent_logo_or_brand": {"type": "boolean"},
+              "cultural_conflict": {"type": "boolean"},
+              "cultural_islamic_suitability_risk": {"type": "boolean"},
+              "advertiser_conflict": {"type": "boolean"},
+              "obvious_synthetic_or_visual_artifact": {"type": "boolean"},
+              "reason": {"type": "string"},
+          }
+
+          schema = {
+              "type": "object",
+              "properties": fields,
+              "required": list(fields),
+              "additionalProperties": False,
+          }
+
+          payload = {
+              "model": "ministral-14b-2512",
+              "messages": [{
+                  "role": "user",
+                  "content": [
+                      {
+                          "type": "text",
+                          "text": "Audit this image. Return only the required Visual Audit JSON."
+                      },
+                      {
+                          "type": "image_url",
+                          "image_url": "https://docs.mistral.ai/img/eiffel-tower-paris.jpg"
+                      }
+                  ]
+              }],
+              "temperature": 0,
+              "max_tokens": 500,
+              "response_format": {
+                  "type": "json_schema",
+                  "json_schema": {
+                      "name": "isco_visual_audit_v2",
+                      "strict": True,
+                      "schema": schema
+                  }
+              }
+          }
+
+          print(json.dumps(payload, separators=(",", ":")))
+          PY
+
+          http_code="$(
+            curl -sS               --connect-timeout 15               --max-time 60               -D headers.txt               -o response.json               -w '%{http_code}'               https://api.mistral.ai/v1/chat/completions               -H 'Content-Type: application/json'               -H "Authorization: Bearer ${MISTRAL_API_KEY}"               --data-binary @request.json
+          )"
+
+          if [ "$http_code" = "200" ]; then
+            echo "connection=SUCCESS"
+          else
+            echo "connection=FAIL http_status=$http_code"
+          fi
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          required = {
+              "status": str,
+              "relevance": (int, float),
+              "visual_quality": (int, float),
+              "identifiable_person": bool,
+              "sensitive_trait_implication_risk": bool,
+              "prominent_logo_or_brand": bool,
+              "cultural_conflict": bool,
+              "cultural_islamic_suitability_risk": bool,
+              "advertiser_conflict": bool,
+              "obvious_synthetic_or_visual_artifact": bool,
+              "reason": str,
+          }
+
+          try:
+              envelope = json.loads(Path("response.json").read_text(encoding="utf-8"))
+              content = envelope["choices"][0]["message"]["content"]
+              audit = json.loads(content)
+
+              ok = isinstance(audit, dict) and set(audit) == set(required)
+              if ok:
+                  for key, expected in required.items():
+                      value = audit[key]
+                      if key in {"relevance", "visual_quality"}:
+                          if isinstance(value, bool) or not isinstance(value, expected) or not (0.0 <= float(value) <= 1.0):
+                              ok = False
+                              break
+                      elif not isinstance(value, expected):
+                          ok = False
+                          break
+                  if audit.get("status") not in {"pass", "block"}:
+                      ok = False
+
+              print("schema_match=SUCCESS" if ok else "schema_match=FAIL")
+          except Exception:
+              print("schema_match=FAIL")
+          PY
+
+          echo "rate_limit_headers_begin"
+          awk 'BEGIN{IGNORECASE=1} /^[^:]*rate[^:]*:/ || /^[^:]*limit[^:]*:/ || /^retry-after:/ {gsub("\r",""); print}' headers.txt
+          echo "rate_limit_headers_end"
+
+          test "$http_code" = "200"
