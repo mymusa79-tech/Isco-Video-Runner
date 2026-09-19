@@ -371,6 +371,101 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             {cloudflare.CLOUDFLARE_VISION_PROVIDER: 1},
         )
 
+    def test_shared_preflight_failure_writes_exact_no_wire_stage(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        with tempfile.TemporaryDirectory() as root, patch.dict(
+            os.environ,
+            {
+                "CLOUDFLARE_VISION_FREE_ONLY": "true",
+                "CLOUDFLARE_VISION_QUOTA_FILE": str(Path(root) / "shared-quota.json"),
+            },
+            clear=False,
+        ), patch.object(
+            cloudflare,
+            "_credentials",
+            return_value=("secret-token", "a" * 32),
+        ), patch.object(
+            cloudflare,
+            "_prove_workers_free",
+            side_effect=cloudflare.CloudflareGoldVisionUnavailable(
+                "Billing Read proof unavailable"
+            ),
+        ) as free_proof, patch.object(
+            cloudflare,
+            "_prove_model_access",
+        ) as model_probe, patch.object(
+            cloudflare,
+            "_wire_call",
+        ) as wire:
+            preview_dir = Path(root) / "visual-qa"
+            preview_dir.mkdir()
+            preview = preview_dir / "01-s1-preview.mp4"
+            preview.write_bytes(b"preview")
+            with self.assertRaisesRegex(
+                cloudflare.CloudflareGoldVisionUnavailable,
+                "Billing Read proof unavailable",
+            ):
+                cloudflare.run_shared_cloudflare_attempt(
+                    ledger,
+                    _shared_spec(),
+                    preview=preview,
+                    narration_context="ctx",
+                    intended_visual="intent",
+                )
+
+            diagnostics = json.loads(
+                (Path(root) / "cloudflare-vision-preflight.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        free_proof.assert_called_once_with("secret-token", "a" * 32)
+        model_probe.assert_not_called()
+        wire.assert_not_called()
+        self.assertEqual(ledger.to_summary()["provider_attempts"]["total"], 0)
+        self.assertEqual(diagnostics["status"], "no_wire")
+        self.assertEqual(
+            diagnostics["failed_stage"],
+            "zero_cost_subscription_proof",
+        )
+        self.assertFalse(diagnostics["inference_attempt_recorded"])
+        self.assertEqual(
+            diagnostics["gates"],
+            [
+                {"stage": "credentials", "status": "pass"},
+                {"stage": "zero_cost_subscription_proof", "status": "fail"},
+            ],
+        )
+        self.assertNotIn("secret-token", json.dumps(diagnostics))
+
+    def test_shared_configuration_reason_identifies_missing_input_without_secret_values(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"CLOUDFLARE_VISION_FREE_ONLY": "true"},
+            clear=True,
+        ):
+            self.assertEqual(
+                cloudflare.shared_vision_configuration_reason(),
+                "api_token_missing",
+            )
+        with patch.dict(
+            os.environ,
+            {
+                "CLOUDFLARE_VISION_FREE_ONLY": "true",
+                "CLOUDFLARE_API_TOKEN": "secret-token",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                cloudflare.shared_vision_configuration_reason(),
+                "account_id_missing",
+            )
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                cloudflare.shared_vision_configuration_reason(),
+                "feature_flag_disabled",
+            )
+
     def test_cloudflare_http_failure_retains_raw_status_and_message(self) -> None:
         response = Mock()
         response.ok = False
