@@ -82,3 +82,17 @@ After this second-layer PR is reviewed and merged:
    it is not authorization to modify this layer.
 
 No workflow in Clean V2 publishes to YouTube or merges code automatically.
+
+## Pre-QC resume checkpoint
+
+Clean V2 can reuse the last verified pre-QC prefix on a retry of the exact same
+Runner SHA, Engine SHA, Approved-Brief SHA, and max-visuals setting. The resumable
+prefix is limited to `planning -> script -> voice -> visuals`; Visual QA, render,
+Security/Cinematic post-render checks, and Final Master QC always execute again.
+
+The checkpoint is fail-closed. `resume-checkpoint.json` stores SHA-256 digests for
+every reused artifact. A missing, modified, stale, cross-SHA, cross-brief, or
+cross-Engine checkpoint is ignored and the normal pipeline runs instead. This is
+intended to save free-provider quota after infrastructure failures without weakening
+quality gates or reusing a QC verdict.
+
