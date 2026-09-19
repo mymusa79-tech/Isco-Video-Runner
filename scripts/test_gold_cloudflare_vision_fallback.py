@@ -27,6 +27,19 @@ def _spec() -> TaskSpec:
     )
 
 
+def _shared_spec(task_id: str = "CLEAN_V2_VISUAL_AUDIT_S01") -> TaskSpec:
+    return TaskSpec(
+        task_id=task_id,
+        kind="VISUAL_AUDIT",
+        priority=Priority.P0,
+        capability=Capability.VISION,
+        max_provider_attempts=5,
+        schema_repair_allowed=False,
+        local_fallback=False,
+        semantic_block_is_final=True,
+    )
+
+
 def _preview(root: str) -> Path:
     path = Path(root) / "opening-preview.mp4"
     path.write_bytes(b"preview")
@@ -387,6 +400,101 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
         self.assertEqual(
             ledger.to_summary()["provider_attempts"]["by_outcome"],
             {"CONTENT_BLOCKED": 1},
+        )
+
+    def test_shared_visual_route_reuses_same_free_only_owner_per_task(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        with tempfile.TemporaryDirectory() as root, patch.dict(
+            os.environ,
+            {
+                "CLOUDFLARE_VISION_FREE_ONLY": "true",
+                "CLOUDFLARE_VISION_QUOTA_FILE": str(Path(root) / "quota.json"),
+            },
+            clear=False,
+        ), patch.object(
+            cloudflare,
+            "_credentials",
+            return_value=("token", "a" * 32),
+        ), patch.object(
+            cloudflare,
+            "_prove_workers_free",
+        ), patch.object(
+            cloudflare,
+            "_prove_model_access",
+        ), patch.object(
+            cloudflare,
+            "_wire_call",
+            return_value={"status": "pass"},
+        ) as wire:
+            preview = _preview(root)
+            first = cloudflare.run_shared_cloudflare_attempt(
+                ledger,
+                _shared_spec("CLEAN_V2_VISUAL_AUDIT_S01"),
+                preview=preview,
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+            second = cloudflare.run_shared_cloudflare_attempt(
+                ledger,
+                _shared_spec("CLEAN_V2_VISUAL_AUDIT_S02"),
+                preview=preview,
+                narration_context="ctx2",
+                intended_visual="intent2",
+            )
+            with self.assertRaisesRegex(
+                cloudflare.CloudflareGoldVisionUnavailable,
+                "already attempted",
+            ):
+                cloudflare.run_shared_cloudflare_attempt(
+                    ledger,
+                    _shared_spec("CLEAN_V2_VISUAL_AUDIT_S01"),
+                    preview=preview,
+                    narration_context="ctx",
+                    intended_visual="intent",
+                )
+        self.assertEqual(first["status"], "pass")
+        self.assertEqual(second["status"], "pass")
+        self.assertEqual(wire.call_count, 2)
+        summary = ledger.to_summary()["provider_attempts"]
+        self.assertEqual(
+            summary["by_provider"],
+            {cloudflare.CLOUDFLARE_VISION_PROVIDER: 2},
+        )
+
+    def test_cloudflare_http_error_preserves_raw_status_and_message(self) -> None:
+        response = Mock()
+        response.ok = False
+        response.status_code = 429
+        response.json.return_value = {
+            "success": False,
+            "errors": [{"code": 3040, "message": "Capacity temporarily exceeded"}],
+        }
+        with patch.object(
+            contract.legacy,
+            "_sample_preview_frames",
+            return_value=[b"one", b"two", b"three"],
+        ), patch.object(
+            contract.legacy,
+            "_visual_prompt",
+            return_value="strict prompt",
+        ), patch.object(
+            cloudflare.requests,
+            "post",
+            return_value=response,
+        ):
+            with self.assertRaises(contract.VisionStageError) as raised:
+                cloudflare._wire_call(
+                    "token",
+                    "a" * 32,
+                    Path("preview.mp4"),
+                    narration_context="ctx",
+                    intended_visual="intent",
+                )
+        self.assertEqual(raised.exception.http_status, 429)
+        self.assertIn("Capacity temporarily exceeded", raised.exception.http_message)
+        self.assertIs(
+            raised.exception.code,
+            contract.VisionErrorCode.PROVIDER_TRANSIENT,
         )
 
     def test_source_contains_no_billing_or_subscription_write(self) -> None:
