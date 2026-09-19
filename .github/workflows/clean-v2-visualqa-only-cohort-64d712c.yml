@@ -25,7 +25,7 @@ jobs:
       matrix:
         attempt: [1, 2, 3, 4, 5]
     env:
-      CANDIDATE_RUNNER_SHA: 64d712c939159005b4c5b2da1c3d8bdccc83ee91
+      CANDIDATE_RUNNER_SHA: 64d712cd87e411fa6f708fa27e714b4c4155f19a
       SOURCE_RUNNER_SHA: 4d6f1b6b4cca26988ddbba58c4882f3f4f85bf13
       ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
       APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
@@ -42,7 +42,7 @@ jobs:
       - name: Checkout exact Runner candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 64d712c939159005b4c5b2da1c3d8bdccc83ee91
+          ref: 64d712cd87e411fa6f708fa27e714b4c4155f19a
           persist-credentials: false
           fetch-depth: 1
 
