@@ -41,6 +41,7 @@ from scripts import provider_health_registry as health
 from scripts import task_level_planner_router as planner_router
 from scripts import text_audit_provider_mesh as text_mesh
 from scripts import vision_stage_contract_v2 as contract
+from scripts import canonical_visual_evidence_v1 as canonical_evidence
 
 
 GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
@@ -281,29 +282,35 @@ def _groq_visual_call(
     *,
     narration_context: str,
     intended_visual: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
 ) -> dict[str, Any]:
     _certify_groq_vision_model()
     token = _groq_key()
-    prompt = contract.legacy._visual_prompt(
-        narration_context=narration_context,
-        intended_visual=intended_visual,
-    )
-    frames = contract.legacy._sample_preview_frames(Path(preview))
-    frame_items = [
-        {
-            "type": "image_url",
-            "image_url": {
-                "url": "data:image/jpeg;base64," + base64.b64encode(frame).decode("ascii")
-            },
-        }
-        for frame in frames
-    ]
+    if canonical_visual_evidence is not None:
+        evidence = canonical_evidence.require_canonical_evidence(canonical_visual_evidence)
+        prompt = evidence.prompt
+        frame_items = canonical_evidence.openai_image_content(evidence)
+    else:
+        prompt = contract.legacy._visual_prompt(
+            narration_context=narration_context,
+            intended_visual=intended_visual,
+        )
+        frames = contract.legacy._sample_preview_frames(Path(preview))
+        frame_items = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "data:image/jpeg;base64," + base64.b64encode(frame).decode("ascii")
+                },
+            }
+            for frame in frames
+        ]
     payload = {
         "model": GROQ_VISION_MODEL,
         "messages": [
             {
                 "role": "user",
-                "content": [{"type": "text", "text": prompt}, *frame_items],
+                "content": [*frame_items, {"type": "text", "text": prompt}],
             }
         ],
         "temperature": 0,
@@ -385,6 +392,7 @@ def _run_groq_attempt(
     preview: Path,
     narration_context: str,
     intended_visual: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
 ) -> dict[str, Any]:
     contract._authorize(ledger, spec)
     try:
@@ -392,6 +400,7 @@ def _run_groq_attempt(
             preview,
             narration_context=narration_context,
             intended_visual=intended_visual,
+            canonical_visual_evidence=canonical_visual_evidence,
         )
     except Exception as exc:
         contract._record(
@@ -426,6 +435,7 @@ def _run_cloudflare_attempt(
     preview: Path,
     narration_context: str,
     intended_visual: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
 ) -> dict[str, Any]:
     return cloudflare_vision.run_shared_cloudflare_attempt(
         ledger,
@@ -433,6 +443,7 @@ def _run_cloudflare_attempt(
         preview=preview,
         narration_context=narration_context,
         intended_visual=intended_visual,
+        canonical_visual_evidence=canonical_visual_evidence,
     )
 
 
@@ -480,6 +491,7 @@ def _cloudflare_or_mesh(
     narration_context: str,
     intended_visual: str,
     input_hash: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
 ) -> dict[str, Any]:
     if attempts >= max_attempts:
         raise _mesh_unavailable(state)
@@ -493,6 +505,7 @@ def _cloudflare_or_mesh(
             preview=preview,
             narration_context=narration_context,
             intended_visual=intended_visual,
+            canonical_visual_evidence=canonical_visual_evidence,
         )
     except cloudflare_vision.CloudflareGoldVisionUnavailable as exc:
         health.publish_provider_unavailable(
@@ -518,6 +531,13 @@ def _cloudflare_or_mesh(
         "Vision Stage Contract V3: Cloudflare Workers AI route selected "
         f"model={CLOUDFLARE_VISION_MODEL} input={input_hash[:12]}"
     )
+    if canonical_visual_evidence is not None:
+        result = canonical_evidence.attach_provenance(
+            result,
+            provider=CLOUDFLARE_VISION_PROVIDER,
+            resolved_model=CLOUDFLARE_VISION_MODEL,
+            evidence=canonical_visual_evidence,
+        )
     return result
 
 
@@ -566,10 +586,16 @@ def _route_visual_audit_v3(
     preview = Path(args[1])
     narration_context = str(kwargs.get("narration_context") or "")
     intended_visual = str(kwargs.get("intended_visual") or "")
+    canonical_visual_evidence = kwargs.get("canonical_evidence")
+    if canonical_visual_evidence is not None:
+        canonical_visual_evidence = canonical_evidence.require_canonical_evidence(
+            canonical_visual_evidence
+        )
     input_hash = contract.vision_input_hash(
         preview,
         narration_context=narration_context,
         intended_visual=intended_visual,
+        canonical_visual_evidence=canonical_visual_evidence,
     )
     max_attempts = int(contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts)
     if max_attempts != 5:
@@ -643,6 +669,13 @@ def _route_visual_audit_v3(
                     else AttemptOutcome.SUCCESS
                 ),
             )
+            if canonical_visual_evidence is not None:
+                result = canonical_evidence.attach_provenance(
+                    result,
+                    provider="gemini",
+                    resolved_model=resolved_model,
+                    evidence=canonical_visual_evidence,
+                )
             # Semantic BLOCK is authoritative, not a reason to shop for a friendlier
             # provider. This preserves the existing V2 semantic-block-final contract.
             return result
@@ -669,7 +702,15 @@ def _route_visual_audit_v3(
                 preview=preview,
                 narration_context=narration_context,
                 intended_visual=intended_visual,
+                canonical_visual_evidence=canonical_visual_evidence,
             )
+            if canonical_visual_evidence is not None:
+                result = canonical_evidence.attach_provenance(
+                    result,
+                    provider="groq",
+                    resolved_model=GROQ_VISION_MODEL,
+                    evidence=canonical_visual_evidence,
+                )
             print(
                 "Vision Stage Contract V3: Groq Vision route selected "
                 f"model={GROQ_VISION_MODEL} input={input_hash[:12]}"
@@ -727,6 +768,7 @@ def _route_visual_audit_v3(
             narration_context=narration_context,
             intended_visual=intended_visual,
             input_hash=input_hash,
+            canonical_visual_evidence=canonical_visual_evidence,
         )
     if attempts >= max_attempts:
         raise _mesh_unavailable(state)
@@ -734,14 +776,26 @@ def _route_visual_audit_v3(
     attempts += 1
     first_resolved: str | None = None
     try:
+        openrouter_kwargs = {
+            "preview": preview,
+            "narration_context": narration_context,
+            "intended_visual": intended_visual,
+            "requested_model": contract.OPENROUTER_PRIMARY_MODEL,
+        }
+        if canonical_visual_evidence is not None:
+            openrouter_kwargs["canonical_visual_evidence"] = canonical_visual_evidence
         result, first_resolved = contract._run_openrouter_attempt(
             ledger,
             spec,
-            preview=preview,
-            narration_context=narration_context,
-            intended_visual=intended_visual,
-            requested_model=contract.OPENROUTER_PRIMARY_MODEL,
+            **openrouter_kwargs,
         )
+        if canonical_visual_evidence is not None:
+            result = canonical_evidence.attach_provenance(
+                result,
+                provider="openrouter",
+                resolved_model=first_resolved or contract.OPENROUTER_PRIMARY_MODEL,
+                evidence=canonical_visual_evidence,
+            )
         return result
     except contract.VisionStageError as first_error:
         if first_error.code is not contract.VisionErrorCode.STRUCTURAL_INVALID:
@@ -766,9 +820,25 @@ def _route_visual_audit_v3(
                 narration_context=narration_context,
                 intended_visual=intended_visual,
                 input_hash=input_hash,
+                canonical_visual_evidence=canonical_visual_evidence,
             )
 
         first_resolved = first_error.resolved_model or first_resolved
+        if canonical_visual_evidence is not None:
+            state.openrouter_open = True
+            state.openrouter_reason = contract.legacy._safe_exception_detail(first_error)
+            return _cloudflare_or_mesh(
+                ledger,
+                spec,
+                state,
+                attempts=attempts,
+                max_attempts=max_attempts,
+                preview=preview,
+                narration_context=narration_context,
+                intended_visual=intended_visual,
+                input_hash=input_hash,
+                canonical_visual_evidence=canonical_visual_evidence,
+            )
         # Preserve V2's one model-diverse schema recovery only when a real inference
         # slot remains. Skipped providers spend zero slots; failed wire calls spend one.
         if attempts >= max_attempts:
@@ -795,6 +865,7 @@ def _route_visual_audit_v3(
                 narration_context=narration_context,
                 intended_visual=intended_visual,
                 input_hash=input_hash,
+                canonical_visual_evidence=canonical_visual_evidence,
             )
         attempts += 1
         print(
@@ -826,6 +897,7 @@ def _route_visual_audit_v3(
                 narration_context=narration_context,
                 intended_visual=intended_visual,
                 input_hash=input_hash,
+                canonical_visual_evidence=canonical_visual_evidence,
             )
 
 

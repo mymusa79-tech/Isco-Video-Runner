@@ -88,15 +88,17 @@ def run_final_cut_visual_qa(
     """
 
     from isco_video_agent.ai_budget import BudgetLedger, Capability, Priority, TaskSpec
-    from isco_video_agent.media.ffmpeg import make_review_preview
     import isco_video_agent.orchestrator as orchestrator
-    from isco_video_agent.providers.gemini import audit_video_preview
     from isco_video_agent.visual_selection import (
         FINAL_CUT_TARGET_SEMANTIC_FLOOR,
         is_final_cut_ready,
         semantic_floor,
     )
     from scripts.run181_vision_mesh_closure import install_run181_vision_mesh_closure
+    from scripts.canonical_visual_evidence_v1 import (
+        audit_gemini_canonical_evidence,
+        build_canonical_visual_evidence,
+    )
     from scripts.vision_provider_reliability import vision_provider_circuit_scope
     from scripts.vision_stage_contract_v2 import (
         VisionStageError,
@@ -141,8 +143,8 @@ def run_final_cut_visual_qa(
 
     ledger = BudgetLedger(fmt, enforce=True)
     audits: list[dict[str, Any]] = []
-    preview_dir = output_dir / "visual-qa"
-    preview_dir.mkdir(parents=True, exist_ok=True)
+    evidence_root = output_dir / "visual-evidence"
+    evidence_root.mkdir(parents=True, exist_ok=True)
 
     try:
         with vision_provider_circuit_scope():
@@ -156,14 +158,14 @@ def run_final_cut_visual_qa(
                         f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} reason=selected_visual_missing"
                     )
 
-                preview = preview_dir / f"{index:02d}-{section_id}-preview.mp4"
-                make_review_preview(
-                    clip,
-                    preview,
-                    portrait=fmt in {"moment", "story"},
-                )
                 narration_context = script_by_id.get(section_id, "")
                 intended_visual = str(section.get("visual_query_en") or "").strip()
+                canonical_evidence = build_canonical_visual_evidence(
+                    clip,
+                    evidence_root / f"{index:02d}-{section_id}",
+                    narration_context=narration_context,
+                    intended_visual=intended_visual,
+                )
                 spec = TaskSpec(
                     task_id=f"CLEAN_V2_VISUAL_AUDIT_S{index:02d}",
                     kind="VISUAL_AUDIT",
@@ -180,9 +182,10 @@ def run_final_cut_visual_qa(
                         spec,
                         "gemini",
                         model,
-                        audit_video_preview,
+                        audit_gemini_canonical_evidence,
                         gemini,
-                        preview,
+                        clip,
+                        canonical_evidence=canonical_evidence,
                         narration_context=narration_context,
                         intended_visual=intended_visual,
                         model=model,
@@ -216,6 +219,25 @@ def run_final_cut_visual_qa(
                     ) from exc
 
                 audit = dict(raw)
+                required_provenance = (
+                    "vision_provider",
+                    "resolved_model",
+                    "prompt_hash",
+                    "frame_sha256",
+                )
+                if any(key not in audit for key in required_provenance):
+                    raise CleanV2VisualQABlock(
+                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
+                        "reason=canonical_visual_evidence_provenance_missing"
+                    )
+                if (
+                    audit.get("prompt_hash") != canonical_evidence.prompt_hash
+                    or list(audit.get("frame_sha256") or []) != list(canonical_evidence.frame_sha256)
+                ):
+                    raise CleanV2VisualQABlock(
+                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
+                        "reason=canonical_visual_evidence_provenance_mismatch"
+                    )
                 floor = semantic_floor(audit)
                 audit.update(
                     {
