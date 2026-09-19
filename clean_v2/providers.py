@@ -189,8 +189,8 @@ def _openrouter_call(prompt: str, max_tokens: int) -> dict[str, Any]:
     key = _read_secret("OPENROUTER_API_KEY")
     if not key:
         raise NoWireFailure("missing_api_key")
-    model = str(os.environ.get("OPENROUTER_CONTENT_MODEL") or "openai/gpt-oss-20b:free").strip()
-    if model != "openai/gpt-oss-20b:free":
+    model = str(os.environ.get("OPENROUTER_CONTENT_MODEL") or "google/gemma-4-26b-a4b-it:free").strip()
+    if model != "google/gemma-4-26b-a4b-it:free":
         raise NoWireFailure("paid_or_unapproved_model")
     body = _post_json(
         "https://openrouter.ai/api/v1/chat/completions",
