@@ -100,12 +100,73 @@ def _shared_enabled() -> bool:
     )
 
 
-def shared_vision_configured() -> bool:
+def shared_vision_configuration_reason() -> str | None:
     if not _shared_enabled():
-        return False
+        return "feature_flag_disabled"
     token = _read_secret("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN_FILE")
     account_id = _read_secret("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID_FILE")
-    return bool(token and account_id)
+    if not token:
+        return "api_token_missing"
+    if not account_id:
+        return "account_id_missing"
+    return None
+
+
+def shared_vision_configured() -> bool:
+    return shared_vision_configuration_reason() is None
+
+
+def _shared_preflight_diagnostics_path(preview: Path) -> Path:
+    preview = Path(preview)
+    parent = preview.parent
+    if parent.name == "visual-qa":
+        return parent.parent / "cloudflare-vision-preflight.json"
+    return parent / "cloudflare-vision-preflight.json"
+
+
+def _write_shared_preflight_diagnostics(
+    preview: Path,
+    *,
+    status: str,
+    gates: list[dict[str, str]],
+    failed_stage: str | None = None,
+    detail: str | None = None,
+) -> None:
+    """Write secret-free shared-Vision preflight evidence without affecting routing."""
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "provider": CLOUDFLARE_VISION_PROVIDER,
+        "model": CLOUDFLARE_VISION_MODEL,
+        "route": "shared_visual_audit",
+        "status": status,
+        "inference_attempt_recorded": False,
+        "gates": gates,
+    }
+    if failed_stage:
+        payload["failed_stage"] = failed_stage
+    if detail:
+        payload["detail"] = detail[:1000]
+    path = _shared_preflight_diagnostics_path(Path(preview))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, UnicodeError):
+        # Diagnostics must never change provider eligibility or fail-closed behavior.
+        pass
+
+
+def record_shared_configuration_unavailable(preview: Path) -> None:
+    reason = shared_vision_configuration_reason() or "unknown_configuration_failure"
+    _write_shared_preflight_diagnostics(
+        Path(preview),
+        status="no_wire",
+        gates=[{"stage": "configuration", "status": "fail"}],
+        failed_stage="configuration",
+        detail=reason,
+    )
 
 
 def _quota_path() -> Path:
@@ -589,14 +650,43 @@ def run_shared_cloudflare_attempt(
             "Cloudflare shared Vision route is Visual-Audit-only"
         )
     if not _shared_enabled():
+        record_shared_configuration_unavailable(Path(preview))
         raise CloudflareGoldVisionUnavailable(
             "Cloudflare zero-cost shared Vision route is disabled"
         )
 
-    token, account_id = _credentials()
-    _prove_workers_free(token, account_id)
-    _prove_model_access(token, account_id)
-    _reserve_workflow_call()
+    gates: list[dict[str, str]] = []
+
+    def preflight(stage: str, fn, *args):
+        try:
+            value = fn(*args)
+        except CloudflareGoldVisionUnavailable as exc:
+            gates.append({"stage": stage, "status": "fail"})
+            _write_shared_preflight_diagnostics(
+                Path(preview),
+                status="no_wire",
+                gates=list(gates),
+                failed_stage=stage,
+                detail=contract.legacy._safe_exception_detail(exc),
+            )
+            raise
+        gates.append({"stage": stage, "status": "pass"})
+        _write_shared_preflight_diagnostics(
+            Path(preview),
+            status="preflight_in_progress",
+            gates=list(gates),
+        )
+        return value
+
+    token, account_id = preflight("credentials", _credentials)
+    preflight("zero_cost_subscription_proof", _prove_workers_free, token, account_id)
+    preflight("model_schema_probe", _prove_model_access, token, account_id)
+    preflight("workflow_quota_reservation", _reserve_workflow_call)
+    _write_shared_preflight_diagnostics(
+        Path(preview),
+        status="ready_for_wire",
+        gates=list(gates),
+    )
 
     contract._authorize(ledger, spec)
     try:
