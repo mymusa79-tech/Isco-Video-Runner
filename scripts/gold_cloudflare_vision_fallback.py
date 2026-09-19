@@ -511,7 +511,10 @@ def _wire_call(
         "max_completion_tokens": 700,
         "service_tier": "default",
         "store": False,
-        "response_format": contract._strict_response_format(),
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": contract.VISUAL_AUDIT_SCHEMA,
+        },
     }
     encoded_model = "/".join(
         quote(part, safe="@") for part in CLOUDFLARE_VISION_MODEL.split("/")
