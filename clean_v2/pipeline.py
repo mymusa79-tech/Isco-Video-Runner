@@ -23,7 +23,11 @@ from .media import inspect_final, render_video
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 VISUAL_QA_STAGE = "final_cut_visual_qa"
 TEXT_AUDIT_STAGE = "text_audit"
+AUDIO_MASTERING_STAGE = "audio_mastering"
 QUALITY_STAGE = "final_master_qc"
+# Audio mastering is a deterministic ffmpeg transformation, not a content-judgment
+# gate, so it is deliberately NOT in QUALITY_STAGES: a failure here is always a
+# plain technical failure, never a "quality_pending" content block.
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
@@ -37,6 +41,7 @@ STAGES = (
     "script",
     TEXT_AUDIT_STAGE,
     "voice",
+    AUDIO_MASTERING_STAGE,
     "visuals",
     VISUAL_QA_STAGE,
     "render",
@@ -155,6 +160,25 @@ def _run_legacy_factuality_audit(
         raise RuntimeError(f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: {summary}")
     if result.get("status") == "block":
         raise RuntimeError("Independent factuality/AI-expert gate blocked real production")
+    return report
+
+
+def _run_audio_loudness_mastering(
+    *,
+    output_dir: Path,
+    narration_path: Path,
+) -> dict[str, Any]:
+    from clean_v2.audio_mastering import master_narration_loudness
+
+    mastered_path = output_dir / "narration-mastered.wav"
+    result = master_narration_loudness(narration_path, mastered_path)
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-audio-loudness-mastering",
+        "narration_file": mastered_path.name,
+        **result,
+    }
+    atomic_write_json(output_dir / "audio-mastering.json", report)
     return report
 
 
@@ -580,6 +604,7 @@ class CleanV2Pipeline:
         cinematic_layer: Callable[..., dict[str, Any]] = _run_legacy_cinematic_layer,
         final_master_qc: Callable[[Path], dict[str, Any]] = _run_legacy_final_master_qc,
         text_audit: Callable[..., dict[str, Any]] = _run_legacy_factuality_audit,
+        audio_mastering: Callable[..., dict[str, Any]] = _run_audio_loudness_mastering,
     ) -> None:
         self.router = router
         self.voice_synthesizer = voice_synthesizer
@@ -590,6 +615,7 @@ class CleanV2Pipeline:
         self.cinematic_layer = cinematic_layer
         self.final_master_qc = final_master_qc
         self.text_audit = text_audit
+        self.audio_mastering = audio_mastering
 
     def _write_runtime_events(self, output_dir: Path) -> None:
         atomic_write_json(
@@ -784,6 +810,18 @@ class CleanV2Pipeline:
                 voice_fallback_used=journal.payload.get("voice_fallback_used"),
             )
 
+            # Not part of the resumable checkpoint set: a cheap deterministic local
+            # ffmpeg transform, always re-applied fresh to whatever narration.wav is
+            # on disk (resumed or freshly synthesized) rather than cached.
+            audio_mastering_report = journal.run(
+                AUDIO_MASTERING_STAGE,
+                lambda: self.audio_mastering(
+                    output_dir=output_dir,
+                    narration_path=narration_path,
+                ),
+            )
+            narration_path = output_dir / "narration-mastered.wav"
+
             visuals_dir = output_dir / "visuals"
             # Security V1 and M8 are part of the restored layer and execute inside
             # StockVisualSource admission/transform hooks during this stage.
@@ -945,6 +983,7 @@ class CleanV2Pipeline:
                 final_sha256=final_report["sha256"],
                 final_duration_seconds=final_report["duration_seconds"],
                 text_audit_status=text_audit_report.get("status"),
+                audio_mastering_status=audio_mastering_report.get("status"),
                 visual_qa_status=visual_qa_report.get("status"),
                 cinematic_v2_status=cinematic_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
@@ -961,6 +1000,7 @@ class CleanV2Pipeline:
                 "duration_seconds": final_report["duration_seconds"],
                 "sha256": final_report["sha256"],
                 "text_audit_status": text_audit_report.get("status"),
+                "audio_mastering_status": audio_mastering_report.get("status"),
                 "visual_qa_status": visual_qa_report.get("status"),
                 "cinematic_v2_status": cinematic_report.get("status"),
                 "final_master_qc_status": final_master_report.get("status"),

@@ -14,6 +14,7 @@ from clean_v2.contracts import (
     validate_plan,
 )
 from clean_v2.pipeline import (
+    AUDIO_MASTERING_STAGE,
     CINEMATIC_STAGE,
     TEXT_AUDIT_STAGE,
     VISUAL_QA_STAGE,
@@ -344,6 +345,33 @@ def _infrastructure_text_audit(**kwargs) -> dict:
     )
 
 
+def _passing_audio_mastering(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    narration_path = Path(kwargs["narration_path"])
+    mastered_path = output_dir / "narration-mastered.wav"
+    shutil.copyfile(narration_path, mastered_path)
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-audio-loudness-mastering",
+        "narration_file": mastered_path.name,
+        "status": "pass",
+        "target_integrated_lufs": -16.0,
+        "target_true_peak_dbtp": -1.5,
+        "target_loudness_range": 11.0,
+        "alimiter_ceiling_linear": 0.84,
+        "measured_input_integrated_lufs": -20.0,
+        "measured_input_true_peak_dbtp": -6.0,
+    }
+    (output_dir / "audio-mastering.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    return report
+
+
+def _failing_audio_mastering(**kwargs) -> dict:
+    raise RuntimeError("audio_loudness_measurement_unparseable")
+
+
 def _passing_cinematic_layer(**kwargs) -> dict:
     output_dir = Path(kwargs["output_dir"])
     report = {
@@ -534,6 +562,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             result = pipeline.run(
                 brief_path=brief_path,
@@ -591,6 +620,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             with self.assertRaisesRegex(
                 RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"
@@ -642,6 +672,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             result = second.run(
                 brief_path=brief_path,
@@ -689,6 +720,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             with self.assertRaisesRegex(
                 RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"
@@ -714,6 +746,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             with self.assertRaisesRegex(
                 RuntimeError, "planning exhausted bounded provider route"
@@ -750,6 +783,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_blocking_final_master_qc,
                 text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             with self.assertRaisesRegex(RuntimeError, "blocked release"):
                 pipeline.run(
@@ -796,6 +830,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
                 pipeline.run(
@@ -832,6 +867,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_blocking_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             with self.assertRaisesRegex(RuntimeError, "new layer block"):
                 pipeline.run(
@@ -872,6 +908,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_BLOCK"):
                 pipeline.run(
@@ -906,6 +943,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"):
                 pipeline.run(
@@ -938,6 +976,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_blocking_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             with self.assertRaisesRegex(RuntimeError, "blocked real production"):
                 pipeline.run(
@@ -976,6 +1015,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 cinematic_layer=_passing_cinematic_layer,
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_infrastructure_text_audit,
+                audio_mastering=_passing_audio_mastering,
             )
             with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
                 pipeline.run(
@@ -992,6 +1032,43 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["status"], "failed")
             self.assertEqual(manifest["failure_classification"], "infrastructure")
             self.assertEqual(manifest["stages"][-1]["name"], TEXT_AUDIT_STAGE)
+
+    def test_audio_mastering_failure_is_a_plain_technical_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_failing_audio_mastering,
+            )
+            with self.assertRaisesRegex(RuntimeError, "audio_loudness_measurement_unparseable"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            # Audio mastering is a transform, not a content gate: any failure is a
+            # plain technical failure, never "quality_pending".
+            self.assertEqual(manifest["status"], "failed")
+            self.assertEqual(manifest["failure_classification"], "pre-layer")
+            self.assertEqual(manifest["stages"][-1]["name"], AUDIO_MASTERING_STAGE)
+            self.assertEqual(manifest["stages"][-1]["status"], "failed")
+            self.assertFalse((output / "narration-mastered.wav").exists())
 
 
 class VisualQADiagnosticsTests(unittest.TestCase):
