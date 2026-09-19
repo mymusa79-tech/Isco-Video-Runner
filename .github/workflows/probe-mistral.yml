@@ -1,142 +1,215 @@
-name: Probe Mistral Visual QA
+name: Verify Mistral Visual QA Live Integration
 
 on:
-  workflow_dispatch:
   push:
     branches:
-      - probe/mistral-visual-qa-capability-20260920
+      - feat/mistral-visual-qa-fallback
     paths:
       - .github/workflows/probe-mistral.yml
+      - clean_v2/visual_qa.py
+      - scripts/canonical_visual_evidence_v1.py
+      - scripts/mistral_visual_qa_fallback.py
+      - scripts/run181_vision_mesh_closure.py
+      - scripts/test_canonical_visual_evidence_v1.py
+      - scripts/test_mistral_visual_qa_fallback.py
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
-  probe:
+  live-integration:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     env:
-      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+      SOURCE_RUN_ID: "35461535282"
+      SOURCE_ARTIFACT_ID: "10590525061"
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
 
     steps:
-      - name: Probe Mistral
-        shell: bash
+      - name: Checkout exact feature candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Runner checkout
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Checkout frozen private Engine source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install frozen Engine runtime
+        working-directory: engine
         run: |
           set -euo pipefail
+          python -m pip install --disable-pip-version-check -r requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-build-isolation --no-deps -e .
+          python -m pip check
 
-          if [ -z "${MISTRAL_API_KEY:-}" ]; then
-            echo "connection=FAIL reason=missing_secret"
-            exit 1
-          fi
+      - name: Run focused Visual QA unit and routing tests
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            scripts.test_mistral_visual_qa_fallback \
+            scripts.test_canonical_visual_evidence_v1 \
+            scripts.test_run181_vision_provider_health_mesh \
+            -v
 
-          python - <<'PY' > request.json
-          import json
+      - name: Download exact Run 114 canonical evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/clean-v2-114-1.zip"
+          evidence="$RUNNER_TEMP/clean-v2-114-1"
+          mkdir -p "$evidence"
+          gh api -H 'Accept: application/vnd.github+json' \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
+            > "$archive"
+          unzip -q "$archive" -d "$evidence"
+          test -s "$evidence/visuals/visual-01.mp4"
+          test -s "$evidence/visual-evidence/01-s1/frame-01.jpg"
+          test -s "$evidence/visual-evidence/01-s1/frame-02.jpg"
+          test -s "$evidence/visual-evidence/01-s1/frame-03.jpg"
+          printf '%s  %s\n' \
+            'c92269f4de1f5ea9b83169f7fc050d0849e6b8eaa367f835c72782c9964c8026' "$evidence/visual-evidence/01-s1/frame-01.jpg" \
+            '439e005974a0a3557946e88222c9067c48f76f51218e068b223fe49b79dfce37' "$evidence/visual-evidence/01-s1/frame-02.jpg" \
+            'b2c4e49afd434bc8b3b21e5baaaf8ba9895e33fe02e7b9c6fc4aaefdca31b824' "$evidence/visual-evidence/01-s1/frame-03.jpg" \
+            | sha256sum -c -
+          echo "MISTRAL_INTEGRATION_SOURCE=$evidence" >> "$GITHUB_ENV"
 
-          fields = {
-              "status": {"type": "string", "enum": ["pass", "block"]},
-              "relevance": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-              "visual_quality": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-              "identifiable_person": {"type": "boolean"},
-              "sensitive_trait_implication_risk": {"type": "boolean"},
-              "prominent_logo_or_brand": {"type": "boolean"},
-              "cultural_conflict": {"type": "boolean"},
-              "cultural_islamic_suitability_risk": {"type": "boolean"},
-              "advertiser_conflict": {"type": "boolean"},
-              "obvious_synthetic_or_visual_artifact": {"type": "boolean"},
-              "reason": {"type": "string"},
-          }
-
-          schema = {
-              "type": "object",
-              "properties": fields,
-              "required": list(fields),
-              "additionalProperties": False,
-          }
-
-          payload = {
-              "model": "ministral-14b-2512",
-              "messages": [{
-                  "role": "user",
-                  "content": [
-                      {
-                          "type": "text",
-                          "text": "Audit this image. Return only the required Visual Audit JSON."
-                      },
-                      {
-                          "type": "image_url",
-                          "image_url": "https://docs.mistral.ai/img/eiffel-tower-paris.jpg"
-                      }
-                  ]
-              }],
-              "temperature": 0,
-              "max_tokens": 500,
-              "response_format": {
-                  "type": "json_schema",
-                  "json_schema": {
-                      "name": "isco_visual_audit_v2",
-                      "strict": True,
-                      "schema": schema
-                  }
-              }
-          }
-
-          print(json.dumps(payload, separators=(",", ":")))
-          PY
-
-          http_code="$(
-            curl -sS               --connect-timeout 15               --max-time 60               -D headers.txt               -o response.json               -w '%{http_code}'               https://api.mistral.ai/v1/chat/completions               -H 'Content-Type: application/json'               -H "Authorization: Bearer ${MISTRAL_API_KEY}"               --data-binary @request.json
-          )"
-
-          if [ "$http_code" = "200" ]; then
-            echo "connection=SUCCESS"
-          else
-            echo "connection=FAIL http_status=$http_code"
-          fi
-
+      - name: Send real canonical Visual QA request to Mistral
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          RESULT_PATH: ${{ runner.temp }}/mistral-visual-qa-live-result.json
+        run: |
+          set -euo pipefail
+          test -n "${MISTRAL_API_KEY:-}"
           python - <<'PY'
+          import hashlib
           import json
+          import os
           from pathlib import Path
 
-          required = {
-              "status": str,
-              "relevance": (int, float),
-              "visual_quality": (int, float),
-              "identifiable_person": bool,
-              "sensitive_trait_implication_risk": bool,
-              "prominent_logo_or_brand": bool,
-              "cultural_conflict": bool,
-              "cultural_islamic_suitability_risk": bool,
-              "advertiser_conflict": bool,
-              "obvious_synthetic_or_visual_artifact": bool,
-              "reason": str,
+          from scripts import canonical_visual_evidence_v1 as canonical
+          from scripts import mistral_visual_qa_fallback as mistral
+          from scripts import vision_stage_contract_v2 as contract
+
+
+          def sha256(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+          root = Path(os.environ["MISTRAL_INTEGRATION_SOURCE"])
+          plan = json.loads((root / "plan.json").read_text(encoding="utf-8"))
+          script = json.loads((root / "script.json").read_text(encoding="utf-8"))
+          manifest = json.loads(
+              (root / "visual-evidence/01-s1/evidence.json").read_text(encoding="utf-8")
+          )
+          section = next(item for item in plan["sections"] if item["id"] == "s1")
+          narration = next(item for item in script["sections"] if item["id"] == "s1")[
+              "narration"
+          ]
+          prompt = canonical.canonical_visual_prompt(
+              narration_context=narration,
+              intended_visual=section["visual_query_en"],
+          )
+          prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+          if prompt_hash != manifest["prompt_hash"]:
+              raise SystemExit("canonical prompt hash drift")
+
+          source = root / "visuals/visual-01.mp4"
+          frames = tuple(
+              root / f"visual-evidence/01-s1/frame-{index:02d}.jpg"
+              for index in range(1, 4)
+          )
+          frame_hashes = tuple(sha256(path) for path in frames)
+          if list(frame_hashes) != manifest["frame_sha256"]:
+              raise SystemExit("canonical frame hash drift")
+          if sha256(source) != manifest["source_sha256"]:
+              raise SystemExit("canonical source hash drift")
+
+          evidence = canonical.CanonicalVisualEvidence(
+              source_path=source,
+              source_sha256=manifest["source_sha256"],
+              frame_paths=frames,
+              frame_sha256=frame_hashes,
+              prompt=prompt,
+              prompt_hash=prompt_hash,
+          )
+          mistral.reset_mistral_visual_qa_telemetry()
+          audit = mistral._mistral_visual_call(
+              source,
+              narration_context=narration,
+              intended_visual=section["visual_query_en"],
+              canonical_visual_evidence=evidence,
+          )
+          error = contract._schema_error(
+              audit,
+              resolved_model=mistral.MISTRAL_VISION_MODEL,
+          )
+          if error is not None:
+              raise error
+          telemetry = mistral.get_mistral_visual_qa_telemetry()
+          if len(telemetry) != 1:
+              raise SystemExit(f"expected one Mistral telemetry entry, got {len(telemetry)}")
+
+          result = {
+              "schema_version": 1,
+              "status": "pass",
+              "runner_sha": os.environ["GITHUB_SHA"],
+              "source_run_id": int(os.environ["SOURCE_RUN_ID"]),
+              "source_artifact_id": int(os.environ["SOURCE_ARTIFACT_ID"]),
+              "source_section": "s1",
+              "model": mistral.MISTRAL_VISION_MODEL,
+              "canonical_prompt_hash": prompt_hash,
+              "canonical_frame_sha256": list(frame_hashes),
+              "canonical_frame_count": len(frames),
+              "schema_exact": set(audit) == set(contract.VISUAL_AUDIT_SCHEMA["properties"]),
+              "normalizer_status": audit["status"],
+              "audit": audit,
+              "telemetry": telemetry[0],
           }
-
-          try:
-              envelope = json.loads(Path("response.json").read_text(encoding="utf-8"))
-              content = envelope["choices"][0]["message"]["content"]
-              audit = json.loads(content)
-
-              ok = isinstance(audit, dict) and set(audit) == set(required)
-              if ok:
-                  for key, expected in required.items():
-                      value = audit[key]
-                      if key in {"relevance", "visual_quality"}:
-                          if isinstance(value, bool) or not isinstance(value, expected) or not (0.0 <= float(value) <= 1.0):
-                              ok = False
-                              break
-                      elif not isinstance(value, expected):
-                          ok = False
-                          break
-                  if audit.get("status") not in {"pass", "block"}:
-                      ok = False
-
-              print("schema_match=SUCCESS" if ok else "schema_match=FAIL")
-          except Exception:
-              print("schema_match=FAIL")
+          if not result["schema_exact"]:
+              raise SystemExit("normalized Mistral result is not the exact Visual Audit schema")
+          Path(os.environ["RESULT_PATH"]).write_text(
+              json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(
+              json.dumps(
+                  {
+                      "integration": "SUCCESS",
+                      "model": result["model"],
+                      "canonical_frame_count": result["canonical_frame_count"],
+                      "schema_exact": result["schema_exact"],
+                      "normalizer_status": result["normalizer_status"],
+                      "rate_limit_headers": result["telemetry"]["rate_limit_headers"],
+                      "usage": result["telemetry"]["usage"],
+                  },
+                  ensure_ascii=False,
+                  sort_keys=True,
+              )
+          )
           PY
 
-          echo "rate_limit_headers_begin"
-          awk 'BEGIN{IGNORECASE=1} /^[^:]*rate[^:]*:/ || /^[^:]*limit[^:]*:/ || /^retry-after:/ {gsub("\r",""); print}' headers.txt
-          echo "rate_limit_headers_end"
-
-          test "$http_code" = "200"
+      - name: Upload live integration evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mistral-visual-qa-live-${{ github.run_number }}
+          path: ${{ runner.temp }}/mistral-visual-qa-live-result.json
+          if-no-files-found: error
+          retention-days: 30

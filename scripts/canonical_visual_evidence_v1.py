@@ -62,7 +62,7 @@ def _sha256_file(path: Path) -> str:
 
 
 def canonical_visual_prompt(*, narration_context: str, intended_visual: str) -> str:
-    """Single prompt owner shared by Gemini/Groq/OpenRouter/Cloudflare."""
+    """Single prompt owner shared by Gemini/Groq/OpenRouter/Cloudflare/Mistral."""
 
     return f"""
 You are a strict visual editor, rights-safety reviewer and advertiser-safety reviewer for an Arabic YouTube channel.

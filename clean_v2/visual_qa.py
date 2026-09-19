@@ -100,6 +100,10 @@ def run_final_cut_visual_qa(
         build_canonical_visual_evidence,
     )
     from scripts.vision_provider_reliability import vision_provider_circuit_scope
+    from scripts.mistral_visual_qa_fallback import (
+        get_mistral_visual_qa_telemetry,
+        reset_mistral_visual_qa_telemetry,
+    )
     from scripts.vision_stage_contract_v2 import (
         VisionStageError,
         install_vision_provider_reliability,
@@ -140,6 +144,7 @@ def run_final_cut_visual_qa(
 
     install_vision_provider_reliability()
     install_run181_vision_mesh_closure()
+    reset_mistral_visual_qa_telemetry()
 
     ledger = BudgetLedger(fmt, enforce=True)
     audits: list[dict[str, Any]] = []
@@ -269,6 +274,17 @@ def run_final_cut_visual_qa(
                     )
     finally:
         ledger.write(output_dir / "visual-qa-budget.json")
+        mistral_telemetry = get_mistral_visual_qa_telemetry()
+        if mistral_telemetry:
+            _write_json(
+                output_dir / "mistral-visual-qa-telemetry.json",
+                {
+                    "schema_version": 1,
+                    "stage": STAGE_ID,
+                    "provider": "mistral",
+                    "calls": mistral_telemetry,
+                },
+            )
 
     report = {
         "schema_version": 1,
