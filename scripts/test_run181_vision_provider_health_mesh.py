@@ -621,7 +621,7 @@ class Run181RoutingTests(unittest.TestCase):
         self.assertEqual(openrouter.call_count, 2)
         cloudflare.assert_called_once()
 
-    def test_openrouter_provider_http_contract_error_can_fall_to_cloudflare(self) -> None:
+    def test_openrouter_provider_http_contract_error_stays_fail_closed_with_raw_evidence(self) -> None:
         provider_error = v2.VisionStageError(
             v2.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
             "HTTP_418 message=unexpected provider response",
@@ -643,30 +643,28 @@ class Run181RoutingTests(unittest.TestCase):
             "_run_openrouter_attempt",
             side_effect=provider_error,
         ), mock.patch.object(
-            closure.cloudflare_vision,
-            "shared_vision_configured",
-            return_value=True,
-        ), mock.patch.object(
             closure,
             "_run_cloudflare_attempt",
-            return_value=dict(_PASS),
         ) as cloudflare:
-            result = self._route_with_empty_telemetry(
-                None,
-                _spec(),
-                "gemini",
-                "gemini-3.7-flash",
-                lambda *_args, **_kwargs: (_ for _ in ()).throw(
-                    RuntimeError("429 RESOURCE_EXHAUSTED")
-                ),
-                "gem-key",
-                _preview(root),
-                narration_context="ctx",
-                intended_visual="intent",
-            )
+            with self.assertRaises(v2.VisionStageError) as raised:
+                self._route_with_empty_telemetry(
+                    None,
+                    _spec(),
+                    "gemini",
+                    "gemini-3.7-flash",
+                    lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                        RuntimeError("429 RESOURCE_EXHAUSTED")
+                    ),
+                    "gem-key",
+                    _preview(root),
+                    narration_context="ctx",
+                    intended_visual="intent",
+                )
 
-        self.assertEqual(result["status"], "pass")
-        cloudflare.assert_called_once()
+        self.assertIs(raised.exception, provider_error)
+        self.assertEqual(raised.exception.http_status, 418)
+        self.assertEqual(raised.exception.http_message, "unexpected provider response")
+        cloudflare.assert_not_called()
 
 
 if __name__ == "__main__":
