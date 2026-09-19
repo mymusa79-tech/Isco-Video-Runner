@@ -11,8 +11,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: clean-v2-visualqa-only-cohort-64d712c
-  cancel-in-progress: true
+  group: clean-v2-visualqa-only-cohort-64d712c-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   cohort:
