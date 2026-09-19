@@ -188,7 +188,7 @@ class VisionStageTransportV2Tests(unittest.TestCase):
         )
         self.assertEqual(
             transport.contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts,
-            3,
+            5,
         )
         self.assertTrue(
             transport.contract.VISION_STAGE_SPEC.provider_policy.semantic_block_is_final
