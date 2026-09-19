@@ -50,11 +50,12 @@ jobs:
             -v
 
   produce:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     needs: test
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
+      TARGET_RUNNER_SHA: 2f8b7613a1a590a45547839a37bcd06030af5201
       ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
       ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
@@ -77,11 +78,12 @@ jobs:
       - name: Checkout exact Runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ env.TARGET_RUNNER_SHA }}
           persist-credentials: false
           fetch-depth: 1
 
       - name: Verify exact Runner checkout
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+        run: test "$(git rev-parse HEAD)" = "$TARGET_RUNNER_SHA"
 
       - name: Checkout frozen private Engine source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -105,9 +107,9 @@ jobs:
         uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
         with:
           path: ${{ env.CLEAN_V2_RESUME }}
-          key: clean-v2-pre-qc-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ env.ISCO_APPROVED_BRIEF_SHA256 }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: clean-v2-pre-qc-${{ runner.os }}-${{ env.TARGET_RUNNER_SHA }}-${{ env.ISCO_ENGINE_SHA }}-${{ env.ISCO_APPROVED_BRIEF_SHA256 }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            clean-v2-pre-qc-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ env.ISCO_APPROVED_BRIEF_SHA256 }}-
+            clean-v2-pre-qc-${{ runner.os }}-${{ env.TARGET_RUNNER_SHA }}-${{ env.ISCO_ENGINE_SHA }}-${{ env.ISCO_APPROVED_BRIEF_SHA256 }}-
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -193,7 +195,7 @@ jobs:
             --brief "$GITHUB_WORKSPACE/engine/production/approved_brief.json" \
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
             --engine-sha "$ISCO_ENGINE_SHA" \
-            --runner-sha "$GITHUB_SHA" \
+            --runner-sha "$TARGET_RUNNER_SHA" \
             --piper-model "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx" \
             --voice-manifest "$GITHUB_WORKSPACE/engine/security/piper_voice_hashes.json" \
             --resume-from "$CLEAN_V2_RESUME" \
@@ -272,7 +274,7 @@ jobs:
         uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
         with:
           path: ${{ env.CLEAN_V2_RESUME }}
-          key: clean-v2-pre-qc-${{ runner.os }}-${{ github.sha }}-${{ env.ISCO_ENGINE_SHA }}-${{ env.ISCO_APPROVED_BRIEF_SHA256 }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: clean-v2-pre-qc-${{ runner.os }}-${{ env.TARGET_RUNNER_SHA }}-${{ env.ISCO_ENGINE_SHA }}-${{ env.ISCO_APPROVED_BRIEF_SHA256 }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload Clean V2 evidence and final file
         if: always()
