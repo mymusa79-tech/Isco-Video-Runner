@@ -95,4 +95,3 @@ every reused artifact. A missing, modified, stale, cross-SHA, cross-brief, or
 cross-Engine checkpoint is ignored and the normal pipeline runs instead. This is
 intended to save free-provider quota after infrastructure failures without weakening
 quality gates or reusing a QC verdict.
-
