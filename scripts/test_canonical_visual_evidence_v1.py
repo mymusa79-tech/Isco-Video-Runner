@@ -217,7 +217,7 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertEqual([item["type"] for item in client.interactions.input], ["image", "image", "image", "text"])
 
     def test_openrouter_judge_identity_is_fixed_and_not_free_router(self) -> None:
-        self.assertEqual(contract.OPENROUTER_PRIMARY_MODEL, "nex-agi/nex-n2.5-pro:free")
+        self.assertEqual(contract.OPENROUTER_PRIMARY_MODEL, "google/gemma-4-26b-a4b-it:free")
         self.assertNotEqual(contract.OPENROUTER_PRIMARY_MODEL, "openrouter/free")
 
     def test_provenance_records_full_hashes_and_exact_judge(self) -> None:
