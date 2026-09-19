@@ -345,7 +345,7 @@ def _prove_workers_free(token: str, account_id: str) -> None:
                 "Authorization": "Bearer " + token,
                 "Content-Type": "application/json",
             },
-            params={"per_page": 100},
+            params={"per_page": 50},
             timeout=CLOUDFLARE_PROBE_TIMEOUT_SECONDS,
         )
     except requests.Timeout as exc:
