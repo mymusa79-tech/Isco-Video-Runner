@@ -21,7 +21,7 @@ from scripts import canonical_visual_evidence_v1 as canonical_evidence
 VISION_STAGE_ID = "vision.visual_audit"
 VISION_CONTRACT_ID = "vision.visual_audit.v2"
 VISION_SEMANTIC_POLICY = "engine.visual_audit_normalizer.v1"
-OPENROUTER_PRIMARY_MODEL = "nex-agi/nex-n2.5-pro:free"
+OPENROUTER_PRIMARY_MODEL = "google/gemma-4-26b-a4b-it:free"
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models?input_modalities=image"
 OPENROUTER_CATALOG_TIMEOUT_SECONDS = 15
 OPENROUTER_MAX_MODEL_ATTEMPTS = 2
