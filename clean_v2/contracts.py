@@ -174,6 +174,27 @@ def validate_script(value: Any, plan: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def validate_narrative_identity(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ContractError("narrative identity output must be a JSON object")
+    opener = str(value.get("opener") or "").strip()
+    closer = str(value.get("closer") or "").strip()
+    raw_transitions = value.get("transitions")
+    if not opener or not closer or not isinstance(raw_transitions, list):
+        raise ContractError("narrative identity requires opener, closer, and transitions")
+    if len(raw_transitions) != 3:
+        raise ContractError("narrative identity requires exactly 3 transitions")
+    transitions = [str(item or "").strip() for item in raw_transitions]
+    if any(not item for item in transitions):
+        raise ContractError("narrative identity transitions must be non-empty")
+    return {
+        "schema_version": 1,
+        "opener": opener[:600],
+        "closer": closer[:600],
+        "transitions": [item[:200] for item in transitions],
+    }
+
+
 def atomic_write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

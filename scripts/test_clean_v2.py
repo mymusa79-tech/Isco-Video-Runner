@@ -16,6 +16,7 @@ from clean_v2.contracts import (
 from clean_v2.pipeline import (
     AUDIO_MASTERING_STAGE,
     CINEMATIC_STAGE,
+    IDENTITY_STAGE,
     TEXT_AUDIT_STAGE,
     VISUAL_QA_STAGE,
     STAGES,
@@ -372,6 +373,30 @@ def _failing_audio_mastering(**kwargs) -> dict:
     raise RuntimeError("audio_loudness_measurement_unparseable")
 
 
+def _passing_narrative_identity(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-narrative-identity",
+        "canonical_opener": "أهلاً بكم من جديد في نداء اليقظة",
+        "canonical_closer": "إلى لقاء قادم في نداء اليقظة",
+        "opener": "أهلاً بكم من جديد في هذه الحلقة من نداء اليقظة",
+        "closer": "نلقاكم في حلقة قادمة من نداء اليقظة",
+        "transitions": ["بعد هذه الفكرة", "ولننتقل الآن", "وهنا يأتي السؤال"],
+    }
+    (output_dir / "narrative-identity.json").write_text(
+        json.dumps(report, ensure_ascii=False), encoding="utf-8"
+    )
+    return report
+
+
+def _infrastructure_narrative_identity(**kwargs) -> dict:
+    raise RuntimeError(
+        f"{IDENTITY_STAGE} exhausted bounded provider route: "
+        "gemini:http_429, groq:http_429, openrouter:http_429"
+    )
+
+
 def _passing_cinematic_layer(**kwargs) -> dict:
     output_dir = Path(kwargs["output_dir"])
     report = {
@@ -580,6 +605,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             result = pipeline.run(
                 brief_path=brief_path,
@@ -638,6 +664,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(
                 RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"
@@ -690,6 +717,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             result = second.run(
                 brief_path=brief_path,
@@ -708,14 +736,14 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(
                 manifest["resumed_stages"],
-                ["planning", "script", "voice", "visuals"],
+                ["planning", IDENTITY_STAGE, "script", "voice", "visuals"],
             )
             self.assertTrue(manifest["resume_checkpoint_accepted"])
             self.assertEqual(manifest["resume_completed_stage"], "visuals")
             resumed_by_name = {
                 stage["name"]: stage.get("resumed") for stage in manifest["stages"]
             }
-            for name in ("planning", "script", "voice", "visuals"):
+            for name in ("planning", IDENTITY_STAGE, "script", "voice", "visuals"):
                 self.assertTrue(resumed_by_name[name])
             self.assertFalse(resumed_by_name[TEXT_AUDIT_STAGE])
 
@@ -738,6 +766,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(
                 RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"
@@ -764,6 +793,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(
                 RuntimeError, "planning exhausted bounded provider route"
@@ -811,6 +841,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_NEW_LAYER_BLOCK"):
                 first.run(
@@ -846,6 +877,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             result = second.run(
                 brief_path=brief_path,
@@ -883,6 +915,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_blocking_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(RuntimeError, "blocked release"):
                 pipeline.run(
@@ -930,6 +963,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
                 pipeline.run(
@@ -967,6 +1001,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(RuntimeError, "new layer block"):
                 pipeline.run(
@@ -1008,6 +1043,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_BLOCK"):
                 pipeline.run(
@@ -1043,6 +1079,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"):
                 pipeline.run(
@@ -1076,6 +1113,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_blocking_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(RuntimeError, "blocked real production"):
                 pipeline.run(
@@ -1151,6 +1189,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_infrastructure_text_audit,
                 audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
                 pipeline.run(
@@ -1188,6 +1227,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 final_master_qc=_passing_final_master_qc,
                 text_audit=_passing_text_audit,
                 audio_mastering=_failing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
             )
             with self.assertRaisesRegex(RuntimeError, "audio_loudness_measurement_unparseable"):
                 pipeline.run(
@@ -1208,6 +1248,170 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["stages"][-1]["name"], AUDIO_MASTERING_STAGE)
             self.assertEqual(manifest["stages"][-1]["status"], "failed")
             self.assertFalse((output / "narration-mastered.wav").exists())
+
+    def test_narrative_identity_provider_exhaustion_is_infrastructure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_infrastructure_narrative_identity,
+            )
+            with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "failed")
+            self.assertEqual(manifest["failure_classification"], "infrastructure")
+            self.assertEqual(manifest["stages"][-1]["name"], IDENTITY_STAGE)
+            self.assertEqual(manifest["stages"][-1]["status"], "failed")
+            self.assertFalse((output / "narrative-identity.json").exists())
+            self.assertFalse((output / "script.json").exists())
+
+    def test_narrative_identity_splices_opener_and_closer_into_final_script(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
+            )
+            result = pipeline.run(
+                brief_path=brief_path,
+                approved_sha256=compute_brief_sha256(brief),
+                output_dir=output,
+                engine_sha="a" * 40,
+                runner_sha="b" * 40,
+                max_visuals=2,
+            )
+            self.assertEqual(result["status"], "pass")
+
+            identity = json.loads(
+                (output / "narrative-identity.json").read_text(encoding="utf-8")
+            )
+            script = json.loads((output / "script.json").read_text(encoding="utf-8"))
+            sections = script["sections"]
+            joined = "\n".join(item["narration"] for item in sections)
+            self.assertEqual(joined.count(identity["opener"]), 1)
+            self.assertEqual(joined.count(identity["closer"]), 1)
+            self.assertIn(identity["opener"], sections[0]["narration"])
+            self.assertNotIn(identity["opener"], sections[-1]["narration"])
+            self.assertTrue(
+                sections[-1]["narration"].rstrip().endswith(identity["closer"])
+            )
+            for section in sections[1:-1]:
+                self.assertNotIn(identity["opener"], section["narration"])
+                self.assertNotIn(identity["closer"], section["narration"])
+
+            transcript = (output / "narration.txt").read_text(encoding="utf-8")
+            self.assertIn(identity["opener"], transcript)
+            self.assertIn(identity["closer"], transcript)
+
+    def test_narrative_identity_is_resumed_together_with_script(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            approved = compute_brief_sha256(brief)
+            first_output = root / "first"
+            first = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_infrastructure_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
+            )
+            with self.assertRaisesRegex(
+                RuntimeError, "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE"
+            ):
+                first.run(
+                    brief_path=brief_path,
+                    approved_sha256=approved,
+                    output_dir=first_output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+            first_identity = json.loads(
+                (first_output / "narrative-identity.json").read_text(encoding="utf-8")
+            )
+
+            def _forbidden_narrative_identity(**_kwargs):
+                raise AssertionError(
+                    "narrative identity must be resumed, not regenerated"
+                )
+
+            second_output = root / "second"
+            second = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_forbidden_narrative_identity,
+            )
+            result = second.run(
+                brief_path=brief_path,
+                approved_sha256=approved,
+                output_dir=second_output,
+                engine_sha="a" * 40,
+                runner_sha="b" * 40,
+                max_visuals=2,
+                resume_from=first_output,
+            )
+            self.assertEqual(result["status"], "pass")
+            second_identity = json.loads(
+                (second_output / "narrative-identity.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(second_identity, first_identity)
+            manifest = json.loads(
+                (second_output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                manifest["resumed_stages"],
+                ["planning", IDENTITY_STAGE, "script", "voice", "visuals"],
+            )
+            resumed_by_name = {
+                stage["name"]: stage.get("resumed") for stage in manifest["stages"]
+            }
+            self.assertTrue(resumed_by_name[IDENTITY_STAGE])
+            self.assertTrue(resumed_by_name["script"])
 
 
 class VisualQADiagnosticsTests(unittest.TestCase):
