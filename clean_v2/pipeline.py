@@ -854,16 +854,46 @@ class CleanV2Pipeline:
                 VISUAL_QA_STAGE,
             ]
             journal._write()
-            visual_qa_report = journal.run(
-                VISUAL_QA_STAGE,
-                lambda: self.visual_qa(
-                    output_dir=output_dir,
-                    plan=plan,
-                    script=script,
-                    rights=rights,
-                    fmt=str(brief["format"]),
-                ),
-            )
+            try:
+                visual_qa_report = journal.run(
+                    VISUAL_QA_STAGE,
+                    lambda: self.visual_qa(
+                        output_dir=output_dir,
+                        plan=plan,
+                        script=script,
+                        rights=rights,
+                        fmt=str(brief["format"]),
+                    ),
+                )
+            except Exception as exc:
+                message = str(exc)
+                if (
+                    "CLEAN_V2_VISUAL_QA_BLOCK" in message
+                    and "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE" not in message
+                ):
+                    # A real visual-quality rejection means the selected media must
+                    # not become sticky across retries. Preserve the expensive,
+                    # already-approved pre-visual work, but force fresh acquisition.
+                    _write_resume_checkpoint(
+                        output_dir,
+                        completed_stage="voice",
+                        approved_brief_sha256=approved_brief_digest,
+                        engine_sha=engine_sha,
+                        runner_sha=runner_sha,
+                        max_visuals=max_visuals,
+                        voice_provider=str(
+                            journal.payload.get("voice_provider") or ""
+                        ),
+                        voice_fallback_used=journal.payload.get(
+                            "voice_fallback_used"
+                        ),
+                    )
+                    journal.payload["resume_rollback_stage"] = "voice"
+                    journal.payload["resume_rollback_reason"] = (
+                        "visual_qa_quality_block"
+                    )
+                    journal._write()
+                raise
 
             final_path = output_dir / "final.mp4"
             journal.run(
