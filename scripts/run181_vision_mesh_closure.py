@@ -776,14 +776,18 @@ def _route_visual_audit_v3(
     attempts += 1
     first_resolved: str | None = None
     try:
+        openrouter_kwargs = {
+            "preview": preview,
+            "narration_context": narration_context,
+            "intended_visual": intended_visual,
+            "requested_model": contract.OPENROUTER_PRIMARY_MODEL,
+        }
+        if canonical_visual_evidence is not None:
+            openrouter_kwargs["canonical_visual_evidence"] = canonical_visual_evidence
         result, first_resolved = contract._run_openrouter_attempt(
             ledger,
             spec,
-            preview=preview,
-            narration_context=narration_context,
-            intended_visual=intended_visual,
-            requested_model=contract.OPENROUTER_PRIMARY_MODEL,
-            canonical_visual_evidence=canonical_visual_evidence,
+            **openrouter_kwargs,
         )
         if canonical_visual_evidence is not None:
             result = canonical_evidence.attach_provenance(
