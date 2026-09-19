@@ -82,6 +82,16 @@ class VisionStageTransportV2Tests(unittest.TestCase):
         self.assertEqual(raised.exception.code, contract.VisionErrorCode.PROVIDER_TRANSIENT)
         self.assertIn("connection failure", str(raised.exception))
 
+    def test_400_provider_returned_error_is_provider_transient(self) -> None:
+        self.assertEqual(
+            transport._classify_http(400, "Provider returned error"),
+            contract.VisionErrorCode.PROVIDER_TRANSIENT,
+        )
+        self.assertEqual(
+            contract._classify_http(400, "Provider returned error"),
+            contract.VisionErrorCode.PROVIDER_TRANSIENT,
+        )
+
     def test_402_balance_requirement_is_capacity(self) -> None:
         self.assertEqual(
             transport._classify_http(402, "This request requires at least $1.00 in balance"),

@@ -169,6 +169,39 @@ class OpenRouterStrictTransportTests(unittest.TestCase):
                 )
         self.assertEqual(raised.exception.code, v2.VisionErrorCode.AUTH_CONFIG)
 
+    def test_http_400_provider_returned_error_is_provider_transient(self) -> None:
+        class Response:
+            ok = False
+            status_code = 400
+
+            def json(self):
+                return {"error": {"message": "Provider returned error"}}
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            os.environ, {"OPENROUTER_API_KEY": "test-key"}, clear=False
+        ), mock.patch.object(
+            legacy, "_sample_preview_frames", return_value=[b"a", b"b", b"c"]
+        ), mock.patch.object(
+            v2.requests, "post", return_value=Response()
+        ):
+            with self.assertRaises(v2.VisionStageError) as raised:
+                v2._openrouter_call(
+                    _preview(temp_dir),
+                    narration_context="ctx",
+                    intended_visual="intent",
+                    model="openrouter/free",
+                )
+
+        self.assertEqual(
+            raised.exception.code,
+            v2.VisionErrorCode.PROVIDER_TRANSIENT,
+        )
+        self.assertEqual(raised.exception.http_status, 400)
+        self.assertEqual(
+            raised.exception.http_message,
+            "Provider returned error",
+        )
+
     def test_no_compatible_endpoint_is_capacity_not_schema(self) -> None:
         class Response:
             ok = False

@@ -296,6 +296,8 @@ def _classify_http(status: int, message: str) -> VisionErrorCode:
         return VisionErrorCode.CAPACITY
     if status in {408, 409, 429, 500, 502, 503, 504}:
         return VisionErrorCode.PROVIDER_TRANSIENT
+    if status == 400 and "provider returned error" in lowered:
+        return VisionErrorCode.PROVIDER_TRANSIENT
     if status in {400, 404, 422} and ("schema" in lowered or "parameter" in lowered or "support" in lowered):
         return VisionErrorCode.CAPACITY
     return VisionErrorCode.INTERNAL_CONTRACT_ERROR
