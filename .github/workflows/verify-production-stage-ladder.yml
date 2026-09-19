@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   production-stage-ladder:
@@ -91,6 +92,107 @@ jobs:
           python -m pip install -r requirements-lock.txt
           python -m pip install --no-build-isolation --no-deps -e .
           python -m pip check
+
+      - name: Download frozen Visual-QA source artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/frozen-visualqa-source"
+          mkdir -p "$RUNNER_TEMP/frozen-visualqa-source"
+          gh run download 35401902573 \
+            --repo "$GITHUB_REPOSITORY" \
+            -n clean-v2-cohort-visualqa-4d6f1b6-5 \
+            -D "$RUNNER_TEMP/frozen-visualqa-source"
+          test -s "$RUNNER_TEMP/frozen-visualqa-source/visual-qa/01-s1-preview.mp4"
+          test -s "$RUNNER_TEMP/frozen-visualqa-source/plan.json"
+          test -s "$RUNNER_TEMP/frozen-visualqa-source/script.json"
+
+      - name: One zero-cost Cloudflare Vision qualification
+        env:
+          PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+          CLOUDFLARE_VISION_FREE_ONLY: "true"
+          CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "1"
+          CLOUDFLARE_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-live-qualification-quota.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from scripts import gold_cloudflare_vision_fallback as cf
+
+          source = Path(os.environ["RUNNER_TEMP"]) / "frozen-visualqa-source"
+          preview = source / "visual-qa/01-s1-preview.mp4"
+          plan = json.loads((source / "plan.json").read_text(encoding="utf-8"))
+          script = json.loads((source / "script.json").read_text(encoding="utf-8"))
+          section_plan = next(item for item in plan["sections"] if item["id"] == "s1")
+          section_script = next(item for item in script["sections"] if item["id"] == "s1")
+
+          evidence_path = Path(os.environ["RUNNER_TEMP"]) / "cloudflare-live-qualification.json"
+          evidence = {
+              "schema_version": 1,
+              "runner_sha": os.environ["CANDIDATE_SHA"],
+              "engine_sha": "3cbd689819e6b0e0b2ea9904d1998e24a5e2a293",
+              "source_run": 35401902573,
+              "source_artifact": "clean-v2-cohort-visualqa-4d6f1b6-5",
+              "source_preview": "visual-qa/01-s1-preview.mp4",
+              "provider": cf.CLOUDFLARE_VISION_PROVIDER,
+              "model": cf.CLOUDFLARE_VISION_MODEL,
+              "zero_cost_policy": "fail_closed",
+              "inference_attempts_planned": 1,
+              "status": "starting",
+          }
+
+          try:
+              reason = cf.shared_vision_configuration_reason()
+              if reason is not None:
+                  raise cf.CloudflareGoldVisionUnavailable(reason)
+              token, account_id = cf._credentials()
+              cf._prove_workers_free(token, account_id)
+              evidence["zero_cost_subscription_proof"] = "pass"
+              cf._prove_model_access(token, account_id)
+              evidence["model_schema_probe"] = "pass"
+              cf._reserve_workflow_call()
+              evidence["workflow_quota_reservation"] = "pass"
+              evidence["status"] = "ready_for_wire"
+              result = cf._wire_call(
+                  token,
+                  account_id,
+                  preview,
+                  narration_context=section_script["narration"],
+                  intended_visual=section_plan["visual_query_en"],
+              )
+              evidence["inference_attempts_performed"] = 1
+              evidence["status"] = "inference_complete"
+              evidence["normalized_result"] = result
+          except Exception as exc:
+              evidence["status"] = "failed"
+              evidence["error_type"] = type(exc).__name__
+              evidence["error"] = str(exc)[:1200]
+              evidence.setdefault("inference_attempts_performed", 0)
+          finally:
+              evidence_path.write_text(
+                  json.dumps(evidence, ensure_ascii=False, indent=2) + "\n",
+                  encoding="utf-8",
+              )
+              print(json.dumps(evidence, ensure_ascii=False, sort_keys=True))
+
+          if evidence["status"] != "inference_complete":
+              raise SystemExit(1)
+          PY
+
+      - name: Upload Cloudflare live qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: cloudflare-live-qualification
+          path: ${{ runner.temp }}/cloudflare-live-qualification.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: P0 runtime environment state isolation
         env:
