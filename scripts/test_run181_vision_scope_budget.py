@@ -43,7 +43,7 @@ class Run181VisionScopeBudgetTests(unittest.TestCase):
         self.addCleanup(setattr, contract, "_route_visual_audit_v2", original)
         return adapter
 
-    def test_adapter_preserves_v2_three_attempt_taskspec_budget(self) -> None:
+    def test_adapter_preserves_current_five_attempt_vision_budget(self) -> None:
         captured = []
 
         def fake_route(ledger, spec, provider, resolved_model, fn, *args, **kwargs):
@@ -61,7 +61,7 @@ class Run181VisionScopeBudgetTests(unittest.TestCase):
             )
         self.assertEqual(result["status"], "pass")
         self.assertEqual(len(captured), 1)
-        self.assertEqual(captured[0].max_provider_attempts, 3)
+        self.assertEqual(captured[0].max_provider_attempts, 5)
         self.assertEqual(captured[0].task_id, "RUN181_SCOPE_BUDGET")
 
     def test_adapter_canonicalizes_engine_gemini_alias_before_health_matching(self) -> None:
@@ -133,8 +133,8 @@ class Run181VisionScopeBudgetTests(unittest.TestCase):
 
         adapter = self._adapter_around(fake_route)
         with legacy.vision_provider_circuit_scope():
-            adapter(None, _spec(max_attempts=5), "gemini", "gemini-3.7-flash", lambda: None)
-        self.assertEqual(seen, [5])
+            adapter(None, _spec(max_attempts=7), "gemini", "gemini-3.7-flash", lambda: None)
+        self.assertEqual(seen, [7])
 
     def test_stale_planning_429_before_current_run_baseline_is_ignored(self) -> None:
         old = {
