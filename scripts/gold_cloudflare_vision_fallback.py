@@ -36,6 +36,7 @@ import requests
 
 from isco_video_agent.ai_budget import AttemptOutcome
 from scripts import vision_stage_contract_v2 as contract
+from scripts import canonical_visual_evidence_v1 as canonical_evidence
 
 
 CLOUDFLARE_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
@@ -119,7 +120,7 @@ def shared_vision_configured() -> bool:
 def _shared_preflight_diagnostics_path(preview: Path) -> Path:
     preview = Path(preview)
     parent = preview.parent
-    if parent.name == "visual-qa":
+    if parent.name in {"visual-qa", "visuals"}:
         return parent.parent / "cloudflare-vision-preflight.json"
     return parent / "cloudflare-vision-preflight.json"
 
@@ -487,22 +488,28 @@ def _wire_call(
     *,
     narration_context: str,
     intended_visual: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
 ) -> dict[str, Any]:
-    prompt = contract.legacy._visual_prompt(
-        narration_context=narration_context,
-        intended_visual=intended_visual,
-    )
-    frames = contract.legacy._sample_preview_frames(Path(preview))
-    # Keep the same three bounded frames and unchanged Visual Audit schema.
-    content: list[dict[str, Any]] = [
-        {
-            "type": "image_url",
-            "image_url": {
-                "url": "data:image/jpeg;base64," + base64.b64encode(frame).decode("ascii")
-            },
-        }
-        for frame in frames
-    ]
+    if canonical_visual_evidence is not None:
+        evidence = canonical_evidence.require_canonical_evidence(canonical_visual_evidence)
+        prompt = evidence.prompt
+        content = canonical_evidence.openai_image_content(evidence)
+    else:
+        prompt = contract.legacy._visual_prompt(
+            narration_context=narration_context,
+            intended_visual=intended_visual,
+        )
+        frames = contract.legacy._sample_preview_frames(Path(preview))
+        # Legacy/Gold callers remain unchanged; Clean V2 passes canonical evidence.
+        content: list[dict[str, Any]] = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "data:image/jpeg;base64," + base64.b64encode(frame).decode("ascii")
+                },
+            }
+            for frame in frames
+        ]
     content.append({"type": "text", "text": prompt})
     payload = {
         "messages": [{"role": "user", "content": content}],
@@ -635,6 +642,7 @@ def run_shared_cloudflare_attempt(
     preview: Path,
     narration_context: str,
     intended_visual: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
 ) -> dict[str, Any]:
     """One bounded zero-cost Cloudflare attempt for the shared Vision mesh.
 
@@ -693,6 +701,7 @@ def run_shared_cloudflare_attempt(
             Path(preview),
             narration_context=narration_context,
             intended_visual=intended_visual,
+            canonical_visual_evidence=canonical_visual_evidence,
         )
     except Exception as exc:
         contract._record(
