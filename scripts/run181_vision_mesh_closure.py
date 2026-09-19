@@ -501,10 +501,7 @@ def _cloudflare_or_mesh(
         )
         raise _mesh_unavailable(state) from exc
     except contract.VisionStageError as exc:
-        if (
-            exc.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR
-            and getattr(exc, "http_status", None) is None
-        ):
+        if exc.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
             raise
         health.publish_provider_unavailable(
             CLOUDFLARE_VISION_PROVIDER,
@@ -745,10 +742,7 @@ def _route_visual_audit_v3(
         return result
     except contract.VisionStageError as first_error:
         if first_error.code is not contract.VisionErrorCode.STRUCTURAL_INVALID:
-            if (
-                first_error.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR
-                and getattr(first_error, "http_status", None) is None
-            ):
+            if first_error.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
                 raise
             state.openrouter_open = True
             state.openrouter_reason = contract.legacy._safe_exception_detail(first_error)
@@ -815,10 +809,7 @@ def _route_visual_audit_v3(
             )
             return result
         except contract.VisionStageError as second_error:
-            if (
-                second_error.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR
-                and getattr(second_error, "http_status", None) is None
-            ):
+            if second_error.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
                 raise
             state.openrouter_open = True
             state.openrouter_reason = contract.legacy._safe_exception_detail(second_error)
