@@ -21,6 +21,32 @@ from clean_v2.pipeline import (
     _planning_prompt,
 )
 from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
+from clean_v2.visual_qa import _provider_error_diagnostic
+
+
+
+class VisualQADiagnosticTests(unittest.TestCase):
+    def test_provider_http_evidence_survives_contract_error_wrapping(self) -> None:
+        class _Code:
+            value = "INTERNAL_CONTRACT_ERROR"
+
+        error = RuntimeError("HTTP_422 message=unexpected provider contract")
+        error.code = _Code()
+        error.detail = "HTTP_422 message=unexpected provider contract"
+        error.provider = "openrouter"
+        error.requested_model = "openrouter/free"
+        error.resolved_model = "example/free"
+        error.http_status = 422
+        error.http_message = "unexpected provider contract"
+
+        diagnostic = _provider_error_diagnostic(error, section_id="s1")
+
+        self.assertEqual(diagnostic["section"], "s1")
+        self.assertEqual(diagnostic["provider"], "openrouter")
+        self.assertEqual(diagnostic["error_code"], "INTERNAL_CONTRACT_ERROR")
+        self.assertEqual(diagnostic["http_status"], 422)
+        self.assertEqual(diagnostic["http_message"], "unexpected provider contract")
+        self.assertIn("HTTP_422", diagnostic["detail"])
 
 
 def _brief() -> dict:
@@ -141,6 +167,32 @@ class PlanningCardinalityTests(unittest.TestCase):
             "exactly 5 for film",
         ):
             validate_plan(six, brief)
+
+
+class VisualQADiagnosticTests(unittest.TestCase):
+    def test_contract_error_diagnostic_preserves_raw_provider_http_evidence(self) -> None:
+        from clean_v2.visual_qa import _provider_error_diagnostic
+
+        class Code:
+            value = "INTERNAL_CONTRACT_ERROR"
+
+        exc = RuntimeError("HTTP_418 message=unexpected provider contract")
+        exc.code = Code()
+        exc.provider = "openrouter"
+        exc.requested_model = "openrouter/free"
+        exc.resolved_model = "free/model-x"
+        exc.http_status = 418
+        exc.http_message = "unexpected provider contract"
+        exc.detail = "HTTP_418 message=unexpected provider contract"
+
+        diagnostic = _provider_error_diagnostic(exc, section_id="s1")
+        self.assertEqual(diagnostic["provider"], "openrouter")
+        self.assertEqual(diagnostic["error_code"], "INTERNAL_CONTRACT_ERROR")
+        self.assertEqual(diagnostic["http_status"], 418)
+        self.assertEqual(
+            diagnostic["http_message"],
+            "unexpected provider contract",
+        )
 
 
 class ProviderAccountingTests(unittest.TestCase):
