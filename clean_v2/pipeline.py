@@ -425,6 +425,11 @@ def _script_prompt(brief: Mapping[str, Any], plan: Mapping[str, Any]) -> str:
     )
     brief_json = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     plan_json = json.dumps(plan, ensure_ascii=False, separators=(",", ":"))
+    claim_allowlist_json = json.dumps(
+        brief.get("research_pack") or [],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return f"""
 Write the final spoken script for one نداء اليقظة video.
 
@@ -434,9 +439,31 @@ APPROVED_BRIEF:
 LOCKED_PLAN:
 {plan_json}
 
-The approved brief and locked plan are authoritative. Follow every hard constraint. Use natural
-Modern Standard Arabic, without generic motivational filler, fake quotations, invented facts, or
-medical/religious authority. Write narration only; do not add camera directions or markdown.
+RESEARCH_CLAIM_ALLOWLIST:
+{claim_allowlist_json}
+
+The approved brief and locked plan are authoritative. Follow every hard constraint. Treat every
+research_pack.claim_scope as an ALLOWLIST boundary, not as inspiration for adjacent claims.
+Every factual, causal, psychological, behavioral, effectiveness, mechanism, or prediction claim
+must be directly entailed by one allowed claim_scope. Preserve qualifiers exactly: do not broaden
+task-specific concepts into general personality traits, and do not turn associations into causes.
+
+Do NOT add:
+- mechanisms or explanations that the claim_scope does not explicitly support;
+- extra interventions, remedies, tips, or behavioral techniques that are absent from the allowlist;
+- promises or predictions about what the viewer will notice, feel, become, or achieve;
+- deterministic language such as "always", "the brain chooses", "this makes", or "this will become"
+  unless that exact strength is supported by the allowlist;
+- unsupported causal chains, even when they sound plausible.
+
+Examples may illustrate an allowed claim, but must not introduce a new mechanism, effect, or
+promise. If more words are needed, use transitions, concrete neutral examples, recap, or practical
+framing that does not add factual claims. When a detail is not explicitly supported, omit it rather
+than infer it.
+
+Use natural Modern Standard Arabic, without generic motivational filler, fake quotations, invented
+facts, or medical/religious authority. Write narration only; do not add camera directions or
+markdown.
 {length}
 
 Return one JSON object. The sections array must contain every locked plan id exactly once and in the
