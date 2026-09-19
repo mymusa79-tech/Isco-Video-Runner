@@ -27,6 +27,19 @@ def _spec() -> TaskSpec:
     )
 
 
+def _shared_spec() -> TaskSpec:
+    return TaskSpec(
+        task_id="CLEAN_V2_VISUAL_AUDIT_S01",
+        kind="VISUAL_AUDIT",
+        priority=Priority.P0,
+        capability=Capability.VISION,
+        max_provider_attempts=5,
+        schema_repair_allowed=False,
+        local_fallback=False,
+        semantic_block_is_final=True,
+    )
+
+
 def _preview(root: str) -> Path:
     path = Path(root) / "opening-preview.mp4"
     path.write_bytes(b"preview")
@@ -46,6 +59,20 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             clear=True,
         ):
             self.assertTrue(cloudflare._enabled())
+
+    def test_shared_vision_route_has_separate_free_only_opt_in(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(cloudflare.shared_vision_configured())
+        with patch.dict(
+            os.environ,
+            {
+                "CLOUDFLARE_VISION_FREE_ONLY": "true",
+                "CLOUDFLARE_API_TOKEN": "token",
+                "CLOUDFLARE_ACCOUNT_ID": "a" * 32,
+            },
+            clear=True,
+        ):
+            self.assertTrue(cloudflare.shared_vision_configured())
 
     def test_cloudflare_account_identity_must_be_exact_32_hex(self) -> None:
         with patch.dict(
@@ -110,6 +137,7 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             ):
                 cloudflare._prove_workers_free("token", "a" * 32)
         get.assert_called_once()
+        self.assertEqual(get.call_args.kwargs["params"], {"per_page": 50})
 
     def test_missing_billing_read_fails_closed_before_inference(self) -> None:
         response = Mock()
@@ -204,7 +232,7 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             ):
                 cloudflare._reserve_workflow_call()
 
-    def test_gemma_payload_places_three_frames_before_text(self) -> None:
+    def test_scout_payload_places_three_frames_before_text_and_uses_guided_json(self) -> None:
         response = Mock()
         response.ok = True
         response.json.return_value = {"success": True, "result": {"response": "{}"}}
@@ -241,11 +269,13 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             ["image_url", "image_url", "image_url", "text"],
         )
         self.assertEqual(content[-1]["text"], "strict prompt")
-        self.assertEqual(payload["max_completion_tokens"], 700)
-        self.assertEqual(payload["service_tier"], "default")
-        self.assertIs(payload["store"], False)
-        self.assertEqual(payload["response_format"], contract._strict_response_format())
-        self.assertIn("/@cf/google/gemma-4-26b-a4b-it", post.call_args.args[0])
+        self.assertEqual(payload["max_tokens"], 700)
+        self.assertNotIn("max_completion_tokens", payload)
+        self.assertNotIn("service_tier", payload)
+        self.assertNotIn("store", payload)
+        self.assertEqual(payload["guided_json"], contract.VISUAL_AUDIT_SCHEMA)
+        self.assertNotIn("response_format", payload)
+        self.assertIn("/@cf/meta/llama-4-scout-17b-16e-instruct", post.call_args.args[0])
 
     def test_exact_cloudflare_model_and_one_attempt_only(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
@@ -301,6 +331,171 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
             summary["by_provider"],
             {cloudflare.CLOUDFLARE_VISION_PROVIDER: 1},
         )
+
+    def test_shared_vision_reuses_zero_cost_owner_and_records_one_attempt(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        with tempfile.TemporaryDirectory() as root, patch.dict(
+            os.environ,
+            {
+                "CLOUDFLARE_VISION_FREE_ONLY": "true",
+                "CLOUDFLARE_VISION_QUOTA_FILE": str(Path(root) / "shared-quota.json"),
+            },
+            clear=False,
+        ), patch.object(
+            cloudflare,
+            "_credentials",
+            return_value=("token", "a" * 32),
+        ), patch.object(
+            cloudflare,
+            "_prove_workers_free",
+        ) as free_proof, patch.object(
+            cloudflare,
+            "_prove_model_access",
+        ) as model_probe, patch.object(
+            cloudflare,
+            "_wire_call",
+            return_value={"status": "pass"},
+        ) as wire:
+            result = cloudflare.run_shared_cloudflare_attempt(
+                ledger,
+                _shared_spec(),
+                preview=_preview(root),
+                narration_context="ctx",
+                intended_visual="intent",
+            )
+        self.assertEqual(result["status"], "pass")
+        free_proof.assert_called_once_with("token", "a" * 32)
+        model_probe.assert_called_once_with("token", "a" * 32)
+        wire.assert_called_once()
+        summary = ledger.to_summary()["provider_attempts"]
+        self.assertEqual(summary["total"], 1)
+        self.assertEqual(
+            summary["by_provider"],
+            {cloudflare.CLOUDFLARE_VISION_PROVIDER: 1},
+        )
+
+    def test_shared_preflight_failure_writes_exact_no_wire_stage(self) -> None:
+        ledger = BudgetLedger("film", enforce=True)
+        with tempfile.TemporaryDirectory() as root, patch.dict(
+            os.environ,
+            {
+                "CLOUDFLARE_VISION_FREE_ONLY": "true",
+                "CLOUDFLARE_VISION_QUOTA_FILE": str(Path(root) / "shared-quota.json"),
+            },
+            clear=False,
+        ), patch.object(
+            cloudflare,
+            "_credentials",
+            return_value=("secret-token", "a" * 32),
+        ), patch.object(
+            cloudflare,
+            "_prove_workers_free",
+            side_effect=cloudflare.CloudflareGoldVisionUnavailable(
+                "Billing Read proof unavailable"
+            ),
+        ) as free_proof, patch.object(
+            cloudflare,
+            "_prove_model_access",
+        ) as model_probe, patch.object(
+            cloudflare,
+            "_wire_call",
+        ) as wire:
+            preview_dir = Path(root) / "visual-qa"
+            preview_dir.mkdir()
+            preview = preview_dir / "01-s1-preview.mp4"
+            preview.write_bytes(b"preview")
+            with self.assertRaisesRegex(
+                cloudflare.CloudflareGoldVisionUnavailable,
+                "Billing Read proof unavailable",
+            ):
+                cloudflare.run_shared_cloudflare_attempt(
+                    ledger,
+                    _shared_spec(),
+                    preview=preview,
+                    narration_context="ctx",
+                    intended_visual="intent",
+                )
+
+            diagnostics = json.loads(
+                (Path(root) / "cloudflare-vision-preflight.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        free_proof.assert_called_once_with("secret-token", "a" * 32)
+        model_probe.assert_not_called()
+        wire.assert_not_called()
+        self.assertEqual(ledger.to_summary()["provider_attempts"]["total"], 0)
+        self.assertEqual(diagnostics["status"], "no_wire")
+        self.assertEqual(
+            diagnostics["failed_stage"],
+            "zero_cost_subscription_proof",
+        )
+        self.assertFalse(diagnostics["inference_attempt_recorded"])
+        self.assertEqual(
+            diagnostics["gates"],
+            [
+                {"stage": "credentials", "status": "pass"},
+                {"stage": "zero_cost_subscription_proof", "status": "fail"},
+            ],
+        )
+        self.assertNotIn("secret-token", json.dumps(diagnostics))
+
+    def test_shared_configuration_reason_identifies_missing_input_without_secret_values(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"CLOUDFLARE_VISION_FREE_ONLY": "true"},
+            clear=True,
+        ):
+            self.assertEqual(
+                cloudflare.shared_vision_configuration_reason(),
+                "api_token_missing",
+            )
+        with patch.dict(
+            os.environ,
+            {
+                "CLOUDFLARE_VISION_FREE_ONLY": "true",
+                "CLOUDFLARE_API_TOKEN": "secret-token",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                cloudflare.shared_vision_configuration_reason(),
+                "account_id_missing",
+            )
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                cloudflare.shared_vision_configuration_reason(),
+                "feature_flag_disabled",
+            )
+
+    def test_cloudflare_http_failure_retains_raw_status_and_message(self) -> None:
+        response = Mock()
+        response.ok = False
+        response.status_code = 418
+        response.json.return_value = {
+            "success": False,
+            "errors": [{"code": 9999, "message": "unexpected provider contract"}],
+        }
+        with patch.object(
+            contract.legacy,
+            "_sample_preview_frames",
+            return_value=[b"one", b"two", b"three"],
+        ), patch.object(
+            cloudflare.requests,
+            "post",
+            return_value=response,
+        ):
+            with self.assertRaises(contract.VisionStageError) as raised:
+                cloudflare._wire_call(
+                    "token",
+                    "a" * 32,
+                    Path("opening-preview.mp4"),
+                    narration_context="ctx",
+                    intended_visual="intent",
+                )
+        self.assertEqual(raised.exception.http_status, 418)
+        self.assertIn("unexpected provider contract", raised.exception.http_message or "")
 
     def test_failed_free_preflight_is_not_retried_in_the_same_scope(self) -> None:
         ledger = BudgetLedger("film", enforce=True)
@@ -399,7 +594,7 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
         self.assertNotIn("prepaid", source.casefold())
         self.assertEqual(
             cloudflare.CLOUDFLARE_VISION_MODEL,
-            "@cf/google/gemma-4-26b-a4b-it",
+            "@cf/meta/llama-4-scout-17b-16e-instruct",
         )
         self.assertEqual(cloudflare.CLOUDFLARE_MAX_CALLS_PER_WORKFLOW, 5)
 
@@ -423,6 +618,16 @@ class CloudflareGoldVisionZeroCostTests(unittest.TestCase):
                 workflow,
             )
         self.assertIn("engine/output/*/short-*", canonical)
+
+    def test_clean_v2_workflow_wires_shared_free_only_cloudflare_vision(self) -> None:
+        clean_v2 = Path(".github/workflows/clean-v2-minimal-e2e.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('CLOUDFLARE_VISION_FREE_ONLY: "true"', clean_v2)
+        self.assertIn('CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"', clean_v2)
+        self.assertIn("CLOUDFLARE_API_TOKEN:", clean_v2)
+        self.assertIn("CLOUDFLARE_ACCOUNT_ID:", clean_v2)
+        self.assertIn("CLOUDFLARE_VISION_QUOTA_FILE:", clean_v2)
 
 
 if __name__ == "__main__":

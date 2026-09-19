@@ -11,7 +11,7 @@ Zero-cost safety is fail-closed:
 * the existing Cloudflare token/account secrets must be present;
 * the same token must prove there is no active billable account subscription;
 * the token must prove Workers AI access to the exact Cloudflare-hosted model;
-* only @cf/google/gemma-4-26b-a4b-it is allowed; no paid/unified-billing route;
+* only @cf/meta/llama-4-scout-17b-16e-instruct is allowed; no paid/unified-billing route;
 * one inference attempt maximum per Gold opening-Vision task;
 * one workflow (Long plus sibling Shorts included) can reserve at most five calls;
 * paid-plan requirements, daily-free-allocation exhaustion and capacity errors are
@@ -38,7 +38,7 @@ from isco_video_agent.ai_budget import AttemptOutcome
 from scripts import vision_stage_contract_v2 as contract
 
 
-CLOUDFLARE_VISION_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+CLOUDFLARE_VISION_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
 CLOUDFLARE_VISION_PROVIDER = "cloudflare_workers_ai"
 CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4"
 CLOUDFLARE_TIMEOUT_SECONDS = 60
@@ -91,8 +91,90 @@ def _enabled() -> bool:
     )
 
 
+def _shared_enabled() -> bool:
+    return (
+        str(os.environ.get("CLOUDFLARE_VISION_FREE_ONLY") or "")
+        .strip()
+        .lower()
+        == "true"
+    )
+
+
+def shared_vision_configuration_reason() -> str | None:
+    if not _shared_enabled():
+        return "feature_flag_disabled"
+    token = _read_secret("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_TOKEN_FILE")
+    account_id = _read_secret("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID_FILE")
+    if not token:
+        return "api_token_missing"
+    if not account_id:
+        return "account_id_missing"
+    return None
+
+
+def shared_vision_configured() -> bool:
+    return shared_vision_configuration_reason() is None
+
+
+def _shared_preflight_diagnostics_path(preview: Path) -> Path:
+    preview = Path(preview)
+    parent = preview.parent
+    if parent.name == "visual-qa":
+        return parent.parent / "cloudflare-vision-preflight.json"
+    return parent / "cloudflare-vision-preflight.json"
+
+
+def _write_shared_preflight_diagnostics(
+    preview: Path,
+    *,
+    status: str,
+    gates: list[dict[str, str]],
+    failed_stage: str | None = None,
+    detail: str | None = None,
+) -> None:
+    """Write secret-free shared-Vision preflight evidence without affecting routing."""
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "provider": CLOUDFLARE_VISION_PROVIDER,
+        "model": CLOUDFLARE_VISION_MODEL,
+        "route": "shared_visual_audit",
+        "status": status,
+        "inference_attempt_recorded": False,
+        "gates": gates,
+    }
+    if failed_stage:
+        payload["failed_stage"] = failed_stage
+    if detail:
+        payload["detail"] = detail[:1000]
+    path = _shared_preflight_diagnostics_path(Path(preview))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, UnicodeError):
+        # Diagnostics must never change provider eligibility or fail-closed behavior.
+        pass
+
+
+def record_shared_configuration_unavailable(preview: Path) -> None:
+    reason = shared_vision_configuration_reason() or "unknown_configuration_failure"
+    _write_shared_preflight_diagnostics(
+        Path(preview),
+        status="no_wire",
+        gates=[{"stage": "configuration", "status": "fail"}],
+        failed_stage="configuration",
+        detail=reason,
+    )
+
+
 def _quota_path() -> Path:
-    explicit = str(os.environ.get("CLOUDFLARE_GOLD_VISION_QUOTA_FILE") or "").strip()
+    explicit = str(
+        os.environ.get("CLOUDFLARE_VISION_QUOTA_FILE")
+        or os.environ.get("CLOUDFLARE_GOLD_VISION_QUOTA_FILE")
+        or ""
+    ).strip()
     if explicit:
         return Path(explicit)
     runner_temp = str(os.environ.get("RUNNER_TEMP") or "").strip()
@@ -105,7 +187,8 @@ def _quota_path() -> Path:
 
 def _max_calls_per_workflow() -> int:
     raw = str(
-        os.environ.get("CLOUDFLARE_GOLD_VISION_MAX_CALLS_PER_WORKFLOW")
+        os.environ.get("CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW")
+        or os.environ.get("CLOUDFLARE_GOLD_VISION_MAX_CALLS_PER_WORKFLOW")
         or CLOUDFLARE_MAX_CALLS_PER_WORKFLOW
     ).strip()
     try:
@@ -262,7 +345,7 @@ def _prove_workers_free(token: str, account_id: str) -> None:
                 "Authorization": "Bearer " + token,
                 "Content-Type": "application/json",
             },
-            params={"per_page": 100},
+            params={"per_page": 50},
             timeout=CLOUDFLARE_PROBE_TIMEOUT_SECONDS,
         )
     except requests.Timeout as exc:
@@ -410,8 +493,7 @@ def _wire_call(
         intended_visual=intended_visual,
     )
     frames = contract.legacy._sample_preview_frames(Path(preview))
-    # Gemma 4's model card recommends placing images before text for multimodal
-    # understanding. Keep the same three bounded frames and unchanged Gold schema.
+    # Keep the same three bounded frames and unchanged Visual Audit schema.
     content: list[dict[str, Any]] = [
         {
             "type": "image_url",
@@ -425,10 +507,8 @@ def _wire_call(
     payload = {
         "messages": [{"role": "user", "content": content}],
         "temperature": 0,
-        "max_completion_tokens": 700,
-        "service_tier": "default",
-        "store": False,
-        "response_format": contract._strict_response_format(),
+        "max_tokens": 700,
+        "guided_json": contract.VISUAL_AUDIT_SCHEMA,
     }
     encoded_model = "/".join(
         quote(part, safe="@") for part in CLOUDFLARE_VISION_MODEL.split("/")
@@ -473,11 +553,14 @@ def _wire_call(
         ) from exc
     if not response.ok:
         detail = _error_text(body)
+        status = int(response.status_code)
         raise contract.VisionStageError(
-            _cloudflare_http_code(int(response.status_code), body),
-            f"Cloudflare Workers AI HTTP_{response.status_code} {detail}",
+            _cloudflare_http_code(status, body),
+            f"Cloudflare Workers AI HTTP_{status} {detail}",
             provider=CLOUDFLARE_VISION_PROVIDER,
             requested_model=CLOUDFLARE_VISION_MODEL,
+            http_status=status,
+            http_message=detail,
         )
     return _parse_normalized_response(body)
 
@@ -510,6 +593,98 @@ def run_gold_cloudflare_attempt(
     _prove_model_access(token, account_id)
 
     _reserve_workflow_call()
+    contract._authorize(ledger, spec)
+    try:
+        result = _wire_call(
+            token,
+            account_id,
+            Path(preview),
+            narration_context=narration_context,
+            intended_visual=intended_visual,
+        )
+    except Exception as exc:
+        contract._record(
+            ledger,
+            spec,
+            provider=CLOUDFLARE_VISION_PROVIDER,
+            requested_model=CLOUDFLARE_VISION_MODEL,
+            resolved_model=CLOUDFLARE_VISION_MODEL,
+            outcome=contract._attempt_outcome(exc),
+            detail=contract.legacy._safe_exception_detail(exc),
+        )
+        raise
+    contract._record(
+        ledger,
+        spec,
+        provider=CLOUDFLARE_VISION_PROVIDER,
+        requested_model=CLOUDFLARE_VISION_MODEL,
+        resolved_model=CLOUDFLARE_VISION_MODEL,
+        outcome=(
+            AttemptOutcome.CONTENT_BLOCKED
+            if result.get("status") == "block"
+            else AttemptOutcome.SUCCESS
+        ),
+    )
+    return result
+
+
+def run_shared_cloudflare_attempt(
+    ledger,
+    spec,
+    *,
+    preview: Path,
+    narration_context: str,
+    intended_visual: str,
+) -> dict[str, Any]:
+    """One bounded zero-cost Cloudflare attempt for the shared Vision mesh.
+
+    This reuses the exact Gold transport, model, zero-cost proof, quota reservation,
+    schema and Engine normalizer. It is opt-in independently from Gold and is only
+    callable for a VISUAL_AUDIT task.
+    """
+    if getattr(spec, "kind", "") != "VISUAL_AUDIT":
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare shared Vision route is Visual-Audit-only"
+        )
+    if not _shared_enabled():
+        record_shared_configuration_unavailable(Path(preview))
+        raise CloudflareGoldVisionUnavailable(
+            "Cloudflare zero-cost shared Vision route is disabled"
+        )
+
+    gates: list[dict[str, str]] = []
+
+    def preflight(stage: str, fn, *args):
+        try:
+            value = fn(*args)
+        except CloudflareGoldVisionUnavailable as exc:
+            gates.append({"stage": stage, "status": "fail"})
+            _write_shared_preflight_diagnostics(
+                Path(preview),
+                status="no_wire",
+                gates=list(gates),
+                failed_stage=stage,
+                detail=contract.legacy._safe_exception_detail(exc),
+            )
+            raise
+        gates.append({"stage": stage, "status": "pass"})
+        _write_shared_preflight_diagnostics(
+            Path(preview),
+            status="preflight_in_progress",
+            gates=list(gates),
+        )
+        return value
+
+    token, account_id = preflight("credentials", _credentials)
+    preflight("zero_cost_subscription_proof", _prove_workers_free, token, account_id)
+    preflight("model_schema_probe", _prove_model_access, token, account_id)
+    preflight("workflow_quota_reservation", _reserve_workflow_call)
+    _write_shared_preflight_diagnostics(
+        Path(preview),
+        status="ready_for_wire",
+        gates=list(gates),
+    )
+
     contract._authorize(ledger, spec)
     try:
         result = _wire_call(

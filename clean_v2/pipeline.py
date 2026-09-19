@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +27,9 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
+RESUME_CONTRACT_VERSION = 1
+RESUMABLE_STAGES = ("planning", "script", "voice", "visuals")
+_RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
 
 STAGES = (
     "brief",
@@ -181,6 +186,179 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid Clean V2 resume artifact: {path.name}") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError(f"invalid Clean V2 resume artifact: {path.name}")
+    return value
+
+
+def _resume_identity(
+    *,
+    approved_brief_sha256: str,
+    engine_sha: str,
+    runner_sha: str | None,
+    max_visuals: int,
+) -> dict[str, Any]:
+    return {
+        "approved_brief_sha256": str(approved_brief_sha256),
+        "engine_sha": str(engine_sha),
+        "runner_sha": runner_sha or None,
+        "max_visuals": int(max_visuals),
+    }
+
+
+def _safe_resume_relative_path(raw: str) -> Path:
+    relative = Path(str(raw))
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise RuntimeError("unsafe Clean V2 resume artifact path")
+    return relative
+
+
+def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[Path]:
+    rank = _RESUME_STAGE_INDEX[completed_stage]
+    paths = [Path("brief.json"), Path("plan.json")]
+    if rank >= _RESUME_STAGE_INDEX["script"]:
+        paths.extend([Path("script.json"), Path("narration.txt")])
+    if rank >= _RESUME_STAGE_INDEX["voice"]:
+        paths.append(Path("narration.wav"))
+    if rank >= _RESUME_STAGE_INDEX["visuals"]:
+        rights_path = output_dir / "rights-manifest.json"
+        rights = _read_json_object(rights_path)
+        assets = rights.get("assets")
+        if not isinstance(assets, list) or not assets:
+            raise RuntimeError("Clean V2 resume rights manifest has no assets")
+        paths.append(Path("rights-manifest.json"))
+        for item in assets:
+            if not isinstance(item, dict):
+                raise RuntimeError("Clean V2 resume rights manifest is invalid")
+            local_file = str(item.get("local_file") or "").strip()
+            relative = _safe_resume_relative_path(f"visuals/{local_file}")
+            paths.append(relative)
+    return paths
+
+
+def _write_resume_checkpoint(
+    output_dir: Path,
+    *,
+    completed_stage: str,
+    approved_brief_sha256: str,
+    engine_sha: str,
+    runner_sha: str | None,
+    max_visuals: int,
+    voice_provider: str | None = None,
+    voice_fallback_used: bool | None = None,
+) -> None:
+    if completed_stage not in RESUMABLE_STAGES:
+        raise RuntimeError(f"non-resumable Clean V2 checkpoint stage: {completed_stage}")
+    artifacts: dict[str, str] = {}
+    for relative in _checkpoint_artifact_paths(output_dir, completed_stage):
+        path = output_dir / relative
+        if not path.is_file() or path.stat().st_size <= 0:
+            raise RuntimeError(f"missing Clean V2 checkpoint artifact: {relative.as_posix()}")
+        artifacts[relative.as_posix()] = _sha256_file(path)
+    payload: dict[str, Any] = {
+        "schema_version": RESUME_CONTRACT_VERSION,
+        "pipeline": "clean-v2-minimal-e2e",
+        "identity": _resume_identity(
+            approved_brief_sha256=approved_brief_sha256,
+            engine_sha=engine_sha,
+            runner_sha=runner_sha,
+            max_visuals=max_visuals,
+        ),
+        "completed_stage": completed_stage,
+        "artifacts": artifacts,
+    }
+    if _RESUME_STAGE_INDEX[completed_stage] >= _RESUME_STAGE_INDEX["voice"]:
+        if voice_provider not in {
+            "gemini:Charon",
+            "piper-local:ar_JO-kareem-medium",
+        }:
+            raise RuntimeError("Clean V2 checkpoint voice provider is not approved")
+        if not isinstance(voice_fallback_used, bool):
+            raise RuntimeError("Clean V2 checkpoint voice fallback state is invalid")
+        payload["voice_provider"] = voice_provider
+        payload["voice_fallback_used"] = voice_fallback_used
+    atomic_write_json(output_dir / "resume-checkpoint.json", payload)
+
+
+def _load_resume_checkpoint(
+    resume_from: Path | None,
+    *,
+    approved_brief_sha256: str,
+    engine_sha: str,
+    runner_sha: str | None,
+    max_visuals: int,
+) -> tuple[Path, dict[str, Any]] | None:
+    if resume_from is None:
+        return None
+    root = Path(resume_from)
+    checkpoint_path = root / "resume-checkpoint.json"
+    if not checkpoint_path.is_file():
+        return None
+    try:
+        checkpoint = _read_json_object(checkpoint_path)
+        if checkpoint.get("schema_version") != RESUME_CONTRACT_VERSION:
+            return None
+        if checkpoint.get("pipeline") != "clean-v2-minimal-e2e":
+            return None
+        expected_identity = _resume_identity(
+            approved_brief_sha256=approved_brief_sha256,
+            engine_sha=engine_sha,
+            runner_sha=runner_sha,
+            max_visuals=max_visuals,
+        )
+        if checkpoint.get("identity") != expected_identity:
+            return None
+        completed_stage = str(checkpoint.get("completed_stage") or "")
+        if completed_stage not in RESUMABLE_STAGES:
+            return None
+        artifacts = checkpoint.get("artifacts")
+        if not isinstance(artifacts, dict) or not artifacts:
+            return None
+        for raw_relative, expected_hash in artifacts.items():
+            relative = _safe_resume_relative_path(str(raw_relative))
+            path = root / relative
+            if (
+                not path.is_file()
+                or path.stat().st_size <= 0
+                or _sha256_file(path) != str(expected_hash)
+            ):
+                return None
+        return root, checkpoint
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _resume_includes(checkpoint: dict[str, Any], stage: str) -> bool:
+    completed_stage = str(checkpoint.get("completed_stage") or "")
+    return (
+        stage in _RESUME_STAGE_INDEX
+        and completed_stage in _RESUME_STAGE_INDEX
+        and _RESUME_STAGE_INDEX[stage] <= _RESUME_STAGE_INDEX[completed_stage]
+    )
+
+
+def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) -> Path:
+    rel = _safe_resume_relative_path(relative)
+    source = source_root / rel
+    destination = output_dir / rel
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return destination
+
+
 def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
     section_requirement = "exactly 5 sections" if fmt == "film" else "2 to 4 sections"
@@ -273,6 +451,29 @@ class _Journal:
 
     def _write(self) -> None:
         atomic_write_json(self.path, self.payload)
+
+    def reuse(self, name: str, *, source: str = "pre_qc_checkpoint") -> None:
+        if name not in STAGES:
+            raise RuntimeError(f"unknown Clean V2 stage: {name}")
+        expected = STAGES[len(self.payload["stages"])]
+        if name != expected:
+            raise RuntimeError(f"stage order violation: expected={expected} actual={name}")
+        now = _utc_now()
+        self.payload["stages"].append(
+            {
+                "name": name,
+                "status": "pass",
+                "started_at": now,
+                "finished_at": now,
+                "duration_seconds": 0.0,
+                "resumed": True,
+                "resume_source": source,
+            }
+        )
+        resumed = self.payload.setdefault("resumed_stages", [])
+        if name not in resumed:
+            resumed.append(name)
+        self._write()
 
     def run(self, name: str, operation: Callable[[], Any]) -> Any:
         if name not in STAGES:
@@ -415,6 +616,7 @@ class CleanV2Pipeline:
         engine_sha: str,
         runner_sha: str | None = None,
         max_visuals: int = 5,
+        resume_from: Path | None = None,
     ) -> dict[str, Any]:
         engine_sha = require_exact_engine_sha(engine_sha)
         if output_dir.exists() and any(output_dir.iterdir()):
@@ -425,6 +627,10 @@ class CleanV2Pipeline:
             runner_sha=runner_sha,
             engine_sha=engine_sha,
         )
+        journal.payload["resume_contract_version"] = RESUME_CONTRACT_VERSION
+        journal.payload["max_visuals"] = int(max_visuals)
+        journal.payload["resumed_stages"] = []
+        journal._write()
 
         try:
             brief = journal.run(
@@ -436,30 +642,94 @@ class CleanV2Pipeline:
             journal.payload["format"] = str(brief["format"])
             journal._write()
 
-            plan = journal.run(
-                "planning",
-                lambda: self.router.route(
-                    stage="planning",
-                    prompt=_planning_prompt(brief),
-                    max_tokens=3000,
-                    validator=lambda value: validate_plan(value, brief),
-                ),
+            approved_brief_digest = compute_brief_sha256(brief)
+            resume = _load_resume_checkpoint(
+                resume_from,
+                approved_brief_sha256=approved_brief_digest,
+                engine_sha=engine_sha,
+                runner_sha=runner_sha,
+                max_visuals=max_visuals,
             )
-            atomic_write_json(output_dir / "plan.json", plan)
-            self._write_runtime_events(output_dir)
+            if resume is not None:
+                journal.payload["resume_checkpoint_accepted"] = True
+                journal.payload["resume_completed_stage"] = str(
+                    resume[1]["completed_stage"]
+                )
+                journal._write()
 
-            script = journal.run(
-                "script",
-                lambda: self.router.route(
-                    stage="script",
-                    prompt=_script_prompt(brief, plan),
-                    max_tokens=7500 if brief["format"] == "film" else 2500,
-                    validator=lambda value: validate_script(value, plan),
-                ),
+            if resume is not None and _resume_includes(resume[1], "planning"):
+                _copy_resume_artifact(resume[0], output_dir, "plan.json")
+                plan = validate_plan(
+                    _read_json_object(output_dir / "plan.json"),
+                    brief,
+                )
+                journal.reuse("planning")
+            else:
+                plan = journal.run(
+                    "planning",
+                    lambda: self.router.route(
+                        stage="planning",
+                        prompt=_planning_prompt(brief),
+                        max_tokens=3000,
+                        validator=lambda value: validate_plan(value, brief),
+                    ),
+                )
+                atomic_write_json(output_dir / "plan.json", plan)
+                self._write_runtime_events(output_dir)
+            _write_resume_checkpoint(
+                output_dir,
+                completed_stage="planning",
+                approved_brief_sha256=approved_brief_digest,
+                engine_sha=engine_sha,
+                runner_sha=runner_sha,
+                max_visuals=max_visuals,
             )
-            atomic_write_json(output_dir / "script.json", script)
-            self._write_runtime_events(output_dir)
 
+            if resume is not None and _resume_includes(resume[1], "script"):
+                _copy_resume_artifact(resume[0], output_dir, "script.json")
+                _copy_resume_artifact(resume[0], output_dir, "narration.txt")
+                script = validate_script(
+                    _read_json_object(output_dir / "script.json"),
+                    plan,
+                )
+                transcript = "\n\n".join(
+                    item["narration"] for item in script["sections"]
+                )
+                if (output_dir / "narration.txt").read_text(
+                    encoding="utf-8"
+                ) != transcript + "\n":
+                    raise RuntimeError("Clean V2 resume narration does not match script")
+                journal.reuse("script")
+            else:
+                script = journal.run(
+                    "script",
+                    lambda: self.router.route(
+                        stage="script",
+                        prompt=_script_prompt(brief, plan),
+                        max_tokens=7500 if brief["format"] == "film" else 2500,
+                        validator=lambda value: validate_script(value, plan),
+                    ),
+                )
+                atomic_write_json(output_dir / "script.json", script)
+                self._write_runtime_events(output_dir)
+                transcript = "\n\n".join(
+                    item["narration"] for item in script["sections"]
+                )
+                (output_dir / "narration.txt").write_text(
+                    transcript + "\n", encoding="utf-8"
+                )
+            _write_resume_checkpoint(
+                output_dir,
+                completed_stage="script",
+                approved_brief_sha256=approved_brief_digest,
+                engine_sha=engine_sha,
+                runner_sha=runner_sha,
+                max_visuals=max_visuals,
+            )
+
+            # Text Audit is not part of the resumable checkpoint set: it is a cheap
+            # single-call safety gate, and always re-running it (even on a resumed
+            # attempt) means a resume can never silently skip the factuality check.
             journal.payload["quality_layers_executed"] = [TEXT_AUDIT_STAGE]
             journal._write()
             text_audit_report = journal.run(
@@ -472,21 +742,47 @@ class CleanV2Pipeline:
                 ),
             )
 
-            transcript = "\n\n".join(item["narration"] for item in script["sections"])
-            (output_dir / "narration.txt").write_text(transcript + "\n", encoding="utf-8")
-
             narration_path = output_dir / "narration.wav"
-            journal.run(
-                "voice",
-                lambda: self.voice_synthesizer.synthesize(transcript, narration_path),
-            )
-            voice_provider = getattr(self.voice_synthesizer, "last_provider", None)
-            if voice_provider is not None:
-                journal.payload["voice_provider"] = str(voice_provider)
-                journal.payload["voice_fallback_used"] = bool(
+            if resume is not None and _resume_includes(resume[1], "voice"):
+                _copy_resume_artifact(resume[0], output_dir, "narration.wav")
+                voice_provider = str(resume[1].get("voice_provider") or "")
+                voice_fallback_used = resume[1].get("voice_fallback_used")
+                if voice_provider not in {
+                    "gemini:Charon",
+                    "piper-local:ar_JO-kareem-medium",
+                } or not isinstance(voice_fallback_used, bool):
+                    raise RuntimeError("Clean V2 resume voice metadata is invalid")
+                journal.reuse("voice")
+                journal.payload["voice_provider"] = voice_provider
+                journal.payload["voice_fallback_used"] = voice_fallback_used
+                journal._write()
+            else:
+                journal.run(
+                    "voice",
+                    lambda: self.voice_synthesizer.synthesize(
+                        transcript, narration_path
+                    ),
+                )
+                voice_provider = getattr(
+                    self.voice_synthesizer, "last_provider", None
+                )
+                voice_fallback_used = bool(
                     getattr(self.voice_synthesizer, "fallback_used", False)
                 )
-                journal._write()
+                if voice_provider is not None:
+                    journal.payload["voice_provider"] = str(voice_provider)
+                    journal.payload["voice_fallback_used"] = voice_fallback_used
+                    journal._write()
+            _write_resume_checkpoint(
+                output_dir,
+                completed_stage="voice",
+                approved_brief_sha256=approved_brief_digest,
+                engine_sha=engine_sha,
+                runner_sha=runner_sha,
+                max_visuals=max_visuals,
+                voice_provider=str(journal.payload.get("voice_provider") or ""),
+                voice_fallback_used=journal.payload.get("voice_fallback_used"),
+            )
 
             visuals_dir = output_dir / "visuals"
             # Security V1 and M8 are part of the restored layer and execute inside
@@ -496,24 +792,61 @@ class CleanV2Pipeline:
                 CINEMATIC_STAGE,
             ]
             journal._write()
-            clips, rights = journal.run(
-                "visuals",
-                lambda: self.visual_source.acquire(
-                    plan,
-                    visuals_dir,
-                    str(brief["format"]),
-                    max_visuals,
-                ),
+            if resume is not None and _resume_includes(resume[1], "visuals"):
+                _copy_resume_artifact(
+                    resume[0], output_dir, "rights-manifest.json"
+                )
+                rights_payload = _read_json_object(
+                    output_dir / "rights-manifest.json"
+                )
+                rights = rights_payload.get("assets")
+                if not isinstance(rights, list) or not rights:
+                    raise RuntimeError("Clean V2 resume rights manifest is invalid")
+                clips: list[Path] = []
+                for item in rights:
+                    if not isinstance(item, dict):
+                        raise RuntimeError(
+                            "Clean V2 resume rights manifest is invalid"
+                        )
+                    local_file = str(item.get("local_file") or "").strip()
+                    clip = _copy_resume_artifact(
+                        resume[0],
+                        output_dir,
+                        f"visuals/{local_file}",
+                    )
+                    if clip.stat().st_size < 1024:
+                        raise RuntimeError("Clean V2 resume visual is empty")
+                    clips.append(clip)
+                journal.reuse("visuals")
+            else:
+                clips, rights = journal.run(
+                    "visuals",
+                    lambda: self.visual_source.acquire(
+                        plan,
+                        visuals_dir,
+                        str(brief["format"]),
+                        max_visuals,
+                    ),
+                )
+                atomic_write_json(
+                    output_dir / "rights-manifest.json",
+                    {
+                        "schema_version": 1,
+                        "assets": rights,
+                        "note": "Provider metadata captured at acquisition; no visual quality audit executed in Clean V2 bootstrap.",
+                    },
+                )
+                self._write_runtime_events(output_dir)
+            _write_resume_checkpoint(
+                output_dir,
+                completed_stage="visuals",
+                approved_brief_sha256=approved_brief_digest,
+                engine_sha=engine_sha,
+                runner_sha=runner_sha,
+                max_visuals=max_visuals,
+                voice_provider=str(journal.payload.get("voice_provider") or ""),
+                voice_fallback_used=journal.payload.get("voice_fallback_used"),
             )
-            atomic_write_json(
-                output_dir / "rights-manifest.json",
-                {
-                    "schema_version": 1,
-                    "assets": rights,
-                    "note": "Provider metadata captured at acquisition; no visual quality audit executed in Clean V2 bootstrap.",
-                },
-            )
-            self._write_runtime_events(output_dir)
 
             journal.payload["quality_layers_executed"] = [
                 TEXT_AUDIT_STAGE,
