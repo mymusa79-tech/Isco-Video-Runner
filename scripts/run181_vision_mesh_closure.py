@@ -15,8 +15,10 @@ provider+model+quota-domain, so Gemini generation quota evidence can be reused b
 Vision but cannot poison unrelated Gemini TTS.
 
 Provider order for one Visual Audit logical task becomes:
-    Gemini -> Groq qwen/qwen3.8-27b -> OpenRouter
-while the existing total inference-attempt ceiling remains exactly three. The exact
+    Gemini -> Groq qwen/qwen3.8-27b -> OpenRouter -> Cloudflare Workers AI
+The Vision-only inference-attempt ceiling is five so OpenRouter's existing model-diverse
+schema recovery can execute after two earlier provider failures and a fourth independent
+provider still has one bounded slot. The exact
 Visual Audit schema, Engine normalizer/thresholds, semantic BLOCK finality, Security
 preflight, candidate caps, and fail-closed behavior remain authoritative.
 """
@@ -26,6 +28,7 @@ import hashlib
 import json
 import os
 from contextvars import ContextVar
+from dataclasses import replace
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -33,6 +36,7 @@ from typing import Any
 import requests
 
 from isco_video_agent.ai_budget import AttemptOutcome, Capability
+from scripts import gold_cloudflare_vision_fallback as cloudflare_vision
 from scripts import provider_health_registry as health
 from scripts import task_level_planner_router as planner_router
 from scripts import text_audit_provider_mesh as text_mesh
@@ -46,6 +50,8 @@ GROQ_TIMEOUT_SECONDS = 60
 GROQ_CATALOG_TIMEOUT_SECONDS = 15
 GEMINI_GENERATION_QUOTA_DOMAIN = "generate_content"
 GROQ_VISION_QUOTA_DOMAIN = "vision"
+CLOUDFLARE_VISION_MODEL = cloudflare_vision.CLOUDFLARE_VISION_MODEL
+CLOUDFLARE_VISION_QUOTA_DOMAIN = "vision"
 
 _INSTALLED = False
 _GROQ_MODEL_CERTIFIED: ContextVar[bool | None] = ContextVar(
@@ -343,11 +349,14 @@ def _groq_visual_call(
         ) from exc
     if not response.ok:
         message = contract._extract_error_message(body)
+        status = int(response.status_code)
         raise contract.VisionStageError(
-            _classify_groq_vision_http(int(response.status_code), message),
-            f"HTTP_{response.status_code} message={message}",
+            _classify_groq_vision_http(status, message),
+            f"HTTP_{status} message={message}",
             provider="groq",
             requested_model=GROQ_VISION_MODEL,
+            http_status=status,
+            http_message=message,
         )
     choices = body.get("choices") if isinstance(body, dict) else None
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
@@ -409,16 +418,47 @@ def _run_groq_attempt(
     return result
 
 
+
+def _run_cloudflare_attempt(
+    ledger,
+    spec,
+    *,
+    preview: Path,
+    narration_context: str,
+    intended_visual: str,
+) -> dict[str, Any]:
+    return cloudflare_vision.run_shared_cloudflare_attempt(
+        ledger,
+        spec,
+        preview=preview,
+        narration_context=narration_context,
+        intended_visual=intended_visual,
+    )
+
+
 def _mesh_unavailable(state) -> contract.legacy.VisionProviderMeshUnavailableError:
     groq = health.provider_unavailable(
         "groq",
         model=GROQ_VISION_MODEL,
         quota_domain=GROQ_VISION_QUOTA_DOMAIN,
     )
+    cloudflare = health.provider_unavailable(
+        "cloudflare",
+        model=CLOUDFLARE_VISION_MODEL,
+        quota_domain=CLOUDFLARE_VISION_QUOTA_DOMAIN,
+    )
     reasons = [
         f"gemini={state.gemini_reason or 'unavailable'}",
         f"groq={(groq.reason if groq else 'unavailable')}",
         f"openrouter={state.openrouter_reason or 'unavailable'}",
+        (
+            "cloudflare="
+            + (
+                cloudflare.reason
+                if cloudflare
+                else ("not_configured" if not cloudflare_vision.shared_vision_configured() else "unavailable")
+            )
+        ),
     ]
     return contract.legacy.VisionProviderMeshUnavailableError(
         "Vision provider mesh unavailable: " + " | ".join(reasons)
@@ -475,17 +515,20 @@ def _route_visual_audit_v3(
         narration_context=narration_context,
         intended_visual=intended_visual,
     )
-    # V2 already owns a three-attempt logical Vision budget. V3 changes only provider
-    # composition, never the ceiling.
+
     max_attempts = int(contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts)
-    if max_attempts != 3:
+    if max_attempts != 5:
         raise contract.VisionStageError(
             contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
-            f"Run181 closure requires existing Vision attempt cap=3, found={max_attempts}",
+            f"Run181 closure requires Vision attempt cap=5, found={max_attempts}",
             provider="internal",
         )
+    routed_spec = replace(
+        spec,
+        max_provider_attempts=max(max_attempts, int(spec.max_provider_attempts)),
+    )
     if ledger is not None:
-        ledger.register_task(spec)
+        ledger.register_task(routed_spec)
     state = contract.legacy._state()
     attempts = 0
 
@@ -501,7 +544,7 @@ def _route_visual_audit_v3(
         )
 
     if not state.gemini_open:
-        contract._authorize(ledger, spec)
+        contract._authorize(ledger, routed_spec)
         attempts += 1
         try:
             result = fn(*args, **kwargs)
@@ -510,7 +553,7 @@ def _route_visual_audit_v3(
             detail = contract.legacy._safe_exception_detail(exc)
             contract._record(
                 ledger,
-                spec,
+                routed_spec,
                 provider="gemini",
                 requested_model=resolved_model,
                 resolved_model=resolved_model,
@@ -535,7 +578,7 @@ def _route_visual_audit_v3(
         else:
             contract._record(
                 ledger,
-                spec,
+                routed_spec,
                 provider="gemini",
                 requested_model=resolved_model,
                 resolved_model=resolved_model,
@@ -545,13 +588,11 @@ def _route_visual_audit_v3(
                     else AttemptOutcome.SUCCESS
                 ),
             )
-            # Semantic BLOCK is authoritative, not a reason to shop for a friendlier
-            # provider. This preserves the existing V2 semantic-block-final contract.
             return result
     else:
         _record_circuit_open(
             ledger,
-            spec,
+            routed_spec,
             provider="gemini",
             requested_model=resolved_model,
             detail="run-scoped/shared Gemini generation circuit already open",
@@ -567,7 +608,7 @@ def _route_visual_audit_v3(
         try:
             result = _run_groq_attempt(
                 ledger,
-                spec,
+                routed_spec,
                 preview=preview,
                 narration_context=narration_context,
                 intended_visual=intended_visual,
@@ -594,7 +635,7 @@ def _route_visual_audit_v3(
     elif groq_evidence is not None:
         _record_circuit_open(
             ledger,
-            spec,
+            routed_spec,
             provider="groq",
             requested_model=GROQ_VISION_MODEL,
             detail=f"shared Groq Vision health unavailable source={groq_evidence.source}",
@@ -614,81 +655,148 @@ def _route_visual_audit_v3(
     if state.openrouter_open:
         _record_circuit_open(
             ledger,
-            spec,
+            routed_spec,
             provider="openrouter",
             requested_model=contract.OPENROUTER_PRIMARY_MODEL,
             detail="run-scoped/shared OpenRouter circuit already open",
         )
-        raise _mesh_unavailable(state)
-    if attempts >= max_attempts:
-        raise _mesh_unavailable(state)
-
-    attempts += 1
-    first_resolved: str | None = None
-    try:
-        result, first_resolved = contract._run_openrouter_attempt(
-            ledger,
-            spec,
-            preview=preview,
-            narration_context=narration_context,
-            intended_visual=intended_visual,
-            requested_model=contract.OPENROUTER_PRIMARY_MODEL,
-        )
-        return result
-    except contract.VisionStageError as first_error:
-        if first_error.code is not contract.VisionErrorCode.STRUCTURAL_INVALID:
-            if first_error.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
-                raise
-            state.openrouter_open = True
-            state.openrouter_reason = contract.legacy._safe_exception_detail(first_error)
-            health.publish_provider_unavailable(
-                "openrouter",
-                model="*",
-                quota_domain="*",
-                reason=state.openrouter_reason,
-                source="vision_stage",
-            )
-            raise _mesh_unavailable(state) from first_error
-
-        first_resolved = first_error.resolved_model or first_resolved
-        # Preserve V2's one model-diverse schema recovery only when a real inference
-        # slot remains. Skipped providers spend zero slots; failed wire calls spend one.
-        if attempts >= max_attempts:
-            state.openrouter_reason = contract.legacy._safe_exception_detail(first_error)
-            raise _mesh_unavailable(state) from first_error
-        excluded = {contract.OPENROUTER_PRIMARY_MODEL}
-        if first_resolved:
-            excluded.add(first_resolved)
-        alternate = contract._discover_alternate_free_vision_model(exclude=excluded)
-        if not alternate:
-            state.openrouter_open = True
-            state.openrouter_reason = (
-                f"{contract.VisionErrorCode.STRUCTURAL_INVALID.value} "
-                "no diverse free structured-vision model available "
-                f"after {first_resolved or contract.OPENROUTER_PRIMARY_MODEL}"
-            )
-            raise _mesh_unavailable(state) from first_error
+    elif attempts < max_attempts:
         attempts += 1
-        print(
-            "Vision Stage Contract V3: schema-invalid OpenRouter response isolated to model; "
-            f"retrying once with diverse free model={alternate} input={input_hash[:12]}"
-        )
+        first_resolved: str | None = None
         try:
-            result, _resolved = contract._run_openrouter_attempt(
+            result, first_resolved = contract._run_openrouter_attempt(
                 ledger,
-                spec,
+                routed_spec,
                 preview=preview,
                 narration_context=narration_context,
                 intended_visual=intended_visual,
-                requested_model=alternate,
+                requested_model=contract.OPENROUTER_PRIMARY_MODEL,
             )
             return result
-        except contract.VisionStageError as second_error:
-            if second_error.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
+        except contract.VisionStageError as first_error:
+            if first_error.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
                 raise
-            state.openrouter_open = True
-            state.openrouter_reason = contract.legacy._safe_exception_detail(second_error)
-            raise _mesh_unavailable(state) from second_error
+
+            if first_error.code is contract.VisionErrorCode.STRUCTURAL_INVALID:
+                first_resolved = first_error.resolved_model or first_resolved
+                excluded = {contract.OPENROUTER_PRIMARY_MODEL}
+                if first_resolved:
+                    excluded.add(first_resolved)
+                alternate = (
+                    contract._discover_alternate_free_vision_model(exclude=excluded)
+                    if attempts < max_attempts
+                    else None
+                )
+                if alternate and attempts < max_attempts:
+                    attempts += 1
+                    print(
+                        "Vision Stage Contract V3: schema-invalid OpenRouter response isolated to model; "
+                        f"retrying once with diverse free model={alternate} input={input_hash[:12]}"
+                    )
+                    try:
+                        result, _resolved = contract._run_openrouter_attempt(
+                            ledger,
+                            routed_spec,
+                            preview=preview,
+                            narration_context=narration_context,
+                            intended_visual=intended_visual,
+                            requested_model=alternate,
+                        )
+                        return result
+                    except contract.VisionStageError as second_error:
+                        if second_error.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
+                            raise
+                        state.openrouter_reason = contract.legacy._safe_exception_detail(
+                            second_error
+                        )
+                        # The bounded OpenRouter path is exhausted for this logical
+                        # Vision route even when the terminal failure is structural.
+                        # Keep structural evidence run-scoped (do not publish global
+                        # provider health), but mark the local gateway circuit closed
+                        # before considering the independent Cloudflare fallback.
+                        state.openrouter_open = True
+                else:
+                    state.openrouter_open = True
+                    state.openrouter_reason = (
+                        f"{contract.VisionErrorCode.STRUCTURAL_INVALID.value} "
+                        "no diverse free structured-vision model available "
+                        f"after {first_resolved or contract.OPENROUTER_PRIMARY_MODEL}"
+                    )
+            else:
+                state.openrouter_open = True
+                state.openrouter_reason = contract.legacy._safe_exception_detail(first_error)
+                health.publish_provider_unavailable(
+                    "openrouter",
+                    model="*",
+                    quota_domain="*",
+                    reason=state.openrouter_reason,
+                    source="vision_stage",
+                )
+
+    cloudflare_evidence = health.provider_unavailable(
+        "cloudflare",
+        model=CLOUDFLARE_VISION_MODEL,
+        quota_domain=CLOUDFLARE_VISION_QUOTA_DOMAIN,
+    )
+    config = cloudflare_vision.shared_vision_configured()
+    if cloudflare_evidence is not None:
+        _record_circuit_open(
+            ledger,
+            routed_spec,
+            provider="cloudflare",
+            requested_model=CLOUDFLARE_VISION_MODEL,
+            detail=f"shared Cloudflare Vision health unavailable source={cloudflare_evidence.source}",
+        )
+    elif not config:
+        print(
+            "Vision Stage Contract V3: Cloudflare Workers AI fallback not configured; "
+            "skipping with zero wire/zero attempt budget"
+        )
+    elif attempts < max_attempts:
+        attempts += 1
+        try:
+            result = _run_cloudflare_attempt(
+                ledger,
+                routed_spec,
+                preview=preview,
+                narration_context=narration_context,
+                intended_visual=intended_visual,
+            )
+            print(
+                "Vision Stage Contract V3: Cloudflare Workers AI Vision route selected "
+                f"model={CLOUDFLARE_VISION_MODEL} input={input_hash[:12]}"
+            )
+            return result
+        except cloudflare_vision.CloudflareGoldVisionUnavailable as exc:
+            detail = contract.legacy._safe_exception_detail(exc)
+            health.publish_provider_unavailable(
+                "cloudflare",
+                model=CLOUDFLARE_VISION_MODEL,
+                quota_domain=CLOUDFLARE_VISION_QUOTA_DOMAIN,
+                reason=detail,
+                source="vision_stage",
+            )
+            print(
+                "Vision Stage Contract V3: Cloudflare zero-cost eligibility unavailable; "
+                f"input={input_hash[:12]} reason={detail}"
+            )
+        except contract.VisionStageError as exc:
+            if exc.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
+                raise
+            detail = contract.legacy._safe_exception_detail(exc)
+            health.publish_provider_unavailable(
+                "cloudflare",
+                model=CLOUDFLARE_VISION_MODEL,
+                quota_domain=CLOUDFLARE_VISION_QUOTA_DOMAIN,
+                reason=detail,
+                source="vision_stage",
+            )
+            print(
+                "Vision Stage Contract V3: Cloudflare Vision route unavailable; "
+                f"input={input_hash[:12]} reason={detail}"
+            )
+
+    raise _mesh_unavailable(state)
 
 
 def _install_fingerprint_binding() -> None:
@@ -702,7 +810,8 @@ def _install_fingerprint_binding() -> None:
             "base": current(),
             "closure_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "groq_vision_model": GROQ_VISION_MODEL,
-            "provider_order": ["gemini", "groq", "openrouter"],
+            "cloudflare_vision_model": CLOUDFLARE_VISION_MODEL,
+            "provider_order": ["gemini", "groq", "openrouter", "cloudflare"],
             "health_scope": "provider+model+quota_domain",
         }
         encoded = json.dumps(
@@ -731,7 +840,7 @@ def install_run181_vision_mesh_closure() -> None:
 
     _INSTALLED = True
     print(
-        "Run181 Vision mesh closure installed: provider_order=Gemini->Groq(qwen/qwen3.8-27b)->OpenRouter; "
-        "health_source=preflight+existing_planning/text_audit_telemetry; total_inference_attempt_cap=3; "
+        "Run181 Vision mesh closure installed: provider_order=Gemini->Groq(qwen/qwen3.8-27b)->OpenRouter->Cloudflare; "
+        "health_source=preflight+existing_planning/text_audit_telemetry; total_inference_attempt_cap=5; "
         "visual schema/normalizer/semantic BLOCK/Security gates unchanged"
     )
