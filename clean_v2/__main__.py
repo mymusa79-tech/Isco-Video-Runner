@@ -37,6 +37,11 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
     )
     parser.add_argument("--voice-manifest", type=Path)
+    parser.add_argument(
+        "--resume-from",
+        type=Path,
+        help="Optional fail-closed Clean V2 pre-QC checkpoint directory.",
+    )
     parser.add_argument("--max-visuals", type=int, choices=range(1, 6), default=5)
     return parser
 
@@ -64,6 +69,7 @@ def main() -> None:
         engine_sha=args.engine_sha,
         runner_sha=args.runner_sha or None,
         max_visuals=args.max_visuals,
+        resume_from=args.resume_from,
     )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
 
