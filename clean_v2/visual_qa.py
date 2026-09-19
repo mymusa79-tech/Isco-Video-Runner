@@ -37,6 +37,23 @@ def _write_json(path: Path, value: Any) -> None:
     )
 
 
+def _provider_error_diagnostic(exc: BaseException, *, section_id: str) -> dict[str, Any]:
+    code = getattr(exc, "code", None)
+    code_value = getattr(code, "value", None) or (str(code) if code is not None else None)
+    payload: dict[str, Any] = {
+        "section": section_id,
+        "error_type": type(exc).__name__,
+        "error_code": code_value,
+        "provider": getattr(exc, "provider", None),
+        "requested_model": getattr(exc, "requested_model", None),
+        "resolved_model": getattr(exc, "resolved_model", None),
+        "http_status": getattr(exc, "http_status", None),
+        "http_message": getattr(exc, "http_message", None),
+        "detail": getattr(exc, "detail", None),
+    }
+    return {key: value for key, value in payload.items() if value is not None}
+
+
 def _infrastructure_error(exc: BaseException) -> bool:
     try:
         from scripts.vision_provider_reliability import VisionProviderMeshUnavailableError
@@ -138,6 +155,7 @@ def run_final_cut_visual_qa(
 
     ledger = BudgetLedger(fmt, enforce=True)
     audits: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = []
     preview_dir = output_dir / "visual-qa"
     preview_dir.mkdir(parents=True, exist_ok=True)
 
@@ -166,7 +184,7 @@ def run_final_cut_visual_qa(
                     kind="VISUAL_AUDIT",
                     priority=Priority.P0,
                     capability=Capability.VISION,
-                    max_provider_attempts=3,
+                    max_provider_attempts=5,
                     schema_repair_allowed=False,
                     local_fallback=False,
                     semantic_block_is_final=True,
@@ -185,14 +203,26 @@ def run_final_cut_visual_qa(
                         model=model,
                     )
                 except Exception as exc:
+                    diagnostic = _provider_error_diagnostic(exc, section_id=section_id)
+                    diagnostics.append(diagnostic)
+                    _write_json(output_dir / "visual-qa-diagnostics.json", diagnostics)
+                    code = diagnostic.get("error_code") or "unknown"
+                    http_status = diagnostic.get("http_status")
+                    http_marker = (
+                        f" http_status={http_status}"
+                        if http_status is not None
+                        else ""
+                    )
                     if _infrastructure_error(exc):
                         raise CleanV2VisualQAInfrastructure(
                             f"CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section={section_id} "
-                            f"error_type={type(exc).__name__}"
+                            f"error_type={type(exc).__name__} provider_error_code={code}"
+                            f"{http_marker}"
                         ) from exc
                     raise CleanV2VisualQABlock(
                         f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
-                        f"reason=visual_audit_contract_error error_type={type(exc).__name__}"
+                        f"reason=visual_audit_contract_error error_type={type(exc).__name__} "
+                        f"provider_error_code={code}{http_marker}"
                     ) from exc
 
                 audit = dict(raw)
