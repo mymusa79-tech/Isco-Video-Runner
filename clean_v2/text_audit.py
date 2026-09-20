@@ -36,6 +36,28 @@ TEXT_AUDIT_SCHEMA: dict[str, Any] = {
 _EXPECTED_BASE_ROUTE = ("gemini", "groq", "openrouter")
 _AUDIT_ROUTE_LOCK = threading.RLock()
 
+_LEGACY_PROFESSIONAL_ADVICE_RULE = (
+    "3. Flag diagnosis, treatment, prescriptions, individualized medical/wellness advice, or language presenting the narrator\n"
+    "   as a doctor, therapist, psychologist, lawyer, financial adviser, political expert, imam or religious scholar."
+)
+_PRODUCTIVITY_SCOPE_CLARIFICATION = (
+    "\n   For professional_advice_flags specifically: do NOT flag ordinary general productivity/self-improvement advice "
+    "(for example: choose a task, set a reminder, or track progress). Only flag individualized medical, legal, financial, "
+    "or religious authority advice/claims, treatment or prescription content, or claims that the narrator holds such "
+    "professional/religious authority."
+)
+
+
+def _scope_professional_advice_prompt(prompt: str) -> str:
+    """Narrow only professional-advice semantics while preserving the legacy audit contract."""
+    if _LEGACY_PROFESSIONAL_ADVICE_RULE not in prompt:
+        raise RuntimeError("Clean V2 factuality professional-advice rule drift")
+    return prompt.replace(
+        _LEGACY_PROFESSIONAL_ADVICE_RULE,
+        _LEGACY_PROFESSIONAL_ADVICE_RULE + _PRODUCTIVITY_SCOPE_CLARIFICATION,
+        1,
+    )
+
 
 def _validate_factuality_result(result: dict[str, Any]) -> dict[str, Any]:
     from isco_video_agent.text_audit_router import validate_audit_payload
@@ -106,13 +128,14 @@ def audit_plan_with_mistral(
 
                 return invoke
 
+            scoped_prompt = _scope_professional_advice_prompt(prompt)
             extended = [
                 (name, contract_validated(call)) for name, call in providers
             ]
             extended.append(("mistral", _mistral_factuality_call))
             return text_audit_router.route_text_audit(
                 extended,
-                prompt,
+                scoped_prompt,
                 cooldown=cooldown,
             )
 
