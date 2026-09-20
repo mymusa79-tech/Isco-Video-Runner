@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import socket
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -16,6 +18,8 @@ from . import mistral_executor
 
 MAX_PROMPT_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
+MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
+SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script"})
 
 
 class NoWireFailure(RuntimeError):
@@ -31,8 +35,16 @@ class NoWireFailure(RuntimeError):
 class ProviderWireFailure(RuntimeError):
     wire_attempted = True
 
-    def __init__(self, reason_code: str) -> None:
+    def __init__(
+        self,
+        reason_code: str,
+        *,
+        http_status: int | None = None,
+        retry_after_seconds: float | None = None,
+    ) -> None:
         self.reason_code = str(reason_code or "provider_failure")
+        self.http_status = http_status
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(self.reason_code)
 
 
@@ -54,6 +66,22 @@ def _read_secret(name: str) -> str:
         return path.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+
+
+def _retry_after_seconds(headers: object) -> float | None:
+    if headers is None:
+        return None
+    try:
+        raw_value = headers.get("Retry-After")  # type: ignore[attr-defined]
+    except (AttributeError, TypeError):
+        return None
+    try:
+        seconds = float(str(raw_value).strip())
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return seconds
 
 
 def _post_json(
@@ -78,7 +106,14 @@ def _post_json(
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
-        raise ProviderWireFailure(f"http_{int(exc.code)}") from None
+        http_status = int(exc.code)
+        raise ProviderWireFailure(
+            f"http_{http_status}",
+            http_status=http_status,
+            retry_after_seconds=(
+                _retry_after_seconds(exc.headers) if http_status == 429 else None
+            ),
+        ) from None
     except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
         raise ProviderWireFailure(f"transport_{type(exc).__name__.lower()}") from None
     if len(raw) > MAX_RESPONSE_BYTES:
@@ -319,9 +354,12 @@ class ProviderRouter:
 
         wire_count = 0
         failures: list[str] = []
-        for adapter in self.adapters:
-            if adapter.stages is not None and stage not in adapter.stages:
-                continue
+        eligible_adapters = tuple(
+            adapter
+            for adapter in self.adapters
+            if adapter.stages is None or stage in adapter.stages
+        )
+        for adapter_index, adapter in enumerate(eligible_adapters):
             try:
                 candidate = adapter.invoke(prompt, max_tokens, stage)
             except NoWireFailure as exc:
@@ -349,6 +387,15 @@ class ProviderRouter:
                     provider_attempt=1,
                     stage_wire_attempt=wire_count,
                 )
+                retry_after = getattr(exc, "retry_after_seconds", None)
+                if (
+                    stage in SHORT_RETRY_AFTER_STAGES
+                    and getattr(exc, "http_status", None) == 429
+                    and adapter_index + 1 < len(eligible_adapters)
+                    and isinstance(retry_after, (int, float))
+                    and 0 < float(retry_after) <= MAX_SHORT_RETRY_AFTER_SECONDS
+                ):
+                    time.sleep(float(retry_after))
                 continue
 
             wire_count += 1

@@ -205,6 +205,99 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                 )
                 self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
 
+    def test_http_429_captures_numeric_retry_after_header(self) -> None:
+        error = providers.urllib.error.HTTPError(
+            "https://provider.invalid/v1",
+            429,
+            "rate limited",
+            {"Retry-After": "7"},
+            None,
+        )
+        with mock.patch.object(
+            providers.urllib.request,
+            "urlopen",
+            side_effect=error,
+        ):
+            with self.assertRaises(providers.ProviderWireFailure) as raised:
+                providers._post_json(
+                    "https://provider.invalid/v1",
+                    headers={},
+                    payload={"test": True},
+                    timeout=1,
+                )
+
+        self.assertEqual(raised.exception.reason_code, "http_429")
+        self.assertEqual(raised.exception.http_status, 429)
+        self.assertEqual(raised.exception.retry_after_seconds, 7.0)
+
+    def test_short_retry_after_waits_once_before_next_planning_provider(self) -> None:
+        calls: list[str] = []
+
+        def rate_limited(_prompt: str, _tokens: int) -> dict:
+            calls.append("gemini")
+            raise providers.ProviderWireFailure(
+                "http_429",
+                http_status=429,
+                retry_after_seconds=7.0,
+            )
+
+        def succeeds(_prompt: str, _tokens: int) -> dict:
+            calls.append("groq")
+            return {"ok": True}
+
+        router = providers.ProviderRouter(
+            (
+                providers.ProviderAdapter("gemini", rate_limited),
+                providers.ProviderAdapter("groq", succeeds),
+            )
+        )
+        with mock.patch.object(providers.time, "sleep") as sleep:
+            result = router.route(
+                stage="planning",
+                prompt="full prompt",
+                max_tokens=7500,
+                validator=lambda value: value,
+            )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(calls, ["gemini", "groq"])
+        sleep.assert_called_once_with(7.0)
+
+    def test_long_or_missing_retry_after_moves_immediately_in_one_pass(self) -> None:
+        for retry_after in (None, 10.1):
+            with self.subTest(retry_after=retry_after):
+                calls: list[str] = []
+
+                def rate_limited(_prompt: str, _tokens: int) -> dict:
+                    calls.append("gemini")
+                    raise providers.ProviderWireFailure(
+                        "http_429",
+                        http_status=429,
+                        retry_after_seconds=retry_after,
+                    )
+
+                def succeeds(_prompt: str, _tokens: int) -> dict:
+                    calls.append("groq")
+                    return {"ok": True}
+
+                router = providers.ProviderRouter(
+                    (
+                        providers.ProviderAdapter("gemini", rate_limited),
+                        providers.ProviderAdapter("groq", succeeds),
+                    )
+                )
+                with mock.patch.object(providers.time, "sleep") as sleep:
+                    result = router.route(
+                        stage="script",
+                        prompt="full prompt",
+                        max_tokens=7500,
+                        validator=lambda value: value,
+                    )
+
+                self.assertEqual(result, {"ok": True})
+                self.assertEqual(calls, ["gemini", "groq"])
+                sleep.assert_not_called()
+
     def test_mistral_executor_is_not_available_to_narrative_identity(self) -> None:
         order: list[str] = []
         with mock.patch.object(
