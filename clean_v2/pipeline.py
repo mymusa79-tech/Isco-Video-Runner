@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .channel_persona import with_channel_persona\nfrom .contracts import (
+from .channel_persona import with_channel_persona
+from .contracts import (
     atomic_write_json,
     compute_brief_sha256,
     load_approved_brief,
