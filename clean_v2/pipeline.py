@@ -1157,6 +1157,22 @@ class CleanV2Pipeline:
                     )
                 raise
 
+            if bool(visual_qa_report.get("final_media_mutated")):
+                # Semantic recovery replaces a visual in-place and updates rights.
+                # Refresh the visuals checkpoint so later-stage failures can resume
+                # from the recovered, already-QA-passed asset rather than rejecting
+                # the pre-QA checkpoint as stale.
+                _write_resume_checkpoint(
+                    output_dir,
+                    completed_stage="visuals",
+                    approved_brief_sha256=approved_brief_digest,
+                    engine_sha=engine_sha,
+                    runner_sha=runner_sha,
+                    max_visuals=max_visuals,
+                    voice_provider=str(journal.payload.get("voice_provider") or ""),
+                    voice_fallback_used=journal.payload.get("voice_fallback_used"),
+                )
+
             final_path = output_dir / "final.mp4"
             journal.run(
                 "render",
