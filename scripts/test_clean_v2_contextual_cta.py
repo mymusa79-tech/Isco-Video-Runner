@@ -154,7 +154,7 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                 return dest
 
             with mock.patch("clean_v2.media.probe_duration", return_value=100.0), mock.patch(
-                "isco_video_agent.cinematic_cta.render_cta_overlay",
+                "clean_v2.contextual_cta.render_cta_overlay",
                 side_effect=fake_render,
             ):
                 report = apply_contextual_cta_overlay(
@@ -188,7 +188,7 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
             narration.write_bytes(b"audio")
 
             with mock.patch("clean_v2.media.probe_duration", return_value=100.0), mock.patch(
-                "isco_video_agent.cinematic_cta.render_cta_overlay",
+                "clean_v2.contextual_cta.render_cta_overlay",
                 side_effect=RuntimeError("ffmpeg unavailable"),
             ):
                 report = apply_contextual_cta_overlay(
