@@ -4,7 +4,7 @@ from __future__ import annotations
 
 This module is deliberately not a Gold/reviewer adapter.  Its public request
 function accepts only the production executor roles explicitly approved here:
-planning, script, and text_audit.  A future independent Gold judge must use a
+planning, narrative_identity, script, and text_audit.  A future independent Gold judge must use a
 separate transport and role boundary so Mistral cannot write and judge the same
 content through this adapter.
 """
@@ -24,7 +24,7 @@ MISTRAL_EXECUTOR_MODEL = "ministral-14b-2512"
 MISTRAL_PLANNING_SCRIPT_MODEL = "mistral-small-2603"
 MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_TIMEOUT_SECONDS = 120
-MISTRAL_EXECUTOR_TASKS = frozenset({"planning", "script", "text_audit"})
+MISTRAL_EXECUTOR_TASKS = frozenset({"planning", "narrative_identity", "script", "text_audit"})
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 
 _TELEMETRY: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
@@ -67,7 +67,7 @@ def mistral_executor_configured() -> bool:
 
 
 def _model_for_task(task_kind: str) -> str:
-    if task_kind in {"planning", "script"}:
+    if task_kind in {"planning", "narrative_identity", "script"}:
         configured = str(os.environ.get("MISTRAL_CONTENT_MODEL") or "").strip()
         return configured or MISTRAL_PLANNING_SCRIPT_MODEL
     return MISTRAL_EXECUTOR_MODEL
