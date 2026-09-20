@@ -489,6 +489,7 @@ def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
                     "planning",
                     _mistral_planning_response_schema(prompt),
                 ),
+                temperature=0.0,
             )
         if stage == "script":
             return mistral_executor.mistral_executor_json(
