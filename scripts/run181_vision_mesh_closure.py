@@ -543,6 +543,23 @@ def _mistral_or_mesh(
         raise _mesh_unavailable(state)
     if not mistral_vision.mistral_visual_configured():
         raise _mesh_unavailable(state)
+    mistral_evidence = health.provider_unavailable(
+        MISTRAL_VISION_PROVIDER,
+        model=MISTRAL_VISION_MODEL,
+        quota_domain=MISTRAL_VISION_QUOTA_DOMAIN,
+    )
+    if mistral_evidence is not None:
+        _record_circuit_open(
+            ledger,
+            spec,
+            provider=MISTRAL_VISION_PROVIDER,
+            requested_model=MISTRAL_VISION_MODEL,
+            detail=(
+                "shared Mistral Vision health unavailable "
+                f"source={mistral_evidence.source}"
+            ),
+        )
+        raise _mesh_unavailable(state)
     try:
         result = _run_mistral_attempt(
             ledger,
@@ -567,6 +584,7 @@ def _mistral_or_mesh(
             quota_domain=MISTRAL_VISION_QUOTA_DOMAIN,
             reason=contract.legacy._safe_exception_detail(exc),
             source="vision_stage",
+            retry_after_seconds=mistral_vision.latest_retry_after_seconds(),
         )
         raise _mesh_unavailable(state) from exc
     print(
