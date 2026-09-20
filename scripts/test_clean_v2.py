@@ -246,6 +246,101 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
             self.assertIn(_PLANNING_FACTUALITY_RULE, captured[provider])
 
 
+class MistralPlanningSchemaTests(unittest.TestCase):
+    @staticmethod
+    def _brief_for(fmt: str) -> dict:
+        brief = _brief()
+        brief["format"] = fmt
+        return brief
+
+    @staticmethod
+    def _plan_with_count(count: int) -> dict:
+        return {
+            "title": "خطة",
+            "promise": "وعد واضح",
+            "sections": [
+                {
+                    "heading": f"قسم {index}",
+                    "purpose": f"غرض {index}",
+                    "visual_query_en": f"hands writing task {index} on notebook",
+                }
+                for index in range(1, count + 1)
+            ],
+        }
+
+    def test_film_schema_requires_exactly_five_sections(self) -> None:
+        schema = providers_module._mistral_planning_response_schema(
+            _planning_prompt(self._brief_for("film"))
+        )
+        sections = schema["properties"]["sections"]
+        self.assertEqual(sections["minItems"], 5)
+        self.assertEqual(sections["maxItems"], 5)
+
+        item = sections["items"]
+        self.assertEqual(
+            item["required"],
+            ["heading", "purpose", "visual_query_en"],
+        )
+        self.assertNotIn("id", item["required"])
+        self.assertNotIn("maxLength", item["properties"]["heading"])
+        self.assertFalse(item["additionalProperties"])
+
+    def test_short_schema_matches_validator_one_to_five_not_prompt_two_to_four(self) -> None:
+        for fmt in ("moment", "story"):
+            with self.subTest(fmt=fmt):
+                brief = self._brief_for(fmt)
+                prompt = _planning_prompt(brief)
+                self.assertIn("2 to 4 sections", prompt)
+
+                schema = providers_module._mistral_planning_response_schema(prompt)
+                sections = schema["properties"]["sections"]
+                self.assertEqual(sections["minItems"], 1)
+                self.assertEqual(sections["maxItems"], 5)
+
+                one = validate_plan(self._plan_with_count(1), brief)
+                five = validate_plan(self._plan_with_count(5), brief)
+                self.assertEqual(len(one["sections"]), 1)
+                self.assertEqual(len(five["sections"]), 5)
+                self.assertEqual(one["sections"][0]["id"], "s1")
+                self.assertEqual(five["sections"][-1]["id"], "s5")
+
+    def test_mistral_planning_call_passes_format_aware_strict_schema(self) -> None:
+        prompt = _planning_prompt(self._brief_for("film"))
+        expected = _plan()
+
+        with mock.patch.object(
+            providers_module.mistral_executor,
+            "mistral_executor_json",
+            return_value=expected,
+        ) as called:
+            result = providers_module._mistral_call(prompt, 4000, "planning")
+
+        self.assertEqual(result, expected)
+        kwargs = called.call_args.kwargs
+        self.assertEqual(kwargs["task_kind"], "planning")
+        self.assertEqual(kwargs["max_tokens"], 4000)
+        name, schema = kwargs["response_schema"]
+        self.assertEqual(name, "planning")
+        self.assertEqual(schema["properties"]["sections"]["minItems"], 5)
+        self.assertEqual(schema["properties"]["sections"]["maxItems"], 5)
+
+    def test_planning_schema_context_failure_is_no_wire(self) -> None:
+        with mock.patch.object(
+            providers_module.mistral_executor,
+            "mistral_executor_json",
+        ) as called:
+            with self.assertRaisesRegex(
+                NoWireFailure,
+                "mistral_planning_approved_brief_missing",
+            ):
+                providers_module._mistral_call(
+                    "planning prompt without approved brief",
+                    4000,
+                    "planning",
+                )
+        called.assert_not_called()
+
+
 class MistralNarrativeIdentitySchemaTests(unittest.TestCase):
     def test_schema_matches_validator_shape_without_artificial_length_caps(self) -> None:
         schema = providers_module.MISTRAL_NARRATIVE_IDENTITY_SCHEMA
