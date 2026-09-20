@@ -1,0 +1,678 @@
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from clean_v2.contracts import compute_brief_sha256
+from clean_v2.pipeline import CINEMATIC_STAGE, CleanV2Pipeline
+from clean_v2 import media as media_module
+
+
+def _candidate(provider: str, asset_id: str) -> dict:
+    return {
+        "provider": provider,
+        "asset_id": asset_id,
+        "download_url": f"https://media.invalid/{provider}/{asset_id}.mp4",
+        "source_url": f"https://source.invalid/{provider}/{asset_id}",
+        "creator": "test",
+        "creator_url": "",
+        "query": "quiet desk notebook wide shot",
+    }
+
+
+def _pacing_plan(*section_ids: str) -> dict:
+    return {
+        "sections": [
+            {
+                "id": section_id,
+                "heading": "h",
+                "purpose": "p",
+                "visual_query_en": "quiet desk notebook wide shot",
+            }
+            for section_id in section_ids
+        ]
+    }
+
+
+class StockVisualSourceAcquirePacingTests(unittest.TestCase):
+    def test_long_section_acquires_extra_same_query_clips(self) -> None:
+        # A ~70s flat slot for one section, well past PACING_MAX_SHOT_SECONDS
+        # (22s): ceil(70/22) = 4, capped at PACING_MAX_SHOTS_PER_SECTION (3).
+        source = media_module.StockVisualSource()
+        pexels_candidates = [
+            _candidate("pexels", "p1"),
+            _candidate("pexels", "p2"),
+            _candidate("pexels", "p3"),
+        ]
+
+        def fake_pexels(_query, *, portrait):
+            del portrait
+            return pexels_candidates.pop(0) if pexels_candidates else None
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(
+                _pacing_plan("s1"),
+                Path(root),
+                "film",
+                5,
+                section_flat_slot_seconds=70.0,
+            )
+
+        self.assertEqual(len(clips), 3)
+        self.assertEqual(len(rights), 3)
+        self.assertTrue(all(row["section_id"] == "s1" for row in rights))
+        self.assertFalse(rights[0].get("pacing_auxiliary"))
+        self.assertTrue(rights[1].get("pacing_auxiliary"))
+        self.assertTrue(rights[2].get("pacing_auxiliary"))
+
+    def test_normal_section_is_unaffected(self) -> None:
+        source = media_module.StockVisualSource()
+        pexels_candidates = [_candidate("pexels", "p1"), _candidate("pexels", "p2")]
+
+        def fake_pexels(_query, *, portrait):
+            del portrait
+            return pexels_candidates.pop(0) if pexels_candidates else None
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            # A 12s flat slot is under PACING_MAX_SHOT_SECONDS (22s): exactly
+            # today's behavior, one clip, no auxiliary tag.
+            clips, rights = source.acquire(
+                _pacing_plan("s1"),
+                Path(root),
+                "film",
+                5,
+                section_flat_slot_seconds=12.0,
+            )
+
+        self.assertEqual(len(clips), 1)
+        self.assertFalse(rights[0].get("pacing_auxiliary"))
+
+    def test_no_slot_hint_behaves_exactly_as_before(self) -> None:
+        source = media_module.StockVisualSource()
+
+        def fake_pexels(_query, *, portrait):
+            del portrait
+            return _candidate("pexels", "p1")
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(_pacing_plan("s1"), Path(root), "film", 5)
+
+        self.assertEqual(len(clips), 1)
+        self.assertFalse(rights[0].get("pacing_auxiliary"))
+
+    def test_minimum_shot_seconds_floor_reduces_extra_shot_count(self) -> None:
+        # A 40s flat slot: ceil(40/22)=2 desired, but 40/3 < 3.5 would be the
+        # third split - the floor must keep this at 2, not 3.
+        source = media_module.StockVisualSource()
+        pexels_candidates = [
+            _candidate("pexels", "p1"),
+            _candidate("pexels", "p2"),
+            _candidate("pexels", "p3"),
+        ]
+
+        def fake_pexels(_query, *, portrait):
+            del portrait
+            return pexels_candidates.pop(0) if pexels_candidates else None
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, _rights = source.acquire(
+                _pacing_plan("s1"),
+                Path(root),
+                "film",
+                5,
+                section_flat_slot_seconds=40.0,
+            )
+
+        self.assertEqual(len(clips), 2)
+
+    def test_extra_shots_stop_gracefully_when_stock_is_exhausted(self) -> None:
+        source = media_module.StockVisualSource()
+        # Only the primary candidate is available; extras must be skipped,
+        # never raise.
+        pexels_candidates = [_candidate("pexels", "p1")]
+
+        def fake_pexels(_query, *, portrait):
+            del portrait
+            return pexels_candidates.pop(0) if pexels_candidates else None
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(
+                _pacing_plan("s1"),
+                Path(root),
+                "film",
+                5,
+                section_flat_slot_seconds=70.0,
+            )
+
+        self.assertEqual(len(clips), 1)
+        self.assertFalse(rights[0].get("pacing_auxiliary"))
+
+    def test_flat_slot_applies_independently_to_every_section(self) -> None:
+        # section_flat_slot_seconds is the one shared render slot every
+        # section would get today - it applies the same way to each section
+        # in the call, so two equally long sections both split the same way.
+        source = media_module.StockVisualSource()
+        pexels_candidates = [
+            _candidate("pexels", f"p{index}") for index in range(1, 7)
+        ]
+
+        def fake_pexels(_query, *, portrait):
+            del portrait
+            return pexels_candidates.pop(0) if pexels_candidates else None
+
+        def fake_download(_url, destination):
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source, "_pexels", side_effect=fake_pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch.object(
+            media_module, "_download_media", side_effect=fake_download
+        ):
+            clips, rights = source.acquire(
+                _pacing_plan("s1", "s2"),
+                Path(root),
+                "film",
+                5,
+                section_flat_slot_seconds=45.0,
+            )
+
+        self.assertEqual(len(clips), 6)
+        by_section: dict[str, int] = {}
+        for row in rights:
+            by_section[row["section_id"]] = by_section.get(row["section_id"], 0) + 1
+        self.assertEqual(by_section, {"s1": 3, "s2": 3})
+
+
+class SectionSlotDurationsTests(unittest.TestCase):
+    def test_missing_manifest_falls_back_to_uniform_split(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            output_dir = Path(root)
+            paths = [output_dir / "a.mp4", output_dir / "b.mp4"]
+            durations = media_module._section_slot_durations(
+                output_dir, paths, 20.0
+            )
+        self.assertEqual(len(durations), 2)
+        self.assertAlmostEqual(durations[0], durations[1])
+        self.assertAlmostEqual(durations[0], 10.0 + 0.12)
+
+    def test_manifest_subdivides_only_the_long_section_share(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            output_dir = Path(root)
+            (output_dir / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {"local_file": "a.mp4", "section_id": "s1"},
+                            {"local_file": "b.mp4", "section_id": "s1"},
+                            {"local_file": "c.mp4", "section_id": "s2"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths = [
+                output_dir / "a.mp4",
+                output_dir / "b.mp4",
+                output_dir / "c.mp4",
+            ]
+            # Two logical sections share 30s total flat -> 15s each; s1's
+            # clips (a, b) split its 15s in half, s2's single clip (c) keeps
+            # the full 15s.
+            durations = media_module._section_slot_durations(
+                output_dir, paths, 30.0
+            )
+        self.assertAlmostEqual(durations[0], 7.5 + 0.12)
+        self.assertAlmostEqual(durations[1], 7.5 + 0.12)
+        self.assertAlmostEqual(durations[2], 15.0 + 0.12)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+class RenderVideoExplicitPacingTests(unittest.TestCase):
+    @staticmethod
+    def _make_clip(path: Path, color: str) -> None:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c={color}:s=320x180:r=30:d=5",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
+                "-y",
+                str(path),
+            ],
+            check=True,
+        )
+
+    @staticmethod
+    def _make_narration(path: Path, seconds: float) -> None:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"sine=frequency=220:sample_rate=24000:duration={seconds}",
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                str(path),
+            ],
+            check=True,
+        )
+
+    def test_render_honors_manifest_driven_section_split(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            output_dir = Path(root)
+            visuals_dir = output_dir / "visuals"
+            visuals_dir.mkdir()
+            clip_a = visuals_dir / "a.mp4"
+            clip_b = visuals_dir / "b.mp4"
+            clip_c = visuals_dir / "c.mp4"
+            self._make_clip(clip_a, "#172033")
+            self._make_clip(clip_b, "#6d4c41")
+            self._make_clip(clip_c, "#2e7d32")
+            narration_path = output_dir / "narration.wav"
+            self._make_narration(narration_path, 30.0)
+            (output_dir / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {"local_file": "a.mp4", "section_id": "s1"},
+                            {"local_file": "b.mp4", "section_id": "s1"},
+                            {"local_file": "c.mp4", "section_id": "s2"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            final_path = output_dir / "final.mp4"
+            media_module.render_video(
+                narration_path, [clip_a, clip_b, clip_c], final_path, "film"
+            )
+            self.assertTrue(final_path.is_file())
+            probe = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_format",
+                    "-of",
+                    "json",
+                    str(final_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            duration = float(json.loads(probe.stdout)["format"]["duration"])
+            self.assertAlmostEqual(duration, 30.0, delta=1.0)
+
+
+def _brief() -> dict:
+    return {
+        "approved_by_user": True,
+        "approved_topic": "كيف تبدأ بخطوة صغيرة",
+        "format": "film",
+        "language": "ar",
+        "audience": "Arabic-speaking adults",
+        "editorial_intent": "شرح عملي هادئ دون وعود مبالغ فيها.",
+        "research_pack": [],
+        "hard_constraints": ["No fabricated facts."],
+    }
+
+
+def _plan() -> dict:
+    return {
+        "title": "خطوة واحدة",
+        "promise": "فهم طريقة عملية للبدء",
+        "cta": "إذا كانت هذه الفكرة قريبة منك، اكتب تجربتك في التعليقات.",
+        "sections": [
+            {
+                "id": section_id,
+                "heading": heading,
+                "purpose": "شرح مختصر",
+                "visual_query_en": "quiet desk notebook wide shot",
+            }
+            for section_id, heading in (
+                ("s1", "المشكلة"),
+                ("s2", "الفكرة"),
+                ("s3", "التطبيق"),
+                ("s4", "المراجعة"),
+                ("s5", "الاستمرار"),
+            )
+        ],
+    }
+
+
+def _script() -> dict:
+    return {
+        "title": "خطوة واحدة",
+        "sections": [
+            {
+                "id": section_id,
+                "narration": narration,
+            }
+            for section_id, narration in (
+                ("s1", "نؤجل البداية أحيانًا لأن المهمة تبدو أكبر من اللحظة المتاحة أمامنا."),
+                ("s2", "حين نصغر الفعل الأول يصبح البدء أوضح، ونختبر الواقع بدل أن نبقى داخل الخطة."),
+                ("s3", "اختر اليوم خطوة يمكن تنفيذها الآن، ثم اترك النتيجة التالية لما بعد البداية."),
+                ("s4", "بعد التنفيذ راجع ما حدث بهدوء، وما الذي جعل الخطوة ممكنة في هذه المرة."),
+                ("s5", "ثبت ما نجح واختر خطوة تالية صغيرة وواضحة حتى يتحول التقدم إلى عادة عملية."),
+            )
+        ],
+    }
+
+
+class _FakeRouter:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def route(self, *, stage, prompt, max_tokens, validator):
+        del prompt, max_tokens
+        value = _plan() if stage == "planning" else _script()
+        self.events.append({"stage": stage, "provider": "fixture", "result": "success"})
+        return validator(value)
+
+
+class _LongFakeVoice:
+    """Produces narration.wav with a controlled, exact duration so the test
+    can assert the flat-slot value pipeline.py computes for acquire()."""
+
+    def __init__(self, seconds: float) -> None:
+        self.seconds = seconds
+        self.calls = 0
+        self.last_provider = "piper-local:ar_JO-kareem-medium"
+        self.fallback_used = True
+
+    def synthesize(self, transcript: str, output_path: Path) -> Path:
+        self.calls += 1
+        if not transcript.strip():
+            raise RuntimeError("empty fixture transcript")
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"sine=frequency=220:sample_rate=24000:duration={self.seconds}",
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                str(output_path),
+            ],
+            check=True,
+        )
+        return output_path
+
+
+class _RecordingVisuals:
+    """A visual_source fixture that records the section_flat_slot_seconds it
+    was given and deterministically returns one auxiliary pacing clip for
+    section s1 only, mirroring what the real StockVisualSource.acquire would
+    produce for a long first section - without any real stock-provider I/O.
+    """
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+        self.received_section_flat_slot_seconds: float | None = None
+
+    @staticmethod
+    def _write_clip(path: Path, color: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c={color}:s=320x180:r=30:d=2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
+                "-y",
+                str(path),
+            ],
+            check=True,
+        )
+
+    def acquire(self, plan, output_dir, fmt, max_visuals, section_flat_slot_seconds=None):
+        del fmt
+        self.received_section_flat_slot_seconds = section_flat_slot_seconds
+        sections = list(plan.get("sections") or [])[: max(1, int(max_visuals))]
+        clips: list[Path] = []
+        rights: list[dict] = []
+        colors = ["#172033", "#6d4c41", "#2e7d32", "#4527a0", "#ad1457"]
+        for index, section in enumerate(sections):
+            section_id = str(section.get("id") or "")
+            destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
+            self._write_clip(destination, colors[index % len(colors)])
+            clips.append(destination)
+            rights.append(
+                {
+                    "provider": "fixture",
+                    "asset_id": f"primary-{section_id}",
+                    "local_file": destination.name,
+                    "section_id": section_id,
+                }
+            )
+            if section_id == "s1":
+                extra = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
+                self._write_clip(extra, "#ffab00")
+                clips.append(extra)
+                rights.append(
+                    {
+                        "provider": "fixture",
+                        "asset_id": "aux-s1",
+                        "local_file": extra.name,
+                        "section_id": section_id,
+                        "pacing_auxiliary": True,
+                    }
+                )
+        return clips, rights
+
+
+def _passing_text_audit(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    report = {"schema_version": 1, "status": "pass", "unsupported_claims": []}
+    (output_dir / "factuality-audit.json").write_text(json.dumps(report), encoding="utf-8")
+    return report
+
+
+def _passing_audio_mastering(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    narration_path = Path(kwargs["narration_path"])
+    mastered_path = output_dir / "narration-mastered.wav"
+    shutil.copyfile(narration_path, mastered_path)
+    report = {"schema_version": 1, "status": "pass", "narration_file": mastered_path.name}
+    (output_dir / "audio-mastering.json").write_text(json.dumps(report), encoding="utf-8")
+    return report
+
+
+def _passing_narrative_identity(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    report = {
+        "schema_version": 1,
+        "opener": "أهلاً بكم من جديد في هذه الحلقة",
+        "closer": "نلقاكم في حلقة قادمة",
+        "transitions": ["بعد هذه الفكرة", "ولننتقل الآن", "وهنا يأتي السؤال"],
+    }
+    (output_dir / "narrative-identity.json").write_text(
+        json.dumps(report, ensure_ascii=False), encoding="utf-8"
+    )
+    return report
+
+
+def _passing_cinematic_layer(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    report = {"schema_version": 1, "layer": CINEMATIC_STAGE, "status": "pass"}
+    (output_dir / "security-cinematic-v2.json").write_text(json.dumps(report), encoding="utf-8")
+    return report
+
+
+def _passing_final_master_qc(output_dir: Path) -> dict:
+    report = {
+        "schema_version": 1,
+        "status": "pass",
+        "final_media_mutated": False,
+        "blocking_findings": [],
+    }
+    (output_dir / "final-master-qc.json").write_text(json.dumps(report), encoding="utf-8")
+    return report
+
+
+def _not_applicable_opening_director(**kwargs) -> dict:
+    return {"schema_version": 1, "status": "not_applicable", "reason": "test_stub"}
+
+
+class _RecordingVisualQA:
+    def __init__(self) -> None:
+        self.received_rights: list[dict] | None = None
+
+    def __call__(self, **kwargs) -> dict:
+        output_dir = Path(kwargs["output_dir"])
+        self.received_rights = list(kwargs["rights"])
+        report = {"schema_version": 1, "status": "pass", "final_media_mutated": False}
+        (output_dir / "final-cut-visual-qa.json").write_text(
+            json.dumps(report), encoding="utf-8"
+        )
+        (output_dir / "visual-audit.json").write_text("[]", encoding="utf-8")
+        return report
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+class PipelineWiringTests(unittest.TestCase):
+    def test_pipeline_computes_flat_slot_and_keeps_gates_primary_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+            output = root / "output"
+
+            visuals = _RecordingVisuals()
+            visual_qa = _RecordingVisualQA()
+            long_voice = _LongFakeVoice(130.0)
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=long_voice,
+                visual_source=visuals,
+                visual_qa=visual_qa,
+                opening_director=_not_applicable_opening_director,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
+            )
+            result = pipeline.run(
+                brief_path=brief_path,
+                approved_sha256=compute_brief_sha256(brief),
+                output_dir=output,
+                engine_sha="a" * 40,
+                runner_sha="b" * 40,
+                max_visuals=5,
+            )
+
+            self.assertEqual(result["status"], "pass")
+            # 130s narration / 5 sections = 26s flat slot, well past the 22s
+            # pacing cap - this is the exact value acquire() must receive.
+            self.assertAlmostEqual(
+                visuals.received_section_flat_slot_seconds, 26.0, places=3
+            )
+
+            manifest = json.loads(
+                (output / "rights-manifest.json").read_text(encoding="utf-8")
+            )
+            assets = manifest["assets"]
+            self.assertEqual(len(assets), 6)
+            self.assertEqual(
+                sum(1 for item in assets if item.get("pacing_auxiliary")), 1
+            )
+
+            # Visual QA - a real content-judgment gate - must see exactly one
+            # asset per section, never the pacing auxiliary.
+            self.assertEqual(len(visual_qa.received_rights), 5)
+            self.assertFalse(
+                any(item.get("pacing_auxiliary") for item in visual_qa.received_rights)
+            )
+
+            self.assertTrue((output / "final.mp4").is_file())
+
+
+if __name__ == "__main__":
+    unittest.main()

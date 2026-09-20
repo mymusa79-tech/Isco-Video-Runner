@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import socket
@@ -18,6 +19,16 @@ from typing import Any, Callable, Mapping
 
 MAX_MEDIA_BYTES = 160 * 1024 * 1024
 MAX_SEARCH_RESPONSE_BYTES = 8 * 1024 * 1024
+
+# Visual-pacing bounds for splitting one section's flat render slot across
+# several distinct same-query clips instead of one clip lingering for the
+# whole slot. Numeric philosophy borrowed from the legacy Engine's M7
+# adaptive pacing (_MIN_ADAPTIVE_SHOT_SECONDS / MAX_SHOTS_PER_SCENE), not its
+# semantic-director machinery - Clean V2 has no beat/scene/candidate pipeline
+# to drive that, so this is the plain arithmetic equivalent.
+PACING_MAX_SHOT_SECONDS = 22.0
+PACING_MIN_SHOT_SECONDS = 3.5
+PACING_MAX_SHOTS_PER_SECTION = 3
 
 
 def _utc_now() -> str:
@@ -466,18 +477,15 @@ class StockVisualSource:
         output_dir: Path,
         fmt: str,
         max_visuals: int,
+        section_flat_slot_seconds: float | None = None,
     ) -> tuple[list[Path], list[dict[str, Any]]]:
         output_dir.mkdir(parents=True, exist_ok=True)
         portrait = fmt in {"moment", "story"}
         clips: list[Path] = []
         rights: list[dict[str, Any]] = []
         sections = list(plan.get("sections") or [])[: max(1, int(max_visuals))]
-        for section in sections:
-            query = str(section.get("visual_query_en") or "").strip()
-            if not query:
-                continue
-            if self.query_normalizer is not None:
-                query = self.query_normalizer(query)
+
+        def _acquire_one(query: str, section_id: str, *, auxiliary: bool) -> bool:
             for finder in (self._pexels, self._pixabay):
                 candidate = finder(query, portrait=portrait)
                 if candidate is None:
@@ -514,10 +522,41 @@ class StockVisualSource:
                     if key != "download_url"
                 }
                 candidate["local_file"] = destination.name
-                candidate["section_id"] = str(section.get("id") or "")
+                candidate["section_id"] = section_id
+                if auxiliary:
+                    candidate["pacing_auxiliary"] = True
                 clips.append(destination)
                 rights.append(candidate)
-                break
+                return True
+            return False
+
+        for section in sections:
+            query = str(section.get("visual_query_en") or "").strip()
+            if not query:
+                continue
+            if self.query_normalizer is not None:
+                query = self.query_normalizer(query)
+            section_id = str(section.get("id") or "")
+            if not _acquire_one(query, section_id, auxiliary=False):
+                continue
+
+            # A section whose flat render slot would leave a single clip on
+            # screen too long gets extra same-query coverage instead: same
+            # stock search, no new AI call, bounded by the pacing constants
+            # above so this never fires unbounded provider requests.
+            if (
+                section_flat_slot_seconds is not None
+                and section_flat_slot_seconds > PACING_MAX_SHOT_SECONDS
+            ):
+                shots = min(
+                    PACING_MAX_SHOTS_PER_SECTION,
+                    math.ceil(section_flat_slot_seconds / PACING_MAX_SHOT_SECONDS),
+                )
+                while shots > 1 and (section_flat_slot_seconds / shots) < PACING_MIN_SHOT_SECONDS:
+                    shots -= 1
+                for _ in range(shots - 1):
+                    if not _acquire_one(query, section_id, auxiliary=True):
+                        break
 
         if not clips:
             fallback = output_dir / "visual-fallback.mp4"
@@ -1027,6 +1066,59 @@ def probe_duration(path: Path) -> float:
     return duration
 
 
+def _pacing_section_ids(output_dir: Path, paths: list[Path]) -> list[str] | None:
+    """Map each body clip to its section_id via rights-manifest.json.
+
+    Returns None (never partially) when the manifest is missing or does not
+    cover every path, so callers fall back to the plain uniform-slot split
+    exactly as before - this is read-only evidence lookup, never a hard
+    requirement.
+    """
+    manifest_path = output_dir / "rights-manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    assets = payload.get("assets") if isinstance(payload, dict) else None
+    if not isinstance(assets, list):
+        return None
+    by_local_file = {
+        str(item.get("local_file") or ""): str(item.get("section_id") or "")
+        for item in assets
+        if isinstance(item, dict)
+    }
+    section_ids = [by_local_file.get(path.name, "") for path in paths]
+    if any(not section_id for section_id in section_ids):
+        return None
+    return section_ids
+
+
+def _section_slot_durations(
+    output_dir: Path, paths: list[Path], total_seconds: float, *, pad: float = 0.12
+) -> list[float]:
+    """Split total_seconds across paths, keeping each section's original flat
+    share intact and only subdividing it among that section's own clips.
+
+    A section that acquired extra same-query clips (visual pacing for a long
+    section) shares its one flat slot across those clips instead of shrinking
+    every other section's share just because the clip count grew.
+    """
+    section_ids = _pacing_section_ids(output_dir, paths)
+    if section_ids is None:
+        slot = (total_seconds / len(paths)) + pad
+        return [slot] * len(paths)
+    order: list[str] = []
+    counts: dict[str, int] = {}
+    for section_id in section_ids:
+        if section_id not in counts:
+            order.append(section_id)
+        counts[section_id] = counts.get(section_id, 0) + 1
+    flat_slot = total_seconds / max(1, len(order))
+    return [(flat_slot / counts[section_id]) + pad for section_id in section_ids]
+
+
 def render_video(
     narration_path: Path,
     visual_paths: list[Path],
@@ -1075,20 +1167,27 @@ def render_video(
 
         opening_paths = [Path(item) for item in visual_paths[:3]]
         remaining = max(0.0, duration - 30.0)
-        body_paths = [Path(item) for item in visual_paths[3:7]]
+        # No fixed upper bound here: a section that needed extra same-query
+        # coverage for pacing can legitimately push the body clip count past
+        # the old flat "1 clip per section" assumption.
+        body_paths = [Path(item) for item in visual_paths[3:]]
         if remaining > 0.25 and not body_paths:
             raise RuntimeError("opening director render requires a body visual after 30 seconds")
         if remaining > 0.25:
-            body_slot = (remaining / len(body_paths)) + 0.12
+            body_durations = _section_slot_durations(
+                Path(output_path).parent, body_paths, remaining
+            )
             paths = [*opening_paths, *body_paths]
-            durations = [7.0, 11.0, 12.0, *([body_slot] * len(body_paths))]
+            durations = [7.0, 11.0, 12.0, *body_durations]
         else:
             paths = opening_paths
             durations = [7.0, 11.0, 12.0]
     else:
-        paths = [Path(item) for item in visual_paths[:5]]
-        slot = (duration / len(paths)) + 0.12
-        durations = [slot] * len(paths)
+        # No fixed upper bound here either, for the same reason as the body
+        # clips above: acquire() already bounds the real total via
+        # max_visuals * PACING_MAX_SHOTS_PER_SECTION.
+        paths = [Path(item) for item in visual_paths]
+        durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
     for path in paths:

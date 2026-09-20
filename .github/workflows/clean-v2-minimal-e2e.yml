@@ -18,6 +18,7 @@ on:
       - "scripts/test_clean_v2_voice.py"
       - "scripts/test_clean_v2_final_master_qc.py"
       - "scripts/test_clean_v2_legacy_cinematic.py"
+      - "scripts/test_clean_v2_visual_pacing.py"
       - "docs/clean-v2/**"
       - ".github/workflows/clean-v2-minimal-e2e.yml"
 
@@ -64,6 +65,7 @@ jobs:
             scripts.test_clean_v2_contextual_cta \
             scripts.test_clean_v2_legacy_cinematic \
             scripts.test_clean_v2_final_master_qc \
+            scripts.test_clean_v2_visual_pacing \
             -v
 
   produce:

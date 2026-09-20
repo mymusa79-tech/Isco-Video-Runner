@@ -21,7 +21,7 @@ from .contracts import (
     validate_plan,
     validate_script,
 )
-from .media import inspect_final, render_video
+from .media import inspect_final, probe_duration, render_video
 from .structural_ai import structural_ai_flags
 
 
@@ -1571,6 +1571,12 @@ class CleanV2Pipeline:
                     clips.append(clip)
                 journal.reuse("visuals")
             else:
+                sections_for_visuals = list(plan.get("sections") or [])[
+                    : max(1, int(max_visuals))
+                ]
+                section_flat_slot_seconds = probe_duration(narration_path) / max(
+                    1, len(sections_for_visuals)
+                )
                 try:
                     clips, rights = journal.run(
                         "visuals",
@@ -1579,6 +1585,7 @@ class CleanV2Pipeline:
                             visuals_dir,
                             str(brief["format"]),
                             max_visuals,
+                            section_flat_slot_seconds=section_flat_slot_seconds,
                         ),
                     )
                 except Exception:
@@ -1615,6 +1622,18 @@ class CleanV2Pipeline:
                 voice_fallback_used=journal.payload.get("voice_fallback_used"),
             )
 
+            # Visual QA, the opening director, and the M7/M9/M10/M11 shadow
+            # audit layer all still expect exactly one selected asset per
+            # section - unchanged from before pacing existed. Extra same-query
+            # clips acquired for a long section's visual pacing are auxiliary
+            # coverage for the renderer only (see rights-manifest.json for the
+            # full list); they never enter those content-judgment gates.
+            primary_rights = [
+                row
+                for row in rights
+                if isinstance(row, dict) and not row.get("pacing_auxiliary")
+            ]
+
             journal.payload["quality_layers_executed"] = [
                 TEXT_AUDIT_STAGE,
                 CINEMATIC_STAGE,
@@ -1628,7 +1647,7 @@ class CleanV2Pipeline:
                         output_dir=output_dir,
                         plan=plan,
                         script=script,
-                        rights=rights,
+                        rights=primary_rights,
                         fmt=str(brief["format"]),
                         router=self.router,
                         visual_source=self.visual_source,
@@ -1677,7 +1696,7 @@ class CleanV2Pipeline:
                         output_dir=output_dir,
                         plan=plan,
                         script=script,
-                        rights=rights,
+                        rights=primary_rights,
                         fmt=str(brief["format"]),
                         narration_path=narration_path,
                         visual_source=self.visual_source,
@@ -1744,7 +1763,7 @@ class CleanV2Pipeline:
                     narration_path=narration_path,
                     plan=plan,
                     script=script,
-                    rights=rights,
+                    rights=primary_rights,
                     fmt=str(brief["format"]),
                 ),
             )

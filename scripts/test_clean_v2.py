@@ -968,9 +968,9 @@ class _FakeVisuals:
         self.events: list[dict] = []
         self.calls = 0
 
-    def acquire(self, plan, output_dir, fmt, max_visuals):
+    def acquire(self, plan, output_dir, fmt, max_visuals, section_flat_slot_seconds=None):
         self.calls += 1
-        del plan, fmt, max_visuals
+        del plan, fmt, max_visuals, section_flat_slot_seconds
         output_dir.mkdir(parents=True, exist_ok=True)
         clips = []
         for index, color in enumerate(("#172033", "#6d4c41"), start=1):
@@ -1022,9 +1022,9 @@ class _StuckQueryVisuals:
         self.events: list[dict] = []
         self.calls = 0
 
-    def acquire(self, plan, output_dir, fmt, max_visuals):
+    def acquire(self, plan, output_dir, fmt, max_visuals, section_flat_slot_seconds=None):
         self.calls += 1
-        del plan, output_dir, fmt, max_visuals
+        del plan, output_dir, fmt, max_visuals, section_flat_slot_seconds
         raise RuntimeError(
             "CLEAN_V2_NEW_LAYER_BLOCK stage=security_v1.query "
             "error=ModelOutputSchemaError:visual_query_not_plain_english_search_terms"
