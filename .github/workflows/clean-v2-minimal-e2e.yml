@@ -10,6 +10,7 @@ on:
       - "scripts/test_clean_v2_channel_persona.py"
       - "scripts/test_clean_v2_human_feel.py"
       - "scripts/test_clean_v2_structural_ai_flags.py"
+      - "scripts/test_clean_v2_tone_naturalness.py"
       - "scripts/test_clean_v2_voice.py"
       - "scripts/test_clean_v2_final_master_qc.py"
       - "scripts/test_clean_v2_legacy_cinematic.py"
@@ -51,6 +52,7 @@ jobs:
             scripts.test_clean_v2_channel_persona \
             scripts.test_clean_v2_human_feel \
             scripts.test_clean_v2_structural_ai_flags \
+            scripts.test_clean_v2_tone_naturalness \
             scripts.test_clean_v2_legacy_cinematic \
             scripts.test_clean_v2_final_master_qc \
             -v
@@ -219,6 +221,7 @@ jobs:
           esac
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/factuality-audit.json")" = "pass"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/tone-naturalness-audit.json")" = "pass"
           test -s "$CLEAN_V2_OUTPUT/structural-ai-flags.json"
           test "$(jq -r .mode "$CLEAN_V2_OUTPUT/structural-ai-flags.json")" = "advisory"
           test -s "$CLEAN_V2_OUTPUT/narrative-identity.json"
