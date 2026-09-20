@@ -105,10 +105,13 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         raise ContractError("planning output must be a JSON object")
     title = str(value.get("title") or "").strip()
     promise = str(value.get("promise") or "").strip()
+    cta = str(value.get("cta") or "").strip()
     raw_sections = value.get("sections")
     if not title or not promise or not isinstance(raw_sections, list):
         raise ContractError("plan requires title, promise, and sections")
     fmt = str(brief.get("format") or "")
+    if fmt != "moment" and not cta:
+        raise ContractError("plan requires one non-empty contextual cta for non-moment formats")
     if fmt == "film":
         if len(raw_sections) != 5:
             raise ContractError("plan section count must be exactly 5 for film")
@@ -142,6 +145,7 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         "schema_version": 1,
         "title": title[:300],
         "promise": promise[:800],
+        "cta": cta[:700],
         "sections": sections,
     }
 
