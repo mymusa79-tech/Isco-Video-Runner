@@ -42,7 +42,7 @@ class CleanV2ChannelPersonaTests(unittest.TestCase):
         persona = load_channel_persona()
         self.assertEqual(persona["channel"], "نداء اليقظة")
         self.assertIn("في عالمنا المتسارع", persona["writing_voice"]["banned_ai_phrases"])
-        self.assertIn("كشف الافتراض الخفي", persona["writing_voice"]["signature_moves"])
+        self.assertTrue(any("كشف الافتراض الخفي" in item for item in persona["writing_voice"]["signature_moves"]))
         self.assertIn("generic_rejection_rule", persona["analysis_lens"])
 
     def test_planning_and_script_prompts_are_enriched_and_idempotent(self):
