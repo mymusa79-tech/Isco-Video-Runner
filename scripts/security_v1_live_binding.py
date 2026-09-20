@@ -32,6 +32,7 @@ _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _VIDEO_SUFFIXES = frozenset({".mp4", ".mov", ".mkv", ".webm", ".m4v"})
 _PLAIN_STOCK_QUERY_RE = re.compile(r"^[A-Za-z0-9]+(?:[ '-][A-Za-z0-9]+)*$")
 _REPEATED_STOCK_SEPARATOR_RE = re.compile(r"(?: {2,}|--|''| -|- | '|' )")
+STOCK_SEARCH_QUERY_MAX_LENGTH = 200
 _FIREWALL_BLOCK_PREFIX = "multimodal_injection_firewall_block:"
 _STOCK_CANDIDATE_LOCAL_CODES = frozenset(
     {
@@ -95,20 +96,24 @@ def _validated_alternate_query(value: object) -> str:
 
 
 def _normalized_stock_query(value: object, *, alternate: bool = False) -> str:
-    """Normalize only the safe-overlong stock-query failure class.
+    """Admit safe stock-search text up to the transport contract without weakening Security V1.
 
-    Run #106 showed that a semantically valid plain-English stock query can exceed the
-    strict 80-character model-output contract before it reaches Pexels/Pixabay. The
-    security boundary remains authoritative: every query that already validates is
-    returned byte-for-byte unchanged, and every failure other than `visual_query_too_long`
-    remains a hard failure.
+    The pinned Engine's model-output schema intentionally keeps its historical
+    80-character `VISUAL_QUERY_MAX_LENGTH`. Run #139 proved that reusing that editorial
+    length ceiling at the later stock-provider boundary can destroy semantic recovery:
+    a validated 168-character alternate query was shortened to 79 characters before
+    Pexels saw it.
 
-    For the one recoverable length case, validate the *entire original value* through
-    the cross-provider injection firewall first, then additionally require the full
-    value to be ASCII plain-search syntax. Only after those checks do we shorten at a
-    word boundary to the existing 80-character ceiling and re-run the original visual
-    query validator. This prevents a malicious/non-English suffix from being hidden by
-    truncation while avoiding a needless Production failure for a safe verbose query.
+    Security V1's actual trust guarantees are preserved here. Any query that exceeds
+    the Engine's 80-character model-output ceiling is first validated *in full* through
+    the cross-provider instruction firewall, then must still be ASCII plain-search
+    syntax with no malformed separators. Only safe text may cross this boundary, and
+    the provider-facing transport contract is bounded at 200 characters to match Clean
+    V2's alternate-query schema and Pexels request limit.
+
+    Values above 200 remain bounded by shortening only at a word boundary *after* the
+    full original value has passed all security checks. Unsafe content is never hidden
+    by truncation.
     """
     validator = validate_alternate_visual_query if alternate else validate_visual_query
     try:
@@ -117,7 +122,7 @@ def _normalized_stock_query(value: object, *, alternate: bool = False) -> str:
         if str(exc) != "visual_query_too_long":
             raise
 
-    # Full-value security validation MUST happen before shortening. This retains
+    # Full-value validation MUST happen before any length normalization. This retains
     # fail-closed behavior for prompt injection, URLs, role markers, shell syntax,
     # structured markup, newlines/control chars and >240-char cross-provider text.
     full = validate_cross_provider_text(value).as_downstream_data()
@@ -128,20 +133,22 @@ def _normalized_stock_query(value: object, *, alternate: bool = False) -> str:
     if _REPEATED_STOCK_SEPARATOR_RE.search(full):
         raise ModelOutputSchemaError("visual_query_malformed_separators")
 
-    words = full.split()
-    kept: list[str] = []
-    for word in words:
-        candidate = " ".join([*kept, word])
-        if len(candidate) > VISUAL_QUERY_MAX_LENGTH:
-            break
-        kept.append(word)
+    if len(full) <= STOCK_SEARCH_QUERY_MAX_LENGTH:
+        normalized = full
+    else:
+        words = full.split()
+        kept: list[str] = []
+        for word in words:
+            candidate = " ".join([*kept, word])
+            if len(candidate) > STOCK_SEARCH_QUERY_MAX_LENGTH:
+                break
+            kept.append(word)
+        normalized = " ".join(kept)
+        if not normalized:
+            raise ModelOutputSchemaError("visual_query_too_long")
 
-    shortened = " ".join(kept)
-    if not shortened:
-        raise ModelOutputSchemaError("visual_query_too_long")
-    normalized = validator(shortened).as_downstream_data()
     print(
-        "Security V1 normalized safe overlong stock query: "
+        "Security V1 admitted safe overlong stock query: "
         f"{len(full)} -> {len(normalized)} chars"
     )
     return normalized
