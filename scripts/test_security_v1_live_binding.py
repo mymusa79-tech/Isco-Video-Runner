@@ -159,6 +159,52 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
             "hand writing a note with if-then on a sticky note no face",
         )
 
+    def test_run216_s2_parenthetical_example_is_cleaned_before_security_stock_gate(self) -> None:
+        raw = (
+            "hands putting off a task (e.g., avoiding a pile of paperwork) while scrolling "
+            "on a phone, then looking at a clock with a sigh"
+        )
+        expected = (
+            "hands putting off a task e g avoiding a pile of paperwork while scrolling "
+            "on a phone then looking at a clock with a sigh"
+        )
+
+        normalized = normalize_clean_v2_stock_query(raw)
+
+        self.assertEqual(normalized, expected)
+        captured: list[str] = []
+
+        def provider(_key, query, **_kwargs):
+            captured.append(query)
+            return [1]
+
+        wrapped = security_binding._wrap_search(provider)
+        self.assertEqual(wrapped("key", normalized), [1])
+        self.assertEqual(captured, [expected])
+
+    def test_run216_s4_square_bracket_placeholders_are_cleaned_before_security_stock_gate(self) -> None:
+        raw = (
+            "hands setting a phone alarm next to a notebook with a pen, then writing "
+            "'If [specific time], then [specific action]'"
+        )
+        expected = (
+            "hands setting a phone alarm next to a notebook with a pen then writing "
+            "If specific time then specific action"
+        )
+
+        normalized = normalize_clean_v2_stock_query(raw)
+
+        self.assertEqual(normalized, expected)
+        captured: list[str] = []
+
+        def provider(_key, query, **_kwargs):
+            captured.append(query)
+            return [1]
+
+        wrapped = security_binding._wrap_search(provider)
+        self.assertEqual(wrapped("key", normalized), [1])
+        self.assertEqual(captured, [expected])
+
     def test_run139_s3_full_168_char_recovery_query_reaches_stock_gate_without_word_loss(self) -> None:
         raw = (
             "person sitting on couch with laptop open and untouched, looking distracted while "
