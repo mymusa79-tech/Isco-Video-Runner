@@ -11,6 +11,7 @@ from unittest import mock
 from clean_v2 import mistral_executor
 from clean_v2 import providers
 from clean_v2 import text_audit
+from clean_v2 import visual_qa
 from clean_v2.pipeline import CleanV2Pipeline, _build_production_plan_for_audit
 
 
@@ -296,8 +297,29 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                 )
                 self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
 
-    def test_visual_query_recovery_reaches_mistral_fourth_after_run135_failures(self) -> None:
+    def test_run137_s5_visual_query_recovery_passes_strict_schema_to_mistral(self) -> None:
         order: list[str] = []
+        original_query = (
+            "hand placing a sticky note on a kitchen counter next to a coffee mug, "
+            "no face visible"
+        )
+        alternate_query = (
+            "hand writing a simple if then plan on a sticky note beside morning coffee"
+        )
+        expected_schema = (
+            "visual_query_recovery",
+            {
+                "type": "object",
+                "properties": {
+                    "alternate_query": {
+                        "type": "string",
+                        "maxLength": 200,
+                    }
+                },
+                "required": ["alternate_query"],
+                "additionalProperties": False,
+            },
+        )
 
         def fail(reason: str, name: str):
             def _failure(_prompt: str, _tokens: int):
@@ -305,11 +327,19 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                 raise providers.ProviderWireFailure(reason)
             return _failure
 
-        def mistral_call(_prompt, *, max_tokens, task_kind, **_kwargs):
+        def mistral_call(
+            _prompt,
+            *,
+            max_tokens,
+            task_kind,
+            response_schema=None,
+            **_kwargs,
+        ):
             order.append("mistral")
             self.assertEqual(task_kind, "visual_query_recovery")
             self.assertEqual(max_tokens, 300)
-            return {"alternate_query": "focused alternate query"}
+            self.assertEqual(response_schema, expected_schema)
+            return {"alternate_query": alternate_query}
 
         with mock.patch.object(
             providers, "_gemini_call", side_effect=fail("http_503", "gemini")
@@ -323,23 +353,78 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             router = providers.ProviderRouter()
             result = router.route(
                 stage="visual_query_recovery",
-                prompt="recovery prompt",
+                prompt="Run 137 s5 recovery prompt",
                 max_tokens=300,
-                validator=lambda value: value,
+                validator=lambda value: visual_qa._validate_alternate_query(
+                    value,
+                    original_query=original_query,
+                ),
             )
 
-        self.assertEqual(result, {"alternate_query": "focused alternate query"})
-        self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
-        self.assertEqual(
-            [item["provider"] for item in router.events],
-            ["gemini", "groq", "openrouter", "mistral"],
+        self.assertEqual(result, {"alternate_query": alternate_query})
+        self.assertLessEqual(len(result["alternate_query"]), 200)
+        self.assertNotEqual(
+            result["alternate_query"].casefold(),
+            original_query.casefold(),
         )
+        self.assertTrue(any(ch.isalpha() for ch in result["alternate_query"]))
+        self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
         self.assertEqual(
             [item["reason"] for item in router.events[:3]],
             ["http_503", "http_400", "http_429"],
         )
+        self.assertEqual(router.events[-1]["provider"], "mistral")
         self.assertEqual(router.events[-1]["result"], "success")
         self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
+
+    def test_visual_query_recovery_logs_mistral_raw_content_on_validator_failure(self) -> None:
+        original_query = (
+            "hand placing a sticky note on a kitchen counter next to a coffee mug, "
+            "no face visible"
+        )
+        raw_content = json.dumps({"alternate_query": original_query})
+
+        def fail(reason: str):
+            def _failure(_prompt: str, _tokens: int):
+                raise providers.ProviderWireFailure(reason)
+            return _failure
+
+        with mock.patch.object(
+            providers, "_gemini_call", side_effect=fail("http_503")
+        ), mock.patch.object(
+            providers, "_groq_call", side_effect=fail("http_400")
+        ), mock.patch.object(
+            providers, "_openrouter_call", side_effect=fail("http_429")
+        ), mock.patch.object(
+            mistral_executor,
+            "mistral_executor_json",
+            return_value={"alternate_query": original_query},
+        ), mock.patch.object(
+            mistral_executor,
+            "get_last_mistral_executor_raw_content",
+            return_value=raw_content,
+        ), mock.patch("builtins.print") as logged:
+            router = providers.ProviderRouter()
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "mistral:invalid_output_valueerror",
+            ):
+                router.route(
+                    stage="visual_query_recovery",
+                    prompt="Run 137 s5 recovery prompt",
+                    max_tokens=300,
+                    validator=lambda value: visual_qa._validate_alternate_query(
+                        value,
+                        original_query=original_query,
+                    ),
+                )
+
+        log_text = "\n".join(str(call.args[0]) for call in logged.call_args_list)
+        self.assertIn(
+            "Mistral visual_query_recovery validator rejected raw content",
+            log_text,
+        )
+        self.assertIn(original_query, log_text)
 
     def test_http_429_captures_numeric_retry_after_header(self) -> None:
         error = providers.urllib.error.HTTPError(
