@@ -547,6 +547,105 @@ class StockVisualSource:
             )
         return clips, rights
 
+    def acquire_replacement(
+        self,
+        query: str,
+        output_dir: Path,
+        fmt: str,
+        *,
+        destination_name: str,
+        section_id: str,
+        exclude_provider: str | None = None,
+        exclude_asset_id: object | None = None,
+    ) -> tuple[Path, dict[str, Any]] | None:
+        """Acquire exactly one alternate-query replacement for an existing visual slot.
+
+        The original file remains untouched until a newly searched candidate has been
+        downloaded, passed the existing Security V1 preflight and completed the existing
+        media transform. The already-selected asset is explicitly excluded even when
+        this source instance was reconstructed from a resume checkpoint.
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        portrait = fmt in {"moment", "story"}
+        normalized_query = str(query or "").strip()
+        if self.query_normalizer is not None and normalized_query:
+            normalized_query = self.query_normalizer(normalized_query)
+        if not normalized_query:
+            return None
+
+        if exclude_provider and exclude_asset_id is not None:
+            self._used.add((str(exclude_provider), str(exclude_asset_id)))
+
+        destination = output_dir / str(destination_name)
+        if not destination.name or destination.parent != output_dir:
+            raise RuntimeError("replacement_destination_invalid")
+
+        for finder in (self._pexels, self._pixabay):
+            candidate = finder(normalized_query, portrait=portrait)
+            if candidate is None:
+                continue
+            provider = str(candidate.get("provider") or "unknown")
+            temporary = output_dir / (
+                f".{destination.stem}.semantic-recovery-{provider}{destination.suffix}"
+            )
+            temporary.unlink(missing_ok=True)
+            temporary.with_suffix(".m8.json").unlink(missing_ok=True)
+            try:
+                _download_media(str(candidate["download_url"]), temporary)
+                if self.media_preflight is not None:
+                    blocked = self.media_preflight(temporary)
+                    if blocked is not None:
+                        self._event(
+                            provider,
+                            normalized_query,
+                            "recovery_security_blocked",
+                            wire_attempted=False,
+                            reason=str(
+                                blocked.get("local_media_rejection")
+                                or "security_v1_block"
+                            )[:80],
+                        )
+                        temporary.unlink(missing_ok=True)
+                        continue
+                replacement = temporary
+                if self.media_transform is not None:
+                    replacement = Path(self.media_transform(temporary))
+
+                replacement_sidecar = replacement.with_suffix(".m8.json")
+                destination_sidecar = destination.with_suffix(".m8.json")
+                os.replace(replacement, destination)
+                if replacement_sidecar.is_file():
+                    os.replace(replacement_sidecar, destination_sidecar)
+                else:
+                    destination_sidecar.unlink(missing_ok=True)
+            except Exception as exc:
+                temporary.unlink(missing_ok=True)
+                temporary.with_suffix(".m8.json").unlink(missing_ok=True)
+                self._event(
+                    provider,
+                    normalized_query,
+                    "recovery_failed",
+                    wire_attempted=True,
+                    reason=str(exc)[:80],
+                )
+                continue
+
+            admitted = {
+                key: value for key, value in candidate.items() if key != "download_url"
+            }
+            admitted["local_file"] = destination.name
+            admitted["section_id"] = str(section_id or "")
+            admitted["semantic_recovery"] = True
+            self._event(
+                provider,
+                normalized_query,
+                "recovery_selected",
+                wire_attempted=True,
+            )
+            return destination, admitted
+        return None
+
 
 def _run(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
     try:
