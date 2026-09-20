@@ -450,6 +450,14 @@ def run_final_cut_visual_qa(
                         section_id=section_id,
                         exclude_provider=str(row.get("provider") or ""),
                         exclude_asset_id=row.get("asset_id"),
+                        exclude_assets=[
+                            (
+                                str(item.get("provider") or ""),
+                                item.get("asset_id"),
+                            )
+                            for item in rights
+                            if isinstance(item, dict)
+                        ],
                     )
                 except Exception as exc:
                     recovery_record.update(
