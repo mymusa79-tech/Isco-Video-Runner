@@ -350,6 +350,61 @@ def _safe_mistral_script_raw_diagnostic(raw_content: str, exc: Exception) -> dic
     return diagnostic
 
 
+def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
+    """Build Planning schema from validate_plan() semantics and the approved format."""
+    marker = "APPROVED_BRIEF:\n"
+    terminator = "\n\nBuild a simple production plan."
+    if marker not in prompt:
+        raise NoWireFailure("mistral_planning_approved_brief_missing")
+    brief_tail = prompt.split(marker, 1)[1]
+    if terminator not in brief_tail:
+        raise NoWireFailure("mistral_planning_approved_brief_boundary_missing")
+    raw_brief = brief_tail.split(terminator, 1)[0].strip()
+    try:
+        brief = json.loads(raw_brief)
+    except json.JSONDecodeError:
+        raise NoWireFailure("mistral_planning_approved_brief_invalid_json") from None
+    if not isinstance(brief, dict):
+        raise NoWireFailure("mistral_planning_approved_brief_invalid_shape")
+
+    fmt = str(brief.get("format") or "").strip().lower()
+    if fmt == "film":
+        min_sections = max_sections = 5
+    elif fmt in {"moment", "story"}:
+        min_sections, max_sections = 1, 5
+    else:
+        raise NoWireFailure("mistral_planning_unsupported_format")
+
+    non_blank_string = {"type": "string", "minLength": 1, "pattern": r"\S"}
+    section_schema = {
+        "type": "object",
+        "properties": {
+            # validate_plan() deliberately synthesizes sN when id is omitted.
+            "id": dict(non_blank_string),
+            "heading": dict(non_blank_string),
+            "purpose": dict(non_blank_string),
+            "visual_query_en": dict(non_blank_string),
+        },
+        "required": ["heading", "purpose", "visual_query_en"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "title": dict(non_blank_string),
+            "promise": dict(non_blank_string),
+            "sections": {
+                "type": "array",
+                "items": section_schema,
+                "minItems": min_sections,
+                "maxItems": max_sections,
+            },
+        },
+        "required": ["title", "promise", "sections"],
+        "additionalProperties": False,
+    }
+
+
 def _mistral_script_response_schema(prompt: str) -> dict[str, Any]:
     """Build a strict Script schema from the internally generated LOCKED_PLAN."""
     marker = "LOCKED_PLAN:\n"
@@ -417,6 +472,16 @@ def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
                 response_schema=(
                     "visual_query_recovery",
                     MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA,
+                ),
+            )
+        if stage == "planning":
+            return mistral_executor.mistral_executor_json(
+                prompt,
+                max_tokens=max_tokens,
+                task_kind=stage,
+                response_schema=(
+                    "planning",
+                    _mistral_planning_response_schema(prompt),
                 ),
             )
         if stage == "script":
