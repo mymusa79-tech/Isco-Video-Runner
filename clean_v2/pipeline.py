@@ -253,6 +253,22 @@ def _first_spoken_sentence(script: Mapping[str, Any]) -> str:
     return (match.group(0) if match else narration).strip()[:600]
 
 
+class CleanV2ToneContentBlock(RuntimeError):
+    """A validated semantic Tone/Naturalness block eligible for one bounded repair."""
+
+    def __init__(self, report: Mapping[str, Any]) -> None:
+        self.report = dict(report)
+        super().__init__("Independent tone/naturalness gate blocked real production")
+
+
+_TONE_REPAIR_FLAG_FIELDS = (
+    "preachiness_flags",
+    "naturalness_flags",
+    "narrative_format_flags",
+    "unverified_religious_quote_flags",
+)
+
+
 def _run_legacy_tone_naturalness_audit(
     *,
     output_dir: Path,
@@ -297,10 +313,257 @@ def _run_legacy_tone_naturalness_audit(
             f"tone_naturalness {summary}"
         )
     if result.get("status") == "block":
-        raise RuntimeError(
-            "Independent tone/naturalness gate blocked real production"
-        )
+        raise CleanV2ToneContentBlock(report)
     return report
+
+
+def _tone_repair_issue_notes(report: Mapping[str, Any]) -> str:
+    """Deterministically flatten only the actual tone flags into repair notes."""
+    lines: list[str] = []
+    seen: set[str] = set()
+    for field in _TONE_REPAIR_FLAG_FIELDS:
+        values = report.get(field) or []
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            flag = " ".join(str(value or "").split()).strip()
+            if flag and flag not in seen:
+                lines.append(f"- [tone] {flag}")
+                seen.add(flag)
+    return "\n".join(lines)
+
+
+def _validate_tone_repair_script(
+    value: Any,
+    *,
+    plan: Mapping[str, Any],
+    original_script: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    cta_plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    repaired = validate_script(value, plan)
+    original_hook = _first_spoken_sentence(original_script)
+    if original_hook and _first_spoken_sentence(repaired) != original_hook:
+        raise ValueError("tone repair changed the locked hook")
+
+    joined = "\n".join(
+        str(item.get("narration") or "")
+        for item in repaired.get("sections", [])
+        if isinstance(item, Mapping)
+    )
+    opener = str(identity.get("opener") or "").strip()
+    closer = str(identity.get("closer") or "").strip()
+    if opener and joined.count(opener) != 1:
+        raise ValueError("tone repair changed the locked narrative identity opener")
+    if closer and joined.count(closer) != 1:
+        raise ValueError("tone repair changed the locked narrative identity closer")
+
+    spoken_cta = str(cta_plan.get("spoken_text") or "").strip()
+    anchor_section_id = str(cta_plan.get("anchor_section_id") or "").strip()
+    if spoken_cta:
+        if joined.count(spoken_cta) != 1:
+            raise ValueError("tone repair changed or duplicated the locked CTA")
+        anchor = next(
+            (
+                item
+                for item in repaired.get("sections", [])
+                if isinstance(item, Mapping)
+                and str(item.get("id") or "") == anchor_section_id
+            ),
+            None,
+        )
+        if anchor is None or spoken_cta not in str(anchor.get("narration") or ""):
+            raise ValueError("tone repair moved the locked CTA to another section")
+    return repaired
+
+
+def _tone_repair_prompt(
+    *,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    cta_plan: Mapping[str, Any],
+    revision_note: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "brief": dict(brief),
+            "plan": dict(plan),
+            "current_script": dict(script),
+            "narrative_identity": dict(identity),
+            "cta_plan": dict(cta_plan),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    hook = _first_spoken_sentence(script)
+    return with_human_feel(with_channel_persona(f"""
+You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
+The production data below is authoritative. Do not redesign the episode and do not broaden scope.
+
+PRODUCTION_CONTEXT:
+{payload}
+
+REVISION_NOTE:
+{revision_note}
+
+ONE_BOUNDED_TONE_REPAIR_CONTRACT:
+- Fix only the concrete tone/naturalness problems listed in REVISION_NOTE.
+- Preserve the section count, ids, order, title, and each section's role.
+- Preserve this first spoken hook sentence exactly: {hook}
+- Preserve the runtime narrative-identity opener and closer exactly once each.
+- Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
+  paraphrase, move, or repeat the CTA.
+- Preserve all approved factual claims and their research boundaries. Do not add, remove,
+  strengthen, quantify, or invent claims, studies, experts, quotations, diagnoses, or authority.
+- Make the minimum wording/transition changes needed for the listed flags. No unrelated rewrite.
+- Return narration only inside the existing script JSON shape; no markdown or commentary.
+
+Return one JSON object with the same title and every locked section id exactly once and in order:
+{{
+  "title": "same Arabic title",
+  "sections": [
+    {{"id": "s1", "narration": "repaired Arabic spoken narration"}}
+  ]
+}}
+""".strip()))
+
+
+def _run_one_bounded_tone_repair(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: dict[str, Any],
+    router: Any,
+    blocked_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    issue_notes = _tone_repair_issue_notes(blocked_report)
+    atomic_write_json(
+        output_dir / "tone-naturalness-audit-pre-repair.json",
+        dict(blocked_report),
+    )
+    if not issue_notes:
+        raise RuntimeError(
+            "Tone/Naturalness block has no bounded actionable tone flags"
+        )
+
+    identity = _read_json_object(output_dir / "narrative-identity.json")
+    cta_plan = _read_json_object(output_dir / "cta-plan.json")
+    repaired = router.route(
+        stage="script",
+        prompt=_tone_repair_prompt(
+            brief=brief,
+            plan=plan,
+            script=script,
+            identity=identity,
+            cta_plan=cta_plan,
+            revision_note=issue_notes,
+        ),
+        max_tokens=7500 if str(brief.get("format") or "") == "film" else 2500,
+        validator=lambda value: _validate_tone_repair_script(
+            value,
+            plan=plan,
+            original_script=script,
+            identity=identity,
+            cta_plan=cta_plan,
+        ),
+    )
+    script.clear()
+    script.update(repaired)
+    _assert_brand_signature_invariant(
+        script["sections"],
+        str(brief.get("format") or ""),
+        str(identity.get("opener") or ""),
+        str(identity.get("closer") or ""),
+    )
+    atomic_write_json(output_dir / "script.json", script)
+    transcript = "\n\n".join(item["narration"] for item in script["sections"])
+    (output_dir / "narration.txt").write_text(
+        transcript + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "schema_version": 1,
+        "source": "clean-v2-one-bounded-tone-repair",
+        "attempts": 1,
+        "issue_notes": issue_notes,
+    }
+
+
+def _run_text_audit_with_one_bounded_tone_repair(
+    *,
+    text_audit: Callable[..., dict[str, Any]],
+    router: Any,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        return text_audit(
+            output_dir=output_dir,
+            brief=brief,
+            plan=plan,
+            script=script,
+        )
+    except CleanV2ToneContentBlock as blocked:
+        repair_report = _run_one_bounded_tone_repair(
+            output_dir=output_dir,
+            brief=brief,
+            plan=plan,
+            script=script,
+            router=router,
+            blocked_report=blocked.report,
+        )
+        atomic_write_json(
+            output_dir / "tone-repair.json",
+            {**repair_report, "status": "repair_applied_reauditing"},
+        )
+        try:
+            # Re-run the complete Text Audit: factuality remains authoritative and
+            # fail-closed; Tone is re-run inside the same composite audit.
+            post_text_audit = text_audit(
+                output_dir=output_dir,
+                brief=brief,
+                plan=plan,
+                script=script,
+            )
+            post_structural = _run_structural_ai_flags(
+                output_dir=output_dir,
+                brief=brief,
+                script=script,
+            )
+            structural_flags = list(post_structural.get("flags") or [])
+            if structural_flags:
+                raise RuntimeError(
+                    "Structural AI flags blocked repaired script: "
+                    + "; ".join(str(item) for item in structural_flags)
+                )
+        except Exception as exc:
+            atomic_write_json(
+                output_dir / "tone-repair.json",
+                {
+                    **repair_report,
+                    "status": "failed_closed",
+                    "post_repair_error_type": type(exc).__name__,
+                },
+            )
+            raise
+
+        final_report = {
+            **post_text_audit,
+            "tone_repair_attempted": True,
+            "tone_repair_attempts": 1,
+            "tone_repair_status": "repaired",
+            "post_repair_structural_ai_status": "pass",
+        }
+        atomic_write_json(
+            output_dir / "tone-repair.json",
+            {**repair_report, "status": "repaired"},
+        )
+        return final_report
 
 
 def _run_text_audits(
@@ -1181,7 +1444,9 @@ class CleanV2Pipeline:
             try:
                 text_audit_report = journal.run(
                     TEXT_AUDIT_STAGE,
-                    lambda: self.text_audit(
+                    lambda: _run_text_audit_with_one_bounded_tone_repair(
+                        text_audit=self.text_audit,
+                        router=self.router,
                         output_dir=output_dir,
                         brief=brief,
                         plan=plan,
@@ -1200,6 +1465,22 @@ class CleanV2Pipeline:
                     # provider failures still preserve resumable work.
                     (output_dir / "resume-checkpoint.json").unlink(missing_ok=True)
                 raise
+
+            # A successful bounded repair mutates script.json in place. Refresh the
+            # transcript and script checkpoint before Voice so no old narration can
+            # leak into TTS or a later resume.
+            transcript = "\n\n".join(
+                item["narration"] for item in script["sections"]
+            )
+            if text_audit_report.get("tone_repair_attempted") is True:
+                _write_resume_checkpoint(
+                    output_dir,
+                    completed_stage="script",
+                    approved_brief_sha256=approved_brief_digest,
+                    engine_sha=engine_sha,
+                    runner_sha=runner_sha,
+                    max_visuals=max_visuals,
+                )
 
             narration_path = output_dir / "narration.wav"
             if resume is not None and _resume_includes(resume[1], "voice"):
