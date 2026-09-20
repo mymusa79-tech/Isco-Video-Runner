@@ -1,0 +1,150 @@
+name: Voice Fallback Acceptance Samples
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthesize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+      GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+      AZURE_SPEECH_REGION: ${{ vars.AZURE_SPEECH_REGION }}
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+    steps:
+      - name: Checkout exact Runner candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout frozen private Engine source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine pin
+        run: test "$(git -C engine rev-parse HEAD)" = "$ISCO_ENGINE_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install locked Engine
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-deps -e engine
+
+      - name: Generate matched Fusha listening samples
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$GEMINI_API_KEY"
+          test -n "$AZURE_SPEECH_KEY"
+          test -n "$AZURE_SPEECH_REGION"
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import wave
+          from pathlib import Path
+
+          from clean_v2.media import (
+              AzureF0NeuralVoiceSynthesizer,
+              GeminiPrimaryPiperFallbackSynthesizer,
+          )
+
+          sample_text = (
+              "هل نحن متأخرون حقًّا، أم أننا نقيس حياتنا بمقياس لا يناسبها؟ "
+              "الفكرة ليست أن نركض أسرع، بل أن نفهم ما يستحق وقتنا، ثم نبدأ بخطوة واضحة. "
+              "دع الفكرة تكتمل، وخذ نفسًا طبيعيًّا قبل أن تنتقل إلى ما بعدها."
+          )
+          output = Path("voice-acceptance-samples")
+          output.mkdir(parents=True, exist_ok=True)
+
+          charon = GeminiPrimaryPiperFallbackSynthesizer(
+              os.environ["GEMINI_API_KEY"],
+              output / "unused-piper-model.onnx",
+              tts_model=os.environ["GEMINI_TTS_MODEL"],
+          )
+          charon_path = charon.synthesize(sample_text, output / "01-charon.wav")
+
+          # This object is deliberately evaluation-only. Production still requires
+          # CLEAN_V2_AZURE_TTS_VOICE_APPROVED=true after a human listens to this file.
+          azure = AzureF0NeuralVoiceSynthesizer(
+              os.environ["AZURE_SPEECH_KEY"],
+              os.environ["AZURE_SPEECH_REGION"],
+              free_tier_confirmed=True,
+              voice_approved=True,
+          )
+          azure_path = azure.synthesize(sample_text, output / "02-azure-ar-om-abdullah.wav")
+
+          def inspect(path: Path) -> dict:
+              with wave.open(str(path), "rb") as wav:
+                  frames = wav.getnframes()
+                  rate = wav.getframerate()
+                  return {
+                      "file": path.name,
+                      "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                      "duration_seconds": round(frames / rate, 3),
+                      "sample_rate_hz": rate,
+                      "channels": wav.getnchannels(),
+                      "sample_width_bytes": wav.getsampwidth(),
+                  }
+
+          manifest = {
+              "schema_version": 1,
+              "language_contract": "clear contemporary Modern Standard Arabic; no local dialect",
+              "same_text_for_both_samples": True,
+              "human_approval_required": True,
+              "acceptance_checks": [
+                  "sounds spoken by a person rather than read by a machine",
+                  "no audible local dialect",
+                  "natural varied pauses and sentence endings",
+                  "clear consonants on an ordinary phone speaker",
+                  "no announcer voice, clipping, swallowed words, or theatrical emphasis",
+              ],
+              "samples": [
+                  {
+                      "provider": "gemini",
+                      "model": os.environ["GEMINI_TTS_MODEL"],
+                      "voice": "Charon",
+                      "approval_basis": "existing human-approved channel reference",
+                      **inspect(charon_path),
+                  },
+                  {
+                      "provider": "azure-f0-candidate",
+                      "locale": "ar-OM",
+                      "voice": azure.voice,
+                      "approval_basis": "candidate; keep disabled until human approval",
+                      **inspect(azure_path),
+                  },
+              ],
+          }
+          if manifest["samples"][0]["sha256"] == manifest["samples"][1]["sha256"]:
+              raise RuntimeError("voice acceptance samples unexpectedly match byte-for-byte")
+          (output / "acceptance.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload human listening package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: voice-fallback-acceptance-${{ github.run_number }}-${{ github.run_attempt }}
+          path: voice-acceptance-samples
+          if-no-files-found: error
+          retention-days: 7

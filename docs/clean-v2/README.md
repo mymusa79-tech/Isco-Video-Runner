@@ -14,7 +14,15 @@ Viewer Quality, packaging, thumbnails, and Shorts remain disabled.
 - Planning: one bounded provider route. Film is fixed to exactly five sections so every
   section can map to one of Clean V2's existing maximum five final-cut visuals.
 - Script: one bounded provider route.
-- Voice: Gemini TTS uses the pinned Engine voice identity (Charon) for one primary attempt; verified local Piper `ar_JO-kareem-medium` is the bounded fallback only when Gemini TTS is unavailable or fails.
+- Voice: Gemini TTS uses the human-approved, pinned Engine identity (Charon; Orus only
+  for explicit A/B dialogue) for up to three total attempts. A short provider
+  `Retry-After` is honored exactly; a longer window is never shortened. The optional
+  Azure F0 neural candidate `ar-OM-AbdullahNeural` is considered only after Charon and
+  only when both the F0 account and a human listening approval are explicitly confirmed.
+  Piper `ar_JO-kareem-medium` is disabled by default and requires a separate emergency
+  switch after both cloud routes are exhausted. With the normal production settings,
+  unavailable approved voices stop the run as infrastructure failure rather than
+  silently publishing a robotic fallback.
 - Visuals: Pexels, then Pixabay, then a deterministic local fallback if stock is unavailable.
   Stock queries and downloaded stock cross the existing Security V1 boundaries. Admitted
   clips then pass through the existing Engine M8 BT.709/SDR kernel before render.
@@ -43,6 +51,13 @@ provider order remains unchanged.
 Use the `Clean V2 Minimal E2E` GitHub Actions workflow after its branch is merged. It
 always reads the frozen approved brief from Engine pin
 `3cbd689819e6b0e0b2ea9904d1998e24a5e2a293`. It never accepts an unapproved topic input.
+
+Before enabling the Azure fallback, run `Voice Fallback Acceptance Samples`, listen to
+both matched Fusha files, and approve Azure only if it has no audible dialect and passes
+the naturalness checks in `acceptance.json`. Production requires all of
+`AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`,
+`CLEAN_V2_AZURE_TTS_F0_CONFIRMED=true`, and
+`CLEAN_V2_AZURE_TTS_VOICE_APPROVED=true`; the sample workflow never enables the flag.
 
 The artifact contains:
 
