@@ -368,6 +368,7 @@ def publish_provider_unavailable(
     quota_domain: str = "*",
     reason: str,
     source: str,
+    retry_after_seconds: float | None = None,
 ) -> None:
     """Compatibility publisher with stable failure taxonomy inferred from evidence."""
     publish_provider_failure(
@@ -377,6 +378,7 @@ def publish_provider_unavailable(
         reason=reason,
         source=source,
         failure_class=_infer_failure_class(reason, source=source),
+        retry_after_seconds=retry_after_seconds,
     )
 
 
