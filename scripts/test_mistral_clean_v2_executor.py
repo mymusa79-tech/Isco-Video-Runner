@@ -165,7 +165,7 @@ class MistralExecutorTransportTests(unittest.TestCase):
         ) as urlopen:
             result = mistral_executor.mistral_executor_json(
                 "generate one alternate visual query",
-                max_tokens=300,
+                max_tokens=80,
                 task_kind="visual_query_recovery",
             )
 
@@ -304,7 +304,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             "no face visible"
         )
         alternate_query = (
-            "hand writing a simple if then plan on a sticky note beside morning coffee"
+            "hand writing plan on sticky note beside coffee"
         )
         expected_schema = (
             "visual_query_recovery",
@@ -313,7 +313,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                 "properties": {
                     "alternate_query": {
                         "type": "string",
-                        "maxLength": 200,
+                        "maxLength": 80,
                     }
                 },
                 "required": ["alternate_query"],
@@ -337,7 +337,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         ):
             order.append("mistral")
             self.assertEqual(task_kind, "visual_query_recovery")
-            self.assertEqual(max_tokens, 300)
+            self.assertEqual(max_tokens, 80)
             self.assertEqual(response_schema, expected_schema)
             return {"alternate_query": alternate_query}
 
@@ -362,7 +362,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             )
 
         self.assertEqual(result, {"alternate_query": alternate_query})
-        self.assertLessEqual(len(result["alternate_query"]), 200)
+        self.assertLessEqual(len(result["alternate_query"]), 80)
         self.assertNotEqual(
             result["alternate_query"].casefold(),
             original_query.casefold(),
