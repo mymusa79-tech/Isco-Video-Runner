@@ -12,7 +12,12 @@ from clean_v2 import mistral_executor
 from clean_v2 import providers
 from clean_v2 import text_audit
 from clean_v2 import visual_qa
-from clean_v2.pipeline import CleanV2Pipeline, _build_production_plan_for_audit, _script_prompt
+from clean_v2.pipeline import (
+    CleanV2Pipeline,
+    _build_production_plan_for_audit,
+    _planning_prompt,
+    _script_prompt,
+)
 
 
 _FACT_PASS = {
@@ -285,7 +290,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                     prompt = (
                         _script_prompt(_brief(), _plan())
                         if stage == "script"
-                        else "full prompt"
+                        else _planning_prompt(_brief())
                     )
                     result = router.route(
                         stage=stage,
