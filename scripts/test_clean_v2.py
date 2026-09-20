@@ -64,6 +64,7 @@ def _plan() -> dict:
     return {
         "title": "خطوة واحدة",
         "promise": "فهم طريقة عملية للبدء",
+        "cta": "إذا كانت هذه الفكرة قريبة منك، اكتب تجربتك في التعليقات.",
         "sections": [
             {
                 "id": "s1",
@@ -150,6 +151,9 @@ class PlanningCardinalityTests(unittest.TestCase):
         self.assertIn("Use exactly 5 sections", prompt)
         self.assertNotIn("5 to 6", prompt)
         self.assertEqual(len(validate_plan(_plan(), brief)["sections"]), 5)
+        normalized = validate_plan(_plan(), brief)
+        self.assertIn("cta", normalized)
+        self.assertIn("exactly ONE natural primary action", prompt)
 
         six = _plan()
         six["sections"].append(
@@ -259,6 +263,7 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         return {
             "title": "خطة",
             "promise": "وعد واضح",
+            "cta": "اكتب رأيك في التعليقات.",
             "sections": [
                 {
                     "heading": f"قسم {index}",
@@ -276,6 +281,9 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         sections = schema["properties"]["sections"]
         self.assertEqual(sections["minItems"], 5)
         self.assertEqual(sections["maxItems"], 5)
+        self.assertIn("cta", schema["required"])
+        self.assertEqual(schema["properties"]["cta"]["minLength"], 1)
+        self.assertEqual(schema["properties"]["cta"]["pattern"], r"\S")
 
         item = sections["items"]
         self.assertEqual(
@@ -1061,6 +1069,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 [TEXT_AUDIT_STAGE, CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, "final_master_qc"],
             )
             self.assertEqual(manifest["text_audit_status"], "pass")
+            cta_report = json.loads((output / "cta-plan.json").read_text(encoding="utf-8"))
+            self.assertEqual(cta_report["rules"]["provider_calls"], 0)
+            self.assertEqual(cta_report["provider_calls_added"], 0)
+            self.assertEqual(cta_report["mode"], "comment")
             self.assertEqual(manifest["opening_director_status"], "not_applicable")
             self.assertEqual(manifest["cinematic_v2_status"], "pass")
             self.assertEqual(manifest["final_master_qc_status"], "pass")
