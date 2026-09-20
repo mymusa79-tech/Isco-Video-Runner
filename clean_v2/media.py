@@ -557,6 +557,7 @@ class StockVisualSource:
         section_id: str,
         exclude_provider: str | None = None,
         exclude_asset_id: object | None = None,
+        exclude_assets: list[tuple[str, object]] | None = None,
     ) -> tuple[Path, dict[str, Any]] | None:
         """Acquire exactly one alternate-query replacement for an existing visual slot.
 
@@ -576,6 +577,9 @@ class StockVisualSource:
 
         if exclude_provider and exclude_asset_id is not None:
             self._used.add((str(exclude_provider), str(exclude_asset_id)))
+        for provider, asset_id in exclude_assets or []:
+            if provider and asset_id is not None:
+                self._used.add((str(provider), str(asset_id)))
 
         destination = output_dir / str(destination_name)
         if not destination.name or destination.parent != output_dir:
