@@ -31,6 +31,7 @@ from clean_v2.pipeline import (
 )
 from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
 from clean_v2 import visual_qa as visual_qa_module
+from clean_v2 import media as media_module
 from clean_v2 import text_audit as text_audit_module
 
 
@@ -1554,6 +1555,111 @@ class VisualQADiagnosticsTests(unittest.TestCase):
             self.assertIn(field, source)
 
 
+class StockVisualRecoveryPoolTests(unittest.TestCase):
+    @staticmethod
+    def _candidate(provider: str, asset_id: str) -> dict:
+        return {
+            "provider": provider,
+            "asset_id": asset_id,
+            "download_url": f"https://media.invalid/{provider}/{asset_id}.mp4",
+            "source_url": f"https://source.invalid/{provider}/{asset_id}",
+            "creator": "test",
+            "creator_url": "",
+            "query": "person checking calendar at desk",
+        }
+
+    def test_recovery_pool_interleaves_provider_rank_and_caps_at_three(self) -> None:
+        source = media_module.StockVisualSource()
+        pexels = [
+            self._candidate("pexels", "p1"),
+            self._candidate("pexels", "p2"),
+            self._candidate("pexels", "p3"),
+        ]
+        pixabay = [
+            self._candidate("pixabay", "x1"),
+            self._candidate("pixabay", "x2"),
+            self._candidate("pixabay", "x3"),
+        ]
+
+        def fake_download(_url, destination):
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source,
+            "_pexels_recovery_pool",
+            return_value=pexels,
+        ) as pexels_search, mock.patch.object(
+            source,
+            "_pixabay_recovery_pool",
+            return_value=pixabay,
+        ) as pixabay_search, mock.patch.object(
+            media_module,
+            "_download_media",
+            side_effect=fake_download,
+        ):
+            output = Path(root)
+            result = source.acquire_replacement_candidates(
+                "person checking calendar at desk",
+                output,
+                "film",
+                destination_name="visual-01.mp4",
+                section_id="s1",
+                max_candidates=3,
+            )
+
+        self.assertEqual(pexels_search.call_count, 1)
+        self.assertEqual(pixabay_search.call_count, 1)
+        self.assertEqual(
+            [
+                (row["provider"], row["asset_id"])
+                for _path, row in result
+            ],
+            [("pexels", "p1"), ("pixabay", "x1"), ("pexels", "p2")],
+        )
+        self.assertEqual(
+            [row["semantic_recovery_candidate_index"] for _path, row in result],
+            [1, 2, 3],
+        )
+
+    def test_recovery_candidate_limit_is_hard_capped_at_three(self) -> None:
+        source = media_module.StockVisualSource()
+        pexels = [
+            self._candidate("pexels", f"p{index}")
+            for index in range(1, 7)
+        ]
+        pixabay = [
+            self._candidate("pixabay", f"x{index}")
+            for index in range(1, 7)
+        ]
+
+        def fake_download(_url, destination):
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source,
+            "_pexels_recovery_pool",
+            return_value=pexels,
+        ), mock.patch.object(
+            source,
+            "_pixabay_recovery_pool",
+            return_value=pixabay,
+        ), mock.patch.object(
+            media_module,
+            "_download_media",
+            side_effect=fake_download,
+        ):
+            result = source.acquire_replacement_candidates(
+                "person checking calendar at desk",
+                Path(root),
+                "film",
+                destination_name="visual-01.mp4",
+                section_id="s1",
+                max_candidates=99,
+            )
+
+        self.assertEqual(len(result), 3)
+
+
 class VisualQASemanticRecoveryTests(unittest.TestCase):
     ORIGINAL_QUERY = "person scrolling phone while looking at wall clock"
     ALTERNATE_QUERY = "person avoiding open laptop task while scrolling phone beside clock"
@@ -1621,10 +1727,93 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             )
 
     class _VisualSource:
-        def __init__(self) -> None:
+        def __init__(self, candidate_count: int = 1) -> None:
             self.acquire_calls = 0
             self.commit_calls = 0
             self.events: list[dict] = []
+            self.candidate_count = candidate_count
+
+        @staticmethod
+        def _assert_request(
+            query,
+            *,
+            destination_name,
+            section_id,
+            exclude_provider,
+            exclude_asset_id,
+            exclude_assets,
+        ) -> None:
+            if query != VisualQASemanticRecoveryTests.ALTERNATE_QUERY:
+                raise AssertionError(query)
+            if section_id != "s3" or destination_name != "visual-03.mp4":
+                raise AssertionError((section_id, destination_name))
+            if exclude_provider != "pexels" or str(exclude_asset_id) != "6943542":
+                raise AssertionError((exclude_provider, exclude_asset_id))
+            if ("pexels", "6943542") not in [
+                (str(provider), str(asset_id)) for provider, asset_id in exclude_assets
+            ]:
+                raise AssertionError(exclude_assets)
+
+        @staticmethod
+        def _candidate(output_dir, *, query, destination_name, section_id, index):
+            provider = "pexels" if index % 2 else "pixabay"
+            asset_id = f"999000{index}"
+            path = (
+                Path(output_dir)
+                / f".visual-03.semantic-recovery-{index:02d}-{provider}.mp4"
+            )
+            path.write_bytes(b"R" * 4096)
+            return path, {
+                "provider": provider,
+                "asset_id": asset_id,
+                "source_url": f"https://example.invalid/{provider}/{asset_id}",
+                "creator": "test",
+                "creator_url": "https://example.invalid/test",
+                "query": query,
+                "local_file": destination_name,
+                "section_id": section_id,
+                "semantic_recovery": True,
+                "semantic_recovery_candidate_index": index,
+            }
+
+        def acquire_replacement_candidates(
+            self,
+            query,
+            output_dir,
+            fmt,
+            *,
+            destination_name,
+            section_id,
+            max_candidates,
+            exclude_provider,
+            exclude_asset_id,
+            exclude_assets,
+        ):
+            del fmt
+            self.acquire_calls += 1
+            self._assert_request(
+                query,
+                destination_name=destination_name,
+                section_id=section_id,
+                exclude_provider=exclude_provider,
+                exclude_asset_id=exclude_asset_id,
+                exclude_assets=exclude_assets,
+            )
+            if max_candidates != 3:
+                raise AssertionError(max_candidates)
+            return [
+                self._candidate(
+                    output_dir,
+                    query=query,
+                    destination_name=destination_name,
+                    section_id=section_id,
+                    index=index,
+                )
+                for index in range(
+                    1,
+                    min(self.candidate_count, max_candidates) + 1,
+                )
+            ]
 
         def acquire_replacement(
             self,
@@ -1638,30 +1827,23 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             exclude_asset_id,
             exclude_assets,
         ):
+            del fmt
             self.acquire_calls += 1
-            if query != VisualQASemanticRecoveryTests.ALTERNATE_QUERY:
-                raise AssertionError(query)
-            if section_id != "s3" or destination_name != "visual-03.mp4":
-                raise AssertionError((section_id, destination_name))
-            if exclude_provider != "pexels" or str(exclude_asset_id) != "6943542":
-                raise AssertionError((exclude_provider, exclude_asset_id))
-            if ("pexels", "6943542") not in [
-                (str(provider), str(asset_id)) for provider, asset_id in exclude_assets
-            ]:
-                raise AssertionError(exclude_assets)
-            path = Path(output_dir) / ".visual-03.semantic-recovery-pexels.mp4"
-            path.write_bytes(b"R" * 4096)
-            return path, {
-                "provider": "pexels",
-                "asset_id": "9990001",
-                "source_url": "https://www.pexels.com/video/recovery-9990001/",
-                "creator": "test",
-                "creator_url": "https://www.pexels.com/@test",
-                "query": query,
-                "local_file": destination_name,
-                "section_id": section_id,
-                "semantic_recovery": True,
-            }
+            self._assert_request(
+                query,
+                destination_name=destination_name,
+                section_id=section_id,
+                exclude_provider=exclude_provider,
+                exclude_asset_id=exclude_asset_id,
+                exclude_assets=exclude_assets,
+            )
+            return self._candidate(
+                output_dir,
+                query=query,
+                destination_name=destination_name,
+                section_id=section_id,
+                index=1,
+            )
 
         def commit_replacement(self, replacement, destination):
             self.commit_calls += 1
@@ -1688,9 +1870,19 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             "frame_sha256": list(evidence.frame_sha256),
         }
 
-    def _run_case(self, *, recovery_relevance: float):
+    def _run_case(
+        self,
+        *,
+        recovery_relevance: float | None = None,
+        recovery_relevances: list[float] | None = None,
+    ):
+        scores = list(
+            recovery_relevances
+            if recovery_relevances is not None
+            else [float(recovery_relevance if recovery_relevance is not None else 0.0)]
+        )
         router = self._Router(self.ALTERNATE_QUERY)
-        visual_source = self._VisualSource()
+        visual_source = self._VisualSource(candidate_count=len(scores))
         plan = {
             "sections": [
                 {
@@ -1742,8 +1934,10 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                     status="block",
                     evidence=evidence,
                 )
+            score_index = min(audit_counter["n"] - 2, len(scores) - 1)
+            score = scores[score_index]
             return self._audit(
-                relevance=recovery_relevance,
+                relevance=score,
                 quality=0.95,
                 status="pass",
                 evidence=evidence,
@@ -1841,7 +2035,7 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 {"GEMINI_API_KEY": "test-key", "GEMINI_CONTENT_MODEL": "gemini-3.7-flash"},
                 clear=False,
             ):
-                if recovery_relevance >= 0.85:
+                if any(score >= 0.85 for score in scores):
                     result = visual_qa_module.run_final_cut_visual_qa(
                         output_dir=output,
                         plan=plan,
@@ -1923,6 +2117,53 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         self.assertIn("primary_floor=0.400000", outcome["error"])
         self.assertIn("recovery_floor=0.700000", outcome["error"])
         self.assertEqual(outcome["recovery"][0]["status"], "rejected")
+        self.assertEqual(outcome["rights"][0]["asset_id"], "6943542")
+        self.assertEqual(outcome["final_bytes"], b"O" * 4096)
+
+
+    def test_one_query_can_recover_with_second_bounded_candidate(self) -> None:
+        outcome = self._run_case(
+            recovery_relevances=[0.60, 0.92, 0.40],
+        )
+
+        self.assertEqual(outcome["router_calls"], 1)
+        self.assertEqual(outcome["acquire_calls"], 1)
+        self.assertEqual(outcome["commit_calls"], 1)
+        self.assertEqual(outcome["audit_calls"], 3)
+        self.assertEqual(outcome["result"]["status"], "pass")
+        self.assertEqual(
+            outcome["result"]["semantic_recovery_candidate_review_limit_per_section"],
+            3,
+        )
+        record = outcome["recovery"][0]
+        self.assertEqual(record["candidate_pool_size"], 3)
+        self.assertEqual(record["candidate_review_count"], 2)
+        self.assertEqual(record["selected_candidate_index"], 2)
+        self.assertEqual(
+            [item["status"] for item in record["candidate_reviews"]],
+            ["rejected", "ready"],
+        )
+        self.assertEqual(outcome["rights"][0]["provider"], "pixabay")
+        self.assertEqual(outcome["rights"][0]["asset_id"], "9990002")
+
+    def test_three_recovery_candidates_is_hard_fail_closed_limit(self) -> None:
+        outcome = self._run_case(
+            recovery_relevances=[0.60, 0.70, 0.80],
+        )
+
+        self.assertEqual(outcome["router_calls"], 1)
+        self.assertEqual(outcome["acquire_calls"], 1)
+        self.assertEqual(outcome["commit_calls"], 0)
+        self.assertEqual(outcome["audit_calls"], 4)
+        self.assertIn("recovery_floor=0.800000", outcome["error"])
+        self.assertIn("reviewed=3", outcome["error"])
+        record = outcome["recovery"][0]
+        self.assertEqual(record["candidate_pool_size"], 3)
+        self.assertEqual(record["candidate_review_count"], 3)
+        self.assertEqual(
+            [item["status"] for item in record["candidate_reviews"]],
+            ["rejected", "rejected", "rejected"],
+        )
         self.assertEqual(outcome["rights"][0]["asset_id"], "6943542")
         self.assertEqual(outcome["final_bytes"], b"O" * 4096)
 

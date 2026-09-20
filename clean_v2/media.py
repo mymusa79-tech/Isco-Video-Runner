@@ -547,6 +547,302 @@ class StockVisualSource:
             )
         return clips, rights
 
+    def _pexels_recovery_pool(
+        self,
+        query: str,
+        *,
+        portrait: bool,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        key = _read_secret("PEXELS_API_KEY")
+        if not key:
+            self._event(
+                "pexels",
+                query,
+                "unavailable",
+                wire_attempted=False,
+                reason="missing_api_key",
+            )
+            return []
+        params = urllib.parse.urlencode(
+            {
+                "query": query[:200],
+                "orientation": "portrait" if portrait else "landscape",
+                "size": "medium",
+                "per_page": max(12, int(limit)),
+                "locale": "en-US",
+            }
+        )
+        candidates: list[dict[str, Any]] = []
+        try:
+            body = _get_json(
+                f"https://api.pexels.com/v1/videos/search?{params}",
+                headers={"Authorization": key},
+            )
+            for video in body.get("videos") or []:
+                if not isinstance(video, dict):
+                    continue
+                identity = ("pexels", str(video.get("id") or ""))
+                selected = _pexels_file(video, portrait=portrait)
+                if identity in self._used or selected is None:
+                    continue
+                user = video.get("user") or {}
+                candidates.append(
+                    {
+                        "provider": "pexels",
+                        "asset_id": identity[1],
+                        "download_url": str(selected.get("link")),
+                        "source_url": str(video.get("url") or ""),
+                        "creator": str(user.get("name") or ""),
+                        "creator_url": str(user.get("url") or ""),
+                        "query": query,
+                    }
+                )
+                if len(candidates) >= max(1, int(limit)):
+                    break
+            self._event(
+                "pexels",
+                query,
+                "recovery_pool_ready" if candidates else "empty",
+                wire_attempted=True,
+                reason=f"candidates={len(candidates)}",
+            )
+        except Exception as exc:
+            self._event(
+                "pexels",
+                query,
+                "failed",
+                wire_attempted=True,
+                reason=str(exc)[:80],
+            )
+        return candidates
+
+    def _pixabay_recovery_pool(
+        self,
+        query: str,
+        *,
+        portrait: bool,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        key = _read_secret("PIXABAY_API_KEY")
+        if not key:
+            self._event(
+                "pixabay",
+                query,
+                "unavailable",
+                wire_attempted=False,
+                reason="missing_api_key",
+            )
+            return []
+        params = urllib.parse.urlencode(
+            {
+                "key": key,
+                "q": query[:100],
+                "video_type": "film",
+                "safesearch": "true",
+                "per_page": max(12, int(limit)),
+            }
+        )
+        candidates: list[dict[str, Any]] = []
+        try:
+            body = _get_json(f"https://pixabay.com/api/videos/?{params}")
+            for hit in body.get("hits") or []:
+                if not isinstance(hit, dict):
+                    continue
+                identity = ("pixabay", str(hit.get("id") or ""))
+                if identity in self._used:
+                    continue
+                variants = hit.get("videos") or {}
+                variants_list = [
+                    item
+                    for name in ("medium", "small", "large", "tiny")
+                    for item in [
+                        variants.get(name) if isinstance(variants, dict) else None
+                    ]
+                    if isinstance(item, dict) and item.get("url")
+                ]
+                if not variants_list:
+                    continue
+                oriented = [
+                    item
+                    for item in variants_list
+                    if (
+                        (
+                            int(item.get("height") or 0)
+                            > int(item.get("width") or 0)
+                        )
+                        if portrait
+                        else (
+                            int(item.get("width") or 0)
+                            >= int(item.get("height") or 0)
+                        )
+                    )
+                ]
+                selected = (oriented or variants_list)[0]
+                candidates.append(
+                    {
+                        "provider": "pixabay",
+                        "asset_id": identity[1],
+                        "download_url": str(selected.get("url")),
+                        "source_url": str(hit.get("pageURL") or ""),
+                        "creator": str(hit.get("user") or ""),
+                        "creator_url": "",
+                        "query": query,
+                    }
+                )
+                if len(candidates) >= max(1, int(limit)):
+                    break
+            self._event(
+                "pixabay",
+                query,
+                "recovery_pool_ready" if candidates else "empty",
+                wire_attempted=True,
+                reason=f"candidates={len(candidates)}",
+            )
+        except Exception as exc:
+            self._event(
+                "pixabay",
+                query,
+                "failed",
+                wire_attempted=True,
+                reason=str(exc)[:80],
+            )
+        return candidates
+
+    def acquire_replacement_candidates(
+        self,
+        query: str,
+        output_dir: Path,
+        fmt: str,
+        *,
+        destination_name: str,
+        section_id: str,
+        max_candidates: int = 3,
+        exclude_provider: str | None = None,
+        exclude_asset_id: object | None = None,
+        exclude_assets: list[tuple[str, object]] | None = None,
+    ) -> list[tuple[Path, dict[str, Any]]]:
+        """Return up to three safe alternate-query candidates with a fixed bound.
+
+        Recovery performs exactly one Pexels search and one Pixabay search, preserves
+        each provider's own relevance ordering, interleaves the two pools, and admits
+        at most max_candidates downloaded candidates. Security V1 and the existing
+        media transform run before a candidate can reach cloud Visual QA.
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        portrait = fmt in {"moment", "story"}
+        bounded_limit = max(1, min(3, int(max_candidates)))
+        normalized_query = str(query or "").strip()
+        if self.query_normalizer is not None and normalized_query:
+            normalized_query = self.query_normalizer(normalized_query)
+        if not normalized_query:
+            return []
+
+        if exclude_provider and exclude_asset_id is not None:
+            self._used.add((str(exclude_provider), str(exclude_asset_id)))
+        for provider, asset_id in exclude_assets or []:
+            if provider and asset_id is not None:
+                self._used.add((str(provider), str(asset_id)))
+
+        destination = output_dir / str(destination_name)
+        if not destination.name or destination.parent != output_dir:
+            raise RuntimeError("replacement_destination_invalid")
+
+        # Pull a slightly wider local pool so download/security rejections can still
+        # leave up to three candidates for Visual QA without another provider search.
+        per_provider_limit = bounded_limit * 2
+        pexels = self._pexels_recovery_pool(
+            normalized_query,
+            portrait=portrait,
+            limit=per_provider_limit,
+        )
+        pixabay = self._pixabay_recovery_pool(
+            normalized_query,
+            portrait=portrait,
+            limit=per_provider_limit,
+        )
+        provider_pools = (pexels, pixabay)
+        interleaved: list[dict[str, Any]] = []
+        position = 0
+        while len(interleaved) < per_provider_limit * 2:
+            added = False
+            for pool in provider_pools:
+                if position < len(pool):
+                    interleaved.append(pool[position])
+                    added = True
+            if not added:
+                break
+            position += 1
+
+        admitted: list[tuple[Path, dict[str, Any]]] = []
+        for ordinal, candidate in enumerate(interleaved, start=1):
+            if len(admitted) >= bounded_limit:
+                break
+            provider = str(candidate.get("provider") or "unknown")
+            asset_id = str(candidate.get("asset_id") or "")
+            identity = (provider, asset_id)
+            if not asset_id or identity in self._used:
+                continue
+            self._used.add(identity)
+
+            safe_asset = re.sub(r"[^A-Za-z0-9_-]+", "-", asset_id)[:48] or "asset"
+            temporary = output_dir / (
+                f".{destination.stem}.semantic-recovery-{ordinal:02d}-"
+                f"{provider}-{safe_asset}{destination.suffix}"
+            )
+            temporary.unlink(missing_ok=True)
+            temporary.with_suffix(".m8.json").unlink(missing_ok=True)
+            try:
+                _download_media(str(candidate["download_url"]), temporary)
+                if self.media_preflight is not None:
+                    blocked = self.media_preflight(temporary)
+                    if blocked is not None:
+                        self._event(
+                            provider,
+                            normalized_query,
+                            "recovery_security_blocked",
+                            wire_attempted=False,
+                            reason=str(
+                                blocked.get("local_media_rejection")
+                                or "security_v1_block"
+                            )[:80],
+                        )
+                        temporary.unlink(missing_ok=True)
+                        continue
+                replacement = temporary
+                if self.media_transform is not None:
+                    replacement = Path(self.media_transform(temporary))
+            except Exception as exc:
+                temporary.unlink(missing_ok=True)
+                temporary.with_suffix(".m8.json").unlink(missing_ok=True)
+                self._event(
+                    provider,
+                    normalized_query,
+                    "recovery_failed",
+                    wire_attempted=True,
+                    reason=str(exc)[:80],
+                )
+                continue
+
+            row = {
+                key: value for key, value in candidate.items() if key != "download_url"
+            }
+            row["local_file"] = destination.name
+            row["section_id"] = str(section_id or "")
+            row["semantic_recovery"] = True
+            row["semantic_recovery_candidate_index"] = len(admitted) + 1
+            admitted.append((replacement, row))
+            self._event(
+                provider,
+                normalized_query,
+                "recovery_candidate_ready",
+                wire_attempted=True,
+                reason=f"candidate={len(admitted)}/{bounded_limit}",
+            )
+
+        return admitted
+
     def acquire_replacement(
         self,
         query: str,
