@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -269,6 +270,66 @@ def _openrouter_call(prompt: str, max_tokens: int) -> dict[str, Any]:
     return _parse_json_object(str(message.get("content") or ""), "openrouter")
 
 
+def _safe_mistral_script_raw_diagnostic(raw_content: str, exc: Exception) -> dict[str, Any]:
+    """Describe rejected Mistral Script output without logging narration text."""
+    raw = str(raw_content or "")
+    raw_bytes = raw.encode("utf-8")
+    diagnostic: dict[str, Any] = {
+        "validator_error_type": type(exc).__name__,
+        "validator_error": str(exc)[:500],
+        "raw_content": {
+            "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            "utf8_bytes": len(raw_bytes),
+        },
+    }
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        diagnostic["raw_content"]["shape"] = {"json_type": "invalid_json"}
+        return diagnostic
+
+    if not isinstance(value, dict):
+        diagnostic["raw_content"]["shape"] = {
+            "json_type": type(value).__name__,
+        }
+        return diagnostic
+
+    shape: dict[str, Any] = {
+        "json_type": "object",
+        "top_level_keys": sorted(str(key)[:80] for key in value.keys())[:30],
+    }
+    title = value.get("title")
+    shape["title_type"] = type(title).__name__
+    shape["title_chars"] = len(title) if isinstance(title, str) else None
+
+    sections = value.get("sections")
+    shape["sections_type"] = type(sections).__name__
+    if isinstance(sections, list):
+        shape["sections_count"] = len(sections)
+        section_shapes: list[dict[str, Any]] = []
+        for index, item in enumerate(sections[:10]):
+            if not isinstance(item, dict):
+                section_shapes.append(
+                    {"index": index, "json_type": type(item).__name__}
+                )
+                continue
+            narration = item.get("narration")
+            section_shapes.append(
+                {
+                    "index": index,
+                    "keys": sorted(str(key)[:80] for key in item.keys())[:20],
+                    "id": str(item.get("id") or "")[:40],
+                    "narration_type": type(narration).__name__,
+                    "narration_chars": (
+                        len(narration) if isinstance(narration, str) else None
+                    ),
+                }
+            )
+        shape["sections"] = section_shapes
+    diagnostic["raw_content"]["shape"] = shape
+    return diagnostic
+
+
 def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
     try:
         if stage == "visual_query_recovery":
@@ -429,6 +490,17 @@ class ProviderRouter:
                         "Mistral visual_query_recovery validator rejected raw content: "
                         + json.dumps(
                             {"raw_content": raw_content},
+                            ensure_ascii=True,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                    )
+                elif adapter.name == "mistral" and stage == "script":
+                    raw_content = mistral_executor.get_last_mistral_executor_raw_content()
+                    print(
+                        "Mistral script validator rejected raw content: "
+                        + json.dumps(
+                            _safe_mistral_script_raw_diagnostic(raw_content, exc),
                             ensure_ascii=True,
                             sort_keys=True,
                             separators=(",", ":"),

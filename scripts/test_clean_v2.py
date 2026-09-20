@@ -18,6 +18,7 @@ from clean_v2.contracts import (
     compute_brief_sha256,
     load_approved_brief,
     validate_plan,
+    validate_script,
 )
 from clean_v2.pipeline import (
     AUDIO_MASTERING_STAGE,
@@ -241,6 +242,63 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
         for provider in ("gemini", "groq", "openrouter", "mistral"):
             self.assertEqual(captured[provider], prompt)
             self.assertIn(_PLANNING_FACTUALITY_RULE, captured[provider])
+
+
+class MistralScriptDiagnosticsTests(unittest.TestCase):
+    def test_script_validator_logs_safe_raw_shape_without_narration_text(self) -> None:
+        plan = _plan()
+        private_marker = "PRIVATE_NARRATION_MUST_NOT_BE_LOGGED"
+        reversed_ids = [item["id"] for item in reversed(plan["sections"])]
+        raw_value = {
+            "title": "private title",
+            "sections": [
+                {
+                    "id": section_id,
+                    "narration": private_marker + (" x" * 20),
+                }
+                for section_id in reversed_ids
+            ],
+        }
+        raw_content = json.dumps(raw_value, ensure_ascii=False)
+
+        def mistral_call(_prompt, _tokens, stage):
+            self.assertEqual(stage, "script")
+            return raw_value
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter(
+                    "mistral",
+                    mistral_call,
+                    stages=frozenset({"script"}),
+                    accepts_stage=True,
+                ),
+            )
+        )
+        with mock.patch.object(
+            providers_module.mistral_executor,
+            "get_last_mistral_executor_raw_content",
+            return_value=raw_content,
+        ), mock.patch("builtins.print") as logged:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "mistral:invalid_output_contracterror",
+            ):
+                router.route(
+                    stage="script",
+                    prompt="safe script prompt",
+                    max_tokens=7500,
+                    validator=lambda value: validate_script(value, plan),
+                )
+
+        log_text = "\n".join(str(call.args[0]) for call in logged.call_args_list)
+        self.assertIn("Mistral script validator rejected raw content", log_text)
+        self.assertIn("script section ids/order must match plan exactly", log_text)
+        self.assertIn('"narration_chars"', log_text)
+        self.assertIn('"sha256"', log_text)
+        self.assertIn(reversed_ids[0], log_text)
+        self.assertNotIn(private_marker, log_text)
+        self.assertNotIn("private title", log_text)
 
 
 class ProviderAccountingTests(unittest.TestCase):
