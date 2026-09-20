@@ -111,7 +111,7 @@ class MistralExecutorTransportTests(unittest.TestCase):
             os.environ,
             {
                 "MISTRAL_API_KEY": "test-key",
-                "MISTRAL_CONTENT_MODEL": "mistral-small-2603",
+                "MISTRAL_CONTENT_MODEL": "ministral-14b-2512",
             },
             clear=False,
         ), mock.patch.object(
@@ -129,14 +129,14 @@ class MistralExecutorTransportTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, mistral_executor.MISTRAL_CHAT_URL)
         payload = json.loads(request.data.decode("utf-8"))
-        self.assertEqual(payload["model"], "mistral-small-2603")
+        self.assertEqual(payload["model"], "ministral-14b-2512")
         self.assertEqual(payload["response_format"], {"type": "json_object"})
         self.assertEqual(payload["max_tokens"], 7500)
         telemetry = mistral_executor.get_mistral_executor_telemetry()
         self.assertEqual(len(telemetry), 1)
         self.assertEqual(telemetry[0]["role"], "executor")
         self.assertEqual(telemetry[0]["task_kind"], "script")
-        self.assertEqual(telemetry[0]["model"], "mistral-small-2603")
+        self.assertEqual(telemetry[0]["model"], "ministral-14b-2512")
         self.assertEqual(telemetry[0]["usage"]["total_tokens"], 600)
         self.assertEqual(
             telemetry[0]["rate_limit_headers"][
@@ -145,12 +145,12 @@ class MistralExecutorTransportTests(unittest.TestCase):
             "937500",
         )
 
-    def test_narrative_identity_uses_content_model_boundary(self) -> None:
+    def test_narrative_identity_keeps_executor_model_boundary(self) -> None:
         with mock.patch.dict(
             os.environ,
             {
                 "MISTRAL_API_KEY": "test-key",
-                "MISTRAL_CONTENT_MODEL": "mistral-small-2603",
+                "MISTRAL_CONTENT_MODEL": "ministral-14b-2512",
             },
             clear=False,
         ), mock.patch.object(
@@ -167,18 +167,18 @@ class MistralExecutorTransportTests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         request = urlopen.call_args.args[0]
         payload = json.loads(request.data.decode("utf-8"))
-        self.assertEqual(payload["model"], "mistral-small-2603")
+        self.assertEqual(payload["model"], "ministral-14b-2512")
         self.assertEqual(payload["max_tokens"], 900)
         telemetry = mistral_executor.get_mistral_executor_telemetry()
         self.assertEqual(telemetry[-1]["task_kind"], "narrative_identity")
-        self.assertEqual(telemetry[-1]["model"], "mistral-small-2603")
+        self.assertEqual(telemetry[-1]["model"], "ministral-14b-2512")
 
     def test_text_audit_keeps_existing_ministral_model_boundary(self) -> None:
         with mock.patch.dict(
             os.environ,
             {
                 "MISTRAL_API_KEY": "test-key",
-                "MISTRAL_CONTENT_MODEL": "mistral-small-2603",
+                "MISTRAL_CONTENT_MODEL": "ministral-14b-2512",
             },
             clear=False,
         ), mock.patch.object(
