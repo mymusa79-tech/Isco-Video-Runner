@@ -173,7 +173,7 @@ class MistralExecutorTransportTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         payload = json.loads(request.data.decode("utf-8"))
         self.assertEqual(payload["model"], "ministral-14b-2512")
-        self.assertEqual(payload["max_tokens"], 300)
+        self.assertEqual(payload["max_tokens"], 80)
         telemetry = mistral_executor.get_mistral_executor_telemetry()
         self.assertEqual(telemetry[-1]["task_kind"], "visual_query_recovery")
         self.assertEqual(telemetry[-1]["model"], "ministral-14b-2512")
@@ -354,7 +354,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             result = router.route(
                 stage="visual_query_recovery",
                 prompt="Run 137 s5 recovery prompt",
-                max_tokens=300,
+                max_tokens=80,
                 validator=lambda value: visual_qa._validate_alternate_query(
                     value,
                     original_query=original_query,
