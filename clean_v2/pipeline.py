@@ -768,6 +768,7 @@ def _write_resume_checkpoint(
     if _RESUME_STAGE_INDEX[completed_stage] >= _RESUME_STAGE_INDEX["voice"]:
         if voice_provider not in {
             "gemini:Charon",
+            "azure-f0:ar-OM-AbdullahNeural",
             "piper-local:ar_JO-kareem-medium",
         }:
             raise RuntimeError("Clean V2 checkpoint voice provider is not approved")
@@ -1147,10 +1148,15 @@ class _Journal:
                 name == OPENING_STAGE
                 and "CLEAN_V2_OPENING_INFRASTRUCTURE" in message
             )
+            voice_infrastructure = (
+                name == "voice"
+                and "CLEAN_V2_VOICE_INFRASTRUCTURE" in message
+            )
             infrastructure = (
                 "exhausted bounded provider route" in message
                 or visual_qa_infrastructure
                 or opening_infrastructure
+                or voice_infrastructure
             )
             new_layer_block = (
                 not infrastructure
@@ -1182,6 +1188,22 @@ class _Journal:
             record["duration_seconds"] = round(time.monotonic() - started, 3)
             record["error_type"] = type(exc).__name__
             record["failure_classification"] = failure_classification
+            if voice_infrastructure:
+                voice_failure = {
+                    "provider": "gemini:Charon",
+                    "charon_attempts": int(getattr(exc, "charon_attempts", 0) or 0),
+                    "charon_reason": str(
+                        getattr(exc, "charon_reason", "unavailable") or "unavailable"
+                    )[:120],
+                    "secondary_reason": str(
+                        getattr(exc, "secondary_reason", "unavailable") or "unavailable"
+                    )[:120],
+                    "piper_emergency_enabled": bool(
+                        getattr(exc, "piper_fallback_allowed", False)
+                    ),
+                }
+                record["voice_failure"] = voice_failure
+                self.payload["voice_failure"] = voice_failure
             self.payload["failure_classification"] = failure_classification
             if quality_failure:
                 self.payload["status"] = "quality_pending"
@@ -1496,9 +1518,28 @@ class CleanV2Pipeline:
                 voice_fallback_used = resume[1].get("voice_fallback_used")
                 if voice_provider not in {
                     "gemini:Charon",
+                    "azure-f0:ar-OM-AbdullahNeural",
                     "piper-local:ar_JO-kareem-medium",
                 } or not isinstance(voice_fallback_used, bool):
                     raise RuntimeError("Clean V2 resume voice metadata is invalid")
+                piper_policy = getattr(
+                    self.voice_synthesizer, "allow_piper_fallback", None
+                )
+                if (
+                    voice_provider == "piper-local:ar_JO-kareem-medium"
+                    and piper_policy is False
+                ):
+                    from clean_v2.media import VoiceInfrastructureError
+
+                    failure = VoiceInfrastructureError(
+                        charon_attempts=0,
+                        charon_reason="resume_piper_not_allowed",
+                        secondary_reason="resume_checkpoint_rejected",
+                        piper_fallback_allowed=False,
+                    )
+                    journal.run(
+                        "voice", lambda: (_ for _ in ()).throw(failure)
+                    )
                 journal.reuse("voice")
                 journal.payload["voice_provider"] = voice_provider
                 journal.payload["voice_fallback_used"] = voice_fallback_used
@@ -1519,6 +1560,26 @@ class CleanV2Pipeline:
                 if voice_provider is not None:
                     journal.payload["voice_provider"] = str(voice_provider)
                     journal.payload["voice_fallback_used"] = voice_fallback_used
+                    charon_attempts = getattr(
+                        self.voice_synthesizer, "charon_attempts", None
+                    )
+                    if isinstance(charon_attempts, int):
+                        journal.payload["charon_tts_attempts"] = charon_attempts
+                    voice_roles = getattr(
+                        self.voice_synthesizer, "voice_roles", None
+                    )
+                    if isinstance(voice_roles, dict):
+                        journal.payload["voice_roles"] = dict(voice_roles)
+                    approval_status = getattr(
+                        self.voice_synthesizer, "voice_approval_status", None
+                    )
+                    if isinstance(approval_status, str) and approval_status:
+                        journal.payload["voice_approval_status"] = approval_status
+                    reference_profile = getattr(
+                        self.voice_synthesizer, "voice_reference_profile", None
+                    )
+                    if isinstance(reference_profile, str) and reference_profile:
+                        journal.payload["voice_reference_profile"] = reference_profile
                     journal._write()
             _write_resume_checkpoint(
                 output_dir,
