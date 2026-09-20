@@ -78,6 +78,37 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertIn("broad mood/theme", prompt)
         self.assertIn("original-source frames", prompt)
 
+    def test_attempt5_s1_does_not_require_unstated_decision_fatigue(self) -> None:
+        narration = (
+            "يضع كثيرون خططًا وأهدافًا، ثم بعد أيام يعودون إلى الأنماط السابقة "
+            "ولا ينجزون ما خططوا له. لماذا يحدث ذلك؟ السبب ليس نقص القيمة أو الإرادة، "
+            "بل توجد عوامل علمية تؤثر في تنفيذ الخطة."
+        )
+        intended = "person at desk with planner, looking at clock, coffee mug"
+        prompt = evidence.canonical_visual_prompt(
+            narration_context=narration,
+            intended_visual=intended,
+        )
+
+        self.assertIn(
+            "Only evaluate against the specific meaning stated in narration_context or intended_visual.",
+            prompt,
+        )
+        self.assertIn(
+            "Do not introduce or require concepts not explicitly present in the section's actual content",
+            prompt,
+        )
+        self.assertIn(
+            "They are NEVER requirements unless that exact concept is present in narration_context or intended_visual.",
+            prompt,
+        )
+        self.assertNotIn("decision fatigue", narration.casefold())
+        self.assertNotIn("decision fatigue", intended.casefold())
+        self.assertLess(
+            prompt.index("Do not introduce or require concepts"),
+            prompt.index("decision fatigue"),
+        )
+
     def test_bundle_is_extracted_once_from_original_source_at_fixed_positions(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             source = Path(root) / "selected-original.mp4"
