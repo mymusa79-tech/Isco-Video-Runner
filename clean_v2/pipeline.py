@@ -386,10 +386,12 @@ def _tone_repair_prompt(
     cta_plan: Mapping[str, Any],
     revision_note: str,
 ) -> str:
+    plan_json = json.dumps(
+        dict(plan), ensure_ascii=False, separators=(",", ":")
+    )
     payload = json.dumps(
         {
             "brief": dict(brief),
-            "plan": dict(plan),
             "current_script": dict(script),
             "narrative_identity": dict(identity),
             "cta_plan": dict(cta_plan),
@@ -401,6 +403,11 @@ def _tone_repair_prompt(
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
+
+LOCKED_PLAN:
+{plan_json}
+
+The approved brief and locked plan are authoritative.
 
 PRODUCTION_CONTEXT:
 {payload}
