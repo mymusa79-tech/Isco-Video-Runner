@@ -1,0 +1,131 @@
+name: Probe Run 196 Mistral Planning CTA
+
+on:
+  push:
+    branches:
+      - investigate/mistral-planning-run196-cta
+    paths:
+      - .github/workflows/probe-mistral-planning-run196-cta.yml
+      - clean_v2/mistral_executor.py
+      - scripts/test_mistral_clean_v2_executor.py
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  planning-cta-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+      SOURCE_ARTIFACT_ID: "10612746780"
+      MISTRAL_CONTENT_MODEL: ministral-14b-2512
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+
+    steps:
+      - name: Checkout exact investigation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout frozen private Engine source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: ${{ env.ENGINE_SHA }}
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install frozen Engine runtime
+        working-directory: engine
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check -r requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-build-isolation --no-deps -e .
+          python -m pip check
+
+      - name: Run focused malformed JSON diagnostic test
+        run: |
+          set -euo pipefail
+          python -m unittest             scripts.test_mistral_clean_v2_executor.MistralExecutorTransportTests.test_invalid_json_logs_safe_shape_without_generated_text             -v
+
+      - name: Download exact Run 196 evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/clean-v2-196-1.zip"
+          evidence="$RUNNER_TEMP/clean-v2-196-1"
+          mkdir -p "$evidence"
+          gh api -H 'Accept: application/vnd.github+json'             "repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip"             > "$archive"
+          unzip -q "$archive" -d "$evidence"
+          test -s "$evidence/brief.json"
+          echo "RUN196_EVIDENCE=$evidence" >> "$GITHUB_ENV"
+
+      - name: Probe exact Run 196 Planning prompt with CTA strict schema
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${MISTRAL_API_KEY:-}"
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          from clean_v2 import mistral_executor, providers
+          from clean_v2.contextual_cta import CtaMode, infer_cta_mode
+          from clean_v2.contracts import validate_plan
+          from clean_v2.pipeline import _planning_prompt
+
+          brief = json.loads(
+              (Path(os.environ["RUN196_EVIDENCE"]) / "brief.json").read_text(encoding="utf-8")
+          )
+          prompt = _planning_prompt(brief)
+          schema = providers._mistral_planning_response_schema(prompt)
+
+          assert schema["additionalProperties"] is False
+          assert "cta" in schema["properties"]
+          assert "cta" in schema["required"]
+          assert schema["properties"]["sections"]["minItems"] == 5
+          assert schema["properties"]["sections"]["maxItems"] == 5
+          assert schema["properties"]["cta"]["minLength"] == 1
+          assert schema["properties"]["cta"]["pattern"] == r"\S"
+
+          mistral_executor.reset_mistral_executor_telemetry()
+          candidate = providers._mistral_call(prompt, 3000, "planning")
+          plan = validate_plan(candidate, brief)
+
+          cta_mode, cta_reason = infer_cta_mode(plan["cta"])
+          if cta_mode == CtaMode.NONE:
+              raise SystemExit(f"CTA semantic validation failed: {cta_reason}")
+          if len(plan["sections"]) != 5:
+              raise SystemExit("film planning did not return exactly five sections")
+
+          telemetry = mistral_executor.get_mistral_executor_telemetry()
+          if len(telemetry) != 1:
+              raise SystemExit(f"expected one Mistral call, got {len(telemetry)}")
+
+          print(json.dumps({
+              "probe": "RUN196_PLANNING_CTA_PASS",
+              "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+              "prompt_utf8_bytes": len(prompt.encode("utf-8")),
+              "schema_has_cta": True,
+              "schema_cta_required": True,
+              "section_count": len(plan["sections"]),
+              "cta_mode": cta_mode.value,
+              "model": telemetry[0]["model"],
+              "http_status": telemetry[0]["http_status"],
+              "usage": telemetry[0]["usage"],
+              "rate_limit_headers": telemetry[0]["rate_limit_headers"],
+          }, ensure_ascii=False, sort_keys=True))
+          PY
