@@ -27,10 +27,18 @@ from clean_v2.pipeline import (
     VISUAL_QA_STAGE,
     STAGES,
     CleanV2Pipeline,
+    _PLANNING_FACTUALITY_RULE,
     _planning_prompt,
+    _script_prompt,
 )
-from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
+from clean_v2.providers import (
+    NoWireFailure,
+    ProviderAdapter,
+    ProviderRouter,
+    ProviderWireFailure,
+)
 from clean_v2 import visual_qa as visual_qa_module
+from clean_v2 import providers as providers_module
 from clean_v2 import media as media_module
 from clean_v2 import text_audit as text_audit_module
 
@@ -176,6 +184,63 @@ class TextAuditProfessionalAdviceScopeTests(unittest.TestCase):
             text_audit_module._scope_professional_advice_prompt(
                 "Rules changed unexpectedly; no legacy professional advice rule here."
             )
+
+
+class ScriptPromptFactualityRuleTests(unittest.TestCase):
+    def test_script_prompt_contains_exact_legacy_factuality_rule_and_research_pack(self) -> None:
+        brief = _brief()
+        brief["research_pack"] = [
+            {
+                "source_title": "Controlled source",
+                "source_url": "https://example.com/source",
+                "claim_scope": "General relationship only; no invented numbers or stronger causation.",
+            }
+        ]
+        prompt = _script_prompt(brief, _plan())
+
+        self.assertIn(_PLANNING_FACTUALITY_RULE, prompt)
+        self.assertEqual(prompt.count(_PLANNING_FACTUALITY_RULE), 1)
+        self.assertIn('"research_pack"', prompt)
+        self.assertIn('"claim_scope"', prompt)
+
+    def test_actual_script_router_sends_same_factuality_rule_to_all_four_providers(self) -> None:
+        prompt = _script_prompt(_brief(), _plan())
+        captured: dict[str, str] = {}
+
+        def failing_call(name):
+            def call(actual_prompt, _max_tokens):
+                captured[name] = actual_prompt
+                raise ProviderWireFailure("http_503", http_status=503)
+            return call
+
+        def mistral_call(actual_prompt, _max_tokens, stage):
+            if stage != "script":
+                raise AssertionError(stage)
+            captured["mistral"] = actual_prompt
+            return {"ok": True}
+
+        with (
+            mock.patch.object(providers_module, "_gemini_call", side_effect=failing_call("gemini")),
+            mock.patch.object(providers_module, "_groq_call", side_effect=failing_call("groq")),
+            mock.patch.object(providers_module, "_openrouter_call", side_effect=failing_call("openrouter")),
+            mock.patch.object(providers_module, "_mistral_call", side_effect=mistral_call),
+        ):
+            router = ProviderRouter(providers_module.default_adapters())
+            result = router.route(
+                stage="script",
+                prompt=prompt,
+                max_tokens=7500,
+                validator=lambda value: value,
+            )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(
+            list(captured),
+            ["gemini", "groq", "openrouter", "mistral"],
+        )
+        for provider in ("gemini", "groq", "openrouter", "mistral"):
+            self.assertEqual(captured[provider], prompt)
+            self.assertIn(_PLANNING_FACTUALITY_RULE, captured[provider])
 
 
 class ProviderAccountingTests(unittest.TestCase):
