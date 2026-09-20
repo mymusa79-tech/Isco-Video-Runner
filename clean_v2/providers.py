@@ -423,6 +423,17 @@ class ProviderRouter:
                 reason = f"invalid_output_{type(exc).__name__.lower()}"
                 failures.append(f"{adapter.name}:{reason}")
                 if adapter.name == "mistral" and stage == "visual_query_recovery":
+                    raw_content = mistral_executor.get_last_mistral_executor_raw_content()
+                    if raw_content:
+                        max_log_chars = 4096
+                        visible = raw_content[:max_log_chars]
+                        print(
+                            "Clean V2 provider validator rejected raw content: "
+                            f"stage={stage} provider=mistral "
+                            f"raw_content={json.dumps(visible, ensure_ascii=True)} "
+                            f"truncated={len(raw_content) > max_log_chars}"
+                        )
+                if adapter.name == "mistral" and stage == "visual_query_recovery":
                     print(
                         "Clean V2 Mistral validator rejected raw content: "
                         + json.dumps(
