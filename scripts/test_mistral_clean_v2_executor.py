@@ -12,7 +12,7 @@ from clean_v2 import mistral_executor
 from clean_v2 import providers
 from clean_v2 import text_audit
 from clean_v2 import visual_qa
-from clean_v2.pipeline import CleanV2Pipeline, _build_production_plan_for_audit
+from clean_v2.pipeline import CleanV2Pipeline, _build_production_plan_for_audit, _script_prompt
 
 
 _FACT_PASS = {
@@ -282,9 +282,14 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                     side_effect=mistral_call,
                 ):
                     router = providers.ProviderRouter()
+                    prompt = (
+                        _script_prompt(_brief(), _plan())
+                        if stage == "script"
+                        else "full prompt"
+                    )
                     result = router.route(
                         stage=stage,
-                        prompt="full prompt",
+                        prompt=prompt,
                         max_tokens=7500,
                         validator=lambda value: value,
                     )
