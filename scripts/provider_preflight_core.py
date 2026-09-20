@@ -36,7 +36,7 @@ GEMINI_RUNTIME_CONTENT_ALIASES = {
 REQUIRED_PROVIDERS = frozenset({"gemini", "pexels"})
 FALLBACK_PROVIDERS = frozenset({"groq", "mistral", "openrouter", "pixabay"})
 GROQ_RUNTIME_MODEL = "openai/gpt-oss-20b"
-MISTRAL_RUNTIME_MODEL = "mistral-small-2603"
+MISTRAL_RUNTIME_MODEL = "ministral-14b-2512"
 
 
 @dataclass(frozen=True)

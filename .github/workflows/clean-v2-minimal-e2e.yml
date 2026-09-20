@@ -61,7 +61,7 @@ jobs:
       GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
       OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
-      MISTRAL_CONTENT_MODEL: mistral-small-2603
+      MISTRAL_CONTENT_MODEL: ministral-14b-2512
       CLOUDFLARE_VISION_FREE_ONLY: "true"
       CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2/${{ github.run_id }}-${{ github.run_attempt }}
