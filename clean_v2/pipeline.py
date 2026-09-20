@@ -1368,13 +1368,9 @@ class CleanV2Pipeline:
                     journal.payload.get("status") == "quality_pending"
                     and journal.payload.get("quality_pending_stage") == OPENING_STAGE
                 ):
-                    # Opening-only content rejection does not invalidate the
-                    # already-audited body visuals. Preserve the visuals checkpoint
-                    # so a retry re-runs Visual QA + Opening Director without
-                    # needlessly re-downloading the primary body footage.
                     _write_resume_checkpoint(
                         output_dir,
-                        completed_stage="visuals",
+                        completed_stage="voice",
                         approved_brief_sha256=approved_brief_digest,
                         engine_sha=engine_sha,
                         runner_sha=runner_sha,
