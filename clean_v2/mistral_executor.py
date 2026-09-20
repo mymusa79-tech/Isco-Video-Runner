@@ -90,6 +90,31 @@ def get_last_mistral_executor_raw_content() -> str:
     return _LAST_RAW_CONTENT.get()
 
 
+def _safe_invalid_json_diagnostic(raw_content: str, exc: json.JSONDecodeError) -> dict[str, Any]:
+    """Describe malformed provider JSON without logging generated text."""
+    raw = str(raw_content or "")
+    stripped = raw.strip()
+    raw_bytes = raw.encode("utf-8")
+    return {
+        "error_type": type(exc).__name__,
+        "error_msg": str(exc.msg)[:200],
+        "line": int(exc.lineno),
+        "column": int(exc.colno),
+        "position": int(exc.pos),
+        "raw_content": {
+            "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            "utf8_bytes": len(raw_bytes),
+            "chars": len(raw),
+            "starts_with": stripped[:1],
+            "ends_with": stripped[-1:] if stripped else "",
+            "open_braces": raw.count("{"),
+            "close_braces": raw.count("}"),
+            "open_brackets": raw.count("["),
+            "close_brackets": raw.count("]"),
+        },
+    }
+
+
 def _rate_limit_headers(headers: Mapping[str, object]) -> dict[str, str]:
     captured: dict[str, str] = {}
     for raw_name, raw_value in headers.items():
@@ -279,7 +304,19 @@ def mistral_executor_json(
         raise MistralExecutorWireFailure("mistral_empty_output")
     try:
         value = json.loads(raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        print(
+            "Mistral executor invalid JSON diagnostic: "
+            + json.dumps(
+                {
+                    "task_kind": normalized_task,
+                    **_safe_invalid_json_diagnostic(raw, exc),
+                },
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
         raise MistralExecutorWireFailure("mistral invalid json") from None
     if not isinstance(value, dict):
         raise MistralExecutorWireFailure("mistral_non_object")
