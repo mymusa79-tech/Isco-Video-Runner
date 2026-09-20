@@ -21,6 +21,7 @@ from typing import Any, Mapping
 
 MISTRAL_EXECUTOR_PROVIDER = "mistral"
 MISTRAL_EXECUTOR_MODEL = "ministral-14b-2512"
+MISTRAL_PLANNING_SCRIPT_MODEL = "mistral-small-2603"
 MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_TIMEOUT_SECONDS = 120
 MISTRAL_EXECUTOR_TASKS = frozenset({"planning", "script", "text_audit"})
@@ -65,6 +66,13 @@ def mistral_executor_configured() -> bool:
     return bool(_read_secret("MISTRAL_API_KEY"))
 
 
+def _model_for_task(task_kind: str) -> str:
+    if task_kind in {"planning", "script"}:
+        configured = str(os.environ.get("MISTRAL_CONTENT_MODEL") or "").strip()
+        return configured or MISTRAL_PLANNING_SCRIPT_MODEL
+    return MISTRAL_EXECUTOR_MODEL
+
+
 def reset_mistral_executor_telemetry() -> None:
     _TELEMETRY.set(())
 
@@ -107,7 +115,7 @@ def _record_telemetry(
         "provider": MISTRAL_EXECUTOR_PROVIDER,
         "role": "executor",
         "task_kind": task_kind,
-        "model": MISTRAL_EXECUTOR_MODEL,
+        "model": _model_for_task(task_kind),
         "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         "prompt_utf8_bytes": len(prompt.encode("utf-8")),
         "http_status": int(http_status),
@@ -167,8 +175,9 @@ def mistral_executor_json(
     if not token:
         raise MistralExecutorNoWireFailure("missing_api_key")
 
+    model = _model_for_task(normalized_task)
     payload = {
-        "model": MISTRAL_EXECUTOR_MODEL,
+        "model": model,
         "messages": [
             {
                 "role": "user",
