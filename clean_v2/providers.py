@@ -20,6 +20,17 @@ MAX_PROMPT_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script"})
+MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "alternate_query": {
+            "type": "string",
+            "maxLength": 200,
+        }
+    },
+    "required": ["alternate_query"],
+    "additionalProperties": False,
+}
 
 
 class NoWireFailure(RuntimeError):
@@ -259,11 +270,18 @@ def _openrouter_call(prompt: str, max_tokens: int) -> dict[str, Any]:
 
 
 def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
+    response_schema = None
+    if stage == "visual_query_recovery":
+        response_schema = (
+            "visual_query_recovery",
+            MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA,
+        )
     try:
         return mistral_executor.mistral_executor_json(
             prompt,
             max_tokens=max_tokens,
             task_kind=stage,
+            response_schema=response_schema,
         )
     except mistral_executor.MistralExecutorNoWireFailure as exc:
         raise NoWireFailure(exc.reason_code) from None
@@ -402,6 +420,17 @@ class ProviderRouter:
             try:
                 normalized = validator(candidate)
             except Exception as exc:
+                if adapter.name == "mistral" and stage == "visual_query_recovery":
+                    raw_content = mistral_executor.get_last_mistral_executor_raw_content()
+                    print(
+                        "Mistral visual_query_recovery validator rejected raw content: "
+                        + json.dumps(
+                            {"raw_content": raw_content},
+                            ensure_ascii=True,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                    )
                 reason = f"invalid_output_{type(exc).__name__.lower()}"
                 failures.append(f"{adapter.name}:{reason}")
                 self._event(
