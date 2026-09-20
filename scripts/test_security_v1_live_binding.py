@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import scripts.security_v1_live_binding as security_binding
+from clean_v2.security_query_adapter import normalize_clean_v2_stock_query
 
 
 class SecurityV1LiveBindingTests(unittest.TestCase):
@@ -112,7 +113,7 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
         self.assertEqual(wrapped("key", "quiet city street"), [1])
         self.assertEqual(captured, ["quiet city street"])
 
-    def test_stock_search_normalizes_safe_overlong_query_at_word_boundary(self) -> None:
+    def test_stock_search_preserves_safe_query_between_legacy_80_and_transport_200(self) -> None:
         captured: list[str] = []
 
         def provider(_key, query, **_kwargs):
@@ -124,13 +125,54 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
             "morning sunlight calm interior background"
         )
         self.assertGreater(len(query), security_binding.VISUAL_QUERY_MAX_LENGTH)
+        self.assertLessEqual(len(query), security_binding.STOCK_SEARCH_QUERY_MAX_LENGTH)
+        wrapped = security_binding._wrap_search(provider)
+        self.assertEqual(wrapped("key", query), [1])
+        self.assertEqual(captured, [query])
+
+    def test_stock_search_over_200_shortens_only_at_word_boundary_after_full_security_validation(self) -> None:
+        captured: list[str] = []
+
+        def provider(_key, query, **_kwargs):
+            captured.append(query)
+            return [1]
+
+        query = (
+            "person sitting at a quiet wooden desk beside a bright apartment window "
+            "with open laptop notebook coffee cup calendar sticky notes headphones "
+            "morning sunlight indoor plant bookshelf neutral wall focused work setup "
+            "realistic home office scene"
+        )
+        self.assertGreater(len(query), security_binding.STOCK_SEARCH_QUERY_MAX_LENGTH)
         wrapped = security_binding._wrap_search(provider)
         self.assertEqual(wrapped("key", query), [1])
         self.assertEqual(len(captured), 1)
-        self.assertLessEqual(len(captured[0]), security_binding.VISUAL_QUERY_MAX_LENGTH)
+        self.assertLessEqual(
+            len(captured[0]),
+            security_binding.STOCK_SEARCH_QUERY_MAX_LENGTH,
+        )
         self.assertTrue(query.startswith(captured[0]))
-        self.assertNotEqual(captured[0], query)
         self.assertFalse(captured[0].endswith(" "))
+        self.assertTrue(captured[0].endswith(tuple(query.split())))
+
+    def test_run139_s3_full_recovery_query_reaches_stock_boundary_without_semantic_truncation(self) -> None:
+        raw_query = (
+            "person sitting on couch with laptop open and untouched, looking distracted "
+            "while holding a phone, surrounded by scattered notebooks and coffee cup, "
+            "midday natural light"
+        )
+        expected = (
+            "person sitting on couch with laptop open and untouched looking distracted "
+            "while holding a phone surrounded by scattered notebooks and coffee cup "
+            "midday natural light"
+        )
+        self.assertGreater(len(expected), security_binding.VISUAL_QUERY_MAX_LENGTH)
+        self.assertLessEqual(len(expected), security_binding.STOCK_SEARCH_QUERY_MAX_LENGTH)
+        normalized = normalize_clean_v2_stock_query(raw_query)
+        self.assertEqual(normalized, expected)
+        self.assertIn("holding a phone", normalized)
+        self.assertIn("scattered notebooks and coffee cup", normalized)
+        self.assertTrue(normalized.endswith("midday natural light"))
 
     def test_overlong_prompt_injection_is_not_hidden_by_normalization(self) -> None:
         calls: list[str] = []
@@ -166,14 +208,15 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
             wrapped("key", query)
         self.assertEqual(calls, [])
 
-    def test_alternate_visual_query_uses_same_safe_length_normalizer(self) -> None:
+    def test_alternate_visual_query_uses_same_200_char_stock_transport_contract(self) -> None:
         query = (
             "person walking through quiet modern office corridor near large windows during early morning "
             "natural light"
         )
         normalized = security_binding._normalized_stock_query(query, alternate=True)
-        self.assertLessEqual(len(normalized), security_binding.VISUAL_QUERY_MAX_LENGTH)
-        self.assertTrue(query.startswith(normalized))
+        self.assertGreater(len(query), security_binding.VISUAL_QUERY_MAX_LENGTH)
+        self.assertLessEqual(len(normalized), security_binding.STOCK_SEARCH_QUERY_MAX_LENGTH)
+        self.assertEqual(normalized, query)
 
     def test_vision_wrapper_blocks_before_model_when_firewall_fails(self) -> None:
         calls: list[str] = []
