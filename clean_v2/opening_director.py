@@ -9,6 +9,8 @@ from .media import probe_duration
 from .visual_qa import (
     CleanV2VisualQABlock,
     CleanV2VisualQAInfrastructure,
+    _alternate_visual_query_prompt,
+    _validate_alternate_query,
     run_final_cut_visual_qa,
 )
 
@@ -18,6 +20,7 @@ OPENING_COLD_OPEN_SECONDS = 7.0
 OPENING_ESCALATION_SECONDS = 11.0
 OPENING_PROMISE_SECONDS = 12.0
 MAX_OPENING_AUXILIARY_CANDIDATES = 3
+MAX_OPENING_VISION_REVIEWS = 4
 
 
 class CleanV2OpeningBlock(RuntimeError):
@@ -130,13 +133,16 @@ def run_opening_director(
     fmt: str,
     narration_path: Path,
     visual_source: Any,
+    router: Any | None = None,
 ) -> dict[str, Any]:
     """Restore the simplified three-shot first-30-second opening.
 
-    Film only: acquire up to three distinct safe stock candidates from section 1's
-    already-approved query, reuse the exact current Final Cut Visual QA for each,
-    and select two passing auxiliaries. The already-selected section-1 clip is the
-    third audited shot for 18-30s; after 30s the ordinary body sequence resumes.
+    Film only: keep the already-selected section-1 clip as the audited 18-30s shot,
+    then select two distinct safe auxiliaries for 0-7 and 7-18. Candidate review uses
+    the unchanged current Final Cut Visual QA threshold with one global four-review
+    ceiling. After the first blocked/exhausted primary concept, exactly one alternate
+    stock query may be generated through the existing visual_query_recovery router;
+    there is no second alternate query and no threshold downgrade.
     """
     output_dir = Path(output_dir)
     if str(fmt) != "film":
@@ -204,29 +210,84 @@ def run_opening_director(
         for row in rights
         if isinstance(row, dict)
     ]
-    before_events = len(getattr(visual_source, "events", []))
-    candidates = visual_source.acquire_replacement_candidates(
-        query,
-        output_dir / "visuals",
-        fmt,
-        destination_name="opening-auxiliary.mp4",
-        section_id=first_id,
-        max_candidates=MAX_OPENING_AUXILIARY_CANDIDATES,
-        exclude_assets=exclusions,
-    )
-    if len(candidates) < 2:
-        # Returning even one admitted candidate proves the stock search path worked;
-        # this is a bounded opening-selection failure, not provider infrastructure.
-        if candidates:
+    selected: list[tuple[Path, dict[str, Any], dict[str, Any], Path]] = []
+    reviewed: list[dict[str, Any]] = []
+    all_candidates: list[tuple[Path, dict[str, Any]]] = []
+    search_attempts: list[dict[str, Any]] = []
+    alternate_attempted = False
+    alternate_query: str | None = None
+    alternate_router_events: list[dict[str, Any]] = []
+    audit_root = output_dir / "opening-audits"
+
+    def _candidate_exclusions() -> list[tuple[str, object]]:
+        seen = list(exclusions)
+        for _path, row in all_candidates:
+            provider = str(row.get("provider") or "").strip()
+            asset_id = row.get("asset_id")
+            if provider and asset_id is not None:
+                seen.append((provider, asset_id))
+        return seen
+
+    def _acquire(search_query: str, *, attempt: str) -> list[tuple[Path, dict[str, Any]]]:
+        before_events = len(getattr(visual_source, "events", []))
+        acquired = visual_source.acquire_replacement_candidates(
+            search_query,
+            output_dir / "visuals",
+            fmt,
+            destination_name=f"opening-{attempt}-auxiliary.mp4",
+            section_id=first_id,
+            max_candidates=MAX_OPENING_AUXILIARY_CANDIDATES,
+            exclude_assets=_candidate_exclusions(),
+        )
+        recent_events = list(getattr(visual_source, "events", []))[before_events:]
+        search_attempts.append(
+            {
+                "attempt": attempt,
+                "query": search_query,
+                "candidate_count": len(acquired),
+                "wire_attempted": any(
+                    bool(item.get("wire_attempted"))
+                    for item in recent_events
+                    if isinstance(item, dict)
+                ),
+            }
+        )
+        all_candidates.extend(acquired)
+        return list(acquired)
+
+    def _generate_alternate_query() -> str:
+        nonlocal alternate_attempted, alternate_query, alternate_router_events
+        if alternate_attempted or router is None:
+            return ""
+        alternate_attempted = True
+        prompt = _alternate_visual_query_prompt(
+            original_query=query,
+            narration_context=narration,
+        )
+        event_start = len(getattr(router, "events", []))
+        try:
+            result = router.route(
+                stage="visual_query_recovery",
+                prompt=prompt,
+                max_tokens=80,
+                validator=lambda value: _validate_alternate_query(
+                    value,
+                    original_query=query,
+                ),
+            )
+            alternate_query = str(result["alternate_query"]).strip()
+        except Exception:
+            alternate_query = None
+        alternate_router_events = list(getattr(router, "events", []))[event_start:]
+        return alternate_query or ""
+
+    primary_candidates = _acquire(query, attempt="primary")
+    if len(primary_candidates) < 2 and router is None:
+        if primary_candidates:
             raise CleanV2OpeningBlock(
                 "CLEAN_V2_OPENING_BLOCK reason=insufficient_distinct_stock_candidates"
             )
-        recent_events = list(getattr(visual_source, "events", []))[before_events:]
-        wired = any(
-            bool(item.get("wire_attempted"))
-            for item in recent_events
-            if isinstance(item, dict)
-        )
+        wired = any(bool(item.get("wire_attempted")) for item in search_attempts)
         if wired:
             raise CleanV2OpeningBlock(
                 "CLEAN_V2_OPENING_BLOCK reason=insufficient_distinct_stock_candidates"
@@ -235,40 +296,88 @@ def run_opening_director(
             "CLEAN_V2_OPENING_INFRASTRUCTURE reason=opening_stock_providers_unavailable"
         )
 
-    selected: list[tuple[Path, dict[str, Any], dict[str, Any], Path]] = []
-    reviewed: list[dict[str, Any]] = []
-    audit_root = output_dir / "opening-audits"
-    for index, (candidate, row) in enumerate(candidates, start=1):
-        candidate_root = audit_root / f"candidate-{index:02d}"
+    pools: dict[str, tuple[str, list[tuple[Path, dict[str, Any]]]]] = {
+        "primary": (query, primary_candidates)
+    }
+    positions = {"primary": 0, "alternate": 0}
+    active_pool = "primary"
+
+    def _activate_alternate() -> bool:
+        nonlocal active_pool
+        if "alternate" in pools:
+            return False
+        generated = _generate_alternate_query()
+        if not generated:
+            return False
+        alternate_candidates = _acquire(generated, attempt="alternate")
+        pools["alternate"] = (generated, alternate_candidates)
+        if not alternate_candidates:
+            return False
+        active_pool = "alternate"
+        return True
+
+    def _restore_primary() -> bool:
+        nonlocal active_pool
+        if active_pool != "alternate":
+            return False
+        primary_pool = pools["primary"][1]
+        if positions["primary"] >= len(primary_pool):
+            return False
+        active_pool = "primary"
+        return True
+
+    while len(selected) < 2:
+        slots_still_needed = 2 - len(selected)
+        reviews_remaining = MAX_OPENING_VISION_REVIEWS - len(reviewed)
+        if reviews_remaining < slots_still_needed:
+            break
+
+        active_query, active_candidates = pools[active_pool]
+        position = positions[active_pool]
+        if position >= len(active_candidates):
+            if active_pool == "primary" and _activate_alternate():
+                continue
+            if active_pool == "alternate" and _restore_primary():
+                continue
+            break
+
+        candidate, row = active_candidates[position]
+        positions[active_pool] = position + 1
+        audit_index = len(reviewed) + 1
+        candidate_root = audit_root / f"candidate-{audit_index:02d}"
         try:
             verdict = _candidate_audit(
                 audit_root=candidate_root,
                 candidate=Path(candidate),
                 row=row,
                 narration=narration,
-                query=query,
+                query=active_query,
                 fmt=fmt,
             )
         except CleanV2VisualQAInfrastructure as exc:
             raise CleanV2OpeningInfrastructure(
-                f"CLEAN_V2_OPENING_INFRASTRUCTURE candidate={index} "
+                f"CLEAN_V2_OPENING_INFRASTRUCTURE candidate={audit_index} "
                 f"error_type={type(exc).__name__}"
             ) from exc
         except CleanV2VisualQABlock as exc:
             reviewed.append(
                 {
-                    "candidate_index": index,
+                    "candidate_index": audit_index,
+                    "search_attempt": active_pool,
                     "provider": row.get("provider"),
                     "asset_id": row.get("asset_id"),
                     "status": "block",
                     "reason": str(exc)[:300],
                 }
             )
+            if active_pool == "primary":
+                _activate_alternate()
             continue
 
         reviewed.append(
             {
-                "candidate_index": index,
+                "candidate_index": audit_index,
+                "search_attempt": active_pool,
                 "provider": row.get("provider"),
                 "asset_id": row.get("asset_id"),
                 "status": "pass",
@@ -277,10 +386,17 @@ def run_opening_director(
             }
         )
         selected.append((Path(candidate), dict(row), verdict, candidate_root))
-        if len(selected) == 2:
-            break
 
     if len(selected) < 2:
+        wired = any(bool(item.get("wire_attempted")) for item in search_attempts)
+        if not all_candidates and not wired:
+            raise CleanV2OpeningInfrastructure(
+                "CLEAN_V2_OPENING_INFRASTRUCTURE reason=opening_stock_providers_unavailable"
+            )
+        if not reviewed and len(all_candidates) < 2:
+            raise CleanV2OpeningBlock(
+                "CLEAN_V2_OPENING_BLOCK reason=insufficient_distinct_stock_candidates"
+            )
         raise CleanV2OpeningBlock(
             "CLEAN_V2_OPENING_BLOCK reason=two_opening_auxiliaries_not_final_cut_ready"
         )
@@ -301,7 +417,7 @@ def run_opening_director(
         auxiliary_files.append(destination.name)
 
     selected_candidates = {str(item[0]) for item in selected}
-    for candidate, _row in candidates:
+    for candidate, _row in all_candidates:
         candidate_path = Path(candidate)
         if str(candidate_path) in selected_candidates and not candidate_path.exists():
             continue
@@ -321,8 +437,13 @@ def run_opening_director(
         "status": "pass",
         "mode": "legacy_first_30_three_audited_shots",
         "opening_window_seconds": OPENING_WINDOW_SECONDS,
-        "candidate_review_limit": MAX_OPENING_AUXILIARY_CANDIDATES,
+        "candidate_review_limit": MAX_OPENING_VISION_REVIEWS,
+        "candidate_search_limit_per_query": MAX_OPENING_AUXILIARY_CANDIDATES,
         "candidate_review_count": len(reviewed),
+        "alternate_query_attempted": alternate_attempted,
+        "alternate_query": alternate_query,
+        "alternate_router_events": alternate_router_events,
+        "search_attempts": search_attempts,
         "audited_shot_count": 3,
         "primary_section_id": first_id,
         "body_continues_from_second": 18.0,
