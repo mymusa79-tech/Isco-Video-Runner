@@ -32,6 +32,7 @@ from clean_v2.pipeline import (
     CleanV2Pipeline,
     CleanV2ToneContentBlock,
     _run_text_audit_with_one_bounded_tone_repair,
+    _tone_repair_prompt,
     _PLANNING_FACTUALITY_RULE,
     _narrative_identity_prompt,
     _planning_prompt,
@@ -2872,6 +2873,45 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertEqual(repair["attempts"], 1)
             structural = json.loads((root / "structural-ai-flags.json").read_text(encoding="utf-8"))
             self.assertEqual(structural["flags"], [])
+
+    def test_run199_tone_repair_prompt_is_mistral_script_schema_compatible(self) -> None:
+        identity = {
+            "opener": self.OPENER,
+            "closer": self.CLOSER,
+            "transitions": ["أولاً", "ثم", "أخيرًا"],
+        }
+        cta_plan = {
+            "mode": "subscribe",
+            "anchor_section_id": "s3",
+            "spoken_text": self.CTA,
+            "visual_only": False,
+        }
+        prompt = _tone_repair_prompt(
+            brief=_brief(),
+            plan=self._plan_for_run199(),
+            script=self._run199_script(),
+            identity=identity,
+            cta_plan=cta_plan,
+            revision_note="- [tone] synthetic Run #199 regression flag",
+        )
+
+        with mock.patch.object(
+            providers_module.mistral_executor,
+            "mistral_executor_json",
+            return_value=self._repaired_script(),
+        ) as executor:
+            result = providers_module._mistral_call(prompt, 7500, "script")
+
+        self.assertEqual(result, self._repaired_script())
+        kwargs = executor.call_args.kwargs
+        self.assertEqual(kwargs["task_kind"], "script")
+        schema_name, schema = kwargs["response_schema"]
+        self.assertEqual(schema_name, "script")
+        section_items = schema["properties"]["sections"]["prefixItems"]
+        self.assertEqual(
+            [item["properties"]["id"]["const"] for item in section_items],
+            ["s1", "s2", "s3", "s4", "s5"],
+        )
 
     def test_run199_repair_is_strictly_one_shot_and_fails_closed_if_tone_still_blocks(self) -> None:
         audit_calls = {"n": 0}
