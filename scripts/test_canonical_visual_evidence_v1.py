@@ -10,6 +10,7 @@ from unittest import mock
 
 from scripts import canonical_visual_evidence_v1 as evidence
 from scripts import gold_cloudflare_vision_fallback as cloudflare
+from scripts import mistral_visual_qa_fallback as mistral
 from scripts import run181_vision_mesh_closure as mesh
 from scripts import vision_stage_contract_v2 as contract
 
@@ -59,7 +60,8 @@ def _decode_openai_content(content: list[dict]) -> tuple[list[bytes], str]:
     prompt = ""
     for item in content:
         if item.get("type") == "image_url":
-            uri = item["image_url"]["url"]
+            image_url = item["image_url"]
+            uri = image_url["url"] if isinstance(image_url, dict) else image_url
             frames.append(base64.b64decode(uri.split(",", 1)[1]))
         elif item.get("type") == "text":
             prompt = item["text"]
@@ -102,10 +104,11 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertTrue(all(len(value) == 64 for value in bundle.frame_sha256))
         self.assertEqual(len(bundle.prompt_hash), 64)
 
-    def test_all_four_providers_receive_same_frame_bytes_same_order_and_same_prompt(self) -> None:
+    def test_all_five_providers_receive_same_frame_bytes_same_order_and_same_prompt(self) -> None:
         class OpenAIResponse:
             ok = True
             status_code = 200
+            headers = {}
             def json(self):
                 return {
                     "model": contract.OPENROUTER_PRIMARY_MODEL,
@@ -169,6 +172,17 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
                     canonical_visual_evidence=bundle,
                 )
 
+            mistral.reset_mistral_visual_qa_telemetry()
+            with mock.patch.dict("os.environ", {"MISTRAL_API_KEY": "key"}, clear=False), mock.patch.object(
+                mistral.requests, "post", return_value=OpenAIResponse()
+            ) as mistral_post:
+                mistral._mistral_visual_call(
+                    bundle.source_path,
+                    narration_context="ignored",
+                    intended_visual="ignored",
+                    canonical_visual_evidence=bundle,
+                )
+
             client = Client()
             with mock.patch.object(
                 evidence.gemini_provider, "_client", return_value=client
@@ -187,9 +201,11 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
             or_content = openrouter_post.call_args.kwargs["json"]["messages"][0]["content"]
             groq_content = groq_post.call_args.kwargs["json"]["messages"][0]["content"]
             cf_content = cloudflare_post.call_args.kwargs["json"]["messages"][0]["content"]
+            mistral_content = mistral_post.call_args.kwargs["json"]["messages"][0]["content"]
             or_frames, or_prompt = _decode_openai_content(or_content)
             groq_frames, groq_prompt = _decode_openai_content(groq_content)
             cf_frames, cf_prompt = _decode_openai_content(cf_content)
+            mistral_frames, mistral_prompt = _decode_openai_content(mistral_content)
 
             gemini_frames = [
                 base64.b64decode(item["data"])
@@ -203,17 +219,21 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertEqual(or_frames, expected_frames)
         self.assertEqual(groq_frames, expected_frames)
         self.assertEqual(cf_frames, expected_frames)
+        self.assertEqual(mistral_frames, expected_frames)
         self.assertEqual(gemini_frames, expected_frames)
         self.assertEqual(or_frames, groq_frames)
         self.assertEqual(or_frames, cf_frames)
+        self.assertEqual(or_frames, mistral_frames)
         self.assertEqual(or_frames, gemini_frames)
         self.assertEqual(or_prompt, bundle.prompt)
         self.assertEqual(groq_prompt, bundle.prompt)
         self.assertEqual(cf_prompt, bundle.prompt)
+        self.assertEqual(mistral_prompt, bundle.prompt)
         self.assertEqual(gemini_prompt, bundle.prompt)
         self.assertEqual([item["type"] for item in or_content], ["image_url", "image_url", "image_url", "text"])
         self.assertEqual([item["type"] for item in groq_content], ["image_url", "image_url", "image_url", "text"])
         self.assertEqual([item["type"] for item in cf_content], ["image_url", "image_url", "image_url", "text"])
+        self.assertEqual([item["type"] for item in mistral_content], ["image_url", "image_url", "image_url", "text"])
         self.assertEqual([item["type"] for item in client.interactions.input], ["image", "image", "image", "text"])
 
     def test_openrouter_judge_identity_is_fixed_and_not_free_router(self) -> None:
