@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import shutil
 import subprocess
 import tempfile
+import types
 import unittest
 from pathlib import Path
+import sys
+from types import SimpleNamespace
+from unittest import mock
 
 from clean_v2.contracts import (
     ContractError,
@@ -24,6 +30,7 @@ from clean_v2.pipeline import (
     _planning_prompt,
 )
 from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
+from clean_v2 import visual_qa as visual_qa_module
 
 
 def _brief() -> dict:
@@ -1494,6 +1501,346 @@ class VisualQADiagnosticsTests(unittest.TestCase):
             '"detail"',
         ):
             self.assertIn(field, source)
+
+
+class VisualQASemanticRecoveryTests(unittest.TestCase):
+    ORIGINAL_QUERY = "person scrolling phone while looking at wall clock"
+    ALTERNATE_QUERY = "person avoiding open laptop task while scrolling phone beside clock"
+    NARRATION = (
+        "العامل الثاني هو المماطلة، التي تُعتبر فشلًا في التنظيم الذاتي. "
+        "لا تُعزى إلى الكسل أو ضعف الشخصية، بل هي نتيجة لتجنب المهام التي تبدو غير ممتعة، "
+        "أو شعورنا بأننا غير كفوّين في إتمامها، أو رغبتنا في الحصول على شعور عاطفي إيجابي "
+        "على المدى القصير. هذه العوامل تجعلنا نؤجل العمل، حتى وإن كنا نعرف أن المهمة ضرورية."
+    )
+
+    class _Router:
+        def __init__(self, alternate: str) -> None:
+            self.alternate = alternate
+            self.calls = 0
+            self.events: list[dict] = []
+
+        def route(self, *, stage, prompt, max_tokens, validator):
+            self.calls += 1
+            if stage != "visual_query_recovery":
+                raise AssertionError(stage)
+            if "المماطلة" not in prompt or "تجنب المهام" not in prompt:
+                raise AssertionError("alternate query prompt lost the actual s3 narration")
+            self.events.append(
+                {
+                    "stage": stage,
+                    "provider": "test-provider",
+                    "result": "success",
+                    "wire_attempted": True,
+                }
+            )
+            return validator({"alternate_query": self.alternate})
+
+    class _VisualSource:
+        def __init__(self) -> None:
+            self.acquire_calls = 0
+            self.commit_calls = 0
+            self.events: list[dict] = []
+
+        def acquire_replacement(
+            self,
+            query,
+            output_dir,
+            fmt,
+            *,
+            destination_name,
+            section_id,
+            exclude_provider,
+            exclude_asset_id,
+            exclude_assets,
+        ):
+            self.acquire_calls += 1
+            if query != VisualQASemanticRecoveryTests.ALTERNATE_QUERY:
+                raise AssertionError(query)
+            if section_id != "s3" or destination_name != "visual-03.mp4":
+                raise AssertionError((section_id, destination_name))
+            if exclude_provider != "pexels" or str(exclude_asset_id) != "6943542":
+                raise AssertionError((exclude_provider, exclude_asset_id))
+            if ("pexels", "6943542") not in [
+                (str(provider), str(asset_id)) for provider, asset_id in exclude_assets
+            ]:
+                raise AssertionError(exclude_assets)
+            path = Path(output_dir) / ".visual-03.semantic-recovery-pexels.mp4"
+            path.write_bytes(b"R" * 4096)
+            return path, {
+                "provider": "pexels",
+                "asset_id": "9990001",
+                "source_url": "https://www.pexels.com/video/recovery-9990001/",
+                "creator": "test",
+                "creator_url": "https://www.pexels.com/@test",
+                "query": query,
+                "local_file": destination_name,
+                "section_id": section_id,
+                "semantic_recovery": True,
+            }
+
+        def commit_replacement(self, replacement, destination):
+            self.commit_calls += 1
+            os.replace(replacement, destination)
+            return Path(destination)
+
+    @staticmethod
+    def _audit(*, relevance: float, quality: float, status: str, evidence) -> dict:
+        return {
+            "status": status,
+            "relevance": relevance,
+            "visual_quality": quality,
+            "identifiable_person": True,
+            "sensitive_trait_implication_risk": False,
+            "prominent_logo_or_brand": False,
+            "cultural_conflict": False,
+            "cultural_islamic_suitability_risk": False,
+            "advertiser_conflict": False,
+            "obvious_synthetic_or_visual_artifact": False,
+            "reason": "controlled s3 semantic recovery reproduction",
+            "vision_provider": "mistral",
+            "resolved_model": "ministral-14b-2512",
+            "prompt_hash": evidence.prompt_hash,
+            "frame_sha256": list(evidence.frame_sha256),
+        }
+
+    def _run_case(self, *, recovery_relevance: float):
+        router = self._Router(self.ALTERNATE_QUERY)
+        visual_source = self._VisualSource()
+        plan = {
+            "sections": [
+                {
+                    "id": "s3",
+                    "heading": "المماطلة كفشل تنظيم ذاتي",
+                    "purpose": (
+                        "يُظهر أن المماطلة ناتجة عن تجنب المهام، ضعف الثقة في المهارة، "
+                        "والبحث عن الراحة العاطفية"
+                    ),
+                    "visual_query_en": self.ORIGINAL_QUERY,
+                }
+            ]
+        }
+        script = {"sections": [{"id": "s3", "narration": self.NARRATION}]}
+        rights = [
+            {
+                "provider": "pexels",
+                "asset_id": "6943542",
+                "source_url": (
+                    "https://www.pexels.com/video/"
+                    "man-in-bed-looking-at-phone-and-alarm-clock-6943542/"
+                ),
+                "creator": "cottonbro studio",
+                "creator_url": "https://www.pexels.com/@cottonbro",
+                "query": self.ORIGINAL_QUERY,
+                "local_file": "visual-03.mp4",
+                "section_id": "s3",
+            }
+        ]
+
+        evidence_counter = {"n": 0}
+        audit_counter = {"n": 0}
+
+        def build_evidence(_clip, _bundle, **_kwargs):
+            evidence_counter["n"] += 1
+            n = evidence_counter["n"]
+            return SimpleNamespace(
+                prompt_hash=f"prompt-{n}",
+                frame_sha256=(f"frame-{n}-1", f"frame-{n}-2", f"frame-{n}-3"),
+            )
+
+        def ledger_call(_ledger, _spec, *_args, **kwargs):
+            audit_counter["n"] += 1
+            evidence = kwargs["canonical_evidence"]
+            if audit_counter["n"] == 1:
+                return self._audit(
+                    relevance=0.40,
+                    quality=0.95,
+                    status="block",
+                    evidence=evidence,
+                )
+            return self._audit(
+                relevance=recovery_relevance,
+                quality=0.95,
+                status="pass",
+                evidence=evidence,
+            )
+
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root)
+            visuals = output / "visuals"
+            visuals.mkdir()
+            original = visuals / "visual-03.mp4"
+            original.write_bytes(b"O" * 4096)
+            (output / "rights-manifest.json").write_text(
+                json.dumps({"schema_version": 1, "assets": rights}),
+                encoding="utf-8",
+            )
+
+            class FakeBudgetLedger:
+                def __init__(self, _fmt, *, enforce=True):
+                    self.enforce = enforce
+
+                def write(self, path):
+                    Path(path).write_text(
+                        json.dumps({"schema_version": 1, "provider_attempts": {}}),
+                        encoding="utf-8",
+                    )
+
+                def to_summary(self):
+                    return {"provider_attempts": {}}
+
+            class FakeTaskSpec:
+                def __init__(self, **kwargs):
+                    self.__dict__.update(kwargs)
+
+            class FakeVisionStageError(RuntimeError):
+                def __init__(self, message="vision error"):
+                    super().__init__(message)
+                    self.code = SimpleNamespace(value="PROVIDER_TRANSIENT")
+                    self.provider = "fake"
+                    self.requested_model = "fake"
+                    self.resolved_model = "fake"
+                    self.http_status = 429
+                    self.http_message = "fake"
+                    self.detail = "fake"
+
+            engine = types.ModuleType("isco_video_agent")
+            engine.__path__ = []
+            ai_budget = types.ModuleType("isco_video_agent.ai_budget")
+            ai_budget.BudgetLedger = FakeBudgetLedger
+            ai_budget.Capability = SimpleNamespace(VISION="vision")
+            ai_budget.Priority = SimpleNamespace(P0="P0")
+            ai_budget.TaskSpec = FakeTaskSpec
+            orchestrator = types.ModuleType("isco_video_agent.orchestrator")
+            orchestrator._ledger_call_status = ledger_call
+            visual_selection = types.ModuleType("isco_video_agent.visual_selection")
+            visual_selection.FINAL_CUT_TARGET_SEMANTIC_FLOOR = 0.85
+            visual_selection.semantic_floor = lambda audit: min(
+                float(audit.get("relevance", 0.0) or 0.0),
+                float(audit.get("visual_quality", 0.0) or 0.0),
+            )
+            visual_selection.is_final_cut_ready = lambda audit: (
+                str(audit.get("status") or "").lower() == "pass"
+                and visual_selection.semantic_floor(audit) >= 0.85
+            )
+
+            canonical = types.ModuleType("scripts.canonical_visual_evidence_v1")
+            canonical.build_canonical_visual_evidence = build_evidence
+            canonical.audit_gemini_canonical_evidence = lambda *_a, **_k: None
+            mesh = types.ModuleType("scripts.run181_vision_mesh_closure")
+            mesh.install_run181_vision_mesh_closure = lambda: None
+            reliability = types.ModuleType("scripts.vision_provider_reliability")
+            reliability.vision_provider_circuit_scope = lambda: contextlib.nullcontext()
+            reliability.VisionProviderMeshUnavailableError = type(
+                "VisionProviderMeshUnavailableError", (RuntimeError,), {}
+            )
+            mistral_visual = types.ModuleType("scripts.mistral_visual_qa_fallback")
+            mistral_visual.reset_mistral_visual_qa_telemetry = lambda: None
+            mistral_visual.get_mistral_visual_qa_telemetry = lambda: []
+            contract = types.ModuleType("scripts.vision_stage_contract_v2")
+            contract.VisionStageError = FakeVisionStageError
+            contract.install_vision_provider_reliability = lambda: None
+
+            fake_modules = {
+                "isco_video_agent": engine,
+                "isco_video_agent.ai_budget": ai_budget,
+                "isco_video_agent.orchestrator": orchestrator,
+                "isco_video_agent.visual_selection": visual_selection,
+                "scripts.canonical_visual_evidence_v1": canonical,
+                "scripts.run181_vision_mesh_closure": mesh,
+                "scripts.vision_provider_reliability": reliability,
+                "scripts.mistral_visual_qa_fallback": mistral_visual,
+                "scripts.vision_stage_contract_v2": contract,
+            }
+            with mock.patch.dict(sys.modules, fake_modules), mock.patch.dict(
+                os.environ,
+                {"GEMINI_API_KEY": "test-key", "GEMINI_CONTENT_MODEL": "gemini-3.7-flash"},
+                clear=False,
+            ):
+                if recovery_relevance >= 0.85:
+                    result = visual_qa_module.run_final_cut_visual_qa(
+                        output_dir=output,
+                        plan=plan,
+                        script=script,
+                        rights=rights,
+                        fmt="film",
+                        router=router,
+                        visual_source=visual_source,
+                    )
+                    error = None
+                else:
+                    result = None
+                    with self.assertRaisesRegex(
+                        visual_qa_module.CleanV2VisualQABlock,
+                        "semantic_recovery_not_final_cut_ready",
+                    ) as raised:
+                        visual_qa_module.run_final_cut_visual_qa(
+                            output_dir=output,
+                            plan=plan,
+                            script=script,
+                            rights=rights,
+                            fmt="film",
+                            router=router,
+                            visual_source=visual_source,
+                        )
+                    error = str(raised.exception)
+
+            audits = json.loads((output / "visual-audit.json").read_text(encoding="utf-8"))
+            recovery = json.loads(
+                (output / "visual-query-recovery.json").read_text(encoding="utf-8")
+            )
+            manifest = json.loads(
+                (output / "rights-manifest.json").read_text(encoding="utf-8")
+            )
+            final_bytes = original.read_bytes()
+            return {
+                "result": result,
+                "error": error,
+                "audits": audits,
+                "recovery": recovery,
+                "manifest": manifest,
+                "rights": rights,
+                "final_bytes": final_bytes,
+                "router_calls": router.calls,
+                "acquire_calls": visual_source.acquire_calls,
+                "commit_calls": visual_source.commit_calls,
+                "audit_calls": audit_counter["n"],
+            }
+
+    def test_attempt1_s3_floor_040_gets_one_narration_bound_recovery_and_passes(self) -> None:
+        outcome = self._run_case(recovery_relevance=0.92)
+
+        self.assertEqual(outcome["router_calls"], 1)
+        self.assertEqual(outcome["acquire_calls"], 1)
+        self.assertEqual(outcome["commit_calls"], 1)
+        self.assertEqual(outcome["audit_calls"], 2)
+        self.assertEqual(outcome["result"]["status"], "pass")
+        self.assertEqual(outcome["result"]["final_cut_readiness_target"], 0.85)
+        self.assertEqual(outcome["result"]["semantic_recovery_count"], 1)
+        self.assertTrue(outcome["result"]["final_media_mutated"])
+        self.assertEqual(outcome["audits"][0]["final_cut_semantic_floor"], 0.4)
+        self.assertFalse(outcome["audits"][0]["is_selected"])
+        self.assertEqual(outcome["audits"][1]["final_cut_semantic_floor"], 0.92)
+        self.assertTrue(outcome["audits"][1]["is_selected"])
+        self.assertEqual(outcome["recovery"][0]["attempt_limit"], 1)
+        self.assertEqual(outcome["recovery"][0]["status"], "recovered")
+        self.assertEqual(outcome["rights"][0]["asset_id"], "9990001")
+        self.assertEqual(outcome["rights"][0]["recovery_of_asset_id"], "6943542")
+        self.assertEqual(outcome["manifest"]["assets"][0]["query"], self.ALTERNATE_QUERY)
+        self.assertEqual(outcome["final_bytes"], b"R" * 4096)
+
+    def test_recovery_is_strictly_one_shot_when_second_clip_still_below_085(self) -> None:
+        outcome = self._run_case(recovery_relevance=0.70)
+
+        self.assertEqual(outcome["router_calls"], 1)
+        self.assertEqual(outcome["acquire_calls"], 1)
+        self.assertEqual(outcome["commit_calls"], 0)
+        self.assertEqual(outcome["audit_calls"], 2)
+        self.assertIn("primary_floor=0.400000", outcome["error"])
+        self.assertIn("recovery_floor=0.700000", outcome["error"])
+        self.assertEqual(outcome["recovery"][0]["status"], "rejected")
+        self.assertEqual(outcome["rights"][0]["asset_id"], "6943542")
+        self.assertEqual(outcome["final_bytes"], b"O" * 4096)
+
 
 
 if __name__ == "__main__":

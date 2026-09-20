@@ -86,6 +86,8 @@ def _run_final_cut_visual_qa(
     script: dict[str, Any],
     rights: list[dict[str, Any]],
     fmt: str,
+    router: Any,
+    visual_source: Any,
 ) -> dict[str, Any]:
     from clean_v2.visual_qa import run_final_cut_visual_qa
 
@@ -95,6 +97,8 @@ def _run_final_cut_visual_qa(
         script=script,
         rights=rights,
         fmt=fmt,
+        router=router,
+        visual_source=visual_source,
     )
 
 
@@ -1132,6 +1136,8 @@ class CleanV2Pipeline:
                         script=script,
                         rights=rights,
                         fmt=str(brief["format"]),
+                        router=self.router,
+                        visual_source=self.visual_source,
                     ),
                 )
             except Exception:
