@@ -191,11 +191,13 @@ def run_opening_director(
             "CLEAN_V2_OPENING_BLOCK reason=opening_primary_visual_not_final_cut_ready"
         )
 
-    # The third shot starts at 18s and the ordinary body path then continues.
-    # Require that the first ordinary body slot can cover the full 18-30 promise window.
-    body_count = max(1, len(rights))
-    if (duration - 18.0) / body_count < OPENING_PROMISE_SECONDS:
-        return _not_applicable(output_dir, "body_slot_too_short_for_18_30_promise")
+    # The third audited shot owns exactly 18-30. After 30s the renderer
+    # returns to the ordinary body sequence starting from the next body visual,
+    # avoiding an immediate replay of the section-1 primary.
+    if len(rights) < 2:
+        raise CleanV2OpeningBlock(
+            "CLEAN_V2_OPENING_BLOCK reason=opening_requires_body_visual_after_30s"
+        )
 
     exclusions = [
         (str(row.get("provider") or ""), row.get("asset_id"))
@@ -214,10 +216,17 @@ def run_opening_director(
     )
     if len(candidates) < 2:
         recent_events = list(getattr(visual_source, "events", []))[before_events:]
-        wired = any(bool(item.get("wire_attempted")) for item in recent_events if isinstance(item, dict))
-        reason = "insufficient_stock_candidates_after_search" if wired else "opening_stock_providers_unavailable"
+        wired = any(
+            bool(item.get("wire_attempted"))
+            for item in recent_events
+            if isinstance(item, dict)
+        )
+        if wired:
+            raise CleanV2OpeningBlock(
+                "CLEAN_V2_OPENING_BLOCK reason=insufficient_distinct_stock_candidates"
+            )
         raise CleanV2OpeningInfrastructure(
-            f"CLEAN_V2_OPENING_INFRASTRUCTURE reason={reason}"
+            "CLEAN_V2_OPENING_INFRASTRUCTURE reason=opening_stock_providers_unavailable"
         )
 
     selected: list[tuple[Path, dict[str, Any], dict[str, Any], Path]] = []
