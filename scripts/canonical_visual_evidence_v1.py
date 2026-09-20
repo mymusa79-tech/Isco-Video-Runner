@@ -77,6 +77,8 @@ Intended visual concept:
 
 Pass only if ALL are true:
 - The footage is semantically relevant enough to feel deliberately selected by a human editor.
+- Only evaluate against the specific meaning stated in narration_context or intended_visual. Do not introduce or require concepts not explicitly present in the section's actual content, even if similar concepts appear as examples in these instructions.
+- Examples in these instructions (including decision fatigue, repeated choices, causes, actions, or before/after contexts) illustrate possible kinds of specificity only. They are NEVER requirements unless that exact concept is present in narration_context or intended_visual.
 - Judge the DISTINCTIVE SEMANTIC JOB of this beat/section, not only its broad mood or topic. A generic image of someone looking tired, sad, thoughtful, busy, or sitting at a desk is NOT automatically relevant to a more specific idea such as decision fatigue, repeated choices, a particular cause, a concrete action, or a defined before/after context.
 - When the narration/intended visual names a specific cause, action, object, relationship, time frame, or situation, the footage must represent that specificity directly OR through a clear deliberate metaphor whose mapping is easy for a viewer to understand. A loose emotional resemblance or keyword-level theme match is insufficient.
 - If the footage matches only the broad mood/theme but misses the distinctive beat meaning, assign relevance BELOW 0.65 so the existing deterministic relevance gate rejects it. Do not raise relevance merely because the clip is attractive.
