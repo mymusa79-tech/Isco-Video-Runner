@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import scripts.security_v1_live_binding as security_binding
+from clean_v2.security_query_adapter import normalize_clean_v2_stock_query
 
 
 class SecurityV1LiveBindingTests(unittest.TestCase):
@@ -112,7 +113,7 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
         self.assertEqual(wrapped("key", "quiet city street"), [1])
         self.assertEqual(captured, ["quiet city street"])
 
-    def test_stock_search_normalizes_safe_overlong_query_at_word_boundary(self) -> None:
+    def test_stock_search_preserves_safe_query_between_legacy_80_and_aligned_200(self) -> None:
         captured: list[str] = []
 
         def provider(_key, query, **_kwargs):
@@ -124,12 +125,29 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
             "morning sunlight calm interior background"
         )
         self.assertGreater(len(query), security_binding.VISUAL_QUERY_MAX_LENGTH)
+        self.assertLessEqual(len(query), security_binding.STOCK_QUERY_MAX_LENGTH)
+        wrapped = security_binding._wrap_search(provider)
+        self.assertEqual(wrapped("key", query), [1])
+        self.assertEqual(captured, [query])
+
+    def test_stock_search_over_200_shortens_only_at_word_boundary_after_full_validation(self) -> None:
+        captured: list[str] = []
+
+        def provider(_key, query, **_kwargs):
+            captured.append(query)
+            return [1]
+
+        query = (
+            "person working at a wooden desk beside a large apartment window with an open laptop "
+            "several notebooks a coffee cup and a phone while afternoon sunlight fills the room "
+            "and papers remain visible on the table nearby"
+        )
+        self.assertGreater(len(query), security_binding.STOCK_QUERY_MAX_LENGTH)
         wrapped = security_binding._wrap_search(provider)
         self.assertEqual(wrapped("key", query), [1])
         self.assertEqual(len(captured), 1)
-        self.assertLessEqual(len(captured[0]), security_binding.VISUAL_QUERY_MAX_LENGTH)
+        self.assertLessEqual(len(captured[0]), security_binding.STOCK_QUERY_MAX_LENGTH)
         self.assertTrue(query.startswith(captured[0]))
-        self.assertNotEqual(captured[0], query)
         self.assertFalse(captured[0].endswith(" "))
 
     def test_overlong_prompt_injection_is_not_hidden_by_normalization(self) -> None:
@@ -166,14 +184,36 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
             wrapped("key", query)
         self.assertEqual(calls, [])
 
-    def test_alternate_visual_query_uses_same_safe_length_normalizer(self) -> None:
+    def test_run139_s3_full_168_char_alternate_query_reaches_stock_boundary_without_semantic_cut(self) -> None:
+        # Exact Run #139 s3 Mistral recovery output. Clean V2 intentionally removes
+        # commas before Security V1 because stock search accepts plain search terms.
+        # Every semantic word must survive; the old 80-char path cut this after "while".
+        raw = (
+            "person sitting on couch with laptop open and untouched, looking distracted while "
+            "holding a phone, surrounded by scattered notebooks and coffee cup, midday natural light"
+        )
+        self.assertEqual(len(raw), 168)
+        normalized = normalize_clean_v2_stock_query(raw)
+        expected = (
+            "person sitting on couch with laptop open and untouched looking distracted while "
+            "holding a phone surrounded by scattered notebooks and coffee cup midday natural light"
+        )
+        self.assertEqual(normalized, expected)
+        self.assertEqual(len(normalized), 165)
+        self.assertGreater(len(normalized), security_binding.VISUAL_QUERY_MAX_LENGTH)
+        self.assertLessEqual(len(normalized), security_binding.STOCK_QUERY_MAX_LENGTH)
+        self.assertTrue(normalized.endswith("midday natural light"))
+        self.assertIn("holding a phone", normalized)
+        self.assertIn("scattered notebooks and coffee cup", normalized)
+
+    def test_alternate_visual_query_uses_same_aligned_200_char_ceiling(self) -> None:
         query = (
             "person walking through quiet modern office corridor near large windows during early morning "
             "natural light"
         )
         normalized = security_binding._normalized_stock_query(query, alternate=True)
-        self.assertLessEqual(len(normalized), security_binding.VISUAL_QUERY_MAX_LENGTH)
-        self.assertTrue(query.startswith(normalized))
+        self.assertEqual(normalized, query)
+        self.assertLessEqual(len(normalized), security_binding.STOCK_QUERY_MAX_LENGTH)
 
     def test_vision_wrapper_blocks_before_model_when_firewall_fails(self) -> None:
         calls: list[str] = []
