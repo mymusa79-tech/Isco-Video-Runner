@@ -11,6 +11,7 @@ from unittest import mock
 from clean_v2 import mistral_executor
 from clean_v2 import providers
 from clean_v2 import text_audit
+from clean_v2 import visual_qa
 from clean_v2.pipeline import CleanV2Pipeline, _build_production_plan_for_audit
 
 
@@ -149,7 +150,7 @@ class MistralExecutorTransportTests(unittest.TestCase):
             "937500",
         )
 
-    def test_visual_query_recovery_uses_verified_content_model(self) -> None:
+    def test_visual_query_recovery_uses_verified_content_model_and_strict_schema(self) -> None:
         with mock.patch.dict(
             os.environ,
             {
@@ -163,9 +164,10 @@ class MistralExecutorTransportTests(unittest.TestCase):
             return_value=_Response({"alternate_query": "focused alternate query"}),
         ) as urlopen:
             result = mistral_executor.mistral_executor_json(
-                "generate one alternate visual query",
+                "generate one alternate visual query for section s5",
                 max_tokens=300,
                 task_kind="visual_query_recovery",
+                response_schema=providers.MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA,
             )
 
         self.assertEqual(result, {"alternate_query": "focused alternate query"})
@@ -173,6 +175,12 @@ class MistralExecutorTransportTests(unittest.TestCase):
         payload = json.loads(request.data.decode("utf-8"))
         self.assertEqual(payload["model"], "ministral-14b-2512")
         self.assertEqual(payload["max_tokens"], 300)
+        self.assertEqual(payload["response_format"]["type"], "json_schema")
+        self.assertTrue(payload["response_format"]["json_schema"]["strict"])
+        self.assertEqual(
+            payload["response_format"]["json_schema"]["schema"],
+            providers.MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA[1],
+        )
         telemetry = mistral_executor.get_mistral_executor_telemetry()
         self.assertEqual(telemetry[-1]["task_kind"], "visual_query_recovery")
         self.assertEqual(telemetry[-1]["model"], "ministral-14b-2512")
@@ -296,8 +304,10 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                 )
                 self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
 
-    def test_visual_query_recovery_reaches_mistral_fourth_after_run135_failures(self) -> None:
+    def test_s5_visual_query_recovery_passes_strict_schema_to_mistral_fourth(self) -> None:
         order: list[str] = []
+        original_query = "person looking at wall clock beside unfinished task"
+        alternate_query = "person closing distracting phone and returning to desk task"
 
         def fail(reason: str, name: str):
             def _failure(_prompt: str, _tokens: int):
@@ -305,11 +315,16 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                 raise providers.ProviderWireFailure(reason)
             return _failure
 
-        def mistral_call(_prompt, *, max_tokens, task_kind, **_kwargs):
+        def mistral_call(_prompt, *, max_tokens, task_kind, response_schema=None, **_kwargs):
             order.append("mistral")
+            self.assertIn("s5", _prompt)
             self.assertEqual(task_kind, "visual_query_recovery")
             self.assertEqual(max_tokens, 300)
-            return {"alternate_query": "focused alternate query"}
+            self.assertEqual(
+                response_schema,
+                providers.MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA,
+            )
+            return {"alternate_query": alternate_query}
 
         with mock.patch.object(
             providers, "_gemini_call", side_effect=fail("http_503", "gemini")
@@ -323,12 +338,15 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             router = providers.ProviderRouter()
             result = router.route(
                 stage="visual_query_recovery",
-                prompt="recovery prompt",
+                prompt="section=s5 recovery prompt",
                 max_tokens=300,
-                validator=lambda value: value,
+                validator=lambda value: visual_qa._validate_alternate_query(
+                    value,
+                    original_query=original_query,
+                ),
             )
 
-        self.assertEqual(result, {"alternate_query": "focused alternate query"})
+        self.assertEqual(result, {"alternate_query": alternate_query})
         self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
         self.assertEqual(
             [item["provider"] for item in router.events],
@@ -340,6 +358,47 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         )
         self.assertEqual(router.events[-1]["result"], "success")
         self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
+
+    def test_s5_mistral_validator_failure_logs_raw_content(self) -> None:
+        invalid = {"alternate_query": "same query"}
+        raw = json.dumps(invalid)
+
+        def mistral_call(_prompt, *, max_tokens, task_kind, response_schema=None, **_kwargs):
+            del _prompt, max_tokens, task_kind, response_schema
+            return invalid
+
+        with mock.patch.object(
+            mistral_executor, "mistral_executor_json", side_effect=mistral_call
+        ), mock.patch.object(
+            mistral_executor,
+            "get_last_mistral_executor_raw_content",
+            return_value=raw,
+        ), mock.patch("builtins.print") as emit:
+            router = providers.ProviderRouter(
+                (
+                    providers.ProviderAdapter(
+                        "mistral",
+                        providers._mistral_call,
+                        stages=frozenset({"visual_query_recovery"}),
+                        accepts_stage=True,
+                    ),
+                )
+            )
+            with self.assertRaises(RuntimeError):
+                router.route(
+                    stage="visual_query_recovery",
+                    prompt="section=s5 recovery prompt",
+                    max_tokens=300,
+                    validator=lambda value: visual_qa._validate_alternate_query(
+                        value,
+                        original_query="same query",
+                    ),
+                )
+
+        emitted = "\n".join(str(call.args[0]) for call in emit.call_args_list)
+        self.assertIn("validator rejected raw content", emitted)
+        self.assertIn("alternate_query", emitted)
+        self.assertIn("same query", emitted)
 
     def test_http_429_captures_numeric_retry_after_header(self) -> None:
         error = providers.urllib.error.HTTPError(
