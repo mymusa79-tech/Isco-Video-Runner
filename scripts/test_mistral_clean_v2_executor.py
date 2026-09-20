@@ -145,6 +145,34 @@ class MistralExecutorTransportTests(unittest.TestCase):
             "937500",
         )
 
+    def test_narrative_identity_uses_content_model_boundary(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MISTRAL_API_KEY": "test-key",
+                "MISTRAL_CONTENT_MODEL": "mistral-small-2603",
+            },
+            clear=False,
+        ), mock.patch.object(
+            mistral_executor.urllib.request,
+            "urlopen",
+            return_value=_Response({"ok": True}),
+        ) as urlopen:
+            result = mistral_executor.mistral_executor_json(
+                "identity production prompt",
+                max_tokens=900,
+                task_kind="narrative_identity",
+            )
+
+        self.assertEqual(result, {"ok": True})
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["model"], "mistral-small-2603")
+        self.assertEqual(payload["max_tokens"], 900)
+        telemetry = mistral_executor.get_mistral_executor_telemetry()
+        self.assertEqual(telemetry[-1]["task_kind"], "narrative_identity")
+        self.assertEqual(telemetry[-1]["model"], "mistral-small-2603")
+
     def test_text_audit_keeps_existing_ministral_model_boundary(self) -> None:
         with mock.patch.dict(
             os.environ,
@@ -329,8 +357,15 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                 self.assertEqual(calls, ["gemini", "groq"])
                 sleep.assert_not_called()
 
-    def test_mistral_executor_is_not_available_to_narrative_identity(self) -> None:
+    def test_narrative_identity_reaches_mistral_fourth_without_retry_sleep(self) -> None:
         order: list[str] = []
+
+        def mistral_call(_prompt, *, max_tokens, task_kind, **_kwargs):
+            order.append("mistral")
+            self.assertEqual(task_kind, "narrative_identity")
+            self.assertEqual(max_tokens, 1000)
+            return {"ok": True}
+
         with mock.patch.object(
             providers, "_gemini_call", side_effect=self._technical("gemini", order)
         ), mock.patch.object(
@@ -342,18 +377,24 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         ), mock.patch.object(
             mistral_executor,
             "mistral_executor_json",
-        ) as mistral_call:
+            side_effect=mistral_call,
+        ), mock.patch.object(providers.time, "sleep") as sleep:
             router = providers.ProviderRouter()
-            with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
-                router.route(
-                    stage="narrative_identity",
-                    prompt="identity prompt",
-                    max_tokens=1000,
-                    validator=lambda value: value,
-                )
+            result = router.route(
+                stage="narrative_identity",
+                prompt="identity prompt",
+                max_tokens=1000,
+                validator=lambda value: value,
+            )
 
-        self.assertEqual(order, ["gemini", "groq", "openrouter"])
-        mistral_call.assert_not_called()
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
+        self.assertEqual(
+            [item["provider"] for item in router.events],
+            ["gemini", "groq", "openrouter", "mistral"],
+        )
+        self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
+        sleep.assert_not_called()
 
 
 class CleanV2TextAuditRoutingTests(unittest.TestCase):
