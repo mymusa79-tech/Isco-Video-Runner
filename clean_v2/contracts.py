@@ -110,8 +110,16 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     if not title or not promise or not isinstance(raw_sections, list):
         raise ContractError("plan requires title, promise, and sections")
     fmt = str(brief.get("format") or "")
-    if fmt != "moment" and not cta:
-        raise ContractError("plan requires one non-empty contextual cta for non-moment formats")
+    if fmt != "moment":
+        if not cta:
+            raise ContractError("plan requires one non-empty contextual cta for non-moment formats")
+        from .contextual_cta import CtaMode, infer_cta_mode
+
+        cta_mode, cta_reason = infer_cta_mode(cta)
+        if cta_mode == CtaMode.NONE:
+            raise ContractError(
+                f"plan contextual cta must contain exactly one supported action: {cta_reason}"
+            )
     if fmt == "film":
         if len(raw_sections) != 5:
             raise ContractError("plan section count must be exactly 5 for film")
