@@ -22,10 +22,12 @@ from .contracts import (
     validate_script,
 )
 from .media import inspect_final, render_video
+from .structural_ai import structural_ai_flags
 
 
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 VISUAL_QA_STAGE = "final_cut_visual_qa"
+STRUCTURAL_AI_STAGE = "structural_ai_flags"
 TEXT_AUDIT_STAGE = "text_audit"
 AUDIO_MASTERING_STAGE = "audio_mastering"
 IDENTITY_STAGE = "narrative_identity"
@@ -51,6 +53,7 @@ STAGES = (
     "planning",
     IDENTITY_STAGE,
     "script",
+    STRUCTURAL_AI_STAGE,
     TEXT_AUDIT_STAGE,
     "voice",
     AUDIO_MASTERING_STAGE,
@@ -142,6 +145,30 @@ def _build_production_plan_for_audit(
         cta="",
         closing_payoff=str(plan.get("promise") or ""),
     )
+
+
+def _run_structural_ai_flags(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    script: Mapping[str, Any],
+) -> dict[str, Any]:
+    transcript = "\n\n".join(
+        str(item.get("narration") or "")
+        for item in (script.get("sections") or [])
+        if isinstance(item, Mapping)
+    )
+    short_form = str(brief.get("format") or "") == "moment"
+    flags = structural_ai_flags(transcript, short_form=short_form)
+    report = {
+        "schema_version": 1,
+        "source": "legacy-editorial-room-structural-ai-flags",
+        "mode": "advisory",
+        "short_form": short_form,
+        "flags": list(flags),
+    }
+    atomic_write_json(output_dir / "structural-ai-flags.json", report)
+    return report
 
 
 def _run_legacy_factuality_audit(
@@ -969,6 +996,15 @@ class CleanV2Pipeline:
                 engine_sha=engine_sha,
                 runner_sha=runner_sha,
                 max_visuals=max_visuals,
+            )
+
+            journal.run(
+                STRUCTURAL_AI_STAGE,
+                lambda: _run_structural_ai_flags(
+                    output_dir=output_dir,
+                    brief=brief,
+                    script=script,
+                ),
             )
 
             # Text Audit is not part of the resumable checkpoint set: it is a cheap
