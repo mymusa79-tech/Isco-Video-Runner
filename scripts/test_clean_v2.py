@@ -30,6 +30,8 @@ from clean_v2.pipeline import (
     VISUAL_QA_STAGE,
     STAGES,
     CleanV2Pipeline,
+    CleanV2ToneContentBlock,
+    _run_text_audit_with_one_bounded_tone_repair,
     _PLANNING_FACTUALITY_RULE,
     _narrative_identity_prompt,
     _planning_prompt,
@@ -2666,6 +2668,262 @@ class VisualRecoveryCheckpointTests(unittest.TestCase):
                 (output / relative).read_bytes()
             ).hexdigest()
             self.assertEqual(checkpoint["artifacts"][relative], current_hash)
+
+
+class OneBoundedToneRepairRun199Tests(unittest.TestCase):
+    RUN199_TONE_BLOCK = {
+        "status": "block",
+        "validation": "valid",
+        "preachiness_flags": [
+            "s3: The narration shifts into a prescriptive tone with 'اشترك في القناة إذا كنت تريد أدوات واقعية لإدارة الوقت دون ضغوط' embedded mid-section, which feels like a push for subscription rather than reflective analysis.",
+            "s5: The closing CTA is repeated verbatim from s3, and the phrasing 'خذ ما ينفعك من الفكرة' comes across as directive rather than reflective.",
+        ],
+        "naturalness_flags": [
+            "s1: The phrase 'بسم الله' appears abruptly at the start of a secular productivity topic without contextual framing, making the tone feel inconsistent and potentially jarring to viewers expecting a neutral tone.",
+            "s2: The term 'التخطيط fallacy' mixes Arabic and English unnecessarily, disrupting the natural flow of Modern Standard Arabic.",
+            "s3: The phrase 'البحث عن الراحة اللحظية' is a direct transliteration of a Western psychological term without sufficient Arabic contextualization, making it feel foreign and less natural.",
+            "s5: The phrase 'حفظكم الله' at the end of a secular productivity video is culturally appropriate but feels disconnected from the rest of the narrative tone, creating a tonal mismatch.",
+        ],
+        "narrative_format_flags": [
+            "viewer_retention_continuity: s1 hook establishes a relatable daily scenario but s2 immediately pivots into abstract academic language ('الخطأ التخطيطي', 'الدراسات تُظهر') without building on the personal example introduced, creating a disconnect between the emotional hook and the analytical body.",
+            "viewer_retention_continuity: s3 introduces procrastination as a new concept without clearly linking it back to the planning fallacy discussed in s2, making the progression feel segmented rather than cumulative.",
+            "viewer_retention_continuity: s4 presents 'الخطط إذا-فإن' as a solution but does not explicitly connect it to the two prior problems (planning fallacy and procrastination), weakening the causal chain.",
+            "editorial_promise_continuity: The hook and title promise an exploration of 'why time management plans fail,' but s5 shifts into a direct call-to-action ('اشترك في القناة') and a generic encouragement to try one step, which feels more like a standard YouTube outro than an earned payoff to the central question.",
+            "editorial_promise_continuity: The closing_payoff states 'نعرض طريقة واحدة مدعومة بالبحث لتحويل النية إلى فعل,' but the video only briefly mentions 'الأبحاث تُظهر' without citing specific studies or providing concrete evidence, making the payoff feel under-supported relative to the promise.",
+        ],
+        "unverified_religious_quote_flags": [],
+    }
+
+    OPENER = (
+        "بسم الله، وسط ضجيج الحياة اليومية، نحتاج أحياناً إلى نداء يوقظ القلب والعقل. "
+        "هذا هو نداء اليقظة."
+    )
+    CLOSER = (
+        "وفي ختام هذا الفيديو، خذ ما ينفعك من الفكرة، وحوّل الوعي إلى خطوة عملية. "
+        "حفظكم الله، وإلى نداءٍ جديد."
+    )
+    CTA = "اشترك في القناة إذا كنت تريد أدوات واقعية لإدارة الوقت دون ضغوط."
+    HOOK = "في صباح يوم عادي، تضع خطة واضحة ليومك ثم تكتشف أن الوقت سبقها."
+
+    @classmethod
+    def _run199_script(cls) -> dict:
+        return {
+            "title": "لماذا تفشل خططك حتى عندما تكون مصممة بعناية؟",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        cls.HOOK + " " + cls.OPENER
+                        + " نبدأ من هذه الفجوة اليومية بين ما نتوقعه وما يحدث فعلًا."
+                    ),
+                },
+                {
+                    "id": "s2",
+                    "narration": (
+                        "التخطيط fallacy يجعل تقدير الزمن أكثر تفاؤلًا من الواقع، "
+                        "فتبدو المهمة أقصر وأسهل مما ستكون عليه أثناء التنفيذ."
+                    ),
+                },
+                {
+                    "id": "s3",
+                    "narration": (
+                        "ثم يظهر التأجيل عندما تصبح المهمة ثقيلة، فنبحث عن الراحة اللحظية. "
+                        + cls.CTA
+                    ),
+                },
+                {
+                    "id": "s4",
+                    "narration": (
+                        "الخطط إذا-فإن تربط الفعل بإشارة محددة في اليوم وتقلل مساحة القرار المتردد."
+                    ),
+                },
+                {
+                    "id": "s5",
+                    "narration": (
+                        "اختر خطوة صغيرة وراقب أثرها بهدوء قبل أن تبني عليها الخطوة التالية. "
+                        + cls.CLOSER
+                    ),
+                },
+            ],
+        }
+
+    @classmethod
+    def _repaired_script(cls) -> dict:
+        repaired = cls._run199_script()
+        repaired["sections"][1]["narration"] = (
+            "ينشأ أول خلل حين نقدّر زمن المهمة بتفاؤل زائد، فتبدو أقصر مما تكشفه "
+            "المقاطعات والتفاصيل عند التنفيذ، وهذا يفسر الفجوة التي رأيناها في البداية."
+        )
+        repaired["sections"][2]["narration"] = (
+            "ومع تراكم هذه الفجوة يصبح التأجيل أكثر احتمالًا، خصوصًا عندما تكون المهمة "
+            "مزعجة فنبحث عن راحة سريعة بدل الاستمرار. " + cls.CTA
+        )
+        repaired["sections"][3]["narration"] = (
+            "لهذا تأتي خطط إذا-فإن كحل مباشر للمشكلتين: فهي تضيف هامشًا واقعيًا "
+            "وتربط البداية بإشارة محددة تقلل مساحة التأجيل."
+        )
+        repaired["sections"][4]["narration"] = (
+            "جرّب شرطًا واحدًا اليوم، ثم راقب هل جعل البداية أوضح من خطتك السابقة. "
+            + cls.CLOSER
+        )
+        return repaired
+
+    @classmethod
+    def _write_locked_runtime_files(cls, root: Path) -> None:
+        (root / "narrative-identity.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "opener": cls.OPENER,
+                    "closer": cls.CLOSER,
+                    "transitions": ["أولاً", "ثم", "أخيرًا"],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (root / "cta-plan.json").write_text(
+            json.dumps(
+                {
+                    "contract_version": "contextual-cta-v1",
+                    "mode": "subscribe",
+                    "anchor_section_id": "s3",
+                    "spoken_text": cls.CTA,
+                    "visual_only": False,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    class _Router:
+        def __init__(self, candidate: dict) -> None:
+            self.candidate = candidate
+            self.calls = 0
+            self.prompts: list[str] = []
+
+        def route(self, *, stage, prompt, max_tokens, validator):
+            self.calls += 1
+            self.prompts.append(prompt)
+            if stage != "script":
+                raise AssertionError(stage)
+            if max_tokens != 7500:
+                raise AssertionError(max_tokens)
+            return validator(self.candidate)
+
+    def _plan_for_run199(self) -> dict:
+        plan = _plan()
+        plan["title"] = "لماذا تفشل خططك حتى عندما تكون مصممة بعناية؟"
+        plan["cta"] = self.CTA
+        return plan
+
+    def test_run199_tone_block_gets_exactly_one_repair_then_full_reaudit_passes(self) -> None:
+        audit_calls = {"n": 0}
+        router = self._Router(self._repaired_script())
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            if audit_calls["n"] == 1:
+                raise CleanV2ToneContentBlock(self.RUN199_TONE_BLOCK)
+            return {
+                "schema_version": 1,
+                "status": "pass",
+                "factuality_status": "pass",
+                "tone_naturalness_status": "pass",
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_locked_runtime_files(root)
+            script = self._run199_script()
+            result = _run_text_audit_with_one_bounded_tone_repair(
+                text_audit=text_audit,
+                router=router,
+                output_dir=root,
+                brief=_brief(),
+                plan=self._plan_for_run199(),
+                script=script,
+            )
+
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
+            self.assertTrue(result["tone_repair_attempted"])
+            self.assertEqual(result["tone_repair_attempts"], 1)
+            self.assertEqual(result["tone_repair_status"], "repaired")
+            self.assertEqual(result["post_repair_structural_ai_status"], "pass")
+            self.assertEqual(script, validate_script(self._repaired_script(), self._plan_for_run199()))
+
+            prompt = router.prompts[0]
+            expected_flags = (
+                self.RUN199_TONE_BLOCK["preachiness_flags"]
+                + self.RUN199_TONE_BLOCK["naturalness_flags"]
+                + self.RUN199_TONE_BLOCK["narrative_format_flags"]
+            )
+            for flag in expected_flags:
+                self.assertIn("- [tone] " + flag, prompt)
+            self.assertNotIn("[tone] cultural", prompt)
+            self.assertIn("REVISION_NOTE:", prompt)
+            self.assertIn("Preserve the runtime narrative-identity opener and closer exactly once each.", prompt)
+            self.assertIn("Preserve the authored CTA spoken_text exactly once and in the same anchor section.", prompt)
+            self.assertIn("Preserve all approved factual claims and their research boundaries.", prompt)
+
+            repair = json.loads((root / "tone-repair.json").read_text(encoding="utf-8"))
+            self.assertEqual(repair["status"], "repaired")
+            self.assertEqual(repair["attempts"], 1)
+            structural = json.loads((root / "structural-ai-flags.json").read_text(encoding="utf-8"))
+            self.assertEqual(structural["flags"], [])
+
+    def test_run199_repair_is_strictly_one_shot_and_fails_closed_if_tone_still_blocks(self) -> None:
+        audit_calls = {"n": 0}
+        router = self._Router(self._repaired_script())
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            raise CleanV2ToneContentBlock(self.RUN199_TONE_BLOCK)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_locked_runtime_files(root)
+            script = self._run199_script()
+            with self.assertRaisesRegex(
+                CleanV2ToneContentBlock,
+                "Independent tone/naturalness gate blocked real production",
+            ):
+                _run_text_audit_with_one_bounded_tone_repair(
+                    text_audit=text_audit,
+                    router=router,
+                    output_dir=root,
+                    brief=_brief(),
+                    plan=self._plan_for_run199(),
+                    script=script,
+                )
+
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
+            repair = json.loads((root / "tone-repair.json").read_text(encoding="utf-8"))
+            self.assertEqual(repair["status"], "failed_closed")
+            self.assertEqual(repair["attempts"], 1)
+
+    def test_factuality_block_never_enters_tone_repair(self) -> None:
+        router = self._Router(self._repaired_script())
+
+        def factuality_block(**_kwargs):
+            raise RuntimeError("Independent factuality/AI-expert gate blocked real production")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_locked_runtime_files(root)
+            with self.assertRaisesRegex(RuntimeError, "factuality/AI-expert"):
+                _run_text_audit_with_one_bounded_tone_repair(
+                    text_audit=factuality_block,
+                    router=router,
+                    output_dir=root,
+                    brief=_brief(),
+                    plan=self._plan_for_run199(),
+                    script=self._run199_script(),
+                )
+            self.assertEqual(router.calls, 0)
+            self.assertFalse((root / "tone-repair.json").exists())
 
 
 if __name__ == "__main__":
