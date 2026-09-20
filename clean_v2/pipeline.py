@@ -124,6 +124,7 @@ def _run_opening_director(
     fmt: str,
     narration_path: Path,
     visual_source: Any,
+    router: Any,
 ) -> dict[str, Any]:
     from clean_v2.opening_director import run_opening_director
 
@@ -135,6 +136,7 @@ def _run_opening_director(
         fmt=fmt,
         narration_path=narration_path,
         visual_source=visual_source,
+        router=router,
     )
 
 
@@ -1398,6 +1400,7 @@ class CleanV2Pipeline:
                         fmt=str(brief["format"]),
                         narration_path=narration_path,
                         visual_source=self.visual_source,
+                        router=self.router,
                     ),
                 )
             except Exception:
