@@ -25,6 +25,7 @@ from clean_v2.pipeline import (
     AUDIO_MASTERING_STAGE,
     CINEMATIC_STAGE,
     IDENTITY_STAGE,
+    OPENING_STAGE,
     TEXT_AUDIT_STAGE,
     VISUAL_QA_STAGE,
     STAGES,
@@ -1051,9 +1052,10 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual([item["name"] for item in manifest["stages"]], list(STAGES))
             self.assertEqual(
                 manifest["quality_layers_executed"],
-                [TEXT_AUDIT_STAGE, CINEMATIC_STAGE, VISUAL_QA_STAGE, "final_master_qc"],
+                [TEXT_AUDIT_STAGE, CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, "final_master_qc"],
             )
             self.assertEqual(manifest["text_audit_status"], "pass")
+            self.assertEqual(manifest["opening_director_status"], "not_applicable")
             self.assertEqual(manifest["cinematic_v2_status"], "pass")
             self.assertEqual(manifest["final_master_qc_status"], "pass")
             final = json.loads((output / "final.json").read_text(encoding="utf-8"))
@@ -1364,7 +1366,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["failure_classification"], "pre-layer")
             self.assertEqual(
                 manifest["quality_layers_executed"],
-                [TEXT_AUDIT_STAGE, CINEMATIC_STAGE, VISUAL_QA_STAGE, "final_master_qc"],
+                [TEXT_AUDIT_STAGE, CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, "final_master_qc"],
             )
             self.assertTrue(all(
                 item["status"] == "pass" for item in manifest["stages"][:-1]
@@ -1447,7 +1449,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest["failure_classification"], "pre-layer")
             self.assertEqual(
                 manifest["quality_layers_executed"],
-                [TEXT_AUDIT_STAGE, CINEMATIC_STAGE, VISUAL_QA_STAGE],
+                [TEXT_AUDIT_STAGE, CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE],
             )
             self.assertFalse((output / "final.json").exists())
             self.assertFalse((output / "final-master-qc.json").exists())
