@@ -222,7 +222,7 @@ def _first_spoken_sentence(script: Mapping[str, Any]) -> str:
     narration = str(first.get("narration") or "").strip()
     if not narration:
         return ""
-    match = re.search(r"^.*?[.!؟!](?:\\s|$)", narration)
+    match = re.search(r"^.*?[.!؟!](?:\s|$)", narration)
     return (match.group(0) if match else narration).strip()[:600]
 
 
