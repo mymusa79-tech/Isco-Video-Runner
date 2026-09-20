@@ -15,12 +15,14 @@ provider+model+quota-domain, so Gemini generation quota evidence can be reused b
 Vision but cannot poison unrelated Gemini TTS.
 
 Provider order for one Visual Audit logical task becomes:
-    Gemini -> Groq qwen/qwen3.8-27b -> OpenRouter -> Cloudflare Workers AI.
+    Gemini -> Groq qwen/qwen3.8-27b -> OpenRouter -> Cloudflare Workers AI
+    -> Mistral ministral-14b-2512.
 The Vision-only total inference-attempt ceiling is five so the existing OpenRouter
-model-diverse schema recovery remains reachable after Gemini and Groq wire failures,
-while one final bounded slot remains for the independent Cloudflare provider. The exact
-Visual Audit schema, Engine normalizer/thresholds, semantic BLOCK finality, Security
-preflight, candidate caps, and fail-closed behavior remain authoritative.
+model-diverse schema recovery remains reachable for legacy evidence. Canonical Visual
+QA uses one bounded attempt per provider, so Mistral fits in the existing five-attempt
+ceiling without changing it. The exact Visual Audit schema, Engine
+normalizer/thresholds, semantic BLOCK finality, Security preflight, candidate caps, and
+fail-closed behavior remain authoritative.
 """
 
 import base64
@@ -42,6 +44,7 @@ from scripts import task_level_planner_router as planner_router
 from scripts import text_audit_provider_mesh as text_mesh
 from scripts import vision_stage_contract_v2 as contract
 from scripts import canonical_visual_evidence_v1 as canonical_evidence
+from scripts import mistral_visual_qa_fallback as mistral_vision
 
 
 GROQ_VISION_MODEL = "qwen/qwen3.8-27b"
@@ -54,6 +57,9 @@ GROQ_VISION_QUOTA_DOMAIN = "vision"
 CLOUDFLARE_VISION_MODEL = cloudflare_vision.CLOUDFLARE_VISION_MODEL
 CLOUDFLARE_VISION_PROVIDER = cloudflare_vision.CLOUDFLARE_VISION_PROVIDER
 CLOUDFLARE_VISION_QUOTA_DOMAIN = "vision"
+MISTRAL_VISION_MODEL = mistral_vision.MISTRAL_VISION_MODEL
+MISTRAL_VISION_PROVIDER = mistral_vision.MISTRAL_VISION_PROVIDER
+MISTRAL_VISION_QUOTA_DOMAIN = mistral_vision.MISTRAL_VISION_QUOTA_DOMAIN
 
 _INSTALLED = False
 _GROQ_MODEL_CERTIFIED: ContextVar[bool | None] = ContextVar(
@@ -447,6 +453,25 @@ def _run_cloudflare_attempt(
     )
 
 
+def _run_mistral_attempt(
+    ledger,
+    spec,
+    *,
+    preview: Path,
+    narration_context: str,
+    intended_visual: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
+) -> dict[str, Any]:
+    return mistral_vision.run_mistral_visual_qa_attempt(
+        ledger,
+        spec,
+        preview=preview,
+        narration_context=narration_context,
+        intended_visual=intended_visual,
+        canonical_visual_evidence=canonical_visual_evidence,
+    )
+
+
 def _mesh_unavailable(state) -> contract.legacy.VisionProviderMeshUnavailableError:
     groq = health.provider_unavailable(
         "groq",
@@ -457,6 +482,11 @@ def _mesh_unavailable(state) -> contract.legacy.VisionProviderMeshUnavailableErr
         CLOUDFLARE_VISION_PROVIDER,
         model=CLOUDFLARE_VISION_MODEL,
         quota_domain=CLOUDFLARE_VISION_QUOTA_DOMAIN,
+    )
+    mistral = health.provider_unavailable(
+        MISTRAL_VISION_PROVIDER,
+        model=MISTRAL_VISION_MODEL,
+        quota_domain=MISTRAL_VISION_QUOTA_DOMAIN,
     )
     reasons = [
         f"gemini={state.gemini_reason or 'unavailable'}",
@@ -474,10 +504,100 @@ def _mesh_unavailable(state) -> contract.legacy.VisionProviderMeshUnavailableErr
                 )
             )
         ),
+        (
+            "mistral="
+            + (
+                mistral.reason
+                if mistral
+                else (
+                    "not_configured"
+                    if not mistral_vision.mistral_visual_configured()
+                    else "unavailable"
+                )
+            )
+        ),
     ]
     return contract.legacy.VisionProviderMeshUnavailableError(
         "Vision provider mesh unavailable: " + " | ".join(reasons)
     )
+
+
+def _mistral_or_mesh(
+    ledger,
+    spec,
+    state,
+    *,
+    attempts: int,
+    max_attempts: int,
+    preview: Path,
+    narration_context: str,
+    intended_visual: str,
+    input_hash: str,
+    canonical_visual_evidence: canonical_evidence.CanonicalVisualEvidence | None = None,
+) -> dict[str, Any]:
+    if attempts >= max_attempts:
+        raise _mesh_unavailable(state)
+    # Mistral is intentionally limited to the canonical three-frame Visual QA path.
+    # Legacy/Gold tasks without Canonical Visual Evidence keep their prior behavior.
+    if canonical_visual_evidence is None:
+        raise _mesh_unavailable(state)
+    if not mistral_vision.mistral_visual_configured():
+        raise _mesh_unavailable(state)
+    mistral_evidence = health.provider_unavailable(
+        MISTRAL_VISION_PROVIDER,
+        model=MISTRAL_VISION_MODEL,
+        quota_domain=MISTRAL_VISION_QUOTA_DOMAIN,
+    )
+    if mistral_evidence is not None:
+        _record_circuit_open(
+            ledger,
+            spec,
+            provider=MISTRAL_VISION_PROVIDER,
+            requested_model=MISTRAL_VISION_MODEL,
+            detail=(
+                "shared Mistral Vision health unavailable "
+                f"source={mistral_evidence.source}"
+            ),
+        )
+        raise _mesh_unavailable(state)
+    try:
+        result = _run_mistral_attempt(
+            ledger,
+            spec,
+            preview=preview,
+            narration_context=narration_context,
+            intended_visual=intended_visual,
+            canonical_visual_evidence=canonical_visual_evidence,
+        )
+    except contract.VisionStageError as exc:
+        # A malformed successful response is a fail-closed contract failure. There is
+        # no sixth provider and no schema repair or provider shopping after Mistral.
+        if exc.code in {
+            contract.VisionErrorCode.STRUCTURAL_INVALID,
+            contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR,
+            contract.VisionErrorCode.AUTH_CONFIG,
+        }:
+            raise
+        health.publish_provider_unavailable(
+            MISTRAL_VISION_PROVIDER,
+            model=MISTRAL_VISION_MODEL,
+            quota_domain=MISTRAL_VISION_QUOTA_DOMAIN,
+            reason=contract.legacy._safe_exception_detail(exc),
+            source="vision_stage",
+            retry_after_seconds=mistral_vision.latest_retry_after_seconds(),
+        )
+        raise _mesh_unavailable(state) from exc
+    print(
+        "Vision Stage Contract V3: Mistral route selected "
+        f"model={MISTRAL_VISION_MODEL} input={input_hash[:12]}"
+    )
+    result = canonical_evidence.attach_provenance(
+        result,
+        provider=MISTRAL_VISION_PROVIDER,
+        resolved_model=MISTRAL_VISION_MODEL,
+        evidence=canonical_visual_evidence,
+    )
+    return result
 
 
 def _cloudflare_or_mesh(
@@ -497,7 +617,18 @@ def _cloudflare_or_mesh(
         raise _mesh_unavailable(state)
     if not cloudflare_vision.shared_vision_configured():
         cloudflare_vision.record_shared_configuration_unavailable(Path(preview))
-        raise _mesh_unavailable(state)
+        return _mistral_or_mesh(
+            ledger,
+            spec,
+            state,
+            attempts=attempts,
+            max_attempts=max_attempts,
+            preview=preview,
+            narration_context=narration_context,
+            intended_visual=intended_visual,
+            input_hash=input_hash,
+            canonical_visual_evidence=canonical_visual_evidence,
+        )
     try:
         result = _run_cloudflare_attempt(
             ledger,
@@ -515,9 +646,23 @@ def _cloudflare_or_mesh(
             reason=contract.legacy._safe_exception_detail(exc),
             source="vision_stage",
         )
-        raise _mesh_unavailable(state) from exc
+        return _mistral_or_mesh(
+            ledger,
+            spec,
+            state,
+            attempts=attempts,
+            max_attempts=max_attempts,
+            preview=preview,
+            narration_context=narration_context,
+            intended_visual=intended_visual,
+            input_hash=input_hash,
+            canonical_visual_evidence=canonical_visual_evidence,
+        )
     except contract.VisionStageError as exc:
-        if exc.code is contract.VisionErrorCode.INTERNAL_CONTRACT_ERROR:
+        if exc.code not in {
+            contract.VisionErrorCode.PROVIDER_TRANSIENT,
+            contract.VisionErrorCode.CAPACITY,
+        }:
             raise
         health.publish_provider_unavailable(
             CLOUDFLARE_VISION_PROVIDER,
@@ -526,7 +671,18 @@ def _cloudflare_or_mesh(
             reason=contract.legacy._safe_exception_detail(exc),
             source="vision_stage",
         )
-        raise _mesh_unavailable(state) from exc
+        return _mistral_or_mesh(
+            ledger,
+            spec,
+            state,
+            attempts=attempts + 1,
+            max_attempts=max_attempts,
+            preview=preview,
+            narration_context=narration_context,
+            intended_visual=intended_visual,
+            input_hash=input_hash,
+            canonical_visual_evidence=canonical_visual_evidence,
+        )
     print(
         "Vision Stage Contract V3: Cloudflare Workers AI route selected "
         f"model={CLOUDFLARE_VISION_MODEL} input={input_hash[:12]}"
@@ -912,7 +1068,13 @@ def _install_fingerprint_binding() -> None:
             "base": current(),
             "closure_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "groq_vision_model": GROQ_VISION_MODEL,
-            "provider_order": ["gemini", "groq", "openrouter", "cloudflare_workers_ai"],
+            "provider_order": [
+                "gemini",
+                "groq",
+                "openrouter",
+                "cloudflare_workers_ai",
+                "mistral",
+            ],
             "health_scope": "provider+model+quota_domain",
         }
         encoded = json.dumps(
@@ -941,7 +1103,7 @@ def install_run181_vision_mesh_closure() -> None:
 
     _INSTALLED = True
     print(
-        "Run181 Vision mesh closure installed: provider_order=Gemini->Groq(qwen/qwen3.8-27b)->OpenRouter->Cloudflare; "
+        "Run181 Vision mesh closure installed: provider_order=Gemini->Groq(qwen/qwen3.8-27b)->OpenRouter->Cloudflare->Mistral(ministral-14b-2512); "
         "health_source=preflight+existing_planning/text_audit_telemetry; total_inference_attempt_cap=5; "
         "visual schema/normalizer/semantic BLOCK/Security gates unchanged"
     )
