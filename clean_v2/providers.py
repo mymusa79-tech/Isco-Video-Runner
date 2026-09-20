@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import socket
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -11,9 +13,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from . import mistral_executor
+
 
 MAX_PROMPT_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
+MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
+SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script"})
 
 
 class NoWireFailure(RuntimeError):
@@ -29,8 +35,16 @@ class NoWireFailure(RuntimeError):
 class ProviderWireFailure(RuntimeError):
     wire_attempted = True
 
-    def __init__(self, reason_code: str) -> None:
+    def __init__(
+        self,
+        reason_code: str,
+        *,
+        http_status: int | None = None,
+        retry_after_seconds: float | None = None,
+    ) -> None:
         self.reason_code = str(reason_code or "provider_failure")
+        self.http_status = http_status
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(self.reason_code)
 
 
@@ -52,6 +66,22 @@ def _read_secret(name: str) -> str:
         return path.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+
+
+def _retry_after_seconds(headers: object) -> float | None:
+    if headers is None:
+        return None
+    try:
+        raw_value = headers.get("Retry-After")  # type: ignore[attr-defined]
+    except (AttributeError, TypeError):
+        return None
+    try:
+        seconds = float(str(raw_value).strip())
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return seconds
 
 
 def _post_json(
@@ -76,7 +106,14 @@ def _post_json(
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
-        raise ProviderWireFailure(f"http_{int(exc.code)}") from None
+        http_status = int(exc.code)
+        raise ProviderWireFailure(
+            f"http_{http_status}",
+            http_status=http_status,
+            retry_after_seconds=(
+                _retry_after_seconds(exc.headers) if http_status == 429 else None
+            ),
+        ) from None
     except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
         raise ProviderWireFailure(f"transport_{type(exc).__name__.lower()}") from None
     if len(raw) > MAX_RESPONSE_BYTES:
@@ -221,10 +258,30 @@ def _openrouter_call(prompt: str, max_tokens: int) -> dict[str, Any]:
     return _parse_json_object(str(message.get("content") or ""), "openrouter")
 
 
+def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
+    try:
+        return mistral_executor.mistral_executor_json(
+            prompt,
+            max_tokens=max_tokens,
+            task_kind=stage,
+        )
+    except mistral_executor.MistralExecutorNoWireFailure as exc:
+        raise NoWireFailure(exc.reason_code) from None
+    except mistral_executor.MistralExecutorWireFailure as exc:
+        raise ProviderWireFailure(exc.reason_code) from None
+
+
 @dataclass(frozen=True)
 class ProviderAdapter:
     name: str
-    call: Callable[[str, int], dict[str, Any]]
+    call: Callable[..., dict[str, Any]]
+    stages: frozenset[str] | None = None
+    accepts_stage: bool = False
+
+    def invoke(self, prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
+        if self.accepts_stage:
+            return self.call(prompt, max_tokens, stage)
+        return self.call(prompt, max_tokens)
 
 
 def default_adapters() -> tuple[ProviderAdapter, ...]:
@@ -232,6 +289,12 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
         ProviderAdapter("gemini", _gemini_call),
         ProviderAdapter("groq", _groq_call),
         ProviderAdapter("openrouter", _openrouter_call),
+        ProviderAdapter(
+            "mistral",
+            _mistral_call,
+            stages=frozenset({"planning", "script"}),
+            accepts_stage=True,
+        ),
     )
 
 
@@ -291,9 +354,14 @@ class ProviderRouter:
 
         wire_count = 0
         failures: list[str] = []
-        for adapter in self.adapters:
+        eligible_adapters = tuple(
+            adapter
+            for adapter in self.adapters
+            if adapter.stages is None or stage in adapter.stages
+        )
+        for adapter_index, adapter in enumerate(eligible_adapters):
             try:
-                candidate = adapter.call(prompt, max_tokens)
+                candidate = adapter.invoke(prompt, max_tokens, stage)
             except NoWireFailure as exc:
                 failures.append(f"{adapter.name}:{exc.reason_code}")
                 self._event(
@@ -319,6 +387,15 @@ class ProviderRouter:
                     provider_attempt=1,
                     stage_wire_attempt=wire_count,
                 )
+                retry_after = getattr(exc, "retry_after_seconds", None)
+                if (
+                    stage in SHORT_RETRY_AFTER_STAGES
+                    and getattr(exc, "http_status", None) == 429
+                    and adapter_index + 1 < len(eligible_adapters)
+                    and isinstance(retry_after, (int, float))
+                    and 0 < float(retry_after) <= MAX_SHORT_RETRY_AFTER_SECONDS
+                ):
+                    time.sleep(float(retry_after))
                 continue
 
             wire_count += 1
