@@ -328,6 +328,7 @@ class MistralPlanningSchemaTests(unittest.TestCase):
         kwargs = called.call_args.kwargs
         self.assertEqual(kwargs["task_kind"], "planning")
         self.assertEqual(kwargs["max_tokens"], 4000)
+        self.assertEqual(kwargs["temperature"], 0.0)
         name, schema = kwargs["response_schema"]
         self.assertEqual(name, "planning")
         self.assertEqual(schema["properties"]["sections"]["minItems"], 5)
