@@ -29,7 +29,7 @@ class Run144RecoveryQueryShapeTests(unittest.TestCase):
             original_query=ORIGINAL,
             narration_context="خطط إدارة الوقت تنهار عندما لا تناسب الواقع اليومي.",
         )
-        self.assertIn("4 to 10 English words only", prompt)
+        self.assertIn("4 to 14 English words only", prompt)
         self.assertIn("ONE observable action or ONE simple setting", prompt)
         self.assertIn("Do not use comparisons", prompt)
 
