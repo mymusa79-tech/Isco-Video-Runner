@@ -35,6 +35,43 @@ class _FakeOpeningVisualSource:
         return destination
 
 
+class _QueryOpeningVisualSource(_FakeOpeningVisualSource):
+    def __init__(self, pools: dict[str, list[tuple[Path, dict]]]) -> None:
+        super().__init__([])
+        self.pools = pools
+        self.events = []
+        self.queries: list[str] = []
+
+    def acquire_replacement_candidates(self, query, *_args, **_kwargs):
+        self.queries.append(str(query))
+        self.events.append(
+            {
+                "wire_attempted": True,
+                "result": "recovery_pool_ready",
+                "query": str(query),
+            }
+        )
+        return list(self.pools.get(str(query), []))
+
+
+class _FakeRecoveryRouter:
+    def __init__(self, alternate_query: str) -> None:
+        self.alternate_query = alternate_query
+        self.events: list[dict] = []
+        self.calls = 0
+
+    def route(self, *, stage, prompt, max_tokens, validator):
+        self.calls += 1
+        self.events.append(
+            {
+                "stage": stage,
+                "max_tokens": max_tokens,
+                "prompt_has_opening_context": "Actual section narration" in prompt,
+            }
+        )
+        return validator({"alternate_query": self.alternate_query})
+
+
 def _plan() -> dict:
     return {
         "sections": [
@@ -159,6 +196,119 @@ class CleanV2OpeningDirectorTests(unittest.TestCase):
             self.assertEqual(report["slots"][2]["local_file"], "primary.mp4")
             self.assertEqual(report["slots"][2]["start"], 18.0)
             self.assertEqual(report["slots"][2]["end"], 30.0)
+
+    def test_blocked_primary_search_uses_one_bounded_alternate_query(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rights = _prepare_primary(root)
+            primary = root / "visuals" / ".primary-candidate.mp4"
+            alt1 = root / "visuals" / ".alternate-candidate-1.mp4"
+            alt2 = root / "visuals" / ".alternate-candidate-2.mp4"
+            for index, path in enumerate((primary, alt1, alt2), start=1):
+                path.write_bytes(bytes([index]) * 2048)
+
+            original_query = _plan()["sections"][0]["visual_query_en"]
+            alternate_query = "person writing priorities in notebook"
+            source = _QueryOpeningVisualSource(
+                {
+                    original_query: [
+                        (primary, {"provider": "pexels", "asset_id": "primary-weak"})
+                    ],
+                    alternate_query: [
+                        (alt1, {"provider": "pixabay", "asset_id": "alt-1"}),
+                        (alt2, {"provider": "pexels", "asset_id": "alt-2"}),
+                    ],
+                }
+            )
+            router = _FakeRecoveryRouter(alternate_query)
+            passed = {
+                "report": {"status": "pass"},
+                "audit": {"final_cut_readiness": "ready", "fit_score_10": 9.0},
+            }
+            with patch("clean_v2.opening_director.probe_duration", return_value=120.0), patch(
+                "clean_v2.opening_director._candidate_audit",
+                side_effect=[CleanV2VisualQABlock("not ready"), passed, passed],
+            ):
+                report = run_opening_director(
+                    output_dir=root,
+                    plan=_plan(),
+                    script=_script(),
+                    rights=rights,
+                    fmt="film",
+                    narration_path=root / "voice.wav",
+                    visual_source=source,
+                    router=router,
+                )
+
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["candidate_review_limit"], 4)
+            self.assertEqual(report["candidate_review_count"], 3)
+            self.assertTrue(report["alternate_query_attempted"])
+            self.assertEqual(report["alternate_query"], alternate_query)
+            self.assertEqual(source.queries, [original_query, alternate_query])
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(
+                [item["search_attempt"] for item in report["candidate_reviews"]],
+                ["primary", "alternate", "alternate"],
+            )
+
+    def test_alternate_recovery_stays_fail_closed_after_four_reviews(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rights = _prepare_primary(root)
+            paths = [
+                root / "visuals" / f".bounded-candidate-{index}.mp4"
+                for index in range(1, 5)
+            ]
+            for index, path in enumerate(paths, start=1):
+                path.write_bytes(bytes([index]) * 2048)
+
+            original_query = _plan()["sections"][0]["visual_query_en"]
+            alternate_query = "person writing priorities in notebook"
+            source = _QueryOpeningVisualSource(
+                {
+                    original_query: [
+                        (paths[0], {"provider": "pexels", "asset_id": "p1"})
+                    ],
+                    alternate_query: [
+                        (paths[1], {"provider": "pixabay", "asset_id": "a1"}),
+                        (paths[2], {"provider": "pexels", "asset_id": "a2"}),
+                        (paths[3], {"provider": "pixabay", "asset_id": "a3"}),
+                    ],
+                }
+            )
+            router = _FakeRecoveryRouter(alternate_query)
+            passed = {
+                "report": {"status": "pass"},
+                "audit": {"final_cut_readiness": "ready", "fit_score_10": 9.0},
+            }
+            with patch("clean_v2.opening_director.probe_duration", return_value=120.0), patch(
+                "clean_v2.opening_director._candidate_audit",
+                side_effect=[
+                    CleanV2VisualQABlock("not ready 1"),
+                    CleanV2VisualQABlock("not ready 2"),
+                    passed,
+                    CleanV2VisualQABlock("not ready 4"),
+                ],
+            ) as audit:
+                with self.assertRaisesRegex(
+                    CleanV2OpeningBlock,
+                    "two_opening_auxiliaries_not_final_cut_ready",
+                ):
+                    run_opening_director(
+                        output_dir=root,
+                        plan=_plan(),
+                        script=_script(),
+                        rights=rights,
+                        fmt="film",
+                        narration_path=root / "voice.wav",
+                        visual_source=source,
+                        router=router,
+                    )
+
+            self.assertEqual(audit.call_count, 4)
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(source.queries, [original_query, alternate_query])
 
     def test_successful_stock_search_with_too_few_candidates_is_quality_block(self):
         with tempfile.TemporaryDirectory() as tmp:
