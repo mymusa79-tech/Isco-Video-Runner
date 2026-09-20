@@ -1038,20 +1038,70 @@ def render_video(
     duration = probe_duration(narration_path)
     portrait = fmt in {"moment", "story"}
     width, height = ((1080, 1920) if portrait else (1920, 1080))
-    paths = visual_paths[:5]
-    slot = (duration / len(paths)) + 0.12
+
+    opening_report: dict[str, Any] = {}
+    opening_path = Path(output_path).parent / "opening-director.json"
+    if opening_path.is_file():
+        try:
+            parsed = json.loads(opening_path.read_text(encoding="utf-8"))
+            opening_report = parsed if isinstance(parsed, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            opening_report = {}
+
+    opening_enabled = (
+        opening_report.get("status") == "pass"
+        and opening_report.get("mode") == "legacy_first_30_three_audited_shots"
+        and len(visual_paths) >= 3
+    )
+    if opening_enabled:
+        slots = opening_report.get("slots") or []
+        if not isinstance(slots, list) or len(slots) != 3:
+            raise RuntimeError("opening director render requires exactly three audited slots")
+        expected_seconds = [7.0, 11.0, 12.0]
+        actual_seconds = [
+            float(item.get("seconds") or 0.0) if isinstance(item, dict) else 0.0
+            for item in slots
+        ]
+        if actual_seconds != expected_seconds:
+            raise RuntimeError("opening director render timing contract drift")
+        slot_names = [
+            str(item.get("local_file") or "")
+            for item in slots
+            if isinstance(item, dict)
+        ]
+        input_names = [Path(item).name for item in visual_paths[:3]]
+        if len(slot_names) != 3 or input_names != slot_names:
+            raise RuntimeError("opening director render inputs do not match audited shots")
+
+        opening_paths = [Path(item) for item in visual_paths[:3]]
+        remaining = max(0.0, duration - 30.0)
+        body_paths = [Path(item) for item in visual_paths[3:7]]
+        if remaining > 0.25 and not body_paths:
+            raise RuntimeError("opening director render requires a body visual after 30 seconds")
+        if remaining > 0.25:
+            body_slot = (remaining / len(body_paths)) + 0.12
+            paths = [*opening_paths, *body_paths]
+            durations = [7.0, 11.0, 12.0, *([body_slot] * len(body_paths))]
+        else:
+            paths = opening_paths
+            durations = [7.0, 11.0, 12.0]
+    else:
+        paths = [Path(item) for item in visual_paths[:5]]
+        slot = (duration / len(paths)) + 0.12
+        durations = [slot] * len(paths)
+
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
     for path in paths:
         command.extend(["-stream_loop", "-1", "-i", str(path)])
     command.extend(["-i", str(narration_path)])
     filters: list[str] = []
     labels: list[str] = []
-    for index in range(len(paths)):
+    for index, clip_seconds in enumerate(durations):
         label = f"v{index}"
         labels.append(f"[{label}]")
         filters.append(
             f"[{index}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps=30,trim=duration={slot:.3f},"
+            f"crop={width}:{height},setsar=1,fps=30,trim=duration={clip_seconds:.3f},"
             f"setpts=PTS-STARTPTS[{label}]"
         )
     filters.append(
