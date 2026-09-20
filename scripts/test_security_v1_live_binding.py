@@ -130,6 +130,35 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
         self.assertEqual(wrapped("key", query), [1])
         self.assertEqual(captured, [query])
 
+    def test_run142_s3_quoted_if_then_query_is_cleaned_before_security_stock_gate(self) -> None:
+        raw = "hand writing a note with 'if-then' on a sticky note, close-up of sticky note, no face"
+        expected = "hand writing a note with if-then on a sticky note close-up of sticky note no face"
+
+        normalized = normalize_clean_v2_stock_query(raw)
+
+        self.assertEqual(normalized, expected)
+        self.assertNotIn("'", normalized)
+        self.assertNotIn('"', normalized)
+        self.assertIn("if-then", normalized)
+
+        captured: list[str] = []
+
+        def provider(_key, query, **_kwargs):
+            captured.append(query)
+            return [1]
+
+        wrapped = security_binding._wrap_search(provider)
+        self.assertEqual(wrapped("key", normalized), [1])
+        self.assertEqual(captured, [expected])
+
+    def test_run142_double_quoted_term_uses_same_compatibility_cleanup(self) -> None:
+        raw = 'hand writing a note with "if-then" on a sticky note, no face'
+        normalized = normalize_clean_v2_stock_query(raw)
+        self.assertEqual(
+            normalized,
+            "hand writing a note with if-then on a sticky note no face",
+        )
+
     def test_run139_s3_full_168_char_recovery_query_reaches_stock_gate_without_word_loss(self) -> None:
         raw = (
             "person sitting on couch with laptop open and untouched, looking distracted while "
