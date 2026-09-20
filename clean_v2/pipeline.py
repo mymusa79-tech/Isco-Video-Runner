@@ -212,6 +212,73 @@ def _run_legacy_factuality_audit(
     return report
 
 
+def _run_legacy_tone_naturalness_audit(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: Mapping[str, Any],
+) -> dict[str, Any]:
+    from clean_v2.text_audit import audit_tone_with_mistral
+
+    api_key = _read_secret("GEMINI_API_KEY")
+    model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
+    production_plan = _build_production_plan_for_audit(
+        brief=brief,
+        plan=plan,
+        script=script,
+    )
+    result = audit_tone_with_mistral(api_key, production_plan, model)
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-legacy-tone-naturalness-audit",
+        **result,
+    }
+    atomic_write_json(output_dir / "tone-quality-audit.json", report)
+    if result.get("validation") != "valid":
+        attempts = result.get("attempts") or []
+        summary = ", ".join(
+            f"{item.get('provider')}:{item.get('outcome')}" for item in attempts
+            if isinstance(item, Mapping)
+        ) or "no providers configured"
+        raise RuntimeError(
+            f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: tone_naturalness {summary}"
+        )
+    if result.get("status") == "block":
+        raise RuntimeError("Independent tone/naturalness gate blocked real production")
+    return report
+
+
+def _run_legacy_text_audits(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: Mapping[str, Any],
+) -> dict[str, Any]:
+    factuality = _run_legacy_factuality_audit(
+        output_dir=output_dir,
+        brief=brief,
+        plan=plan,
+        script=script,
+    )
+    tone = _run_legacy_tone_naturalness_audit(
+        output_dir=output_dir,
+        brief=brief,
+        plan=plan,
+        script=script,
+    )
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-text-audit-composite",
+        "status": "pass",
+        "factuality_status": factuality.get("status"),
+        "tone_naturalness_status": tone.get("status"),
+    }
+    atomic_write_json(output_dir / "text-audit.json", report)
+    return report
+
+
 def _run_audio_loudness_mastering(
     *,
     output_dir: Path,
@@ -806,7 +873,7 @@ class CleanV2Pipeline:
         visual_qa: Callable[..., dict[str, Any]] = _run_final_cut_visual_qa,
         cinematic_layer: Callable[..., dict[str, Any]] = _run_legacy_cinematic_layer,
         final_master_qc: Callable[[Path], dict[str, Any]] = _run_legacy_final_master_qc,
-        text_audit: Callable[..., dict[str, Any]] = _run_legacy_factuality_audit,
+        text_audit: Callable[..., dict[str, Any]] = _run_legacy_text_audits,
         audio_mastering: Callable[..., dict[str, Any]] = _run_audio_loudness_mastering,
         narrative_identity: Callable[..., dict[str, Any]] = _run_legacy_narrative_identity,
     ) -> None:
