@@ -27,6 +27,12 @@ VISUAL_QA_STAGE = "final_cut_visual_qa"
 TEXT_AUDIT_STAGE = "text_audit"
 AUDIO_MASTERING_STAGE = "audio_mastering"
 IDENTITY_STAGE = "narrative_identity"
+_PLANNING_FACTUALITY_RULE = (
+    "Use precise scientific, psychological, medical, historical, legal, political, statistical or religious "
+    "factual claims only when directly supported by APPROVED_RESEARCH_PACK. Never invent studies, numbers, "
+    "quotes, experts or causation. If evidence is insufficient, use a modest non-technical observation or "
+    "omit the claim."
+)
 QUALITY_STAGE = "final_master_qc"
 # Audio mastering is a deterministic ffmpeg transformation, not a content-judgment
 # gate, so it is deliberately NOT in QUALITY_STAGES: a failure here is always a
@@ -466,6 +472,9 @@ LOCKED_PLAN:
 The approved brief and locked plan are authoritative. Follow every hard constraint. Use natural
 Modern Standard Arabic, without generic motivational filler, fake quotations, invented facts, or
 medical/religious authority. Write narration only; do not add camera directions or markdown.
+
+APPROVED_RESEARCH_PACK factuality rule (mandatory):
+{_PLANNING_FACTUALITY_RULE}
 {length}{transition_guidance}
 
 Return one JSON object. The sections array must contain every locked plan id exactly once and in the
