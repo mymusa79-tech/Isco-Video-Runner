@@ -2,6 +2,8 @@ name: Clean V2 Minimal E2E
 
 on:
   workflow_dispatch:
+  issue_comment:
+    types: [created]
   pull_request:
     branches: ["main"]
     paths:
@@ -28,6 +30,9 @@ concurrency:
 
 jobs:
   test:
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.actor == github.repository_owner && github.event.comment.body == '/clean-v2-cold-e2e')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -62,7 +67,11 @@ jobs:
             -v
 
   produce:
-    if: github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       github.actor == github.repository_owner &&
+       github.event.comment.body == '/clean-v2-cold-e2e')
     needs: test
     runs-on: ubuntu-24.04
     timeout-minutes: 60
