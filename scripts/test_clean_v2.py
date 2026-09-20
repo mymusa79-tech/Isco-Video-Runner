@@ -17,6 +17,7 @@ from clean_v2.contracts import (
     ContractError,
     compute_brief_sha256,
     load_approved_brief,
+    validate_narrative_identity,
     validate_plan,
     validate_script,
 )
@@ -29,6 +30,7 @@ from clean_v2.pipeline import (
     STAGES,
     CleanV2Pipeline,
     _PLANNING_FACTUALITY_RULE,
+    _narrative_identity_prompt,
     _planning_prompt,
     _script_prompt,
 )
@@ -242,6 +244,93 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
         for provider in ("gemini", "groq", "openrouter", "mistral"):
             self.assertEqual(captured[provider], prompt)
             self.assertIn(_PLANNING_FACTUALITY_RULE, captured[provider])
+
+
+class MistralNarrativeIdentitySchemaTests(unittest.TestCase):
+    def test_schema_matches_validator_shape_without_artificial_length_caps(self) -> None:
+        schema = providers_module.MISTRAL_NARRATIVE_IDENTITY_SCHEMA
+
+        self.assertEqual(schema["required"], ["opener", "closer", "transitions"])
+        self.assertFalse(schema["additionalProperties"])
+        self.assertNotIn("maxLength", schema["properties"]["opener"])
+        self.assertNotIn("maxLength", schema["properties"]["closer"])
+
+        transitions = schema["properties"]["transitions"]
+        self.assertEqual(transitions["minItems"], 3)
+        self.assertEqual(transitions["maxItems"], 3)
+        self.assertEqual(len(transitions["prefixItems"]), 3)
+        for item in transitions["prefixItems"]:
+            self.assertEqual(item["type"], "string")
+            self.assertEqual(item["minLength"], 1)
+            self.assertEqual(item["pattern"], r"\S")
+            self.assertNotIn("maxLength", item)
+
+        long_identity = {
+            "opener": "أ" * 900,
+            "closer": "ب" * 900,
+            "transitions": ["ج" * 300, "د" * 300, "هـ" * 300],
+        }
+        normalized = validate_narrative_identity(long_identity)
+        self.assertEqual(len(normalized["opener"]), 600)
+        self.assertEqual(len(normalized["closer"]), 600)
+        self.assertTrue(all(len(item) == 200 for item in normalized["transitions"]))
+
+    def test_prompt_and_validator_agree_on_exactly_three_transitions(self) -> None:
+        prompt = _narrative_identity_prompt(
+            brief=_brief(),
+            plan=_plan(),
+            canonical_opener="افتتاحية ثابتة للاختبار",
+            canonical_closer="خاتمة ثابتة للاختبار",
+        )
+        self.assertIn("exactly 3 short natural Arabic transition phrases", prompt)
+        with self.assertRaisesRegex(
+            ContractError,
+            "requires exactly 3 transitions",
+        ):
+            validate_narrative_identity(
+                {
+                    "opener": "افتتاحية",
+                    "closer": "خاتمة",
+                    "transitions": ["واحدة", "اثنتان"],
+                }
+            )
+
+    def test_mistral_narrative_identity_call_passes_strict_schema(self) -> None:
+        prompt = _narrative_identity_prompt(
+            brief=_brief(),
+            plan=_plan(),
+            canonical_opener="افتتاحية ثابتة للاختبار",
+            canonical_closer="خاتمة ثابتة للاختبار",
+        )
+        expected = {
+            "opener": "افتتاحية جديدة",
+            "closer": "خاتمة جديدة",
+            "transitions": ["الأولى", "الثانية", "الثالثة"],
+        }
+
+        with mock.patch.object(
+            providers_module.mistral_executor,
+            "mistral_executor_json",
+            return_value=expected,
+        ) as called:
+            result = providers_module._mistral_call(
+                prompt,
+                900,
+                "narrative_identity",
+            )
+
+        self.assertEqual(result, expected)
+        kwargs = called.call_args.kwargs
+        self.assertEqual(kwargs["task_kind"], "narrative_identity")
+        self.assertEqual(kwargs["max_tokens"], 900)
+        self.assertEqual(
+            kwargs["response_schema"],
+            (
+                "narrative_identity",
+                providers_module.MISTRAL_NARRATIVE_IDENTITY_SCHEMA,
+            ),
+        )
+        self.assertEqual(validate_narrative_identity(result)["transitions"], expected["transitions"])
 
 
 class MistralScriptSchemaTests(unittest.TestCase):
