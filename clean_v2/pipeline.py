@@ -45,7 +45,7 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
-RESUME_CONTRACT_VERSION = 1
+RESUME_CONTRACT_VERSION = 2
 RESUMABLE_STAGES = ("planning", "script", "voice", "visuals")
 _RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
 
@@ -167,7 +167,7 @@ def _build_production_plan_for_audit(
         title_options=[str(plan.get("title") or "")],
         thumbnail_concepts=[],
         sections=sections,
-        cta="",
+        cta=str(plan.get("cta") or ""),
         closing_payoff=str(plan.get("promise") or ""),
     )
 
@@ -361,7 +361,7 @@ def _run_legacy_cinematic_layer(
     # Deliberately reuse the old tested Security V1 + Cinematic V2 owners.
     from clean_v2.legacy_cinematic import apply_post_render_layer
 
-    return apply_post_render_layer(
+    report = apply_post_render_layer(
         output_dir=output_dir,
         final_path=final_path,
         narration_path=narration_path,
@@ -370,6 +370,22 @@ def _run_legacy_cinematic_layer(
         rights=rights,
         fmt=fmt,
     )
+    from clean_v2.contextual_cta import apply_contextual_cta_overlay
+
+    cta_report = apply_contextual_cta_overlay(
+        output_dir=output_dir,
+        final_path=final_path,
+        narration_path=narration_path,
+        script=script,
+    )
+    return {
+        **report,
+        "contextual_cta": {
+            "mode": cta_report.get("mode"),
+            "render_status": cta_report.get("render_status"),
+            "provider_calls_added": cta_report.get("provider_calls_added"),
+        },
+    }
 
 
 def _utc_now() -> str:
@@ -421,7 +437,12 @@ def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[P
     paths = [Path("brief.json"), Path("plan.json")]
     if rank >= _RESUME_STAGE_INDEX["script"]:
         paths.extend(
-            [Path("script.json"), Path("narration.txt"), Path("narrative-identity.json")]
+            [
+                Path("script.json"),
+                Path("narration.txt"),
+                Path("narrative-identity.json"),
+                Path("cta-plan.json"),
+            ]
         )
     if rank >= _RESUME_STAGE_INDEX["voice"]:
         paths.append(Path("narration.wav"))
@@ -568,10 +589,15 @@ outside the approved brief and its research_pack. Use {section_requirement} for 
 English stock-footage search phrase. Prefer environments, hands, objects, routines, and wide shots
 without identifiable faces. Keep visuals modest and suitable for a broad Arab/Muslim audience.
 
+For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
+share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
+delivered, not like a generic sales line. For moment format only, return an empty CTA string.
+
 Return one JSON object with exactly this useful shape:
 {{
   "title": "Arabic title",
   "promise": "Arabic one-sentence viewer promise",
+  "cta": "one natural Arabic CTA, or empty only for moment",
   "sections": [
     {{
       "id": "s1",
@@ -618,6 +644,8 @@ LOCKED_PLAN:
 The approved brief and locked plan are authoritative. Follow every hard constraint. Use natural
 Modern Standard Arabic, without generic motivational filler, fake quotations, invented facts, or
 medical/religious authority. Write narration only; do not add camera directions or markdown.
+CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA in narration. The
+host will place it once at a safe mid-late point after value has been delivered.
 
 APPROVED_RESEARCH_PACK factuality rule (mandatory):
 {_PLANNING_FACTUALITY_RULE}
@@ -1067,6 +1095,7 @@ class CleanV2Pipeline:
                 _copy_resume_artifact(resume[0], output_dir, "script.json")
                 _copy_resume_artifact(resume[0], output_dir, "narration.txt")
                 _copy_resume_artifact(resume[0], output_dir, "narrative-identity.json")
+                _copy_resume_artifact(resume[0], output_dir, "cta-plan.json")
                 script = validate_script(
                     _read_json_object(output_dir / "script.json"),
                     plan,
@@ -1104,6 +1133,14 @@ class CleanV2Pipeline:
                 fmt = str(brief["format"])
                 _apply_brand_signature(
                     script["sections"], fmt, identity["opener"], identity["closer"]
+                )
+                from clean_v2.contextual_cta import bind_contextual_cta_to_script
+
+                bind_contextual_cta_to_script(
+                    output_dir=output_dir,
+                    brief=brief,
+                    plan=plan,
+                    script=script,
                 )
                 _assert_brand_signature_invariant(
                     script["sections"], fmt, identity["opener"], identity["closer"]

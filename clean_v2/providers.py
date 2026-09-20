@@ -376,6 +376,11 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
         raise NoWireFailure("mistral_planning_unsupported_format")
 
     non_blank_string = {"type": "string", "minLength": 1, "pattern": r"\S"}
+    cta_schema = (
+        {"type": "string"}
+        if fmt == "moment"
+        else dict(non_blank_string)
+    )
     section_schema = {
         "type": "object",
         "properties": {
@@ -393,6 +398,7 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
         "properties": {
             "title": dict(non_blank_string),
             "promise": dict(non_blank_string),
+            "cta": cta_schema,
             "sections": {
                 "type": "array",
                 "items": section_schema,
@@ -400,7 +406,7 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
                 "maxItems": max_sections,
             },
         },
-        "required": ["title", "promise", "sections"],
+        "required": ["title", "promise", "cta", "sections"],
         "additionalProperties": False,
     }
 
