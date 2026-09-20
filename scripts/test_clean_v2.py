@@ -1751,7 +1751,11 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 "scripts.mistral_visual_qa_fallback": mistral_visual,
                 "scripts.vision_stage_contract_v2": contract,
             }
-            with mock.patch.dict(sys.modules, fake_modules):
+            with mock.patch.dict(sys.modules, fake_modules), mock.patch.dict(
+                os.environ,
+                {"GEMINI_API_KEY": "test-key", "GEMINI_CONTENT_MODEL": "gemini-3.7-flash"},
+                clear=False,
+            ):
                 if recovery_relevance >= 0.85:
                     result = visual_qa_module.run_final_cut_visual_qa(
                         output_dir=output,
