@@ -35,6 +35,10 @@ _LAST_RAW_CONTENT: ContextVar[str] = ContextVar(
     "isco_clean_v2_mistral_executor_last_raw_content",
     default="",
 )
+_LAST_RAW_CONTENT: ContextVar[str] = ContextVar(
+    "isco_clean_v2_mistral_executor_last_raw_content",
+    default="",
+)
 
 
 class MistralExecutorNoWireFailure(RuntimeError):
@@ -84,6 +88,10 @@ def reset_mistral_executor_telemetry() -> None:
 
 def get_mistral_executor_telemetry() -> list[dict[str, Any]]:
     return [dict(item) for item in _TELEMETRY.get()]
+
+
+def get_last_mistral_executor_raw_content() -> str:
+    return str(_LAST_RAW_CONTENT.get() or "")
 
 
 def get_last_mistral_executor_raw_content() -> str:
