@@ -612,13 +612,6 @@ class StockVisualSource:
                 if self.media_transform is not None:
                     replacement = Path(self.media_transform(temporary))
 
-                replacement_sidecar = replacement.with_suffix(".m8.json")
-                destination_sidecar = destination.with_suffix(".m8.json")
-                os.replace(replacement, destination)
-                if replacement_sidecar.is_file():
-                    os.replace(replacement_sidecar, destination_sidecar)
-                else:
-                    destination_sidecar.unlink(missing_ok=True)
             except Exception as exc:
                 temporary.unlink(missing_ok=True)
                 temporary.with_suffix(".m8.json").unlink(missing_ok=True)
@@ -640,11 +633,26 @@ class StockVisualSource:
             self._event(
                 provider,
                 normalized_query,
-                "recovery_selected",
+                "recovery_candidate_ready",
                 wire_attempted=True,
             )
-            return destination, admitted
+            return replacement, admitted
         return None
+
+    def commit_replacement(self, replacement: Path, destination: Path) -> Path:
+        """Atomically promote an already-admitted recovery candidate into the slot."""
+        replacement = Path(replacement)
+        destination = Path(destination)
+        if not replacement.is_file() or replacement.stat().st_size < 1024:
+            raise RuntimeError("replacement_candidate_missing")
+        replacement_sidecar = replacement.with_suffix(".m8.json")
+        destination_sidecar = destination.with_suffix(".m8.json")
+        os.replace(replacement, destination)
+        if replacement_sidecar.is_file():
+            os.replace(replacement_sidecar, destination_sidecar)
+        else:
+            destination_sidecar.unlink(missing_ok=True)
+        return destination
 
 
 def _run(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
