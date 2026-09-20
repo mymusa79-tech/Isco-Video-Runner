@@ -270,18 +270,21 @@ def _openrouter_call(prompt: str, max_tokens: int) -> dict[str, Any]:
 
 
 def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
-    response_schema = None
-    if stage == "visual_query_recovery":
-        response_schema = (
-            "visual_query_recovery",
-            MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA,
-        )
     try:
+        if stage == "visual_query_recovery":
+            return mistral_executor.mistral_executor_json(
+                prompt,
+                max_tokens=max_tokens,
+                task_kind=stage,
+                response_schema=(
+                    "visual_query_recovery",
+                    MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA,
+                ),
+            )
         return mistral_executor.mistral_executor_json(
             prompt,
             max_tokens=max_tokens,
             task_kind=stage,
-            response_schema=response_schema,
         )
     except mistral_executor.MistralExecutorNoWireFailure as exc:
         raise NoWireFailure(exc.reason_code) from None
