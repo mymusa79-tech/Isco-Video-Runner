@@ -109,7 +109,10 @@ class MistralExecutorTransportTests(unittest.TestCase):
     def test_transport_records_real_usage_headers_and_executor_role(self) -> None:
         with mock.patch.dict(
             os.environ,
-            {"MISTRAL_API_KEY": "test-key"},
+            {
+                "MISTRAL_API_KEY": "test-key",
+                "MISTRAL_CONTENT_MODEL": "mistral-small-2603",
+            },
             clear=False,
         ), mock.patch.object(
             mistral_executor.urllib.request,
@@ -126,13 +129,14 @@ class MistralExecutorTransportTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, mistral_executor.MISTRAL_CHAT_URL)
         payload = json.loads(request.data.decode("utf-8"))
-        self.assertEqual(payload["model"], "ministral-14b-2512")
+        self.assertEqual(payload["model"], "mistral-small-2603")
         self.assertEqual(payload["response_format"], {"type": "json_object"})
         self.assertEqual(payload["max_tokens"], 7500)
         telemetry = mistral_executor.get_mistral_executor_telemetry()
         self.assertEqual(len(telemetry), 1)
         self.assertEqual(telemetry[0]["role"], "executor")
         self.assertEqual(telemetry[0]["task_kind"], "script")
+        self.assertEqual(telemetry[0]["model"], "mistral-small-2603")
         self.assertEqual(telemetry[0]["usage"]["total_tokens"], 600)
         self.assertEqual(
             telemetry[0]["rate_limit_headers"][
@@ -140,6 +144,33 @@ class MistralExecutorTransportTests(unittest.TestCase):
             ],
             "937500",
         )
+
+    def test_text_audit_keeps_existing_ministral_model_boundary(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MISTRAL_API_KEY": "test-key",
+                "MISTRAL_CONTENT_MODEL": "mistral-small-2603",
+            },
+            clear=False,
+        ), mock.patch.object(
+            mistral_executor.urllib.request,
+            "urlopen",
+            return_value=_Response(dict(_FACT_PASS)),
+        ) as urlopen:
+            result = mistral_executor.mistral_executor_json(
+                "audit production script",
+                max_tokens=2200,
+                task_kind="text_audit",
+            )
+
+        self.assertEqual(result, _FACT_PASS)
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["model"], "ministral-14b-2512")
+        telemetry = mistral_executor.get_mistral_executor_telemetry()
+        self.assertEqual(telemetry[-1]["task_kind"], "text_audit")
+        self.assertEqual(telemetry[-1]["model"], "ministral-14b-2512")
 
     def test_gold_or_unknown_role_is_rejected_before_wire(self) -> None:
         with mock.patch.object(
