@@ -136,6 +136,7 @@ class MistralExecutorTransportTests(unittest.TestCase):
         self.assertEqual(len(telemetry), 1)
         self.assertEqual(telemetry[0]["role"], "executor")
         self.assertEqual(telemetry[0]["task_kind"], "script")
+        self.assertEqual(telemetry[0]["model"], "mistral-small-2603")
         self.assertEqual(telemetry[0]["usage"]["total_tokens"], 600)
         self.assertEqual(
             telemetry[0]["rate_limit_headers"][
