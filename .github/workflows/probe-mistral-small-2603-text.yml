@@ -1,0 +1,81 @@
+name: Probe Mistral Small 2603 Text Entitlement
+
+on:
+  push:
+    branches:
+      - probe/mistral-small-2603-free-tier-20260920
+    paths:
+      - .github/workflows/probe-mistral-small-2603-text.yml
+      - scripts/probe_mistral_text_model.py
+      - scripts/test_probe_mistral_text_model.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mistral-small-2603-text-entitlement-probe
+  cancel-in-progress: false
+
+jobs:
+  text-only-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact probe commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Verify probe classification tests
+        run: python -m unittest scripts.test_probe_mistral_text_model -v
+
+      - name: Send isolated text-only paired probe
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          RESULT_PATH: ${{ runner.temp }}/mistral-small-2603-text-probe.json
+        run: |
+          set -euo pipefail
+          test -n "${MISTRAL_API_KEY:-}"
+          python scripts/probe_mistral_text_model.py --output "$RESULT_PATH"
+          jq '{
+            probe_kind,
+            production_attempt_started,
+            target_model,
+            control_model,
+            catalog,
+            rounds: [.rounds[] | {
+              round,
+              target: {
+                requested_model,
+                http_status,
+                transport_error,
+                rate_limit_headers,
+                error,
+                usage
+              },
+              control: {
+                requested_model,
+                http_status,
+                transport_error,
+                rate_limit_headers,
+                error,
+                usage
+              },
+              verdict
+            }],
+            final_classification
+          }' "$RESULT_PATH"
+
+      - name: Upload bounded probe evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mistral-small-2603-text-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mistral-small-2603-text-probe.json
+          if-no-files-found: error
+          retention-days: 14
