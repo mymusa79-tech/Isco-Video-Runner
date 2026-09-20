@@ -56,7 +56,10 @@ jobs:
       - name: Run focused malformed JSON diagnostic test
         run: |
           set -euo pipefail
-          python -m unittest             scripts.test_mistral_clean_v2_executor.MistralExecutorTransportTests.test_invalid_json_logs_safe_shape_without_generated_text             -v
+          python -m unittest \
+            scripts.test_mistral_clean_v2_executor.MistralExecutorTransportTests.test_invalid_json_logs_safe_shape_without_generated_text \
+            scripts.test_clean_v2.MistralPlanningSchemaTests.test_mistral_planning_call_passes_format_aware_strict_schema \
+            -v
 
       - name: Probe exact Run 196 Planning prompt with CTA strict schema
         env:
@@ -97,13 +100,7 @@ jobs:
           assert schema["properties"]["cta"]["pattern"] == r"\S"
 
           mistral_executor.reset_mistral_executor_telemetry()
-          candidate = mistral_executor.mistral_executor_json(
-              prompt,
-              max_tokens=3000,
-              task_kind="planning",
-              response_schema=("planning", schema),
-              temperature=0.0,
-          )
+          candidate = providers._mistral_call(prompt, 3000, "planning")
           plan = validate_plan(candidate, brief)
 
           cta_mode, cta_reason = infer_cta_mode(plan["cta"])
@@ -117,7 +114,7 @@ jobs:
               raise SystemExit(f"expected one Mistral call, got {len(telemetry)}")
 
           print(json.dumps({
-              "probe": "RUN196_PLANNING_CTA_TEMP0_PASS",
+              "probe": "RUN196_PLANNING_CTA_PRODUCTION_PATH_PASS",
               "prompt_sha256": prompt_sha256,
               "prompt_utf8_bytes": len(prompt.encode("utf-8")),
               "schema_has_cta": True,
