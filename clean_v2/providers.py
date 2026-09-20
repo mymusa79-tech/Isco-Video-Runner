@@ -292,7 +292,7 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
         ProviderAdapter(
             "mistral",
             _mistral_call,
-            stages=frozenset({"planning", "narrative_identity", "script"}),
+            stages=frozenset({"planning", "narrative_identity", "script", "visual_query_recovery"}),
             accepts_stage=True,
         ),
     )
