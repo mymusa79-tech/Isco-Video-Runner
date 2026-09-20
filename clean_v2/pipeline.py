@@ -27,6 +27,7 @@ from .structural_ai import structural_ai_flags
 
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
 VISUAL_QA_STAGE = "final_cut_visual_qa"
+OPENING_STAGE = "opening_director"
 STRUCTURAL_AI_STAGE = "structural_ai_flags"
 TEXT_AUDIT_STAGE = "text_audit"
 AUDIO_MASTERING_STAGE = "audio_mastering"
@@ -42,7 +43,7 @@ QUALITY_STAGE = "final_master_qc"
 # gate, so it is deliberately NOT in QUALITY_STAGES: a failure here is always a
 # plain technical failure, never a "quality_pending" content block.
 QUALITY_STAGES = frozenset(
-    {CINEMATIC_STAGE, VISUAL_QA_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
+    {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
 RESUME_CONTRACT_VERSION = 1
 RESUMABLE_STAGES = ("planning", "script", "voice", "visuals")
@@ -59,6 +60,7 @@ STAGES = (
     AUDIO_MASTERING_STAGE,
     "visuals",
     VISUAL_QA_STAGE,
+    OPENING_STAGE,
     "render",
     CINEMATIC_STAGE,
     "final_file",
@@ -109,6 +111,29 @@ def _run_final_cut_visual_qa(
         rights=rights,
         fmt=fmt,
         router=router,
+        visual_source=visual_source,
+    )
+
+
+def _run_opening_director(
+    *,
+    output_dir: Path,
+    plan: dict[str, Any],
+    script: dict[str, Any],
+    rights: list[dict[str, Any]],
+    fmt: str,
+    narration_path: Path,
+    visual_source: Any,
+) -> dict[str, Any]:
+    from clean_v2.opening_director import run_opening_director
+
+    return run_opening_director(
+        output_dir=output_dir,
+        plan=plan,
+        script=script,
+        rights=rights,
+        fmt=fmt,
+        narration_path=narration_path,
         visual_source=visual_source,
     )
 
@@ -818,15 +843,21 @@ class _Journal:
                 name == VISUAL_QA_STAGE
                 and "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE" in message
             )
+            opening_infrastructure = (
+                name == OPENING_STAGE
+                and "CLEAN_V2_OPENING_INFRASTRUCTURE" in message
+            )
             infrastructure = (
                 "exhausted bounded provider route" in message
                 or visual_qa_infrastructure
+                or opening_infrastructure
             )
             new_layer_block = (
                 not infrastructure
                 and (
-                    name == VISUAL_QA_STAGE
+                    name in {VISUAL_QA_STAGE, OPENING_STAGE}
                     or "CLEAN_V2_VISUAL_QA_BLOCK" in message
+                    or "CLEAN_V2_OPENING_BLOCK" in message
                 )
             )
             accepted_quality_block = (
@@ -856,6 +887,8 @@ class _Journal:
                 self.payload["status"] = "quality_pending"
                 if name == VISUAL_QA_STAGE or "CLEAN_V2_VISUAL_QA_" in message:
                     pending_stage = VISUAL_QA_STAGE
+                elif name == OPENING_STAGE or "CLEAN_V2_OPENING_" in message:
+                    pending_stage = OPENING_STAGE
                 elif name == CINEMATIC_STAGE or "CLEAN_V2_NEW_LAYER_BLOCK" in message:
                     pending_stage = CINEMATIC_STAGE
                 elif name == TEXT_AUDIT_STAGE:
@@ -896,6 +929,7 @@ class CleanV2Pipeline:
         renderer: Callable[[Path, list[Path], Path, str], Path] = render_video,
         final_inspector: Callable[[Path], dict[str, Any]] = inspect_final,
         visual_qa: Callable[..., dict[str, Any]] = _run_final_cut_visual_qa,
+        opening_director: Callable[..., dict[str, Any]] = _run_opening_director,
         cinematic_layer: Callable[..., dict[str, Any]] = _run_legacy_cinematic_layer,
         final_master_qc: Callable[[Path], dict[str, Any]] = _run_legacy_final_master_qc,
         text_audit: Callable[..., dict[str, Any]] = _run_text_audits,
@@ -908,6 +942,7 @@ class CleanV2Pipeline:
         self.renderer = renderer
         self.final_inspector = final_inspector
         self.visual_qa = visual_qa
+        self.opening_director = opening_director
         self.cinematic_layer = cinematic_layer
         self.final_master_qc = final_master_qc
         self.text_audit = text_audit
@@ -1308,12 +1343,64 @@ class CleanV2Pipeline:
                     voice_fallback_used=journal.payload.get("voice_fallback_used"),
                 )
 
+            journal.payload["quality_layers_executed"] = [
+                TEXT_AUDIT_STAGE,
+                CINEMATIC_STAGE,
+                VISUAL_QA_STAGE,
+                OPENING_STAGE,
+            ]
+            journal._write()
+            try:
+                opening_report = journal.run(
+                    OPENING_STAGE,
+                    lambda: self.opening_director(
+                        output_dir=output_dir,
+                        plan=plan,
+                        script=script,
+                        rights=rights,
+                        fmt=str(brief["format"]),
+                        narration_path=narration_path,
+                        visual_source=self.visual_source,
+                    ),
+                )
+            except Exception:
+                if (
+                    journal.payload.get("status") == "quality_pending"
+                    and journal.payload.get("quality_pending_stage") == OPENING_STAGE
+                ):
+                    _write_resume_checkpoint(
+                        output_dir,
+                        completed_stage="voice",
+                        approved_brief_sha256=approved_brief_digest,
+                        engine_sha=engine_sha,
+                        runner_sha=runner_sha,
+                        max_visuals=max_visuals,
+                        voice_provider=str(journal.payload.get("voice_provider") or ""),
+                        voice_fallback_used=journal.payload.get("voice_fallback_used"),
+                    )
+                raise
+
+            render_clips = list(clips)
+            if opening_report.get("status") == "pass":
+                opening_files = [
+                    str(item.get("local_file") or "")
+                    for item in opening_report.get("slots", [])[:2]
+                    if isinstance(item, Mapping)
+                ]
+                if len(opening_files) != 2 or any(not item for item in opening_files):
+                    raise RuntimeError("opening director pass report has invalid auxiliary files")
+                render_clips = [
+                    output_dir / "visuals" / opening_files[0],
+                    output_dir / "visuals" / opening_files[1],
+                    *clips,
+                ]
+
             final_path = output_dir / "final.mp4"
             journal.run(
                 "render",
                 lambda: self.renderer(
                     narration_path,
-                    clips,
+                    render_clips,
                     final_path,
                     str(brief["format"]),
                 ),
@@ -1323,6 +1410,7 @@ class CleanV2Pipeline:
                 TEXT_AUDIT_STAGE,
                 CINEMATIC_STAGE,
                 VISUAL_QA_STAGE,
+                OPENING_STAGE,
             ]
             journal._write()
             cinematic_report = journal.run(
@@ -1376,6 +1464,7 @@ class CleanV2Pipeline:
                 TEXT_AUDIT_STAGE,
                 CINEMATIC_STAGE,
                 VISUAL_QA_STAGE,
+                OPENING_STAGE,
                 QUALITY_STAGE,
             ]
             journal._write()
@@ -1390,6 +1479,7 @@ class CleanV2Pipeline:
                 text_audit_status=text_audit_report.get("status"),
                 audio_mastering_status=audio_mastering_report.get("status"),
                 visual_qa_status=visual_qa_report.get("status"),
+                opening_director_status=opening_report.get("status"),
                 cinematic_v2_status=cinematic_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
                 provider_wire_attempts=sum(
@@ -1407,6 +1497,7 @@ class CleanV2Pipeline:
                 "text_audit_status": text_audit_report.get("status"),
                 "audio_mastering_status": audio_mastering_report.get("status"),
                 "visual_qa_status": visual_qa_report.get("status"),
+                "opening_director_status": opening_report.get("status"),
                 "cinematic_v2_status": cinematic_report.get("status"),
                 "final_master_qc_status": final_master_report.get("status"),
             }
