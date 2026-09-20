@@ -1055,24 +1055,36 @@ def render_video(
     )
     if opening_enabled:
         slots = opening_report.get("slots") or []
-        auxiliary_names = [
+        if not isinstance(slots, list) or len(slots) != 3:
+            raise RuntimeError("opening director render requires exactly three audited slots")
+        expected_seconds = [7.0, 11.0, 12.0]
+        actual_seconds = [
+            float(item.get("seconds") or 0.0) if isinstance(item, dict) else 0.0
+            for item in slots
+        ]
+        if actual_seconds != expected_seconds:
+            raise RuntimeError("opening director render timing contract drift")
+        slot_names = [
             str(item.get("local_file") or "")
-            for item in slots[:2]
+            for item in slots
             if isinstance(item, dict)
         ]
-        if (
-            len(auxiliary_names) != 2
-            or [Path(visual_paths[0]).name, Path(visual_paths[1]).name] != auxiliary_names
-        ):
-            raise RuntimeError("opening director render inputs do not match audited auxiliaries")
-        body_paths = list(visual_paths[2:7])
-        if not body_paths:
-            raise RuntimeError("opening director render requires body visuals")
-        body_slot = ((duration - 18.0) / len(body_paths)) + 0.12
-        if body_slot < 12.0:
-            raise RuntimeError("opening director body slot cannot cover 18-30 promise")
-        paths = [Path(visual_paths[0]), Path(visual_paths[1]), *body_paths]
-        durations = [7.0, 11.0, *([body_slot] * len(body_paths))]
+        input_names = [Path(item).name for item in visual_paths[:3]]
+        if len(slot_names) != 3 or input_names != slot_names:
+            raise RuntimeError("opening director render inputs do not match audited shots")
+
+        opening_paths = [Path(item) for item in visual_paths[:3]]
+        remaining = max(0.0, duration - 30.0)
+        body_paths = [Path(item) for item in visual_paths[3:7]]
+        if remaining > 0.25 and not body_paths:
+            raise RuntimeError("opening director render requires a body visual after 30 seconds")
+        if remaining > 0.25:
+            body_slot = (remaining / len(body_paths)) + 0.12
+            paths = [*opening_paths, *body_paths]
+            durations = [7.0, 11.0, 12.0, *([body_slot] * len(body_paths))]
+        else:
+            paths = opening_paths
+            durations = [7.0, 11.0, 12.0]
     else:
         paths = [Path(item) for item in visual_paths[:5]]
         slot = (duration / len(paths)) + 0.12
