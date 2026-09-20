@@ -1551,6 +1551,7 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             section_id,
             exclude_provider,
             exclude_asset_id,
+            exclude_assets,
         ):
             self.acquire_calls += 1
             if query != VisualQASemanticRecoveryTests.ALTERNATE_QUERY:
@@ -1559,6 +1560,10 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 raise AssertionError((section_id, destination_name))
             if exclude_provider != "pexels" or str(exclude_asset_id) != "6943542":
                 raise AssertionError((exclude_provider, exclude_asset_id))
+            if ("pexels", "6943542") not in [
+                (str(provider), str(asset_id)) for provider, asset_id in exclude_assets
+            ]:
+                raise AssertionError(exclude_assets)
             path = Path(output_dir) / ".visual-03.semantic-recovery-pexels.mp4"
             path.write_bytes(b"R" * 4096)
             return path, {
