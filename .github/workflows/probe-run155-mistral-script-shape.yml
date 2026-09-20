@@ -1,0 +1,45 @@
+name: Probe Run155 Mistral Script Shape
+
+on:
+  push:
+    branches:
+      - "probe/run155-mistral-script-shape"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+      MISTRAL_CONTENT_MODEL: ministral-14b-2512
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+    steps:
+      - name: Checkout exact Runner probe
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout frozen private Engine source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine pin
+        run: test "$(git -C engine rev-parse HEAD)" = "$ISCO_ENGINE_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Run one Mistral-only Script probe
+        run: python scripts/probe_run155_mistral_script_shape.py
