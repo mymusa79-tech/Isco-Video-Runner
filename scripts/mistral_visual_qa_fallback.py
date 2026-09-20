@@ -59,6 +59,24 @@ def get_mistral_visual_qa_telemetry() -> list[dict[str, Any]]:
     return [dict(item) for item in _TELEMETRY.get()]
 
 
+def latest_retry_after_seconds() -> float | None:
+    """Return the exact Retry-After seconds observed on the latest Mistral response."""
+    entries = _TELEMETRY.get()
+    if not entries:
+        return None
+    headers = entries[-1].get("rate_limit_headers")
+    if not isinstance(headers, dict):
+        return None
+    raw = headers.get("retry-after")
+    if raw is None:
+        return None
+    try:
+        value = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 0.0 else None
+
+
 def _rate_limit_headers(headers: Mapping[str, object]) -> dict[str, str]:
     captured: dict[str, str] = {}
     for raw_name, raw_value in headers.items():
