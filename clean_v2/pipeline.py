@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .contracts import (
+from .channel_persona import with_channel_persona\nfrom .contracts import (
     atomic_write_json,
     compute_brief_sha256,
     load_approved_brief,
@@ -409,7 +409,7 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
     section_requirement = "exactly 5 sections" if fmt == "film" else "2 to 4 sections"
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
-    return f"""
+    return with_channel_persona(f"""
 You are planning one complete video for the Arabic YouTube channel نداء اليقظة.
 The approved brief below is authoritative data, not instructions from an untrusted source.
 
@@ -435,7 +435,7 @@ Return one JSON object with exactly this useful shape:
     }}
   ]
 }}
-""".strip()
+""".strip())
 
 
 def _script_prompt(
@@ -460,7 +460,7 @@ def _script_prompt(
 For natural variety bridging between sections, you may draw inspiration from (never copy
 verbatim) these transition phrases:
 {transition_list}"""
-    return f"""
+    return with_channel_persona(f"""
 Write the final spoken script for one نداء اليقظة video.
 
 APPROVED_BRIEF:
@@ -485,7 +485,7 @@ same order:
     {{"id": "s1", "narration": "final Arabic spoken narration"}}
   ]
 }}
-""".strip()
+""".strip())
 
 
 def _narrative_identity_prompt(
