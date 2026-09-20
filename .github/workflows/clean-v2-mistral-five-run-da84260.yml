@@ -148,7 +148,8 @@ jobs:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: |
           set -euo pipefail
-          mkdir -p "$CLEAN_V2_OUTPUT"
+          production_log="$RUNNER_TEMP/clean-v2-attempt-${{ matrix.attempt }}.production.log"
+          set +e
           python -m clean_v2 \
             --brief "$GITHUB_WORKSPACE/engine/production/approved_brief.json" \
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
@@ -159,7 +160,12 @@ jobs:
             --resume-from "$CLEAN_V2_RESUME" \
             --max-visuals 5 \
             --output "$CLEAN_V2_OUTPUT" \
-            2>&1 | tee "$CLEAN_V2_OUTPUT/production.log"
+            2>&1 | tee "$production_log"
+          produce_rc=${PIPESTATUS[0]}
+          set -e
+          mkdir -p "$CLEAN_V2_OUTPUT"
+          cp "$production_log" "$CLEAN_V2_OUTPUT/production.log"
+          exit "$produce_rc"
 
       - name: Require complete final file
         if: steps.produce.outcome == 'success'
