@@ -429,10 +429,10 @@ def run_final_cut_visual_qa(
                         }
                     )
                     _write_json(output_dir / "visual-query-recovery.json", recovery_records)
-                    raise CleanV2VisualQABlock(
-                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
+                    raise CleanV2VisualQAInfrastructure(
+                        f"CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section={section_id} "
                         f"reason=semantic_recovery_query_unavailable "
-                        f"floor={primary_floor:.6f}"
+                        f"error_type={type(exc).__name__}"
                     ) from exc
 
                 recovery_record["alternate_query"] = alternate

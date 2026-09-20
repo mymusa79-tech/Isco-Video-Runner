@@ -298,6 +298,33 @@ def _passing_visual_qa(**kwargs) -> dict:
     return report
 
 
+def _mutating_visual_qa(**kwargs) -> dict:
+    output_dir = Path(kwargs["output_dir"])
+    rights = kwargs["rights"]
+    first = rights[0]
+    visual = output_dir / "visuals" / str(first["local_file"])
+    visual.write_bytes(visual.read_bytes() + b"semantic-recovery")
+    first["asset_id"] = "recovered-asset"
+    first["query"] = "narration-bound alternate query"
+    (output_dir / "rights-manifest.json").write_text(
+        json.dumps({"schema_version": 1, "assets": rights}),
+        encoding="utf-8",
+    )
+    report = {
+        "schema_version": 1,
+        "layer": VISUAL_QA_STAGE,
+        "status": "pass",
+        "repair_or_replacement_enabled": True,
+        "semantic_recovery_count": 1,
+        "final_media_mutated": True,
+    }
+    (output_dir / "visual-audit.json").write_text("[]", encoding="utf-8")
+    (output_dir / "final-cut-visual-qa.json").write_text(
+        json.dumps(report), encoding="utf-8"
+    )
+    return report
+
+
 def _blocking_visual_qa(**kwargs) -> dict:
     output_dir = Path(kwargs["output_dir"])
     (output_dir / "visual-audit.json").write_text("[]", encoding="utf-8")
@@ -1535,6 +1562,40 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             )
             return validator({"alternate_query": self.alternate})
 
+    class _FailingRecoveryRouter:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.events = [
+                {
+                    "stage": "visual_query_recovery",
+                    "provider": "gemini",
+                    "result": "http_429",
+                    "wire_attempted": True,
+                },
+                {
+                    "stage": "visual_query_recovery",
+                    "provider": "groq",
+                    "result": "http_400",
+                    "wire_attempted": True,
+                },
+                {
+                    "stage": "visual_query_recovery",
+                    "provider": "openrouter",
+                    "result": "http_429",
+                    "wire_attempted": True,
+                },
+            ]
+
+        def route(self, *, stage, prompt, max_tokens, validator):
+            del prompt, max_tokens, validator
+            self.calls += 1
+            if stage != "visual_query_recovery":
+                raise AssertionError(stage)
+            raise RuntimeError(
+                "visual_query_recovery exhausted bounded provider route: "
+                "gemini:http_429, groq:http_400, openrouter:http_429"
+            )
+
     class _VisualSource:
         def __init__(self) -> None:
             self.acquire_calls = 0
@@ -1841,6 +1902,72 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         self.assertEqual(outcome["rights"][0]["asset_id"], "6943542")
         self.assertEqual(outcome["final_bytes"], b"O" * 4096)
 
+    def test_attempt1_recovery_provider_exhaustion_is_infrastructure_not_content(self) -> None:
+        original_router = self._Router
+        self._Router = lambda _alternate: self._FailingRecoveryRouter()
+        try:
+            with self.assertRaises(
+                visual_qa_module.CleanV2VisualQAInfrastructure
+            ) as raised:
+                self._run_case(recovery_relevance=0.92)
+        finally:
+            self._Router = original_router
+        self.assertIn(
+            "reason=semantic_recovery_query_unavailable",
+            str(raised.exception),
+        )
+        self.assertIn(
+            "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE",
+            str(raised.exception),
+        )
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+class VisualRecoveryCheckpointTests(unittest.TestCase):
+    def test_successful_semantic_replacement_refreshes_visuals_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief = _brief()
+            brief_path = root / "approved-brief.json"
+            brief_path.write_text(
+                json.dumps(brief, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_mutating_visual_qa,
+                cinematic_layer=_blocking_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
+            )
+            with self.assertRaisesRegex(RuntimeError, "synthetic new layer block"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=compute_brief_sha256(brief),
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+
+            checkpoint = json.loads(
+                (output / "resume-checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(checkpoint["completed_stage"], "visuals")
+            manifest = json.loads(
+                (output / "rights-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["assets"][0]["asset_id"], "recovered-asset")
+            relative = "visuals/fixture-1.mp4"
+            current_hash = __import__("hashlib").sha256(
+                (output / relative).read_bytes()
+            ).hexdigest()
+            self.assertEqual(checkpoint["artifacts"][relative], current_hash)
 
 
 if __name__ == "__main__":
