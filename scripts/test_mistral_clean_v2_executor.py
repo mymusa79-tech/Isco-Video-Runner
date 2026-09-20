@@ -149,6 +149,34 @@ class MistralExecutorTransportTests(unittest.TestCase):
             "937500",
         )
 
+    def test_visual_query_recovery_uses_verified_content_model(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MISTRAL_API_KEY": "test-key",
+                "MISTRAL_CONTENT_MODEL": "ministral-14b-2512",
+            },
+            clear=False,
+        ), mock.patch.object(
+            mistral_executor.urllib.request,
+            "urlopen",
+            return_value=_Response({"alternate_query": "focused alternate query"}),
+        ) as urlopen:
+            result = mistral_executor.mistral_executor_json(
+                "generate one alternate visual query",
+                max_tokens=300,
+                task_kind="visual_query_recovery",
+            )
+
+        self.assertEqual(result, {"alternate_query": "focused alternate query"})
+        request = urlopen.call_args.args[0]
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["model"], "ministral-14b-2512")
+        self.assertEqual(payload["max_tokens"], 300)
+        telemetry = mistral_executor.get_mistral_executor_telemetry()
+        self.assertEqual(telemetry[-1]["task_kind"], "visual_query_recovery")
+        self.assertEqual(telemetry[-1]["model"], "ministral-14b-2512")
+
     def test_narrative_identity_keeps_executor_model_boundary(self) -> None:
         with mock.patch.dict(
             os.environ,
@@ -267,6 +295,51 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                     ["gemini", "groq", "openrouter", "mistral"],
                 )
                 self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
+
+    def test_visual_query_recovery_reaches_mistral_fourth_after_run135_failures(self) -> None:
+        order: list[str] = []
+
+        def fail(reason: str, name: str):
+            def _failure(_prompt: str, _tokens: int):
+                order.append(name)
+                raise providers.ProviderWireFailure(reason)
+            return _failure
+
+        def mistral_call(_prompt, *, max_tokens, task_kind, **_kwargs):
+            order.append("mistral")
+            self.assertEqual(task_kind, "visual_query_recovery")
+            self.assertEqual(max_tokens, 300)
+            return {"alternate_query": "focused alternate query"}
+
+        with mock.patch.object(
+            providers, "_gemini_call", side_effect=fail("http_503", "gemini")
+        ), mock.patch.object(
+            providers, "_groq_call", side_effect=fail("http_400", "groq")
+        ), mock.patch.object(
+            providers, "_openrouter_call", side_effect=fail("http_429", "openrouter")
+        ), mock.patch.object(
+            mistral_executor, "mistral_executor_json", side_effect=mistral_call
+        ):
+            router = providers.ProviderRouter()
+            result = router.route(
+                stage="visual_query_recovery",
+                prompt="recovery prompt",
+                max_tokens=300,
+                validator=lambda value: value,
+            )
+
+        self.assertEqual(result, {"alternate_query": "focused alternate query"})
+        self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
+        self.assertEqual(
+            [item["provider"] for item in router.events],
+            ["gemini", "groq", "openrouter", "mistral"],
+        )
+        self.assertEqual(
+            [item["reason"] for item in router.events[:3]],
+            ["http_503", "http_400", "http_429"],
+        )
+        self.assertEqual(router.events[-1]["result"], "success")
+        self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
 
     def test_http_429_captures_numeric_retry_after_header(self) -> None:
         error = providers.urllib.error.HTTPError(
