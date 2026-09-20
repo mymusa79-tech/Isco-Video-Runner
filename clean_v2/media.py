@@ -1038,20 +1038,58 @@ def render_video(
     duration = probe_duration(narration_path)
     portrait = fmt in {"moment", "story"}
     width, height = ((1080, 1920) if portrait else (1920, 1080))
-    paths = visual_paths[:5]
-    slot = (duration / len(paths)) + 0.12
+
+    opening_report: dict[str, Any] = {}
+    opening_path = Path(output_path).parent / "opening-director.json"
+    if opening_path.is_file():
+        try:
+            parsed = json.loads(opening_path.read_text(encoding="utf-8"))
+            opening_report = parsed if isinstance(parsed, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            opening_report = {}
+
+    opening_enabled = (
+        opening_report.get("status") == "pass"
+        and opening_report.get("mode") == "legacy_first_30_three_audited_shots"
+        and len(visual_paths) >= 3
+    )
+    if opening_enabled:
+        slots = opening_report.get("slots") or []
+        auxiliary_names = [
+            str(item.get("local_file") or "")
+            for item in slots[:2]
+            if isinstance(item, dict)
+        ]
+        if (
+            len(auxiliary_names) != 2
+            or [Path(visual_paths[0]).name, Path(visual_paths[1]).name] != auxiliary_names
+        ):
+            raise RuntimeError("opening director render inputs do not match audited auxiliaries")
+        body_paths = list(visual_paths[2:7])
+        if not body_paths:
+            raise RuntimeError("opening director render requires body visuals")
+        body_slot = ((duration - 18.0) / len(body_paths)) + 0.12
+        if body_slot < 12.0:
+            raise RuntimeError("opening director body slot cannot cover 18-30 promise")
+        paths = [Path(visual_paths[0]), Path(visual_paths[1]), *body_paths]
+        durations = [7.0, 11.0, *([body_slot] * len(body_paths))]
+    else:
+        paths = [Path(item) for item in visual_paths[:5]]
+        slot = (duration / len(paths)) + 0.12
+        durations = [slot] * len(paths)
+
     command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
     for path in paths:
         command.extend(["-stream_loop", "-1", "-i", str(path)])
     command.extend(["-i", str(narration_path)])
     filters: list[str] = []
     labels: list[str] = []
-    for index in range(len(paths)):
+    for index, clip_seconds in enumerate(durations):
         label = f"v{index}"
         labels.append(f"[{label}]")
         filters.append(
             f"[{index}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps=30,trim=duration={slot:.3f},"
+            f"crop={width}:{height},setsar=1,fps=30,trim=duration={clip_seconds:.3f},"
             f"setpts=PTS-STARTPTS[{label}]"
         )
     filters.append(
