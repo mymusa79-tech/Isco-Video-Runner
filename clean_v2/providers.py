@@ -330,6 +330,63 @@ def _safe_mistral_script_raw_diagnostic(raw_content: str, exc: Exception) -> dic
     return diagnostic
 
 
+def _mistral_script_response_schema(prompt: str) -> dict[str, Any]:
+    """Build a strict Script schema from the internally generated LOCKED_PLAN."""
+    marker = "LOCKED_PLAN:\n"
+    terminator = "\n\nThe approved brief and locked plan are authoritative."
+    if marker not in prompt:
+        raise NoWireFailure("mistral_script_locked_plan_missing")
+    locked_tail = prompt.split(marker, 1)[1]
+    if terminator not in locked_tail:
+        raise NoWireFailure("mistral_script_locked_plan_boundary_missing")
+    raw_plan = locked_tail.split(terminator, 1)[0].strip()
+    try:
+        plan = json.loads(raw_plan)
+    except json.JSONDecodeError:
+        raise NoWireFailure("mistral_script_locked_plan_invalid_json") from None
+    if not isinstance(plan, dict) or not isinstance(plan.get("sections"), list):
+        raise NoWireFailure("mistral_script_locked_plan_invalid_shape")
+
+    section_ids: list[str] = []
+    for raw_section in plan["sections"]:
+        if not isinstance(raw_section, dict):
+            raise NoWireFailure("mistral_script_locked_plan_invalid_section")
+        section_id = str(raw_section.get("id") or "").strip()
+        if not section_id or len(section_id) > 40:
+            raise NoWireFailure("mistral_script_locked_plan_invalid_id")
+        section_ids.append(section_id)
+
+    if not 1 <= len(section_ids) <= 5 or len(section_ids) != len(set(section_ids)):
+        raise NoWireFailure("mistral_script_locked_plan_invalid_ids")
+
+    section_schemas = [
+        {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "const": section_id},
+                "narration": {"type": "string", "minLength": 20},
+            },
+            "required": ["id", "narration"],
+            "additionalProperties": False,
+        }
+        for section_id in section_ids
+    ]
+    return {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "minLength": 1},
+            "sections": {
+                "type": "array",
+                "prefixItems": section_schemas,
+                "minItems": len(section_schemas),
+                "maxItems": len(section_schemas),
+            },
+        },
+        "required": ["title", "sections"],
+        "additionalProperties": False,
+    }
+
+
 def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
     try:
         if stage == "visual_query_recovery":
@@ -340,6 +397,16 @@ def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
                 response_schema=(
                     "visual_query_recovery",
                     MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA,
+                ),
+            )
+        if stage == "script":
+            return mistral_executor.mistral_executor_json(
+                prompt,
+                max_tokens=max_tokens,
+                task_kind=stage,
+                response_schema=(
+                    "script",
+                    _mistral_script_response_schema(prompt),
                 ),
             )
         return mistral_executor.mistral_executor_json(
