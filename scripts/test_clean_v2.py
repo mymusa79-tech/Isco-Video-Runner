@@ -2874,6 +2874,9 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             structural = json.loads((root / "structural-ai-flags.json").read_text(encoding="utf-8"))
             self.assertEqual(structural["flags"], [])
 
+    # Production regression: Cold Runs #201/#203 reached Tone repair but the
+    # Mistral Script adapter rejected the repair prompt before wire because its
+    # canonical LOCKED_PLAN boundary was absent.
     def test_run199_tone_repair_prompt_is_mistral_script_schema_compatible(self) -> None:
         identity = {
             "opener": self.OPENER,
