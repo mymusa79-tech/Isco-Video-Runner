@@ -732,6 +732,12 @@ def _infrastructure_visual_qa(**kwargs) -> dict:
     )
 
 
+def _blocking_opening_director(**kwargs) -> dict:
+    raise RuntimeError(
+        "CLEAN_V2_OPENING_BLOCK reason=two_opening_auxiliaries_not_final_cut_ready"
+    )
+
+
 def _passing_text_audit(**kwargs) -> dict:
     output_dir = Path(kwargs["output_dir"])
     report = {
@@ -1454,6 +1460,51 @@ class CleanV2EndToEndTests(unittest.TestCase):
             self.assertFalse((output / "final.json").exists())
             self.assertFalse((output / "final-master-qc.json").exists())
 
+
+    def test_opening_content_block_preserves_visuals_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            brief_path = root / "approved-brief.json"
+            brief = _brief()
+            brief_path.write_text(
+                json.dumps(brief, ensure_ascii=False), encoding="utf-8"
+            )
+            approved = compute_brief_sha256(brief)
+            output = root / "output"
+            pipeline = CleanV2Pipeline(
+                router=_FakeRouter(),
+                voice_synthesizer=_FakeVoice(),
+                visual_source=_FakeVisuals(),
+                visual_qa=_passing_visual_qa,
+                opening_director=_blocking_opening_director,
+                cinematic_layer=_passing_cinematic_layer,
+                final_master_qc=_passing_final_master_qc,
+                text_audit=_passing_text_audit,
+                audio_mastering=_passing_audio_mastering,
+                narrative_identity=_passing_narrative_identity,
+            )
+            with self.assertRaisesRegex(RuntimeError, "CLEAN_V2_OPENING_BLOCK"):
+                pipeline.run(
+                    brief_path=brief_path,
+                    approved_sha256=approved,
+                    output_dir=output,
+                    engine_sha="a" * 40,
+                    runner_sha="b" * 40,
+                    max_visuals=2,
+                )
+
+            manifest = json.loads(
+                (output / "run-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest["status"], "quality_pending")
+            self.assertEqual(manifest["quality_pending_stage"], OPENING_STAGE)
+            self.assertEqual(manifest["failure_classification"], "new-layer-block")
+            checkpoint = json.loads(
+                (output / "resume-checkpoint.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(checkpoint["completed_stage"], "visuals")
+            self.assertIn("rights-manifest.json", checkpoint["artifacts"])
+            self.assertFalse((output / "final.mp4").exists())
 
     def test_visual_qa_content_block_downgrades_checkpoint_to_voice(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
