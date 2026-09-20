@@ -6,8 +6,10 @@ import os
 import shutil
 import subprocess
 import tempfile
+import types
 import unittest
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 from unittest import mock
 
@@ -1597,13 +1599,6 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         }
 
     def _run_case(self, *, recovery_relevance: float):
-        from scripts import canonical_visual_evidence_v1 as canonical
-        from scripts import mistral_visual_qa_fallback as mistral_visual
-        from scripts import run181_vision_mesh_closure as mesh
-        from scripts import vision_provider_reliability as reliability
-        from scripts import vision_stage_contract_v2 as contract
-        import isco_video_agent.orchestrator as orchestrator
-
         router = self._Router(self.ALTERNATE_QUERY)
         visual_source = self._VisualSource()
         plan = {
@@ -1675,17 +1670,83 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            patches = (
-                mock.patch.object(canonical, "build_canonical_visual_evidence", side_effect=build_evidence),
-                mock.patch.object(canonical, "audit_gemini_canonical_evidence"),
-                mock.patch.object(orchestrator, "_ledger_call_status", side_effect=ledger_call),
-                mock.patch.object(contract, "install_vision_provider_reliability"),
-                mock.patch.object(mesh, "install_run181_vision_mesh_closure"),
-                mock.patch.object(reliability, "vision_provider_circuit_scope", return_value=contextlib.nullcontext()),
-                mock.patch.object(mistral_visual, "reset_mistral_visual_qa_telemetry"),
-                mock.patch.object(mistral_visual, "get_mistral_visual_qa_telemetry", return_value=[]),
+            class FakeBudgetLedger:
+                def __init__(self, _fmt, *, enforce=True):
+                    self.enforce = enforce
+
+                def write(self, path):
+                    Path(path).write_text(
+                        json.dumps({"schema_version": 1, "provider_attempts": {}}),
+                        encoding="utf-8",
+                    )
+
+                def to_summary(self):
+                    return {"provider_attempts": {}}
+
+            class FakeTaskSpec:
+                def __init__(self, **kwargs):
+                    self.__dict__.update(kwargs)
+
+            class FakeVisionStageError(RuntimeError):
+                def __init__(self, message="vision error"):
+                    super().__init__(message)
+                    self.code = SimpleNamespace(value="PROVIDER_TRANSIENT")
+                    self.provider = "fake"
+                    self.requested_model = "fake"
+                    self.resolved_model = "fake"
+                    self.http_status = 429
+                    self.http_message = "fake"
+                    self.detail = "fake"
+
+            engine = types.ModuleType("isco_video_agent")
+            engine.__path__ = []
+            ai_budget = types.ModuleType("isco_video_agent.ai_budget")
+            ai_budget.BudgetLedger = FakeBudgetLedger
+            ai_budget.Capability = SimpleNamespace(VISION="vision")
+            ai_budget.Priority = SimpleNamespace(P0="P0")
+            ai_budget.TaskSpec = FakeTaskSpec
+            orchestrator = types.ModuleType("isco_video_agent.orchestrator")
+            orchestrator._ledger_call_status = ledger_call
+            visual_selection = types.ModuleType("isco_video_agent.visual_selection")
+            visual_selection.FINAL_CUT_TARGET_SEMANTIC_FLOOR = 0.85
+            visual_selection.semantic_floor = lambda audit: min(
+                float(audit.get("relevance", 0.0) or 0.0),
+                float(audit.get("visual_quality", 0.0) or 0.0),
             )
-            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+            visual_selection.is_final_cut_ready = lambda audit: (
+                str(audit.get("status") or "").lower() == "pass"
+                and visual_selection.semantic_floor(audit) >= 0.85
+            )
+
+            canonical = types.ModuleType("scripts.canonical_visual_evidence_v1")
+            canonical.build_canonical_visual_evidence = build_evidence
+            canonical.audit_gemini_canonical_evidence = lambda *_a, **_k: None
+            mesh = types.ModuleType("scripts.run181_vision_mesh_closure")
+            mesh.install_run181_vision_mesh_closure = lambda: None
+            reliability = types.ModuleType("scripts.vision_provider_reliability")
+            reliability.vision_provider_circuit_scope = lambda: contextlib.nullcontext()
+            reliability.VisionProviderMeshUnavailableError = type(
+                "VisionProviderMeshUnavailableError", (RuntimeError,), {}
+            )
+            mistral_visual = types.ModuleType("scripts.mistral_visual_qa_fallback")
+            mistral_visual.reset_mistral_visual_qa_telemetry = lambda: None
+            mistral_visual.get_mistral_visual_qa_telemetry = lambda: []
+            contract = types.ModuleType("scripts.vision_stage_contract_v2")
+            contract.VisionStageError = FakeVisionStageError
+            contract.install_vision_provider_reliability = lambda: None
+
+            fake_modules = {
+                "isco_video_agent": engine,
+                "isco_video_agent.ai_budget": ai_budget,
+                "isco_video_agent.orchestrator": orchestrator,
+                "isco_video_agent.visual_selection": visual_selection,
+                "scripts.canonical_visual_evidence_v1": canonical,
+                "scripts.run181_vision_mesh_closure": mesh,
+                "scripts.vision_provider_reliability": reliability,
+                "scripts.mistral_visual_qa_fallback": mistral_visual,
+                "scripts.vision_stage_contract_v2": contract,
+            }
+            with mock.patch.dict(sys.modules, fake_modules):
                 if recovery_relevance >= 0.85:
                     result = visual_qa_module.run_final_cut_visual_qa(
                         output_dir=output,
