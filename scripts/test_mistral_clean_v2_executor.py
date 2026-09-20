@@ -107,6 +107,10 @@ class MistralExecutorTransportTests(unittest.TestCase):
         mistral_executor.reset_mistral_executor_telemetry()
 
     def test_transport_records_real_usage_headers_and_executor_role(self) -> None:
+        self.assertEqual(
+            mistral_executor.MISTRAL_PLANNING_SCRIPT_MODEL,
+            "ministral-14b-2512",
+        )
         with mock.patch.dict(
             os.environ,
             {
@@ -150,7 +154,7 @@ class MistralExecutorTransportTests(unittest.TestCase):
             os.environ,
             {
                 "MISTRAL_API_KEY": "test-key",
-                "MISTRAL_CONTENT_MODEL": "ministral-14b-2512",
+                "MISTRAL_CONTENT_MODEL": "mistral-small-2603",
             },
             clear=False,
         ), mock.patch.object(
@@ -178,7 +182,7 @@ class MistralExecutorTransportTests(unittest.TestCase):
             os.environ,
             {
                 "MISTRAL_API_KEY": "test-key",
-                "MISTRAL_CONTENT_MODEL": "ministral-14b-2512",
+                "MISTRAL_CONTENT_MODEL": "mistral-small-2603",
             },
             clear=False,
         ), mock.patch.object(
