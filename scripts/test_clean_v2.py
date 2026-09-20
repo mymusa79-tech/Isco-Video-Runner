@@ -31,6 +31,7 @@ from clean_v2.pipeline import (
 )
 from clean_v2.providers import NoWireFailure, ProviderAdapter, ProviderRouter
 from clean_v2 import visual_qa as visual_qa_module
+from clean_v2 import text_audit as text_audit_module
 
 
 def _brief() -> dict:
@@ -151,6 +152,29 @@ class PlanningCardinalityTests(unittest.TestCase):
             "exactly 5 for film",
         ):
             validate_plan(six, brief)
+
+
+class TextAuditProfessionalAdviceScopeTests(unittest.TestCase):
+    def test_attempt2_productivity_guidance_is_explicitly_outside_professional_advice_flag(self) -> None:
+        legacy_prompt = (
+            "Rules:\n"
+            + text_audit_module._LEGACY_PROFESSIONAL_ADVICE_RULE
+            + "\n<PLAN>اختر مهمة واحدة، اضبط تذكيرًا، وتابع تقدمك.</PLAN>"
+        )
+        scoped = text_audit_module._scope_professional_advice_prompt(legacy_prompt)
+
+        self.assertIn("choose a task, set a reminder, or track progress", scoped)
+        self.assertIn("do NOT flag ordinary general productivity/self-improvement advice", scoped)
+        self.assertIn("individualized medical, legal, financial", scoped)
+        self.assertIn("religious authority advice/claims", scoped)
+        self.assertIn("diagnosis, treatment, prescriptions", scoped)
+        self.assertEqual(scoped.count("For professional_advice_flags specifically:"), 1)
+
+    def test_professional_advice_scope_fails_closed_if_legacy_rule_drifts(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "professional-advice rule drift"):
+            text_audit_module._scope_professional_advice_prompt(
+                "Rules changed unexpectedly; no legacy professional advice rule here."
+            )
 
 
 class ProviderAccountingTests(unittest.TestCase):
