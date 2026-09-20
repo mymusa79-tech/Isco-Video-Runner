@@ -1398,6 +1398,7 @@ class CleanV2Pipeline:
                         fmt=str(brief["format"]),
                         narration_path=narration_path,
                         visual_source=self.visual_source,
+                        router=self.router,
                     ),
                 )
             except Exception:

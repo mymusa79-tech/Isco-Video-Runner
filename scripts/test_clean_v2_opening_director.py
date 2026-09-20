@@ -22,8 +22,10 @@ class _FakeOpeningVisualSource:
     def __init__(self, candidates: list[tuple[Path, dict]]) -> None:
         self.candidates = candidates
         self.events = [{"wire_attempted": True, "result": "recovery_pool_ready"}]
+        self.acquire_calls: list[dict] = []
 
-    def acquire_replacement_candidates(self, *_args, **_kwargs):
+    def acquire_replacement_candidates(self, query, *_args, **kwargs):
+        self.acquire_calls.append({"query": query, **kwargs})
         return list(self.candidates)
 
     def commit_replacement(self, replacement: Path, destination: Path) -> Path:
@@ -33,6 +35,54 @@ class _FakeOpeningVisualSource:
         if sidecar.is_file():
             os.replace(sidecar, destination.with_suffix(".m8.json"))
         return destination
+
+
+class _QueryAwareOpeningVisualSource(_FakeOpeningVisualSource):
+    def __init__(
+        self,
+        primary_candidates: list[tuple[Path, dict]],
+        alternate_candidates: list[tuple[Path, dict]],
+        *,
+        primary_query: str,
+        alternate_query: str,
+    ) -> None:
+        super().__init__(primary_candidates)
+        self.primary_candidates = primary_candidates
+        self.alternate_candidates = alternate_candidates
+        self.primary_query = primary_query
+        self.alternate_query = alternate_query
+
+    def acquire_replacement_candidates(self, query, *_args, **kwargs):
+        self.acquire_calls.append({"query": query, **kwargs})
+        if query == self.primary_query:
+            return list(self.primary_candidates)
+        if query == self.alternate_query:
+            return list(self.alternate_candidates)
+        raise AssertionError(f"unexpected opening query: {query}")
+
+
+class _OpeningRouter:
+    def __init__(self, alternate_query: str) -> None:
+        self.alternate_query = alternate_query
+        self.calls = 0
+        self.events: list[dict] = []
+
+    def route(self, *, stage, prompt, max_tokens, validator):
+        self.calls += 1
+        self.asserted_stage = stage
+        self.asserted_prompt = prompt
+        self.asserted_max_tokens = max_tokens
+        raw = {"alternate_query": self.alternate_query}
+        value = validator(raw)
+        self.events.append(
+            {
+                "stage": stage,
+                "provider": "fixture",
+                "result": "success",
+                "wire_attempted": True,
+            }
+        )
+        return value
 
 
 def _plan() -> dict:
@@ -159,6 +209,100 @@ class CleanV2OpeningDirectorTests(unittest.TestCase):
             self.assertEqual(report["slots"][2]["local_file"], "primary.mp4")
             self.assertEqual(report["slots"][2]["start"], 18.0)
             self.assertEqual(report["slots"][2]["end"], 30.0)
+
+    def test_run191_uses_final_selected_query_then_one_bounded_alternate_search(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rights = _prepare_primary(root)
+            # Run #191 had already recovered s1 in Final Visual QA. The old bug
+            # ignored this proven query and searched the stale Planning query again.
+            recovered_query = "person staring blankly at empty digital task list"
+            alternate_query = "person checking task list at desk"
+            rights[0]["query"] = recovered_query
+            rights[0]["semantic_recovery"] = True
+            rights[0]["recovery_of_query"] = _plan()["sections"][0]["visual_query_en"]
+
+            primary_candidates = []
+            for index in range(1, 4):
+                path = root / "visuals" / f".run191-primary-{index}.mp4"
+                path.write_bytes(bytes([index]) * 2048)
+                primary_candidates.append(
+                    (
+                        path,
+                        {
+                            "provider": "pexels",
+                            "asset_id": f"run191-primary-{index}",
+                            "section_id": "s1",
+                        },
+                    )
+                )
+            alternate_candidates = []
+            for index in range(1, 3):
+                path = root / "visuals" / f".run191-alt-{index}.mp4"
+                path.write_bytes(bytes([index + 10]) * 2048)
+                alternate_candidates.append(
+                    (
+                        path,
+                        {
+                            "provider": "pexels",
+                            "asset_id": f"run191-alt-{index}",
+                            "section_id": "s1",
+                        },
+                    )
+                )
+
+            source = _QueryAwareOpeningVisualSource(
+                primary_candidates,
+                alternate_candidates,
+                primary_query=recovered_query,
+                alternate_query=alternate_query,
+            )
+            router = _OpeningRouter(alternate_query)
+            passed = {
+                "report": {"status": "pass"},
+                "audit": {"final_cut_readiness": "ready", "fit_score_10": 9.4},
+            }
+            # Exact Run #191 geometry: first opening candidate blocks. The restored
+            # legacy recovery then switches once to an alternate pool, and the two
+            # remaining Vision reviews are reserved for the two still-needed shots.
+            with patch("clean_v2.opening_director.probe_duration", return_value=120.0), patch(
+                "clean_v2.opening_director._candidate_audit",
+                side_effect=[
+                    CleanV2VisualQABlock("not ready"),
+                    passed,
+                    passed,
+                ],
+            ):
+                report = run_opening_director(
+                    output_dir=root,
+                    plan=_plan(),
+                    script=_script(),
+                    rights=rights,
+                    fmt="film",
+                    narration_path=root / "voice.wav",
+                    visual_source=source,
+                    router=router,
+                )
+
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["candidate_review_count"], 3)
+            self.assertEqual(report["audited_shot_count"], 3)
+            self.assertTrue(report["alternate_query_attempted"])
+            self.assertTrue(report["alternate_search_used"])
+            self.assertEqual(report["alternate_query"], alternate_query)
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(router.asserted_stage, "visual_query_recovery")
+            self.assertEqual(router.asserted_max_tokens, 80)
+            self.assertEqual(
+                [item["query"] for item in source.acquire_calls],
+                [recovered_query, alternate_query],
+            )
+            self.assertEqual(
+                [item["query_source"] for item in report["candidate_reviews"]],
+                ["selected_rights_query", "alternate_query", "alternate_query"],
+            )
+            self.assertTrue((root / "visuals" / "opening-cold_open.mp4").is_file())
+            self.assertTrue((root / "visuals" / "opening-escalation.mp4").is_file())
 
     def test_successful_stock_search_with_too_few_candidates_is_quality_block(self):
         with tempfile.TemporaryDirectory() as tmp:
