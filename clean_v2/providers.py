@@ -25,7 +25,7 @@ MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA = {
     "properties": {
         "alternate_query": {
             "type": "string",
-            "maxLength": 200,
+            "maxLength": 80,
         }
     },
     "required": ["alternate_query"],

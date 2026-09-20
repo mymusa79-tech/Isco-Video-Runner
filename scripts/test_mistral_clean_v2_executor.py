@@ -165,7 +165,7 @@ class MistralExecutorTransportTests(unittest.TestCase):
         ) as urlopen:
             result = mistral_executor.mistral_executor_json(
                 "generate one alternate visual query",
-                max_tokens=300,
+                max_tokens=80,
                 task_kind="visual_query_recovery",
             )
 
@@ -173,7 +173,7 @@ class MistralExecutorTransportTests(unittest.TestCase):
         request = urlopen.call_args.args[0]
         payload = json.loads(request.data.decode("utf-8"))
         self.assertEqual(payload["model"], "ministral-14b-2512")
-        self.assertEqual(payload["max_tokens"], 300)
+        self.assertEqual(payload["max_tokens"], 80)
         telemetry = mistral_executor.get_mistral_executor_telemetry()
         self.assertEqual(telemetry[-1]["task_kind"], "visual_query_recovery")
         self.assertEqual(telemetry[-1]["model"], "ministral-14b-2512")
@@ -304,7 +304,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             "no face visible"
         )
         alternate_query = (
-            "hand writing a simple if then plan on a sticky note beside morning coffee"
+            "hand writing plan on sticky note beside coffee"
         )
         expected_schema = (
             "visual_query_recovery",
@@ -313,7 +313,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                 "properties": {
                     "alternate_query": {
                         "type": "string",
-                        "maxLength": 200,
+                        "maxLength": 80,
                     }
                 },
                 "required": ["alternate_query"],
@@ -337,7 +337,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         ):
             order.append("mistral")
             self.assertEqual(task_kind, "visual_query_recovery")
-            self.assertEqual(max_tokens, 300)
+            self.assertEqual(max_tokens, 80)
             self.assertEqual(response_schema, expected_schema)
             return {"alternate_query": alternate_query}
 
@@ -354,7 +354,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             result = router.route(
                 stage="visual_query_recovery",
                 prompt="Run 137 s5 recovery prompt",
-                max_tokens=300,
+                max_tokens=80,
                 validator=lambda value: visual_qa._validate_alternate_query(
                     value,
                     original_query=original_query,
@@ -362,7 +362,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
             )
 
         self.assertEqual(result, {"alternate_query": alternate_query})
-        self.assertLessEqual(len(result["alternate_query"]), 200)
+        self.assertLessEqual(len(result["alternate_query"]), 80)
         self.assertNotEqual(
             result["alternate_query"].casefold(),
             original_query.casefold(),
