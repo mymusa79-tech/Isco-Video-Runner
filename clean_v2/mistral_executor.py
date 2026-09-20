@@ -31,6 +31,10 @@ _TELEMETRY: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
     "isco_clean_v2_mistral_executor_telemetry",
     default=(),
 )
+_LAST_RAW_CONTENT: ContextVar[str] = ContextVar(
+    "isco_clean_v2_mistral_executor_last_raw_content",
+    default="",
+)
 
 
 class MistralExecutorNoWireFailure(RuntimeError):
@@ -75,10 +79,15 @@ def _model_for_task(task_kind: str) -> str:
 
 def reset_mistral_executor_telemetry() -> None:
     _TELEMETRY.set(())
+    _LAST_RAW_CONTENT.set("")
 
 
 def get_mistral_executor_telemetry() -> list[dict[str, Any]]:
     return [dict(item) for item in _TELEMETRY.get()]
+
+
+def get_last_mistral_executor_raw_content() -> str:
+    return _LAST_RAW_CONTENT.get()
 
 
 def _rate_limit_headers(headers: Mapping[str, object]) -> dict[str, str]:
@@ -169,6 +178,7 @@ def mistral_executor_json(
 ) -> dict[str, Any]:
     """Perform exactly one Mistral executor request and return one JSON object."""
     normalized_task = str(task_kind or "").strip().lower()
+    _LAST_RAW_CONTENT.set("")
     if normalized_task not in MISTRAL_EXECUTOR_TASKS:
         raise MistralExecutorNoWireFailure("mistral_executor_role_not_allowed")
     token = _read_secret("MISTRAL_API_KEY")
@@ -264,6 +274,7 @@ def mistral_executor_json(
     if not isinstance(message, dict):
         raise MistralExecutorWireFailure("mistral_message_missing")
     raw = _message_text(message.get("content")).strip()
+    _LAST_RAW_CONTENT.set(raw)
     if not raw:
         raise MistralExecutorWireFailure("mistral_empty_output")
     try:
