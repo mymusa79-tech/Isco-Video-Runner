@@ -97,7 +97,13 @@ jobs:
           assert schema["properties"]["cta"]["pattern"] == r"\S"
 
           mistral_executor.reset_mistral_executor_telemetry()
-          candidate = providers._mistral_call(prompt, 3000, "planning")
+          candidate = mistral_executor.mistral_executor_json(
+              prompt,
+              max_tokens=3000,
+              task_kind="planning",
+              response_schema=("planning", schema),
+              temperature=0.0,
+          )
           plan = validate_plan(candidate, brief)
 
           cta_mode, cta_reason = infer_cta_mode(plan["cta"])
@@ -111,7 +117,7 @@ jobs:
               raise SystemExit(f"expected one Mistral call, got {len(telemetry)}")
 
           print(json.dumps({
-              "probe": "RUN196_PLANNING_CTA_PASS",
+              "probe": "RUN196_PLANNING_CTA_TEMP0_PASS",
               "prompt_sha256": prompt_sha256,
               "prompt_utf8_bytes": len(prompt.encode("utf-8")),
               "schema_has_cta": True,
