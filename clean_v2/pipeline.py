@@ -1629,12 +1629,11 @@ class CleanV2Pipeline:
                 voice_fallback_used=journal.payload.get("voice_fallback_used"),
             )
 
-            # Visual QA, the opening director, and the M7/M9/M10/M11 shadow
-            # audit layer all still expect exactly one selected asset per
-            # section - unchanged from before pacing existed. Extra same-query
-            # clips acquired for a long section's visual pacing are auxiliary
-            # coverage for the renderer only (see rights-manifest.json for the
-            # full list); they never enter those content-judgment gates.
+            # The opening director and the M7/M9/M10/M11 shadow audit layer
+            # still expect exactly one selected asset per section - unchanged
+            # from before pacing existed. Visual QA itself now tolerates
+            # extras (see visual_qa.py), so it gets the full rights list
+            # below instead of this filtered one.
             primary_rights = [
                 row
                 for row in rights
@@ -1654,7 +1653,11 @@ class CleanV2Pipeline:
                         output_dir=output_dir,
                         plan=plan,
                         script=script,
-                        rights=primary_rights,
+                        # visual_qa.py now accepts one-or-more assets per
+                        # section (only the primary, index 0, is actually
+                        # reviewed) - the full rights list, including any
+                        # pacing_auxiliary entries, is safe to pass here.
+                        rights=rights,
                         fmt=str(brief["format"]),
                         router=self.router,
                         visual_source=self.visual_source,

@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -11,6 +13,25 @@ from unittest import mock
 from clean_v2.contracts import compute_brief_sha256
 from clean_v2.pipeline import CINEMATIC_STAGE, CleanV2Pipeline
 from clean_v2 import media as media_module
+
+
+def _stub_engine_color_modules(filter_string: str) -> dict[str, types.ModuleType]:
+    """Build the minimal fake isco_video_agent.media.color module tree so
+    media.py's lazy `from isco_video_agent.media.color import
+    build_color_filter` succeeds without a real Engine checkout - matching
+    the stubbing convention already used in test_clean_v2_final_master_qc.py
+    for this exact "test job has no Engine" situation."""
+    package = types.ModuleType("isco_video_agent")
+    package.__path__ = []
+    media_pkg = types.ModuleType("isco_video_agent.media")
+    media_pkg.__path__ = []
+    color_mod = types.ModuleType("isco_video_agent.media.color")
+    color_mod.build_color_filter = lambda _path: filter_string
+    return {
+        "isco_video_agent": package,
+        "isco_video_agent.media": media_pkg,
+        "isco_video_agent.media.color": color_mod,
+    }
 
 
 def _candidate(provider: str, asset_id: str) -> dict:
@@ -664,14 +685,187 @@ class PipelineWiringTests(unittest.TestCase):
                 sum(1 for item in assets if item.get("pacing_auxiliary")), 1
             )
 
-            # Visual QA - a real content-judgment gate - must see exactly one
-            # asset per section, never the pacing auxiliary.
-            self.assertEqual(len(visual_qa.received_rights), 5)
-            self.assertFalse(
-                any(item.get("pacing_auxiliary") for item in visual_qa.received_rights)
+            # Visual QA now tolerates one-or-more assets per section, so it
+            # sees the full rights list including the pacing auxiliary.
+            self.assertEqual(len(visual_qa.received_rights), 6)
+            self.assertEqual(
+                sum(1 for item in visual_qa.received_rights if item.get("pacing_auxiliary")),
+                1,
             )
 
             self.assertTrue((output / "final.mp4").is_file())
+
+
+class ColorGradeIntegrationTests(unittest.TestCase):
+    def test_grade_filter_is_appended_when_engine_color_module_is_importable(self) -> None:
+        stub_filter = "eq=contrast=9.999:brightness=0.0100:saturation=0.9000"
+        modules = _stub_engine_color_modules(stub_filter)
+        with mock.patch.dict(sys.modules, modules):
+            fragment = media_module._grade_clip_filter(Path("does-not-matter.mp4"))
+        self.assertEqual(fragment, stub_filter)
+
+    def test_grade_filter_is_empty_without_engine(self) -> None:
+        # No stub installed and no real Engine on the path here - matches
+        # the CI "test" job, which never checks out Engine at all.
+        with mock.patch.dict(sys.modules, {"isco_video_agent.media.color": None}):
+            fragment = media_module._grade_clip_filter(Path("does-not-matter.mp4"))
+        self.assertEqual(fragment, "")
+
+    def test_trim_and_grade_command_includes_the_grade_fragment(self) -> None:
+        stub_filter = "eq=contrast=9.999:brightness=0.0100:saturation=0.9000"
+        modules = _stub_engine_color_modules(stub_filter)
+        captured: dict[str, list[str]] = {}
+
+        def fake_run(command, *, timeout):
+            del timeout
+            captured["command"] = command
+            return None
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(
+            sys.modules, modules
+        ), mock.patch.object(media_module, "_run", side_effect=fake_run):
+            media_module._trim_and_grade_clip(
+                Path(root) / "source.mp4",
+                Path(root) / "trimmed.mp4",
+                width=1920,
+                height=1080,
+                seconds=6.0,
+            )
+
+        vf_index = captured["command"].index("-vf") + 1
+        self.assertIn(stub_filter, captured["command"][vf_index])
+
+    def test_trim_and_grade_command_omits_grading_without_engine(self) -> None:
+        captured: dict[str, list[str]] = {}
+
+        def fake_run(command, *, timeout):
+            del timeout
+            captured["command"] = command
+            return None
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(
+            sys.modules, {"isco_video_agent.media.color": None}
+        ), mock.patch.object(media_module, "_run", side_effect=fake_run):
+            media_module._trim_and_grade_clip(
+                Path(root) / "source.mp4",
+                Path(root) / "trimmed.mp4",
+                width=1920,
+                height=1080,
+                seconds=6.0,
+            )
+
+        vf_index = captured["command"].index("-vf") + 1
+        vf = captured["command"][vf_index]
+        self.assertNotIn("eq=contrast", vf)
+        self.assertIn("trim=duration=6.000", vf)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+class DissolvePairTests(unittest.TestCase):
+    @staticmethod
+    def _make_clip(path: Path, color: str, seconds: float) -> None:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c={color}:s=320x180:r=30:d={seconds}",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
+                str(path),
+            ],
+            check=True,
+        )
+
+    def test_dissolve_preserves_total_duration(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            left = root_path / "left.mp4"
+            right = root_path / "right.mp4"
+            self._make_clip(left, "#172033", 5.0)
+            self._make_clip(right, "#6d4c41", 6.0)
+            dest = root_path / "dissolved.mp4"
+            media_module._dissolve_pair(left, right, dest)
+            self.assertTrue(dest.is_file())
+            merged_seconds = media_module.probe_duration(dest)
+            self.assertAlmostEqual(merged_seconds, 11.0, delta=0.2)
+
+    def test_dissolve_rejects_clips_too_short_for_crossfade(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            left = root_path / "left.mp4"
+            right = root_path / "right.mp4"
+            self._make_clip(left, "#172033", 0.2)
+            self._make_clip(right, "#6d4c41", 5.0)
+            dest = root_path / "dissolved.mp4"
+            with self.assertRaisesRegex(
+                RuntimeError, "pacing_dissolve_pair_too_short_for_timing_preserving_crossfade"
+            ):
+                media_module._dissolve_pair(left, right, dest)
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+class SectionBodySegmentsTests(unittest.TestCase):
+    @staticmethod
+    def _make_clip(path: Path, color: str, seconds: float) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c={color}:s=320x180:r=30:d={seconds}",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
+                str(path),
+            ],
+            check=True,
+        )
+
+    def test_multi_clip_section_dissolves_into_one_segment_single_stays_plain(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            source_dir = root_path / "sources"
+            clip_a = source_dir / "a.mp4"
+            clip_b = source_dir / "b.mp4"
+            clip_c = source_dir / "c.mp4"
+            self._make_clip(clip_a, "#172033", 6.0)
+            self._make_clip(clip_b, "#6d4c41", 6.0)
+            self._make_clip(clip_c, "#2e7d32", 8.0)
+            paths = [clip_a, clip_b, clip_c]
+            durations = [6.0, 6.0, 8.0]
+            section_ids = ["s1", "s1", "s2"]
+
+            work_dir = root_path / "work"
+            segments = media_module._build_section_body_segments(
+                work_dir, paths, durations, section_ids, width=320, height=180
+            )
+
+            # Two logical sections in, two segments out: s1's two clips merge
+            # into one dissolved segment, s2's single clip stays its own.
+            self.assertEqual(len(segments), 2)
+            for segment in segments:
+                self.assertTrue(segment.is_file())
+            s1_seconds = media_module.probe_duration(segments[0])
+            self.assertAlmostEqual(s1_seconds, 12.0, delta=0.3)
+            s2_seconds = media_module.probe_duration(segments[1])
+            self.assertAlmostEqual(s2_seconds, 8.0, delta=0.3)
 
 
 if __name__ == "__main__":

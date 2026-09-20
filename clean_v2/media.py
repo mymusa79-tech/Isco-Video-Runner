@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -1119,6 +1120,201 @@ def _section_slot_durations(
     return [(flat_slot / counts[section_id]) + pad for section_id in section_ids]
 
 
+# Same crossfade duration as the Engine's own M9 live-binding dissolve
+# (scripts/m9_live_binding.py::_DISSOLVE_SECONDS) - defined locally rather
+# than importing that module, which pulls in isco_video_agent.orchestrator
+# unconditionally at import time and would break render_video() wherever
+# Engine isn't checked out (this CI's own "test" job included).
+COHESION_DISSOLVE_SECONDS = 0.36
+
+
+def _grade_clip_filter(path: Path) -> str:
+    """Return the restored legacy color-grade ffmpeg filter fragment for one
+    clip, or "" if Engine's grading module isn't importable here.
+
+    Reuses isco_video_agent.media.color.build_color_filter unmodified (a
+    small, dependency-free per-clip luma/saturation normalization) so every
+    clip - regardless of which stock provider it came from - reads as the
+    same restrained warm-neutral look instead of a jump-cut of mismatched
+    source grades. Optional: Clean V2 keeps rendering ungraded rather than
+    failing closed on a missing/measurement-failed dependency.
+    """
+    try:
+        from isco_video_agent.media.color import build_color_filter
+    except Exception:
+        return ""
+    try:
+        return build_color_filter(path)
+    except Exception:
+        return ""
+
+
+def _trim_and_grade_clip(
+    source: Path,
+    destination: Path,
+    *,
+    width: int,
+    height: int,
+    seconds: float,
+) -> Path:
+    grade = _grade_clip_filter(source)
+    vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30"
+    if grade:
+        vf = f"{vf},{grade}"
+    vf = f"{vf},trim=duration={seconds:.3f},setpts=PTS-STARTPTS"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-stream_loop",
+            "-1",
+            "-i",
+            str(source),
+            "-vf",
+            vf,
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-pix_fmt",
+            "yuv420p",
+            str(destination),
+        ],
+        timeout=300,
+    )
+    return destination
+
+
+def _dissolve_pair(
+    left: Path, right: Path, destination: Path, *, dissolve_seconds: float = COHESION_DISSOLVE_SECONDS
+) -> Path:
+    """Crossfade two already-trimmed clips into one continuous segment.
+
+    Ports the Engine's own proven M9 technique (tpad each side by half the
+    dissolve, then xfade) rather than a fresh invention: extend-then-overlap
+    keeps total duration exactly left+right, verified below, so a section's
+    already-computed time budget never drifts because it now holds a soft
+    transition instead of a hard cut.
+    """
+    left_seconds = probe_duration(left)
+    right_seconds = probe_duration(right)
+    if left_seconds <= dissolve_seconds or right_seconds <= dissolve_seconds:
+        raise RuntimeError("pacing_dissolve_pair_too_short_for_timing_preserving_crossfade")
+    half = dissolve_seconds / 2.0
+    offset = left_seconds - half
+    vf = (
+        f"[0:v]tpad=stop_mode=clone:stop_duration={half:.6f},settb=AVTB,setpts=PTS-STARTPTS[v0];"
+        f"[1:v]tpad=start_mode=clone:start_duration={half:.6f},settb=AVTB,setpts=PTS-STARTPTS[v1];"
+        f"[v0][v1]xfade=transition=fade:duration={dissolve_seconds:.6f}:offset={offset:.6f},"
+        "fps=30,setsar=1,format=yuv420p[v]"
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            str(left),
+            "-i",
+            str(right),
+            "-filter_complex",
+            vf,
+            "-map",
+            "[v]",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            str(destination),
+        ],
+        timeout=300,
+    )
+    expected = left_seconds + right_seconds
+    actual = probe_duration(destination)
+    if abs(actual - expected) > 0.18:
+        destination.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"pacing_dissolve_timing_invariant_failed expected={expected:.3f} actual={actual:.3f}"
+        )
+    return destination
+
+
+def _build_section_body_segments(
+    work_dir: Path,
+    paths: list[Path],
+    durations: list[float],
+    section_ids: list[str] | None,
+    *,
+    width: int,
+    height: int,
+) -> list[Path]:
+    """Grade and trim every body clip, then dissolve adjacent clips that
+    share a section (visual pacing's own extra same-query coverage) into one
+    continuous per-section segment instead of a hard cut between them.
+
+    A section with only its one usual clip still gets graded/trimmed the
+    same way, just with nothing to dissolve - this is the single place body
+    clips pass through before the final concat, so every clip in the video
+    gets the same treatment regardless of section length.
+    """
+    work_dir.mkdir(parents=True, exist_ok=True)
+    groups: list[list[int]] = []
+    if section_ids is None:
+        groups = [[index] for index in range(len(paths))]
+    else:
+        current: list[int] = []
+        current_id: str | None = None
+        for index, section_id in enumerate(section_ids):
+            if current and section_id != current_id:
+                groups.append(current)
+                current = []
+            current.append(index)
+            current_id = section_id
+        if current:
+            groups.append(current)
+
+    segments: list[Path] = []
+    for group_index, group in enumerate(groups):
+        trimmed: list[Path] = []
+        for member_index, clip_index in enumerate(group):
+            trimmed.append(
+                _trim_and_grade_clip(
+                    paths[clip_index],
+                    work_dir / f"trim-{group_index:02d}-{member_index:02d}.mp4",
+                    width=width,
+                    height=height,
+                    seconds=durations[clip_index],
+                )
+            )
+        merged = trimmed[0]
+        for member_index in range(1, len(trimmed)):
+            try:
+                merged = _dissolve_pair(
+                    merged,
+                    trimmed[member_index],
+                    work_dir / f"dissolve-{group_index:02d}-{member_index:02d}.mp4",
+                )
+            except RuntimeError:
+                # A sub-clip too short for a timing-preserving crossfade
+                # keeps its hard cut rather than blocking the render over a
+                # pacing polish - concat filter below handles plain joins.
+                segments.append(merged)
+                merged = trimmed[member_index]
+        segments.append(merged)
+    return segments
+
+
 def render_video(
     narration_path: Path,
     visual_paths: list[Path],
@@ -1189,54 +1385,95 @@ def render_video(
         paths = [Path(item) for item in visual_paths]
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
-    command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
-    for path in paths:
-        command.extend(["-stream_loop", "-1", "-i", str(path)])
-    command.extend(["-i", str(narration_path)])
-    filters: list[str] = []
-    labels: list[str] = []
-    for index, clip_seconds in enumerate(durations):
-        label = f"v{index}"
-        labels.append(f"[{label}]")
-        filters.append(
-            f"[{index}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps=30,trim=duration={clip_seconds:.3f},"
-            f"setpts=PTS-STARTPTS[{label}]"
-        )
-    filters.append(
-        f"{''.join(labels)}concat=n={len(paths)}:v=1:a=0[vout]"
-    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    command.extend(
-        [
-            "-filter_complex",
-            ";".join(filters),
-            "-map",
-            "[vout]",
-            "-map",
-            f"{len(paths)}:a:0",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "22",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "160k",
-            "-ar",
-            "48000",
-            "-movflags",
-            "+faststart",
-            "-shortest",
-            "-y",
-            str(output_path),
-        ]
-    )
-    _run(command, timeout=1800)
+    output_dir = Path(output_path).parent
+
+    # Opening clips (fixed 7/11/12s audited shots, when present) keep their
+    # exact existing raw scale/crop/trim treatment - untouched by grading or
+    # dissolves, which only apply to the ordinary body clips below.
+    opening_count = 3 if opening_enabled else 0
+    opening_paths_for_render = paths[:opening_count]
+    opening_durations = durations[:opening_count]
+    body_paths_for_render = paths[opening_count:]
+    body_durations_for_render = durations[opening_count:]
+
+    work_dir = output_dir / ".cinematic-cohesion"
+    if work_dir.is_dir():
+        shutil.rmtree(work_dir, ignore_errors=True)
+    try:
+        if body_paths_for_render:
+            body_section_ids = _pacing_section_ids(output_dir, body_paths_for_render)
+            body_segments = _build_section_body_segments(
+                work_dir,
+                body_paths_for_render,
+                body_durations_for_render,
+                body_section_ids,
+                width=width,
+                height=height,
+            )
+        else:
+            body_segments = []
+
+        command = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+        for path in opening_paths_for_render:
+            command.extend(["-stream_loop", "-1", "-i", str(path)])
+        for segment in body_segments:
+            command.extend(["-i", str(segment)])
+        command.extend(["-i", str(narration_path)])
+
+        filters: list[str] = []
+        labels: list[str] = []
+        input_index = 0
+        for clip_seconds in opening_durations:
+            label = f"v{input_index}"
+            labels.append(f"[{label}]")
+            filters.append(
+                f"[{input_index}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+                f"crop={width}:{height},setsar=1,fps=30,trim=duration={clip_seconds:.3f},"
+                f"setpts=PTS-STARTPTS[{label}]"
+            )
+            input_index += 1
+        for _segment in body_segments:
+            label = f"v{input_index}"
+            labels.append(f"[{label}]")
+            # Already scaled, cropped, graded, trimmed (and dissolved where
+            # applicable) by _build_section_body_segments - just reset PTS.
+            filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
+            input_index += 1
+        filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vout]")
+
+        command.extend(
+            [
+                "-filter_complex",
+                ";".join(filters),
+                "-map",
+                "[vout]",
+                "-map",
+                f"{input_index}:a:0",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "22",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "160k",
+                "-ar",
+                "48000",
+                "-movflags",
+                "+faststart",
+                "-shortest",
+                "-y",
+                str(output_path),
+            ]
+        )
+        _run(command, timeout=1800)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
     return output_path
 
 
