@@ -212,6 +212,7 @@ class ProviderPreflightTests(unittest.TestCase):
                 preflight.check_groq("secret")
 
     def test_mistral_is_optional_but_certifies_exact_model_without_inference(self) -> None:
+        self.assertEqual(preflight.MISTRAL_RUNTIME_MODEL, "ministral-14b-2512")
         response = self._response(
             200,
             {"data": [{"id": preflight.MISTRAL_RUNTIME_MODEL}]},
