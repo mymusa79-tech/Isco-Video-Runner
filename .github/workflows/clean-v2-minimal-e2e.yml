@@ -12,6 +12,7 @@ on:
       - "scripts/test_clean_v2_structural_ai_flags.py"
       - "scripts/test_clean_v2_tone_naturalness.py"
       - "scripts/test_clean_v2_opening_director.py"
+      - "scripts/test_clean_v2_contextual_cta.py"
       - "scripts/test_clean_v2_voice.py"
       - "scripts/test_clean_v2_final_master_qc.py"
       - "scripts/test_clean_v2_legacy_cinematic.py"
@@ -55,6 +56,7 @@ jobs:
             scripts.test_clean_v2_structural_ai_flags \
             scripts.test_clean_v2_tone_naturalness \
             scripts.test_clean_v2_opening_director \
+            scripts.test_clean_v2_contextual_cta \
             scripts.test_clean_v2_legacy_cinematic \
             scripts.test_clean_v2_final_master_qc \
             -v
@@ -224,6 +226,18 @@ jobs:
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/factuality-audit.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/tone-naturalness-audit.json")" = "pass"
+          test -s "$CLEAN_V2_OUTPUT/cta-plan.json"
+          test "$(jq -r .rules.provider_calls "$CLEAN_V2_OUTPUT/cta-plan.json")" = "0"
+          test "$(jq -r .provider_calls_added "$CLEAN_V2_OUTPUT/cta-plan.json")" = "0"
+          test "$(jq -r .rules.one_primary_action "$CLEAN_V2_OUTPUT/cta-plan.json")" = "true"
+          case "$(jq -r .mode "$CLEAN_V2_OUTPUT/cta-plan.json")" in
+            comment|subscribe|share|like) ;;
+            *) echo "Unexpected Clean V2 contextual CTA mode" >&2; exit 1 ;;
+          esac
+          case "$(jq -r .render_status "$CLEAN_V2_OUTPUT/cta-plan.json")" in
+            applied|render_error_fallback_to_uncarded_video|not_scheduled) ;;
+            *) echo "Unexpected Clean V2 contextual CTA render status" >&2; exit 1 ;;
+          esac
           test -s "$CLEAN_V2_OUTPUT/structural-ai-flags.json"
           test "$(jq -r .mode "$CLEAN_V2_OUTPUT/structural-ai-flags.json")" = "advisory"
           test -s "$CLEAN_V2_OUTPUT/narrative-identity.json"
