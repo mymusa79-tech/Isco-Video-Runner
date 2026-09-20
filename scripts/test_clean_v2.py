@@ -244,6 +244,66 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
             self.assertIn(_PLANNING_FACTUALITY_RULE, captured[provider])
 
 
+class MistralScriptSchemaTests(unittest.TestCase):
+    def test_script_schema_is_derived_from_locked_plan_with_exact_order(self) -> None:
+        prompt = _script_prompt(_brief(), _plan())
+        schema = providers_module._mistral_script_response_schema(prompt)
+
+        self.assertEqual(schema["required"], ["title", "sections"])
+        self.assertFalse(schema["additionalProperties"])
+        sections = schema["properties"]["sections"]
+        self.assertEqual(sections["minItems"], 5)
+        self.assertEqual(sections["maxItems"], 5)
+        self.assertEqual(
+            [item["properties"]["id"]["const"] for item in sections["prefixItems"]],
+            ["s1", "s2", "s3", "s4", "s5"],
+        )
+        for item in sections["prefixItems"]:
+            self.assertEqual(item["required"], ["id", "narration"])
+            self.assertFalse(item["additionalProperties"])
+            self.assertEqual(item["properties"]["narration"]["minLength"], 20)
+
+    def test_mistral_script_call_passes_strict_schema_to_executor(self) -> None:
+        prompt = _script_prompt(_brief(), _plan())
+        expected = {"title": "خطوة واحدة", "sections": _script()["sections"]}
+
+        with mock.patch.object(
+            providers_module.mistral_executor,
+            "mistral_executor_json",
+            return_value=expected,
+        ) as called:
+            result = providers_module._mistral_call(prompt, 7500, "script")
+
+        self.assertEqual(result, expected)
+        kwargs = called.call_args.kwargs
+        self.assertEqual(kwargs["task_kind"], "script")
+        self.assertEqual(kwargs["max_tokens"], 7500)
+        name, schema = kwargs["response_schema"]
+        self.assertEqual(name, "script")
+        self.assertEqual(
+            [item["properties"]["id"]["const"] for item in schema["properties"]["sections"]["prefixItems"]],
+            ["s1", "s2", "s3", "s4", "s5"],
+        )
+        self.assertEqual(schema["properties"]["sections"]["minItems"], 5)
+        self.assertEqual(schema["properties"]["sections"]["maxItems"], 5)
+
+    def test_script_schema_context_failure_is_no_wire(self) -> None:
+        with mock.patch.object(
+            providers_module.mistral_executor,
+            "mistral_executor_json",
+        ) as called:
+            with self.assertRaisesRegex(
+                NoWireFailure,
+                "mistral_script_locked_plan_missing",
+            ):
+                providers_module._mistral_call(
+                    "script prompt without locked plan",
+                    7500,
+                    "script",
+                )
+        called.assert_not_called()
+
+
 class MistralScriptDiagnosticsTests(unittest.TestCase):
     def test_script_validator_logs_safe_raw_shape_without_narration_text(self) -> None:
         plan = _plan()
