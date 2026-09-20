@@ -33,6 +33,12 @@ _VIDEO_SUFFIXES = frozenset({".mp4", ".mov", ".mkv", ".webm", ".m4v"})
 _PLAIN_STOCK_QUERY_RE = re.compile(r"^[A-Za-z0-9]+(?:[ '-][A-Za-z0-9]+)*$")
 _REPEATED_STOCK_SEPARATOR_RE = re.compile(r"(?: {2,}|--|''| -|- | '|' )")
 _FIREWALL_BLOCK_PREFIX = "multimodal_injection_firewall_block:"
+# Clean V2 alternate-query contract is <=200 chars. The Security V1 injection firewall
+# already owns the stronger 240-char cross-provider ceiling, so the historical Engine
+# 80-char limit is an operational stock-search constraint rather than a security boundary.
+# Keep one explicit provider-facing ceiling aligned with Clean V2 so safe semantic detail
+# is not discarded before Pexels/Pixabay.
+STOCK_QUERY_MAX_LENGTH = 200
 _STOCK_CANDIDATE_LOCAL_CODES = frozenset(
     {
         # Candidate media availability / decode failures.
@@ -95,20 +101,21 @@ def _validated_alternate_query(value: object) -> str:
 
 
 def _normalized_stock_query(value: object, *, alternate: bool = False) -> str:
-    """Normalize only the safe-overlong stock-query failure class.
+    """Normalize the safe-overlong stock-query class without dropping semantic intent.
 
-    Run #106 showed that a semantically valid plain-English stock query can exceed the
-    strict 80-character model-output contract before it reaches Pexels/Pixabay. The
-    security boundary remains authoritative: every query that already validates is
-    returned byte-for-byte unchanged, and every failure other than `visual_query_too_long`
-    remains a hard failure.
+    The frozen Engine schema still has its historical 80-character visual-query limit.
+    Clean V2's alternate-query contract is <=200 chars, while Security V1's independent
+    cross-provider injection firewall already caps untrusted text at 240 chars. Treat
+    the old 80-character ceiling as an operational compatibility limit, not as a
+    security boundary.
 
-    For the one recoverable length case, validate the *entire original value* through
-    the cross-provider injection firewall first, then additionally require the full
-    value to be ASCII plain-search syntax. Only after those checks do we shorten at a
-    word boundary to the existing 80-character ceiling and re-run the original visual
-    query validator. This prevents a malicious/non-English suffix from being hidden by
-    truncation while avoiding a needless Production failure for a safe verbose query.
+    Queries that satisfy the frozen Engine validator remain byte-for-byte unchanged.
+    For the only recoverable failure class (visual_query_too_long), validate the
+    entire original value through the unchanged cross-provider injection firewall and
+    the unchanged ASCII/plain-stock syntax checks before permitting up to 200 chars.
+    Unsafe suffixes therefore cannot be hidden by truncation. Values above the aligned
+    200-character stock ceiling are shortened only at a word boundary after full-value
+    validation.
     """
     validator = validate_alternate_visual_query if alternate else validate_visual_query
     try:
@@ -117,9 +124,10 @@ def _normalized_stock_query(value: object, *, alternate: bool = False) -> str:
         if str(exc) != "visual_query_too_long":
             raise
 
-    # Full-value security validation MUST happen before shortening. This retains
-    # fail-closed behavior for prompt injection, URLs, role markers, shell syntax,
-    # structured markup, newlines/control chars and >240-char cross-provider text.
+    # Full-value security validation MUST happen before any compatibility handling.
+    # This retains fail-closed behavior for prompt injection, URLs, role markers,
+    # shell syntax, structured markup, newlines/control chars, non-ASCII text and
+    # >240-char cross-provider text.
     full = validate_cross_provider_text(value).as_downstream_data()
     if not full.isascii():
         raise ModelOutputSchemaError("visual_query_non_english_or_non_ascii_rejected")
@@ -128,24 +136,29 @@ def _normalized_stock_query(value: object, *, alternate: bool = False) -> str:
     if _REPEATED_STOCK_SEPARATOR_RE.search(full):
         raise ModelOutputSchemaError("visual_query_malformed_separators")
 
+    if len(full) <= STOCK_QUERY_MAX_LENGTH:
+        print(
+            "Security V1 preserved safe overlong stock query: "
+            f"{len(full)} chars (legacy_engine_limit={VISUAL_QUERY_MAX_LENGTH})"
+        )
+        return full
+
     words = full.split()
     kept: list[str] = []
     for word in words:
         candidate = " ".join([*kept, word])
-        if len(candidate) > VISUAL_QUERY_MAX_LENGTH:
+        if len(candidate) > STOCK_QUERY_MAX_LENGTH:
             break
         kept.append(word)
 
     shortened = " ".join(kept)
     if not shortened:
         raise ModelOutputSchemaError("visual_query_too_long")
-    normalized = validator(shortened).as_downstream_data()
     print(
         "Security V1 normalized safe overlong stock query: "
-        f"{len(full)} -> {len(normalized)} chars"
+        f"{len(full)} -> {len(shortened)} chars"
     )
-    return normalized
-
+    return shortened
 
 def _normalized_optional_alternate_query(value: object) -> str:
     """Preserve Engine's explicit NO_ALTERNATE sentinel without weakening schemas.
@@ -408,8 +421,9 @@ def install_security_v1_live_binding() -> None:
     orchestrator.compact_signals = _quarantined_market_signals
 
     # All stock-provider queries, including model-generated alternate queries, cross a strict schema gate.
-    # Safe-but-overlong plain-English queries are shortened deterministically at this
-    # one boundary before provider access; unsafe content still fails closed.
+    # Safe plain-English queries are preserved up to the aligned 200-character stock
+    # ceiling; only longer values are shortened at a word boundary after full-value
+    # security validation. Unsafe content still fails closed.
     orchestrator.pexels_search_videos = _wrap_search(orchestrator.pexels_search_videos)
     orchestrator.pixabay_provider.search_videos = _wrap_search(orchestrator.pixabay_provider.search_videos)
     thumbnail.search_photos = _wrap_search(thumbnail.search_photos)
