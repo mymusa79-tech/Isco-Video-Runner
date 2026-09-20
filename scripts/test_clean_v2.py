@@ -33,6 +33,7 @@ from clean_v2.pipeline import (
     CleanV2ToneContentBlock,
     _run_text_audit_with_one_bounded_tone_repair,
     _tone_repair_prompt,
+    _validate_tone_repair_script,
     _PLANNING_FACTUALITY_RULE,
     _narrative_identity_prompt,
     _planning_prompt,
@@ -2873,6 +2874,87 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertEqual(repair["attempts"], 1)
             structural = json.loads((root / "structural-ai-flags.json").read_text(encoding="utf-8"))
             self.assertEqual(structural["flags"], [])
+
+    def test_run220_host_overlay_keeps_naturalness_fix_and_restores_all_locked_anchors(self) -> None:
+        original = self._run199_script()
+        original["sections"][0]["narration"] = (
+            self.HOOK + " " + self.OPENER
+            + " 你看 planner اليوم يكشف فجوة بين الخطة والتنفيذ."
+        )
+        original["sections"][1]["narration"] = (
+            "التخطيط fallacy يجعل تقدير الزمن أكثر تفاؤلًا من الواقع."
+        )
+        original["sections"][2]["narration"] = (
+            "implementation intentions تساعد على ربط النية بإشارة محددة. "
+            + self.CTA
+        )
+        original["sections"][4]["narration"] = (
+            "planner ليس كافيًا وحده. " + self.CLOSER
+        )
+
+        candidate = {
+            "title": "عنوان غير مسموح بتغييره",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "هوك بديل غير مسموح. انظر إلى مخططك اليوم، فهو يكشف فجوة "
+                        "بين الخطة والتنفيذ."
+                    ),
+                },
+                {
+                    "id": "s2",
+                    "narration": "مغالطة التخطيط تجعل تقدير الزمن أكثر تفاؤلًا من الواقع.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "تساعد نوايا التنفيذ على ربط النية بإشارة محددة.",
+                },
+                {
+                    "id": "s4",
+                    "narration": "اربط البداية بوقت ومكان واضحين، ثم راقب ما يحدث.",
+                },
+                {
+                    "id": "s5",
+                    "narration": "المخطط وحده لا يكفي؛ المهم أن تصمم إشارة عملية للبدء.",
+                },
+            ],
+        }
+        identity = {
+            "opener": self.OPENER,
+            "closer": self.CLOSER,
+            "transitions": ["أولاً", "ثم", "أخيرًا"],
+        }
+        cta_plan = {
+            "mode": "subscribe",
+            "anchor_section_id": "s3",
+            "spoken_text": self.CTA,
+            "visual_only": False,
+        }
+
+        repaired = _validate_tone_repair_script(
+            candidate,
+            plan=self._plan_for_run199(),
+            original_script=original,
+            identity=identity,
+            cta_plan=cta_plan,
+        )
+
+        joined = "\n".join(item["narration"] for item in repaired["sections"])
+        self.assertEqual(repaired["title"], original["title"])
+        self.assertEqual(
+            repaired["sections"][0]["narration"].split(self.OPENER, 1)[0].strip(),
+            self.HOOK,
+        )
+        self.assertEqual(joined.count(self.OPENER), 1)
+        self.assertEqual(joined.count(self.CLOSER), 1)
+        self.assertEqual(joined.count(self.CTA), 1)
+        self.assertIn(self.CTA, repaired["sections"][2]["narration"])
+        self.assertIn("مغالطة التخطيط", repaired["sections"][1]["narration"])
+        self.assertIn("نوايا التنفيذ", repaired["sections"][2]["narration"])
+        self.assertNotIn("你看", joined)
+        self.assertNotIn("planning fallacy", joined)
+        self.assertNotIn("implementation intentions", joined)
 
     # Production regression: Cold Runs #201/#203 reached Tone repair but the
     # Mistral Script adapter rejected the repair prompt before wire because its
