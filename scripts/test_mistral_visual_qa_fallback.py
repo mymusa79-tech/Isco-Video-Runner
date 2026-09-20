@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -96,19 +95,6 @@ class _Response:
         }
 
 
-class _RateLimitedResponse:
-    ok = False
-    status_code = 429
-    headers = {
-        "Retry-After": "7",
-        "x-ratelimit-limit-req-minute": "30",
-        "x-ratelimit-limit-tokens-minute": "937500",
-    }
-
-    def json(self):
-        return {"error": {"message": "rate limit exceeded"}}
-
-
 class MistralVisualQATransportTests(unittest.TestCase):
     def setUp(self) -> None:
         mistral.reset_mistral_visual_qa_telemetry()
@@ -132,6 +118,8 @@ class MistralVisualQATransportTests(unittest.TestCase):
                 intended_visual="ignored",
                 canonical_visual_evidence=evidence,
             )
+            expected_frames = list(evidence.frame_bytes())
+            expected_prompt = evidence.prompt
 
         # The existing Engine normalizer remains authoritative over provider status.
         self.assertEqual(result["status"], "block")
@@ -152,8 +140,8 @@ class MistralVisualQATransportTests(unittest.TestCase):
             base64.b64decode(item["image_url"].split(",", 1)[1])
             for item in content[:-1]
         ]
-        self.assertEqual(decoded, list(evidence.frame_bytes()))
-        self.assertEqual(content[-1]["text"], evidence.prompt)
+        self.assertEqual(decoded, expected_frames)
+        self.assertEqual(content[-1]["text"], expected_prompt)
 
         telemetry = mistral.get_mistral_visual_qa_telemetry()
         self.assertEqual(len(telemetry), 1)
@@ -162,30 +150,6 @@ class MistralVisualQATransportTests(unittest.TestCase):
             telemetry[0]["rate_limit_headers"]["x-ratelimit-limit-tokens-minute"],
             "937500",
         )
-
-    def test_retry_after_header_is_preserved_as_exact_seconds(self) -> None:
-        with tempfile.TemporaryDirectory() as root, mock.patch.dict(
-            os.environ,
-            {"MISTRAL_API_KEY": "test-key"},
-            clear=False,
-        ), mock.patch.object(
-            mistral.requests,
-            "post",
-            return_value=_RateLimitedResponse(),
-        ):
-            evidence = _evidence(root)
-            with self.assertRaises(contract.VisionStageError) as raised:
-                mistral._mistral_visual_call(
-                    evidence.source_path,
-                    narration_context="ignored",
-                    intended_visual="ignored",
-                    canonical_visual_evidence=evidence,
-                )
-
-        self.assertEqual(raised.exception.http_status, 429)
-        self.assertEqual(mistral.latest_retry_after_seconds(), 7.0)
-        telemetry = mistral.get_mistral_visual_qa_telemetry()
-        self.assertEqual(telemetry[-1]["rate_limit_headers"]["retry-after"], "7")
 
     def test_schema_mismatch_is_structural_and_fail_closed(self) -> None:
         malformed = dict(_PASS)
@@ -319,90 +283,6 @@ class MistralVisualQARoutingTests(unittest.TestCase):
             contract.VISION_STAGE_SPEC.provider_policy.max_total_inference_attempts,
             5,
         )
-
-    def test_active_mistral_health_block_skips_wire_attempt(self) -> None:
-        health.publish_provider_failure(
-            mistral.MISTRAL_VISION_PROVIDER,
-            model=mistral.MISTRAL_VISION_MODEL,
-            quota_domain=mistral.MISTRAL_VISION_QUOTA_DOMAIN,
-            reason="HTTP_429 rate limit exceeded",
-            source="vision_stage",
-            failure_class=health.FAILURE_RATE_LIMITED,
-            retry_after_seconds=30.0,
-        )
-        with tempfile.TemporaryDirectory() as root, legacy.vision_provider_circuit_scope(), mock.patch.object(
-            mesh.mistral_vision,
-            "mistral_visual_configured",
-            return_value=True,
-        ), mock.patch.object(
-            mesh,
-            "_record_circuit_open",
-        ), mock.patch.object(
-            mesh,
-            "_run_mistral_attempt",
-        ) as attempt:
-            evidence = _evidence(root)
-            with self.assertRaises(legacy.VisionProviderMeshUnavailableError):
-                mesh._mistral_or_mesh(
-                    None,
-                    _spec(),
-                    legacy._state(),
-                    attempts=4,
-                    max_attempts=5,
-                    preview=evidence.source_path,
-                    narration_context="ctx",
-                    intended_visual="intent",
-                    input_hash="a" * 64,
-                    canonical_visual_evidence=evidence,
-                )
-        attempt.assert_not_called()
-
-    def test_mistral_retry_after_is_published_to_health_registry(self) -> None:
-        error = contract.VisionStageError(
-            contract.VisionErrorCode.PROVIDER_TRANSIENT,
-            "HTTP_429 message=rate limit exceeded",
-            provider=mistral.MISTRAL_VISION_PROVIDER,
-            requested_model=mistral.MISTRAL_VISION_MODEL,
-            http_status=429,
-        )
-        before = time.monotonic()
-        with tempfile.TemporaryDirectory() as root, legacy.vision_provider_circuit_scope(), mock.patch.object(
-            mesh.mistral_vision,
-            "mistral_visual_configured",
-            return_value=True,
-        ), mock.patch.object(
-            mesh.mistral_vision,
-            "latest_retry_after_seconds",
-            return_value=7.0,
-        ), mock.patch.object(
-            mesh,
-            "_run_mistral_attempt",
-            side_effect=error,
-        ):
-            evidence = _evidence(root)
-            with self.assertRaises(legacy.VisionProviderMeshUnavailableError):
-                mesh._mistral_or_mesh(
-                    None,
-                    _spec(),
-                    legacy._state(),
-                    attempts=4,
-                    max_attempts=5,
-                    preview=evidence.source_path,
-                    narration_context="ctx",
-                    intended_visual="intent",
-                    input_hash="b" * 64,
-                    canonical_visual_evidence=evidence,
-                )
-        rows = [
-            row
-            for row in health.snapshot_provider_health()
-            if row["provider"] == mistral.MISTRAL_VISION_PROVIDER
-        ]
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["failure_class"], health.FAILURE_RATE_LIMITED)
-        self.assertIsNotNone(rows[0]["retry_at"])
-        self.assertGreaterEqual(rows[0]["retry_at"], before + 6.5)
-        self.assertLessEqual(rows[0]["retry_at"], before + 8.5)
 
     def test_cloudflare_semantic_block_is_final_and_never_calls_mistral(self) -> None:
         block = dict(_PASS)

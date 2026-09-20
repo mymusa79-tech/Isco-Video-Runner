@@ -1,0 +1,393 @@
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+from clean_v2 import mistral_executor
+from clean_v2 import providers
+from clean_v2 import text_audit
+from clean_v2.pipeline import CleanV2Pipeline, _build_production_plan_for_audit
+
+
+_FACT_PASS = {
+    "status": "pass",
+    "unsupported_claims": [],
+    "professional_advice_flags": [],
+    "expert_persona_flags": [],
+    "notes": [],
+}
+
+
+class _Response:
+    status = 200
+    headers = {
+        "x-ratelimit-limit-req-minute": "30",
+        "x-ratelimit-limit-tokens-minute": "937500",
+        "x-ratelimit-remaining-tokens-minute": "936900",
+    }
+
+    def __init__(self, result: dict) -> None:
+        self.result = result
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def getcode(self):
+        return self.status
+
+    def read(self, _limit: int):
+        body = {
+            "model": mistral_executor.MISTRAL_EXECUTOR_MODEL,
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": json.dumps(self.result)},
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 400,
+                "completion_tokens": 200,
+                "total_tokens": 600,
+            },
+        }
+        return json.dumps(body).encode("utf-8")
+
+
+def _brief() -> dict:
+    return {
+        "approved_topic": "اختبار واقعي كامل",
+        "pillar": "personal_development",
+        "format": "film",
+        "research_pack": [],
+    }
+
+
+def _plan() -> dict:
+    return {
+        "title": "عنوان الاختبار",
+        "promise": "وعد واضح للمشاهد",
+        "sections": [
+            {
+                "id": f"s{index}",
+                "heading": f"القسم {index}",
+                "purpose": "غرض كامل وواضح لهذا القسم",
+                "visual_query_en": f"calm daily routine detail {index}",
+            }
+            for index in range(1, 6)
+        ],
+    }
+
+
+def _script() -> dict:
+    return {
+        "title": "عنوان الاختبار",
+        "sections": [
+            {
+                "id": f"s{index}",
+                "narration": (
+                    "هذا نص عربي كامل بما يكفي لاختبار عقد التدقيق الفعلي "
+                    "من دون ادعاءات خارج سياق البحث المعتمد."
+                ),
+            }
+            for index in range(1, 6)
+        ],
+    }
+
+
+class MistralExecutorTransportTests(unittest.TestCase):
+    def setUp(self) -> None:
+        mistral_executor.reset_mistral_executor_telemetry()
+
+    def test_transport_records_real_usage_headers_and_executor_role(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"MISTRAL_API_KEY": "test-key"},
+            clear=False,
+        ), mock.patch.object(
+            mistral_executor.urllib.request,
+            "urlopen",
+            return_value=_Response({"ok": True}),
+        ) as urlopen:
+            result = mistral_executor.mistral_executor_json(
+                "full production prompt",
+                max_tokens=7500,
+                task_kind="script",
+            )
+
+        self.assertEqual(result, {"ok": True})
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, mistral_executor.MISTRAL_CHAT_URL)
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["model"], "ministral-14b-2512")
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertEqual(payload["max_tokens"], 7500)
+        telemetry = mistral_executor.get_mistral_executor_telemetry()
+        self.assertEqual(len(telemetry), 1)
+        self.assertEqual(telemetry[0]["role"], "executor")
+        self.assertEqual(telemetry[0]["task_kind"], "script")
+        self.assertEqual(telemetry[0]["usage"]["total_tokens"], 600)
+        self.assertEqual(
+            telemetry[0]["rate_limit_headers"][
+                "x-ratelimit-limit-tokens-minute"
+            ],
+            "937500",
+        )
+
+    def test_gold_or_unknown_role_is_rejected_before_wire(self) -> None:
+        with mock.patch.object(
+            mistral_executor.urllib.request, "urlopen"
+        ) as urlopen:
+            with self.assertRaises(
+                mistral_executor.MistralExecutorNoWireFailure
+            ) as raised:
+                mistral_executor.mistral_executor_json(
+                    "judge this content",
+                    max_tokens=500,
+                    task_kind="gold",
+                )
+        self.assertEqual(raised.exception.reason_code, "mistral_executor_role_not_allowed")
+        urlopen.assert_not_called()
+
+
+class CleanV2ProviderRoutingTests(unittest.TestCase):
+    @staticmethod
+    def _technical(name: str, order: list[str]):
+        def fail(_prompt: str, _tokens: int):
+            order.append(name)
+            raise providers.ProviderWireFailure(f"{name}_technical")
+
+        return fail
+
+    def test_planning_and_script_use_exact_four_provider_order(self) -> None:
+        for stage in ("planning", "script"):
+            with self.subTest(stage=stage):
+                order: list[str] = []
+
+                def mistral_call(_prompt, *, max_tokens, task_kind, **_kwargs):
+                    order.append("mistral")
+                    self.assertEqual(task_kind, stage)
+                    return {"ok": True}
+
+                with mock.patch.object(
+                    providers, "_gemini_call", side_effect=self._technical("gemini", order)
+                ), mock.patch.object(
+                    providers, "_groq_call", side_effect=self._technical("groq", order)
+                ), mock.patch.object(
+                    providers,
+                    "_openrouter_call",
+                    side_effect=self._technical("openrouter", order),
+                ), mock.patch.object(
+                    mistral_executor,
+                    "mistral_executor_json",
+                    side_effect=mistral_call,
+                ):
+                    router = providers.ProviderRouter()
+                    result = router.route(
+                        stage=stage,
+                        prompt="full prompt",
+                        max_tokens=7500,
+                        validator=lambda value: value,
+                    )
+
+                self.assertEqual(result, {"ok": True})
+                self.assertEqual(order, ["gemini", "groq", "openrouter", "mistral"])
+                self.assertEqual(
+                    [item["provider"] for item in router.events],
+                    ["gemini", "groq", "openrouter", "mistral"],
+                )
+                self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
+
+    def test_mistral_executor_is_not_available_to_narrative_identity(self) -> None:
+        order: list[str] = []
+        with mock.patch.object(
+            providers, "_gemini_call", side_effect=self._technical("gemini", order)
+        ), mock.patch.object(
+            providers, "_groq_call", side_effect=self._technical("groq", order)
+        ), mock.patch.object(
+            providers,
+            "_openrouter_call",
+            side_effect=self._technical("openrouter", order),
+        ), mock.patch.object(
+            mistral_executor,
+            "mistral_executor_json",
+        ) as mistral_call:
+            router = providers.ProviderRouter()
+            with self.assertRaisesRegex(RuntimeError, "exhausted bounded provider route"):
+                router.route(
+                    stage="narrative_identity",
+                    prompt="identity prompt",
+                    max_tokens=1000,
+                    validator=lambda value: value,
+                )
+
+        self.assertEqual(order, ["gemini", "groq", "openrouter"])
+        mistral_call.assert_not_called()
+
+
+class CleanV2TextAuditRoutingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.production_plan = _build_production_plan_for_audit(
+            brief=_brief(),
+            plan=_plan(),
+            script=_script(),
+        )
+
+    @staticmethod
+    def _failure(name: str, calls: list[str]):
+        def fail(*_args, **_kwargs):
+            calls.append(name)
+            raise RuntimeError(f"{name} technical capacity failure")
+
+        return fail
+
+    def test_three_technical_failures_reach_mistral_last(self) -> None:
+        from isco_video_agent import factuality
+
+        calls: list[str] = []
+        original_route = factuality.route_text_audit
+
+        def mistral_pass(_prompt: str):
+            calls.append("mistral")
+            return dict(_FACT_PASS)
+
+        diagnostics: dict = {}
+        with mock.patch.object(
+            factuality, "json_text", side_effect=self._failure("gemini", calls)
+        ), mock.patch.object(
+            factuality.groq,
+            "json_text",
+            side_effect=self._failure("groq", calls),
+        ), mock.patch.object(
+            factuality.openrouter,
+            "json_text",
+            side_effect=self._failure("openrouter", calls),
+        ), mock.patch.object(
+            text_audit,
+            "_mistral_factuality_call",
+            side_effect=mistral_pass,
+        ):
+            result = text_audit.audit_plan_with_mistral(
+                "gemini-key",
+                self.production_plan,
+                [],
+                "gemini-3.7-flash",
+                diagnostics=diagnostics,
+            )
+
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(calls, ["gemini", "groq", "openrouter", "mistral"])
+        self.assertEqual(diagnostics["provider"], "mistral")
+        self.assertEqual(
+            [item["provider"] for item in diagnostics["attempts"]],
+            ["gemini", "groq", "openrouter", "mistral"],
+        )
+        self.assertIs(factuality.route_text_audit, original_route)
+
+    def test_semantic_block_is_final_and_does_not_call_mistral(self) -> None:
+        from isco_video_agent import factuality
+
+        blocked = dict(_FACT_PASS)
+        blocked["status"] = "block"
+        blocked["unsupported_claims"] = ["unsupported claim"]
+        with mock.patch.object(
+            factuality, "json_text", return_value=blocked
+        ), mock.patch.object(
+            factuality.groq, "json_text"
+        ) as groq_call, mock.patch.object(
+            factuality.openrouter, "json_text"
+        ) as openrouter_call, mock.patch.object(
+            text_audit, "_mistral_factuality_call"
+        ) as mistral_call:
+            result = text_audit.audit_plan_with_mistral(
+                "gemini-key",
+                self.production_plan,
+                [],
+                "gemini-3.7-flash",
+            )
+
+        self.assertEqual(result["status"], "block")
+        groq_call.assert_not_called()
+        openrouter_call.assert_not_called()
+        mistral_call.assert_not_called()
+
+    def test_mistral_schema_mismatch_is_final_fail_closed(self) -> None:
+        from isco_video_agent import factuality
+
+        calls: list[str] = []
+        malformed = dict(_FACT_PASS)
+        malformed.pop("notes")
+        diagnostics: dict = {}
+        with mock.patch.object(
+            factuality, "json_text", side_effect=self._failure("gemini", calls)
+        ), mock.patch.object(
+            factuality.groq,
+            "json_text",
+            side_effect=self._failure("groq", calls),
+        ), mock.patch.object(
+            factuality.openrouter,
+            "json_text",
+            side_effect=self._failure("openrouter", calls),
+        ), mock.patch.object(
+            text_audit,
+            "mistral_executor_json",
+            return_value=malformed,
+        ):
+            result = text_audit.audit_plan_with_mistral(
+                "gemini-key",
+                self.production_plan,
+                [],
+                "gemini-3.7-flash",
+                diagnostics=diagnostics,
+            )
+
+        self.assertEqual(result["status"], "block")
+        self.assertEqual(
+            result["unsupported_claims"],
+            ["Factuality audit could not be completed safely"],
+        )
+        self.assertEqual(diagnostics["validation"], "providers_exhausted")
+        self.assertEqual(diagnostics["attempts"][-1]["provider"], "mistral")
+        self.assertEqual(diagnostics["attempts"][-1]["outcome"], "schema_invalid")
+
+
+class MistralTelemetryPersistenceTests(unittest.TestCase):
+    def test_pipeline_persists_executor_telemetry_only_when_called(self) -> None:
+        pipeline = CleanV2Pipeline.__new__(CleanV2Pipeline)
+        pipeline.router = SimpleNamespace(events=[])
+        pipeline.visual_source = SimpleNamespace(events=[])
+        entry = {
+            "provider": "mistral",
+            "role": "executor",
+            "task_kind": "script",
+            "usage": {"total_tokens": 1234},
+            "rate_limit_headers": {
+                "x-ratelimit-limit-tokens-minute": "937500"
+            },
+        }
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            mistral_executor,
+            "get_mistral_executor_telemetry",
+            return_value=[entry],
+        ):
+            output = Path(root)
+            pipeline._write_runtime_events(output)
+            saved = json.loads(
+                (output / "mistral-executor-telemetry.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+        self.assertEqual(saved["role"], "executor")
+        self.assertEqual(saved["calls"], [entry])
+
+
+if __name__ == "__main__":
+    unittest.main()

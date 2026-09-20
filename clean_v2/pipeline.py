@@ -139,16 +139,22 @@ def _run_legacy_factuality_audit(
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
 ) -> dict[str, Any]:
-    # Deliberately reuse the old tested independent factuality/AI-expert reviewer.
-    # The Engine package is supplied by the production workflow via PYTHONPATH.
-    from isco_video_agent.factuality import audit_plan
+    # Reuse the frozen Engine's full prompt, normalizer, validator, fail-closed result,
+    # and semantic-block behavior. Clean V2 appends only the final Mistral executor leg.
+    from clean_v2.text_audit import audit_plan_with_mistral
 
     api_key = _read_secret("GEMINI_API_KEY")
     model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
     production_plan = _build_production_plan_for_audit(brief=brief, plan=plan, script=script)
     research_context = brief.get("research_pack") or []
     diagnostics: dict[str, Any] = {}
-    result = audit_plan(api_key, production_plan, research_context, model, diagnostics=diagnostics)
+    result = audit_plan_with_mistral(
+        api_key,
+        production_plan,
+        research_context,
+        model,
+        diagnostics=diagnostics,
+    )
     report = {
         "schema_version": 1,
         "source": "clean-v2-legacy-factuality-audit",
@@ -775,6 +781,8 @@ class CleanV2Pipeline:
         self.narrative_identity = narrative_identity
 
     def _write_runtime_events(self, output_dir: Path) -> None:
+        from clean_v2.mistral_executor import get_mistral_executor_telemetry
+
         atomic_write_json(
             output_dir / "provider-events.json",
             {
@@ -789,6 +797,17 @@ class CleanV2Pipeline:
                 "events": list(getattr(self.visual_source, "events", [])),
             },
         )
+        mistral_calls = get_mistral_executor_telemetry()
+        if mistral_calls:
+            atomic_write_json(
+                output_dir / "mistral-executor-telemetry.json",
+                {
+                    "schema_version": 1,
+                    "provider": "mistral",
+                    "role": "executor",
+                    "calls": mistral_calls,
+                },
+            )
 
     def run(
         self,
@@ -801,6 +820,9 @@ class CleanV2Pipeline:
         max_visuals: int = 5,
         resume_from: Path | None = None,
     ) -> dict[str, Any]:
+        from clean_v2.mistral_executor import reset_mistral_executor_telemetry
+
+        reset_mistral_executor_telemetry()
         engine_sha = require_exact_engine_sha(engine_sha)
         if output_dir.exists() and any(output_dir.iterdir()):
             raise RuntimeError("Clean V2 output directory must be new or empty")

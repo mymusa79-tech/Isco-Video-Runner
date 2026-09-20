@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
+from . import mistral_executor
+
 
 MAX_PROMPT_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
@@ -221,10 +223,30 @@ def _openrouter_call(prompt: str, max_tokens: int) -> dict[str, Any]:
     return _parse_json_object(str(message.get("content") or ""), "openrouter")
 
 
+def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
+    try:
+        return mistral_executor.mistral_executor_json(
+            prompt,
+            max_tokens=max_tokens,
+            task_kind=stage,
+        )
+    except mistral_executor.MistralExecutorNoWireFailure as exc:
+        raise NoWireFailure(exc.reason_code) from None
+    except mistral_executor.MistralExecutorWireFailure as exc:
+        raise ProviderWireFailure(exc.reason_code) from None
+
+
 @dataclass(frozen=True)
 class ProviderAdapter:
     name: str
-    call: Callable[[str, int], dict[str, Any]]
+    call: Callable[..., dict[str, Any]]
+    stages: frozenset[str] | None = None
+    accepts_stage: bool = False
+
+    def invoke(self, prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
+        if self.accepts_stage:
+            return self.call(prompt, max_tokens, stage)
+        return self.call(prompt, max_tokens)
 
 
 def default_adapters() -> tuple[ProviderAdapter, ...]:
@@ -232,6 +254,12 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
         ProviderAdapter("gemini", _gemini_call),
         ProviderAdapter("groq", _groq_call),
         ProviderAdapter("openrouter", _openrouter_call),
+        ProviderAdapter(
+            "mistral",
+            _mistral_call,
+            stages=frozenset({"planning", "script"}),
+            accepts_stage=True,
+        ),
     )
 
 
@@ -292,8 +320,10 @@ class ProviderRouter:
         wire_count = 0
         failures: list[str] = []
         for adapter in self.adapters:
+            if adapter.stages is not None and stage not in adapter.stages:
+                continue
             try:
-                candidate = adapter.call(prompt, max_tokens)
+                candidate = adapter.invoke(prompt, max_tokens, stage)
             except NoWireFailure as exc:
                 failures.append(f"{adapter.name}:{exc.reason_code}")
                 self._event(
