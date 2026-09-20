@@ -21,6 +21,26 @@ MAX_PROMPT_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script"})
+MISTRAL_NARRATIVE_IDENTITY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "opener": {"type": "string", "minLength": 1, "pattern": r"\S"},
+        "closer": {"type": "string", "minLength": 1, "pattern": r"\S"},
+        "transitions": {
+            "type": "array",
+            "prefixItems": [
+                {"type": "string", "minLength": 1, "pattern": r"\S"},
+                {"type": "string", "minLength": 1, "pattern": r"\S"},
+                {"type": "string", "minLength": 1, "pattern": r"\S"},
+            ],
+            "minItems": 3,
+            "maxItems": 3,
+        },
+    },
+    "required": ["opener", "closer", "transitions"],
+    "additionalProperties": False,
+}
+
 MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA = {
     "type": "object",
     "properties": {
@@ -407,6 +427,16 @@ def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
                 response_schema=(
                     "script",
                     _mistral_script_response_schema(prompt),
+                ),
+            )
+        if stage == "narrative_identity":
+            return mistral_executor.mistral_executor_json(
+                prompt,
+                max_tokens=max_tokens,
+                task_kind=stage,
+                response_schema=(
+                    "narrative_identity",
+                    MISTRAL_NARRATIVE_IDENTITY_SCHEMA,
                 ),
             )
         return mistral_executor.mistral_executor_json(
