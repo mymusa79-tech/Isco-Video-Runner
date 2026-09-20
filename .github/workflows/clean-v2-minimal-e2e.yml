@@ -8,6 +8,7 @@ on:
       - "clean_v2/**"
       - "scripts/test_clean_v2.py"
       - "scripts/test_clean_v2_channel_persona.py"
+      - "scripts/test_clean_v2_human_feel.py"
       - "scripts/test_clean_v2_voice.py"
       - "scripts/test_clean_v2_final_master_qc.py"
       - "scripts/test_clean_v2_legacy_cinematic.py"
@@ -47,6 +48,7 @@ jobs:
           python -m unittest \
             scripts.test_clean_v2 \
             scripts.test_clean_v2_channel_persona \
+            scripts.test_clean_v2_human_feel \
             scripts.test_clean_v2_legacy_cinematic \
             scripts.test_clean_v2_final_master_qc \
             -v

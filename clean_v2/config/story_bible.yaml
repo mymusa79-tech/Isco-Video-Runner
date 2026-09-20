@@ -1,0 +1,247 @@
+version: 1
+id: nidaa_al_yaqadha_story_bible
+status: proposed
+
+authority:
+  role: >
+    Defines the narrative grammar and story identity of نداء اليقظة.
+    It guides Director-level editorial decisions but never overrides
+    safety, factuality, cultural, religious, or hard editorial policy.
+  precedence:
+    - config/editorial_policy.json
+    - config/channel_persona.json
+    - config/story_bible.yaml
+  conflict_rule: >
+    If this file conflicts with editorial_policy.json or a verified factual
+    constraint, the harder policy or verified fact wins.
+
+channel:
+  name: "نداء اليقظة"
+  promise: >
+    Help the viewer see an inner pattern more clearly, understand what is
+    actually happening beneath it, and leave with one realistic next step.
+  relationship_to_viewer: >
+    Speak to an intelligent adult as a thoughtful companion, never as a
+    preacher, guru, lecturer, therapist, or motivational salesman.
+  emotional_direction:
+    start: "curiosity, recognition, or useful tension"
+    middle: "deeper understanding and controlled emotional movement"
+    end: "clarity, agency, grounded hope, and a practical next step"
+
+story_principles:
+  - "Every section must change the viewer's understanding, not merely restate the topic."
+  - "Progress from observation to mechanism to implication to action."
+  - "Prefer concrete human situations over abstract motivational language."
+  - "Reveal hidden assumptions, loops, contradictions, or costs when they genuinely exist."
+  - "Do not manufacture trauma, conflict, urgency, or revelation for retention."
+  - "A reframe must be earned by the reasoning that came before it."
+  - "The practical step must emerge from the episode's argument rather than appear as generic advice."
+  - "The closing payoff must resolve the opening tension without merely summarizing the script."
+  - "Keep optimism grounded; do not promise transformation that the evidence cannot support."
+
+episode_beats:
+  - id: hook
+    job: >
+      Create immediate curiosity, recognition, tension, or value without
+      clickbait and without delaying the real topic.
+    viewer_question: "Why should I keep listening right now?"
+    avoid:
+      - "generic motivational opening"
+      - "long channel introduction before value"
+      - "fake shocking claim"
+      - "question with an obvious answer"
+
+  - id: recognition
+    job: >
+      Make the viewer recognize the problem or experience in a concrete,
+      human, everyday form.
+    viewer_question: "Where does this show up in real life?"
+    avoid:
+      - "abstract explanation before human recognition"
+      - "invented personal testimony"
+      - "overdramatic suffering"
+
+  - id: mechanism
+    job: >
+      Explain the hidden loop, assumption, incentive, psychological mechanism,
+      or reasoning that makes the pattern understandable.
+    viewer_question: "What is actually happening underneath this?"
+    avoid:
+      - "diagnosis without evidence"
+      - "pseudo-neuroscience"
+      - "unsupported universal claims"
+
+  - id: tension
+    job: >
+      Show the cost, contradiction, trade-off, or consequence that makes the
+      mechanism matter.
+    viewer_question: "Why does this matter if nothing changes?"
+    avoid:
+      - "fearmongering"
+      - "catastrophizing"
+      - "manufactured stakes"
+
+  - id: reframe
+    job: >
+      Change the viewer's interpretation using reasoning already established
+      in the episode.
+    viewer_question: "What have I been seeing incorrectly?"
+    avoid:
+      - "forced paradox"
+      - "empty inspirational twist"
+      - "contrarianism for novelty"
+
+  - id: practice
+    job: >
+      Convert the insight into a small realistic action, experiment, question,
+      boundary, or decision the viewer can actually try.
+    viewer_question: "What can I do with this?"
+    avoid:
+      - "ten-step self-help checklist"
+      - "unrealistic discipline demand"
+      - "advice disconnected from the mechanism"
+
+  - id: integration
+    job: >
+      Connect the practical move back to the larger idea and show how it can
+      work in normal life rather than only in an ideal scenario.
+    viewer_question: "How does this fit into real life?"
+    avoid:
+      - "repeating the practice section"
+      - "new major argument introduced too late"
+
+  - id: payoff
+    job: >
+      Resolve the central tension, leave one memorable idea, and finish with
+      grounded agency rather than hype.
+    viewer_question: "What should stay with me after the video ends?"
+    avoid:
+      - "summary of every previous section"
+      - "generic motivational speech"
+      - "new unsupported claim"
+      - "abrupt CTA replacing the real ending"
+
+format_layouts:
+  film:
+    section_count: 8
+    beats:
+      - hook
+      - recognition
+      - mechanism
+      - tension
+      - reframe
+      - practice
+      - integration
+      - payoff
+
+  story:
+    section_count: 5
+    beats:
+      - hook
+      - recognition
+      - mechanism
+      - practice
+      - payoff
+
+narrative_format_rules:
+  direct_cinematic:
+    rule: "Progress naturally through the beats without exposing the structure to the viewer."
+
+  question_answer:
+    rule: >
+      Questions must deepen the argument. Each answer must move the viewer to
+      a new layer rather than restating the previous answer.
+
+  dialogue_qa:
+    rule: >
+      Dialogue must create genuine intellectual movement between two positions,
+      not split a monologue into alternating labels.
+
+  inner_dialogue:
+    rule: >
+      Internal conflict must sound psychologically believable and eventually
+      produce clarity rather than endless rumination.
+
+  problem_reveal_solution:
+    rule: >
+      The reveal must identify a real mechanism or mistaken assumption; the
+      solution must address that mechanism.
+
+  story_analysis:
+    rule: >
+      The concrete story exists to reveal an idea. Do not let anecdote replace
+      reasoning or evidence.
+
+  paradox:
+    rule: >
+      The apparent contradiction must be resolved logically, not preserved as
+      a clever slogan.
+
+  hypothesis_test:
+    rule: >
+      Treat the hypothesis as something to examine rather than a conclusion
+      already decided.
+
+  connected_list:
+    rule: >
+      Every item must advance one coherent argument; reject interchangeable
+      listicle points.
+
+continuity:
+  requirements:
+    - "Each beat must inherit something meaningful from the previous beat."
+    - "Transitions should connect ideas, not merely announce a new section."
+    - "Do not reset the episode emotionally or logically at every section."
+    - "Do not repeat the hook after the hook."
+    - "Do not repeat the same key_point under different wording."
+  escalation_rule: >
+    Progress should become deeper or more useful, not merely louder or more emotional.
+
+human_feel:
+  prefer:
+    - "specific observations"
+    - "natural sentence-length variation"
+    - "measured uncertainty when appropriate"
+    - "concrete examples"
+    - "small moments of recognition"
+    - "earned emotional movement"
+  reject:
+    - "generic AI filler"
+    - "motivational poster language"
+    - "constant rhetorical questions"
+    - "perfectly symmetrical paragraphs"
+    - "repetitive three-part slogans"
+    - "fake personal stories"
+    - "unearned certainty"
+
+cultural_and_religious_boundaries:
+  inherit_from: "config/editorial_policy.json"
+  additional_story_rule: >
+    Cultural or Islamic references must serve the actual idea and context.
+    Never insert sacred material merely to manufacture emotional weight.
+  direct_quote_rule: >
+    Direct Quran, hadith, or attributed religious quotations remain subject to
+    verified-source approval and existing deterministic gates.
+
+director_quality_checks:
+  require:
+    - "clear central tension"
+    - "distinct semantic job for every section"
+    - "recognizable progression"
+    - "earned reframe when a reframe exists"
+    - "specific practical value"
+    - "closing payoff connected to opening"
+  flag:
+    - "two beats performing the same job"
+    - "section that can be deleted without changing the episode"
+    - "major insight introduced only in the ending"
+    - "generic advice disconnected from prior reasoning"
+    - "emotional intensity unsupported by content"
+
+enforcement:
+  current_mode: advisory
+  future_mode: eligible_for_director_gate
+  note: >
+    This Bible should initially inform Director review and downstream planning.
+    It must not silently become a hard production blocker without explicit
+    integration and tests.
