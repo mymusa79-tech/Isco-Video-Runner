@@ -131,12 +131,12 @@ def run_opening_director(
     narration_path: Path,
     visual_source: Any,
 ) -> dict[str, Any]:
-    """Restore the old three-shot opening without changing the body visual policy.
+    """Restore the simplified three-shot first-30-second opening.
 
     Film only: acquire up to three distinct safe stock candidates from section 1's
     already-approved query, reuse the exact current Final Cut Visual QA for each,
     and select two passing auxiliaries. The already-selected section-1 clip is the
-    third audited shot and begins at 18s, continuing naturally into the body.
+    third audited shot for 18-30s; after 30s the ordinary body sequence resumes.
     """
     output_dir = Path(output_dir)
     if str(fmt) != "film":
@@ -215,6 +215,12 @@ def run_opening_director(
         exclude_assets=exclusions,
     )
     if len(candidates) < 2:
+        # Returning even one admitted candidate proves the stock search path worked;
+        # this is a bounded opening-selection failure, not provider infrastructure.
+        if candidates:
+            raise CleanV2OpeningBlock(
+                "CLEAN_V2_OPENING_BLOCK reason=insufficient_distinct_stock_candidates"
+            )
         recent_events = list(getattr(visual_source, "events", []))[before_events:]
         wired = any(
             bool(item.get("wire_attempted"))
