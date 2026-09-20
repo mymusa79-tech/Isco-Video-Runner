@@ -415,10 +415,10 @@ class CleanV2OpeningDirectorTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            captured = {}
+            captured: list[list[str]] = []
 
             def fake_run(command, *, timeout):
-                captured["command"] = command
+                captured.append(command)
                 return None
 
             with patch("clean_v2.media.probe_duration", return_value=120.0), patch(
@@ -426,13 +426,27 @@ class CleanV2OpeningDirectorTests(unittest.TestCase):
             ):
                 render_video(narration, paths, output, "film")
 
-            command = captured["command"]
-            filters = command[command.index("-filter_complex") + 1]
+            # render_video() now pre-trims/grades each body clip in its own
+            # ffmpeg pass (visual pacing + color grading) before the final
+            # concat pass - with no rights-manifest.json here, each of the
+            # two body clips is its own ungrouped pass (no dissolve), so the
+            # 45.12s body slot shows up on those pre-trim passes' -vf
+            # argument, not the final filter_complex.
+            body_slot = ((120.0 - 30.0) / 2.0) + 0.12
+            trim_calls = [
+                command
+                for command in captured
+                if "-vf" in command
+                and f"trim=duration={body_slot:.3f}" in command[command.index("-vf") + 1]
+            ]
+            self.assertEqual(len(trim_calls), 2)
+
+            final_command = captured[-1]
+            filters = final_command[final_command.index("-filter_complex") + 1]
             self.assertIn("trim=duration=7.000", filters)
             self.assertIn("trim=duration=11.000", filters)
             self.assertIn("trim=duration=12.000", filters)
-            body_slot = ((120.0 - 30.0) / 2.0) + 0.12
-            self.assertEqual(filters.count(f"trim=duration={body_slot:.3f}"), 2)
+            self.assertNotIn(f"trim=duration={body_slot:.3f}", filters)
 
 
 if __name__ == "__main__":

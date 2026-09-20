@@ -203,7 +203,12 @@ def run_final_cut_visual_qa(
         or any(not section_id for section_id in expected_ids)
         or len(expected_ids) != len(set(expected_ids))
         or set(right_by_section) != set(expected_ids)
-        or any(len(right_by_section.get(section_id, [])) != 1 for section_id in expected_ids)
+        # At least one asset per section, not exactly one: a long section's
+        # extra same-query pacing clips (rights-manifest.json's
+        # pacing_auxiliary entries) share a section_id with their primary.
+        # Only the primary (index 0 below) still gets reviewed; the rest are
+        # coverage for the renderer, not separate content-relevance claims.
+        or any(len(right_by_section.get(section_id, [])) < 1 for section_id in expected_ids)
     ):
         raise CleanV2VisualQABlock(
             "CLEAN_V2_VISUAL_QA_BLOCK reason=selected_visual_section_coverage_mismatch"
