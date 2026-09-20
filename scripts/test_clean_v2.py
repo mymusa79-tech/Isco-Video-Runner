@@ -2874,6 +2874,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             structural = json.loads((root / "structural-ai-flags.json").read_text(encoding="utf-8"))
             self.assertEqual(structural["flags"], [])
 
+    # Production regression from Cold Runs #201/#203: repair prompt must remain Script-schema parseable.
     def test_run199_tone_repair_prompt_is_mistral_script_schema_compatible(self) -> None:
         identity = {
             "opener": self.OPENER,
