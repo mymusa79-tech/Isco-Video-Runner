@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from clean_v2.media import render_video
 from clean_v2.opening_director import (
+    CleanV2OpeningBlock,
     CleanV2OpeningInfrastructure,
     opening_slot_specs,
     run_opening_director,
@@ -159,6 +160,30 @@ class CleanV2OpeningDirectorTests(unittest.TestCase):
             self.assertEqual(report["slots"][2]["start"], 18.0)
             self.assertEqual(report["slots"][2]["end"], 30.0)
 
+    def test_successful_stock_search_with_too_few_candidates_is_quality_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rights = _prepare_primary(root)
+            path = root / "visuals" / ".candidate-1.mp4"
+            path.write_bytes(b"a" * 2048)
+            source = _FakeOpeningVisualSource(
+                [(path, {"provider": "pexels", "asset_id": "a1"})]
+            )
+            with patch("clean_v2.opening_director.probe_duration", return_value=120.0):
+                with self.assertRaisesRegex(
+                    CleanV2OpeningBlock,
+                    "insufficient_distinct_stock_candidates",
+                ):
+                    run_opening_director(
+                        output_dir=root,
+                        plan=_plan(),
+                        script=_script(),
+                        rights=rights,
+                        fmt="film",
+                        narration_path=root / "voice.wav",
+                        visual_source=source,
+                    )
+
     def test_opening_vision_infrastructure_is_not_content_block(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -212,7 +237,7 @@ class CleanV2OpeningDirectorTests(unittest.TestCase):
                 else:
                     self.assertNotIn("quality_pending_stage", journal.payload)
 
-    def test_renderer_uses_7_11_then_body_from_second_18(self):
+    def test_renderer_uses_exact_7_11_12_then_body_from_second_30(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             narration = root / "voice.wav"
@@ -232,9 +257,9 @@ class CleanV2OpeningDirectorTests(unittest.TestCase):
                         "status": "pass",
                         "mode": "legacy_first_30_three_audited_shots",
                         "slots": [
-                            {"local_file": "opening-cold_open.mp4"},
-                            {"local_file": "opening-escalation.mp4"},
-                            {"local_file": "body1.mp4"},
+                            {"local_file": "opening-cold_open.mp4", "seconds": 7.0},
+                            {"local_file": "opening-escalation.mp4", "seconds": 11.0},
+                            {"local_file": "body1.mp4", "seconds": 12.0},
                         ],
                     }
                 ),
@@ -255,8 +280,9 @@ class CleanV2OpeningDirectorTests(unittest.TestCase):
             filters = command[command.index("-filter_complex") + 1]
             self.assertIn("trim=duration=7.000", filters)
             self.assertIn("trim=duration=11.000", filters)
-            body_slot = ((120.0 - 18.0) / 3.0) + 0.12
-            self.assertIn(f"trim=duration={body_slot:.3f}", filters)
+            self.assertIn("trim=duration=12.000", filters)
+            body_slot = ((120.0 - 30.0) / 2.0) + 0.12
+            self.assertEqual(filters.count(f"trim=duration={body_slot:.3f}"), 2)
 
 
 if __name__ == "__main__":
