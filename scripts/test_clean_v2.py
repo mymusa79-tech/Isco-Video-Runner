@@ -1555,6 +1555,111 @@ class VisualQADiagnosticsTests(unittest.TestCase):
             self.assertIn(field, source)
 
 
+class StockVisualRecoveryPoolTests(unittest.TestCase):
+    @staticmethod
+    def _candidate(provider: str, asset_id: str) -> dict:
+        return {
+            "provider": provider,
+            "asset_id": asset_id,
+            "download_url": f"https://media.invalid/{provider}/{asset_id}.mp4",
+            "source_url": f"https://source.invalid/{provider}/{asset_id}",
+            "creator": "test",
+            "creator_url": "",
+            "query": "person checking calendar at desk",
+        }
+
+    def test_recovery_pool_interleaves_provider_rank_and_caps_at_three(self) -> None:
+        source = media_module.StockVisualSource()
+        pexels = [
+            self._candidate("pexels", "p1"),
+            self._candidate("pexels", "p2"),
+            self._candidate("pexels", "p3"),
+        ]
+        pixabay = [
+            self._candidate("pixabay", "x1"),
+            self._candidate("pixabay", "x2"),
+            self._candidate("pixabay", "x3"),
+        ]
+
+        def fake_download(_url, destination):
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source,
+            "_pexels_recovery_pool",
+            return_value=pexels,
+        ) as pexels_search, mock.patch.object(
+            source,
+            "_pixabay_recovery_pool",
+            return_value=pixabay,
+        ) as pixabay_search, mock.patch.object(
+            media_module,
+            "_download_media",
+            side_effect=fake_download,
+        ):
+            output = Path(root)
+            result = source.acquire_replacement_candidates(
+                "person checking calendar at desk",
+                output,
+                "film",
+                destination_name="visual-01.mp4",
+                section_id="s1",
+                max_candidates=3,
+            )
+
+        self.assertEqual(pexels_search.call_count, 1)
+        self.assertEqual(pixabay_search.call_count, 1)
+        self.assertEqual(
+            [
+                (row["provider"], row["asset_id"])
+                for _path, row in result
+            ],
+            [("pexels", "p1"), ("pixabay", "x1"), ("pexels", "p2")],
+        )
+        self.assertEqual(
+            [row["semantic_recovery_candidate_index"] for _path, row in result],
+            [1, 2, 3],
+        )
+
+    def test_recovery_candidate_limit_is_hard_capped_at_three(self) -> None:
+        source = media_module.StockVisualSource()
+        pexels = [
+            self._candidate("pexels", f"p{index}")
+            for index in range(1, 7)
+        ]
+        pixabay = [
+            self._candidate("pixabay", f"x{index}")
+            for index in range(1, 7)
+        ]
+
+        def fake_download(_url, destination):
+            Path(destination).write_bytes(b"V" * 4096)
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            source,
+            "_pexels_recovery_pool",
+            return_value=pexels,
+        ), mock.patch.object(
+            source,
+            "_pixabay_recovery_pool",
+            return_value=pixabay,
+        ), mock.patch.object(
+            media_module,
+            "_download_media",
+            side_effect=fake_download,
+        ):
+            result = source.acquire_replacement_candidates(
+                "person checking calendar at desk",
+                Path(root),
+                "film",
+                destination_name="visual-01.mp4",
+                section_id="s1",
+                max_candidates=99,
+            )
+
+        self.assertEqual(len(result), 3)
+
+
 class VisualQASemanticRecoveryTests(unittest.TestCase):
     ORIGINAL_QUERY = "person scrolling phone while looking at wall clock"
     ALTERNATE_QUERY = "person avoiding open laptop task while scrolling phone beside clock"
