@@ -136,6 +136,12 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         heading = str(raw.get("heading") or "").strip()
         purpose = str(raw.get("purpose") or "").strip()
         query = str(raw.get("visual_query_en") or "").strip()
+        if len(query) > 260:
+            raise ContractError(
+                f"plan section {section_id} visual_query_en exceeds 260 characters"
+            )
+        if purpose.count("(") != purpose.count(")") or purpose.count("«") != purpose.count("»"):
+            raise ContractError(f"plan section {section_id} purpose looks truncated")
         if not section_id or section_id in seen:
             raise ContractError("plan section ids must be unique and non-empty")
         if not heading or not purpose or not query:
@@ -146,7 +152,7 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
                 "id": section_id,
                 "heading": heading[:240],
                 "purpose": purpose[:800],
-                "visual_query_en": query[:200],
+                "visual_query_en": query,
             }
         )
     return {

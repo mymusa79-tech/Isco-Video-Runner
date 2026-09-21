@@ -176,6 +176,38 @@ class PlanningCardinalityTests(unittest.TestCase):
         ):
             validate_plan(six, brief)
 
+    def test_run249_planning_keeps_complete_visual_query_and_rejects_truncation_shapes(self) -> None:
+        brief = _brief()
+        brief["format"] = "film"
+
+        plan = _plan()
+        long_but_valid_query = "desk calendar task list " + ("detail " * 28)
+        self.assertGreater(len(long_but_valid_query), 200)
+        self.assertLessEqual(len(long_but_valid_query), 260)
+        plan["sections"][2]["visual_query_en"] = long_but_valid_query
+        normalized = validate_plan(plan, brief)
+        self.assertEqual(
+            normalized["sections"][2]["visual_query_en"],
+            long_but_valid_query.strip(),
+        )
+
+        too_long = _plan()
+        too_long["sections"][2]["visual_query_en"] = "x" * 261
+        with self.assertRaisesRegex(
+            ContractError,
+            "visual_query_en exceeds 260 characters",
+        ):
+            validate_plan(too_long, brief)
+
+        cut_purpose = _plan()
+        cut_purpose["sections"][2]["purpose"] = "يوضح الفرق بين النية العامة ("
+        with self.assertRaisesRegex(ContractError, "purpose looks truncated"):
+            validate_plan(cut_purpose, brief)
+
+        prompt = _planning_prompt(brief)
+        self.assertIn("at most 260 characters", prompt)
+        self.assertIn("never cut mid-thought", prompt)
+
 
 class TextAuditProfessionalAdviceScopeTests(unittest.TestCase):
     def test_attempt2_productivity_guidance_is_explicitly_outside_professional_advice_flag(self) -> None:
