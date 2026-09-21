@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -709,6 +710,165 @@ def _targeted_structural_repair_context(
     )
 
 
+
+def _repair_target_section_ids(
+    script: Mapping[str, Any],
+    revision_note: str,
+    cta_plan: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Resolve a deterministic smallest section scope from validated audit notes."""
+    sections = [
+        item
+        for item in (script.get("sections") or [])
+        if isinstance(item, Mapping)
+    ]
+    ordered_ids = [str(item.get("id") or "") for item in sections]
+    targets: set[str] = set()
+
+    for match in re.finditer(r"\bs([1-5])\b", revision_note, flags=re.I):
+        candidate = "s" + match.group(1)
+        if candidate in ordered_ids:
+            targets.add(candidate)
+    for match in re.finditer(r"\bsection\s+([1-5])\b", revision_note, flags=re.I):
+        candidate = "s" + match.group(1)
+        if candidate in ordered_ids:
+            targets.add(candidate)
+
+    quoted = re.findall(r"[«\"']([^«»\"']{6,220})[»\"']", revision_note)
+    for excerpt in quoted:
+        compact = " ".join(excerpt.split()).strip()
+        if not compact:
+            continue
+        for item in sections:
+            narration = " ".join(str(item.get("narration") or "").split())
+            if compact in narration:
+                targets.add(str(item.get("id") or ""))
+
+    lowered = revision_note.casefold()
+    if "closing_payoff" in lowered or "closing payoff" in lowered:
+        if ordered_ids:
+            targets.add(ordered_ids[-1])
+    if "cta" in lowered:
+        anchor = str(cta_plan.get("anchor_section_id") or "").strip()
+        if anchor in ordered_ids:
+            targets.add(anchor)
+
+    if "repeated_not_x_but_y" in revision_note:
+        for item in sections:
+            narration = str(item.get("narration") or "")
+            if _NOT_X_BUT_Y_OCCURRENCE.search(narration):
+                targets.add(str(item.get("id") or ""))
+
+    return tuple(section_id for section_id in ordered_ids if section_id in targets)
+
+
+def _validate_and_apply_script_patches(
+    value: Any,
+    *,
+    plan: Mapping[str, Any],
+    original_script: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    cta_plan: Mapping[str, Any],
+    revision_note: str,
+) -> dict[str, Any]:
+    """Apply exact local replacements to the original script; reject broad rewrites."""
+    if not isinstance(value, Mapping):
+        raise ValueError("script patch response must be an object")
+    patches = value.get("patches")
+    if not isinstance(patches, list) or not 1 <= len(patches) <= 6:
+        raise ValueError("script patch response requires 1-6 patches")
+
+    allowed_ids = set(
+        _repair_target_section_ids(original_script, revision_note, cta_plan)
+    )
+    if not allowed_ids:
+        raise ValueError("script patch has no deterministic target section")
+
+    repaired = copy.deepcopy(dict(original_script))
+    sections = repaired.get("sections") or []
+    if not isinstance(sections, list):
+        raise ValueError("script patch original sections invalid")
+    by_id = {
+        str(item.get("id") or ""): item
+        for item in sections
+        if isinstance(item, dict)
+    }
+
+    original_hook = _first_spoken_sentence(original_script)
+    opener = str(identity.get("opener") or "").strip()
+    closer = str(identity.get("closer") or "").strip()
+    spoken_cta = str(cta_plan.get("spoken_text") or "").strip()
+    cta_anchor = str(cta_plan.get("anchor_section_id") or "").strip()
+    total_find_chars = 0
+    seen: set[tuple[str, str]] = set()
+
+    for raw in patches:
+        if not isinstance(raw, Mapping):
+            raise ValueError("script patch item must be an object")
+        if set(raw) != {"section_id", "find", "replace"}:
+            raise ValueError("script patch item has unexpected fields")
+        section_id = str(raw.get("section_id") or "").strip()
+        find = str(raw.get("find") or "")
+        replace = str(raw.get("replace") or "")
+        if section_id not in allowed_ids or section_id not in by_id:
+            raise ValueError("script patch targeted an unflagged section")
+        if not find.strip() or len(find) > 400 or len(replace) > 550:
+            raise ValueError("script patch span exceeds local repair bounds")
+        if len(replace) > len(find) + 180:
+            raise ValueError("script patch expanded the target too far")
+        key = (section_id, find)
+        if key in seen:
+            raise ValueError("script patch duplicated a target")
+        seen.add(key)
+        total_find_chars += len(find)
+        if total_find_chars > 900:
+            raise ValueError("script patch total repair surface exceeds 900 characters")
+
+        item = by_id[section_id]
+        narration = str(item.get("narration") or "")
+        if narration.count(find) != 1:
+            raise ValueError("script patch find text must match exactly once")
+
+        for locked_name, locked_text in (
+            ("hook", original_hook if section_id == str(sections[0].get("id") or "") else ""),
+            ("opener", opener),
+            ("closer", closer),
+            ("cta", spoken_cta if section_id == cta_anchor else ""),
+        ):
+            if locked_text and locked_text in find and replace.count(locked_text) != 1:
+                raise ValueError(f"script patch changed locked {locked_name}")
+
+        item["narration"] = narration.replace(find, replace, 1)
+
+    normalized = validate_script(repaired, plan)
+    if original_hook and _first_spoken_sentence(normalized) != original_hook:
+        raise ValueError("script patch changed the locked hook")
+    joined = "\n".join(
+        str(item.get("narration") or "")
+        for item in normalized.get("sections", [])
+        if isinstance(item, Mapping)
+    )
+    if opener and joined.count(opener) != 1:
+        raise ValueError("script patch changed the locked narrative identity opener")
+    if closer and joined.count(closer) != 1:
+        raise ValueError("script patch changed the locked narrative identity closer")
+    if spoken_cta:
+        if joined.count(spoken_cta) != 1:
+            raise ValueError("script patch changed or duplicated the locked CTA")
+        anchor = next(
+            (
+                item
+                for item in normalized.get("sections", [])
+                if isinstance(item, Mapping)
+                and str(item.get("id") or "") == cta_anchor
+            ),
+            None,
+        )
+        if anchor is None or spoken_cta not in str(anchor.get("narration") or ""):
+            raise ValueError("script patch moved the locked CTA")
+    return normalized
+
+
 def _replace_first_spoken_sentence(text: str, locked_sentence: str) -> str:
     """Restore the host-owned hook while preserving the candidate body."""
     text = text.strip()
@@ -868,6 +1028,9 @@ def _tone_repair_prompt(
         separators=(",", ":"),
     )
     hook = _first_spoken_sentence(script)
+    allowed_patch_section_ids = _repair_target_section_ids(
+        script, revision_note, cta_plan
+    )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
@@ -882,6 +1045,9 @@ PRODUCTION_CONTEXT:
 
 REVISION_NOTE:
 {revision_note}
+
+ALLOWED_PATCH_SECTION_IDS:
+{json.dumps(list(allowed_patch_section_ids), ensure_ascii=False, separators=(",", ":"))}
 
 {research_boundaries}
 
@@ -908,13 +1074,19 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - Preserve every unaffected sentence exactly. Change only sentences necessary for a listed flag
   or an OFFENDING_OCCURRENCE.
 - Make the minimum wording/transition changes needed for the listed flags. No unrelated rewrite.
-- Return narration only inside the existing script JSON shape; no markdown or commentary.
+- DO NOT return a rewritten script. Return only exact local text replacements.
+- Each patch.find MUST be copied verbatim from CURRENT_SCRIPT inside the named section.
+- Each patch.replace MUST contain only the minimum local wording needed to fix that target.
+- Maximum 6 patches. Do not patch an unflagged section.
 
-Return one JSON object with the same title and every locked section id exactly once and in order:
+Return exactly one JSON object in this shape:
 {{
-  "title": "same Arabic title",
-  "sections": [
-    {{"id": "s1", "narration": "repaired Arabic spoken narration"}}
+  "patches": [
+    {{
+      "section_id": "s2",
+      "find": "exact original text copied from the current narration",
+      "replace": "minimal repaired replacement"
+    }}
   ]
 }}
 """.strip()))
@@ -945,8 +1117,13 @@ def _run_one_bounded_tone_repair(
 
     identity = _read_json_object(output_dir / "narrative-identity.json")
     cta_plan = _read_json_object(output_dir / "cta-plan.json")
+    target_ids = _repair_target_section_ids(script, issue_notes, cta_plan)
+    if not target_ids:
+        raise RuntimeError(
+            "Tone/Naturalness repair has no deterministic target section"
+        )
     repaired = router.route(
-        stage="script",
+        stage="script_patch",
         prompt=_tone_repair_prompt(
             brief=brief,
             plan=plan,
@@ -955,13 +1132,14 @@ def _run_one_bounded_tone_repair(
             cta_plan=cta_plan,
             revision_note=issue_notes,
         ),
-        max_tokens=7500 if str(brief.get("format") or "") == "film" else 2500,
-        validator=lambda value: _validate_tone_repair_script(
+        max_tokens=2200 if str(brief.get("format") or "") == "film" else 1200,
+        validator=lambda value: _validate_and_apply_script_patches(
             value,
             plan=plan,
             original_script=script,
             identity=identity,
             cta_plan=cta_plan,
+            revision_note=issue_notes,
         ),
     )
     script.clear()
@@ -1015,6 +1193,9 @@ def _factuality_repair_prompt(
         separators=(",", ":"),
     )
     hook = _first_spoken_sentence(script)
+    allowed_patch_section_ids = _repair_target_section_ids(
+        script, revision_note, cta_plan
+    )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded factuality repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
@@ -1029,6 +1210,9 @@ PRODUCTION_CONTEXT:
 
 REVISION_NOTE:
 {revision_note}
+
+ALLOWED_PATCH_SECTION_IDS:
+{json.dumps(list(allowed_patch_section_ids), ensure_ascii=False, separators=(",", ":"))}
 
 {research_boundaries}
 
@@ -1050,16 +1234,22 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
   its existing anchor section when needed to make the surrounding transition sound natural.
-- These host-owned locks are restored deterministically after your candidate is parsed; spend
-  repair effort only on the listed factuality/tone/structural defects, not on rewriting locked anchors.
+- These host-owned locks remain exact; spend repair effort only on the listed
+  factuality/tone/structural defects, not on rewriting locked anchors.
 - Make the minimum wording changes needed. No unrelated rewrite.
-- Return narration only inside the existing script JSON shape; no markdown or commentary.
+- DO NOT return a rewritten script. Return only exact local text replacements.
+- Each patch.find MUST be copied verbatim from CURRENT_SCRIPT inside the named section.
+- Each patch.replace MUST contain only the minimum local wording needed to fix that target.
+- Maximum 6 patches. Do not patch an unflagged section.
 
-Return one JSON object with the same title and every locked section id exactly once and in order:
+Return exactly one JSON object in this shape:
 {{
-  "title": "same Arabic title",
-  "sections": [
-    {{"id": "s1", "narration": "repaired Arabic spoken narration"}}
+  "patches": [
+    {{
+      "section_id": "s4",
+      "find": "exact original text copied from the current narration",
+      "replace": "minimal repaired replacement"
+    }}
   ]
 }}
 """.strip()))
@@ -1103,8 +1293,13 @@ def _run_one_bounded_factuality_repair(
 
     identity = _read_json_object(output_dir / "narrative-identity.json")
     cta_plan = _read_json_object(output_dir / "cta-plan.json")
+    target_ids = _repair_target_section_ids(script, issue_notes, cta_plan)
+    if not target_ids:
+        raise RuntimeError(
+            "Factuality repair has no deterministic target section"
+        )
     repaired = router.route(
-        stage="script",
+        stage="script_patch",
         prompt=_factuality_repair_prompt(
             brief=brief,
             plan=plan,
@@ -1113,13 +1308,14 @@ def _run_one_bounded_factuality_repair(
             cta_plan=cta_plan,
             revision_note=issue_notes,
         ),
-        max_tokens=7500 if str(brief.get("format") or "") == "film" else 2500,
-        validator=lambda value: _validate_tone_repair_script(
+        max_tokens=2200 if str(brief.get("format") or "") == "film" else 1200,
+        validator=lambda value: _validate_and_apply_script_patches(
             value,
             plan=plan,
             original_script=script,
             identity=identity,
             cta_plan=cta_plan,
+            revision_note=issue_notes,
         ),
     )
     script.clear()

@@ -24,7 +24,7 @@ MISTRAL_EXECUTOR_MODEL = "ministral-14b-2512"
 MISTRAL_PLANNING_SCRIPT_MODEL = "ministral-14b-2512"
 MISTRAL_CHAT_URL = "https://api.mistral.ai/v1/chat/completions"
 MISTRAL_TIMEOUT_SECONDS = 120
-MISTRAL_EXECUTOR_TASKS = frozenset({"planning", "narrative_identity", "script", "visual_query_recovery", "text_audit"})
+MISTRAL_EXECUTOR_TASKS = frozenset({"planning", "narrative_identity", "script", "script_patch", "visual_query_recovery", "text_audit"})
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 
 _TELEMETRY: ContextVar[tuple[dict[str, Any], ...]] = ContextVar(
@@ -71,7 +71,7 @@ def mistral_executor_configured() -> bool:
 
 
 def _model_for_task(task_kind: str) -> str:
-    if task_kind in {"planning", "script", "visual_query_recovery"}:
+    if task_kind in {"planning", "script", "script_patch", "visual_query_recovery"}:
         configured = str(os.environ.get("MISTRAL_CONTENT_MODEL") or "").strip()
         return configured or MISTRAL_PLANNING_SCRIPT_MODEL
     return MISTRAL_EXECUTOR_MODEL

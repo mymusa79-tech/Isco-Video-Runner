@@ -33,6 +33,7 @@ from clean_v2.pipeline import (
     CleanV2FactualityContentBlock,
     CleanV2ToneContentBlock,
     _factuality_repair_prompt,
+    _repair_target_section_ids,
     _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
     _tone_repair_prompt,
@@ -3128,11 +3129,47 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
         def route(self, *, stage, prompt, max_tokens, validator):
             self.calls += 1
             self.prompts.append(prompt)
-            if stage != "script":
+            if stage != "script_patch":
                 raise AssertionError(stage)
-            if max_tokens != 7500:
+            if max_tokens != 2200:
                 raise AssertionError(max_tokens)
-            return validator(self.candidate)
+            if "patches" in self.candidate:
+                return validator(self.candidate)
+
+            context_marker = "PRODUCTION_CONTEXT:\n"
+            revision_marker = "\n\nREVISION_NOTE:\n"
+            raw_context = prompt.split(context_marker, 1)[1].split(revision_marker, 1)[0]
+            context = json.loads(raw_context)
+            current_script = context["current_script"]
+            cta_plan = context["cta_plan"]
+            revision_note = prompt.split(revision_marker, 1)[1].split(
+                "\n\n[RESEARCH_BOUNDARIES]", 1
+            )[0].strip()
+            target_ids = set(
+                _repair_target_section_ids(current_script, revision_note, cta_plan)
+            )
+            candidate_by_id = {
+                str(item.get("id") or ""): item
+                for item in (self.candidate.get("sections") or [])
+                if isinstance(item, dict)
+            }
+            patches = []
+            for item in current_script.get("sections") or []:
+                section_id = str(item.get("id") or "")
+                if section_id not in target_ids or section_id not in candidate_by_id:
+                    continue
+                original = str(item.get("narration") or "")
+                replacement = str(candidate_by_id[section_id].get("narration") or "")
+                if original == replacement:
+                    continue
+                patches.append(
+                    {
+                        "section_id": section_id,
+                        "find": original,
+                        "replace": replacement,
+                    }
+                )
+            return validator({"patches": patches})
 
     def _plan_for_run199(self) -> dict:
         plan = _plan()
@@ -3321,57 +3358,38 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
         from clean_v2.structural_ai import structural_ai_flags
 
         original = self._run199_script()
-        original["sections"][1]["narration"] = (
+        s2_before = (
             "ليس لأن المهمة سهلة، بل لأن تقديرنا للوقت متفائل أكثر من اللازم. "
             "ليس لأننا نتعمد التأخير، بل لأن التفاصيل تظهر أثناء التنفيذ."
         )
-        original["sections"][2]["narration"] = (
-            "ليس لأن الإرادة غائبة، بل لأن الراحة اللحظية تصبح أكثر جاذبية عند الضغط. "
-            + self.CTA
+        s3_before = (
+            "ليس لأن الإرادة غائبة، بل لأن الراحة اللحظية تصبح أكثر جاذبية عند الضغط."
         )
+        original["sections"][1]["narration"] = s2_before
+        original["sections"][2]["narration"] = s3_before + " " + self.CTA
         original["sections"][3]["narration"] = (
             "اربط البداية بإشارة واضحة في يومك حتى تصبح الخطوة محددة بدل أن تبقى نية عامة."
         )
 
         candidate = {
-            "title": "عنوان بديل يجب أن يعيده المضيف",
-            "sections": [
+            "patches": [
                 {
-                    "id": "s1",
-                    "narration": (
-                        "هوك بديل غير مسموح. تكشف الخطة اليومية فجوة صغيرة بين "
-                        "التوقع والتنفيذ، وهذه الفجوة هي بداية السؤال."
+                    "section_id": "s2",
+                    "find": s2_before,
+                    "replace": (
+                        "قد يكون تقديرنا للوقت متفائلًا أكثر من اللازم، "
+                        "ثم تظهر أثناء التنفيذ تفاصيل لم تدخل في الحساب الأول."
                     ),
                 },
                 {
-                    "id": "s2",
-                    "narration": (
-                        "نميل أثناء التخطيط إلى تقدير الزمن بتفاؤل، ثم تكشف المقاطعات "
-                        "والتفاصيل أن التنفيذ يحتاج مساحة أكبر مما توقعناه."
+                    "section_id": "s3",
+                    "find": s3_before,
+                    "replace": (
+                        "عند الضغط قد تصبح الراحة اللحظية أكثر جاذبية، "
+                        "فيظهر التأجيل من دون تحويله إلى حكم أخلاقي."
                     ),
                 },
-                {
-                    "id": "s3",
-                    "narration": (
-                        "وعندما تصبح المهمة ثقيلة أو مملة، قد نبحث عن راحة سريعة؛ "
-                        "هذا يفسر التأجيل من دون تحويله إلى حكم أخلاقي."
-                    ),
-                },
-                {
-                    "id": "s4",
-                    "narration": (
-                        "يمكن تقليل هذه الفجوة بربط البداية بوقت أو موقف واضح، "
-                        "فتصبح الخطوة التالية محددة وقابلة للتنفيذ."
-                    ),
-                },
-                {
-                    "id": "s5",
-                    "narration": (
-                        "اختر موقفًا واحدًا يتكرر في يومك واربط به خطوة صغيرة، "
-                        "ثم راقب أثرها قبل أن توسع الخطة."
-                    ),
-                },
-            ],
+            ]
         }
         audit_calls = {"n": 0}
         router = self._Router(candidate)
@@ -3431,6 +3449,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                 prompt,
             )
             self.assertIn('"ليس X بل Y"', prompt)
+            self.assertIn("ALLOWED_PATCH_SECTION_IDS:", prompt)
 
             persisted = json.loads(
                 (root / "script-post-tone-repair.json").read_text(encoding="utf-8")
@@ -3468,60 +3487,45 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             "diagnostics": {"validation": "valid"},
         }
         original = self._run199_script()
-        repeated_claim = (
-            "هناك ما يضمن أن هذا سيجعلك أكثر احتمالًا للنجاح."
-        )
-        original["sections"][1]["narration"] = (
+        repeated_claim = "هناك ما يضمن أن هذا سيجعلك أكثر احتمالًا للنجاح."
+        s2_before = (
             "ليست المشكلة ضعف الإرادة بل أن تقدير الوقت يكون متفائلًا أحيانًا. "
             "وليس التعثر دليلًا على الكسل بل نتيجة لفجوة بين التوقع والتنفيذ. "
             "وليس الحل ضغطًا أكبر بل ربط البداية بإشارة أوضح."
         )
+        original["sections"][1]["narration"] = s2_before
         original["sections"][3]["narration"] = (
             "اربط البداية بوقت أو موقف واضح. " + repeated_claim
         )
-        original["sections"][4]["narration"] = (
-            repeated_claim + " " + self.CLOSER
-        )
+        original["sections"][4]["narration"] = repeated_claim + " " + self.CLOSER
 
         candidate = {
-            "title": "عنوان بديل يجب أن يعيده المضيف",
-            "sections": [
+            "patches": [
                 {
-                    "id": "s1",
-                    "narration": (
-                        "هوك بديل غير مسموح. تبدأ المشكلة حين تبدو الخطة أوضح "
-                        "من ظروف اليوم الفعلية."
+                    "section_id": "s2",
+                    "find": s2_before,
+                    "replace": (
+                        "قد يكون تقدير الوقت متفائلًا أحيانًا، وتظهر أثناء التنفيذ فجوة "
+                        "بين التوقع وما تسمح به تفاصيل اليوم. ويمكن جعل البداية أوضح "
+                        "بربطها بإشارة محددة."
                     ),
                 },
                 {
-                    "id": "s2",
-                    "narration": (
-                        "قد يكون تقدير الزمن متفائلًا، فتظهر أثناء التنفيذ تفاصيل "
-                        "ومقاطعات لم تدخل في الحساب الأول."
-                    ),
-                },
-                {
-                    "id": "s3",
-                    "narration": (
-                        "وعندما تصبح المهمة ثقيلة قد نميل إلى تأجيلها بحثًا عن راحة "
-                        "سريعة، من دون أن يعني ذلك ضعف الإرادة."
-                    ),
-                },
-                {
-                    "id": "s4",
-                    "narration": (
+                    "section_id": "s4",
+                    "find": repeated_claim,
+                    "replace": (
                         "تشير الأدلة المعتمدة إلى أن ربط الفعل بوقت أو موقف محدد "
                         "قد يزيد احتمال المتابعة والتنفيذ."
                     ),
                 },
                 {
-                    "id": "s5",
-                    "narration": (
-                        "اختر إشارة واحدة واضحة وراقب هل ساعدتك على البدء بصورة "
-                        "أكثر انتظامًا قبل أن توسع الخطة."
+                    "section_id": "s5",
+                    "find": repeated_claim,
+                    "replace": (
+                        "راقب أثر الإشارة على المتابعة قبل أن توسع الخطة."
                     ),
                 },
-            ],
+            ]
         }
         audit_calls = {"n": 0}
         router = self._Router(candidate)
@@ -3583,6 +3587,9 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertIn("- [structural] duplicate_sentence", prompt)
             self.assertIn("weaken, qualify, or remove only the offending wording", prompt)
             self.assertIn("Do not invent a new study", prompt)
+            self.assertIn('"s2"', prompt)
+            self.assertIn('"s4"', prompt)
+            self.assertIn('"s5"', prompt)
 
             persisted = json.loads(
                 (root / "script-post-factuality-repair.json").read_text(
@@ -3669,7 +3676,27 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             ],
             "unverified_religious_quote_flags": [],
         }
-        router = self._Router(self._repaired_script())
+        candidate = {
+            "patches": [
+                {
+                    "section_id": "s1",
+                    "find": "نبدأ من هذه الفجوة اليومية بين ما نتوقعه وما يحدث فعلًا.",
+                    "replace": (
+                        "هذه الفجوة اليومية بين التوقع والتنفيذ هي نقطة البداية للسؤال."
+                    ),
+                },
+                {
+                    "section_id": "s3",
+                    "find": (
+                        "ثم يظهر التأجيل عندما تصبح المهمة ثقيلة، فنبحث عن الراحة اللحظية."
+                    ),
+                    "replace": (
+                        "وعندما تصبح المهمة ثقيلة قد يظهر التأجيل بحثًا عن راحة سريعة."
+                    ),
+                },
+            ]
+        }
+        router = self._Router(candidate)
         audit_calls = {"n": 0}
 
         def text_audit(**_kwargs):
@@ -3725,6 +3752,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                 "Fix only the concrete factuality, tone/naturalness, and structural problems",
                 prompt,
             )
+            self.assertIn("ALLOWED_PATCH_SECTION_IDS:", prompt)
             self.assertTrue(
                 (root / "tone-naturalness-audit-pre-repair.json").is_file()
             )
@@ -3753,26 +3781,35 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             script=self._run199_script(),
             identity=identity,
             cta_plan=cta_plan,
-            revision_note="- [factuality] Run #245 guarantee exceeds evidence",
+            revision_note="- [factuality] s4: guarantee exceeds evidence",
         )
+        patch_payload = {
+            "patches": [
+                {
+                    "section_id": "s4",
+                    "find": "الخطط إذا-فإن",
+                    "replace": "خطط إذا-فإن",
+                }
+            ]
+        }
 
         with mock.patch.object(
             providers_module.mistral_executor,
             "mistral_executor_json",
-            return_value=self._repaired_script(),
+            return_value=patch_payload,
         ) as executor:
-            result = providers_module._mistral_call(prompt, 7500, "script")
+            result = providers_module._mistral_call(prompt, 2200, "script_patch")
 
-        self.assertEqual(result, self._repaired_script())
+        self.assertEqual(result, patch_payload)
         kwargs = executor.call_args.kwargs
-        self.assertEqual(kwargs["task_kind"], "script")
+        self.assertEqual(kwargs["task_kind"], "script_patch")
         schema_name, schema = kwargs["response_schema"]
-        self.assertEqual(schema_name, "script")
-        section_items = schema["properties"]["sections"]["prefixItems"]
-        self.assertEqual(
-            [item["properties"]["id"]["const"] for item in section_items],
-            ["s1", "s2", "s3", "s4", "s5"],
-        )
+        self.assertEqual(schema_name, "script_patch")
+        patches = schema["properties"]["patches"]
+        self.assertEqual(patches["maxItems"], 6)
+        patch_item = patches["items"]["properties"]
+        self.assertEqual(patch_item["find"]["maxLength"], 400)
+        self.assertEqual(patch_item["replace"]["maxLength"], 550)
 
     def test_run245_factuality_repair_is_strictly_one_shot(self) -> None:
         factuality_block = {
@@ -3782,7 +3819,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             "expert_persona_flags": [],
         }
         audit_calls = {"n": 0}
-        router = self._Router(self._repaired_script())
+        router = self._Router({"patches": []})
 
         def text_audit(**_kwargs):
             audit_calls["n"] += 1
@@ -3792,8 +3829,8 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             root = Path(temporary)
             self._write_locked_runtime_files(root)
             with self.assertRaisesRegex(
-                CleanV2FactualityContentBlock,
-                "factuality/AI-expert",
+                RuntimeError,
+                "no deterministic target section",
             ):
                 _run_text_audit_with_one_bounded_tone_repair(
                     text_audit=text_audit,
@@ -3804,13 +3841,8 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                     script=self._run199_script(),
                 )
 
-            self.assertEqual(router.calls, 1)
-            self.assertEqual(audit_calls["n"], 2)
-            repair = json.loads(
-                (root / "factuality-repair.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual(repair["status"], "failed_closed")
-            self.assertEqual(repair["attempts"], 1)
+            self.assertEqual(router.calls, 0)
+            self.assertEqual(audit_calls["n"], 1)
 
     def test_run220_host_overlay_keeps_naturalness_fix_and_restores_all_locked_anchors(self) -> None:
         original = self._run199_script()
