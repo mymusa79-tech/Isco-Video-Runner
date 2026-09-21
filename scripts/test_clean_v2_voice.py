@@ -14,7 +14,12 @@ from clean_v2.media import (
     TtsProviderError,
     VoiceInfrastructureError,
 )
-from clean_v2.pipeline import (\n    STAGES,\n    _Journal,\n    _bounded_voice_chunks,\n    _synthesize_sectioned_voice,\n)
+from clean_v2.pipeline import (
+    STAGES,
+    _Journal,
+    _bounded_voice_chunks,
+    _synthesize_sectioned_voice,
+)
 
 
 def _write_audio(path: Path, marker: bytes = b"G") -> Path:
