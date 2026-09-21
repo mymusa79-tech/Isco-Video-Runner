@@ -153,12 +153,18 @@ def run_final_cut_visual_qa(
     router: Any | None = None,
     visual_source: Any | None = None,
 ) -> dict[str, Any]:
-    """Review selected clips and allow one bounded semantic replacement per failed section.
+    """Review every clip that will appear in the final render and allow one bounded
+    semantic replacement per failed clip.
 
-    The existing final-cut threshold and semantic floor remain authoritative. Recovery
-    is attempted only when the selected clip's semantic floor is below that unchanged
-    target: one narration-bound alternate query and up to three bounded stock candidates,
-    reviewed in order until one is final-cut-ready. No second query or unbounded loop exists.
+    A section with visual pacing's extra same-query clips (pacing_auxiliary entries)
+    reviews its primary and every auxiliary independently - each with its own
+    canonical evidence and its own PASS/BLOCK - since every one of them is visible to
+    the viewer, not just the primary. The existing final-cut threshold and semantic
+    floor remain authoritative per clip. Recovery is attempted only when a given
+    clip's semantic floor is below that unchanged target: one narration-bound
+    alternate query and up to three bounded stock candidates, reviewed in order until
+    one is final-cut-ready, targeting that exact clip's own slot (never a still-passing
+    sibling clip in the same section). No second query or unbounded loop exists.
     """
 
     from isco_video_agent.ai_budget import BudgetLedger, Capability, Priority, TaskSpec
@@ -206,8 +212,9 @@ def run_final_cut_visual_qa(
         # At least one asset per section, not exactly one: a long section's
         # extra same-query pacing clips (rights-manifest.json's
         # pacing_auxiliary entries) share a section_id with their primary.
-        # Only the primary (index 0 below) still gets reviewed; the rest are
-        # coverage for the renderer, not separate content-relevance claims.
+        # Every clip that will actually appear in the final render - primary
+        # and every pacing_auxiliary - is reviewed independently below, each
+        # with its own canonical evidence and its own PASS/BLOCK outcome.
         or any(len(right_by_section.get(section_id, [])) < 1 for section_id in expected_ids)
     ):
         raise CleanV2VisualQABlock(
@@ -231,6 +238,7 @@ def run_final_cut_visual_qa(
     evidence_root = output_dir / "visual-evidence"
     evidence_root.mkdir(parents=True, exist_ok=True)
     final_media_mutated = False
+    audited_selected_clip_count = 0
 
     def review_clip(
         *,
@@ -241,6 +249,7 @@ def run_final_cut_visual_qa(
         narration_context: str,
         intended_visual: str,
         recovery: bool,
+        clip_position: int = 1,
         recovery_candidate_index: int | None = None,
     ) -> tuple[dict[str, Any], float]:
         suffix = (
@@ -250,7 +259,7 @@ def run_final_cut_visual_qa(
         )
         canonical_evidence = build_canonical_visual_evidence(
             clip,
-            evidence_root / f"{index:02d}-{section_id}{suffix}",
+            evidence_root / f"{index:02d}-{section_id}-c{clip_position:02d}{suffix}",
             narration_context=narration_context,
             intended_visual=intended_visual,
         )
@@ -260,7 +269,7 @@ def run_final_cut_visual_qa(
             else ""
         )
         spec = TaskSpec(
-            task_id=f"CLEAN_V2_VISUAL_AUDIT_S{index:02d}{task_suffix}",
+            task_id=f"CLEAN_V2_VISUAL_AUDIT_S{index:02d}_C{clip_position:02d}{task_suffix}",
             kind="VISUAL_AUDIT",
             priority=Priority.P0,
             capability=Capability.VISION,
@@ -340,6 +349,7 @@ def run_final_cut_visual_qa(
         audit.update(
             {
                 "section": section_id,
+                "clip_position": clip_position,
                 "provider": str(row.get("provider") or ""),
                 "candidate_id": row.get("asset_id"),
                 "from_cache": False,
@@ -352,7 +362,7 @@ def run_final_cut_visual_qa(
                 ),
                 "vision_review_performed": True,
                 "is_selected": not recovery,
-                "is_final_cut_auxiliary": False,
+                "is_final_cut_auxiliary": bool(row.get("pacing_auxiliary")),
                 "semantic_recovery_attempt": recovery,
                 "final_cut_semantic_floor": round(floor, 6),
                 "final_cut_readiness_target": FINAL_CUT_TARGET_SEMANTIC_FLOOR,
@@ -367,306 +377,330 @@ def run_final_cut_visual_qa(
         with vision_provider_circuit_scope():
             for index, section in enumerate(sections, start=1):
                 section_id = str(section.get("id") or "").strip()
-                row = right_by_section[section_id][0]
-                local_file = str(row.get("local_file") or "").strip()
-                clip = output_dir / "visuals" / local_file
-                if not local_file or not clip.is_file():
-                    raise CleanV2VisualQABlock(
-                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} reason=selected_visual_missing"
-                    )
-
                 narration_context = script_by_id.get(section_id, "")
                 intended_visual = str(section.get("visual_query_en") or "").strip()
-                primary_audit, primary_floor = review_clip(
-                    index=index,
-                    section_id=section_id,
-                    clip=clip,
-                    row=row,
-                    narration_context=narration_context,
-                    intended_visual=intended_visual,
-                    recovery=False,
-                )
-                audits.append(primary_audit)
-                _write_json(output_dir / "visual-audit.json", audits)
 
-                if is_final_cut_ready(primary_audit):
-                    continue
+                # Every clip that will actually appear in the final render for
+                # this section - the primary plus any pacing_auxiliary extras
+                # - is reviewed here, each with its own canonical evidence,
+                # its own task identity and its own independent PASS/BLOCK.
+                # A section is only ever treated as PASS once every one of
+                # its clips has cleared this loop without raising.
+                for clip_position, row in enumerate(
+                    right_by_section[section_id], start=1
+                ):
+                    local_file = str(row.get("local_file") or "").strip()
+                    clip = output_dir / "visuals" / local_file
+                    if not local_file or not clip.is_file():
+                        raise CleanV2VisualQABlock(
+                            f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
+                            f"position={clip_position} reason=selected_visual_missing"
+                        )
+                    audited_selected_clip_count += 1
 
-                if primary_floor >= FINAL_CUT_TARGET_SEMANTIC_FLOOR:
-                    raise CleanV2VisualQABlock(
-                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
-                        f"reason=selected_visual_not_final_cut_ready "
-                        f"status={primary_audit.get('status')} floor={primary_floor:.6f}"
+                    primary_audit, primary_floor = review_clip(
+                        index=index,
+                        section_id=section_id,
+                        clip=clip,
+                        row=row,
+                        narration_context=narration_context,
+                        intended_visual=intended_visual,
+                        recovery=False,
+                        clip_position=clip_position,
                     )
+                    audits.append(primary_audit)
+                    _write_json(output_dir / "visual-audit.json", audits)
 
-                recovery_record: dict[str, Any] = {
-                    "section": section_id,
-                    "status": "started",
-                    "primary_floor": round(primary_floor, 6),
-                    "target": FINAL_CUT_TARGET_SEMANTIC_FLOOR,
-                    "original_query": intended_visual,
-                    "attempt_limit": 1,
-                    "candidate_review_limit": MAX_SEMANTIC_RECOVERY_CANDIDATES,
-                }
-                recovery_records.append(recovery_record)
-                _write_json(output_dir / "visual-query-recovery.json", recovery_records)
+                    if is_final_cut_ready(primary_audit):
+                        continue
 
-                if router is None or visual_source is None:
-                    recovery_record.update(
-                        {
-                            "status": "unavailable",
-                            "reason": "recovery_dependencies_missing",
-                        }
-                    )
+                    if primary_floor >= FINAL_CUT_TARGET_SEMANTIC_FLOOR:
+                        raise CleanV2VisualQABlock(
+                            f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
+                            f"position={clip_position} "
+                            f"reason=selected_visual_not_final_cut_ready "
+                            f"status={primary_audit.get('status')} floor={primary_floor:.6f}"
+                        )
+
+                    recovery_record: dict[str, Any] = {
+                        "section": section_id,
+                        "clip_position": clip_position,
+                        "status": "started",
+                        "primary_floor": round(primary_floor, 6),
+                        "target": FINAL_CUT_TARGET_SEMANTIC_FLOOR,
+                        "original_query": intended_visual,
+                        "attempt_limit": 1,
+                        "candidate_review_limit": MAX_SEMANTIC_RECOVERY_CANDIDATES,
+                    }
+                    recovery_records.append(recovery_record)
                     _write_json(output_dir / "visual-query-recovery.json", recovery_records)
-                    raise CleanV2VisualQABlock(
-                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
-                        f"reason=selected_visual_not_final_cut_ready "
-                        f"status={primary_audit.get('status')} floor={primary_floor:.6f}"
-                    )
 
-                prompt = _alternate_visual_query_prompt(
-                    original_query=intended_visual,
-                    narration_context=narration_context,
-                )
-                router_event_start = len(getattr(router, "events", []))
-                try:
-                    alternate = router.route(
-                        stage="visual_query_recovery",
-                        prompt=prompt,
-                        max_tokens=80,
-                        validator=lambda value: _validate_alternate_query(
-                            value,
-                            original_query=intended_visual,
-                        ),
-                    )["alternate_query"]
-                except Exception as exc:
-                    recovery_record.update(
-                        {
-                            "status": "query_generation_failed",
-                            "reason": type(exc).__name__,
-                            "router_events": list(
-                                getattr(router, "events", [])[router_event_start:]
+                    if router is None or visual_source is None:
+                        recovery_record.update(
+                            {
+                                "status": "unavailable",
+                                "reason": "recovery_dependencies_missing",
+                            }
+                        )
+                        _write_json(output_dir / "visual-query-recovery.json", recovery_records)
+                        raise CleanV2VisualQABlock(
+                            f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
+                            f"position={clip_position} "
+                            f"reason=selected_visual_not_final_cut_ready "
+                            f"status={primary_audit.get('status')} floor={primary_floor:.6f}"
+                        )
+
+                    prompt = _alternate_visual_query_prompt(
+                        original_query=intended_visual,
+                        narration_context=narration_context,
+                    )
+                    router_event_start = len(getattr(router, "events", []))
+                    try:
+                        alternate = router.route(
+                            stage="visual_query_recovery",
+                            prompt=prompt,
+                            max_tokens=80,
+                            validator=lambda value: _validate_alternate_query(
+                                value,
+                                original_query=intended_visual,
                             ),
-                        }
+                        )["alternate_query"]
+                    except Exception as exc:
+                        recovery_record.update(
+                            {
+                                "status": "query_generation_failed",
+                                "reason": type(exc).__name__,
+                                "router_events": list(
+                                    getattr(router, "events", [])[router_event_start:]
+                                ),
+                            }
+                        )
+                        _write_json(output_dir / "visual-query-recovery.json", recovery_records)
+                        raise CleanV2VisualQAInfrastructure(
+                            f"CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section={section_id} "
+                            f"position={clip_position} "
+                            f"reason=semantic_recovery_query_unavailable "
+                            f"error_type={type(exc).__name__}"
+                        ) from exc
+
+                    recovery_record["alternate_query"] = alternate
+                    recovery_record["router_events"] = list(
+                        getattr(router, "events", [])[router_event_start:]
                     )
                     _write_json(output_dir / "visual-query-recovery.json", recovery_records)
-                    raise CleanV2VisualQAInfrastructure(
-                        f"CLEAN_V2_VISUAL_QA_INFRASTRUCTURE section={section_id} "
-                        f"reason=semantic_recovery_query_unavailable "
-                        f"error_type={type(exc).__name__}"
-                    ) from exc
 
-                recovery_record["alternate_query"] = alternate
-                recovery_record["router_events"] = list(
-                    getattr(router, "events", [])[router_event_start:]
-                )
-                _write_json(output_dir / "visual-query-recovery.json", recovery_records)
-
-                excluded_assets = [
-                    (
-                        str(item.get("provider") or ""),
-                        item.get("asset_id"),
-                    )
-                    for item in rights
-                    if isinstance(item, dict)
-                ]
-                try:
-                    acquire_many = getattr(
-                        visual_source,
-                        "acquire_replacement_candidates",
-                        None,
-                    )
-                    if callable(acquire_many):
-                        acquired_candidates = list(
-                            acquire_many(
+                    excluded_assets = [
+                        (
+                            str(item.get("provider") or ""),
+                            item.get("asset_id"),
+                        )
+                        for item in rights
+                        if isinstance(item, dict)
+                    ]
+                    try:
+                        acquire_many = getattr(
+                            visual_source,
+                            "acquire_replacement_candidates",
+                            None,
+                        )
+                        if callable(acquire_many):
+                            acquired_candidates = list(
+                                acquire_many(
+                                    alternate,
+                                    output_dir / "visuals",
+                                    fmt,
+                                    destination_name=local_file,
+                                    section_id=section_id,
+                                    max_candidates=MAX_SEMANTIC_RECOVERY_CANDIDATES,
+                                    exclude_provider=str(row.get("provider") or ""),
+                                    exclude_asset_id=row.get("asset_id"),
+                                    exclude_assets=excluded_assets,
+                                )
+                                or []
+                            )
+                        else:
+                            acquired = visual_source.acquire_replacement(
                                 alternate,
                                 output_dir / "visuals",
                                 fmt,
                                 destination_name=local_file,
                                 section_id=section_id,
-                                max_candidates=MAX_SEMANTIC_RECOVERY_CANDIDATES,
                                 exclude_provider=str(row.get("provider") or ""),
                                 exclude_asset_id=row.get("asset_id"),
                                 exclude_assets=excluded_assets,
                             )
-                            or []
+                            acquired_candidates = [] if acquired is None else [acquired]
+                    except Exception as exc:
+                        recovery_record.update(
+                            {
+                                "status": "search_failed",
+                                "reason": type(exc).__name__,
+                            }
                         )
-                    else:
-                        acquired = visual_source.acquire_replacement(
-                            alternate,
-                            output_dir / "visuals",
-                            fmt,
-                            destination_name=local_file,
-                            section_id=section_id,
-                            exclude_provider=str(row.get("provider") or ""),
-                            exclude_asset_id=row.get("asset_id"),
-                            exclude_assets=excluded_assets,
+                        _write_json(output_dir / "visual-query-recovery.json", recovery_records)
+                        raise CleanV2VisualQABlock(
+                            f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
+                            f"position={clip_position} "
+                            f"reason=semantic_recovery_search_failed "
+                            f"floor={primary_floor:.6f}"
+                        ) from exc
+
+                    if not acquired_candidates:
+                        recovery_record.update(
+                            {
+                                "status": "no_candidate",
+                                "reason": "alternate_search_returned_no_admitted_candidate",
+                                "candidate_pool_size": 0,
+                            }
                         )
-                        acquired_candidates = [] if acquired is None else [acquired]
-                except Exception as exc:
+                        _write_json(output_dir / "visual-query-recovery.json", recovery_records)
+                        raise CleanV2VisualQABlock(
+                            f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
+                            f"position={clip_position} "
+                            f"reason=semantic_recovery_no_candidate "
+                            f"floor={primary_floor:.6f}"
+                        )
+
+                    acquired_candidates = acquired_candidates[
+                        :MAX_SEMANTIC_RECOVERY_CANDIDATES
+                    ]
+                    recovery_record["candidate_pool_size"] = len(acquired_candidates)
+                    candidate_reviews: list[dict[str, Any]] = []
+                    selected_recovery: tuple[
+                        Path,
+                        dict[str, Any],
+                        dict[str, Any],
+                        float,
+                        int,
+                    ] | None = None
+                    best_recovery_floor = 0.0
+
+                    for candidate_position, acquired in enumerate(
+                        acquired_candidates,
+                        start=1,
+                    ):
+                        recovery_clip, replacement_row = acquired
+                        recovery_clip = Path(recovery_clip)
+                        try:
+                            recovery_audit, recovery_floor = review_clip(
+                                index=index,
+                                section_id=section_id,
+                                clip=recovery_clip,
+                                row=replacement_row,
+                                narration_context=narration_context,
+                                intended_visual=alternate,
+                                recovery=True,
+                                recovery_candidate_index=candidate_position,
+                                clip_position=clip_position,
+                            )
+                        except Exception:
+                            for cleanup_clip, _cleanup_row in acquired_candidates:
+                                cleanup_path = Path(cleanup_clip)
+                                cleanup_path.unlink(missing_ok=True)
+                                cleanup_path.with_suffix(".m8.json").unlink(missing_ok=True)
+                            raise
+
+                        audits.append(recovery_audit)
+                        best_recovery_floor = max(best_recovery_floor, recovery_floor)
+                        ready = is_final_cut_ready(recovery_audit)
+                        candidate_reviews.append(
+                            {
+                                "index": candidate_position,
+                                "provider": replacement_row.get("provider"),
+                                "asset_id": replacement_row.get("asset_id"),
+                                "floor": round(recovery_floor, 6),
+                                "status": "ready" if ready else "rejected",
+                            }
+                        )
+                        _write_json(output_dir / "visual-audit.json", audits)
+
+                        if ready:
+                            selected_recovery = (
+                                recovery_clip,
+                                replacement_row,
+                                recovery_audit,
+                                recovery_floor,
+                                candidate_position,
+                            )
+                            break
+
+                        recovery_audit["is_selected"] = False
+                        recovery_clip.unlink(missing_ok=True)
+                        recovery_clip.with_suffix(".m8.json").unlink(missing_ok=True)
+
+                    if selected_recovery is None:
+                        recovery_record.update(
+                            {
+                                "status": "rejected",
+                                "recovery_floor": round(best_recovery_floor, 6),
+                                "candidate_review_count": len(candidate_reviews),
+                                "candidate_reviews": candidate_reviews,
+                            }
+                        )
+                        _write_json(output_dir / "visual-audit.json", audits)
+                        _write_json(output_dir / "visual-query-recovery.json", recovery_records)
+                        raise CleanV2VisualQABlock(
+                            f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
+                            f"position={clip_position} "
+                            f"reason=semantic_recovery_not_final_cut_ready "
+                            f"primary_floor={primary_floor:.6f} "
+                            f"recovery_floor={best_recovery_floor:.6f} "
+                            f"reviewed={len(candidate_reviews)}"
+                        )
+
+                    (
+                        recovery_clip,
+                        replacement_row,
+                        recovery_audit,
+                        recovery_floor,
+                        selected_candidate_position,
+                    ) = selected_recovery
+
+                    # Candidates are downloaded before cloud review so Pexels/Pixabay are each
+                    # searched only once. Delete every unselected temporary candidate now.
+                    for cleanup_clip, _cleanup_row in acquired_candidates:
+                        cleanup_path = Path(cleanup_clip)
+                        if cleanup_path == recovery_clip:
+                            continue
+                        cleanup_path.unlink(missing_ok=True)
+                        cleanup_path.with_suffix(".m8.json").unlink(missing_ok=True)
+
+                    # The replacement always targets this exact clip's own row/file -
+                    # never the section's primary unless this iteration IS the primary
+                    # (clip_position == 1) - so a failing pacing_auxiliary clip is
+                    # replaced in place without touching a still-passing primary.
+                    visual_source.commit_replacement(recovery_clip, clip)
+                    original_row = dict(row)
+                    replacement_row["recovery_of_provider"] = original_row.get("provider")
+                    replacement_row["recovery_of_asset_id"] = original_row.get("asset_id")
+                    replacement_row["recovery_of_query"] = intended_visual
+                    row.clear()
+                    row.update(replacement_row)
+                    primary_audit["is_selected"] = False
+                    primary_audit["replaced_by_semantic_recovery"] = True
+                    recovery_audit["is_selected"] = True
+                    recovery_audit["promoted_to_final_cut"] = True
+                    final_media_mutated = True
                     recovery_record.update(
                         {
-                            "status": "search_failed",
-                            "reason": type(exc).__name__,
-                        }
-                    )
-                    _write_json(output_dir / "visual-query-recovery.json", recovery_records)
-                    raise CleanV2VisualQABlock(
-                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
-                        f"reason=semantic_recovery_search_failed "
-                        f"floor={primary_floor:.6f}"
-                    ) from exc
-
-                if not acquired_candidates:
-                    recovery_record.update(
-                        {
-                            "status": "no_candidate",
-                            "reason": "alternate_search_returned_no_admitted_candidate",
-                            "candidate_pool_size": 0,
-                        }
-                    )
-                    _write_json(output_dir / "visual-query-recovery.json", recovery_records)
-                    raise CleanV2VisualQABlock(
-                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
-                        f"reason=semantic_recovery_no_candidate "
-                        f"floor={primary_floor:.6f}"
-                    )
-
-                acquired_candidates = acquired_candidates[
-                    :MAX_SEMANTIC_RECOVERY_CANDIDATES
-                ]
-                recovery_record["candidate_pool_size"] = len(acquired_candidates)
-                candidate_reviews: list[dict[str, Any]] = []
-                selected_recovery: tuple[
-                    Path,
-                    dict[str, Any],
-                    dict[str, Any],
-                    float,
-                    int,
-                ] | None = None
-                best_recovery_floor = 0.0
-
-                for candidate_position, acquired in enumerate(
-                    acquired_candidates,
-                    start=1,
-                ):
-                    recovery_clip, replacement_row = acquired
-                    recovery_clip = Path(recovery_clip)
-                    try:
-                        recovery_audit, recovery_floor = review_clip(
-                            index=index,
-                            section_id=section_id,
-                            clip=recovery_clip,
-                            row=replacement_row,
-                            narration_context=narration_context,
-                            intended_visual=alternate,
-                            recovery=True,
-                            recovery_candidate_index=candidate_position,
-                        )
-                    except Exception:
-                        for cleanup_clip, _cleanup_row in acquired_candidates:
-                            cleanup_path = Path(cleanup_clip)
-                            cleanup_path.unlink(missing_ok=True)
-                            cleanup_path.with_suffix(".m8.json").unlink(missing_ok=True)
-                        raise
-
-                    audits.append(recovery_audit)
-                    best_recovery_floor = max(best_recovery_floor, recovery_floor)
-                    ready = is_final_cut_ready(recovery_audit)
-                    candidate_reviews.append(
-                        {
-                            "index": candidate_position,
-                            "provider": replacement_row.get("provider"),
-                            "asset_id": replacement_row.get("asset_id"),
-                            "floor": round(recovery_floor, 6),
-                            "status": "ready" if ready else "rejected",
-                        }
-                    )
-                    _write_json(output_dir / "visual-audit.json", audits)
-
-                    if ready:
-                        selected_recovery = (
-                            recovery_clip,
-                            replacement_row,
-                            recovery_audit,
-                            recovery_floor,
-                            candidate_position,
-                        )
-                        break
-
-                    recovery_audit["is_selected"] = False
-                    recovery_clip.unlink(missing_ok=True)
-                    recovery_clip.with_suffix(".m8.json").unlink(missing_ok=True)
-
-                if selected_recovery is None:
-                    recovery_record.update(
-                        {
-                            "status": "rejected",
-                            "recovery_floor": round(best_recovery_floor, 6),
+                            "status": "recovered",
+                            "recovery_floor": round(recovery_floor, 6),
+                            "candidate_provider": replacement_row.get("provider"),
+                            "candidate_id": replacement_row.get("asset_id"),
                             "candidate_review_count": len(candidate_reviews),
+                            "selected_candidate_index": selected_candidate_position,
                             "candidate_reviews": candidate_reviews,
                         }
                     )
+                    _persist_recovered_rights(
+                        output_dir,
+                        rights,
+                        section_id=section_id,
+                        original_query=intended_visual,
+                        alternate_query=alternate,
+                    )
                     _write_json(output_dir / "visual-audit.json", audits)
                     _write_json(output_dir / "visual-query-recovery.json", recovery_records)
-                    raise CleanV2VisualQABlock(
-                        f"CLEAN_V2_VISUAL_QA_BLOCK section={section_id} "
-                        f"reason=semantic_recovery_not_final_cut_ready "
-                        f"primary_floor={primary_floor:.6f} "
-                        f"recovery_floor={best_recovery_floor:.6f} "
-                        f"reviewed={len(candidate_reviews)}"
-                    )
-
-                (
-                    recovery_clip,
-                    replacement_row,
-                    recovery_audit,
-                    recovery_floor,
-                    selected_candidate_position,
-                ) = selected_recovery
-
-                # Candidates are downloaded before cloud review so Pexels/Pixabay are each
-                # searched only once. Delete every unselected temporary candidate now.
-                for cleanup_clip, _cleanup_row in acquired_candidates:
-                    cleanup_path = Path(cleanup_clip)
-                    if cleanup_path == recovery_clip:
-                        continue
-                    cleanup_path.unlink(missing_ok=True)
-                    cleanup_path.with_suffix(".m8.json").unlink(missing_ok=True)
-
-                visual_source.commit_replacement(recovery_clip, clip)
-                original_row = dict(row)
-                replacement_row["recovery_of_provider"] = original_row.get("provider")
-                replacement_row["recovery_of_asset_id"] = original_row.get("asset_id")
-                replacement_row["recovery_of_query"] = intended_visual
-                row.clear()
-                row.update(replacement_row)
-                primary_audit["is_selected"] = False
-                primary_audit["replaced_by_semantic_recovery"] = True
-                recovery_audit["is_selected"] = True
-                recovery_audit["promoted_to_final_cut"] = True
-                final_media_mutated = True
-                recovery_record.update(
-                    {
-                        "status": "recovered",
-                        "recovery_floor": round(recovery_floor, 6),
-                        "candidate_provider": replacement_row.get("provider"),
-                        "candidate_id": replacement_row.get("asset_id"),
-                        "candidate_review_count": len(candidate_reviews),
-                        "selected_candidate_index": selected_candidate_position,
-                        "candidate_reviews": candidate_reviews,
-                    }
-                )
-                _persist_recovered_rights(
-                    output_dir,
-                    rights,
-                    section_id=section_id,
-                    original_query=intended_visual,
-                    alternate_query=alternate,
-                )
-                _write_json(output_dir / "visual-audit.json", audits)
-                _write_json(output_dir / "visual-query-recovery.json", recovery_records)
     finally:
         ledger.write(output_dir / "visual-qa-budget.json")
         mistral_telemetry = get_mistral_visual_qa_telemetry()
@@ -695,7 +729,7 @@ def run_final_cut_visual_qa(
             1 for item in recovery_records if item.get("status") == "recovered"
         ),
         "section_count": len(expected_ids),
-        "audited_selected_clip_count": len(expected_ids),
+        "audited_selected_clip_count": audited_selected_clip_count,
         "visual_audit_count": len(audits),
         "final_cut_readiness_target": FINAL_CUT_TARGET_SEMANTIC_FLOOR,
         "provider_attempts": ledger.to_summary().get("provider_attempts", {}),

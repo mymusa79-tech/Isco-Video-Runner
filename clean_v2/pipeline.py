@@ -84,6 +84,55 @@ def _read_secret(name: str) -> str:
         return ""
 
 
+def _section_narration_char_counts(
+    sections: list[dict[str, Any]], script: Mapping[str, Any]
+) -> dict[str, int]:
+    narration_by_id = {
+        str(item.get("id") or ""): str(item.get("narration") or "")
+        for item in (script.get("sections") or [])
+        if isinstance(item, dict)
+    }
+    return {
+        str(section.get("id") or ""): len(
+            " ".join(narration_by_id.get(str(section.get("id") or ""), "").split())
+        )
+        for section in sections
+    }
+
+
+def _estimate_section_seconds(
+    sections: list[dict[str, Any]],
+    script: Mapping[str, Any],
+    total_seconds: float,
+) -> dict[str, float]:
+    """Estimate each section's share of the narration's total duration from
+    its own narration character count, instead of assuming every section is
+    the same length. Deterministic and purely local: no AI/provider call,
+    just a proportional split of the already-known total narration duration.
+
+    The last section absorbs any rounding residual so the sum of every
+    section's estimate always equals total_seconds exactly.
+    """
+    counts = _section_narration_char_counts(sections, script)
+    section_ids = [str(section.get("id") or "") for section in sections]
+    total_chars = sum(counts.values())
+    if total_chars <= 0:
+        raise RuntimeError(
+            "Clean V2 cannot estimate section durations: no narration text "
+            "found for any section"
+        )
+    estimated: dict[str, float] = {}
+    allocated = 0.0
+    for index, section_id in enumerate(section_ids):
+        if index == len(section_ids) - 1:
+            estimated[section_id] = max(0.0, total_seconds - allocated)
+        else:
+            share = (counts.get(section_id, 0) / total_chars) * total_seconds
+            estimated[section_id] = share
+            allocated += share
+    return estimated
+
+
 def _run_legacy_final_master_qc(output_dir: Path) -> dict[str, Any]:
     # Deliberately reuse the certified legacy technical QC unchanged.
     # The Engine package is supplied by the production workflow via PYTHONPATH.
@@ -1763,8 +1812,10 @@ class CleanV2Pipeline:
                 sections_for_visuals = list(plan.get("sections") or [])[
                     : max(1, int(max_visuals))
                 ]
-                section_flat_slot_seconds = probe_duration(narration_path) / max(
-                    1, len(sections_for_visuals)
+                section_estimated_seconds = _estimate_section_seconds(
+                    sections_for_visuals,
+                    script,
+                    probe_duration(narration_path),
                 )
                 try:
                     clips, rights = journal.run(
@@ -1774,7 +1825,7 @@ class CleanV2Pipeline:
                             visuals_dir,
                             str(brief["format"]),
                             max_visuals,
-                            section_flat_slot_seconds=section_flat_slot_seconds,
+                            section_estimated_seconds=section_estimated_seconds,
                         ),
                     )
                 except Exception:
@@ -1796,6 +1847,7 @@ class CleanV2Pipeline:
                     {
                         "schema_version": 1,
                         "assets": rights,
+                        "estimated_section_seconds": section_estimated_seconds,
                         "note": "Provider metadata captured at acquisition; no visual quality audit executed in Clean V2 bootstrap.",
                     },
                 )

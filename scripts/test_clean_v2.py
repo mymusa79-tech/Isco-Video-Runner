@@ -970,9 +970,9 @@ class _FakeVisuals:
         self.events: list[dict] = []
         self.calls = 0
 
-    def acquire(self, plan, output_dir, fmt, max_visuals, section_flat_slot_seconds=None):
+    def acquire(self, plan, output_dir, fmt, max_visuals, section_estimated_seconds=None):
         self.calls += 1
-        del plan, fmt, max_visuals, section_flat_slot_seconds
+        del plan, fmt, max_visuals, section_estimated_seconds
         output_dir.mkdir(parents=True, exist_ok=True)
         clips = []
         for index, color in enumerate(("#172033", "#6d4c41"), start=1):
@@ -1024,9 +1024,9 @@ class _StuckQueryVisuals:
         self.events: list[dict] = []
         self.calls = 0
 
-    def acquire(self, plan, output_dir, fmt, max_visuals, section_flat_slot_seconds=None):
+    def acquire(self, plan, output_dir, fmt, max_visuals, section_estimated_seconds=None):
         self.calls += 1
-        del plan, output_dir, fmt, max_visuals, section_flat_slot_seconds
+        del plan, output_dir, fmt, max_visuals, section_estimated_seconds
         raise RuntimeError(
             "CLEAN_V2_NEW_LAYER_BLOCK stage=security_v1.query "
             "error=ModelOutputSchemaError:visual_query_not_plain_english_search_terms"
@@ -2622,6 +2622,290 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             "CLEAN_V2_VISUAL_QA_INFRASTRUCTURE",
             str(raised.exception),
         )
+
+
+class VisualQAMultiClipSectionTests(unittest.TestCase):
+    """Test Requirement F: a section with a primary plus pacing_auxiliary
+    clips reviews every one of them independently, a failing auxiliary's
+    bounded recovery targets only that clip's own slot (never the primary
+    or a sibling auxiliary), and the final report counts every clip that
+    was actually audited, not one per section."""
+
+    NARRATION = (
+        "نص سردي قصير لهذا القسم يوضح الفكرة الأساسية بإيجاز شديد لغرض هذا الاختبار."
+    )
+
+    @staticmethod
+    def _audit(*, relevance: float, quality: float, status: str, evidence) -> dict:
+        return {
+            "status": status,
+            "relevance": relevance,
+            "visual_quality": quality,
+            "identifiable_person": True,
+            "sensitive_trait_implication_risk": False,
+            "prominent_logo_or_brand": False,
+            "cultural_conflict": False,
+            "cultural_islamic_suitability_risk": False,
+            "advertiser_conflict": False,
+            "obvious_synthetic_or_visual_artifact": False,
+            "reason": "multi-clip section reproduction",
+            "vision_provider": "mistral",
+            "resolved_model": "ministral-14b-2512",
+            "prompt_hash": evidence.prompt_hash,
+            "frame_sha256": list(evidence.frame_sha256),
+        }
+
+    class _Router:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def route(self, *, stage, prompt, max_tokens, validator):
+            del prompt, max_tokens
+            self.calls += 1
+            if stage != "visual_query_recovery":
+                raise AssertionError(stage)
+            return validator({"alternate_query": "a different four word phrase"})
+
+    class _VisualSource:
+        def __init__(self) -> None:
+            self.acquire_calls = 0
+            self.commit_calls = 0
+            self.committed_destinations: list[str] = []
+            self.requested_destination_names: list[str] = []
+
+        def acquire_replacement_candidates(
+            self,
+            query,
+            output_dir,
+            fmt,
+            *,
+            destination_name,
+            section_id,
+            max_candidates,
+            exclude_provider,
+            exclude_asset_id,
+            exclude_assets,
+        ):
+            del fmt, max_candidates, exclude_provider, exclude_asset_id, exclude_assets
+            self.acquire_calls += 1
+            self.requested_destination_names.append(destination_name)
+            path = (
+                Path(output_dir)
+                / f".{destination_name}.semantic-recovery-01-pexels.mp4"
+            )
+            path.write_bytes(b"R" * 4096)
+            row = {
+                "provider": "pexels",
+                "asset_id": "recovered-1",
+                "source_url": "https://example.invalid/pexels/recovered-1",
+                "creator": "test",
+                "creator_url": "",
+                "query": query,
+                "local_file": destination_name,
+                "section_id": section_id,
+                "semantic_recovery": True,
+                "semantic_recovery_candidate_index": 1,
+            }
+            return [(path, row)]
+
+        def commit_replacement(self, replacement, destination):
+            self.commit_calls += 1
+            self.committed_destinations.append(Path(destination).name)
+            os.replace(replacement, destination)
+            return Path(destination)
+
+    def test_three_clips_in_one_section_all_audited_failing_auxiliary_recovers_in_place(
+        self,
+    ) -> None:
+        plan = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "heading": "h",
+                    "purpose": "p",
+                    "visual_query_en": "quiet desk notebook wide shot",
+                }
+            ]
+        }
+        script = {"sections": [{"id": "s1", "narration": self.NARRATION}]}
+        rights = [
+            {
+                "provider": "pexels",
+                "asset_id": "primary-1",
+                "source_url": "u",
+                "creator": "c",
+                "creator_url": "",
+                "query": "q",
+                "local_file": "visual-01.mp4",
+                "section_id": "s1",
+            },
+            {
+                "provider": "pexels",
+                "asset_id": "aux-1",
+                "source_url": "u",
+                "creator": "c",
+                "creator_url": "",
+                "query": "q",
+                "local_file": "visual-02.mp4",
+                "section_id": "s1",
+                "pacing_auxiliary": True,
+            },
+            {
+                "provider": "pexels",
+                "asset_id": "aux-2",
+                "source_url": "u",
+                "creator": "c",
+                "creator_url": "",
+                "query": "q",
+                "local_file": "visual-03.mp4",
+                "section_id": "s1",
+                "pacing_auxiliary": True,
+            },
+        ]
+
+        evidence_counter = {"n": 0}
+
+        def build_evidence(_clip, _bundle, **_kwargs):
+            evidence_counter["n"] += 1
+            n = evidence_counter["n"]
+            return SimpleNamespace(
+                prompt_hash=f"prompt-{n}",
+                frame_sha256=(f"frame-{n}-1", f"frame-{n}-2"),
+            )
+
+        # Position 1 (primary) and position 2 (aux #1) pass immediately;
+        # position 3 (aux #2) fails first, then its own bounded recovery
+        # candidate passes.
+        call_outcomes = [
+            (0.95, 0.95, "pass"),
+            (0.95, 0.95, "pass"),
+            (0.30, 0.95, "block"),
+            (0.95, 0.95, "pass"),
+        ]
+        seen: list[int] = []
+
+        def ledger_call(_ledger, _spec, *_args, **kwargs):
+            evidence = kwargs["canonical_evidence"]
+            index = len(seen)
+            seen.append(index)
+            relevance, quality, status = call_outcomes[index]
+            return self._audit(
+                relevance=relevance, quality=quality, status=status, evidence=evidence
+            )
+
+        router = self._Router()
+        visual_source = self._VisualSource()
+
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root)
+            visuals = output / "visuals"
+            visuals.mkdir()
+            for row in rights:
+                (visuals / row["local_file"]).write_bytes(b"O" * 4096)
+            (output / "rights-manifest.json").write_text(
+                json.dumps({"schema_version": 1, "assets": rights}),
+                encoding="utf-8",
+            )
+
+            class FakeBudgetLedger:
+                def __init__(self, _fmt, *, enforce=True):
+                    self.enforce = enforce
+
+                def write(self, path):
+                    Path(path).write_text(
+                        json.dumps({"schema_version": 1, "provider_attempts": {}}),
+                        encoding="utf-8",
+                    )
+
+                def to_summary(self):
+                    return {"provider_attempts": {}}
+
+            class FakeTaskSpec:
+                def __init__(self, **kwargs):
+                    self.__dict__.update(kwargs)
+
+            engine = types.ModuleType("isco_video_agent")
+            engine.__path__ = []
+            ai_budget = types.ModuleType("isco_video_agent.ai_budget")
+            ai_budget.BudgetLedger = FakeBudgetLedger
+            ai_budget.Capability = SimpleNamespace(VISION="vision")
+            ai_budget.Priority = SimpleNamespace(P0="P0")
+            ai_budget.TaskSpec = FakeTaskSpec
+            orchestrator = types.ModuleType("isco_video_agent.orchestrator")
+            orchestrator._ledger_call_status = ledger_call
+            visual_selection = types.ModuleType("isco_video_agent.visual_selection")
+            visual_selection.FINAL_CUT_TARGET_SEMANTIC_FLOOR = 0.85
+            visual_selection.semantic_floor = lambda audit: min(
+                float(audit.get("relevance", 0.0) or 0.0),
+                float(audit.get("visual_quality", 0.0) or 0.0),
+            )
+            visual_selection.is_final_cut_ready = lambda audit: (
+                str(audit.get("status") or "").lower() == "pass"
+                and visual_selection.semantic_floor(audit) >= 0.85
+            )
+
+            canonical = types.ModuleType("scripts.canonical_visual_evidence_v1")
+            canonical.build_canonical_visual_evidence = build_evidence
+            canonical.audit_gemini_canonical_evidence = lambda *_a, **_k: None
+            mesh = types.ModuleType("scripts.run181_vision_mesh_closure")
+            mesh.install_run181_vision_mesh_closure = lambda: None
+            reliability = types.ModuleType("scripts.vision_provider_reliability")
+            reliability.vision_provider_circuit_scope = (
+                lambda: contextlib.nullcontext()
+            )
+            reliability.VisionProviderMeshUnavailableError = type(
+                "VisionProviderMeshUnavailableError", (RuntimeError,), {}
+            )
+            mistral_visual = types.ModuleType("scripts.mistral_visual_qa_fallback")
+            mistral_visual.reset_mistral_visual_qa_telemetry = lambda: None
+            mistral_visual.get_mistral_visual_qa_telemetry = lambda: []
+            contract = types.ModuleType("scripts.vision_stage_contract_v2")
+
+            class FakeVisionStageError(RuntimeError):
+                pass
+
+            contract.VisionStageError = FakeVisionStageError
+            contract.install_vision_provider_reliability = lambda: None
+
+            fake_modules = {
+                "isco_video_agent": engine,
+                "isco_video_agent.ai_budget": ai_budget,
+                "isco_video_agent.orchestrator": orchestrator,
+                "isco_video_agent.visual_selection": visual_selection,
+                "scripts.canonical_visual_evidence_v1": canonical,
+                "scripts.run181_vision_mesh_closure": mesh,
+                "scripts.vision_provider_reliability": reliability,
+                "scripts.mistral_visual_qa_fallback": mistral_visual,
+                "scripts.vision_stage_contract_v2": contract,
+            }
+            with mock.patch.dict(sys.modules, fake_modules), mock.patch.dict(
+                os.environ,
+                {"GEMINI_API_KEY": "test-key", "GEMINI_CONTENT_MODEL": "gemini-3.7-flash"},
+                clear=False,
+            ):
+                result = visual_qa_module.run_final_cut_visual_qa(
+                    output_dir=output,
+                    plan=plan,
+                    script=script,
+                    rights=rights,
+                    fmt="film",
+                    router=router,
+                    visual_source=visual_source,
+                )
+
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["audited_selected_clip_count"], 3)
+        self.assertEqual(result["visual_audit_count"], 4)
+        self.assertEqual(router.calls, 1)
+        self.assertEqual(visual_source.acquire_calls, 1)
+        self.assertEqual(visual_source.requested_destination_names, ["visual-03.mp4"])
+        self.assertEqual(visual_source.commit_calls, 1)
+        self.assertEqual(visual_source.committed_destinations, ["visual-03.mp4"])
+        # Only the third clip's own row was replaced; primary and the first
+        # auxiliary were never touched by the second auxiliary's recovery.
+        self.assertEqual(rights[0]["asset_id"], "primary-1")
+        self.assertEqual(rights[1]["asset_id"], "aux-1")
+        self.assertEqual(rights[2]["asset_id"], "recovered-1")
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
