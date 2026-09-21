@@ -2875,6 +2875,140 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             structural = json.loads((root / "structural-ai-flags.json").read_text(encoding="utf-8"))
             self.assertEqual(structural["flags"], [])
 
+    def test_run222_combines_structural_flag_into_single_repair_and_persists_candidate(self) -> None:
+        from clean_v2.structural_ai import structural_ai_flags
+
+        original = self._run199_script()
+        original["sections"][1]["narration"] = (
+            "ليس لأن المهمة سهلة، بل لأن تقديرنا للوقت متفائل أكثر من اللازم. "
+            "ليس لأننا نتعمد التأخير، بل لأن التفاصيل تظهر أثناء التنفيذ."
+        )
+        original["sections"][2]["narration"] = (
+            "ليس لأن الإرادة غائبة، بل لأن الراحة اللحظية تصبح أكثر جاذبية عند الضغط. "
+            + self.CTA
+        )
+        original["sections"][3]["narration"] = (
+            "اربط البداية بإشارة واضحة في يومك حتى تصبح الخطوة محددة بدل أن تبقى نية عامة."
+        )
+
+        candidate = {
+            "title": "عنوان بديل يجب أن يعيده المضيف",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "هوك بديل غير مسموح. تكشف الخطة اليومية فجوة صغيرة بين "
+                        "التوقع والتنفيذ، وهذه الفجوة هي بداية السؤال."
+                    ),
+                },
+                {
+                    "id": "s2",
+                    "narration": (
+                        "نميل أثناء التخطيط إلى تقدير الزمن بتفاؤل، ثم تكشف المقاطعات "
+                        "والتفاصيل أن التنفيذ يحتاج مساحة أكبر مما توقعناه."
+                    ),
+                },
+                {
+                    "id": "s3",
+                    "narration": (
+                        "وعندما تصبح المهمة ثقيلة أو مملة، قد نبحث عن راحة سريعة؛ "
+                        "هذا يفسر التأجيل من دون تحويله إلى حكم أخلاقي."
+                    ),
+                },
+                {
+                    "id": "s4",
+                    "narration": (
+                        "يمكن تقليل هذه الفجوة بربط البداية بوقت أو موقف واضح، "
+                        "فتصبح الخطوة التالية محددة وقابلة للتنفيذ."
+                    ),
+                },
+                {
+                    "id": "s5",
+                    "narration": (
+                        "اختر موقفًا واحدًا يتكرر في يومك واربط به خطوة صغيرة، "
+                        "ثم راقب أثرها قبل أن توسع الخطة."
+                    ),
+                },
+            ],
+        }
+        audit_calls = {"n": 0}
+        router = self._Router(candidate)
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            if audit_calls["n"] == 1:
+                raise CleanV2ToneContentBlock(self.RUN199_TONE_BLOCK)
+            return {
+                "schema_version": 1,
+                "status": "pass",
+                "factuality_status": "pass",
+                "tone_naturalness_status": "pass",
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_locked_runtime_files(root)
+            transcript = "\n\n".join(
+                item["narration"] for item in original["sections"]
+            )
+            initial_flags = list(structural_ai_flags(transcript, short_form=False))
+            self.assertIn("repeated_not_x_but_y", initial_flags)
+            (root / "structural-ai-flags.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "source": "legacy-editorial-room-structural-ai-flags",
+                        "mode": "advisory",
+                        "short_form": False,
+                        "flags": initial_flags,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            script = original
+            result = _run_text_audit_with_one_bounded_tone_repair(
+                text_audit=text_audit,
+                router=router,
+                output_dir=root,
+                brief=_brief(),
+                plan=self._plan_for_run199(),
+                script=script,
+            )
+
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
+            self.assertEqual(result["tone_repair_attempts"], 1)
+            self.assertEqual(result["post_repair_structural_ai_status"], "pass")
+
+            prompt = router.prompts[0]
+            self.assertIn("- [tone] ", prompt)
+            self.assertIn(
+                "- [structural] repeated_not_x_but_y: eliminate repeated Arabic contrast",
+                prompt,
+            )
+            self.assertIn('"ليس X بل Y"', prompt)
+
+            persisted = json.loads(
+                (root / "script-post-tone-repair.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(persisted, script)
+            joined = "\n".join(item["narration"] for item in script["sections"])
+            self.assertEqual(joined.count(self.OPENER), 1)
+            self.assertEqual(joined.count(self.CLOSER), 1)
+            self.assertEqual(joined.count(self.CTA), 1)
+            self.assertEqual(script["title"], original["title"])
+
+            post_structural = json.loads(
+                (root / "structural-ai-flags.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(post_structural["flags"], [])
+            self.assertNotIn(
+                "repeated_not_x_but_y",
+                structural_ai_flags(joined, short_form=False),
+            )
+
     def test_run220_host_overlay_keeps_naturalness_fix_and_restores_all_locked_anchors(self) -> None:
         original = self._run199_script()
         original["sections"][0]["narration"] = (
