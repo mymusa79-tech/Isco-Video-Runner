@@ -1028,6 +1028,9 @@ def _tone_repair_prompt(
         separators=(",", ":"),
     )
     hook = _first_spoken_sentence(script)
+    allowed_patch_section_ids = _repair_target_section_ids(
+        script, revision_note, cta_plan
+    )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
@@ -1042,6 +1045,9 @@ PRODUCTION_CONTEXT:
 
 REVISION_NOTE:
 {revision_note}
+
+ALLOWED_PATCH_SECTION_IDS:
+{json.dumps(list(allowed_patch_section_ids), ensure_ascii=False, separators=(",", ":"))}
 
 {research_boundaries}
 
@@ -1111,6 +1117,11 @@ def _run_one_bounded_tone_repair(
 
     identity = _read_json_object(output_dir / "narrative-identity.json")
     cta_plan = _read_json_object(output_dir / "cta-plan.json")
+    target_ids = _repair_target_section_ids(script, issue_notes, cta_plan)
+    if not target_ids:
+        raise RuntimeError(
+            "Tone/Naturalness repair has no deterministic target section"
+        )
     repaired = router.route(
         stage="script_patch",
         prompt=_tone_repair_prompt(
@@ -1182,6 +1193,9 @@ def _factuality_repair_prompt(
         separators=(",", ":"),
     )
     hook = _first_spoken_sentence(script)
+    allowed_patch_section_ids = _repair_target_section_ids(
+        script, revision_note, cta_plan
+    )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded factuality repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
@@ -1196,6 +1210,9 @@ PRODUCTION_CONTEXT:
 
 REVISION_NOTE:
 {revision_note}
+
+ALLOWED_PATCH_SECTION_IDS:
+{json.dumps(list(allowed_patch_section_ids), ensure_ascii=False, separators=(",", ":"))}
 
 {research_boundaries}
 
@@ -1276,6 +1293,11 @@ def _run_one_bounded_factuality_repair(
 
     identity = _read_json_object(output_dir / "narrative-identity.json")
     cta_plan = _read_json_object(output_dir / "cta-plan.json")
+    target_ids = _repair_target_section_ids(script, issue_notes, cta_plan)
+    if not target_ids:
+        raise RuntimeError(
+            "Factuality repair has no deterministic target section"
+        )
     repaired = router.route(
         stage="script_patch",
         prompt=_factuality_repair_prompt(
