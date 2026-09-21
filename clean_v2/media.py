@@ -266,11 +266,29 @@ def _charon_retry_delay(exc: BaseException, retry_index: int) -> float | None:
     return CHARON_RETRY_DELAYS_SECONDS[index]
 
 
+def _tts_exception_detail(exc: BaseException, *, limit: int = 200) -> str:
+    """Bounded, single-line detail for a TTS exception whose type alone
+    isn't diagnostic.
+
+    Engine's synthesize_wav wraps every underlying Gemini TTS failure -
+    auth, quota, network, model access, content refusal - in one generic
+    RuntimeError built from its own safe_error() helper (type name and any
+    HTTP status only, no request/secret data), so type(exc).__name__ alone
+    is always "RuntimeError" no matter the real cause. That detail exists
+    only in str(exc); this just surfaces it instead of silently dropping it.
+    """
+    text = " ".join(str(exc).split())
+    return text[:limit]
+
+
 def _tts_failure_reason(exc: BaseException | None, *, missing: str) -> str:
     if exc is None:
         return missing
     status = _tts_http_status(exc)
     reason = type(exc).__name__
+    detail = _tts_exception_detail(exc)
+    if detail and detail != reason:
+        reason = f"{reason}({detail})"
     return f"{reason}_http_{status}" if status is not None else reason
 
 
@@ -585,7 +603,8 @@ class GeminiPrimaryPiperFallbackSynthesizer:
                     print(
                         "Clean V2 Charon attempt failed: "
                         f"attempt={attempt}/{CHARON_MAX_ATTEMPTS} "
-                        f"error_type={type(exc).__name__}"
+                        f"error_type={type(exc).__name__} "
+                        f"detail={_tts_exception_detail(exc)}"
                     )
                     if attempt >= CHARON_MAX_ATTEMPTS:
                         break
@@ -620,7 +639,8 @@ class GeminiPrimaryPiperFallbackSynthesizer:
                 secondary_reason = str(getattr(exc, "reason", type(exc).__name__))[:120]
                 print(
                     "Clean V2 Azure F0 neural fallback failed: "
-                    f"error_type={type(exc).__name__}"
+                    f"error_type={type(exc).__name__} "
+                    f"detail={_tts_exception_detail(exc)}"
                 )
         else:
             print(f"Clean V2 Azure F0 neural fallback unavailable: {secondary_reason}")

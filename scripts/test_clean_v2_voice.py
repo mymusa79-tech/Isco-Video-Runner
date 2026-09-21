@@ -218,6 +218,35 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
             piper.assert_not_called()
             self.assertIsNone(synth.last_provider)
 
+    def test_charon_failure_reason_carries_the_real_message_not_just_the_type(
+        self,
+    ) -> None:
+        # Engine's synthesize_wav wraps every underlying TTS failure (auth,
+        # quota, network, model access...) in a generic RuntimeError, so
+        # type(exc).__name__ alone is always "RuntimeError" regardless of
+        # the real cause - charon_reason must also carry str(exc), which is
+        # where Engine's own safe_error() detail actually lives.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            synth = self._synthesizer(root)
+
+            with patch("clean_v2.media._legacy_voice_identity", return_value=("Charon", "Orus")), \
+                 patch(
+                     "clean_v2.media._legacy_gemini_synthesize",
+                     side_effect=RuntimeError(
+                         "Gemini TTS failed after retries: "
+                         "{'type': 'PermissionDenied', 'status_code': 403}"
+                     ),
+                 ), \
+                 patch("clean_v2.media.time.sleep"), \
+                 patch.object(synth.piper, "synthesize") as piper:
+                with self.assertRaises(VoiceInfrastructureError) as raised:
+                    synth.synthesize("هذا اختبار لرسالة الفشل الحقيقية.", root / "narration.wav")
+
+            self.assertIn("PermissionDenied", raised.exception.charon_reason)
+            self.assertIn("PermissionDenied", str(raised.exception))
+            piper.assert_not_called()
+
     def test_azure_f0_neural_runs_only_after_all_charon_attempts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
