@@ -1958,11 +1958,11 @@ def _run_short_duration_gate(
     report_name: str,
 ) -> dict[str, Any]:
     seconds = probe_duration(media_path)
-    validate_short_duration(seconds, phase=phase)
+    in_range = 60.0 <= seconds <= 90.0
     report = {
         "schema_version": 1,
         "source": "clean-v2-short-duration-gate",
-        "status": "pass",
+        "status": "pass" if in_range else "block",
         "phase": phase,
         "duration_seconds": round(seconds, 3),
         "minimum_seconds": 60.0,
@@ -1971,6 +1971,7 @@ def _run_short_duration_gate(
         "provider_calls_added": 0,
     }
     atomic_write_json(output_dir / report_name, report)
+    validate_short_duration(seconds, phase=phase)
     return report
 
 
@@ -2004,29 +2005,31 @@ def _inspect_final_with_short_gate(
 ) -> dict[str, Any]:
     report = final_inspector(final_path)
     if fmt == "short":
-        validate_short_duration(
-            float(report["duration_seconds"]),
-            phase="final_render",
-        )
-        validate_short_dimensions(
-            int(report.get("width") or 0),
-            int(report.get("height") or 0),
+        duration = float(report["duration_seconds"])
+        width = int(report.get("width") or 0)
+        height = int(report.get("height") or 0)
+        passed = (
+            60.0 <= duration <= 90.0
+            and width == 1080
+            and height == 1920
         )
         atomic_write_json(
             output_dir / "short-duration-final.json",
             {
                 "schema_version": 1,
                 "source": "clean-v2-short-final-gate",
-                "status": "pass",
-                "duration_seconds": float(report["duration_seconds"]),
-                "width": int(report.get("width") or 0),
-                "height": int(report.get("height") or 0),
+                "status": "pass" if passed else "block",
+                "duration_seconds": duration,
+                "width": width,
+                "height": height,
                 "minimum_seconds": 60.0,
                 "target_seconds": 75.0,
                 "maximum_seconds": 90.0,
                 "provider_calls_added": 0,
             },
         )
+        validate_short_duration(duration, phase="final_render")
+        validate_short_dimensions(width, height)
     return report
 
 
