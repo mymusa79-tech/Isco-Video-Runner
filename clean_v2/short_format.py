@@ -279,8 +279,9 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"- target_duration_seconds={SHORT_TARGET_SECONDS:g}; hard_range="
         f"{SHORT_MIN_SECONDS:g}-{SHORT_MAX_SECONDS:g}\n"
         f"- exact_sections={SHORT_SECTION_COUNT}; frame={SHORT_WIDTH}x{SHORT_HEIGHT}\n"
-        "- The first spoken sentence is the hook. No greeting, channel identity opener, dialogue labels, "
-        "CTA, or quotation unless the selected quote_reflection template has explicit approved quote evidence.\n"
+        "- The first spoken sentence is the hook and must be at most 12 Arabic words. No greeting, channel "
+        "identity opener, dialogue labels, CTA, or quotation unless the selected quote_reflection template "
+        "has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
         "- VISUAL_QUERY_DIRECTION: "
         f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]}"
@@ -312,7 +313,8 @@ def validate_short_dimensions(width: int, height: int) -> tuple[int, int]:
 _HOOK_SENTENCE_END_RE = re.compile(r"[.!؟!]")
 _DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*[AB]:\s*\S")
 _SOCIAL_CTA_RE = re.compile(
-    r"(?:اشترك|اشترِك|تابع(?:نا|ني)?|شارك(?:ها|ه|ني)?|"
+    r"(?:اشترك|اشترِك|تابعنا|تابعني|شارك(?:ها|ه|ني)|"
+    r"شارك\s+(?:هذه|هذا|الفكرة|المقطع|الفيديو|الحلقة)|"
     r"اكتب.{0,24}(?:التعليقات|تعليق)|علّق|علق|"
     r"اضغط.{0,16}(?:إعجاب|اعجاب|لايك)|ضع.{0,16}(?:إعجاب|اعجاب|لايك))",
     re.I,
