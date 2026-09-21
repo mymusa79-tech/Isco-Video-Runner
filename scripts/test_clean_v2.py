@@ -42,6 +42,8 @@ from clean_v2.pipeline import (
     _narrative_identity_prompt,
     _planning_prompt,
     _script_prompt,
+    _synthesize_sectioned_voice,
+    _voice_text_chunks,
 )
 from clean_v2.providers import (
     NoWireFailure,
@@ -209,6 +211,110 @@ class PlanningCardinalityTests(unittest.TestCase):
         prompt = _planning_prompt(brief)
         self.assertIn("at most 260 characters", prompt)
         self.assertIn("never cut mid-thought", prompt)
+
+
+class VoiceChunkContractRun267Tests(unittest.TestCase):
+    @staticmethod
+    def _long_section_text() -> str:
+        return (
+            ("خطة " * 60).strip() + ". "
+            + ("وقت " * 60).strip() + ". "
+            + ("خطوة " * 60).strip() + "."
+        )
+
+    def test_run267_long_section_chunks_without_text_drift(self) -> None:
+        text = self._long_section_text()
+        self.assertGreater(len(text), 900)
+        chunks = _voice_text_chunks(text)
+        self.assertEqual(len(chunks), 2)
+        self.assertTrue(all(len(item) <= 650 for item in chunks))
+        self.assertEqual(" ".join(chunks), " ".join(text.split()))
+
+    def test_run267_failed_chunk_keeps_prior_chunk_and_reports_exact_failure(self) -> None:
+        class FakeVoice:
+            def __init__(self) -> None:
+                self.calls = []
+                self.last_provider = "gemini:Charon"
+                self.fallback_used = False
+                self.charon_attempts = 1
+                self.voice_approval_status = "human_approved_reference"
+                self.voice_reference_profile = "clean-v2-charon-reference-v1"
+                self.voice_roles = {"mode": "single_narrator", "narrator": "Charon"}
+
+            def synthesize(self, transcript: str, output_path: Path) -> Path:
+                self.calls.append(transcript)
+                if len(self.calls) == 2:
+                    raise RuntimeError("synthetic APITimeoutError")
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_bytes(b"x" * 2048)
+                return output_path
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            voice = FakeVoice()
+            narration = root / "narration.wav"
+            with self.assertRaisesRegex(RuntimeError, "synthetic APITimeoutError"):
+                _synthesize_sectioned_voice(
+                    voice,
+                    [{"id": "s1", "narration": self._long_section_text()}],
+                    narration,
+                )
+
+            self.assertEqual(len(voice.calls), 2)
+            first_chunk = root / "audio" / "01-p01.wav"
+            self.assertTrue(first_chunk.is_file())
+            report = json.loads(
+                (root / "voice-sections.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["failed_section"], "s1")
+            self.assertEqual(report["failed_chunk"], 2)
+            self.assertEqual(report["chunk_count"], 2)
+            self.assertEqual(len(report["completed_chunks"]), 1)
+
+    def test_run267_chunked_success_concats_without_provider_drift(self) -> None:
+        class FakeVoice:
+            def __init__(self) -> None:
+                self.calls = []
+                self.last_provider = "gemini:Charon"
+                self.fallback_used = False
+                self.charon_attempts = 1
+                self.voice_approval_status = "human_approved_reference"
+                self.voice_reference_profile = "clean-v2-charon-reference-v1"
+                self.voice_roles = {"mode": "single_narrator", "narrator": "Charon"}
+
+            def synthesize(self, transcript: str, output_path: Path) -> Path:
+                self.calls.append(transcript)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_bytes(b"x" * 2048)
+                return output_path
+
+        def fake_concat(_parts, output_path):
+            Path(output_path).write_bytes(b"w" * 4096)
+            return Path(output_path)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            voice = FakeVoice()
+            narration = root / "narration.wav"
+            with mock.patch(
+                "clean_v2.pipeline.concat_wav_parts",
+                side_effect=fake_concat,
+            ):
+                result = _synthesize_sectioned_voice(
+                    voice,
+                    [{"id": "s1", "narration": self._long_section_text()}],
+                    narration,
+                )
+
+            self.assertEqual(len(voice.calls), 2)
+            self.assertTrue(narration.is_file())
+            self.assertEqual(result["voice_provider"], "gemini:Charon")
+            self.assertEqual(result["charon_tts_attempts"], 2)
+            self.assertEqual(result["voice_roles"]["mode"], "sectioned_chunked")
+            self.assertEqual(result["sections"][0]["chunk_count"], 2)
+            self.assertTrue((root / "audio" / "01-p01.wav").is_file())
+            self.assertTrue((root / "audio" / "01-p02.wav").is_file())
 
 
 class TextAuditProfessionalAdviceScopeTests(unittest.TestCase):
