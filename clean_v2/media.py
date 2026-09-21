@@ -1442,6 +1442,41 @@ def _run(command: list[str], *, timeout: int) -> subprocess.CompletedProcess[str
         raise RuntimeError(f"{command[0]} failed: {detail}") from None
 
 
+def concat_wav_parts(inputs: list[Path], output: Path) -> Path:
+    """Concatenate PCM WAV parts using the legacy Engine's ffmpeg concat shape."""
+    if not inputs:
+        raise ValueError("concat_wav_parts requires at least one input")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    listfile = output.with_name(f".{output.stem}.concat.txt")
+    try:
+        listfile.write_text(
+            "\n".join(f"file '{path.resolve()}'" for path in inputs),
+            encoding="utf-8",
+        )
+        _run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(listfile),
+                "-c:a",
+                "pcm_s16le",
+                str(output),
+            ],
+            timeout=300,
+        )
+    finally:
+        listfile.unlink(missing_ok=True)
+    return output
+
+
 def create_fallback_visual(path: Path, *, portrait: bool) -> Path:
     width, height = ((720, 1280) if portrait else (1280, 720))
     path.parent.mkdir(parents=True, exist_ok=True)
