@@ -36,6 +36,8 @@ from clean_v2.pipeline import (
     _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
     _tone_repair_prompt,
+    _apply_tone_patch,
+    _validate_tone_patch,
     _validate_tone_repair_script,
     _PLANNING_FACTUALITY_RULE,
     _narrative_identity_prompt,
@@ -3092,6 +3094,36 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
         return repaired
 
     @classmethod
+    def _minimal_tone_patch(cls) -> dict:
+        return {
+            "patches": [
+                {
+                    "section_id": "s2",
+                    "old_text": "التخطيط fallacy",
+                    "new_text": "مغالطة التخطيط",
+                },
+                {
+                    "section_id": "s3",
+                    "old_text": "البحث عن الراحة اللحظية",
+                    "new_text": "البحث عن راحة سريعة",
+                },
+            ]
+        }
+
+    @classmethod
+    def _minimal_patched_script(cls) -> dict:
+        patched = cls._run199_script()
+        patched["sections"][1]["narration"] = patched["sections"][1]["narration"].replace(
+            "التخطيط fallacy",
+            "مغالطة التخطيط",
+        )
+        patched["sections"][2]["narration"] = patched["sections"][2]["narration"].replace(
+            "البحث عن الراحة اللحظية",
+            "البحث عن راحة سريعة",
+        )
+        return patched
+
+    @classmethod
     def _write_locked_runtime_files(cls, root: Path) -> None:
         (root / "narrative-identity.json").write_text(
             json.dumps(
@@ -3128,10 +3160,14 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
         def route(self, *, stage, prompt, max_tokens, validator):
             self.calls += 1
             self.prompts.append(prompt)
-            if stage != "script":
+            if stage == "script":
+                if max_tokens != 7500:
+                    raise AssertionError(max_tokens)
+            elif stage == "tone_patch":
+                if max_tokens != 2200:
+                    raise AssertionError(max_tokens)
+            else:
                 raise AssertionError(stage)
-            if max_tokens != 7500:
-                raise AssertionError(max_tokens)
             return validator(self.candidate)
 
     def _plan_for_run199(self) -> dict:
@@ -3142,7 +3178,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
 
     def test_run199_tone_block_gets_exactly_one_repair_then_full_reaudit_passes(self) -> None:
         audit_calls = {"n": 0}
-        router = self._Router(self._repaired_script())
+        router = self._Router(self._minimal_tone_patch())
 
         def text_audit(**_kwargs):
             audit_calls["n"] += 1
@@ -3174,7 +3210,10 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertEqual(result["tone_repair_attempts"], 1)
             self.assertEqual(result["tone_repair_status"], "repaired")
             self.assertEqual(result["post_repair_structural_ai_status"], "pass")
-            self.assertEqual(script, validate_script(self._repaired_script(), self._plan_for_run199()))
+            self.assertEqual(
+                script,
+                validate_script(self._minimal_patched_script(), self._plan_for_run199()),
+            )
 
             prompt = router.prompts[0]
             expected_flags = (
@@ -3186,9 +3225,13 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                 self.assertIn("- [tone] " + flag, prompt)
             self.assertNotIn("[tone] cultural", prompt)
             self.assertIn("REVISION_NOTE:", prompt)
-            self.assertIn("Preserve the runtime narrative-identity opener and closer exactly once each.", prompt)
-            self.assertIn("Preserve the authored CTA spoken_text exactly once and in the same anchor section.", prompt)
-            self.assertIn("Preserve all approved factual claims and their research boundaries.", prompt)
+            self.assertIn("Return only local replacements", prompt)
+            self.assertIn("Preserve every unpatched character exactly", prompt)
+            self.assertIn("Do not patch the locked hook", prompt)
+            patch_artifact = json.loads(
+                (root / "tone-patch.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(patch_artifact, self._minimal_tone_patch())
 
             repair = json.loads((root / "tone-repair.json").read_text(encoding="utf-8"))
             self.assertEqual(repair["status"], "repaired")
@@ -3233,7 +3276,21 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                 ),
             },
         ]
-        router = self._Router(self._repaired_script())
+        run256_patch = {
+            "patches": [
+                {
+                    "section_id": "s2",
+                    "old_text": "المشكلة ليست ضعف الإرادة بل سوء تقدير الوقت.",
+                    "new_text": "قد نخطئ أحيانًا في تقدير الوقت.",
+                },
+                {
+                    "section_id": "s3",
+                    "old_text": "ليس التأجيل كسلًا بل محاولة للهروب من مهمة منفرة.",
+                    "new_text": "قد يظهر التأجيل عندما تبدو المهمة منفرة أو ثقيلة.",
+                },
+            ]
+        }
+        router = self._Router(run256_patch)
         audit_calls = {"n": 0}
 
         def text_audit(**_kwargs):
@@ -3282,10 +3339,81 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
         self.assertIn("OFFENDING_OCCURRENCES=", prompt)
         self.assertIn("المشكلة ليست ضعف الإرادة بل سوء تقدير الوقت", prompt)
         self.assertIn("ليس التأجيل كسلًا بل محاولة للهروب", prompt)
-        self.assertIn("Preserve every unaffected sentence exactly", prompt)
-        self.assertIn("Tone repair is NOT permission to explain the science again", prompt)
+        self.assertIn("Preserve every unpatched character exactly", prompt)
+        self.assertIn("Return only local replacements", prompt)
         self.assertIn("participant group", prompt)
-        self.assertIn('"the brain is designed to..."', prompt)
+        self.assertIn("brain/nervous-system claim", prompt)
+
+    def test_run260_host_applies_only_local_patch_and_rejects_full_script_rewrite(self) -> None:
+        original = self._run199_script()
+        identity = {
+            "opener": self.OPENER,
+            "closer": self.CLOSER,
+            "transitions": ["أولاً", "ثم", "أخيرًا"],
+        }
+        cta_plan = {
+            "anchor_section_id": "s3",
+            "spoken_text": self.CTA,
+        }
+        patch = {
+            "patches": [
+                {
+                    "section_id": "s2",
+                    "old_text": "التخطيط fallacy",
+                    "new_text": "مغالطة التخطيط",
+                }
+            ]
+        }
+        validated = _validate_tone_patch(
+            patch,
+            original_script=original,
+            identity=identity,
+            cta_plan=cta_plan,
+            target_section_ids=("s2",),
+        )
+        repaired = _apply_tone_patch(
+            validated,
+            plan=self._plan_for_run199(),
+            original_script=original,
+            identity=identity,
+            cta_plan=cta_plan,
+        )
+
+        self.assertEqual(
+            repaired["sections"][1]["narration"],
+            original["sections"][1]["narration"].replace(
+                "التخطيط fallacy", "مغالطة التخطيط"
+            ),
+        )
+        for index in (0, 2, 3, 4):
+            self.assertEqual(
+                repaired["sections"][index]["narration"],
+                original["sections"][index]["narration"],
+            )
+        with self.assertRaisesRegex(ValueError, "only patches"):
+            _validate_tone_patch(
+                self._repaired_script(),
+                original_script=original,
+                identity=identity,
+                cta_plan=cta_plan,
+                target_section_ids=("s2",),
+            )
+        with self.assertRaisesRegex(ValueError, "host-owned lock"):
+            _validate_tone_patch(
+                {
+                    "patches": [
+                        {
+                            "section_id": "s3",
+                            "old_text": self.CTA,
+                            "new_text": "اشترك الآن.",
+                        }
+                    ]
+                },
+                original_script=original,
+                identity=identity,
+                cta_plan=cta_plan,
+                target_section_ids=("s3",),
+            )
 
     def test_run254_keeps_exact_cta_in_natural_position_inside_locked_anchor(self) -> None:
         candidate = self._repaired_script()
@@ -3334,44 +3462,23 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
         )
 
         candidate = {
-            "title": "عنوان بديل يجب أن يعيده المضيف",
-            "sections": [
+            "patches": [
                 {
-                    "id": "s1",
-                    "narration": (
-                        "هوك بديل غير مسموح. تكشف الخطة اليومية فجوة صغيرة بين "
-                        "التوقع والتنفيذ، وهذه الفجوة هي بداية السؤال."
-                    ),
+                    "section_id": "s2",
+                    "old_text": "ليس لأن المهمة سهلة، بل لأن تقديرنا للوقت متفائل أكثر من اللازم.",
+                    "new_text": "يميل تقديرنا للوقت أحيانًا إلى التفاؤل أكثر من اللازم.",
                 },
                 {
-                    "id": "s2",
-                    "narration": (
-                        "نميل أثناء التخطيط إلى تقدير الزمن بتفاؤل، ثم تكشف المقاطعات "
-                        "والتفاصيل أن التنفيذ يحتاج مساحة أكبر مما توقعناه."
-                    ),
+                    "section_id": "s2",
+                    "old_text": "ليس لأننا نتعمد التأخير، بل لأن التفاصيل تظهر أثناء التنفيذ.",
+                    "new_text": "وتظهر أثناء التنفيذ تفاصيل لم تكن واضحة عند التخطيط.",
                 },
                 {
-                    "id": "s3",
-                    "narration": (
-                        "وعندما تصبح المهمة ثقيلة أو مملة، قد نبحث عن راحة سريعة؛ "
-                        "هذا يفسر التأجيل من دون تحويله إلى حكم أخلاقي."
-                    ),
+                    "section_id": "s3",
+                    "old_text": "ليس لأن الإرادة غائبة، بل لأن الراحة اللحظية تصبح أكثر جاذبية عند الضغط.",
+                    "new_text": "وقد تصبح الراحة اللحظية أكثر جاذبية عندما ترتفع الضغوط.",
                 },
-                {
-                    "id": "s4",
-                    "narration": (
-                        "يمكن تقليل هذه الفجوة بربط البداية بوقت أو موقف واضح، "
-                        "فتصبح الخطوة التالية محددة وقابلة للتنفيذ."
-                    ),
-                },
-                {
-                    "id": "s5",
-                    "narration": (
-                        "اختر موقفًا واحدًا يتكرر في يومك واربط به خطوة صغيرة، "
-                        "ثم راقب أثرها قبل أن توسع الخطة."
-                    ),
-                },
-            ],
+            ]
         }
         audit_calls = {"n": 0}
         router = self._Router(candidate)
@@ -3893,10 +4000,9 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
         self.assertNotIn("planning fallacy", joined)
         self.assertNotIn("implementation intentions", joined)
 
-    # Production regression: Cold Runs #201/#203 reached Tone repair but the
-    # Mistral Script adapter rejected the repair prompt before wire because its
-    # canonical LOCKED_PLAN boundary was absent.
-    def test_run199_tone_repair_prompt_is_mistral_script_schema_compatible(self) -> None:
+    # Production regression: Tone repair now uses a strict local-patch contract,
+    # so Mistral must never be asked to regenerate the whole Script schema.
+    def test_run199_tone_repair_prompt_is_mistral_patch_schema_compatible(self) -> None:
         identity = {
             "opener": self.OPENER,
             "closer": self.CLOSER,
@@ -3908,36 +4014,39 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             "spoken_text": self.CTA,
             "visual_only": False,
         }
+        patch = self._minimal_tone_patch()
         prompt = _tone_repair_prompt(
             brief=_brief(),
             plan=self._plan_for_run199(),
             script=self._run199_script(),
             identity=identity,
             cta_plan=cta_plan,
-            revision_note="- [tone] synthetic Run #199 regression flag",
+            revision_note="- [tone] s2/s3 synthetic regression flag",
+            target_section_ids=("s2", "s3"),
         )
 
         with mock.patch.object(
             providers_module.mistral_executor,
             "mistral_executor_json",
-            return_value=self._repaired_script(),
+            return_value=patch,
         ) as executor:
-            result = providers_module._mistral_call(prompt, 7500, "script")
+            result = providers_module._mistral_call(prompt, 2200, "tone_patch")
 
-        self.assertEqual(result, self._repaired_script())
+        self.assertEqual(result, patch)
         kwargs = executor.call_args.kwargs
-        self.assertEqual(kwargs["task_kind"], "script")
+        self.assertEqual(kwargs["task_kind"], "tone_patch")
         schema_name, schema = kwargs["response_schema"]
-        self.assertEqual(schema_name, "script")
-        section_items = schema["properties"]["sections"]["prefixItems"]
+        self.assertEqual(schema_name, "tone_patch")
+        self.assertEqual(schema["properties"]["patches"]["maxItems"], 8)
+        patch_schema = schema["properties"]["patches"]["items"]
         self.assertEqual(
-            [item["properties"]["id"]["const"] for item in section_items],
-            ["s1", "s2", "s3", "s4", "s5"],
+            set(patch_schema["required"]),
+            {"section_id", "old_text", "new_text"},
         )
 
     def test_run199_repair_is_strictly_one_shot_and_fails_closed_if_tone_still_blocks(self) -> None:
         audit_calls = {"n": 0}
-        router = self._Router(self._repaired_script())
+        router = self._Router(self._minimal_tone_patch())
 
         def text_audit(**_kwargs):
             audit_calls["n"] += 1
