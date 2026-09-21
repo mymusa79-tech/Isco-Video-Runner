@@ -21,7 +21,7 @@ from .contracts import (
     validate_plan,
     validate_script,
 )
-from .media import inspect_final, probe_duration, render_video
+from .media import concat_wav_parts, inspect_final, probe_duration, render_video
 from .structural_ai import structural_ai_flags
 
 
@@ -80,8 +80,6 @@ def _synthesize_sectioned_voice(
     output/audio; only the failing section is retried by the existing Charon retry
     policy. The legacy Engine concat helper is reused after every section succeeds.
     """
-    from isco_video_agent.media.ffmpeg import concat_audio
-
     if not sections:
         raise RuntimeError("Clean V2 sectioned voice requires at least one section")
 
@@ -190,7 +188,7 @@ def _synthesize_sectioned_voice(
     joined_path = narration_path.with_name(".narration-section-join.wav")
     joined_list_path = joined_path.with_suffix(".txt")
     try:
-        concat_audio(section_paths, joined_path)
+        concat_wav_parts(section_paths, joined_path)
         if not joined_path.is_file() or joined_path.stat().st_size < 1024:
             raise RuntimeError("Clean V2 sectioned voice concat produced empty audio")
         os.replace(joined_path, narration_path)
