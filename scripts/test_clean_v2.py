@@ -33,6 +33,7 @@ from clean_v2.pipeline import (
     CleanV2FactualityContentBlock,
     CleanV2ToneContentBlock,
     _factuality_repair_prompt,
+    _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
     _tone_repair_prompt,
     _validate_tone_repair_script,
@@ -3485,6 +3486,133 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                 (root / "structural-ai-flags.json").read_text(encoding="utf-8")
             )
             self.assertEqual(post_structural["flags"], [])
+
+    def test_run249_composite_audit_collects_tone_before_factuality_repair(self) -> None:
+        factuality_block = {
+            "status": "block",
+            "unsupported_claims": ["s3 claim exceeds approved evidence"],
+            "professional_advice_flags": [],
+            "expert_persona_flags": [],
+        }
+        tone_block = {
+            "status": "block",
+            "preachiness_flags": ["s1 opener is overly promotional"],
+            "naturalness_flags": ["s3 CTA is abrupt and promotional"],
+            "narrative_format_flags": [
+                "viewer_retention_continuity: s1 repeats the hook without advancing value"
+            ],
+            "unverified_religious_quote_flags": [],
+        }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with mock.patch(
+                "clean_v2.pipeline._run_legacy_factuality_audit",
+                side_effect=CleanV2FactualityContentBlock(factuality_block),
+            ) as factuality_call, mock.patch(
+                "clean_v2.pipeline._run_legacy_tone_naturalness_audit",
+                side_effect=CleanV2ToneContentBlock(tone_block),
+            ) as tone_call:
+                with self.assertRaises(CleanV2FactualityContentBlock) as raised:
+                    _run_text_audits(
+                        output_dir=root,
+                        brief=_brief(),
+                        plan=self._plan_for_run199(),
+                        script=self._run199_script(),
+                    )
+
+            self.assertEqual(factuality_call.call_count, 1)
+            self.assertEqual(tone_call.call_count, 1)
+            self.assertEqual(raised.exception.report, factuality_block)
+            self.assertEqual(raised.exception.tone_report, tone_block)
+
+    def test_run249_factuality_tone_and_structural_share_one_repair(self) -> None:
+        factuality_block = {
+            "status": "block",
+            "unsupported_claims": [
+                "s3: specificity was stated more strongly than the approved association."
+            ],
+            "professional_advice_flags": [],
+            "expert_persona_flags": [],
+        }
+        tone_block = {
+            "status": "block",
+            "preachiness_flags": [
+                "Opening narration reads as overly promotional rather than reflective."
+            ],
+            "naturalness_flags": [
+                "The CTA in s3 feels abrupt and promotional."
+            ],
+            "narrative_format_flags": [
+                "viewer_retention_continuity: s1 repeats the hook without advancing causal understanding."
+            ],
+            "unverified_religious_quote_flags": [],
+        }
+        router = self._Router(self._repaired_script())
+        audit_calls = {"n": 0}
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            if audit_calls["n"] == 1:
+                raise CleanV2FactualityContentBlock(
+                    factuality_block,
+                    tone_report=tone_block,
+                )
+            return {
+                "schema_version": 1,
+                "status": "pass",
+                "factuality_status": "pass",
+                "tone_naturalness_status": "pass",
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_locked_runtime_files(root)
+            (root / "structural-ai-flags.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "source": "legacy-editorial-room-structural-ai-flags",
+                        "mode": "advisory",
+                        "short_form": False,
+                        "flags": ["duplicate_sentence"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            script = self._run199_script()
+            result = _run_text_audit_with_one_bounded_tone_repair(
+                text_audit=text_audit,
+                router=router,
+                output_dir=root,
+                brief=_brief(),
+                plan=self._plan_for_run199(),
+                script=script,
+            )
+
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
+            self.assertEqual(result["factuality_repair_attempts"], 1)
+            prompt = router.prompts[0]
+            self.assertIn("- [factuality] s3:", prompt)
+            self.assertIn("- [tone] Opening narration reads as overly promotional", prompt)
+            self.assertIn("- [tone] The CTA in s3 feels abrupt and promotional", prompt)
+            self.assertIn("- [tone] viewer_retention_continuity:", prompt)
+            self.assertIn("- [structural] duplicate_sentence", prompt)
+            self.assertIn(
+                "Fix only the concrete factuality, tone/naturalness, and structural problems",
+                prompt,
+            )
+            self.assertTrue(
+                (root / "tone-naturalness-audit-pre-repair.json").is_file()
+            )
+            saved_tone = json.loads(
+                (root / "tone-naturalness-audit-pre-repair.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(saved_tone, tone_block)
 
     def test_run245_factuality_repair_prompt_is_mistral_script_schema_compatible(self) -> None:
         identity = {

@@ -455,10 +455,16 @@ def _first_spoken_sentence(script: Mapping[str, Any]) -> str:
 
 
 class CleanV2FactualityContentBlock(RuntimeError):
-    """A validated semantic factuality block eligible for one bounded repair."""
+    """A validated factuality block eligible for one bounded combined repair."""
 
-    def __init__(self, report: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        report: Mapping[str, Any],
+        *,
+        tone_report: Mapping[str, Any] | None = None,
+    ) -> None:
         self.report = dict(report)
+        self.tone_report = dict(tone_report) if tone_report is not None else None
         super().__init__("Independent factuality/AI-expert gate blocked real production")
 
 
@@ -890,9 +896,11 @@ REVISION_NOTE:
 {revision_note}
 
 ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
-- Fix only the concrete factuality and structural problems listed in REVISION_NOTE.
+- Fix only the concrete factuality, tone/naturalness, and structural problems listed in REVISION_NOTE.
 - For each [factuality] issue, weaken, qualify, or remove only the offending wording so the claim
   does not exceed the evidence in the approved research pack.
+- For each [tone] issue, repair only the flagged narration flow, naturalness, preachiness, or
+  viewer-promise/retention defect; do not use it as permission for a broad rewrite.
 - Do not invent a new study, source, expert, quotation, number, diagnosis, causal claim, or guarantee.
 - Preserve every unaffected factual claim in meaning and strength; do not broaden unrelated claims.
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
@@ -903,7 +911,7 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move, or repeat the CTA.
 - These host-owned locks are restored deterministically after your candidate is parsed; spend
-  repair effort only on the listed factuality/structural defects, not on rewriting locked anchors.
+  repair effort only on the listed factuality/tone/structural defects, not on rewriting locked anchors.
 - Make the minimum wording changes needed. No unrelated rewrite.
 - Return narration only inside the existing script JSON shape; no markdown or commentary.
 
@@ -925,16 +933,29 @@ def _run_one_bounded_factuality_repair(
     script: dict[str, Any],
     router: Any,
     blocked_report: Mapping[str, Any],
+    tone_report: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     factuality_issue_notes = _factuality_repair_issue_notes(blocked_report)
+    tone_issue_notes = _tone_repair_issue_notes(tone_report or {})
     structural_issue_notes = _structural_repair_issue_notes(output_dir)
     issue_notes = "\n".join(
-        item for item in (factuality_issue_notes, structural_issue_notes) if item
+        item
+        for item in (
+            factuality_issue_notes,
+            tone_issue_notes,
+            structural_issue_notes,
+        )
+        if item
     )
     atomic_write_json(
         output_dir / "factuality-audit-pre-repair.json",
         dict(blocked_report),
     )
+    if tone_report is not None:
+        atomic_write_json(
+            output_dir / "tone-naturalness-audit-pre-repair.json",
+            dict(tone_report),
+        )
     if not factuality_issue_notes:
         raise RuntimeError(
             "Factuality block has no bounded actionable factuality flags"
@@ -1008,6 +1029,7 @@ def _run_text_audit_with_one_bounded_tone_repair(
             script=script,
             router=router,
             blocked_report=blocked.report,
+            tone_report=blocked.tone_report,
         )
         atomic_write_json(
             output_dir / "factuality-repair.json",
@@ -1121,18 +1143,41 @@ def _run_text_audits(
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
 ) -> dict[str, Any]:
-    factuality = _run_legacy_factuality_audit(
-        output_dir=output_dir,
-        brief=brief,
-        plan=plan,
-        script=script,
-    )
-    tone_naturalness = _run_legacy_tone_naturalness_audit(
-        output_dir=output_dir,
-        brief=brief,
-        plan=plan,
-        script=script,
-    )
+    # Run both semantic audits before spending the one repair. Infrastructure
+    # failures still stop immediately; only a validated factuality content BLOCK
+    # is held long enough to collect Tone/Naturalness flags from the same draft.
+    factuality_block: CleanV2FactualityContentBlock | None = None
+    try:
+        factuality = _run_legacy_factuality_audit(
+            output_dir=output_dir,
+            brief=brief,
+            plan=plan,
+            script=script,
+        )
+    except CleanV2FactualityContentBlock as blocked:
+        factuality_block = blocked
+        factuality = blocked.report
+
+    tone_block: CleanV2ToneContentBlock | None = None
+    try:
+        tone_naturalness = _run_legacy_tone_naturalness_audit(
+            output_dir=output_dir,
+            brief=brief,
+            plan=plan,
+            script=script,
+        )
+    except CleanV2ToneContentBlock as blocked:
+        tone_block = blocked
+        tone_naturalness = blocked.report
+
+    if factuality_block is not None:
+        factuality_block.tone_report = (
+            dict(tone_block.report) if tone_block is not None else None
+        )
+        raise factuality_block
+    if tone_block is not None:
+        raise tone_block
+
     return {
         "schema_version": 1,
         "source": "clean-v2-composite-text-audit",
