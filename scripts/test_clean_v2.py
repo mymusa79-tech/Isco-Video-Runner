@@ -33,6 +33,7 @@ from clean_v2.pipeline import (
     CleanV2FactualityContentBlock,
     CleanV2ToneContentBlock,
     _factuality_repair_prompt,
+    _repair_target_section_ids,
     _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
     _tone_repair_prompt,
@@ -3128,11 +3129,47 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
         def route(self, *, stage, prompt, max_tokens, validator):
             self.calls += 1
             self.prompts.append(prompt)
-            if stage != "script":
+            if stage != "script_patch":
                 raise AssertionError(stage)
-            if max_tokens != 7500:
+            if max_tokens != 2200:
                 raise AssertionError(max_tokens)
-            return validator(self.candidate)
+            if "patches" in self.candidate:
+                return validator(self.candidate)
+
+            context_marker = "PRODUCTION_CONTEXT:\n"
+            revision_marker = "\n\nREVISION_NOTE:\n"
+            raw_context = prompt.split(context_marker, 1)[1].split(revision_marker, 1)[0]
+            context = json.loads(raw_context)
+            current_script = context["current_script"]
+            cta_plan = context["cta_plan"]
+            revision_note = prompt.split(revision_marker, 1)[1].split(
+                "\n\n[RESEARCH_BOUNDARIES]", 1
+            )[0].strip()
+            target_ids = set(
+                _repair_target_section_ids(current_script, revision_note, cta_plan)
+            )
+            candidate_by_id = {
+                str(item.get("id") or ""): item
+                for item in (self.candidate.get("sections") or [])
+                if isinstance(item, dict)
+            }
+            patches = []
+            for item in current_script.get("sections") or []:
+                section_id = str(item.get("id") or "")
+                if section_id not in target_ids or section_id not in candidate_by_id:
+                    continue
+                original = str(item.get("narration") or "")
+                replacement = str(candidate_by_id[section_id].get("narration") or "")
+                if original == replacement:
+                    continue
+                patches.append(
+                    {
+                        "section_id": section_id,
+                        "find": original,
+                        "replace": replacement,
+                    }
+                )
+            return validator({"patches": patches})
 
     def _plan_for_run199(self) -> dict:
         plan = _plan()
