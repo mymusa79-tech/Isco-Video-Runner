@@ -30,7 +30,6 @@ from .short_format import (
     validate_short_duration,
     validate_short_dimensions,
     validate_short_script,
-    validate_short_visual_queries,
 )
 
 
@@ -1904,10 +1903,9 @@ def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) ->
 
 
 def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
-    plan = validate_plan(value, brief)
-    if str(brief.get("format") or "") == "short":
-        validate_short_visual_queries(plan, brief)
-    return plan
+    # Keep stock-query semantics prompt-directed only. Acquisition, Canonical Evidence,
+    # and Visual QA remain the unchanged authorities after Planning.
+    return validate_plan(value, brief)
 
 
 def _validate_script_for_brief(
