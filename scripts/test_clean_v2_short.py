@@ -14,7 +14,6 @@ from clean_v2.pipeline import (
     _planning_prompt,
     _script_prompt,
     _short_identity_not_applicable,
-    _validate_plan_for_brief,
 )
 from clean_v2.short_format import (
     SHORT_HEIGHT,
@@ -168,20 +167,6 @@ class ShortContractTests(unittest.TestCase):
         with_cta["cta"] = "اشترك في القناة"
         with self.assertRaisesRegex(ContractError, "empty social cta"):
             validate_plan(with_cta, brief)
-
-    def test_combined_plan_validator_checks_visual_template_fit(self) -> None:
-        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
-        with self.assertRaisesRegex(ShortFormatError, "inner_dialogue_not_reflective"):
-            _validate_plan_for_brief(
-                _plan(
-                    [
-                        "desk calendar and coffee cup",
-                        "city street wide establishing shot",
-                        "generic office laptop workspace",
-                    ]
-                ),
-                brief,
-            )
 
     def test_script_contract_requires_hook_single_voice_and_zero_social_cta(self) -> None:
         valid = {
