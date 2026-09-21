@@ -3085,6 +3085,14 @@ class ChunkedCharonVoiceTests(unittest.TestCase):
             " ".join(text.split()),
         )
 
+    def test_dialogue_voice_shape_is_not_split_by_narrator_chunker(self) -> None:
+        dialogue = (
+            "A: " + ("سؤال واضح ومباشر. " * 40)
+            + "\nB: " + ("إجابة واضحة ومباشرة. " * 40)
+        )
+        self.assertGreater(len(dialogue), 600)
+        self.assertEqual(_split_tts_chunks(dialogue), [dialogue.strip()])
+
     def test_run267_sectioned_voice_synthesizes_only_bounded_chunks(self) -> None:
         section_text = (
             ("الفكرة الأولى تحتاج شرحًا هادئًا وواضحًا حتى تصل للمستمع طبيعيًا. " * 5)
