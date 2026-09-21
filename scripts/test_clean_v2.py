@@ -3099,13 +3099,25 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             "patches": [
                 {
                     "section_id": "s2",
-                    "old_text": "التخطيط fallacy",
-                    "new_text": "مغالطة التخطيط",
+                    "old_text": (
+                        "التخطيط fallacy يجعل تقدير الزمن أكثر تفاؤلًا من الواقع، "
+                        "فتبدو المهمة أقصر وأسهل مما ستكون عليه أثناء التنفيذ."
+                    ),
+                    "new_text": (
+                        "مغالطة التخطيط تجعل تقدير الزمن أكثر تفاؤلًا من الواقع، "
+                        "فتبدو المهمة أقصر وأسهل مما ستكون عليه أثناء التنفيذ."
+                    ),
                 },
                 {
                     "section_id": "s3",
-                    "old_text": "البحث عن الراحة اللحظية",
-                    "new_text": "البحث عن راحة سريعة",
+                    "old_text": (
+                        "ثم يظهر التأجيل عندما تصبح المهمة ثقيلة، "
+                        "فنبحث عن الراحة اللحظية."
+                    ),
+                    "new_text": (
+                        "ثم يظهر التأجيل عندما تصبح المهمة ثقيلة، "
+                        "فنبحث عن راحة سريعة."
+                    ),
                 },
             ]
         }
@@ -3113,14 +3125,15 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
     @classmethod
     def _minimal_patched_script(cls) -> dict:
         patched = cls._run199_script()
-        patched["sections"][1]["narration"] = patched["sections"][1]["narration"].replace(
-            "التخطيط fallacy",
-            "مغالطة التخطيط",
-        )
-        patched["sections"][2]["narration"] = patched["sections"][2]["narration"].replace(
-            "البحث عن الراحة اللحظية",
-            "البحث عن راحة سريعة",
-        )
+        for patch in cls._minimal_tone_patch()["patches"]:
+            section = next(
+                item for item in patched["sections"] if item["id"] == patch["section_id"]
+            )
+            section["narration"] = section["narration"].replace(
+                patch["old_text"],
+                patch["new_text"],
+                1,
+            )
         return patched
 
     @classmethod
