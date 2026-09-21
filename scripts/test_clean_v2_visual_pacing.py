@@ -833,8 +833,7 @@ class PipelineWiringTests(unittest.TestCase):
 
             visuals = _RecordingVisuals()
             visual_qa = _RecordingVisualQA()
-            long_voice = _LongFakeVoice(130.0)
-            pipeline = CleanV2Pipeline(
+            # Sectioned TTS now calls the fixture once per 5 script sections; keep\n            # the historical full narration duration at 130s (5 * 26s).\n            long_voice = _LongFakeVoice(26.0)\n            pipeline = CleanV2Pipeline(
                 router=_FakeRouter(),
                 voice_synthesizer=long_voice,
                 visual_source=visuals,
