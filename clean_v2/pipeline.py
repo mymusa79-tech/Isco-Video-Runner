@@ -24,6 +24,14 @@ from .contracts import (
 )
 from .media import concat_wav_parts, inspect_final, probe_duration, render_video
 from .structural_ai import structural_ai_flags
+from .short_format import (
+    short_contract_report,
+    short_prompt_context,
+    validate_short_duration,
+    validate_short_dimensions,
+    validate_short_script,
+    validate_short_visual_queries,
+)
 
 
 CINEMATIC_STAGE = "security_v1_cinematic_v2_m7_m11"
@@ -490,7 +498,11 @@ def _build_production_plan_for_audit(
     return ProductionPlan(
         topic=str(brief.get("approved_topic") or ""),
         pillar=str(brief.get("pillar") or ""),
-        format=str(brief.get("format") or ""),
+        format=(
+            "moment"
+            if str(brief.get("format") or "") == "short"
+            else str(brief.get("format") or "")
+        ),
         hook="",
         title_options=[str(plan.get("title") or "")],
         thumbnail_concepts=[],
@@ -511,7 +523,7 @@ def _run_structural_ai_flags(
         for item in (script.get("sections") or [])
         if isinstance(item, Mapping)
     )
-    short_form = str(brief.get("format") or "") == "moment"
+    short_form = str(brief.get("format") or "") in {"moment", "short"}
     flags = structural_ai_flags(transcript, short_form=short_form)
     report = {
         "schema_version": 1,
@@ -1891,9 +1903,74 @@ def _copy_resume_artifact(source_root: Path, output_dir: Path, relative: str) ->
     return destination
 
 
+def _validate_plan_for_brief(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
+    plan = validate_plan(value, brief)
+    if str(brief.get("format") or "") == "short":
+        validate_short_visual_queries(plan, brief)
+    return plan
+
+
+def _validate_script_for_brief(
+    value: Any,
+    plan: Mapping[str, Any],
+    brief: Mapping[str, Any],
+) -> dict[str, Any]:
+    script = validate_script(value, plan)
+    if str(brief.get("format") or "") == "short":
+        validate_short_script(script)
+    return script
+
+
+def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-short-format",
+        "status": "not_applicable",
+        "reason": "short_uses_first_spoken_sentence_hook_without_channel_identity_anchors",
+        "canonical_opener": "",
+        "canonical_closer": "",
+        "opener": "",
+        "closer": "",
+        "transitions": [],
+        "provider_calls_added": 0,
+    }
+    atomic_write_json(output_dir / "narrative-identity.json", report)
+    return report
+
+
+def _run_short_duration_gate(
+    *,
+    output_dir: Path,
+    media_path: Path,
+    phase: str,
+    report_name: str,
+) -> dict[str, Any]:
+    seconds = probe_duration(media_path)
+    validate_short_duration(seconds, phase=phase)
+    report = {
+        "schema_version": 1,
+        "source": "clean-v2-short-duration-gate",
+        "status": "pass",
+        "phase": phase,
+        "duration_seconds": round(seconds, 3),
+        "minimum_seconds": 60.0,
+        "target_seconds": 75.0,
+        "maximum_seconds": 90.0,
+        "provider_calls_added": 0,
+    }
+    atomic_write_json(output_dir / report_name, report)
+    return report
+
+
 def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
-    section_requirement = "exactly 5 sections" if fmt == "film" else "2 to 4 sections"
+    if fmt == "film":
+        section_requirement = "exactly 5 sections"
+    elif fmt == "short":
+        section_requirement = "exactly 3 sections"
+    else:
+        section_requirement = "2 to 4 sections"
+    short_context = short_prompt_context(brief) if fmt == "short" else ""
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     return with_human_feel(with_channel_persona(f"""
 You are planning one complete video for the Arabic YouTube channel نداء اليقظة.
@@ -1912,7 +1989,11 @@ Arab/Muslim audience.
 
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
 share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
-delivered, not like a generic sales line. For moment format only, return an empty CTA string.
+delivered, not like a generic sales line. For moment OR short format, return an empty CTA string.
+For short, the zero-social-CTA rule is hard: do not put subscribe/comment/share/like language in
+section purpose text either.
+
+{short_context}
 
 Return one JSON object with exactly this useful shape:
 {{
@@ -1938,13 +2019,18 @@ def _script_prompt(
     transitions: list[str] | None = None,
 ) -> str:
     fmt = str(brief["format"])
-    length = (
-        "Aim for roughly 650-900 spoken Arabic words across all sections."
-        if fmt == "film"
-        else "Aim for roughly 60-140 spoken Arabic words across all sections."
-    )
+    if fmt == "film":
+        length = "Aim for roughly 650-900 spoken Arabic words across all sections."
+    elif fmt == "short":
+        length = (
+            "Aim for roughly 145-185 spoken Arabic words across all 3 sections so the fixed natural "
+            "voice is likely to land near 75 seconds; the measured audio duration gate remains authoritative."
+        )
+    else:
+        length = "Aim for roughly 60-140 spoken Arabic words across all sections."
     brief_json = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     plan_json = json.dumps(plan, ensure_ascii=False, separators=(",", ":"))
+    short_context = short_prompt_context(brief) if fmt == "short" else ""
     transition_guidance = ""
     if transitions:
         transition_list = "\n".join(f"- {item}" for item in transitions)
@@ -1966,7 +2052,10 @@ The approved brief and locked plan are authoritative. Follow every hard constrai
 Modern Standard Arabic, without generic motivational filler, fake quotations, invented facts, or
 medical/religious authority. Write narration only; do not add camera directions or markdown.
 CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA in narration. The
-host will place it once at a safe mid-late point after value has been delivered.
+host will place it once at a safe mid-late point after value has been delivered. For short, CTA is
+fully disabled: do not add subscribe/comment/share/like language anywhere in spoken narration.
+
+{short_context}
 
 APPROVED_RESEARCH_PACK factuality rule (mandatory):
 {_PLANNING_FACTUALITY_RULE}
@@ -2086,7 +2175,7 @@ def _apply_brand_signature(
     # Mirrors the Engine's own real placement algorithm exactly (resilient_planner's
     # _apply_brand_signature/_insert_after_first_sentence): Moment uses only a
     # subtle visual signature, not a spoken one, so it is skipped here too.
-    if fmt == "moment" or not sections:
+    if fmt in {"moment", "short"} or not sections:
         return
     opener = opener.strip()
     closer = closer.strip()
@@ -2104,7 +2193,7 @@ def _apply_brand_signature(
 def _assert_brand_signature_invariant(
     sections: list[dict[str, Any]], fmt: str, opener: str, closer: str
 ) -> None:
-    if fmt == "moment" or not sections:
+    if fmt in {"moment", "short"} or not sections:
         return
     opener = opener.strip()
     closer = closer.strip()
@@ -2384,6 +2473,11 @@ class CleanV2Pipeline:
             journal.payload["approved_brief_sha256"] = compute_brief_sha256(brief)
             journal.payload["topic"] = str(brief["approved_topic"])
             journal.payload["format"] = str(brief["format"])
+            if str(brief["format"]) == "short":
+                short_report = short_contract_report(brief)
+                atomic_write_json(output_dir / "short-contract.json", short_report)
+                journal.payload["short_template"] = short_report["template"]
+                journal.payload["short_contract_version"] = short_report["schema_version"]
             journal._write()
 
             approved_brief_digest = compute_brief_sha256(brief)
@@ -2403,7 +2497,7 @@ class CleanV2Pipeline:
 
             if resume is not None and _resume_includes(resume[1], "planning"):
                 _copy_resume_artifact(resume[0], output_dir, "plan.json")
-                plan = validate_plan(
+                plan = _validate_plan_for_brief(
                     _read_json_object(output_dir / "plan.json"),
                     brief,
                 )
@@ -2415,7 +2509,7 @@ class CleanV2Pipeline:
                         stage="planning",
                         prompt=_planning_prompt(brief),
                         max_tokens=3000,
-                        validator=lambda value: validate_plan(value, brief),
+                        validator=lambda value: _validate_plan_for_brief(value, brief),
                     ),
                 )
                 atomic_write_json(output_dir / "plan.json", plan)
@@ -2438,9 +2532,10 @@ class CleanV2Pipeline:
                 _copy_resume_artifact(resume[0], output_dir, "narration.txt")
                 _copy_resume_artifact(resume[0], output_dir, "narrative-identity.json")
                 _copy_resume_artifact(resume[0], output_dir, "cta-plan.json")
-                script = validate_script(
+                script = _validate_script_for_brief(
                     _read_json_object(output_dir / "script.json"),
                     plan,
+                    brief,
                 )
                 transcript = "\n\n".join(
                     item["narration"] for item in script["sections"]
@@ -2452,15 +2547,21 @@ class CleanV2Pipeline:
                 journal.reuse(IDENTITY_STAGE)
                 journal.reuse("script")
             else:
-                identity = journal.run(
-                    IDENTITY_STAGE,
-                    lambda: self.narrative_identity(
-                        output_dir=output_dir,
-                        brief=brief,
-                        plan=plan,
-                        router=self.router,
-                    ),
-                )
+                if str(brief["format"]) == "short":
+                    identity = journal.run(
+                        IDENTITY_STAGE,
+                        lambda: _short_identity_not_applicable(output_dir),
+                    )
+                else:
+                    identity = journal.run(
+                        IDENTITY_STAGE,
+                        lambda: self.narrative_identity(
+                            output_dir=output_dir,
+                            brief=brief,
+                            plan=plan,
+                            router=self.router,
+                        ),
+                    )
                 script = journal.run(
                     "script",
                     lambda: self.router.route(
@@ -2469,7 +2570,9 @@ class CleanV2Pipeline:
                             brief, plan, transitions=identity.get("transitions")
                         ),
                         max_tokens=7500 if brief["format"] == "film" else 2500,
-                        validator=lambda value: validate_script(value, plan),
+                        validator=lambda value: _validate_script_for_brief(
+                            value, plan, brief
+                        ),
                     ),
                 )
                 fmt = str(brief["format"])
@@ -2487,6 +2590,16 @@ class CleanV2Pipeline:
                 _assert_brand_signature_invariant(
                     script["sections"], fmt, identity["opener"], identity["closer"]
                 )
+                if fmt == "short":
+                    short_script_report = validate_short_script(script)
+                    atomic_write_json(
+                        output_dir / "short-script-contract.json",
+                        {
+                            "schema_version": 1,
+                            "status": "pass",
+                            **short_script_report,
+                        },
+                    )
                 atomic_write_json(output_dir / "script.json", script)
                 self._write_runtime_events(output_dir)
                 transcript = "\n\n".join(
@@ -2549,6 +2662,8 @@ class CleanV2Pipeline:
             transcript = "\n\n".join(
                 item["narration"] for item in script["sections"]
             )
+            if str(brief["format"]) == "short":
+                validate_short_script(script)
             if text_audit_report.get("tone_repair_attempted") is True:
                 _write_resume_checkpoint(
                     output_dir,
@@ -2645,6 +2760,13 @@ class CleanV2Pipeline:
                 ),
             )
             narration_path = output_dir / "narration-mastered.wav"
+            if str(brief["format"]) == "short":
+                _run_short_duration_gate(
+                    output_dir=output_dir,
+                    media_path=narration_path,
+                    phase="post_audio_mastering_pre_visuals",
+                    report_name="short-duration-pre-visual.json",
+                )
 
             visuals_dir = output_dir / "visuals"
             # Security V1 and M8 are part of the restored layer and execute inside
@@ -2764,7 +2886,11 @@ class CleanV2Pipeline:
                         # reviewed) - the full rights list, including any
                         # pacing_auxiliary entries, is safe to pass here.
                         rights=rights,
-                        fmt=str(brief["format"]),
+                        fmt=(
+                            "story"
+                            if str(brief["format"]) == "short"
+                            else str(brief["format"])
+                        ),
                         router=self.router,
                         visual_source=self.visual_source,
                     ),
@@ -2888,6 +3014,30 @@ class CleanV2Pipeline:
                 "final_file", lambda: self.final_inspector(final_path)
             )
             atomic_write_json(output_dir / "final.json", final_report)
+            if str(brief["format"]) == "short":
+                validate_short_duration(
+                    float(final_report["duration_seconds"]),
+                    phase="final_render",
+                )
+                validate_short_dimensions(
+                    int(final_report.get("width") or 0),
+                    int(final_report.get("height") or 0),
+                )
+                atomic_write_json(
+                    output_dir / "short-duration-final.json",
+                    {
+                        "schema_version": 1,
+                        "source": "clean-v2-short-final-gate",
+                        "status": "pass",
+                        "duration_seconds": float(final_report["duration_seconds"]),
+                        "width": int(final_report.get("width") or 0),
+                        "height": int(final_report.get("height") or 0),
+                        "minimum_seconds": 60.0,
+                        "target_seconds": 75.0,
+                        "maximum_seconds": 90.0,
+                        "provider_calls_added": 0,
+                    },
+                )
             self._write_runtime_events(output_dir)
 
             # Compatibility evidence for the unchanged legacy Final Master QC core.
@@ -2895,7 +3045,7 @@ class CleanV2Pipeline:
             # timeline. Keep that evidence intact; only quality-final.json is adapted.
             qc_format = (
                 "moment"
-                if str(brief["format"]) in {"moment", "story"}
+                if str(brief["format"]) in {"moment", "story", "short"}
                 else str(brief["format"])
             )
             atomic_write_json(
