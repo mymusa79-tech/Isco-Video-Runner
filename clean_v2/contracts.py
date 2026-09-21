@@ -110,6 +110,8 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     if not title or not promise or not isinstance(raw_sections, list):
         raise ContractError("plan requires title, promise, and sections")
     fmt = str(brief.get("format") or "")
+    if fmt == "short" and cta:
+        raise ContractError("short plan requires an empty social cta")
     if fmt not in {"moment", "short"}:
         if not cta:
             raise ContractError("plan requires one non-empty contextual cta for CTA-enabled formats")
