@@ -1073,6 +1073,52 @@ class _StuckQueryVisuals:
         )
 
 
+class AtomicRenderLockTests(unittest.TestCase):
+    def test_render_failure_preserves_last_good_final_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            narration = root / "narration.wav"
+            narration.write_bytes(b"N" * 2048)
+            visual = root / "visual.mp4"
+            visual.write_bytes(b"V" * 2048)
+            segment = root / "segment.mp4"
+            segment.write_bytes(b"S" * 2048)
+            final_path = root / "final.mp4"
+            final_path.write_bytes(b"LAST_GOOD_FINAL")
+
+            with mock.patch.object(
+                media_module,
+                "probe_duration",
+                return_value=5.0,
+            ), mock.patch.object(
+                media_module,
+                "_section_slot_durations",
+                return_value=[5.0],
+            ), mock.patch.object(
+                media_module,
+                "_pacing_section_ids",
+                return_value=["s1"],
+            ), mock.patch.object(
+                media_module,
+                "_build_section_body_segments",
+                return_value=[segment],
+            ), mock.patch.object(
+                media_module,
+                "_run",
+                side_effect=RuntimeError("synthetic ffmpeg failure"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "synthetic ffmpeg failure"):
+                    media_module.render_video(
+                        narration,
+                        [visual],
+                        final_path,
+                        "film",
+                    )
+
+            self.assertEqual(final_path.read_bytes(), b"LAST_GOOD_FINAL")
+            self.assertFalse((root / ".final.rendering.mp4").exists())
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
 class CleanV2EndToEndTests(unittest.TestCase):
     def test_minimal_path_produces_structurally_complete_final_file(self) -> None:
