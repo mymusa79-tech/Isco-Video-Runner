@@ -168,7 +168,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertIn("spoken-text audit", scoped)
         self.assertIn("Do not block on visual_query", scoped)
         self.assertIn("contextual CTA anchor section is host-owned", scoped)
-        self.assertIn("Do not require moving the CTA to a different section", scoped)
+        self.assertIn("Do not require moving the CTA to a", scoped)
+        self.assertIn("different section or to the ending", scoped)
         self.assertIn("narrative identity opener/closer are host-owned", scoped)
 
     def test_run254_religious_quote_scope_keeps_invocation_distinct_from_quote(self):
