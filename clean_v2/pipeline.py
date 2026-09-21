@@ -138,6 +138,8 @@ def _synthesize_sectioned_voice(
     voice_synthesizer: Any,
     sections: list[dict[str, Any]],
     narration_path: Path,
+    *,
+    require_charon_only: bool = False,
 ) -> dict[str, Any]:
     """Synthesize bounded Charon units, then deterministically reassemble sections.
 
@@ -189,7 +191,14 @@ def _synthesize_sectioned_voice(
                 chunk_dir.mkdir(parents=True, exist_ok=True)
                 chunk_path = chunk_dir / f"{chunk_index:02d}.wav"
             try:
-                voice_synthesizer.synthesize(chunk_text, chunk_path)
+                if require_charon_only:
+                    voice_synthesizer.synthesize(
+                        chunk_text,
+                        chunk_path,
+                        primary_only=True,
+                    )
+                else:
+                    voice_synthesizer.synthesize(chunk_text, chunk_path)
             except Exception:
                 atomic_write_json(
                     report_path,
@@ -211,6 +220,11 @@ def _synthesize_sectioned_voice(
                 raise RuntimeError(
                     "Clean V2 sectioned voice provider missing: "
                     f"section={section_id} chunk={chunk_index}"
+                )
+            if require_charon_only and provider != "gemini:Charon":
+                raise RuntimeError(
+                    "CLEAN_V2_VOICE_INFRASTRUCTURE reason=short_charon_only_provider_drift "
+                    f"actual={provider}"
                 )
             if section_provider is None:
                 section_provider = provider
@@ -2687,6 +2701,14 @@ class CleanV2Pipeline:
                     self.voice_synthesizer, "allow_piper_fallback", None
                 )
                 if (
+                    str(brief["format"]) == "short"
+                    and voice_provider != "gemini:Charon"
+                ):
+                    raise RuntimeError(
+                        "CLEAN_V2_VOICE_INFRASTRUCTURE "
+                        "reason=short_resume_requires_charon"
+                    )
+                if (
                     voice_provider == "piper-local:ar_JO-kareem-medium"
                     and piper_policy is False
                 ):
@@ -2712,6 +2734,7 @@ class CleanV2Pipeline:
                         self.voice_synthesizer,
                         list(script["sections"]),
                         narration_path,
+                        require_charon_only=str(brief["format"]) == "short",
                     ),
                 )
                 voice_provider = voice_result.get("voice_provider")
