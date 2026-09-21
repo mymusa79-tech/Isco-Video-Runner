@@ -189,7 +189,7 @@ def _screen_copy(mode: CtaMode, authored: str) -> tuple[str, str]:
 
 
 def bind_contextual_cta(plan: Any) -> CtaBinding:
-    if str(getattr(plan, "format", "")) == "moment":
+    if str(getattr(plan, "format", "")) in {"moment", "short"}:
         return CtaBinding(
             CTA_CONTRACT_VERSION,
             CtaMode.NONE,
@@ -198,7 +198,7 @@ def bind_contextual_cta(plan: Any) -> CtaBinding:
             "",
             "",
             True,
-            "moment_no_cta",
+            "short_no_cta" if str(getattr(plan, "format", "")) == "short" else "moment_no_cta",
         )
 
     authored = _compact(getattr(plan, "cta", ""))
