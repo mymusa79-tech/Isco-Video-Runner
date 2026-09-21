@@ -3131,3 +3131,59 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             [item["properties"]["id"]["const"] for item in section_items],
             ["s1", "s2", "s3", "s4", "s5"],
         )
+
+def test_run199_repair_is_strictly_one_shot_and_fails_closed_if_tone_still_blocks(self) -> None:
+        audit_calls = {"n": 0}
+        router = self._Router(self._repaired_script())
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            raise CleanV2ToneContentBlock(self.RUN199_TONE_BLOCK)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_locked_runtime_files(root)
+            script = self._run199_script()
+            with self.assertRaisesRegex(
+                CleanV2ToneContentBlock,
+                "Independent tone/naturalness gate blocked real production",
+            ):
+                _run_text_audit_with_one_bounded_tone_repair(
+                    text_audit=text_audit,
+                    router=router,
+                    output_dir=root,
+                    brief=_brief(),
+                    plan=self._plan_for_run199(),
+                    script=script,
+                )
+
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
+            repair = json.loads((root / "tone-repair.json").read_text(encoding="utf-8"))
+            self.assertEqual(repair["status"], "failed_closed")
+            self.assertEqual(repair["attempts"], 1)
+
+    def test_factuality_block_never_enters_tone_repair(self) -> None:
+        router = self._Router(self._repaired_script())
+
+        def factuality_block(**_kwargs):
+            raise RuntimeError("Independent factuality/AI-expert gate blocked real production")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_locked_runtime_files(root)
+            with self.assertRaisesRegex(RuntimeError, "factuality/AI-expert"):
+                _run_text_audit_with_one_bounded_tone_repair(
+                    text_audit=factuality_block,
+                    router=router,
+                    output_dir=root,
+                    brief=_brief(),
+                    plan=self._plan_for_run199(),
+                    script=self._run199_script(),
+                )
+            self.assertEqual(router.calls, 0)
+            self.assertFalse((root / "tone-repair.json").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
