@@ -159,7 +159,7 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
             ), patch(
                 "clean_v2.media.time.sleep"
             ) as sleep, patch(
-                "isco_video_agent.media.ffmpeg.concat_audio",
+                "clean_v2.pipeline.concat_wav_parts",
                 side_effect=concat_audio,
             ):
                 result = _synthesize_sectioned_voice(synth, sections, output)
