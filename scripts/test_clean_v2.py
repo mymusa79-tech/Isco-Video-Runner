@@ -33,6 +33,7 @@ from clean_v2.pipeline import (
     CleanV2FactualityContentBlock,
     CleanV2ToneContentBlock,
     _factuality_repair_prompt,
+    _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
     _tone_repair_prompt,
     _validate_tone_repair_script,
@@ -3329,6 +3330,55 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                 structural_ai_flags(joined, short_form=False),
             )
 
+    def test_run249_composite_audit_collects_tone_before_spending_single_repair(self) -> None:
+        factuality = {
+            "status": "block",
+            "unsupported_claims": ["unsupported causal mechanism"],
+            "professional_advice_flags": [],
+            "expert_persona_flags": [],
+        }
+        tone = {
+            "status": "block",
+            "preachiness_flags": [],
+            "naturalness_flags": ["CTA integration is abrupt"],
+            "narrative_format_flags": ["viewer_retention_continuity: hook cliff"],
+            "unverified_religious_quote_flags": [],
+        }
+        calls = []
+
+        def fake_fact(**kwargs):
+            calls.append(("fact", kwargs.get("raise_on_block")))
+            return factuality
+
+        def fake_tone(**kwargs):
+            calls.append(("tone", kwargs.get("raise_on_block")))
+            return tone
+
+        with tempfile.TemporaryDirectory() as temporary, \
+             mock.patch(
+                 "clean_v2.pipeline._run_legacy_factuality_audit",
+                 side_effect=fake_fact,
+             ), \
+             mock.patch(
+                 "clean_v2.pipeline._run_legacy_tone_naturalness_audit",
+                 side_effect=fake_tone,
+             ):
+            with self.assertRaises(CleanV2FactualityContentBlock) as raised:
+                _run_text_audits(
+                    output_dir=Path(temporary),
+                    brief=_brief(),
+                    plan=self._plan_for_run199(),
+                    script=self._run199_script(),
+                )
+
+        self.assertEqual(calls, [("fact", False), ("tone", False)])
+        self.assertEqual(raised.exception.report["status"], "block")
+        self.assertIsNotNone(raised.exception.tone_report)
+        self.assertEqual(
+            raised.exception.tone_report["naturalness_flags"],
+            ["CTA integration is abrupt"],
+        )
+
     def test_run245_factuality_block_gets_one_bounded_repair_then_full_reaudit_passes(self) -> None:
         from clean_v2.structural_ai import structural_ai_flags
 
@@ -3344,6 +3394,23 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             "expert_persona_flags": [],
             "notes": [],
             "diagnostics": {"validation": "valid"},
+        }
+        tone_block = {
+            "schema_version": 1,
+            "source": "clean-v2-legacy-tone-naturalness-audit",
+            "status": "block",
+            "preachiness_flags": [
+                "Opening narration reads as overly promotional rather than reflective."
+            ],
+            "cultural_dignity_flags": [],
+            "naturalness_flags": [
+                "The CTA feels abrupt and promotional, breaking the natural flow."
+            ],
+            "narrative_format_flags": [
+                "viewer_retention_continuity: s1 repeats the hook without advancing value."
+            ],
+            "unverified_religious_quote_flags": [],
+            "validation": "valid",
         }
         original = self._run199_script()
         repeated_claim = (
@@ -3407,7 +3474,10 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
         def text_audit(**_kwargs):
             audit_calls["n"] += 1
             if audit_calls["n"] == 1:
-                raise CleanV2FactualityContentBlock(factuality_block)
+                raise CleanV2FactualityContentBlock(
+                    factuality_block,
+                    tone_report=tone_block,
+                )
             return {
                 "schema_version": 1,
                 "status": "pass",
@@ -3457,6 +3527,13 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
 
             prompt = router.prompts[0]
             self.assertIn("- [factuality] s4/s5:", prompt)
+            self.assertIn("- [tone] Opening narration reads as overly promotional", prompt)
+            self.assertIn("- [tone] The CTA feels abrupt and promotional", prompt)
+            self.assertIn("- [tone] viewer_retention_continuity:", prompt)
+            self.assertIn(
+                "repair the surrounding lead-in, transition, or payoff",
+                prompt,
+            )
             self.assertIn("- [structural] repeated_not_x_but_y:", prompt)
             self.assertIn("- [structural] duplicate_sentence", prompt)
             self.assertIn("weaken, qualify, or remove only the offending wording", prompt)
@@ -3475,6 +3552,17 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertEqual(joined.count(self.CLOSER), 1)
             self.assertEqual(joined.count(self.CTA), 1)
             self.assertEqual(script["title"], original["title"])
+
+            tone_pre = json.loads(
+                (root / "tone-naturalness-audit-pre-repair.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(tone_pre["status"], "block")
+            self.assertEqual(
+                tone_pre["naturalness_flags"],
+                tone_block["naturalness_flags"],
+            )
 
             repair = json.loads(
                 (root / "factuality-repair.json").read_text(encoding="utf-8")
