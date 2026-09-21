@@ -14,7 +14,7 @@ from typing import Any, Mapping
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-SUPPORTED_FORMATS = frozenset({"film", "moment", "story"})
+SUPPORTED_FORMATS = frozenset({"film", "moment", "story", "short"})
 _HASH_METADATA_KEYS = frozenset({"approved_hash", "brief_sha256"})
 
 
@@ -110,9 +110,9 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     if not title or not promise or not isinstance(raw_sections, list):
         raise ContractError("plan requires title, promise, and sections")
     fmt = str(brief.get("format") or "")
-    if fmt != "moment":
+    if fmt not in {"moment", "short"}:
         if not cta:
-            raise ContractError("plan requires one non-empty contextual cta for non-moment formats")
+            raise ContractError("plan requires one non-empty contextual cta for CTA-enabled formats")
         from .contextual_cta import CtaMode, infer_cta_mode
 
         cta_mode, cta_reason = infer_cta_mode(cta)
@@ -123,6 +123,9 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
     if fmt == "film":
         if len(raw_sections) != 5:
             raise ContractError("plan section count must be exactly 5 for film")
+    elif fmt == "short":
+        if len(raw_sections) != 3:
+            raise ContractError("plan section count must be exactly 3 for short")
     elif not 1 <= len(raw_sections) <= 5:
         raise ContractError(
             f"plan section count must be between 1 and 5 for {fmt}"
