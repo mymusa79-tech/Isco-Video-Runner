@@ -514,7 +514,9 @@ def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
         },
         "voice": {
             "single_narrator": True,
+            "primary_voice": "Charon",
             "dialogue_labels_forbidden": True,
+            "orus_two_voice_support": "deferred_short_v2",
         },
         "social_cta": "forbidden",
         "narrative_identity": "not_applicable",
