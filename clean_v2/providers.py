@@ -20,7 +20,7 @@ from . import mistral_executor
 MAX_PROMPT_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
-SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script"})
+SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
 MISTRAL_NARRATIVE_IDENTITY_SCHEMA = {
     "type": "object",
     "properties": {
@@ -50,6 +50,30 @@ MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA = {
         }
     },
     "required": ["alternate_query"],
+    "additionalProperties": False,
+}
+
+
+MISTRAL_SCRIPT_PATCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "patches": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "section_id": {"type": "string", "minLength": 1, "maxLength": 40},
+                    "find": {"type": "string", "minLength": 1, "maxLength": 700},
+                    "replace": {"type": "string", "maxLength": 900},
+                },
+                "required": ["section_id", "find", "replace"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["patches"],
     "additionalProperties": False,
 }
 
@@ -501,6 +525,17 @@ def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
                     _mistral_script_response_schema(prompt),
                 ),
             )
+        if stage == "script_patch":
+            return mistral_executor.mistral_executor_json(
+                prompt,
+                max_tokens=max_tokens,
+                task_kind=stage,
+                response_schema=(
+                    "script_patch",
+                    MISTRAL_SCRIPT_PATCH_SCHEMA,
+                ),
+                temperature=0.0,
+            )
         if stage == "narrative_identity":
             return mistral_executor.mistral_executor_json(
                 prompt,
@@ -543,7 +578,7 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
         ProviderAdapter(
             "mistral",
             _mistral_call,
-            stages=frozenset({"planning", "narrative_identity", "script", "visual_query_recovery"}),
+            stages=frozenset({"planning", "narrative_identity", "script", "script_patch", "visual_query_recovery"}),
             accepts_stage=True,
         ),
     )
