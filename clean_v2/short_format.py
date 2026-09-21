@@ -402,7 +402,7 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     s3 = _clean(sections[2].get("narration"))
     action_sentences = [
         sentence
-        for sentence in re.split(r"(?<=[.!؟!])\\s+", s3)
+        for sentence in re.split(r"(?<=[.!؟!])\s+", s3)
         if any(marker in _semantic_key(sentence) for marker in _PRACTICAL_ACTION_MARKERS)
     ]
     if len(action_sentences) != 1:
