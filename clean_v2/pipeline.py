@@ -333,6 +333,34 @@ def _tone_repair_issue_notes(report: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _structural_repair_issue_notes(output_dir: Path) -> str:
+    """Append the already-computed advisory Structural AI flags to the same repair."""
+    path = output_dir / "structural-ai-flags.json"
+    if not path.is_file():
+        return ""
+    report = _read_json_object(path)
+    values = report.get("flags") or []
+    if not isinstance(values, list):
+        return ""
+
+    lines: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        flag = " ".join(str(value or "").split()).strip()
+        if not flag or flag in seen:
+            continue
+        if flag == "repeated_not_x_but_y":
+            lines.append(
+                '- [structural] repeated_not_x_but_y: eliminate repeated Arabic contrast '
+                'constructions of the form "ليس X بل Y" / "ليس ... بل ..."; rewrite those '
+                "sentences with varied, natural Arabic syntax while preserving their meaning."
+            )
+        else:
+            lines.append(f"- [structural] {flag}")
+        seen.add(flag)
+    return "\n".join(lines)
+
+
 def _replace_first_spoken_sentence(text: str, locked_sentence: str) -> str:
     """Restore the host-owned hook while preserving the candidate body."""
     text = text.strip()
@@ -500,7 +528,9 @@ REVISION_NOTE:
 {revision_note}
 
 ONE_BOUNDED_TONE_REPAIR_CONTRACT:
-- Fix only the concrete tone/naturalness problems listed in REVISION_NOTE.
+- Fix only the concrete tone/naturalness and structural problems listed in REVISION_NOTE.
+- If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
+  "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 - Preserve the section count, ids, order, title, and each section's role.
 - Preserve this first spoken hook sentence exactly: {hook}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
@@ -532,12 +562,16 @@ def _run_one_bounded_tone_repair(
     router: Any,
     blocked_report: Mapping[str, Any],
 ) -> dict[str, Any]:
-    issue_notes = _tone_repair_issue_notes(blocked_report)
+    tone_issue_notes = _tone_repair_issue_notes(blocked_report)
+    structural_issue_notes = _structural_repair_issue_notes(output_dir)
+    issue_notes = "\n".join(
+        item for item in (tone_issue_notes, structural_issue_notes) if item
+    )
     atomic_write_json(
         output_dir / "tone-naturalness-audit-pre-repair.json",
         dict(blocked_report),
     )
-    if not issue_notes:
+    if not tone_issue_notes:
         raise RuntimeError(
             "Tone/Naturalness block has no bounded actionable tone flags"
         )
@@ -565,6 +599,7 @@ def _run_one_bounded_tone_repair(
     )
     script.clear()
     script.update(repaired)
+    atomic_write_json(output_dir / "script-post-tone-repair.json", script)
     _assert_brand_signature_invariant(
         script["sections"],
         str(brief.get("format") or ""),
