@@ -394,17 +394,20 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
     fmt = str(brief.get("format") or "").strip().lower()
     if fmt == "film":
         min_sections = max_sections = 5
+    elif fmt == "short":
+        min_sections = max_sections = 3
     elif fmt in {"moment", "story"}:
         min_sections, max_sections = 1, 5
     else:
         raise NoWireFailure("mistral_planning_unsupported_format")
 
     non_blank_string = {"type": "string", "minLength": 1, "pattern": r"\S"}
-    cta_schema = (
-        {"type": "string"}
-        if fmt == "moment"
-        else dict(non_blank_string)
-    )
+    if fmt == "short":
+        cta_schema = {"type": "string", "const": ""}
+    elif fmt == "moment":
+        cta_schema = {"type": "string"}
+    else:
+        cta_schema = dict(non_blank_string)
     section_schema = {
         "type": "object",
         "properties": {
