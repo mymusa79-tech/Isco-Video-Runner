@@ -1400,8 +1400,10 @@ APPROVED_BRIEF:
 Build a simple production plan. Do not add research, statistics, quotations, diagnoses, or claims
 outside the approved brief and its research_pack. Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct. Each visual query must be a concrete
-English stock-footage search phrase. Prefer environments, hands, objects, routines, and wide shots
-without identifiable faces. Keep visuals modest and suitable for a broad Arab/Muslim audience.
+English stock-footage search phrase. Keep every section purpose complete (never cut mid-thought),
+and keep each visual query concise and at most 260 characters. Prefer environments, hands, objects,
+routines, and wide shots without identifiable faces. Keep visuals modest and suitable for a broad
+Arab/Muslim audience.
 
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
 share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
