@@ -60,13 +60,13 @@ MISTRAL_SCRIPT_PATCH_SCHEMA = {
         "patches": {
             "type": "array",
             "minItems": 1,
-            "maxItems": 8,
+            "maxItems": 6,
             "items": {
                 "type": "object",
                 "properties": {
                     "section_id": {"type": "string", "minLength": 1, "maxLength": 40},
-                    "find": {"type": "string", "minLength": 1, "maxLength": 700},
-                    "replace": {"type": "string", "maxLength": 900},
+                    "find": {"type": "string", "minLength": 1, "maxLength": 400},
+                    "replace": {"type": "string", "maxLength": 550},
                 },
                 "required": ["section_id", "find", "replace"],
                 "additionalProperties": False,
