@@ -840,6 +840,179 @@ def _validate_tone_repair_script(
     return repaired
 
 
+def _tone_patch_target_section_ids(
+    report: Mapping[str, Any],
+    script: Mapping[str, Any],
+    cta_plan: Mapping[str, Any],
+    structural_issue_notes: str,
+) -> tuple[str, ...]:
+    sections = [
+        item for item in (script.get("sections") or []) if isinstance(item, Mapping)
+    ]
+    section_ids = [str(item.get("id") or "").strip() for item in sections]
+    valid_ids = {section_id for section_id in section_ids if section_id}
+    targets: set[str] = set()
+
+    for field in _TONE_REPAIR_FLAG_FIELDS:
+        values = report.get(field) or []
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            flag = " ".join(str(value or "").split())
+            lowered = flag.casefold()
+            for match in re.finditer(r"\bs(\d+)\b", lowered):
+                candidate = f"s{int(match.group(1))}"
+                if candidate in valid_ids:
+                    targets.add(candidate)
+            for match in re.finditer(r"\bsection\s+(\d+)\b", lowered):
+                candidate = f"s{int(match.group(1))}"
+                if candidate in valid_ids:
+                    targets.add(candidate)
+            for match in re.finditer(r"(?:القسم|مقطع)\s*(\d+)", flag):
+                candidate = f"s{int(match.group(1))}"
+                if candidate in valid_ids:
+                    targets.add(candidate)
+
+            if sections and any(
+                marker in lowered
+                for marker in ("closing_payoff", "closing payoff", "closing", "outro")
+            ):
+                targets.add(section_ids[-1])
+            if sections and any(
+                marker in lowered for marker in ("hook", "opening", "opener")
+            ):
+                targets.add(section_ids[0])
+            if "cta" in lowered:
+                anchor = str(cta_plan.get("anchor_section_id") or "").strip()
+                if anchor in valid_ids:
+                    targets.add(anchor)
+
+    if "repeated_not_x_but_y" in structural_issue_notes:
+        for item in sections:
+            section_id = str(item.get("id") or "").strip()
+            narration = str(item.get("narration") or "")
+            if section_id and _NOT_X_BUT_Y_OCCURRENCE.search(narration):
+                targets.add(section_id)
+
+    return tuple(section_id for section_id in section_ids if section_id in targets)
+
+
+def _validate_tone_patch(
+    value: Any,
+    *,
+    original_script: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    cta_plan: Mapping[str, Any],
+    target_section_ids: tuple[str, ...],
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value.keys()) != {"patches"}:
+        raise ValueError("tone patch must contain only patches")
+    patches = value.get("patches")
+    if not isinstance(patches, list) or not 1 <= len(patches) <= 8:
+        raise ValueError("tone patch requires 1-8 local patches")
+
+    sections = {
+        str(item.get("id") or "").strip(): str(item.get("narration") or "")
+        for item in (original_script.get("sections") or [])
+        if isinstance(item, Mapping)
+    }
+    allowed = set(target_section_ids)
+    if not allowed:
+        raise ValueError("tone patch has no bounded target sections")
+
+    locked_phrases = [
+        _first_spoken_sentence(original_script),
+        str(identity.get("opener") or "").strip(),
+        str(identity.get("closer") or "").strip(),
+        str(cta_plan.get("spoken_text") or "").strip(),
+    ]
+    locked_phrases = [item for item in locked_phrases if item]
+
+    normalized: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    total_old_chars = 0
+    total_new_chars = 0
+    for raw in patches:
+        if not isinstance(raw, Mapping) or set(raw.keys()) != {
+            "section_id",
+            "old_text",
+            "new_text",
+        }:
+            raise ValueError("tone patch entry has invalid shape")
+        section_id = str(raw.get("section_id") or "").strip()
+        old_text = str(raw.get("old_text") or "").strip()
+        new_text = str(raw.get("new_text") or "").strip()
+        if section_id not in allowed or section_id not in sections:
+            raise ValueError("tone patch escaped bounded target sections")
+        if not old_text or not new_text or old_text == new_text:
+            raise ValueError("tone patch requires a real local replacement")
+        if len(old_text) > 500 or len(new_text) > 700:
+            raise ValueError("tone patch replacement is too broad")
+        if len(new_text) > len(old_text) + 240:
+            raise ValueError("tone patch expands local text too much")
+        if "\n" in old_text or "\n" in new_text:
+            raise ValueError("tone patch must stay inside one local text span")
+        if sections[section_id].count(old_text) != 1:
+            raise ValueError("tone patch old_text must match exactly once")
+        for locked in locked_phrases:
+            if old_text in locked or locked in old_text or locked in new_text:
+                raise ValueError("tone patch attempted to edit a host-owned lock")
+        key = (section_id, old_text)
+        if key in seen:
+            raise ValueError("tone patch duplicated an old_text target")
+        seen.add(key)
+        total_old_chars += len(old_text)
+        total_new_chars += len(new_text)
+        normalized.append(
+            {
+                "section_id": section_id,
+                "old_text": old_text,
+                "new_text": new_text,
+            }
+        )
+
+    if total_old_chars > 2400 or total_new_chars > 3200:
+        raise ValueError("tone patch total edit surface is too broad")
+    return {"patches": normalized}
+
+
+def _apply_tone_patch(
+    patch_document: Mapping[str, Any],
+    *,
+    plan: Mapping[str, Any],
+    original_script: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    cta_plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    repaired = json.loads(
+        json.dumps(dict(original_script), ensure_ascii=False)
+    )
+    by_id = {
+        str(item.get("id") or "").strip(): item
+        for item in (repaired.get("sections") or [])
+        if isinstance(item, dict)
+    }
+    for patch in patch_document.get("patches") or []:
+        section_id = str(patch["section_id"])
+        old_text = str(patch["old_text"])
+        new_text = str(patch["new_text"])
+        section = by_id.get(section_id)
+        if section is None:
+            raise ValueError("tone patch target section disappeared")
+        narration = str(section.get("narration") or "")
+        if narration.count(old_text) != 1:
+            raise ValueError("tone patch old_text no longer matches exactly once")
+        section["narration"] = narration.replace(old_text, new_text, 1)
+
+    return _validate_tone_repair_script(
+        repaired,
+        plan=plan,
+        original_script=original_script,
+        identity=identity,
+        cta_plan=cta_plan,
+    )
+
+
 def _tone_repair_prompt(
     *,
     brief: Mapping[str, Any],
@@ -848,10 +1021,8 @@ def _tone_repair_prompt(
     identity: Mapping[str, Any],
     cta_plan: Mapping[str, Any],
     revision_note: str,
+    target_section_ids: tuple[str, ...],
 ) -> str:
-    plan_json = json.dumps(
-        dict(plan), ensure_ascii=False, separators=(",", ":")
-    )
     research_boundaries = _research_boundaries_context(brief)
     targeted_structural = _targeted_structural_repair_context(
         script,
@@ -859,23 +1030,17 @@ def _tone_repair_prompt(
     )
     payload = json.dumps(
         {
-            "brief": dict(brief),
             "current_script": dict(script),
+            "target_section_ids": list(target_section_ids),
             "narrative_identity": dict(identity),
             "cta_plan": dict(cta_plan),
         },
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    hook = _first_spoken_sentence(script)
     return with_human_feel(with_channel_persona(f"""
-You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
-The production data below is authoritative. Do not redesign the episode and do not broaden scope.
-
-LOCKED_PLAN:
-{plan_json}
-
-The approved brief and locked plan are authoritative.
+You are making ONE bounded tone/naturalness PATCH to an already approved Arabic spoken script.
+Do not rewrite or return the whole script. The host will apply only exact local replacements.
 
 PRODUCTION_CONTEXT:
 {payload}
@@ -887,34 +1052,29 @@ REVISION_NOTE:
 
 {targeted_structural}
 
-ONE_BOUNDED_TONE_REPAIR_CONTRACT:
-- Fix only the concrete tone/naturalness and structural problems listed in REVISION_NOTE.
-- If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
-  "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
-- Preserve the section count, ids, order, title, and each section's role.
-- Preserve this first spoken hook sentence exactly: {hook}
-- Preserve the runtime narrative-identity opener and closer exactly once each.
-- Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
-  paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
-  its existing anchor section when needed to make the surrounding transition sound natural.
-- These host-owned locks are also restored deterministically after your candidate is parsed; spend
-  repair effort only on the listed tone/naturalness defects, not on rewriting locked anchors.
-- Preserve all approved factual claims and their research boundaries. Do not add, remove,
-  strengthen, quantify, or invent claims, studies, experts, quotations, diagnoses, or authority.
-- Tone repair is NOT permission to explain the science again. Never introduce a concrete study
-  scenario, participant group, hidden psychological motive, "the brain is designed to..." claim,
-  or a stronger causal mechanism unless that exact scope already exists in the current script and
-  remains within RESEARCH_BOUNDARIES.
-- Preserve every unaffected sentence exactly. Change only sentences necessary for a listed flag
-  or an OFFENDING_OCCURRENCE.
-- Make the minimum wording/transition changes needed for the listed flags. No unrelated rewrite.
-- Return narration only inside the existing script JSON shape; no markdown or commentary.
+ONE_BOUNDED_TONE_PATCH_CONTRACT:
+- Return only local replacements needed for the listed Tone/Structural flags.
+- Every section_id MUST be one of TARGET_SECTION_IDS in PRODUCTION_CONTEXT.
+- old_text MUST be copied verbatim from current_script and must match exactly once in that section.
+- Patch the smallest useful phrase or sentence. Never return a whole section when a shorter span works.
+- Do not patch the locked hook, narrative-identity opener/closer, or exact CTA spoken_text.
+  For a CTA-flow issue, patch only the surrounding transition while leaving the CTA text untouched.
+- Preserve every unpatched character exactly. The host enforces this by applying old_text -> new_text
+  replacements to the original script; model edits outside patches are impossible.
+- Preserve factual meaning and RESEARCH_BOUNDARIES. Do not add a study, participant group, mechanism,
+  diagnosis, psychological motive, brain/nervous-system claim, guarantee, number, or stronger causality.
+- For repeated_not_x_but_y, patch only the listed OFFENDING_OCCURRENCES with direct natural Arabic.
+- Use at most 8 patches. Each old_text <= 500 characters; each new_text <= 700 characters.
+- Return JSON only, with no markdown or commentary.
 
-Return one JSON object with the same title and every locked section id exactly once and in order:
+Return exactly:
 {{
-  "title": "same Arabic title",
-  "sections": [
-    {{"id": "s1", "narration": "repaired Arabic spoken narration"}}
+  "patches": [
+    {{
+      "section_id": "s2",
+      "old_text": "exact current substring",
+      "new_text": "minimal corrected replacement"
+    }}
   ]
 }}
 """.strip()))
@@ -945,8 +1105,19 @@ def _run_one_bounded_tone_repair(
 
     identity = _read_json_object(output_dir / "narrative-identity.json")
     cta_plan = _read_json_object(output_dir / "cta-plan.json")
-    repaired = router.route(
-        stage="script",
+    target_section_ids = _tone_patch_target_section_ids(
+        blocked_report,
+        script,
+        cta_plan,
+        structural_issue_notes,
+    )
+    if not target_section_ids:
+        raise RuntimeError(
+            "Tone/Naturalness block could not be mapped to bounded local sections"
+        )
+
+    patch_document = router.route(
+        stage="tone_patch",
         prompt=_tone_repair_prompt(
             brief=brief,
             plan=plan,
@@ -954,18 +1125,27 @@ def _run_one_bounded_tone_repair(
             identity=identity,
             cta_plan=cta_plan,
             revision_note=issue_notes,
+            target_section_ids=target_section_ids,
         ),
-        max_tokens=7500 if str(brief.get("format") or "") == "film" else 2500,
-        validator=lambda value: _validate_tone_repair_script(
+        max_tokens=2200 if str(brief.get("format") or "") == "film" else 1200,
+        validator=lambda value: _validate_tone_patch(
             value,
-            plan=plan,
             original_script=script,
             identity=identity,
             cta_plan=cta_plan,
+            target_section_ids=target_section_ids,
         ),
+    )
+    repaired = _apply_tone_patch(
+        patch_document,
+        plan=plan,
+        original_script=script,
+        identity=identity,
+        cta_plan=cta_plan,
     )
     script.clear()
     script.update(repaired)
+    atomic_write_json(output_dir / "tone-patch.json", patch_document)
     atomic_write_json(output_dir / "script-post-tone-repair.json", script)
     _assert_brand_signature_invariant(
         script["sections"],
@@ -981,11 +1161,12 @@ def _run_one_bounded_tone_repair(
     )
     return {
         "schema_version": 1,
-        "source": "clean-v2-one-bounded-tone-repair",
+        "source": "clean-v2-one-bounded-tone-patch",
         "attempts": 1,
+        "patch_count": len(patch_document["patches"]),
+        "target_section_ids": list(target_section_ids),
         "issue_notes": issue_notes,
     }
-
 
 def _factuality_repair_prompt(
     *,
