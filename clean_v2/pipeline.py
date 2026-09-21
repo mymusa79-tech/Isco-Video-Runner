@@ -454,6 +454,34 @@ def _first_spoken_sentence(script: Mapping[str, Any]) -> str:
     return (match.group(0) if match else narration).strip()[:600]
 
 
+def _closing_payoff_for_tone_audit(
+    script: Mapping[str, Any],
+    *,
+    identity: Mapping[str, Any] | None = None,
+) -> str:
+    """Expose the actual repaired ending to Tone QA, not the planning promise."""
+    sections = script.get("sections") or []
+    if not isinstance(sections, list) or not sections:
+        return ""
+    last = sections[-1]
+    if not isinstance(last, Mapping):
+        return ""
+    narration = str(last.get("narration") or "").strip()
+    closer = str((identity or {}).get("closer") or "").strip()
+    if closer:
+        narration = _strip_exact_host_phrase(narration, closer)
+    narration = " ".join(narration.split()).strip()
+    if not narration:
+        return ""
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\s+", narration)
+        if item.strip()
+    ]
+    payoff = " ".join(sentences[-3:]) if sentences else narration
+    return payoff[-1000:].strip()
+
+
 class CleanV2FactualityContentBlock(RuntimeError):
     """A validated factuality block eligible for one bounded combined repair."""
 
@@ -509,7 +537,20 @@ def _run_legacy_tone_naturalness_audit(
         plan=plan,
         script=script,
     )
+    identity_path = output_dir / "narrative-identity.json"
+    identity = _read_json_object(identity_path) if identity_path.is_file() else {}
     production_plan.hook = _first_spoken_sentence(script)
+    production_plan.closing_payoff = (
+        _closing_payoff_for_tone_audit(script, identity=identity)
+        or str(plan.get("promise") or "")
+    )
+    production_plan.identity_opener = str(identity.get("opener") or "").strip()
+    production_plan.identity_closer = str(identity.get("closer") or "").strip()
+    production_plan.identity_transitions = [
+        str(item).strip()
+        for item in (identity.get("transitions") or [])
+        if str(item).strip()
+    ]
     result = audit_tone_and_naturalness_with_mistral(
         api_key,
         production_plan,
@@ -646,14 +687,17 @@ def _overlay_tone_repair_host_locks(
         anchor = None
         for item in sections:
             narration = str(item.get("narration") or "")
-            item["narration"] = _strip_exact_host_phrase(narration, spoken_cta)
             if str(item.get("id") or "") == anchor_section_id:
                 anchor = item
+                continue
+            item["narration"] = _strip_exact_host_phrase(narration, spoken_cta)
         if anchor is None:
             raise ValueError("tone repair lost the locked CTA anchor section")
-        anchor["narration"] = (
-            f"{str(anchor.get('narration') or '').rstrip()} {spoken_cta}".strip()
-        )
+        anchor_narration = str(anchor.get("narration") or "").strip()
+        if anchor_narration.count(spoken_cta) != 1:
+            anchor_narration = _strip_exact_host_phrase(anchor_narration, spoken_cta)
+            anchor_narration = f"{anchor_narration.rstrip()} {spoken_cta}".strip()
+        anchor["narration"] = anchor_narration
 
     opener = str(identity.get("opener") or "").strip()
     closer = str(identity.get("closer") or "").strip()
@@ -772,7 +816,8 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - Preserve this first spoken hook sentence exactly: {hook}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
-  paraphrase, move, or repeat the CTA.
+  paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
+  its existing anchor section when needed to make the surrounding transition sound natural.
 - These host-owned locks are also restored deterministically after your candidate is parsed; spend
   repair effort only on the listed tone/naturalness defects, not on rewriting locked anchors.
 - Preserve all approved factual claims and their research boundaries. Do not add, remove,
@@ -909,7 +954,8 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Preserve this first spoken hook sentence exactly: {hook}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
-  paraphrase, move, or repeat the CTA.
+  paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
+  its existing anchor section when needed to make the surrounding transition sound natural.
 - These host-owned locks are restored deterministically after your candidate is parsed; spend
   repair effort only on the listed factuality/tone/structural defects, not on rewriting locked anchors.
 - Make the minimum wording changes needed. No unrelated rewrite.

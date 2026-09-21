@@ -43,6 +43,30 @@ _REQUIRED_ARRAYS = (
 _AUDIT_ROUTE_LOCK = threading.RLock()
 
 
+_LEGACY_RELIGIOUS_QUOTE_RULE = (
+    "5. Unverified religious quotations: flag any religious quotation or attribution presented as authoritative unless the\n"
+    "   approved research context directly supports it as verified. Judge this semantically - do not rely only on a fixed\n"
+    "   list of marker phrases."
+)
+_RELIGIOUS_QUOTE_SCOPE_CLARIFICATION = (
+    "\n   Scope clarification for Clean V2: ordinary non-quoted invocations or greetings such as "
+    "بسم الله / باسم الله / حفظكم الله are not quotations or attributions by themselves. "
+    "Do not flag them under unverified_religious_quote_flags unless they actually quote or attribute "
+    "religious authority/content that requires source verification."
+)
+
+
+def _scope_religious_quote_prompt(prompt: str) -> str:
+    """Clarify quotation scope without weakening the legacy verified-source rule."""
+    if _LEGACY_RELIGIOUS_QUOTE_RULE not in prompt:
+        raise RuntimeError("Clean V2 tone religious-quote rule drift")
+    return prompt.replace(
+        _LEGACY_RELIGIOUS_QUOTE_RULE,
+        _LEGACY_RELIGIOUS_QUOTE_RULE + _RELIGIOUS_QUOTE_SCOPE_CLARIFICATION,
+        1,
+    )
+
+
 def _validate_tone_result(result: dict[str, Any]) -> dict[str, Any]:
     from isco_video_agent.text_audit_router import validate_audit_payload
 
@@ -96,13 +120,14 @@ def audit_tone_and_naturalness_with_mistral(
 
                 return invoke
 
+            scoped_prompt = _scope_religious_quote_prompt(prompt)
             extended = [
                 (name, contract_validated(call)) for name, call in providers
             ]
             extended.append(("mistral", _mistral_tone_call))
             return text_audit_router.route_text_audit(
                 extended,
-                prompt,
+                scoped_prompt,
                 cooldown=cooldown,
             )
 
