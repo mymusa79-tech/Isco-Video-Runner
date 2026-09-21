@@ -1139,7 +1139,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 [event["stage"] for event in first_router.events],
                 ["planning", "script"],
             )
-            self.assertEqual(first_voice.calls, 1)
+            self.assertEqual(first_voice.calls, len(_script()["sections"]))
             self.assertEqual(first_visuals.calls, 1)
 
             class _ForbiddenRouter:
