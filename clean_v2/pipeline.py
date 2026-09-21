@@ -405,6 +405,7 @@ def _run_legacy_factuality_audit(
     brief: Mapping[str, Any],
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
+    raise_on_block: bool = True,
 ) -> dict[str, Any]:
     # Reuse the frozen Engine's full prompt, normalizer, validator, fail-closed result,
     # and semantic-block behavior. Clean V2 appends only the final Mistral executor leg.
@@ -435,7 +436,7 @@ def _run_legacy_factuality_audit(
             f"{item.get('provider')}:{item.get('outcome')}" for item in attempts
         ) or "no providers configured"
         raise RuntimeError(f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: {summary}")
-    if result.get("status") == "block":
+    if result.get("status") == "block" and raise_on_block:
         raise CleanV2FactualityContentBlock(report)
     return report
 
@@ -455,10 +456,16 @@ def _first_spoken_sentence(script: Mapping[str, Any]) -> str:
 
 
 class CleanV2FactualityContentBlock(RuntimeError):
-    """A validated semantic factuality block eligible for one bounded repair."""
+    """A validated factuality block carrying any same-pass Tone findings."""
 
-    def __init__(self, report: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        report: Mapping[str, Any],
+        *,
+        tone_report: Mapping[str, Any] | None = None,
+    ) -> None:
         self.report = dict(report)
+        self.tone_report = dict(tone_report) if tone_report is not None else None
         super().__init__("Independent factuality/AI-expert gate blocked real production")
 
 
@@ -490,6 +497,7 @@ def _run_legacy_tone_naturalness_audit(
     brief: Mapping[str, Any],
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
+    raise_on_block: bool = True,
 ) -> dict[str, Any]:
     # Reuse the frozen Engine's tone/naturalness prompt, semantic rules,
     # normalization, fail-closed behavior, and Approval Shopping guard.
@@ -527,7 +535,7 @@ def _run_legacy_tone_naturalness_audit(
             f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: "
             f"tone_naturalness {summary}"
         )
-    if result.get("status") == "block":
+    if result.get("status") == "block" and raise_on_block:
         raise CleanV2ToneContentBlock(report)
     return report
 
@@ -875,7 +883,7 @@ def _factuality_repair_prompt(
     )
     hook = _first_spoken_sentence(script)
     return with_human_feel(with_channel_persona(f"""
-You are making ONE bounded factuality repair to an already approved Arabic spoken script.
+You are making ONE bounded factuality-led quality repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
 
 LOCKED_PLAN:
@@ -890,7 +898,7 @@ REVISION_NOTE:
 {revision_note}
 
 ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
-- Fix only the concrete factuality and structural problems listed in REVISION_NOTE.
+- Fix only the concrete factuality, tone/naturalness, and structural problems listed in REVISION_NOTE.
 - For each [factuality] issue, weaken, qualify, or remove only the offending wording so the claim
   does not exceed the evidence in the approved research pack.
 - Do not invent a new study, source, expert, quotation, number, diagnosis, causal claim, or guarantee.
@@ -903,7 +911,7 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move, or repeat the CTA.
 - These host-owned locks are restored deterministically after your candidate is parsed; spend
-  repair effort only on the listed factuality/structural defects, not on rewriting locked anchors.
+  repair effort only on the listed factuality/tone/structural defects, not on rewriting locked anchors.
 - Make the minimum wording changes needed. No unrelated rewrite.
 - Return narration only inside the existing script JSON shape; no markdown or commentary.
 
@@ -925,16 +933,31 @@ def _run_one_bounded_factuality_repair(
     script: dict[str, Any],
     router: Any,
     blocked_report: Mapping[str, Any],
+    tone_report: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     factuality_issue_notes = _factuality_repair_issue_notes(blocked_report)
+    tone_issue_notes = (
+        _tone_repair_issue_notes(tone_report) if tone_report is not None else ""
+    )
     structural_issue_notes = _structural_repair_issue_notes(output_dir)
     issue_notes = "\n".join(
-        item for item in (factuality_issue_notes, structural_issue_notes) if item
+        item
+        for item in (
+            factuality_issue_notes,
+            tone_issue_notes,
+            structural_issue_notes,
+        )
+        if item
     )
     atomic_write_json(
         output_dir / "factuality-audit-pre-repair.json",
         dict(blocked_report),
     )
+    if tone_report is not None:
+        atomic_write_json(
+            output_dir / "tone-naturalness-audit-pre-repair.json",
+            dict(tone_report),
+        )
     if not factuality_issue_notes:
         raise RuntimeError(
             "Factuality block has no bounded actionable factuality flags"
@@ -1008,6 +1031,7 @@ def _run_text_audit_with_one_bounded_tone_repair(
             script=script,
             router=router,
             blocked_report=blocked.report,
+            tone_report=blocked.tone_report,
         )
         atomic_write_json(
             output_dir / "factuality-repair.json",
@@ -1121,18 +1145,34 @@ def _run_text_audits(
     plan: Mapping[str, Any],
     script: Mapping[str, Any],
 ) -> dict[str, Any]:
+    # Run both semantic audits before spending the single repair budget. This is
+    # intentionally not a RepairDossier/loop: one factuality-led repair may receive
+    # same-pass Tone flags, then the unchanged complete audit is run once again.
     factuality = _run_legacy_factuality_audit(
         output_dir=output_dir,
         brief=brief,
         plan=plan,
         script=script,
+        raise_on_block=False,
     )
     tone_naturalness = _run_legacy_tone_naturalness_audit(
         output_dir=output_dir,
         brief=brief,
         plan=plan,
         script=script,
+        raise_on_block=False,
     )
+    if factuality.get("status") == "block":
+        raise CleanV2FactualityContentBlock(
+            factuality,
+            tone_report=(
+                tone_naturalness
+                if tone_naturalness.get("status") == "block"
+                else None
+            ),
+        )
+    if tone_naturalness.get("status") == "block":
+        raise CleanV2ToneContentBlock(tone_naturalness)
     return {
         "schema_version": 1,
         "source": "clean-v2-composite-text-audit",
