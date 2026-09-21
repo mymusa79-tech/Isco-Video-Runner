@@ -3072,9 +3072,9 @@ class ChunkedCharonVoiceTests(unittest.TestCase):
 
     def test_run267_long_section_splits_at_spoken_boundaries_without_text_drift(self) -> None:
         text = (
-            ("هذه جملة عربية طويلة لكنها طبيعية وتبقى كما هي تمامًا في الصوت. " * 4)
-            + ("ثم ننتقل إلى جملة ثانية توضح الفكرة من دون أي إعادة كتابة للنص. " * 4)
-            + ("وأخيرًا نختم الفقرة بجملة قصيرة وواضحة للمستمع. " * 3)
+            ("هذه جملة عربية طويلة لكنها طبيعية وتبقى كما هي تمامًا في الصوت. " * 6)
+            + ("ثم ننتقل إلى جملة ثانية توضح الفكرة من دون أي إعادة كتابة للنص. " * 6)
+            + ("وأخيرًا نختم الفقرة بجملة قصيرة وواضحة للمستمع. " * 5)
         ).strip()
         self.assertGreater(len(text), 900)
         chunks = _split_tts_chunks(text)
