@@ -436,7 +436,7 @@ def _run_legacy_factuality_audit(
         ) or "no providers configured"
         raise RuntimeError(f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: {summary}")
     if result.get("status") == "block":
-        raise RuntimeError("Independent factuality/AI-expert gate blocked real production")
+        raise CleanV2FactualityContentBlock(report)
     return report
 
 
@@ -454,6 +454,14 @@ def _first_spoken_sentence(script: Mapping[str, Any]) -> str:
     return (match.group(0) if match else narration).strip()[:600]
 
 
+class CleanV2FactualityContentBlock(RuntimeError):
+    """A validated semantic factuality block eligible for one bounded repair."""
+
+    def __init__(self, report: Mapping[str, Any]) -> None:
+        self.report = dict(report)
+        super().__init__("Independent factuality/AI-expert gate blocked real production")
+
+
 class CleanV2ToneContentBlock(RuntimeError):
     """A validated semantic Tone/Naturalness block eligible for one bounded repair."""
 
@@ -461,6 +469,12 @@ class CleanV2ToneContentBlock(RuntimeError):
         self.report = dict(report)
         super().__init__("Independent tone/naturalness gate blocked real production")
 
+
+_FACTUALITY_REPAIR_FLAG_FIELDS = (
+    "unsupported_claims",
+    "professional_advice_flags",
+    "expert_persona_flags",
+)
 
 _TONE_REPAIR_FLAG_FIELDS = (
     "preachiness_flags",
@@ -516,6 +530,22 @@ def _run_legacy_tone_naturalness_audit(
     if result.get("status") == "block":
         raise CleanV2ToneContentBlock(report)
     return report
+
+
+def _factuality_repair_issue_notes(report: Mapping[str, Any]) -> str:
+    """Flatten only the validated factuality block into one bounded repair note."""
+    lines: list[str] = []
+    seen: set[str] = set()
+    for field in _FACTUALITY_REPAIR_FLAG_FIELDS:
+        values = report.get(field) or []
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            flag = " ".join(str(value or "").split()).strip()
+            if flag and flag not in seen:
+                lines.append(f"- [factuality] {flag}")
+                seen.add(flag)
+    return "\n".join(lines)
 
 
 def _tone_repair_issue_notes(report: Mapping[str, Any]) -> str:
@@ -821,6 +851,139 @@ def _run_one_bounded_tone_repair(
     }
 
 
+def _factuality_repair_prompt(
+    *,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    cta_plan: Mapping[str, Any],
+    revision_note: str,
+) -> str:
+    plan_json = json.dumps(
+        dict(plan), ensure_ascii=False, separators=(",", ":")
+    )
+    payload = json.dumps(
+        {
+            "brief": dict(brief),
+            "current_script": dict(script),
+            "narrative_identity": dict(identity),
+            "cta_plan": dict(cta_plan),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    hook = _first_spoken_sentence(script)
+    return with_human_feel(with_channel_persona(f"""
+You are making ONE bounded factuality repair to an already approved Arabic spoken script.
+The production data below is authoritative. Do not redesign the episode and do not broaden scope.
+
+LOCKED_PLAN:
+{plan_json}
+
+The approved brief and locked plan are authoritative.
+
+PRODUCTION_CONTEXT:
+{payload}
+
+REVISION_NOTE:
+{revision_note}
+
+ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
+- Fix only the concrete factuality and structural problems listed in REVISION_NOTE.
+- For each [factuality] issue, weaken, qualify, or remove only the offending wording so the claim
+  does not exceed the evidence in the approved research pack.
+- Do not invent a new study, source, expert, quotation, number, diagnosis, causal claim, or guarantee.
+- Preserve every unaffected factual claim in meaning and strength; do not broaden unrelated claims.
+- If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
+  "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
+- Preserve the section count, ids, order, title, and each section's role.
+- Preserve this first spoken hook sentence exactly: {hook}
+- Preserve the runtime narrative-identity opener and closer exactly once each.
+- Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
+  paraphrase, move, or repeat the CTA.
+- These host-owned locks are restored deterministically after your candidate is parsed; spend
+  repair effort only on the listed factuality/structural defects, not on rewriting locked anchors.
+- Make the minimum wording changes needed. No unrelated rewrite.
+- Return narration only inside the existing script JSON shape; no markdown or commentary.
+
+Return one JSON object with the same title and every locked section id exactly once and in order:
+{{
+  "title": "same Arabic title",
+  "sections": [
+    {{"id": "s1", "narration": "repaired Arabic spoken narration"}}
+  ]
+}}
+""".strip()))
+
+
+def _run_one_bounded_factuality_repair(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    script: dict[str, Any],
+    router: Any,
+    blocked_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    factuality_issue_notes = _factuality_repair_issue_notes(blocked_report)
+    structural_issue_notes = _structural_repair_issue_notes(output_dir)
+    issue_notes = "\n".join(
+        item for item in (factuality_issue_notes, structural_issue_notes) if item
+    )
+    atomic_write_json(
+        output_dir / "factuality-audit-pre-repair.json",
+        dict(blocked_report),
+    )
+    if not factuality_issue_notes:
+        raise RuntimeError(
+            "Factuality block has no bounded actionable factuality flags"
+        )
+
+    identity = _read_json_object(output_dir / "narrative-identity.json")
+    cta_plan = _read_json_object(output_dir / "cta-plan.json")
+    repaired = router.route(
+        stage="script",
+        prompt=_factuality_repair_prompt(
+            brief=brief,
+            plan=plan,
+            script=script,
+            identity=identity,
+            cta_plan=cta_plan,
+            revision_note=issue_notes,
+        ),
+        max_tokens=7500 if str(brief.get("format") or "") == "film" else 2500,
+        validator=lambda value: _validate_tone_repair_script(
+            value,
+            plan=plan,
+            original_script=script,
+            identity=identity,
+            cta_plan=cta_plan,
+        ),
+    )
+    script.clear()
+    script.update(repaired)
+    atomic_write_json(output_dir / "script-post-factuality-repair.json", script)
+    _assert_brand_signature_invariant(
+        script["sections"],
+        str(brief.get("format") or ""),
+        str(identity.get("opener") or ""),
+        str(identity.get("closer") or ""),
+    )
+    atomic_write_json(output_dir / "script.json", script)
+    transcript = "\n\n".join(item["narration"] for item in script["sections"])
+    (output_dir / "narration.txt").write_text(
+        transcript + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "schema_version": 1,
+        "source": "clean-v2-one-bounded-factuality-repair",
+        "attempts": 1,
+        "issue_notes": issue_notes,
+    }
+
+
 def _run_text_audit_with_one_bounded_tone_repair(
     *,
     text_audit: Callable[..., dict[str, Any]],
@@ -837,6 +1000,62 @@ def _run_text_audit_with_one_bounded_tone_repair(
             plan=plan,
             script=script,
         )
+    except CleanV2FactualityContentBlock as blocked:
+        repair_report = _run_one_bounded_factuality_repair(
+            output_dir=output_dir,
+            brief=brief,
+            plan=plan,
+            script=script,
+            router=router,
+            blocked_report=blocked.report,
+        )
+        atomic_write_json(
+            output_dir / "factuality-repair.json",
+            {**repair_report, "status": "repair_applied_reauditing"},
+        )
+        try:
+            # One repair total: re-run the complete Text Audit plus Structural flags.
+            # Any surviving factuality/Tone/Structural block fails closed; no second repair.
+            post_text_audit = text_audit(
+                output_dir=output_dir,
+                brief=brief,
+                plan=plan,
+                script=script,
+            )
+            post_structural = _run_structural_ai_flags(
+                output_dir=output_dir,
+                brief=brief,
+                script=script,
+            )
+            structural_flags = list(post_structural.get("flags") or [])
+            if structural_flags:
+                raise RuntimeError(
+                    "Structural AI flags blocked repaired script: "
+                    + "; ".join(str(item) for item in structural_flags)
+                )
+        except Exception as exc:
+            atomic_write_json(
+                output_dir / "factuality-repair.json",
+                {
+                    **repair_report,
+                    "status": "failed_closed",
+                    "post_repair_error_type": type(exc).__name__,
+                },
+            )
+            raise
+
+        final_report = {
+            **post_text_audit,
+            "factuality_repair_attempted": True,
+            "factuality_repair_attempts": 1,
+            "factuality_repair_status": "repaired",
+            "post_repair_structural_ai_status": "pass",
+        }
+        atomic_write_json(
+            output_dir / "factuality-repair.json",
+            {**repair_report, "status": "repaired"},
+        )
+        return final_report
     except CleanV2ToneContentBlock as blocked:
         repair_report = _run_one_bounded_tone_repair(
             output_dir=output_dir,

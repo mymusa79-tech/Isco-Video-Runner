@@ -30,7 +30,9 @@ from clean_v2.pipeline import (
     VISUAL_QA_STAGE,
     STAGES,
     CleanV2Pipeline,
+    CleanV2FactualityContentBlock,
     CleanV2ToneContentBlock,
+    _factuality_repair_prompt,
     _run_text_audit_with_one_bounded_tone_repair,
     _tone_repair_prompt,
     _validate_tone_repair_script,
@@ -3294,6 +3296,240 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                 "repeated_not_x_but_y",
                 structural_ai_flags(joined, short_form=False),
             )
+
+    def test_run245_factuality_block_gets_one_bounded_repair_then_full_reaudit_passes(self) -> None:
+        from clean_v2.structural_ai import structural_ai_flags
+
+        factuality_block = {
+            "schema_version": 1,
+            "source": "clean-v2-legacy-factuality-audit",
+            "status": "block",
+            "unsupported_claims": [
+                "s4/s5: 'هناك ما يضمن أن هذا سيجعلك أكثر احتمالًا للنجاح' "
+                "overstates evidence that supports improved follow-through/probability, not a guarantee."
+            ],
+            "professional_advice_flags": [],
+            "expert_persona_flags": [],
+            "notes": [],
+            "diagnostics": {"validation": "valid"},
+        }
+        original = self._run199_script()
+        repeated_claim = (
+            "هناك ما يضمن أن هذا سيجعلك أكثر احتمالًا للنجاح."
+        )
+        original["sections"][1]["narration"] = (
+            "ليست المشكلة ضعف الإرادة بل أن تقدير الوقت يكون متفائلًا أحيانًا. "
+            "وليس التعثر دليلًا على الكسل بل نتيجة لفجوة بين التوقع والتنفيذ. "
+            "وليس الحل ضغطًا أكبر بل ربط البداية بإشارة أوضح."
+        )
+        original["sections"][3]["narration"] = (
+            "اربط البداية بوقت أو موقف واضح. " + repeated_claim
+        )
+        original["sections"][4]["narration"] = (
+            repeated_claim + " " + self.CLOSER
+        )
+
+        candidate = {
+            "title": "عنوان بديل يجب أن يعيده المضيف",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": (
+                        "هوك بديل غير مسموح. تبدأ المشكلة حين تبدو الخطة أوضح "
+                        "من ظروف اليوم الفعلية."
+                    ),
+                },
+                {
+                    "id": "s2",
+                    "narration": (
+                        "قد يكون تقدير الزمن متفائلًا، فتظهر أثناء التنفيذ تفاصيل "
+                        "ومقاطعات لم تدخل في الحساب الأول."
+                    ),
+                },
+                {
+                    "id": "s3",
+                    "narration": (
+                        "وعندما تصبح المهمة ثقيلة قد نميل إلى تأجيلها بحثًا عن راحة "
+                        "سريعة، من دون أن يعني ذلك ضعف الإرادة."
+                    ),
+                },
+                {
+                    "id": "s4",
+                    "narration": (
+                        "تشير الأدلة المعتمدة إلى أن ربط الفعل بوقت أو موقف محدد "
+                        "قد يزيد احتمال المتابعة والتنفيذ."
+                    ),
+                },
+                {
+                    "id": "s5",
+                    "narration": (
+                        "اختر إشارة واحدة واضحة وراقب هل ساعدتك على البدء بصورة "
+                        "أكثر انتظامًا قبل أن توسع الخطة."
+                    ),
+                },
+            ],
+        }
+        audit_calls = {"n": 0}
+        router = self._Router(candidate)
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            if audit_calls["n"] == 1:
+                raise CleanV2FactualityContentBlock(factuality_block)
+            return {
+                "schema_version": 1,
+                "status": "pass",
+                "factuality_status": "pass",
+                "tone_naturalness_status": "pass",
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_locked_runtime_files(root)
+            transcript = "\n\n".join(
+                item["narration"] for item in original["sections"]
+            )
+            initial_flags = list(structural_ai_flags(transcript, short_form=False))
+            self.assertIn("repeated_not_x_but_y", initial_flags)
+            self.assertIn("duplicate_sentence", initial_flags)
+            (root / "structural-ai-flags.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "source": "legacy-editorial-room-structural-ai-flags",
+                        "mode": "advisory",
+                        "short_form": False,
+                        "flags": initial_flags,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            script = original
+            result = _run_text_audit_with_one_bounded_tone_repair(
+                text_audit=text_audit,
+                router=router,
+                output_dir=root,
+                brief=_brief(),
+                plan=self._plan_for_run199(),
+                script=script,
+            )
+
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
+            self.assertTrue(result["factuality_repair_attempted"])
+            self.assertEqual(result["factuality_repair_attempts"], 1)
+            self.assertEqual(result["factuality_repair_status"], "repaired")
+            self.assertEqual(result["post_repair_structural_ai_status"], "pass")
+
+            prompt = router.prompts[0]
+            self.assertIn("- [factuality] s4/s5:", prompt)
+            self.assertIn("- [structural] repeated_not_x_but_y:", prompt)
+            self.assertIn("- [structural] duplicate_sentence", prompt)
+            self.assertIn("weaken, qualify, or remove only the offending wording", prompt)
+            self.assertIn("Do not invent a new study", prompt)
+
+            persisted = json.loads(
+                (root / "script-post-factuality-repair.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(persisted, script)
+            joined = "\n".join(item["narration"] for item in script["sections"])
+            self.assertNotIn("يضمن", joined)
+            self.assertIn("قد يزيد احتمال المتابعة والتنفيذ", joined)
+            self.assertEqual(joined.count(self.OPENER), 1)
+            self.assertEqual(joined.count(self.CLOSER), 1)
+            self.assertEqual(joined.count(self.CTA), 1)
+            self.assertEqual(script["title"], original["title"])
+
+            repair = json.loads(
+                (root / "factuality-repair.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(repair["status"], "repaired")
+            self.assertEqual(repair["attempts"], 1)
+            post_structural = json.loads(
+                (root / "structural-ai-flags.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(post_structural["flags"], [])
+
+    def test_run245_factuality_repair_prompt_is_mistral_script_schema_compatible(self) -> None:
+        identity = {
+            "opener": self.OPENER,
+            "closer": self.CLOSER,
+            "transitions": ["أولاً", "ثم", "أخيرًا"],
+        }
+        cta_plan = {
+            "mode": "subscribe",
+            "anchor_section_id": "s3",
+            "spoken_text": self.CTA,
+            "visual_only": False,
+        }
+        prompt = _factuality_repair_prompt(
+            brief=_brief(),
+            plan=self._plan_for_run199(),
+            script=self._run199_script(),
+            identity=identity,
+            cta_plan=cta_plan,
+            revision_note="- [factuality] Run #245 guarantee exceeds evidence",
+        )
+
+        with mock.patch.object(
+            providers_module.mistral_executor,
+            "mistral_executor_json",
+            return_value=self._repaired_script(),
+        ) as executor:
+            result = providers_module._mistral_call(prompt, 7500, "script")
+
+        self.assertEqual(result, self._repaired_script())
+        kwargs = executor.call_args.kwargs
+        self.assertEqual(kwargs["task_kind"], "script")
+        schema_name, schema = kwargs["response_schema"]
+        self.assertEqual(schema_name, "script")
+        section_items = schema["properties"]["sections"]["prefixItems"]
+        self.assertEqual(
+            [item["properties"]["id"]["const"] for item in section_items],
+            ["s1", "s2", "s3", "s4", "s5"],
+        )
+
+    def test_run245_factuality_repair_is_strictly_one_shot(self) -> None:
+        factuality_block = {
+            "status": "block",
+            "unsupported_claims": ["guarantee exceeds evidence"],
+            "professional_advice_flags": [],
+            "expert_persona_flags": [],
+        }
+        audit_calls = {"n": 0}
+        router = self._Router(self._repaired_script())
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            raise CleanV2FactualityContentBlock(factuality_block)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_locked_runtime_files(root)
+            with self.assertRaisesRegex(
+                CleanV2FactualityContentBlock,
+                "factuality/AI-expert",
+            ):
+                _run_text_audit_with_one_bounded_tone_repair(
+                    text_audit=text_audit,
+                    router=router,
+                    output_dir=root,
+                    brief=_brief(),
+                    plan=self._plan_for_run199(),
+                    script=self._run199_script(),
+                )
+
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
+            repair = json.loads(
+                (root / "factuality-repair.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(repair["status"], "failed_closed")
+            self.assertEqual(repair["attempts"], 1)
 
     def test_run220_host_overlay_keeps_naturalness_fix_and_restores_all_locked_anchors(self) -> None:
         original = self._run199_script()
