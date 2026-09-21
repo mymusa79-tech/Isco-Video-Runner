@@ -550,7 +550,12 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
 
 
 class ProviderRouter:
-    """One pass over a bounded provider list; no nested or same-provider retry loop."""
+    """One pass over a bounded provider list.
+
+    The only same-provider exception is one Mistral Planning re-issue when the
+    provider returns syntactically invalid JSON despite strict json_schema mode.
+    This is a bounded provider-contract retry, not a second provider sweep.
+    """
 
     def __init__(self, adapters: Iterable[ProviderAdapter] | None = None) -> None:
         self.adapters = tuple(adapters or default_adapters())
@@ -611,45 +616,75 @@ class ProviderRouter:
             if adapter.stages is None or stage in adapter.stages
         )
         for adapter_index, adapter in enumerate(eligible_adapters):
-            try:
-                candidate = adapter.invoke(prompt, max_tokens, stage)
-            except NoWireFailure as exc:
-                failures.append(f"{adapter.name}:{exc.reason_code}")
-                self._event(
-                    stage=stage,
-                    provider=adapter.name,
-                    result="unavailable",
-                    wire_attempted=False,
-                    reason=exc.reason_code,
-                    provider_attempt=None,
-                    stage_wire_attempt=None,
-                )
-                continue
-            except Exception as exc:
-                wire_count += 1
-                reason = str(getattr(exc, "reason_code", "provider_failure"))
-                failures.append(f"{adapter.name}:{reason}")
-                self._event(
-                    stage=stage,
-                    provider=adapter.name,
-                    result="failed",
-                    wire_attempted=True,
-                    reason=reason,
-                    provider_attempt=1,
-                    stage_wire_attempt=wire_count,
-                )
-                retry_after = getattr(exc, "retry_after_seconds", None)
-                if (
-                    stage in SHORT_RETRY_AFTER_STAGES
-                    and getattr(exc, "http_status", None) == 429
-                    and adapter_index + 1 < len(eligible_adapters)
-                    and isinstance(retry_after, (int, float))
-                    and 0 < float(retry_after) <= MAX_SHORT_RETRY_AFTER_SECONDS
-                ):
-                    time.sleep(float(retry_after))
+            candidate: dict[str, Any] | None = None
+            provider_attempt = 0
+            provider_failed = False
+            while True:
+                provider_attempt += 1
+                try:
+                    candidate = adapter.invoke(prompt, max_tokens, stage)
+                except NoWireFailure as exc:
+                    failures.append(f"{adapter.name}:{exc.reason_code}")
+                    self._event(
+                        stage=stage,
+                        provider=adapter.name,
+                        result="unavailable",
+                        wire_attempted=False,
+                        reason=exc.reason_code,
+                        provider_attempt=None,
+                        stage_wire_attempt=None,
+                    )
+                    provider_failed = True
+                    break
+                except Exception as exc:
+                    wire_count += 1
+                    reason = str(getattr(exc, "reason_code", "provider_failure"))
+                    strict_schema_retry = (
+                        adapter.name == "mistral"
+                        and stage == "planning"
+                        and reason == "mistral invalid json"
+                        and provider_attempt == 1
+                    )
+                    if strict_schema_retry:
+                        self._event(
+                            stage=stage,
+                            provider=adapter.name,
+                            result="retrying",
+                            wire_attempted=True,
+                            reason="mistral_strict_schema_invalid_json",
+                            provider_attempt=provider_attempt,
+                            stage_wire_attempt=wire_count,
+                        )
+                        continue
+
+                    failures.append(f"{adapter.name}:{reason}")
+                    self._event(
+                        stage=stage,
+                        provider=adapter.name,
+                        result="failed",
+                        wire_attempted=True,
+                        reason=reason,
+                        provider_attempt=provider_attempt,
+                        stage_wire_attempt=wire_count,
+                    )
+                    retry_after = getattr(exc, "retry_after_seconds", None)
+                    if (
+                        stage in SHORT_RETRY_AFTER_STAGES
+                        and getattr(exc, "http_status", None) == 429
+                        and adapter_index + 1 < len(eligible_adapters)
+                        and isinstance(retry_after, (int, float))
+                        and 0 < float(retry_after) <= MAX_SHORT_RETRY_AFTER_SECONDS
+                    ):
+                        time.sleep(float(retry_after))
+                    provider_failed = True
+                    break
+                else:
+                    wire_count += 1
+                    break
+
+            if provider_failed or candidate is None:
                 continue
 
-            wire_count += 1
             try:
                 normalized = validator(candidate)
             except Exception as exc:
@@ -683,7 +718,7 @@ class ProviderRouter:
                     result="invalid_output",
                     wire_attempted=True,
                     reason=reason,
-                    provider_attempt=1,
+                    provider_attempt=provider_attempt,
                     stage_wire_attempt=wire_count,
                 )
                 continue
@@ -693,7 +728,7 @@ class ProviderRouter:
                 result="success",
                 wire_attempted=True,
                 reason=None,
-                provider_attempt=1,
+                provider_attempt=provider_attempt,
                 stage_wire_attempt=wire_count,
             )
             return normalized

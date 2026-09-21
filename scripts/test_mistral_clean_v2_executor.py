@@ -29,6 +29,44 @@ _FACT_PASS = {
 }
 
 
+class _RawContentResponse:
+    status = 200
+    headers = {
+        "x-ratelimit-limit-req-minute": "30",
+        "x-ratelimit-limit-tokens-minute": "937500",
+        "x-ratelimit-remaining-tokens-minute": "936900",
+    }
+
+    def __init__(self, raw_content: str) -> None:
+        self.raw_content = raw_content
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def getcode(self):
+        return self.status
+
+    def read(self, _limit: int):
+        body = {
+            "model": mistral_executor.MISTRAL_EXECUTOR_MODEL,
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": self.raw_content},
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 400,
+                "completion_tokens": 200,
+                "total_tokens": 600,
+            },
+        }
+        return json.dumps(body).encode("utf-8")
+
+
 class _Response:
     status = 200
     headers = {
@@ -155,6 +193,53 @@ class MistralExecutorTransportTests(unittest.TestCase):
             ],
             "937500",
         )
+
+    def test_invalid_json_logs_safe_shape_without_generated_text(self) -> None:
+        malformed = '{"title":"DO-NOT-LOG-THIS","cta":"اكتب تعليقك","sections":['
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MISTRAL_API_KEY": "test-key",
+                "MISTRAL_CONTENT_MODEL": "ministral-14b-2512",
+            },
+            clear=False,
+        ), mock.patch.object(
+            mistral_executor.urllib.request,
+            "urlopen",
+            return_value=_RawContentResponse(malformed),
+        ), mock.patch("builtins.print") as logged:
+            with self.assertRaises(
+                mistral_executor.MistralExecutorWireFailure
+            ) as raised:
+                mistral_executor.mistral_executor_json(
+                    "planning prompt with contextual CTA",
+                    max_tokens=3000,
+                    task_kind="planning",
+                    response_schema=(
+                        "planning",
+                        {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "cta": {"type": "string"},
+                                "sections": {"type": "array"},
+                            },
+                            "required": ["title", "cta", "sections"],
+                            "additionalProperties": False,
+                        },
+                    ),
+                    temperature=0.0,
+                )
+
+        self.assertEqual(raised.exception.reason_code, "mistral invalid json")
+        log_text = "\n".join(str(call.args[0]) for call in logged.call_args_list)
+        self.assertIn("Mistral executor invalid JSON diagnostic", log_text)
+        self.assertIn('"task_kind":"planning"', log_text)
+        self.assertIn('"ends_with":"["', log_text)
+        self.assertIn('"open_brackets":1', log_text)
+        self.assertIn('"close_brackets":0', log_text)
+        self.assertNotIn("DO-NOT-LOG-THIS", log_text)
+        self.assertNotIn("اكتب تعليقك", log_text)
 
     def test_visual_query_recovery_uses_verified_content_model(self) -> None:
         with mock.patch.dict(
@@ -307,6 +392,124 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                     ["gemini", "groq", "openrouter", "mistral"],
                 )
                 self.assertEqual(router.events[-1]["stage_wire_attempt"], 4)
+
+    def test_run243_mistral_planning_invalid_json_gets_one_bounded_same_provider_retry(self) -> None:
+        order: list[str] = []
+        mistral_attempts = 0
+
+        def fail(reason: str, name: str):
+            def _failure(_prompt: str, _tokens: int):
+                order.append(name)
+                raise providers.ProviderWireFailure(reason)
+            return _failure
+
+        def mistral_call(
+            _prompt,
+            *,
+            max_tokens,
+            task_kind,
+            response_schema=None,
+            temperature=None,
+            **_kwargs,
+        ):
+            nonlocal mistral_attempts
+            order.append("mistral")
+            mistral_attempts += 1
+            self.assertEqual(task_kind, "planning")
+            self.assertEqual(max_tokens, 3000)
+            self.assertEqual(temperature, 0.0)
+            self.assertIsNotNone(response_schema)
+            if mistral_attempts == 1:
+                raise mistral_executor.MistralExecutorWireFailure(
+                    "mistral invalid json"
+                )
+            return _plan()
+
+        with mock.patch.object(
+            providers, "_gemini_call", side_effect=fail("http_503", "gemini")
+        ), mock.patch.object(
+            providers, "_groq_call", side_effect=fail("groq_output_truncated", "groq")
+        ), mock.patch.object(
+            providers, "_openrouter_call", side_effect=fail("http_429", "openrouter")
+        ), mock.patch.object(
+            mistral_executor, "mistral_executor_json", side_effect=mistral_call
+        ):
+            router = providers.ProviderRouter()
+            result = router.route(
+                stage="planning",
+                prompt=_planning_prompt(_brief()),
+                max_tokens=3000,
+                validator=lambda value: value,
+            )
+
+        self.assertEqual(result, _plan())
+        self.assertEqual(
+            order,
+            ["gemini", "groq", "openrouter", "mistral", "mistral"],
+        )
+        self.assertEqual(mistral_attempts, 2)
+        mistral_events = [
+            event for event in router.events if event["provider"] == "mistral"
+        ]
+        self.assertEqual(len(mistral_events), 2)
+        self.assertEqual(mistral_events[0]["result"], "retrying")
+        self.assertEqual(
+            mistral_events[0]["reason"],
+            "mistral_strict_schema_invalid_json",
+        )
+        self.assertEqual(mistral_events[0]["provider_attempt"], 1)
+        self.assertEqual(mistral_events[0]["stage_wire_attempt"], 4)
+        self.assertEqual(mistral_events[1]["result"], "success")
+        self.assertEqual(mistral_events[1]["provider_attempt"], 2)
+        self.assertEqual(mistral_events[1]["stage_wire_attempt"], 5)
+
+    def test_mistral_planning_second_invalid_json_fails_closed_without_third_attempt(self) -> None:
+        mistral_attempts = 0
+
+        def fail(reason: str):
+            def _failure(_prompt: str, _tokens: int):
+                raise providers.ProviderWireFailure(reason)
+            return _failure
+
+        def mistral_call(_prompt, *, task_kind, **_kwargs):
+            nonlocal mistral_attempts
+            self.assertEqual(task_kind, "planning")
+            mistral_attempts += 1
+            raise mistral_executor.MistralExecutorWireFailure(
+                "mistral invalid json"
+            )
+
+        with mock.patch.object(
+            providers, "_gemini_call", side_effect=fail("http_503")
+        ), mock.patch.object(
+            providers, "_groq_call", side_effect=fail("groq_output_truncated")
+        ), mock.patch.object(
+            providers, "_openrouter_call", side_effect=fail("http_429")
+        ), mock.patch.object(
+            mistral_executor, "mistral_executor_json", side_effect=mistral_call
+        ):
+            router = providers.ProviderRouter()
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "mistral:mistral invalid json",
+            ):
+                router.route(
+                    stage="planning",
+                    prompt=_planning_prompt(_brief()),
+                    max_tokens=3000,
+                    validator=lambda value: value,
+                )
+
+        self.assertEqual(mistral_attempts, 2)
+        mistral_events = [
+            event for event in router.events if event["provider"] == "mistral"
+        ]
+        self.assertEqual(
+            [event["result"] for event in mistral_events],
+            ["retrying", "failed"],
+        )
+        self.assertEqual(mistral_events[-1]["provider_attempt"], 2)
+        self.assertEqual(mistral_events[-1]["stage_wire_attempt"], 5)
 
     def test_run137_s5_visual_query_recovery_passes_strict_schema_to_mistral(self) -> None:
         order: list[str] = []
