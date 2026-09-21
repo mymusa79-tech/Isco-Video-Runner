@@ -905,7 +905,7 @@ class StockVisualSource:
         section_estimated_seconds: Mapping[str, float] | None = None,
     ) -> tuple[list[Path], list[dict[str, Any]]]:
         output_dir.mkdir(parents=True, exist_ok=True)
-        portrait = fmt in {"moment", "story"}
+        portrait = fmt in {"moment", "story", "short"}
         clips: list[Path] = []
         rights: list[dict[str, Any]] = []
         sections = list(plan.get("sections") or [])[: max(1, int(max_visuals))]
@@ -1199,7 +1199,7 @@ class StockVisualSource:
         """
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        portrait = fmt in {"moment", "story"}
+        portrait = fmt in {"moment", "story", "short"}
         bounded_limit = max(1, min(3, int(max_candidates)))
         normalized_query = str(query or "").strip()
         if self.query_normalizer is not None and normalized_query:
@@ -1332,7 +1332,7 @@ class StockVisualSource:
         """
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        portrait = fmt in {"moment", "story"}
+        portrait = fmt in {"moment", "story", "short"}
         normalized_query = str(query or "").strip()
         if self.query_normalizer is not None and normalized_query:
             normalized_query = self.query_normalizer(normalized_query)
@@ -1852,7 +1852,7 @@ def render_video(
     if not visual_paths:
         raise RuntimeError("render requires at least one visual")
     duration = probe_duration(narration_path)
-    portrait = fmt in {"moment", "story"}
+    portrait = fmt in {"moment", "story", "short"}
     width, height = ((1080, 1920) if portrait else (1920, 1080))
 
     opening_report: dict[str, Any] = {}
@@ -2032,8 +2032,11 @@ def inspect_final(path: Path) -> dict[str, Any]:
     except json.JSONDecodeError:
         raise RuntimeError("ffprobe final inspection was not JSON") from None
     streams = payload.get("streams") or []
-    video_streams = sum(1 for item in streams if item.get("codec_type") == "video")
+    video_rows = [item for item in streams if item.get("codec_type") == "video"]
+    video_streams = len(video_rows)
     audio_streams = sum(1 for item in streams if item.get("codec_type") == "audio")
+    width = int((video_rows[0] if video_rows else {}).get("width") or 0)
+    height = int((video_rows[0] if video_rows else {}).get("height") or 0)
     duration = float((payload.get("format") or {}).get("duration") or 0)
     size = path.stat().st_size if path.is_file() else 0
     if video_streams < 1 or audio_streams < 1 or duration <= 1 or size < 10_000:
@@ -2048,6 +2051,8 @@ def inspect_final(path: Path) -> dict[str, Any]:
         "size_bytes": size,
         "sha256": _sha256(path),
         "duration_seconds": round(duration, 3),
+        "width": width,
+        "height": height,
         "video_streams": video_streams,
         "audio_streams": audio_streams,
         "quality_layers_executed": [],
