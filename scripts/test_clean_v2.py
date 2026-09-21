@@ -3196,6 +3196,36 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             structural = json.loads((root / "structural-ai-flags.json").read_text(encoding="utf-8"))
             self.assertEqual(structural["flags"], [])
 
+    def test_run254_keeps_exact_cta_in_natural_position_inside_locked_anchor(self) -> None:
+        candidate = self._repaired_script()
+        candidate["sections"][2]["narration"] = (
+            "ومع تراكم الفجوة يصبح التأجيل أكثر احتمالًا. "
+            + self.CTA
+            + " ثم نعود مباشرة إلى الفكرة: المطلوب هو تقليل مساحة القرار عند لحظة البدء."
+        )
+
+        repaired = _validate_tone_repair_script(
+            candidate,
+            plan=self._plan_for_run199(),
+            original_script=self._run199_script(),
+            identity={
+                "opener": self.OPENER,
+                "closer": self.CLOSER,
+                "transitions": ["أولاً", "ثم", "أخيرًا"],
+            },
+            cta_plan={
+                "anchor_section_id": "s3",
+                "spoken_text": self.CTA,
+            },
+        )
+
+        anchor = repaired["sections"][2]["narration"]
+        self.assertEqual(anchor.count(self.CTA), 1)
+        self.assertIn(self.CTA + " ثم نعود مباشرة إلى الفكرة", anchor)
+        self.assertFalse(anchor.rstrip().endswith(self.CTA))
+        joined = "\n".join(item["narration"] for item in repaired["sections"])
+        self.assertEqual(joined.count(self.CTA), 1)
+
     def test_run222_combines_structural_flag_into_single_repair_and_persists_candidate(self) -> None:
         from clean_v2.structural_ai import structural_ai_flags
 
