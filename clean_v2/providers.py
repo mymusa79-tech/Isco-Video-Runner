@@ -53,6 +53,30 @@ MISTRAL_VISUAL_QUERY_RECOVERY_SCHEMA = {
     "additionalProperties": False,
 }
 
+MISTRAL_TONE_PATCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "patches": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "section_id": {"type": "string", "minLength": 1, "maxLength": 40},
+                    "old_text": {"type": "string", "minLength": 1, "maxLength": 500},
+                    "new_text": {"type": "string", "minLength": 1, "maxLength": 700},
+                },
+                "required": ["section_id", "old_text", "new_text"],
+                "additionalProperties": False,
+            },
+            "minItems": 1,
+            "maxItems": 8,
+        }
+    },
+    "required": ["patches"],
+    "additionalProperties": False,
+}
+
+
 
 class NoWireFailure(RuntimeError):
     """A local rejection that is proven to happen before an HTTP request."""
@@ -501,6 +525,17 @@ def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
                     _mistral_script_response_schema(prompt),
                 ),
             )
+        if stage == "tone_patch":
+            return mistral_executor.mistral_executor_json(
+                prompt,
+                max_tokens=max_tokens,
+                task_kind=stage,
+                response_schema=(
+                    "tone_patch",
+                    MISTRAL_TONE_PATCH_SCHEMA,
+                ),
+                temperature=0.1,
+            )
         if stage == "narrative_identity":
             return mistral_executor.mistral_executor_json(
                 prompt,
@@ -543,7 +578,7 @@ def default_adapters() -> tuple[ProviderAdapter, ...]:
         ProviderAdapter(
             "mistral",
             _mistral_call,
-            stages=frozenset({"planning", "narrative_identity", "script", "visual_query_recovery"}),
+            stages=frozenset({"planning", "narrative_identity", "script", "tone_patch", "visual_query_recovery"}),
             accepts_stage=True,
         ),
     )
