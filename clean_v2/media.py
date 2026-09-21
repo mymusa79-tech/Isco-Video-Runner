@@ -2004,10 +2004,20 @@ def render_video(
                 "+faststart",
                 "-shortest",
                 "-y",
-                str(output_path),
             ]
         )
-        _run(command, timeout=1800)
+        rendering_path = output_path.with_name(
+            f".{output_path.stem}.rendering{output_path.suffix}"
+        )
+        rendering_path.unlink(missing_ok=True)
+        command.append(str(rendering_path))
+        try:
+            _run(command, timeout=1800)
+            if not rendering_path.is_file() or rendering_path.stat().st_size < 1024:
+                raise RuntimeError("render produced an empty temporary final file")
+            os.replace(rendering_path, output_path)
+        finally:
+            rendering_path.unlink(missing_ok=True)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
     return output_path
