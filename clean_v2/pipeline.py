@@ -21,7 +21,7 @@ from .contracts import (
     validate_plan,
     validate_script,
 )
-from .media import inspect_final, probe_duration, render_video
+from .media import concat_wav_parts, inspect_final, probe_duration, render_video
 from .structural_ai import structural_ai_flags
 
 
@@ -66,6 +66,158 @@ STAGES = (
     "final_file",
     QUALITY_STAGE,
 )
+
+
+def _synthesize_sectioned_voice(
+    voice_synthesizer: Any,
+    sections: list[dict[str, Any]],
+    narration_path: Path,
+) -> dict[str, Any]:
+    """Restore the legacy film TTS shape: synthesize one script section at a time.
+
+    Clean V2 still owns the script section boundaries, so no new semantic chunker is
+    introduced here. Each successful section is kept as an evidence WAV under
+    output/audio; only the failing section is retried by the existing Charon retry
+    policy. The legacy Engine concat helper is reused after every section succeeds.
+    """
+    if not sections:
+        raise RuntimeError("Clean V2 sectioned voice requires at least one section")
+
+    audio_dir = narration_path.parent / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    section_paths: list[Path] = []
+    reports: list[dict[str, Any]] = []
+    expected_provider: str | None = None
+    total_charon_attempts = 0
+    any_fallback = False
+    approval_status: str | None = None
+    reference_profile: str | None = None
+    role_reports: list[dict[str, Any]] = []
+    report_path = narration_path.parent / "voice-sections.json"
+
+    for index, item in enumerate(sections, start=1):
+        section_id = str(item.get("id") or f"s{index}")
+        section_text = str(item.get("narration") or "").strip()
+        if not section_text:
+            raise RuntimeError(
+                f"Clean V2 sectioned voice found empty narration: section={section_id}"
+            )
+        section_path = audio_dir / f"{index:02d}.wav"
+        try:
+            voice_synthesizer.synthesize(section_text, section_path)
+        except Exception:
+            atomic_write_json(
+                report_path,
+                {
+                    "schema_version": 1,
+                    "source": "clean-v2-sectioned-voice",
+                    "status": "failed",
+                    "failed_section": section_id,
+                    "sections": reports,
+                },
+            )
+            raise
+
+        provider = str(getattr(voice_synthesizer, "last_provider", "") or "")
+        if not provider:
+            raise RuntimeError(
+                f"Clean V2 sectioned voice provider missing: section={section_id}"
+            )
+        if expected_provider is None:
+            expected_provider = provider
+        elif provider != expected_provider:
+            atomic_write_json(
+                report_path,
+                {
+                    "schema_version": 1,
+                    "source": "clean-v2-sectioned-voice",
+                    "status": "failed",
+                    "failed_section": section_id,
+                    "reason": "voice_provider_drift",
+                    "expected_provider": expected_provider,
+                    "actual_provider": provider,
+                    "sections": reports,
+                },
+            )
+            raise RuntimeError(
+                "Clean V2 sectioned voice provider drift is forbidden: "
+                f"expected={expected_provider} actual={provider} section={section_id}"
+            )
+
+        attempts = int(getattr(voice_synthesizer, "charon_attempts", 0) or 0)
+        total_charon_attempts += attempts
+        fallback_used = bool(getattr(voice_synthesizer, "fallback_used", False))
+        any_fallback = any_fallback or fallback_used
+        current_approval = getattr(
+            voice_synthesizer, "voice_approval_status", None
+        )
+        current_reference = getattr(
+            voice_synthesizer, "voice_reference_profile", None
+        )
+        if isinstance(current_approval, str) and current_approval:
+            approval_status = current_approval
+        if isinstance(current_reference, str) and current_reference:
+            reference_profile = current_reference
+        current_roles = getattr(voice_synthesizer, "voice_roles", None)
+        if isinstance(current_roles, dict):
+            role_reports.append({"id": section_id, **dict(current_roles)})
+
+        section_paths.append(section_path)
+        reports.append(
+            {
+                "id": section_id,
+                "file": str(Path("audio") / section_path.name),
+                "provider": provider,
+                "charon_attempts": attempts,
+                "fallback_used": fallback_used,
+            }
+        )
+        atomic_write_json(
+            report_path,
+            {
+                "schema_version": 1,
+                "source": "clean-v2-sectioned-voice",
+                "status": "in_progress",
+                "sections": reports,
+            },
+        )
+
+    # Reuse the old Engine's tested PCM concat implementation, but give it a
+    # temporary output name so its sidecar list file cannot overwrite Clean V2's
+    # authoritative narration.txt transcript artifact.
+    joined_path = narration_path.with_name(".narration-section-join.wav")
+    joined_list_path = joined_path.with_suffix(".txt")
+    try:
+        concat_wav_parts(section_paths, joined_path)
+        if not joined_path.is_file() or joined_path.stat().st_size < 1024:
+            raise RuntimeError("Clean V2 sectioned voice concat produced empty audio")
+        os.replace(joined_path, narration_path)
+    finally:
+        joined_path.unlink(missing_ok=True)
+        joined_list_path.unlink(missing_ok=True)
+
+    result = {
+        "voice_provider": expected_provider,
+        "voice_fallback_used": any_fallback,
+        "charon_tts_attempts": total_charon_attempts,
+        "voice_roles": {
+            "mode": "sectioned",
+            "sections": role_reports,
+        },
+        "voice_approval_status": approval_status,
+        "voice_reference_profile": reference_profile,
+        "sections": reports,
+    }
+    atomic_write_json(
+        report_path,
+        {
+            "schema_version": 1,
+            "source": "clean-v2-sectioned-voice",
+            "status": "pass",
+            **result,
+        },
+    )
+    return result
 
 
 def _read_secret(name: str) -> str:
@@ -1715,38 +1867,32 @@ class CleanV2Pipeline:
                 journal.payload["voice_fallback_used"] = voice_fallback_used
                 journal._write()
             else:
-                journal.run(
+                voice_result = journal.run(
                     "voice",
-                    lambda: self.voice_synthesizer.synthesize(
-                        transcript, narration_path
+                    lambda: _synthesize_sectioned_voice(
+                        self.voice_synthesizer,
+                        list(script["sections"]),
+                        narration_path,
                     ),
                 )
-                voice_provider = getattr(
-                    self.voice_synthesizer, "last_provider", None
-                )
+                voice_provider = voice_result.get("voice_provider")
                 voice_fallback_used = bool(
-                    getattr(self.voice_synthesizer, "fallback_used", False)
+                    voice_result.get("voice_fallback_used", False)
                 )
                 if voice_provider is not None:
                     journal.payload["voice_provider"] = str(voice_provider)
                     journal.payload["voice_fallback_used"] = voice_fallback_used
-                    charon_attempts = getattr(
-                        self.voice_synthesizer, "charon_attempts", None
+                    journal.payload["charon_tts_attempts"] = int(
+                        voice_result.get("charon_tts_attempts", 0) or 0
                     )
-                    if isinstance(charon_attempts, int):
-                        journal.payload["charon_tts_attempts"] = charon_attempts
-                    voice_roles = getattr(
-                        self.voice_synthesizer, "voice_roles", None
-                    )
+                    voice_roles = voice_result.get("voice_roles")
                     if isinstance(voice_roles, dict):
                         journal.payload["voice_roles"] = dict(voice_roles)
-                    approval_status = getattr(
-                        self.voice_synthesizer, "voice_approval_status", None
-                    )
+                    approval_status = voice_result.get("voice_approval_status")
                     if isinstance(approval_status, str) and approval_status:
                         journal.payload["voice_approval_status"] = approval_status
-                    reference_profile = getattr(
-                        self.voice_synthesizer, "voice_reference_profile", None
+                    reference_profile = voice_result.get(
+                        "voice_reference_profile"
                     )
                     if isinstance(reference_profile, str) and reference_profile:
                         journal.payload["voice_reference_profile"] = reference_profile

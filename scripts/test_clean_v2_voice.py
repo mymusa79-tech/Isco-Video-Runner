@@ -14,7 +14,7 @@ from clean_v2.media import (
     TtsProviderError,
     VoiceInfrastructureError,
 )
-from clean_v2.pipeline import STAGES, _Journal
+from clean_v2.pipeline import STAGES, _Journal, _synthesize_sectioned_voice
 
 
 def _write_audio(path: Path, marker: bytes = b"G") -> Path:
@@ -110,6 +110,92 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
             self.assertEqual(synth.voice_approval_status, "human_approved_reference")
             self.assertEqual(
                 synth.voice_reference_profile, "channel-voice-roster-v1"
+            )
+
+    def test_sectioned_charon_retries_only_the_failing_section_and_keeps_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "narration.wav"
+            (root / "narration.txt").write_text(
+                "authoritative transcript\n", encoding="utf-8"
+            )
+            synth = self._synthesizer(root)
+            calls: list[str] = []
+            s2_attempts = 0
+
+            def gemini(*args, **_kwargs):
+                nonlocal s2_attempts
+                transcript = str(args[1])
+                target = Path(args[2])
+                calls.append(transcript)
+                if transcript == "القسم الثاني.":
+                    s2_attempts += 1
+                    if s2_attempts < 3:
+                        raise RuntimeError(
+                            "Gemini TTS failed after retries: "
+                            "{'type': 'APITimeoutError'}"
+                        )
+                return _write_audio(target)
+
+            def concat_audio(inputs, target):
+                self.assertEqual(
+                    [path.name for path in inputs],
+                    ["01.wav", "02.wav", "03.wav"],
+                )
+                return _write_audio(Path(target), b"J")
+
+            sections = [
+                {"id": "s1", "narration": "القسم الأول."},
+                {"id": "s2", "narration": "القسم الثاني."},
+                {"id": "s3", "narration": "القسم الثالث."},
+            ]
+
+            with patch(
+                "clean_v2.media._legacy_voice_identity",
+                return_value=("Charon", "Orus"),
+            ), patch(
+                "clean_v2.media._legacy_gemini_synthesize",
+                side_effect=gemini,
+            ), patch(
+                "clean_v2.media.time.sleep"
+            ) as sleep, patch(
+                "clean_v2.pipeline.concat_wav_parts",
+                side_effect=concat_audio,
+            ):
+                result = _synthesize_sectioned_voice(synth, sections, output)
+
+            self.assertEqual(
+                calls,
+                [
+                    "القسم الأول.",
+                    "القسم الثاني.",
+                    "القسم الثاني.",
+                    "القسم الثاني.",
+                    "القسم الثالث.",
+                ],
+            )
+            self.assertEqual(
+                [call.args[0] for call in sleep.call_args_list],
+                [1.0, 2.0],
+            )
+            self.assertEqual(result["voice_provider"], "gemini:Charon")
+            self.assertEqual(result["charon_tts_attempts"], 5)
+            self.assertFalse(result["voice_fallback_used"])
+            self.assertTrue(output.is_file())
+            self.assertTrue((root / "audio" / "01.wav").is_file())
+            self.assertTrue((root / "audio" / "02.wav").is_file())
+            self.assertTrue((root / "audio" / "03.wav").is_file())
+            self.assertEqual(
+                (root / "narration.txt").read_text(encoding="utf-8"),
+                "authoritative transcript\n",
+            )
+            report = json.loads(
+                (root / "voice-sections.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(
+                [item["charon_attempts"] for item in report["sections"]],
+                [1, 3, 1],
             )
 
     def test_charon_retries_three_total_attempts_before_any_fallback(self) -> None:

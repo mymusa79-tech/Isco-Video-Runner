@@ -954,7 +954,9 @@ class _FakeVoice:
                 "-f",
                 "lavfi",
                 "-i",
-                "sine=frequency=220:sample_rate=24000:duration=3",
+                # Five section-scoped calls must preserve the fixture's historical
+                # ~3 second total narration duration (5 * 0.6s).
+                "sine=frequency=220:sample_rate=24000:duration=0.6",
                 "-c:a",
                 "pcm_s16le",
                 "-y",
@@ -1139,7 +1141,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 [event["stage"] for event in first_router.events],
                 ["planning", "script"],
             )
-            self.assertEqual(first_voice.calls, 1)
+            self.assertEqual(first_voice.calls, len(_script()["sections"]))
             self.assertEqual(first_visuals.calls, 1)
 
             class _ForbiddenRouter:
