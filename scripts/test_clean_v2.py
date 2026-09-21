@@ -954,7 +954,9 @@ class _FakeVoice:
                 "-f",
                 "lavfi",
                 "-i",
-                "sine=frequency=220:sample_rate=24000:duration=3",
+                # Five section-scoped calls must preserve the fixture's historical
+                # ~3 second total narration duration (5 * 0.6s).
+                "sine=frequency=220:sample_rate=24000:duration=0.6",
                 "-c:a",
                 "pcm_s16le",
                 "-y",
