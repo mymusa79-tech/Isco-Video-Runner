@@ -14,7 +14,10 @@ from clean_v2.pipeline import (
     _planning_prompt,
     _script_prompt,
     _short_identity_not_applicable,
+    _synthesize_sectioned_voice,
 )
+from clean_v2 import media as media_module
+from clean_v2.media import GeminiPrimaryPiperFallbackSynthesizer, VoiceInfrastructureError
 from clean_v2.short_format import (
     SHORT_HEIGHT,
     SHORT_MAX_SECONDS,
@@ -225,6 +228,85 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("CTA is", prompt)
         self.assertIn("fully disabled", prompt)
+
+    def test_short_sectioned_voice_passes_primary_only_without_changing_chunking(self) -> None:
+        class FakeCharon:
+            def __init__(self) -> None:
+                self.last_provider = ""
+                self.fallback_used = False
+                self.charon_attempts = 0
+                self.voice_roles = {"mode": "single_narrator", "narrator": "Charon"}
+                self.voice_approval_status = "human_approved_reference"
+                self.voice_reference_profile = "fixture"
+                self.primary_only_flags: list[bool] = []
+
+            def synthesize(self, text, path, *, primary_only=False):
+                self.primary_only_flags.append(bool(primary_only))
+                self.last_provider = "gemini:Charon"
+                self.fallback_used = False
+                self.charon_attempts = 1
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+                Path(path).write_bytes(b"W" * 2048)
+                return Path(path)
+
+        sections = [
+            {"id": "s1", "narration": "هذه جملة قصيرة للاختبار."},
+            {"id": "s2", "narration": "هذه جملة ثانية قصيرة للاختبار."},
+            {"id": "s3", "narration": "اختر خطوة واحدة واضحة الآن."},
+        ]
+
+        def fake_concat(_inputs, output):
+            Path(output).write_bytes(b"C" * 4096)
+            return Path(output)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "narration.wav"
+            voice = FakeCharon()
+            with mock.patch("clean_v2.pipeline.concat_wav_parts", side_effect=fake_concat):
+                report = _synthesize_sectioned_voice(
+                    voice,
+                    sections,
+                    output,
+                    require_charon_only=True,
+                )
+
+        self.assertEqual(report["voice_provider"], "gemini:Charon")
+        self.assertFalse(report["voice_fallback_used"])
+        self.assertTrue(voice.primary_only_flags)
+        self.assertTrue(all(voice.primary_only_flags))
+
+    def test_primary_only_charon_failure_never_calls_azure_or_piper(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            model = Path(temporary) / "unused.onnx"
+            synth = GeminiPrimaryPiperFallbackSynthesizer(
+                "gemini-key",
+                model,
+                None,
+                azure_api_key="azure-key",
+                azure_region="eastus",
+                azure_free_tier_confirmed=True,
+                azure_voice_approved=True,
+                allow_piper_fallback=True,
+            )
+            with (
+                mock.patch.object(media_module, "_legacy_voice_identity", return_value=("Charon", "Orus")),
+                mock.patch.object(media_module, "_assert_human_approved_voice_reference", return_value="fixture"),
+                mock.patch.object(media_module, "_legacy_gemini_synthesize", side_effect=RuntimeError("http_503")),
+                mock.patch.object(media_module, "_charon_retry_delay", return_value=None),
+                mock.patch.object(synth.azure, "synthesize") as azure_call,
+                mock.patch.object(synth.piper, "synthesize") as piper_call,
+            ):
+                with self.assertRaisesRegex(
+                    VoiceInfrastructureError,
+                    "primary_only_contract_no_fallback",
+                ):
+                    synth.synthesize(
+                        "نص قصير",
+                        Path(temporary) / "out.wav",
+                        primary_only=True,
+                    )
+            azure_call.assert_not_called()
+            piper_call.assert_not_called()
 
     def test_short_identity_is_local_not_applicable_with_zero_provider_calls(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
