@@ -76,6 +76,10 @@ def _split_tts_chunks(text: str, *, max_chars: int = TTS_CHUNK_MAX_CHARS) -> lis
     original = str(text or "").strip()
     if not original:
         return []
+    # Preserve the existing two-voice dialogue contract unchanged. The current
+    # Charon chunk lock is for single-narrator film narration only.
+    if re.search(r"(?m)^\s*[AB]:\s*\S", original):
+        return [original]
     if len(original) <= max_chars:
         return [original]
 
