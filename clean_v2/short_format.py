@@ -279,9 +279,11 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"- target_duration_seconds={SHORT_TARGET_SECONDS:g}; hard_range="
         f"{SHORT_MIN_SECONDS:g}-{SHORT_MAX_SECONDS:g}\n"
         f"- exact_sections={SHORT_SECTION_COUNT}; frame={SHORT_WIDTH}x{SHORT_HEIGHT}\n"
-        "- The first spoken sentence is the hook and must be at most 12 Arabic words. No greeting, channel "
-        "identity opener, dialogue labels, CTA, or quotation unless the selected quote_reflection template "
-        "has explicit approved quote evidence.\n"
+        "- s1: the first spoken sentence is the truthful hook and must be at most 12 Arabic words; no greeting.\n"
+        "- s2: develop the selected template's specific tension/turn; do not switch to a generic motivational format.\n"
+        "- s3: land the payoff, then give exactly ONE practical action in one clear imperative sentence.\n"
+        "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
+        "quote_reflection template has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
         "- VISUAL_QUERY_DIRECTION: "
         f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]}"
@@ -326,6 +328,30 @@ _GREETING_PREFIXES = (
     "السلام عليكم",
     "صباح الخير",
     "مساء الخير",
+)
+
+_PRACTICAL_ACTION_MARKERS = (
+    "اختر",
+    "ابدأ",
+    "اكتب",
+    "حدد",
+    "حدّد",
+    "ضع",
+    "حوّل",
+    "حول",
+    "اربط",
+    "جرّب",
+    "جرب",
+    "خذ",
+    "اترك",
+    "اجعل",
+    "خصص",
+    "خصّص",
+    "افتح",
+    "اغلق",
+    "أغلق",
+    "نفذ",
+    "نفّذ",
 )
 
 
@@ -373,11 +399,24 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     if _SOCIAL_CTA_RE.search(transcript):
         raise ShortFormatError("short_zero_social_cta_contract_violated")
 
+    s3 = _clean(sections[2].get("narration"))
+    action_sentences = [
+        sentence
+        for sentence in re.split(r"(?<=[.!؟!])\\s+", s3)
+        if any(marker in _semantic_key(sentence) for marker in _PRACTICAL_ACTION_MARKERS)
+    ]
+    if len(action_sentences) != 1:
+        raise ShortFormatError(
+            "short_s3_requires_exactly_one_practical_action "
+            f"action_sentences={len(action_sentences)}"
+        )
+
     return {
         "hook": hook,
         "hook_words": hook_words,
         "single_voice": True,
         "social_cta": False,
+        "practical_action_sentences": 1,
     }
 
 
