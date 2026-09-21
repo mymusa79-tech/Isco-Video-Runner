@@ -379,6 +379,81 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+_VISUAL_QUERY_TERMS = {
+    "why_reframe": {
+        "old": frozenset({"confused", "cluttered", "overwhelmed", "stuck", "wrong", "messy", "frustrated", "chaotic"}),
+        "turn": frozenset({"pause", "reconsidering", "changing", "adjusting", "rewriting", "switching", "turning", "reframing", "contrast"}),
+        "new": frozenset({"clear", "organized", "simple", "focused", "calm", "intentional", "practical", "steady"}),
+    },
+    "inner_dialogue": frozenset({"alone", "thoughtful", "reflective", "quiet", "contemplative", "thinking", "solitary", "pensive"}),
+    "quote_reflection": frozenset({"quiet", "calm", "reflective", "still", "slow", "peaceful", "contemplative", "minimal"}),
+}
+
+_MICRO_STORY_ACTION_TERMS = frozenset({
+    "walking", "entering", "opening", "closing", "writing", "reading", "placing",
+    "picking", "starting", "stopping", "sitting", "standing", "leaving", "returning",
+    "checking", "packing", "unpacking", "preparing", "working", "waiting", "turning",
+    "moving", "reaching", "holding", "setting", "putting", "taking",
+})
+
+
+def _query_words(value: object) -> set[str]:
+    return set(re.findall(r"[a-z]+", _clean(value).casefold()))
+
+
+def validate_short_visual_queries(
+    plan: Mapping[str, Any],
+    brief: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Fail closed when Short planning ignored its selected template's visual language.
+
+    This checks only the generated stock-search phrases. It does not alter acquisition,
+    Canonical Evidence, candidate scoring, or Visual QA.
+    """
+    selection = select_short_template(brief)
+    template = str(selection["template"])
+    sections = plan.get("sections")
+    if not isinstance(sections, list) or len(sections) != SHORT_SECTION_COUNT:
+        raise ShortFormatError("short_visual_query_contract_requires_three_sections")
+    queries = [_clean(item.get("visual_query_en")) for item in sections if isinstance(item, Mapping)]
+    if len(queries) != SHORT_SECTION_COUNT or any(not query for query in queries):
+        raise ShortFormatError("short_visual_query_missing")
+    words = [_query_words(query) for query in queries]
+
+    if template == "inner_dialogue":
+        allowed = _VISUAL_QUERY_TERMS[template]
+        if any(not (item & allowed) for item in words):
+            raise ShortFormatError("short_visual_query_inner_dialogue_not_reflective")
+    elif template == "quote_reflection":
+        allowed = _VISUAL_QUERY_TERMS[template]
+        if any(not (item & allowed) for item in words):
+            raise ShortFormatError("short_visual_query_quote_reflection_not_calm")
+    elif template == "why_reframe":
+        terms = _VISUAL_QUERY_TERMS[template]
+        if not (words[0] & terms["old"]):
+            raise ShortFormatError("short_visual_query_why_reframe_old_frame_missing")
+        if not (words[1] & terms["turn"]):
+            raise ShortFormatError("short_visual_query_why_reframe_turn_missing")
+        if not (words[2] & terms["new"]):
+            raise ShortFormatError("short_visual_query_why_reframe_new_frame_missing")
+    elif template == "micro_story":
+        if any(not (item & _MICRO_STORY_ACTION_TERMS) for item in words):
+            raise ShortFormatError("short_visual_query_micro_story_action_missing")
+        generic = {
+            "person", "man", "woman", "young", "adult", "alone", "indoors", "outdoors",
+            "close", "wide", "shot", "camera", "video", "footage",
+        }
+        content_sets = [item - generic - _MICRO_STORY_ACTION_TERMS for item in words]
+        shared = set.intersection(*content_sets) if content_sets else set()
+        if not shared:
+            raise ShortFormatError("short_visual_query_micro_story_scene_continuity_missing")
+
+    return {
+        "template": template,
+        "queries": queries,
+        "status": "pass",
+    }
+
 def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
     selection = select_short_template(brief)
     return {
