@@ -29,6 +29,44 @@ _FACT_PASS = {
 }
 
 
+class _RawContentResponse:
+    status = 200
+    headers = {
+        "x-ratelimit-limit-req-minute": "30",
+        "x-ratelimit-limit-tokens-minute": "937500",
+        "x-ratelimit-remaining-tokens-minute": "936900",
+    }
+
+    def __init__(self, raw_content: str) -> None:
+        self.raw_content = raw_content
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def getcode(self):
+        return self.status
+
+    def read(self, _limit: int):
+        body = {
+            "model": mistral_executor.MISTRAL_EXECUTOR_MODEL,
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": self.raw_content},
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 400,
+                "completion_tokens": 200,
+                "total_tokens": 600,
+            },
+        }
+        return json.dumps(body).encode("utf-8")
+
+
 class _Response:
     status = 200
     headers = {
@@ -155,6 +193,52 @@ class MistralExecutorTransportTests(unittest.TestCase):
             ],
             "937500",
         )
+
+    def test_invalid_json_logs_safe_shape_without_generated_text(self) -> None:
+        malformed = '{"title":"DO-NOT-LOG-THIS","cta":"اكتب تعليقك","sections":['
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MISTRAL_API_KEY": "test-key",
+                "MISTRAL_CONTENT_MODEL": "ministral-14b-2512",
+            },
+            clear=False,
+        ), mock.patch.object(
+            mistral_executor.urllib.request,
+            "urlopen",
+            return_value=_RawContentResponse(malformed),
+        ), mock.patch("builtins.print") as logged:
+            with self.assertRaises(
+                mistral_executor.MistralExecutorWireFailure
+            ) as raised:
+                mistral_executor.mistral_executor_json(
+                    "planning prompt with contextual CTA",
+                    max_tokens=3000,
+                    task_kind="planning",
+                    response_schema=(
+                        "planning",
+                        {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "cta": {"type": "string"},
+                                "sections": {"type": "array"},
+                            },
+                            "required": ["title", "cta", "sections"],
+                            "additionalProperties": False,
+                        },
+                    ),
+                )
+
+        self.assertEqual(raised.exception.reason_code, "mistral invalid json")
+        log_text = "\n".join(str(call.args[0]) for call in logged.call_args_list)
+        self.assertIn("Mistral executor invalid JSON diagnostic", log_text)
+        self.assertIn('"task_kind":"planning"', log_text)
+        self.assertIn('"ends_with":"["', log_text)
+        self.assertIn('"open_brackets":1', log_text)
+        self.assertIn('"close_brackets":0', log_text)
+        self.assertNotIn("DO-NOT-LOG-THIS", log_text)
+        self.assertNotIn("اكتب تعليقك", log_text)
 
     def test_visual_query_recovery_uses_verified_content_model(self) -> None:
         with mock.patch.dict(
