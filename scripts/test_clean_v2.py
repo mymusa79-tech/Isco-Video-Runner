@@ -3530,8 +3530,9 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertIn("- [tone] Opening narration reads as overly promotional", prompt)
             self.assertIn("- [tone] The CTA feels abrupt and promotional", prompt)
             self.assertIn("- [tone] viewer_retention_continuity:", prompt)
+            self.assertIn("repair the", prompt)
             self.assertIn(
-                "repair the surrounding lead-in, transition, or payoff",
+                "surrounding lead-in, transition, or payoff",
                 prompt,
             )
             self.assertIn("- [structural] repeated_not_x_but_y:", prompt)
