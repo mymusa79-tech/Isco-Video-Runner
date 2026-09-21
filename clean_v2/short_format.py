@@ -103,6 +103,32 @@ TEMPLATE_COMPENSATION = {
     },
 }
 
+TEMPLATE_VISUAL_QUERY_DIRECTIVES = {
+    "why_reframe": (
+        "For every visual_query_en, make the three sections form a visible contrast arc: section 1 should "
+        "show the old/common mistaken framing, section 2 should show the visual turn or contrast, and "
+        "section 3 should show the clearer/new framing in an observable stock-footage scene. Avoid generic "
+        "productivity imagery that does not carry that contrast."
+    ),
+    "inner_dialogue": (
+        "For every visual_query_en, use an intimate quiet human moment that visually supports internal "
+        "dialogue: a person alone, thoughtful, reflective, pausing, sitting quietly, or moving through a "
+        "calm environment. Prefer concrete search language such as alone, thoughtful, reflective, quiet "
+        "moment, contemplative. Avoid generic desks, calendars, or unrelated symbolic footage."
+    ),
+    "micro_story": (
+        "Make the three visual_query_en values a simple sequential micro-story about one concrete situation: "
+        "section 1 establishes the starting situation, section 2 shows the small development/turn, and "
+        "section 3 shows the visual outcome. Each query must describe a realistic observable stock-footage "
+        "moment from that same miniature situation, not generic or purely symbolic footage."
+    ),
+    "quote_reflection": (
+        "For every visual_query_en, use calm reflective footage that supports one central approved quotation "
+        "or idea without competing detail: quiet setting, slow/simple action, restrained composition, and "
+        "minimal visual distraction. Avoid busy motion, multiple simultaneous actions, or unrelated imagery."
+    ),
+}
+
 TEMPLATE_WRITING_DIRECTIVES = {
     "why_reframe": (
         "Short type is why_reframe. Open on one specific mistaken assumption, contrast it with the "
@@ -238,6 +264,7 @@ def select_short_template(brief: Mapping[str, Any]) -> dict[str, Any]:
         "beat_shape": TEMPLATE_COMPENSATION[template]["beat_shape"],
         "visual_rhythm": TEMPLATE_COMPENSATION[template]["visual_rhythm"],
         "writing_directive": TEMPLATE_WRITING_DIRECTIVES[template],
+        "visual_query_directive": TEMPLATE_VISUAL_QUERY_DIRECTIVES[template],
         "extra_ai_calls": 0,
     }
 
@@ -254,7 +281,9 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"- exact_sections={SHORT_SECTION_COUNT}; frame={SHORT_WIDTH}x{SHORT_HEIGHT}\n"
         "- The first spoken sentence is the hook. No greeting, channel identity opener, dialogue labels, "
         "CTA, or quotation unless the selected quote_reflection template has explicit approved quote evidence.\n"
-        f"- {selection['writing_directive']}"
+        f"- {selection['writing_directive']}\n"
+        "- VISUAL_QUERY_DIRECTION: "
+        f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]}"
     )
 
 
