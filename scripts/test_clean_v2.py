@@ -42,6 +42,8 @@ from clean_v2.pipeline import (
     _narrative_identity_prompt,
     _planning_prompt,
     _script_prompt,
+    _split_tts_chunks,
+    _synthesize_sectioned_voice,
 )
 from clean_v2.providers import (
     NoWireFailure,
@@ -2992,6 +2994,106 @@ class VisualRecoveryCheckpointTests(unittest.TestCase):
                 (output / relative).read_bytes()
             ).hexdigest()
             self.assertEqual(checkpoint["artifacts"][relative], current_hash)
+
+
+class ChunkedCharonVoiceTests(unittest.TestCase):
+    class _Voice:
+        def __init__(self, *, fail_on_call: int | None = None) -> None:
+            self.calls: list[str] = []
+            self.fail_on_call = fail_on_call
+            self.last_provider = "gemini:Charon"
+            self.charon_attempts = 1
+            self.fallback_used = False
+            self.voice_approval_status = "human_approved_reference"
+            self.voice_reference_profile = "voice-reference-v1"
+            self.voice_roles = {"mode": "single_narrator", "narrator": "Charon"}
+
+        def synthesize(self, transcript: str, output_path: Path) -> Path:
+            self.calls.append(transcript)
+            if self.fail_on_call == len(self.calls):
+                raise RuntimeError("synthetic timeout")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"W" * 2048)
+            return output_path
+
+    @staticmethod
+    def _fake_concat(paths: list[Path], output: Path) -> Path:
+        if not paths:
+            raise RuntimeError("no paths")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"C" * 4096)
+        return output
+
+    def test_run267_long_section_splits_at_spoken_boundaries_without_text_drift(self) -> None:
+        text = (
+            ("هذه جملة عربية طويلة لكنها طبيعية وتبقى كما هي تمامًا في الصوت. " * 4)
+            + ("ثم ننتقل إلى جملة ثانية توضح الفكرة من دون أي إعادة كتابة للنص. " * 4)
+            + ("وأخيرًا نختم الفقرة بجملة قصيرة وواضحة للمستمع. " * 3)
+        ).strip()
+        self.assertGreater(len(text), 900)
+        chunks = _split_tts_chunks(text)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(1 <= len(item) <= 600 for item in chunks))
+        self.assertEqual(
+            " ".join(" ".join(item.split()) for item in chunks),
+            " ".join(text.split()),
+        )
+
+    def test_run267_sectioned_voice_synthesizes_only_bounded_chunks(self) -> None:
+        section_text = (
+            ("الفكرة الأولى تحتاج شرحًا هادئًا وواضحًا حتى تصل للمستمع طبيعيًا. " * 5)
+            + ("بعدها ننتقل إلى التطبيق العملي من دون مبالغة أو اختصار مخل. " * 5)
+        ).strip()
+        voice = self._Voice()
+        with tempfile.TemporaryDirectory() as temporary, mock.patch(
+            "clean_v2.pipeline.concat_wav_parts",
+            side_effect=self._fake_concat,
+        ):
+            root = Path(temporary)
+            result = _synthesize_sectioned_voice(
+                voice,
+                [{"id": "s1", "narration": section_text}],
+                root / "narration.wav",
+            )
+
+            self.assertGreater(len(voice.calls), 1)
+            self.assertTrue(all(len(item) <= 600 for item in voice.calls))
+            self.assertEqual(
+                " ".join(" ".join(item.split()) for item in voice.calls),
+                " ".join(section_text.split()),
+            )
+            self.assertEqual(result["voice_provider"], "gemini:Charon")
+            self.assertEqual(result["voice_fallback_used"], False)
+            self.assertEqual(result["sections"][0]["chunk_count"], len(voice.calls))
+            self.assertTrue((root / "narration.wav").is_file())
+
+    def test_run267_failed_chunk_keeps_previous_chunk_evidence(self) -> None:
+        section_text = (
+            ("الجملة الأولى طويلة بما يكفي لتشكيل جزء صوتي مستقل وآمن للمحاولة. " * 5)
+            + ("الجملة الثانية تكمل المعنى لكنها تقع في جزء لاحق منفصل عن الأول. " * 5)
+        ).strip()
+        voice = self._Voice(fail_on_call=2)
+        with tempfile.TemporaryDirectory() as temporary, mock.patch(
+            "clean_v2.pipeline.concat_wav_parts",
+            side_effect=self._fake_concat,
+        ):
+            root = Path(temporary)
+            with self.assertRaisesRegex(RuntimeError, "synthetic timeout"):
+                _synthesize_sectioned_voice(
+                    voice,
+                    [{"id": "s1", "narration": section_text}],
+                    root / "narration.wav",
+                )
+
+            self.assertEqual(len(voice.calls), 2)
+            self.assertTrue((root / "audio" / "chunks" / "01-01.wav").is_file())
+            report = json.loads(
+                (root / "voice-sections.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(report["status"], "failed")
+            self.assertEqual(report["failed_section"], "s1")
+            self.assertEqual(report["failed_chunk"], 2)
+            self.assertEqual(len(report["current_section_chunks"]), 1)
 
 
 class OneBoundedToneRepairRun199Tests(unittest.TestCase):
