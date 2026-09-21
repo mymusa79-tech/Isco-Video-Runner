@@ -278,3 +278,100 @@ def validate_short_dimensions(width: int, height: int) -> tuple[int, int]:
             f"expected={expected[0]}x{expected[1]}"
         )
     return actual
+
+
+_HOOK_SENTENCE_END_RE = re.compile(r"[.!؟!]")
+_DIALOGUE_LABEL_RE = re.compile(r"(?m)^\s*[AB]:\s*\S")
+_SOCIAL_CTA_RE = re.compile(
+    r"(?:اشترك|اشترِك|تابع(?:نا|ني)?|شارك(?:ها|ه|ني)?|"
+    r"اكتب.{0,24}(?:التعليقات|تعليق)|علّق|علق|"
+    r"اضغط.{0,16}(?:إعجاب|اعجاب|لايك)|ضع.{0,16}(?:إعجاب|اعجاب|لايك))",
+    re.I,
+)
+_GREETING_PREFIXES = (
+    "اهلا",
+    "اهلا وسهلا",
+    "مرحبا",
+    "السلام عليكم",
+    "صباح الخير",
+    "مساء الخير",
+)
+
+
+def _first_sentence(text: object) -> str:
+    compact = _clean(text)
+    if not compact:
+        return ""
+    match = _HOOK_SENTENCE_END_RE.search(compact)
+    return compact[: match.end()].strip() if match else compact
+
+
+def _word_count(text: object) -> int:
+    return len([word for word in _clean(text).split() if word])
+
+
+def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
+    sections = script.get("sections")
+    if not isinstance(sections, list) or len(sections) != SHORT_SECTION_COUNT:
+        raise ShortFormatError(
+            f"short_script_requires_exactly_{SHORT_SECTION_COUNT}_sections"
+        )
+    if any(not isinstance(item, Mapping) for item in sections):
+        raise ShortFormatError("short_script_section_invalid")
+
+    first_narration = _clean(sections[0].get("narration"))
+    hook = _first_sentence(first_narration)
+    if not hook:
+        raise ShortFormatError("short_hook_missing")
+    hook_words = _word_count(hook)
+    if hook_words > 12:
+        raise ShortFormatError(
+            f"short_hook_too_long words={hook_words} maximum=12"
+        )
+
+    hook_key = _semantic_key(hook)
+    if any(
+        hook_key == prefix or hook_key.startswith(prefix + " ")
+        for prefix in _GREETING_PREFIXES
+    ):
+        raise ShortFormatError("short_hook_must_not_start_with_greeting")
+
+    transcript = "\n".join(_clean(item.get("narration")) for item in sections)
+    if _DIALOGUE_LABEL_RE.search(transcript):
+        raise ShortFormatError("short_single_voice_contract_forbids_dialogue_labels")
+    if _SOCIAL_CTA_RE.search(transcript):
+        raise ShortFormatError("short_zero_social_cta_contract_violated")
+
+    return {
+        "hook": hook,
+        "hook_words": hook_words,
+        "single_voice": True,
+        "social_cta": False,
+    }
+
+
+def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
+    selection = select_short_template(brief)
+    return {
+        **selection,
+        "format": "short",
+        "section_count": SHORT_SECTION_COUNT,
+        "frame": {"width": SHORT_WIDTH, "height": SHORT_HEIGHT},
+        "duration": {
+            "target_seconds": SHORT_TARGET_SECONDS,
+            "minimum_seconds": SHORT_MIN_SECONDS,
+            "maximum_seconds": SHORT_MAX_SECONDS,
+        },
+        "hook": {
+            "first_spoken_sentence": True,
+            "maximum_words": 12,
+            "greeting_forbidden": True,
+        },
+        "voice": {
+            "single_narrator": True,
+            "dialogue_labels_forbidden": True,
+        },
+        "social_cta": "forbidden",
+        "narrative_identity": "not_applicable",
+        "opening_director": "not_applicable",
+    }
