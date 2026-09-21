@@ -3132,7 +3132,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             ["s1", "s2", "s3", "s4", "s5"],
         )
 
-def test_run199_repair_is_strictly_one_shot_and_fails_closed_if_tone_still_blocks(self) -> None:
+    def test_run199_repair_is_strictly_one_shot_and_fails_closed_if_tone_still_blocks(self) -> None:
         audit_calls = {"n": 0}
         router = self._Router(self._repaired_script())
 
