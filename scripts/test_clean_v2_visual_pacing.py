@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from clean_v2.contracts import compute_brief_sha256
-from clean_v2.pipeline import CINEMATIC_STAGE, CleanV2Pipeline
+from clean_v2.pipeline import CINEMATIC_STAGE, CleanV2Pipeline, _estimate_section_seconds
 from clean_v2 import media as media_module
 
 
@@ -62,8 +62,9 @@ def _pacing_plan(*section_ids: str) -> dict:
 
 class StockVisualSourceAcquirePacingTests(unittest.TestCase):
     def test_long_section_acquires_extra_same_query_clips(self) -> None:
-        # A ~70s flat slot for one section, well past PACING_MAX_SHOT_SECONDS
-        # (22s): ceil(70/22) = 4, capped at PACING_MAX_SHOTS_PER_SECTION (3).
+        # A ~70s estimated duration for one section, well past
+        # PACING_MAX_SHOT_SECONDS (22s): ceil(70/22) = 4, capped at
+        # PACING_MAX_SHOTS_PER_SECTION (3).
         source = media_module.StockVisualSource()
         pexels_candidates = [
             _candidate("pexels", "p1"),
@@ -91,7 +92,7 @@ class StockVisualSourceAcquirePacingTests(unittest.TestCase):
                 Path(root),
                 "film",
                 5,
-                section_flat_slot_seconds=70.0,
+                section_estimated_seconds={"s1": 70.0},
             )
 
         self.assertEqual(len(clips), 3)
@@ -127,7 +128,7 @@ class StockVisualSourceAcquirePacingTests(unittest.TestCase):
                 Path(root),
                 "film",
                 5,
-                section_flat_slot_seconds=12.0,
+                section_estimated_seconds={"s1": 12.0},
             )
 
         self.assertEqual(len(clips), 1)
@@ -184,7 +185,7 @@ class StockVisualSourceAcquirePacingTests(unittest.TestCase):
                 Path(root),
                 "film",
                 5,
-                section_flat_slot_seconds=40.0,
+                section_estimated_seconds={"s1": 40.0},
             )
 
         self.assertEqual(len(clips), 2)
@@ -215,16 +216,16 @@ class StockVisualSourceAcquirePacingTests(unittest.TestCase):
                 Path(root),
                 "film",
                 5,
-                section_flat_slot_seconds=70.0,
+                section_estimated_seconds={"s1": 70.0},
             )
 
         self.assertEqual(len(clips), 1)
         self.assertFalse(rights[0].get("pacing_auxiliary"))
 
     def test_flat_slot_applies_independently_to_every_section(self) -> None:
-        # section_flat_slot_seconds is the one shared render slot every
-        # section would get today - it applies the same way to each section
-        # in the call, so two equally long sections both split the same way.
+        # A per-section estimated duration is supplied independently for
+        # each section - two sections given the same estimate both split
+        # the same way, but each section's own value drives its own split.
         source = media_module.StockVisualSource()
         pexels_candidates = [
             _candidate("pexels", f"p{index}") for index in range(1, 7)
@@ -250,7 +251,7 @@ class StockVisualSourceAcquirePacingTests(unittest.TestCase):
                 Path(root),
                 "film",
                 5,
-                section_flat_slot_seconds=45.0,
+                section_estimated_seconds={"s1": 45.0, "s2": 45.0},
             )
 
         self.assertEqual(len(clips), 6)
@@ -258,6 +259,74 @@ class StockVisualSourceAcquirePacingTests(unittest.TestCase):
         for row in rights:
             by_section[row["section_id"]] = by_section.get(row["section_id"], 0) + 1
         self.assertEqual(by_section, {"s1": 3, "s2": 3})
+
+
+class SectionDurationEstimationTests(unittest.TestCase):
+    """Test Requirement A: a section's estimated duration comes from its own
+    narration length, not an equal flat share of the total."""
+
+    @staticmethod
+    def _sections(*ids: str) -> list[dict]:
+        return [{"id": section_id} for section_id in ids]
+
+    def test_longer_narration_section_gets_a_larger_share_than_flat(self) -> None:
+        sections = self._sections("s1", "s2", "s3")
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "قصير جدًا"},
+                {"id": "s2", "narration": "نص أطول بوضوح يحمل تفاصيل أكثر بكثير من الجملة الأولى القصيرة"},
+                {"id": "s3", "narration": "نص متوسط الطول"},
+            ]
+        }
+        estimated = _estimate_section_seconds(sections, script, 90.0)
+
+        flat_share = 90.0 / 3
+        self.assertGreater(estimated["s2"], flat_share)
+        self.assertGreater(estimated["s2"], estimated["s1"])
+        self.assertGreater(estimated["s2"], estimated["s3"])
+        self.assertLess(estimated["s1"], flat_share)
+        self.assertAlmostEqual(sum(estimated.values()), 90.0, places=6)
+
+    def test_near_equal_length_narration_sections_split_close_to_evenly(self) -> None:
+        sections = self._sections("s1", "s2")
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "نص عادي بطول معتدل هنا الآن"},
+                {"id": "s2", "narration": "نص آخر قريب جدًا من نفس الطول"},
+            ]
+        }
+        estimated = _estimate_section_seconds(sections, script, 40.0)
+        # Character counts (27 vs 29) are close but not identical, so this
+        # only guards against a gross regression back to a hard 50/50 split.
+        self.assertAlmostEqual(estimated["s1"], 20.0, delta=3.0)
+        self.assertAlmostEqual(sum(estimated.values()), 40.0, places=6)
+
+    def test_last_section_absorbs_rounding_residual(self) -> None:
+        sections = self._sections("s1", "s2", "s3")
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "أ" * 7},
+                {"id": "s2", "narration": "ب" * 11},
+                {"id": "s3", "narration": "ج" * 13},
+            ]
+        }
+        estimated = _estimate_section_seconds(sections, script, 33.333333)
+        self.assertAlmostEqual(sum(estimated.values()), 33.333333, places=6)
+
+    def test_all_empty_narration_fails_clearly_instead_of_dividing_by_zero(
+        self,
+    ) -> None:
+        sections = self._sections("s1", "s2")
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "   "},
+                {"id": "s2", "narration": ""},
+            ]
+        }
+        with self.assertRaisesRegex(
+            RuntimeError, "no narration text found for any section"
+        ):
+            _estimate_section_seconds(sections, script, 60.0)
 
 
 class SectionSlotDurationsTests(unittest.TestCase):
@@ -301,6 +370,121 @@ class SectionSlotDurationsTests(unittest.TestCase):
         self.assertAlmostEqual(durations[0], 7.5 + 0.12)
         self.assertAlmostEqual(durations[1], 7.5 + 0.12)
         self.assertAlmostEqual(durations[2], 15.0 + 0.12)
+
+    def test_manifest_estimated_seconds_drives_unequal_section_shares(self) -> None:
+        # s1 (2 clips) is estimated at 50s, s2 (1 clip) at only 10s - a real
+        # narration-weighted split, not an equal flat share.
+        with tempfile.TemporaryDirectory() as root:
+            output_dir = Path(root)
+            (output_dir / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {"local_file": "a.mp4", "section_id": "s1"},
+                            {"local_file": "b.mp4", "section_id": "s1"},
+                            {"local_file": "c.mp4", "section_id": "s2"},
+                        ],
+                        "estimated_section_seconds": {"s1": 50.0, "s2": 10.0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths = [
+                output_dir / "a.mp4",
+                output_dir / "b.mp4",
+                output_dir / "c.mp4",
+            ]
+            durations = media_module._section_slot_durations(
+                output_dir, paths, 60.0
+            )
+        self.assertAlmostEqual(durations[0], 25.0 + 0.12)
+        self.assertAlmostEqual(durations[1], 25.0 + 0.12)
+        self.assertAlmostEqual(durations[2], 10.0 + 0.12)
+
+    def test_manifest_estimated_seconds_renormalizes_to_a_different_total(
+        self,
+    ) -> None:
+        # The render call site may hand this a smaller time budget than the
+        # sum of the raw per-section estimates (e.g. "remaining" seconds
+        # after the opening's fixed 7/11/12s slots) - the real per-section
+        # weights must still be honored proportionally against whatever
+        # total is actually being distributed.
+        with tempfile.TemporaryDirectory() as root:
+            output_dir = Path(root)
+            (output_dir / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {"local_file": "a.mp4", "section_id": "s1"},
+                            {"local_file": "b.mp4", "section_id": "s2"},
+                        ],
+                        "estimated_section_seconds": {"s1": 80.0, "s2": 20.0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths = [output_dir / "a.mp4", output_dir / "b.mp4"]
+            # raw_total=100 renormalized onto a 50s budget: s1 keeps 4x s2.
+            durations = media_module._section_slot_durations(
+                output_dir, paths, 50.0
+            )
+        self.assertAlmostEqual(durations[0], 40.0 + 0.12)
+        self.assertAlmostEqual(durations[1], 10.0 + 0.12)
+        self.assertAlmostEqual(sum(durations) - 2 * 0.12, 50.0, places=6)
+
+    def test_manifest_missing_a_section_key_falls_back_to_flat_split(self) -> None:
+        # estimated_section_seconds exists but doesn't cover every section
+        # actually present among the clips - never partially trust it.
+        with tempfile.TemporaryDirectory() as root:
+            output_dir = Path(root)
+            (output_dir / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {"local_file": "a.mp4", "section_id": "s1"},
+                            {"local_file": "b.mp4", "section_id": "s2"},
+                        ],
+                        "estimated_section_seconds": {"s1": 50.0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths = [output_dir / "a.mp4", output_dir / "b.mp4"]
+            durations = media_module._section_slot_durations(
+                output_dir, paths, 20.0
+            )
+        self.assertAlmostEqual(durations[0], 10.0 + 0.12)
+        self.assertAlmostEqual(durations[1], 10.0 + 0.12)
+
+    def test_last_clip_in_a_section_absorbs_the_rounding_residual(self) -> None:
+        # s1's 10.0s share split across 3 clips is a repeating decimal - the
+        # last of the three must absorb the residual so the section's own
+        # clips sum to exactly 10.0, not a value drifted by float rounding.
+        with tempfile.TemporaryDirectory() as root:
+            output_dir = Path(root)
+            (output_dir / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {"local_file": "a.mp4", "section_id": "s1"},
+                            {"local_file": "b.mp4", "section_id": "s1"},
+                            {"local_file": "c.mp4", "section_id": "s1"},
+                        ],
+                        "estimated_section_seconds": {"s1": 10.0},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            paths = [
+                output_dir / "a.mp4",
+                output_dir / "b.mp4",
+                output_dir / "c.mp4",
+            ]
+            durations = media_module._section_slot_durations(
+                output_dir, paths, 10.0, pad=0.0
+            )
+        self.assertAlmostEqual(sum(durations), 10.0, places=9)
+        self.assertAlmostEqual(durations[0], durations[1], places=9)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
@@ -497,7 +681,7 @@ class _LongFakeVoice:
 
 
 class _RecordingVisuals:
-    """A visual_source fixture that records the section_flat_slot_seconds it
+    """A visual_source fixture that records the section_estimated_seconds it
     was given and deterministically returns one auxiliary pacing clip for
     section s1 only, mirroring what the real StockVisualSource.acquire would
     produce for a long first section - without any real stock-provider I/O.
@@ -505,7 +689,7 @@ class _RecordingVisuals:
 
     def __init__(self) -> None:
         self.events: list[dict] = []
-        self.received_section_flat_slot_seconds: float | None = None
+        self.received_section_estimated_seconds: dict[str, float] | None = None
 
     @staticmethod
     def _write_clip(path: Path, color: str) -> None:
@@ -531,9 +715,9 @@ class _RecordingVisuals:
             check=True,
         )
 
-    def acquire(self, plan, output_dir, fmt, max_visuals, section_flat_slot_seconds=None):
+    def acquire(self, plan, output_dir, fmt, max_visuals, section_estimated_seconds=None):
         del fmt
-        self.received_section_flat_slot_seconds = section_flat_slot_seconds
+        self.received_section_estimated_seconds = section_estimated_seconds
         sections = list(plan.get("sections") or [])[: max(1, int(max_visuals))]
         clips: list[Path] = []
         rights: list[dict] = []
@@ -637,7 +821,9 @@ class _RecordingVisualQA:
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
 class PipelineWiringTests(unittest.TestCase):
-    def test_pipeline_computes_flat_slot_and_keeps_gates_primary_only(self) -> None:
+    def test_pipeline_computes_per_section_estimate_and_keeps_gates_primary_only(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             brief_path = root / "approved-brief.json"
@@ -670,11 +856,23 @@ class PipelineWiringTests(unittest.TestCase):
             )
 
             self.assertEqual(result["status"], "pass")
-            # 130s narration / 5 sections = 26s flat slot, well past the 22s
-            # pacing cap - this is the exact value acquire() must receive.
-            self.assertAlmostEqual(
-                visuals.received_section_flat_slot_seconds, 26.0, places=3
-            )
+            # acquire() must receive a real per-section estimate keyed by
+            # every section id, summing to the full narration duration - not
+            # pipeline.py's exact character-count formula recomputed here
+            # (the real script text passes through channel-persona/
+            # human-feel rewriting before estimation, so its narration
+            # length differs from the raw _script() fixture text; only the
+            # contract - real per-section keys, unequal shares, exact total
+            # - is stable enough to assert against).
+            received = visuals.received_section_estimated_seconds
+            self.assertIsNotNone(received)
+            self.assertEqual(set(received), {"s1", "s2", "s3", "s4", "s5"})
+            for seconds in received.values():
+                self.assertGreater(seconds, 0.0)
+            self.assertAlmostEqual(sum(received.values()), 130.0, places=3)
+            # Not a flat 26.0s-each split: sections have different narration
+            # lengths, so their shares differ.
+            self.assertGreater(max(received.values()) - min(received.values()), 1.0)
 
             manifest = json.loads(
                 (output / "rights-manifest.json").read_text(encoding="utf-8")
@@ -866,6 +1064,144 @@ class SectionBodySegmentsTests(unittest.TestCase):
             self.assertAlmostEqual(s1_seconds, 12.0, delta=0.3)
             s2_seconds = media_module.probe_duration(segments[1])
             self.assertAlmostEqual(s2_seconds, 8.0, delta=0.3)
+
+
+class RenderVideoColorAndCutTests(unittest.TestCase):
+    """Test Requirement D (color grade coverage including Opening) and the
+    cross-section half of Requirement E (hard cut stays default without
+    fabricated M9 evidence)."""
+
+    @staticmethod
+    def _opening_fixture(root: Path) -> list[Path]:
+        paths = [
+            root / "opening-cold_open.mp4",
+            root / "opening-escalation.mp4",
+            root / "body1.mp4",
+            root / "body2.mp4",
+        ]
+        for path in paths:
+            path.write_bytes(b"x" * 2048)
+        (root / "opening-director.json").write_text(
+            json.dumps(
+                {
+                    "status": "pass",
+                    "mode": "legacy_first_30_three_audited_shots",
+                    "slots": [
+                        {"local_file": "opening-cold_open.mp4", "seconds": 7.0},
+                        {"local_file": "opening-escalation.mp4", "seconds": 11.0},
+                        {"local_file": "body1.mp4", "seconds": 12.0},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return paths
+
+    def test_opening_and_body_clips_both_receive_the_color_grade(self) -> None:
+        stub_filter = "eq=contrast=9.999:brightness=0.0100:saturation=0.9000"
+        modules = _stub_engine_color_modules(stub_filter)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._opening_fixture(root)
+            narration = root / "voice.wav"
+            output = root / "final.mp4"
+            captured: list[list[str]] = []
+
+            def fake_run(command, *, timeout):
+                captured.append(command)
+                return None
+
+            with mock.patch.dict(sys.modules, modules), mock.patch(
+                "clean_v2.media.probe_duration", return_value=120.0
+            ), mock.patch("clean_v2.media._run", side_effect=fake_run):
+                media_module.render_video(narration, paths, output, "film")
+
+            final_command = captured[-1]
+            filters = final_command[final_command.index("-filter_complex") + 1]
+            # The opening's own 7/11/12s timing is untouched...
+            self.assertIn("trim=duration=7.000", filters)
+            self.assertIn("trim=duration=11.000", filters)
+            self.assertIn("trim=duration=12.000", filters)
+            # ...but all three opening inputs (7s/11s/12s slots) now also
+            # carry the same grade fragment as the body clips instead of
+            # being excluded from it.
+            self.assertEqual(filters.count(stub_filter), 3)
+            pretrim_calls = [
+                command
+                for command in captured
+                if "-vf" in command
+                and stub_filter in command[command.index("-vf") + 1]
+            ]
+            self.assertGreaterEqual(len(pretrim_calls), 1)
+
+    def test_grade_absent_from_opening_filters_without_engine(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = self._opening_fixture(root)
+            narration = root / "voice.wav"
+            output = root / "final.mp4"
+            captured: list[list[str]] = []
+
+            def fake_run(command, *, timeout):
+                captured.append(command)
+                return None
+
+            with mock.patch.dict(
+                sys.modules, {"isco_video_agent.media.color": None}
+            ), mock.patch(
+                "clean_v2.media.probe_duration", return_value=120.0
+            ), mock.patch("clean_v2.media._run", side_effect=fake_run):
+                media_module.render_video(narration, paths, output, "film")
+
+            final_command = captured[-1]
+            filters = final_command[final_command.index("-filter_complex") + 1]
+            self.assertNotIn("eq=contrast", filters)
+            self.assertIn("trim=duration=7.000", filters)
+            self.assertIn("trim=duration=12.000", filters)
+
+    def test_cross_section_boundary_stays_a_hard_cut_without_fabricated_evidence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            narration = root / "voice.wav"
+            output = root / "final.mp4"
+            paths = [root / "a.mp4", root / "b.mp4"]
+            for path in paths:
+                path.write_bytes(b"x" * 2048)
+            (root / "rights-manifest.json").write_text(
+                json.dumps(
+                    {
+                        "assets": [
+                            {"local_file": "a.mp4", "section_id": "s1"},
+                            {"local_file": "b.mp4", "section_id": "s2"},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            captured: list[list[str]] = []
+
+            def fake_run(command, *, timeout):
+                captured.append(command)
+                return None
+
+            with mock.patch.dict(
+                sys.modules, {"isco_video_agent.media.color": None}
+            ), mock.patch(
+                "clean_v2.media.probe_duration", return_value=20.0
+            ), mock.patch("clean_v2.media._run", side_effect=fake_run):
+                media_module.render_video(narration, paths, output, "film")
+
+            final_command = captured[-1]
+            filters = final_command[final_command.index("-filter_complex") + 1]
+            # No xfade anywhere in the final concat: two different sections,
+            # each its own single-clip segment, joined by a plain concat -
+            # Clean V2 has no real M9 continuity evidence (transition_intent
+            # / continuity_role / motifs) to justify a dissolve at a section
+            # boundary, so it stays a hard cut rather than fabricating one.
+            self.assertNotIn("xfade", filters)
+            self.assertIn("concat=n=2", filters)
 
 
 if __name__ == "__main__":

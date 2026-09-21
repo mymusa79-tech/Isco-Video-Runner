@@ -40,12 +40,13 @@ VOICE_REFERENCE_PROFILE_PATH = (
 )
 VOICE_REFERENCE_PROFILE_VERSION = "channel-voice-roster-v1"
 
-# Visual-pacing bounds for splitting one section's flat render slot across
-# several distinct same-query clips instead of one clip lingering for the
-# whole slot. Numeric philosophy borrowed from the legacy Engine's M7
-# adaptive pacing (_MIN_ADAPTIVE_SHOT_SECONDS / MAX_SHOTS_PER_SCENE), not its
-# semantic-director machinery - Clean V2 has no beat/scene/candidate pipeline
-# to drive that, so this is the plain arithmetic equivalent.
+# Visual-pacing bounds for splitting one section's own narration-weighted
+# estimated duration across several distinct same-query clips instead of one
+# clip lingering for the whole section. Numeric philosophy borrowed from the
+# legacy Engine's M7 adaptive pacing (_MIN_ADAPTIVE_SHOT_SECONDS /
+# MAX_SHOTS_PER_SCENE), not its semantic-director machinery - Clean V2 has no
+# beat/scene/candidate pipeline to drive that, so this is the plain
+# arithmetic equivalent.
 PACING_MAX_SHOT_SECONDS = 22.0
 PACING_MIN_SHOT_SECONDS = 3.5
 PACING_MAX_SHOTS_PER_SECTION = 3
@@ -881,7 +882,7 @@ class StockVisualSource:
         output_dir: Path,
         fmt: str,
         max_visuals: int,
-        section_flat_slot_seconds: float | None = None,
+        section_estimated_seconds: Mapping[str, float] | None = None,
     ) -> tuple[list[Path], list[dict[str, Any]]]:
         output_dir.mkdir(parents=True, exist_ok=True)
         portrait = fmt in {"moment", "story"}
@@ -944,19 +945,23 @@ class StockVisualSource:
             if not _acquire_one(query, section_id, auxiliary=False):
                 continue
 
-            # A section whose flat render slot would leave a single clip on
-            # screen too long gets extra same-query coverage instead: same
-            # stock search, no new AI call, bounded by the pacing constants
-            # above so this never fires unbounded provider requests.
-            if (
-                section_flat_slot_seconds is not None
-                and section_flat_slot_seconds > PACING_MAX_SHOT_SECONDS
-            ):
+            # A section whose own estimated on-screen time would leave a
+            # single clip lingering too long gets extra same-query coverage
+            # instead: same stock search, no new AI call, bounded by the
+            # pacing constants above so this never fires unbounded provider
+            # requests. The estimate comes from that section's own narration
+            # length (pipeline.py), not a flat equal-share assumption.
+            section_seconds = (
+                section_estimated_seconds.get(section_id)
+                if section_estimated_seconds is not None
+                else None
+            )
+            if section_seconds is not None and section_seconds > PACING_MAX_SHOT_SECONDS:
                 shots = min(
                     PACING_MAX_SHOTS_PER_SECTION,
-                    math.ceil(section_flat_slot_seconds / PACING_MAX_SHOT_SECONDS),
+                    math.ceil(section_seconds / PACING_MAX_SHOT_SECONDS),
                 )
-                while shots > 1 and (section_flat_slot_seconds / shots) < PACING_MIN_SHOT_SECONDS:
+                while shots > 1 and (section_seconds / shots) < PACING_MIN_SHOT_SECONDS:
                     shots -= 1
                 for _ in range(shots - 1):
                     if not _acquire_one(query, section_id, auxiliary=True):
@@ -1470,6 +1475,17 @@ def probe_duration(path: Path) -> float:
     return duration
 
 
+def _rights_manifest_payload(output_dir: Path) -> dict[str, Any] | None:
+    manifest_path = output_dir / "rights-manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def _pacing_section_ids(output_dir: Path, paths: list[Path]) -> list[str] | None:
     """Map each body clip to its section_id via rights-manifest.json.
 
@@ -1478,14 +1494,8 @@ def _pacing_section_ids(output_dir: Path, paths: list[Path]) -> list[str] | None
     exactly as before - this is read-only evidence lookup, never a hard
     requirement.
     """
-    manifest_path = output_dir / "rights-manifest.json"
-    if not manifest_path.is_file():
-        return None
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    assets = payload.get("assets") if isinstance(payload, dict) else None
+    payload = _rights_manifest_payload(output_dir)
+    assets = payload.get("assets") if payload is not None else None
     if not isinstance(assets, list):
         return None
     by_local_file = {
@@ -1499,28 +1509,88 @@ def _pacing_section_ids(output_dir: Path, paths: list[Path]) -> list[str] | None
     return section_ids
 
 
+def _section_estimated_seconds_from_manifest(
+    output_dir: Path,
+) -> dict[str, float] | None:
+    """Read pipeline.py's narration-weighted per-section duration estimate.
+
+    Returns None when the manifest predates this field (an older resumed
+    checkpoint) or holds anything malformed, so callers fall back to the
+    plain equal-share split exactly as before.
+    """
+    payload = _rights_manifest_payload(output_dir)
+    raw = payload.get("estimated_section_seconds") if payload is not None else None
+    if not isinstance(raw, dict) or not raw:
+        return None
+    estimated: dict[str, float] = {}
+    for key, value in raw.items():
+        try:
+            estimated[str(key)] = float(value)
+        except (TypeError, ValueError):
+            return None
+    return estimated
+
+
 def _section_slot_durations(
     output_dir: Path, paths: list[Path], total_seconds: float, *, pad: float = 0.12
 ) -> list[float]:
-    """Split total_seconds across paths, keeping each section's original flat
-    share intact and only subdividing it among that section's own clips.
+    """Split total_seconds across paths, keeping each section's own
+    narration-weighted share intact and only subdividing it among that
+    section's own clips.
 
     A section that acquired extra same-query clips (visual pacing for a long
-    section) shares its one flat slot across those clips instead of shrinking
-    every other section's share just because the clip count grew.
+    section) shares its own section duration across those clips instead of
+    shrinking every other section's share just because its clip count grew.
+    The section sharing total_seconds' relative proportions comes from
+    pipeline.py's narration-character-count estimate when available; a
+    manifest without it (or a fully-flat call site with no section evidence
+    at all) falls back to the previous flat equal-share split unchanged.
     """
     section_ids = _pacing_section_ids(output_dir, paths)
     if section_ids is None:
         slot = (total_seconds / len(paths)) + pad
         return [slot] * len(paths)
+
     order: list[str] = []
     counts: dict[str, int] = {}
     for section_id in section_ids:
         if section_id not in counts:
             order.append(section_id)
         counts[section_id] = counts.get(section_id, 0) + 1
-    flat_slot = total_seconds / max(1, len(order))
-    return [(flat_slot / counts[section_id]) + pad for section_id in section_ids]
+
+    estimated = _section_estimated_seconds_from_manifest(output_dir)
+    if estimated is not None and all(section_id in estimated for section_id in order):
+        raw_shares = {section_id: max(0.0, estimated[section_id]) for section_id in order}
+        raw_total = sum(raw_shares.values())
+        if raw_total > 0:
+            # Renormalize the real per-section weights onto whatever time
+            # budget this call site is actually distributing (the whole
+            # narration, or the remaining seconds after the opening's fixed
+            # 7/11/12s slots) so the final total still matches exactly.
+            scale = total_seconds / raw_total
+            section_share = {
+                section_id: raw_shares[section_id] * scale for section_id in order
+            }
+        else:
+            flat_slot = total_seconds / max(1, len(order))
+            section_share = {section_id: flat_slot for section_id in order}
+    else:
+        flat_slot = total_seconds / max(1, len(order))
+        section_share = {section_id: flat_slot for section_id in order}
+
+    last_index_for_section = {
+        section_id: index for index, section_id in enumerate(section_ids)
+    }
+    allocated: dict[str, float] = {section_id: 0.0 for section_id in order}
+    durations: list[float] = []
+    for index, section_id in enumerate(section_ids):
+        if index == last_index_for_section[section_id]:
+            clip_seconds = section_share[section_id] - allocated[section_id]
+        else:
+            clip_seconds = section_share[section_id] / counts[section_id]
+            allocated[section_id] += clip_seconds
+        durations.append(clip_seconds + pad)
+    return durations
 
 
 # Same crossfade duration as the Engine's own M9 live-binding dissolve
@@ -1827,14 +1897,22 @@ def render_video(
         filters: list[str] = []
         labels: list[str] = []
         input_index = 0
-        for clip_seconds in opening_durations:
+        for opening_path, clip_seconds in zip(opening_paths_for_render, opening_durations):
             label = f"v{input_index}"
             labels.append(f"[{label}]")
-            filters.append(
-                f"[{input_index}:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
-                f"crop={width}:{height},setsar=1,fps=30,trim=duration={clip_seconds:.3f},"
-                f"setpts=PTS-STARTPTS[{label}]"
+            # Same restrained color-grade fragment as every body clip (see
+            # _trim_and_grade_clip) so the opening reads as the same film as
+            # the rest of the video - the opening's own 7/11/12s timing and
+            # asset selection are untouched, only the color pass is added.
+            grade = _grade_clip_filter(opening_path)
+            vf = (
+                f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                f"crop={width}:{height},setsar=1,fps=30"
             )
+            if grade:
+                vf = f"{vf},{grade}"
+            vf = f"{vf},trim=duration={clip_seconds:.3f},setpts=PTS-STARTPTS"
+            filters.append(f"[{input_index}:v]{vf}[{label}]")
             input_index += 1
         for _segment in body_segments:
             label = f"v{input_index}"
