@@ -333,6 +333,83 @@ def _tone_repair_issue_notes(report: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _replace_first_spoken_sentence(text: str, locked_sentence: str) -> str:
+    """Restore the host-owned hook while preserving the candidate body."""
+    text = text.strip()
+    locked_sentence = locked_sentence.strip()
+    if not locked_sentence:
+        return text
+    if _first_spoken_sentence({"sections": [{"narration": text}]}) == locked_sentence:
+        return text
+    match = re.search(r"^.*?[.!؟!](?:\\s|$)", text)
+    if not match:
+        return f"{locked_sentence} {text}".strip()
+    return f"{locked_sentence} {text[match.end():].lstrip()}".strip()
+
+
+def _overlay_tone_repair_host_locks(
+    repaired: dict[str, Any],
+    *,
+    original_script: Mapping[str, Any],
+    identity: Mapping[str, Any],
+    cta_plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Apply the old RepairDossier bulkhead to Clean V2's tone-only repair.
+
+    The model owns wording fixes. The host owns title, hook, brand signature and CTA.
+    Restore those exact runtime anchors after the candidate passes the normal script
+    schema, then let the unchanged factuality/Tone/Structural re-audits judge the result.
+    """
+    sections = repaired.get("sections") or []
+    if not isinstance(sections, list) or not sections:
+        raise ValueError("tone repair returned no sections")
+
+    original_title = str(original_script.get("title") or "").strip()
+    if original_title:
+        repaired["title"] = original_title
+
+    original_hook = _first_spoken_sentence(original_script)
+    if original_hook:
+        sections[0]["narration"] = _replace_first_spoken_sentence(
+            str(sections[0].get("narration") or ""),
+            original_hook,
+        )
+
+    spoken_cta = str(cta_plan.get("spoken_text") or "").strip()
+    anchor_section_id = str(cta_plan.get("anchor_section_id") or "").strip()
+    if spoken_cta:
+        anchor = None
+        for item in sections:
+            narration = str(item.get("narration") or "")
+            item["narration"] = _strip_exact_host_phrase(narration, spoken_cta)
+            if str(item.get("id") or "") == anchor_section_id:
+                anchor = item
+        if anchor is None:
+            raise ValueError("tone repair lost the locked CTA anchor section")
+        anchor["narration"] = (
+            f"{str(anchor.get('narration') or '').rstrip()} {spoken_cta}".strip()
+        )
+
+    opener = str(identity.get("opener") or "").strip()
+    closer = str(identity.get("closer") or "").strip()
+    if opener or closer:
+        for item in sections:
+            narration = str(item.get("narration") or "")
+            narration = _strip_exact_host_phrase(narration, opener)
+            narration = _strip_exact_host_phrase(narration, closer)
+            item["narration"] = narration
+        if opener:
+            sections[0]["narration"] = _insert_after_first_sentence(
+                str(sections[0].get("narration") or ""),
+                opener,
+            )
+        if closer:
+            sections[-1]["narration"] = (
+                f"{str(sections[-1].get('narration') or '').rstrip()} {closer}".strip()
+            )
+    return repaired
+
+
 def _validate_tone_repair_script(
     value: Any,
     *,
@@ -342,6 +419,13 @@ def _validate_tone_repair_script(
     cta_plan: Mapping[str, Any],
 ) -> dict[str, Any]:
     repaired = validate_script(value, plan)
+    repaired = _overlay_tone_repair_host_locks(
+        repaired,
+        original_script=original_script,
+        identity=identity,
+        cta_plan=cta_plan,
+    )
+
     original_hook = _first_spoken_sentence(original_script)
     if original_hook and _first_spoken_sentence(repaired) != original_hook:
         raise ValueError("tone repair changed the locked hook")
@@ -422,6 +506,8 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - Preserve the runtime narrative-identity opener and closer exactly once each.
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move, or repeat the CTA.
+- These host-owned locks are also restored deterministically after your candidate is parsed; spend
+  repair effort only on the listed tone/naturalness defects, not on rewriting locked anchors.
 - Preserve all approved factual claims and their research boundaries. Do not add, remove,
   strengthen, quantify, or invent claims, studies, experts, quotations, diagnoses, or authority.
 - Make the minimum wording/transition changes needed for the listed flags. No unrelated rewrite.
