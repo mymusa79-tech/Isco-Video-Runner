@@ -67,6 +67,22 @@ def _scope_religious_quote_prompt(prompt: str) -> str:
     )
 
 
+def _scope_clean_v2_tone_prompt(prompt: str) -> str:
+    """Keep the legacy semantic audit focused on narration the repair can own."""
+    scoped = _scope_religious_quote_prompt(prompt)
+    return scoped + """
+[CLEAN_V2_TONE_SCOPE]
+- This is a spoken-text audit. Do not block on visual_query, footage choice, shot choice,
+  visual metaphor, or visual cohesion; those belong to the later Visual QA stage.
+- The contextual CTA anchor section is host-owned. Do not require moving the CTA to a
+  different section or to the ending. Judge only whether the exact CTA is integrated
+  naturally inside its existing anchor section.
+- The narrative identity opener/closer are host-owned exact phrases. Do not request
+  rewriting them; judge only the surrounding spoken transition.
+[/CLEAN_V2_TONE_SCOPE]
+""".strip()
+
+
 def _validate_tone_result(result: dict[str, Any]) -> dict[str, Any]:
     from isco_video_agent.text_audit_router import validate_audit_payload
 
@@ -120,7 +136,7 @@ def audit_tone_and_naturalness_with_mistral(
 
                 return invoke
 
-            scoped_prompt = _scope_religious_quote_prompt(prompt)
+            scoped_prompt = _scope_clean_v2_tone_prompt(prompt)
             extended = [
                 (name, contract_validated(call)) for name, call in providers
             ]

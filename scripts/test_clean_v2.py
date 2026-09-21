@@ -3196,6 +3196,97 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             structural = json.loads((root / "structural-ai-flags.json").read_text(encoding="utf-8"))
             self.assertEqual(structural["flags"], [])
 
+    def test_run256_tone_repair_targets_occurrences_and_hard_research_boundaries(self) -> None:
+        original = self._run199_script()
+        original["sections"][1]["narration"] = (
+            "المشكلة ليست ضعف الإرادة بل سوء تقدير الوقت. "
+            "والباقي جملة سليمة يجب أن تبقى كما هي."
+        )
+        original["sections"][2]["narration"] = (
+            "ليس التأجيل كسلًا بل محاولة للهروب من مهمة منفرة. " + self.CTA
+        )
+        tone_block = {
+            "status": "block",
+            "preachiness_flags": [],
+            "naturalness_flags": [],
+            "narrative_format_flags": [
+                "viewer_retention_continuity: The CTA in s3 is abrupt inside the locked anchor section.",
+                "viewer_retention_continuity: The closing_payoff in s5 is too generic.",
+            ],
+            "unverified_religious_quote_flags": [],
+        }
+        plan = self._plan_for_run199()
+        brief = _brief()
+        brief["research_pack"] = [
+            {
+                "source_title": "Planning fallacy source",
+                "claim_scope": (
+                    "Use only to support the general tendency to underestimate task duration; "
+                    "do not invent a concrete experiment or claim the brain is designed for it."
+                ),
+            },
+            {
+                "source_title": "Implementation intentions source",
+                "claim_scope": (
+                    "Use only to support association with better follow-through; "
+                    "do not claim guaranteed success."
+                ),
+            },
+        ]
+        router = self._Router(self._repaired_script())
+        audit_calls = {"n": 0}
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            if audit_calls["n"] == 1:
+                raise CleanV2ToneContentBlock(tone_block)
+            return {
+                "schema_version": 1,
+                "status": "pass",
+                "factuality_status": "pass",
+                "tone_naturalness_status": "pass",
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._write_locked_runtime_files(root)
+            (root / "structural-ai-flags.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "source": "legacy-editorial-room-structural-ai-flags",
+                        "mode": "advisory",
+                        "short_form": False,
+                        "flags": ["repeated_not_x_but_y"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            script = original
+            _run_text_audit_with_one_bounded_tone_repair(
+                text_audit=text_audit,
+                router=router,
+                output_dir=root,
+                brief=brief,
+                plan=plan,
+                script=script,
+            )
+
+        self.assertEqual(router.calls, 1)
+        prompt = router.prompts[0]
+        self.assertIn("[RESEARCH_BOUNDARIES]", prompt)
+        self.assertIn("Planning fallacy source", prompt)
+        self.assertIn("do not invent a concrete experiment", prompt)
+        self.assertIn("[TARGETED_STRUCTURAL_REPAIR_CONTRACT]", prompt)
+        self.assertIn("OFFENDING_OCCURRENCES=", prompt)
+        self.assertIn("المشكلة ليست ضعف الإرادة بل سوء تقدير الوقت", prompt)
+        self.assertIn("ليس التأجيل كسلًا بل محاولة للهروب", prompt)
+        self.assertIn("Preserve every unaffected sentence exactly", prompt)
+        self.assertIn("Tone repair is NOT permission to explain the science again", prompt)
+        self.assertIn("participant group", prompt)
+        self.assertIn('"the brain is designed to..."', prompt)
+
     def test_run254_keeps_exact_cta_in_natural_position_inside_locked_anchor(self) -> None:
         candidate = self._repaired_script()
         candidate["sections"][2]["narration"] = (

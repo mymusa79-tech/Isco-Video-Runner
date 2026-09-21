@@ -16,6 +16,7 @@ from clean_v2.pipeline import (
 from clean_v2.tone_audit import (
     TONE_AUDIT_SCHEMA,
     _mistral_tone_call,
+    _scope_clean_v2_tone_prompt,
     _scope_religious_quote_prompt,
 )
 
@@ -156,6 +157,20 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(plan.identity_opener, identity["opener"])
         self.assertEqual(plan.identity_closer, identity["closer"])
         self.assertEqual(plan.identity_transitions, identity["transitions"])
+
+    def test_run256_tone_scope_defers_visual_query_and_respects_host_locks(self):
+        base = (
+            "5. Unverified religious quotations: flag any religious quotation or attribution presented as authoritative unless the\n"
+            "   approved research context directly supports it as verified. Judge this semantically - do not rely only on a fixed\n"
+            "   list of marker phrases."
+        )
+        scoped = _scope_clean_v2_tone_prompt(base)
+        self.assertIn("spoken-text audit", scoped)
+        self.assertIn("Do not block on visual_query", scoped)
+        self.assertIn("contextual CTA anchor section is host-owned", scoped)
+        self.assertIn("Do not require moving the CTA to a", scoped)
+        self.assertIn("different section or to the ending", scoped)
+        self.assertIn("narrative identity opener/closer are host-owned", scoped)
 
     def test_run254_religious_quote_scope_keeps_invocation_distinct_from_quote(self):
         base = (
