@@ -419,6 +419,8 @@ class CleanV2OpeningDirectorTests(unittest.TestCase):
 
             def fake_run(command, *, timeout):
                 captured.append(command)
+                if str(command[-1]).endswith(".rendering.mp4"):
+                    Path(command[-1]).write_bytes(b"x" * 2048)
                 return None
 
             with patch("clean_v2.media.probe_duration", return_value=120.0), patch(
