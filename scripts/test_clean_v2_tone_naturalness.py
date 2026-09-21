@@ -8,11 +8,16 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from clean_v2.pipeline import (
+    _closing_payoff_for_tone_audit,
     _first_spoken_sentence,
     _run_legacy_tone_naturalness_audit,
     _run_text_audits,
 )
-from clean_v2.tone_audit import TONE_AUDIT_SCHEMA, _mistral_tone_call
+from clean_v2.tone_audit import (
+    TONE_AUDIT_SCHEMA,
+    _mistral_tone_call,
+    _scope_religious_quote_prompt,
+)
 
 
 def _tone_result(*, status: str = "pass", validation: str = "valid") -> dict:
@@ -85,6 +90,84 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             _first_spoken_sentence(script),
             "لماذا نخطط كثيرًا ولا نبدأ؟",
         )
+
+    def test_run254_tone_bridge_uses_actual_closing_payoff_and_identity(self):
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "هوك فعلي واضح. ثم بداية الشرح."},
+                {
+                    "id": "s5",
+                    "narration": (
+                        "اختر إشارة واحدة واضحة وجرّبها غدًا. "
+                        "راقب هل قرّبت خطتك من الواقع بدل الأمل. "
+                        "هذه هي الخلاصة التي نريد أن تبقى. "
+                        "إلى لقاء جديد مع اليقظة، وحفظكم الله."
+                    ),
+                },
+            ]
+        }
+        identity = {
+            "opener": "افتتاح الهوية",
+            "closer": "إلى لقاء جديد مع اليقظة، وحفظكم الله.",
+            "transitions": ["أولاً", "ثم", "أخيرًا"],
+        }
+        payoff = _closing_payoff_for_tone_audit(script, identity=identity)
+        self.assertNotIn(identity["closer"], payoff)
+        self.assertIn("قرّبت خطتك من الواقع بدل الأمل", payoff)
+        self.assertIn("هذه هي الخلاصة", payoff)
+
+        captured = {}
+        dummy_plan = SimpleNamespace(
+            hook="",
+            closing_payoff="وعد التخطيط الذي لا يجب تقييمه كخاتمة",
+            identity_opener="",
+            identity_closer="",
+            identity_transitions=[],
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "narrative-identity.json").write_text(
+                json.dumps(identity, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            def audit(_api_key, production_plan, _model):
+                captured["plan"] = production_plan
+                return _tone_result()
+
+            with patch(
+                "clean_v2.pipeline._build_production_plan_for_audit",
+                return_value=dummy_plan,
+            ), patch(
+                "clean_v2.tone_audit.audit_tone_and_naturalness_with_mistral",
+                side_effect=audit,
+            ):
+                _run_legacy_tone_naturalness_audit(
+                    output_dir=root,
+                    brief={"format": "film"},
+                    plan={"promise": "وعد التخطيط"},
+                    script=script,
+                )
+
+        plan = captured["plan"]
+        self.assertEqual(plan.hook, "هوك فعلي واضح.")
+        self.assertEqual(plan.closing_payoff, payoff)
+        self.assertNotEqual(plan.closing_payoff, "وعد التخطيط")
+        self.assertEqual(plan.identity_opener, identity["opener"])
+        self.assertEqual(plan.identity_closer, identity["closer"])
+        self.assertEqual(plan.identity_transitions, identity["transitions"])
+
+    def test_run254_religious_quote_scope_keeps_invocation_distinct_from_quote(self):
+        base = (
+            "5. Unverified religious quotations: flag any religious quotation or attribution presented as authoritative unless the\n"
+            "   approved research context directly supports it as verified. Judge this semantically - do not rely only on a fixed\n"
+            "   list of marker phrases."
+        )
+        scoped = _scope_religious_quote_prompt(base)
+        self.assertIn("بسم الله / باسم الله / حفظكم الله", scoped)
+        self.assertIn("are not quotations or attributions by themselves", scoped)
+        self.assertIn("unless they actually quote or attribute", scoped)
+        self.assertEqual(scoped.count("Scope clarification for Clean V2"), 1)
 
     def test_valid_content_block_is_quality_block_not_infrastructure(self):
         blocked = _tone_result(status="block")
