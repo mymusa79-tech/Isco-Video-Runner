@@ -68,24 +68,91 @@ STAGES = (
     QUALITY_STAGE,
 )
 
+TTS_CHUNK_MAX_CHARS = 600
+
+
+def _split_tts_chunks(text: str, *, max_chars: int = TTS_CHUNK_MAX_CHARS) -> list[str]:
+    """Split narration only at spoken boundaries; never change or drop words."""
+    original = str(text or "").strip()
+    if not original:
+        return []
+    if len(original) <= max_chars:
+        return [original]
+
+    sentence_units = [
+        item.strip()
+        for item in re.findall(r".+?(?:[.!؟!]+(?=\s|$)|$)", original, flags=re.S)
+        if item.strip()
+    ]
+    if not sentence_units:
+        sentence_units = [original]
+
+    atomic_units: list[str] = []
+    for sentence in sentence_units:
+        if len(sentence) <= max_chars:
+            atomic_units.append(sentence)
+            continue
+        clauses = [
+            item.strip()
+            for item in re.split(r"(?<=[،؛,:])\s+", sentence)
+            if item.strip()
+        ]
+        if not clauses:
+            clauses = [sentence]
+        for clause in clauses:
+            remaining = clause
+            while len(remaining) > max_chars:
+                cut = remaining.rfind(" ", 0, max_chars + 1)
+                if cut <= 0:
+                    cut = remaining.find(" ", max_chars)
+                if cut <= 0:
+                    raise RuntimeError("Clean V2 TTS chunk has no safe word boundary")
+                atomic_units.append(remaining[:cut].strip())
+                remaining = remaining[cut:].strip()
+            if remaining:
+                atomic_units.append(remaining)
+
+    chunks: list[str] = []
+    current = ""
+    for unit in atomic_units:
+        candidate = unit if not current else f"{current} {unit}"
+        if current and len(candidate) > max_chars:
+            chunks.append(current)
+            current = unit
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+
+    if not chunks or any(len(item) > max_chars for item in chunks):
+        raise RuntimeError("Clean V2 TTS chunk bound failed")
+    if " ".join(" ".join(item.split()) for item in chunks) != " ".join(original.split()):
+        raise RuntimeError("Clean V2 TTS chunking changed narration text")
+    return chunks
+
+
 
 def _synthesize_sectioned_voice(
     voice_synthesizer: Any,
     sections: list[dict[str, Any]],
     narration_path: Path,
 ) -> dict[str, Any]:
-    """Restore the legacy film TTS shape: synthesize one script section at a time.
+    """Synthesize bounded local Charon chunks, then sections, then the full narration.
 
-    Clean V2 still owns the script section boundaries, so no new semantic chunker is
-    introduced here. Each successful section is kept as an evidence WAV under
-    output/audio; only the failing section is retried by the existing Charon retry
-    policy. The legacy Engine concat helper is reused after every section succeeds.
+    Script section boundaries remain authoritative. A long section is split only at
+    sentence/clause/word boundaries into <= TTS_CHUNK_MAX_CHARS pieces. Charon's
+    existing bounded retry policy applies independently to each piece, so a timeout
+    never causes an already-successful neighboring piece to be re-synthesized inside
+    the same production attempt. No text is added, removed, paraphrased, or sent to
+    another provider.
     """
     if not sections:
         raise RuntimeError("Clean V2 sectioned voice requires at least one section")
 
     audio_dir = narration_path.parent / "audio"
+    chunk_dir = audio_dir / "chunks"
     audio_dir.mkdir(parents=True, exist_ok=True)
+    chunk_dir.mkdir(parents=True, exist_ok=True)
     section_paths: list[Path] = []
     reports: list[dict[str, Any]] = []
     expected_provider: str | None = None
@@ -103,89 +170,140 @@ def _synthesize_sectioned_voice(
             raise RuntimeError(
                 f"Clean V2 sectioned voice found empty narration: section={section_id}"
             )
+        chunks = _split_tts_chunks(section_text)
+        if not chunks:
+            raise RuntimeError(
+                f"Clean V2 sectioned voice produced no chunks: section={section_id}"
+            )
+
         section_path = audio_dir / f"{index:02d}.wav"
-        try:
-            voice_synthesizer.synthesize(section_text, section_path)
-        except Exception:
+        chunk_paths: list[Path] = []
+        chunk_reports: list[dict[str, Any]] = []
+        for chunk_index, chunk_text in enumerate(chunks, start=1):
+            chunk_path = (
+                section_path
+                if len(chunks) == 1
+                else chunk_dir / f"{index:02d}-{chunk_index:02d}.wav"
+            )
+            try:
+                voice_synthesizer.synthesize(chunk_text, chunk_path)
+            except Exception:
+                atomic_write_json(
+                    report_path,
+                    {
+                        "schema_version": 2,
+                        "source": "clean-v2-chunked-sectioned-voice",
+                        "status": "failed",
+                        "failed_section": section_id,
+                        "failed_chunk": chunk_index,
+                        "failed_chunk_chars": len(chunk_text),
+                        "sections": reports,
+                        "current_section_chunks": chunk_reports,
+                    },
+                )
+                raise
+
+            provider = str(getattr(voice_synthesizer, "last_provider", "") or "")
+            if not provider:
+                raise RuntimeError(
+                    f"Clean V2 sectioned voice provider missing: section={section_id}"
+                )
+            if expected_provider is None:
+                expected_provider = provider
+            elif provider != expected_provider:
+                raise RuntimeError(
+                    "Clean V2 sectioned voice provider drift is forbidden: "
+                    f"expected={expected_provider} actual={provider} "
+                    f"section={section_id} chunk={chunk_index}"
+                )
+
+            attempts = int(getattr(voice_synthesizer, "charon_attempts", 0) or 0)
+            total_charon_attempts += attempts
+            fallback_used = bool(getattr(voice_synthesizer, "fallback_used", False))
+            any_fallback = any_fallback or fallback_used
+            current_approval = getattr(
+                voice_synthesizer, "voice_approval_status", None
+            )
+            current_reference = getattr(
+                voice_synthesizer, "voice_reference_profile", None
+            )
+            if isinstance(current_approval, str) and current_approval:
+                approval_status = current_approval
+            if isinstance(current_reference, str) and current_reference:
+                reference_profile = current_reference
+            current_roles = getattr(voice_synthesizer, "voice_roles", None)
+            if isinstance(current_roles, dict):
+                role_reports.append(
+                    {
+                        "id": section_id,
+                        "chunk": chunk_index,
+                        **dict(current_roles),
+                    }
+                )
+
+            chunk_paths.append(chunk_path)
+            chunk_reports.append(
+                {
+                    "index": chunk_index,
+                    "chars": len(chunk_text),
+                    "file": str(chunk_path.relative_to(narration_path.parent)),
+                    "provider": provider,
+                    "charon_attempts": attempts,
+                    "fallback_used": fallback_used,
+                }
+            )
             atomic_write_json(
                 report_path,
                 {
-                    "schema_version": 1,
-                    "source": "clean-v2-sectioned-voice",
-                    "status": "failed",
-                    "failed_section": section_id,
+                    "schema_version": 2,
+                    "source": "clean-v2-chunked-sectioned-voice",
+                    "status": "in_progress",
                     "sections": reports,
+                    "current_section": section_id,
+                    "current_section_chunks": chunk_reports,
                 },
             )
-            raise
 
-        provider = str(getattr(voice_synthesizer, "last_provider", "") or "")
-        if not provider:
-            raise RuntimeError(
-                f"Clean V2 sectioned voice provider missing: section={section_id}"
-            )
-        if expected_provider is None:
-            expected_provider = provider
-        elif provider != expected_provider:
-            atomic_write_json(
-                report_path,
-                {
-                    "schema_version": 1,
-                    "source": "clean-v2-sectioned-voice",
-                    "status": "failed",
-                    "failed_section": section_id,
-                    "reason": "voice_provider_drift",
-                    "expected_provider": expected_provider,
-                    "actual_provider": provider,
-                    "sections": reports,
-                },
-            )
-            raise RuntimeError(
-                "Clean V2 sectioned voice provider drift is forbidden: "
-                f"expected={expected_provider} actual={provider} section={section_id}"
-            )
-
-        attempts = int(getattr(voice_synthesizer, "charon_attempts", 0) or 0)
-        total_charon_attempts += attempts
-        fallback_used = bool(getattr(voice_synthesizer, "fallback_used", False))
-        any_fallback = any_fallback or fallback_used
-        current_approval = getattr(
-            voice_synthesizer, "voice_approval_status", None
-        )
-        current_reference = getattr(
-            voice_synthesizer, "voice_reference_profile", None
-        )
-        if isinstance(current_approval, str) and current_approval:
-            approval_status = current_approval
-        if isinstance(current_reference, str) and current_reference:
-            reference_profile = current_reference
-        current_roles = getattr(voice_synthesizer, "voice_roles", None)
-        if isinstance(current_roles, dict):
-            role_reports.append({"id": section_id, **dict(current_roles)})
+        if len(chunk_paths) > 1:
+            joined_section = audio_dir / f".{index:02d}-chunk-join.wav"
+            joined_list = joined_section.with_suffix(".txt")
+            try:
+                concat_wav_parts(chunk_paths, joined_section)
+                if not joined_section.is_file() or joined_section.stat().st_size < 1024:
+                    raise RuntimeError(
+                        f"Clean V2 chunk concat produced empty section audio: {section_id}"
+                    )
+                os.replace(joined_section, section_path)
+            finally:
+                joined_section.unlink(missing_ok=True)
+                joined_list.unlink(missing_ok=True)
 
         section_paths.append(section_path)
         reports.append(
             {
                 "id": section_id,
                 "file": str(Path("audio") / section_path.name),
-                "provider": provider,
-                "charon_attempts": attempts,
-                "fallback_used": fallback_used,
+                "provider": expected_provider,
+                "chunk_count": len(chunks),
+                "chunks": chunk_reports,
+                "charon_attempts": sum(
+                    int(row.get("charon_attempts") or 0) for row in chunk_reports
+                ),
+                "fallback_used": any(
+                    bool(row.get("fallback_used")) for row in chunk_reports
+                ),
             }
         )
         atomic_write_json(
             report_path,
             {
-                "schema_version": 1,
-                "source": "clean-v2-sectioned-voice",
+                "schema_version": 2,
+                "source": "clean-v2-chunked-sectioned-voice",
                 "status": "in_progress",
                 "sections": reports,
             },
         )
 
-    # Reuse the old Engine's tested PCM concat implementation, but give it a
-    # temporary output name so its sidecar list file cannot overwrite Clean V2's
-    # authoritative narration.txt transcript artifact.
     joined_path = narration_path.with_name(".narration-section-join.wav")
     joined_list_path = joined_path.with_suffix(".txt")
     try:
@@ -202,7 +320,7 @@ def _synthesize_sectioned_voice(
         "voice_fallback_used": any_fallback,
         "charon_tts_attempts": total_charon_attempts,
         "voice_roles": {
-            "mode": "sectioned",
+            "mode": "chunked_sectioned",
             "sections": role_reports,
         },
         "voice_approval_status": approval_status,
@@ -212,8 +330,8 @@ def _synthesize_sectioned_voice(
     atomic_write_json(
         report_path,
         {
-            "schema_version": 1,
-            "source": "clean-v2-sectioned-voice",
+            "schema_version": 2,
+            "source": "clean-v2-chunked-sectioned-voice",
             "status": "pass",
             **result,
         },
