@@ -452,6 +452,40 @@ def _mistral_script_response_schema(prompt: str) -> dict[str, Any]:
         }
         for section_id in section_ids
     ]
+    if "REPAIR_PATCH_OUTPUT_CONTRACT:" in prompt:
+        return {
+            "type": "object",
+            "properties": {
+                "patches": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "section_id": {
+                                "type": "string",
+                                "enum": section_ids,
+                            },
+                            "old_text": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 320,
+                            },
+                            "new_text": {
+                                "type": "string",
+                                "maxLength": 440,
+                            },
+                        },
+                        "required": ["section_id", "old_text", "new_text"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["patches"],
+            "additionalProperties": False,
+        }
+
     return {
         "type": "object",
         "properties": {
