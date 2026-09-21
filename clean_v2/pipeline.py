@@ -1068,13 +1068,19 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - Preserve every unaffected sentence exactly. Change only sentences necessary for a listed flag
   or an OFFENDING_OCCURRENCE.
 - Make the minimum wording/transition changes needed for the listed flags. No unrelated rewrite.
-- Return narration only inside the existing script JSON shape; no markdown or commentary.
+- DO NOT return a rewritten script. Return only exact local text replacements.
+- Each patch.find MUST be copied verbatim from CURRENT_SCRIPT inside the named section.
+- Each patch.replace MUST contain only the minimum local wording needed to fix that target.
+- Maximum 6 patches. Do not patch an unflagged section.
 
-Return one JSON object with the same title and every locked section id exactly once and in order:
+Return exactly one JSON object in this shape:
 {{
-  "title": "same Arabic title",
-  "sections": [
-    {{"id": "s1", "narration": "repaired Arabic spoken narration"}}
+  "patches": [
+    {{
+      "section_id": "s2",
+      "find": "exact original text copied from the current narration",
+      "replace": "minimal repaired replacement"
+    }}
   ]
 }}
 """.strip()))
@@ -1106,7 +1112,7 @@ def _run_one_bounded_tone_repair(
     identity = _read_json_object(output_dir / "narrative-identity.json")
     cta_plan = _read_json_object(output_dir / "cta-plan.json")
     repaired = router.route(
-        stage="script",
+        stage="script_patch",
         prompt=_tone_repair_prompt(
             brief=brief,
             plan=plan,
@@ -1115,13 +1121,14 @@ def _run_one_bounded_tone_repair(
             cta_plan=cta_plan,
             revision_note=issue_notes,
         ),
-        max_tokens=7500 if str(brief.get("format") or "") == "film" else 2500,
-        validator=lambda value: _validate_tone_repair_script(
+        max_tokens=2200 if str(brief.get("format") or "") == "film" else 1200,
+        validator=lambda value: _validate_and_apply_script_patches(
             value,
             plan=plan,
             original_script=script,
             identity=identity,
             cta_plan=cta_plan,
+            revision_note=issue_notes,
         ),
     )
     script.clear()
@@ -1210,16 +1217,22 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
   its existing anchor section when needed to make the surrounding transition sound natural.
-- These host-owned locks are restored deterministically after your candidate is parsed; spend
-  repair effort only on the listed factuality/tone/structural defects, not on rewriting locked anchors.
+- These host-owned locks remain exact; spend repair effort only on the listed
+  factuality/tone/structural defects, not on rewriting locked anchors.
 - Make the minimum wording changes needed. No unrelated rewrite.
-- Return narration only inside the existing script JSON shape; no markdown or commentary.
+- DO NOT return a rewritten script. Return only exact local text replacements.
+- Each patch.find MUST be copied verbatim from CURRENT_SCRIPT inside the named section.
+- Each patch.replace MUST contain only the minimum local wording needed to fix that target.
+- Maximum 6 patches. Do not patch an unflagged section.
 
-Return one JSON object with the same title and every locked section id exactly once and in order:
+Return exactly one JSON object in this shape:
 {{
-  "title": "same Arabic title",
-  "sections": [
-    {{"id": "s1", "narration": "repaired Arabic spoken narration"}}
+  "patches": [
+    {{
+      "section_id": "s4",
+      "find": "exact original text copied from the current narration",
+      "replace": "minimal repaired replacement"
+    }}
   ]
 }}
 """.strip()))
@@ -1264,7 +1277,7 @@ def _run_one_bounded_factuality_repair(
     identity = _read_json_object(output_dir / "narrative-identity.json")
     cta_plan = _read_json_object(output_dir / "cta-plan.json")
     repaired = router.route(
-        stage="script",
+        stage="script_patch",
         prompt=_factuality_repair_prompt(
             brief=brief,
             plan=plan,
@@ -1273,13 +1286,14 @@ def _run_one_bounded_factuality_repair(
             cta_plan=cta_plan,
             revision_note=issue_notes,
         ),
-        max_tokens=7500 if str(brief.get("format") or "") == "film" else 2500,
-        validator=lambda value: _validate_tone_repair_script(
+        max_tokens=2200 if str(brief.get("format") or "") == "film" else 1200,
+        validator=lambda value: _validate_and_apply_script_patches(
             value,
             plan=plan,
             original_script=script,
             identity=identity,
             cta_plan=cta_plan,
+            revision_note=issue_notes,
         ),
     )
     script.clear()
