@@ -146,7 +146,7 @@ def _compatibility_plan(
     return ProductionPlan(
         topic=str(plan.get("title") or "Clean V2"),
         pillar="clean_v2",
-        format="moment" if fmt in {"moment", "story"} else "film",
+        format="moment" if fmt in {"moment", "story", "short"} else "film",
         hook=str(plan.get("promise") or ""),
         title_options=[str(plan.get("title") or "Clean V2")],
         thumbnail_concepts=[],
@@ -173,7 +173,7 @@ def _m10_plan(
     fmt: str,
 ) -> dict[str, Any]:
     return {
-        "format": "moment" if fmt in {"moment", "story"} else "film",
+        "format": "moment" if fmt in {"moment", "story", "short"} else "film",
         "sections": [
             {
                 "id": section.id,
