@@ -1974,6 +1974,62 @@ def _run_short_duration_gate(
     return report
 
 
+def _run_audio_mastering_stage(
+    *,
+    audio_mastering: Callable[..., dict[str, Any]],
+    output_dir: Path,
+    narration_path: Path,
+    fmt: str,
+) -> dict[str, Any]:
+    report = audio_mastering(
+        output_dir=output_dir,
+        narration_path=narration_path,
+    )
+    if fmt == "short":
+        _run_short_duration_gate(
+            output_dir=output_dir,
+            media_path=output_dir / "narration-mastered.wav",
+            phase="post_audio_mastering_pre_visuals",
+            report_name="short-duration-pre-visual.json",
+        )
+    return report
+
+
+def _inspect_final_with_short_gate(
+    *,
+    final_inspector: Callable[[Path], dict[str, Any]],
+    output_dir: Path,
+    final_path: Path,
+    fmt: str,
+) -> dict[str, Any]:
+    report = final_inspector(final_path)
+    if fmt == "short":
+        validate_short_duration(
+            float(report["duration_seconds"]),
+            phase="final_render",
+        )
+        validate_short_dimensions(
+            int(report.get("width") or 0),
+            int(report.get("height") or 0),
+        )
+        atomic_write_json(
+            output_dir / "short-duration-final.json",
+            {
+                "schema_version": 1,
+                "source": "clean-v2-short-final-gate",
+                "status": "pass",
+                "duration_seconds": float(report["duration_seconds"]),
+                "width": int(report.get("width") or 0),
+                "height": int(report.get("height") or 0),
+                "minimum_seconds": 60.0,
+                "target_seconds": 75.0,
+                "maximum_seconds": 90.0,
+                "provider_calls_added": 0,
+            },
+        )
+    return report
+
+
 def _planning_prompt(brief: Mapping[str, Any]) -> str:
     fmt = str(brief["format"])
     if fmt == "film":
@@ -2775,19 +2831,14 @@ class CleanV2Pipeline:
             # on disk (resumed or freshly synthesized) rather than cached.
             audio_mastering_report = journal.run(
                 AUDIO_MASTERING_STAGE,
-                lambda: self.audio_mastering(
+                lambda: _run_audio_mastering_stage(
+                    audio_mastering=self.audio_mastering,
                     output_dir=output_dir,
                     narration_path=narration_path,
+                    fmt=str(brief["format"]),
                 ),
             )
             narration_path = output_dir / "narration-mastered.wav"
-            if str(brief["format"]) == "short":
-                _run_short_duration_gate(
-                    output_dir=output_dir,
-                    media_path=narration_path,
-                    phase="post_audio_mastering_pre_visuals",
-                    report_name="short-duration-pre-visual.json",
-                )
 
             visuals_dir = output_dir / "visuals"
             # Security V1 and M8 are part of the restored layer and execute inside
@@ -3032,33 +3083,15 @@ class CleanV2Pipeline:
             )
 
             final_report = journal.run(
-                "final_file", lambda: self.final_inspector(final_path)
+                "final_file",
+                lambda: _inspect_final_with_short_gate(
+                    final_inspector=self.final_inspector,
+                    output_dir=output_dir,
+                    final_path=final_path,
+                    fmt=str(brief["format"]),
+                ),
             )
             atomic_write_json(output_dir / "final.json", final_report)
-            if str(brief["format"]) == "short":
-                validate_short_duration(
-                    float(final_report["duration_seconds"]),
-                    phase="final_render",
-                )
-                validate_short_dimensions(
-                    int(final_report.get("width") or 0),
-                    int(final_report.get("height") or 0),
-                )
-                atomic_write_json(
-                    output_dir / "short-duration-final.json",
-                    {
-                        "schema_version": 1,
-                        "source": "clean-v2-short-final-gate",
-                        "status": "pass",
-                        "duration_seconds": float(final_report["duration_seconds"]),
-                        "width": int(final_report.get("width") or 0),
-                        "height": int(final_report.get("height") or 0),
-                        "minimum_seconds": 60.0,
-                        "target_seconds": 75.0,
-                        "maximum_seconds": 90.0,
-                        "provider_calls_added": 0,
-                    },
-                )
             self._write_runtime_events(output_dir)
 
             # Compatibility evidence for the unchanged legacy Final Master QC core.
