@@ -14,7 +14,7 @@ from clean_v2.media import (
     TtsProviderError,
     VoiceInfrastructureError,
 )
-from clean_v2.pipeline import STAGES, _Journal, _synthesize_sectioned_voice
+from clean_v2.pipeline import (\n    STAGES,\n    _Journal,\n    _bounded_voice_chunks,\n    _synthesize_sectioned_voice,\n)
 
 
 def _write_audio(path: Path, marker: bytes = b"G") -> Path:
@@ -196,6 +196,94 @@ class CleanV2VoiceRoutingTests(unittest.TestCase):
             self.assertEqual(
                 [item["charon_attempts"] for item in report["sections"]],
                 [1, 3, 1],
+            )
+
+    def test_run267_long_section_retries_only_failing_bounded_chunk(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "narration.wav"
+            (root / "narration.txt").write_text(
+                "authoritative transcript\n", encoding="utf-8"
+            )
+            synth = self._synthesizer(root)
+            sentence = (
+                "هذه جملة عربية فصيحة طويلة نسبيًا لاختبار تقسيم الصوت عند حدود "
+                "طبيعية من دون تغيير أي كلمة في النص المنطوق."
+            )
+            long_text = " ".join([sentence] * 9)
+            chunks = _bounded_voice_chunks(long_text)
+            self.assertEqual(len(chunks), 2)
+            self.assertTrue(all(len(chunk) <= 550 for chunk in chunks))
+            self.assertEqual(
+                " ".join(" ".join(chunks).split()),
+                " ".join(long_text.split()),
+            )
+
+            calls: list[str] = []
+            second_chunk_attempts = 0
+            concat_calls: list[list[str]] = []
+
+            def gemini(*args, **_kwargs):
+                nonlocal second_chunk_attempts
+                transcript = str(args[1])
+                target = Path(args[2])
+                calls.append(transcript)
+                if transcript == chunks[1]:
+                    second_chunk_attempts += 1
+                    if second_chunk_attempts < 3:
+                        raise RuntimeError(
+                            "Gemini TTS failed after retries: "
+                            "{'type': 'APITimeoutError'}"
+                        )
+                return _write_audio(target)
+
+            def concat_audio(inputs, target):
+                concat_calls.append([str(path) for path in inputs])
+                return _write_audio(Path(target), b"J")
+
+            with patch(
+                "clean_v2.media._legacy_voice_identity",
+                return_value=("Charon", "Orus"),
+            ), patch(
+                "clean_v2.media._legacy_gemini_synthesize",
+                side_effect=gemini,
+            ), patch(
+                "clean_v2.media.time.sleep"
+            ) as sleep, patch(
+                "clean_v2.pipeline.concat_wav_parts",
+                side_effect=concat_audio,
+            ):
+                result = _synthesize_sectioned_voice(
+                    synth,
+                    [{"id": "s1", "narration": long_text}],
+                    output,
+                )
+
+            self.assertEqual(calls, [chunks[0], chunks[1], chunks[1], chunks[1]])
+            self.assertEqual(
+                [call.args[0] for call in sleep.call_args_list],
+                [1.0, 2.0],
+            )
+            self.assertEqual(result["charon_tts_attempts"], 4)
+            self.assertEqual(result["sections"][0]["chunk_count"], 2)
+            self.assertEqual(
+                [item["charon_attempts"] for item in result["sections"][0]["chunks"]],
+                [1, 3],
+            )
+            self.assertEqual(len(concat_calls), 2)
+            self.assertEqual(
+                [Path(path).name for path in concat_calls[0]],
+                ["01.wav", "02.wav"],
+            )
+            self.assertEqual(
+                [Path(path).name for path in concat_calls[1]],
+                ["01.wav"],
+            )
+            self.assertTrue((root / "audio" / "01-chunks" / "01.wav").is_file())
+            self.assertTrue((root / "audio" / "01-chunks" / "02.wav").is_file())
+            self.assertEqual(
+                (root / "narration.txt").read_text(encoding="utf-8"),
+                "authoritative transcript\n",
             )
 
     def test_charon_retries_three_total_attempts_before_any_fallback(self) -> None:
