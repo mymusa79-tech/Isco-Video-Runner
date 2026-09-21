@@ -910,6 +910,9 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Preserve the runtime narrative-identity opener and closer exactly once each.
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move, or repeat the CTA.
+- If a tone flag mentions the locked hook, narrative-identity opener/closer, or CTA, repair the
+  surrounding lead-in, transition, or payoff so the fixed phrase lands naturally; do not rewrite
+  the locked phrase itself.
 - These host-owned locks are restored deterministically after your candidate is parsed; spend
   repair effort only on the listed factuality/tone/structural defects, not on rewriting locked anchors.
 - Make the minimum wording changes needed. No unrelated rewrite.
