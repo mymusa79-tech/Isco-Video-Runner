@@ -1111,6 +1111,8 @@ class RenderVideoColorAndCutTests(unittest.TestCase):
 
             def fake_run(command, *, timeout):
                 captured.append(command)
+                if str(command[-1]).endswith(".rendering.mp4"):
+                    Path(command[-1]).write_bytes(b"x" * 2048)
                 return None
 
             with mock.patch.dict(sys.modules, modules), mock.patch(
@@ -1146,6 +1148,8 @@ class RenderVideoColorAndCutTests(unittest.TestCase):
 
             def fake_run(command, *, timeout):
                 captured.append(command)
+                if str(command[-1]).endswith(".rendering.mp4"):
+                    Path(command[-1]).write_bytes(b"x" * 2048)
                 return None
 
             with mock.patch.dict(
@@ -1186,6 +1190,8 @@ class RenderVideoColorAndCutTests(unittest.TestCase):
 
             def fake_run(command, *, timeout):
                 captured.append(command)
+                if str(command[-1]).endswith(".rendering.mp4"):
+                    Path(command[-1]).write_bytes(b"x" * 2048)
                 return None
 
             with mock.patch.dict(
