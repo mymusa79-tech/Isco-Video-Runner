@@ -284,7 +284,10 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"- exact_sections={SHORT_SECTION_COUNT}; frame={SHORT_WIDTH}x{SHORT_HEIGHT}\n"
         f"- s1: the first spoken sentence is the truthful hook and must be at most {SHORT_HOOK_MAX_WORDS} Arabic words; no greeting.\n"
         "- s2: develop the selected template's specific tension/turn; do not switch to a generic motivational format.\n"
-        "- s3: land the payoff, then give exactly ONE practical action in one clear imperative sentence.\n"
+        "- s3: land the payoff, then give exactly ONE practical action in one clear imperative sentence. "
+        "That action sentence MUST begin with a direct Arabic imperative verb, not a descriptive suggestion. "
+        "Good examples: \"ابدأ بـ...\", \"جرّب أن...\", \"افعل...\", \"اختر...\", \"اكتب...\". "
+        "Bad examples: \"يمكنك أن...\", \"من الأفضل أن...\", or a general description with no command.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
@@ -419,7 +422,10 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     action_sentences = [
         sentence
         for sentence in re.split(r"(?<=[.!؟!])\s+", s3)
-        if any(marker in _semantic_key(sentence) for marker in _PRACTICAL_ACTION_MARKERS)
+        if any(
+            _semantic_key(marker) in _semantic_key(sentence)
+            for marker in _PRACTICAL_ACTION_MARKERS
+        )
     ]
     if len(action_sentences) != 1:
         raise ShortFormatError(

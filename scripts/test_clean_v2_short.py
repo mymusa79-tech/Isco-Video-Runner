@@ -221,6 +221,31 @@ class ShortContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ShortFormatError, "zero_social_cta"):
             validate_short_script(cta)
 
+    def test_cohort_attempt_2_s3_requires_one_direct_practical_action(self) -> None:
+        prompt = short_prompt_context(_TEMPLATE_FIXTURES["inner_dialogue"]["brief"])
+        self.assertIn("MUST begin with a direct Arabic imperative verb", prompt)
+        for example in ("ابدأ بـ...", "جرّب أن...", "افعل...", "اختر...", "اكتب..."):
+            self.assertIn(example, prompt)
+
+        no_action = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب، فنؤجل الحركة نفسها."},
+                {"id": "s3", "narration": "الخطوة الصغيرة الآن قد تكون أقرب طريق للخروج من الانتظار."},
+            ],
+        }
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            r"short_s3_requires_exactly_one_practical_action action_sentences=0",
+        ):
+            validate_short_script(no_action)
+
+        direct_action = json.loads(json.dumps(no_action, ensure_ascii=False))
+        direct_action["sections"][2]["narration"] = "ابدأ بخطوة صغيرة تستطيع تنفيذها الآن."
+        report = validate_short_script(direct_action)
+        self.assertEqual(report["practical_action_sentences"], 1)
+
     def test_provider_router_rejects_technically_successful_hook_over_12_words(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
