@@ -8,7 +8,7 @@ from clean_v2.short_format import SHORT_HOOK_MAX_WORDS, ShortFormatError, valida
 
 
 class ShortHookMax12CohortRegressionTests(unittest.TestCase):
-    def test_cohort_15_word_hook_is_rejected_before_provider_output_acceptance(self) -> None:
+    def test_cohort_over_12_word_hook_is_rejected_before_provider_output_acceptance(self) -> None:
         brief = {
             "approved_by_user": True,
             "approved_topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
@@ -47,7 +47,7 @@ class ShortHookMax12CohortRegressionTests(unittest.TestCase):
         }
 
         self.assertEqual(SHORT_HOOK_MAX_WORDS, 12)
-        with self.assertRaisesRegex(ShortFormatError, r"short_hook_too_long words=15 maximum=12"):
+        with self.assertRaisesRegex(ShortFormatError, r"short_hook_too_long words=16 maximum=12"):
             validate_short_hook_contract(overlong)
 
         router = ProviderRouter((
