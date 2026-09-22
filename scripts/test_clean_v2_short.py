@@ -15,11 +15,14 @@ from clean_v2.pipeline import (
     _script_prompt,
     _short_identity_not_applicable,
     _synthesize_sectioned_voice,
+    _validate_script_for_brief,
 )
 from clean_v2 import media as media_module
 from clean_v2.media import GeminiPrimaryPiperFallbackSynthesizer, VoiceInfrastructureError
+from clean_v2.providers import ProviderAdapter, ProviderRouter
 from clean_v2.short_format import (
     SHORT_HEIGHT,
+    SHORT_HOOK_MAX_WORDS,
     SHORT_MAX_SECONDS,
     SHORT_MIN_SECONDS,
     SHORT_SECTION_COUNT,
@@ -32,6 +35,7 @@ from clean_v2.short_format import (
     short_prompt_context,
     validate_short_dimensions,
     validate_short_duration,
+    validate_short_hook_contract,
     validate_short_script,
     validate_short_visual_queries,
 )
@@ -194,6 +198,67 @@ class ShortContractTests(unittest.TestCase):
         cta["sections"][2]["narration"] += " اشترك في القناة."
         with self.assertRaisesRegex(ShortFormatError, "zero_social_cta"):
             validate_short_script(cta)
+
+    def test_provider_router_rejects_technically_successful_hook_over_12_words(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        overlong = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "هذا هوك طويل جدًا لأنه يحتوي كلمات كثيرة أكثر من الحد المسموح للشورت الآن.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "لاحظ اللحظة التي تنتظر فيها الشعور قبل أن تتحرك، دون لوم أو مبالغة.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "اختر خطوة صغيرة تستطيع تنفيذها الآن.",
+                },
+            ],
+        }
+        valid = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "لاحظ اللحظة التي تنتظر فيها الشعور قبل أن تتحرك، دون لوم أو مبالغة.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "اختر خطوة صغيرة تستطيع تنفيذها الآن.",
+                },
+            ],
+        }
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("groq", lambda _prompt, _tokens: overlong),
+                ProviderAdapter("mistral", lambda _prompt, _tokens: valid),
+            )
+        )
+        accepted = router.route(
+            stage="script",
+            prompt="short-script-contract-probe",
+            max_tokens=400,
+            validator=lambda value: _validate_script_for_brief(value, plan, brief),
+        )
+
+        self.assertEqual(accepted["sections"][0]["narration"], valid["sections"][0]["narration"])
+        self.assertEqual(
+            [(event["provider"], event["result"]) for event in router.events],
+            [("groq", "invalid_output"), ("mistral", "success")],
+        )
+        self.assertIn("shortformaterror", str(router.events[0]["reason"]))
+        self.assertEqual(SHORT_HOOK_MAX_WORDS, 12)
+        with self.assertRaisesRegex(ShortFormatError, "short_hook_too_long"):
+            validate_short_hook_contract(overlong)
 
     def test_duration_and_frame_contract_are_hard_bounds(self) -> None:
         self.assertEqual(SHORT_MIN_SECONDS, 7.0)
