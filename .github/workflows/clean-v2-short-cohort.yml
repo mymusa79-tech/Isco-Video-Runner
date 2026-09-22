@@ -170,9 +170,9 @@ jobs:
 
           test "$(jq -r .format "$CLEAN_V2_OUTPUT/short-contract.json")" = "short"
           test "$(jq -r .section_count "$CLEAN_V2_OUTPUT/short-contract.json")" = "3"
-          test "$(jq -r .duration.minimum_seconds "$CLEAN_V2_OUTPUT/short-contract.json")" = "7"
-          test "$(jq -r .duration.target_seconds "$CLEAN_V2_OUTPUT/short-contract.json")" = "15"
-          test "$(jq -r .duration.maximum_seconds "$CLEAN_V2_OUTPUT/short-contract.json")" = "30"
+          jq -e '.duration.minimum_seconds == 7' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
+          jq -e '.duration.target_seconds == 15' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
+          jq -e '.duration.maximum_seconds == 30' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
 
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-pre-visual.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "pass"
