@@ -748,6 +748,40 @@ def _factuality_repair_issue_notes(report: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _factuality_location_issue_notes(
+    report: Mapping[str, Any],
+    script: Mapping[str, Any],
+) -> str:
+    """Expose only explicit audited section ids as deterministic repair locations."""
+    sections = [
+        item
+        for item in (script.get("sections") or [])
+        if isinstance(item, Mapping)
+    ]
+    ordered_ids = [str(item.get("id") or "") for item in sections]
+    valid_ids = set(ordered_ids)
+    targets: set[str] = set()
+    notes = report.get("notes") or []
+    if isinstance(notes, list):
+        for value in notes:
+            note = " ".join(str(value or "").split()).strip()
+            if not note:
+                continue
+            for match in re.finditer(r"\bs([1-5])\b", note, flags=re.I):
+                candidate = "s" + match.group(1)
+                if candidate in valid_ids:
+                    targets.add(candidate)
+            for match in re.finditer(r"\bsection\s+([1-5])\b", note, flags=re.I):
+                candidate = "s" + match.group(1)
+                if candidate in valid_ids:
+                    targets.add(candidate)
+    return "\n".join(
+        f"- [factuality-location] {section_id}"
+        for section_id in ordered_ids
+        if section_id in targets
+    )
+
+
 def _tone_repair_issue_notes(report: Mapping[str, Any]) -> str:
     """Deterministically flatten only the actual tone flags into repair notes."""
     lines: list[str] = []
@@ -1418,12 +1452,14 @@ def _run_one_bounded_factuality_repair(
     tone_report: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     factuality_issue_notes = _factuality_repair_issue_notes(blocked_report)
+    factuality_location_notes = _factuality_location_issue_notes(blocked_report, script)
     tone_issue_notes = _tone_repair_issue_notes(tone_report or {})
     structural_issue_notes = _structural_repair_issue_notes(output_dir)
     issue_notes = "\n".join(
         item
         for item in (
             factuality_issue_notes,
+            factuality_location_notes,
             tone_issue_notes,
             structural_issue_notes,
         )
