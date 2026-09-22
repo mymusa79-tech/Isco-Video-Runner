@@ -733,147 +733,67 @@ def _run_legacy_tone_naturalness_audit(
     return report
 
 
-def _factuality_repair_issue_notes(report: Mapping[str, Any]) -> str:
-    """Flatten only the validated factuality block into one bounded repair note."""
-    lines: list[str] = []
-    seen: set[str] = set()
+def _structured_factuality_flags(report: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Read authoritative section locations from the validated provider payload."""
+    diagnostics = report.get("diagnostics")
+    raw = diagnostics.get("raw_result") if isinstance(diagnostics, Mapping) else None
+    if not isinstance(raw, Mapping):
+        return []
+    rows: list[tuple[str, str]] = []
     for field in _FACTUALITY_REPAIR_FLAG_FIELDS:
-        values = report.get(field) or []
+        values = raw.get(field) or []
         if not isinstance(values, list):
             continue
         for value in values:
-            flag = " ".join(str(value or "").split()).strip()
-            if flag and flag not in seen:
-                lines.append(f"- [factuality] {flag}")
-                seen.add(flag)
+            if not isinstance(value, Mapping):
+                continue
+            section_id = str(value.get("section_id") or "").strip()
+            issue = " ".join(str(value.get("issue") or "").split()).strip()
+            if section_id and issue:
+                rows.append((section_id, issue))
+    return rows
+
+
+def _factuality_repair_issue_notes(report: Mapping[str, Any]) -> str:
+    """Flatten structured factuality issues without parsing location from prose."""
+    seen: set[tuple[str, str]] = set()
+    lines: list[str] = []
+    for section_id, issue in _structured_factuality_flags(report):
+        key = (section_id, issue)
+        if key not in seen:
+            lines.append(f"- [factuality:{section_id}] {issue}")
+            seen.add(key)
     return "\n".join(lines)
+
+
+def _factuality_target_section_ids(
+    report: Mapping[str, Any],
+    script: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Use provider-supplied structured section_id directly; never infer from issue text."""
+    ordered_ids = [
+        str(item.get("id") or "")
+        for item in (script.get("sections") or [])
+        if isinstance(item, Mapping)
+    ]
+    valid = set(ordered_ids)
+    targets = {
+        section_id
+        for section_id, _issue in _structured_factuality_flags(report)
+        if section_id in valid
+    }
+    return tuple(section_id for section_id in ordered_ids if section_id in targets)
 
 
 def _factuality_location_issue_notes(
     report: Mapping[str, Any],
     script: Mapping[str, Any],
 ) -> str:
-    """Resolve audited factuality locations without trusting the model to name a section.
-
-    Explicit section ids remain the first signal. As a deterministic fallback, scan every
-    factuality string for a verbatim offending excerpt and map that excerpt back to the
-    one script section that actually contains it. This keeps the repair scope local even
-    when an otherwise-valid audit omits "sN" / "Section N".
-    """
-    sections = [
-        item
-        for item in (script.get("sections") or [])
-        if isinstance(item, Mapping)
-    ]
-    ordered_ids = [str(item.get("id") or "") for item in sections]
-    valid_ids = set(ordered_ids)
-    targets: set[str] = set()
-
-    def _report_strings(value: Any) -> list[str]:
-        if isinstance(value, str):
-            normalized = " ".join(value.split()).strip()
-            return [normalized] if normalized else []
-        if isinstance(value, Mapping):
-            rows: list[str] = []
-            for nested in value.values():
-                rows.extend(_report_strings(nested))
-            return rows
-        if isinstance(value, list):
-            rows: list[str] = []
-            for nested in value:
-                rows.extend(_report_strings(nested))
-            return rows
-        return []
-
-    audit_strings = _report_strings(report)
-
-    # Primary path: preserve the already-supported explicit location markers.
-    for note in audit_strings:
-        for match in re.finditer(r"\bs([1-5])\b", note, flags=re.I):
-            candidate = "s" + match.group(1)
-            if candidate in valid_ids:
-                targets.add(candidate)
-        for match in re.finditer(r"\bsection\s+(?:s)?([1-5])\b", note, flags=re.I):
-            candidate = "s" + match.group(1)
-            if candidate in valid_ids:
-                targets.add(candidate)
-
-    # Fallback: match a literal audited claim/excerpt to the narration that contains it.
-    # Prefer quoted spans, then any sufficiently long audit string that is itself a
-    # contiguous excerpt of exactly one section. No semantic/AI inference is used here.
-    normalized_sections = {
-        str(item.get("id") or ""): " ".join(str(item.get("narration") or "").split())
-        for item in sections
-    }
-    candidates: list[str] = []
-    for value in audit_strings:
-        candidates.extend(
-            " ".join(match.split()).strip()
-            for match in re.findall(r"[«\"']([^«»\"']{8,400})[»\"']", value)
-        )
-        if 8 <= len(value) <= 400:
-            candidates.append(value)
-
-    for excerpt in candidates:
-        if not excerpt:
-            continue
-        matched = [
-            section_id
-            for section_id, narration in normalized_sections.items()
-            if excerpt in narration
-        ]
-        if len(matched) == 1:
-            targets.add(matched[0])
-
-    # Some providers paraphrase the audited claim in English instead of copying the
-    # Arabic span. Keep that case deterministic too: a deliberately tiny bilingual
-    # concept table turns only concrete claim nouns/verbs into section anchors, then
-    # accepts the fallback only when one section has a unique strongest score.
-    if not targets:
-        concept_aliases = {
-            "action": ("حرك", "خطو", "فعل", "عمل"),
-            "actions": ("حرك", "خطو", "فعل", "عمل"),
-            "motivation": ("دافع", "حماس"),
-            "desire": ("رغب",),
-            "assumption": ("افتراض",),
-            "expectation": ("توقع",),
-            "expectations": ("توقع",),
-            "emotion": ("مشاعر", "شعور"),
-            "emotions": ("مشاعر", "شعور"),
-            "energy": ("طاق",),
-            "generate": ("تولد", "يولد", "ينتج"),
-            "generates": ("تولد", "يولد", "ينتج"),
-            "precede": ("قبل", "أول"),
-            "precedes": ("قبل", "أول"),
-        }
-        report_words = set(
-            re.findall(r"[a-z]+", " ".join(audit_strings).casefold())
-        )
-        active_aliases = [
-            aliases
-            for english, aliases in concept_aliases.items()
-            if english in report_words
-        ]
-        if active_aliases:
-            scores: dict[str, int] = {}
-            for section_id, narration in normalized_sections.items():
-                scores[section_id] = sum(
-                    1
-                    for aliases in active_aliases
-                    if any(alias in narration for alias in aliases)
-                )
-            best = max(scores.values(), default=0)
-            winners = [
-                section_id for section_id in ordered_ids
-                if best > 0 and scores.get(section_id) == best
-            ]
-            if len(winners) == 1:
-                targets.add(winners[0])
-
+    """Compatibility diagnostic only; location is already structured."""
+    del script
     return "\n".join(
         f"- [factuality-location] {section_id}"
-        for section_id in ordered_ids
-        if section_id in targets
+        for section_id, _issue in _structured_factuality_flags(report)
     )
 
 
