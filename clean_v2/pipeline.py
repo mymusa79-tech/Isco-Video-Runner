@@ -1763,6 +1763,7 @@ def _run_legacy_cinematic_layer(
     )
 
     short_timed_text_report: dict[str, Any] | None = None
+    short_audio_polish_report: dict[str, Any] | None = None
     if fmt == "short":
         from clean_v2.short_timed_text import apply_short_timed_text
 
@@ -1777,6 +1778,22 @@ def _run_legacy_cinematic_layer(
             short_timed_text_report,
         )
 
+        # New Short feature, deliberately after the restored timed-text layer.
+        # Narration has already been mastered; this optional/fail-safe mix only
+        # places a very quiet local ambient bed and gentle accents underneath it.
+        from clean_v2.short_audio_polish import apply_short_audio_polish
+
+        short_audio_polish_report = apply_short_audio_polish(
+            output_dir=output_dir,
+            final_path=final_path,
+            narration_path=narration_path,
+            timed_text_report=short_timed_text_report,
+        )
+        atomic_write_json(
+            output_dir / "short-audio-polish.json",
+            short_audio_polish_report,
+        )
+
     return {
         **report,
         "contextual_cta": {
@@ -1785,6 +1802,7 @@ def _run_legacy_cinematic_layer(
             "provider_calls_added": cta_report.get("provider_calls_added"),
         },
         "short_timed_text": short_timed_text_report,
+        "short_audio_polish": short_audio_polish_report,
     }
 
 
