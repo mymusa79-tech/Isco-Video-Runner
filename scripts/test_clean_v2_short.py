@@ -196,6 +196,9 @@ class ShortContractTests(unittest.TestCase):
             validate_short_script(cta)
 
     def test_duration_and_frame_contract_are_hard_bounds(self) -> None:
+        self.assertEqual(SHORT_MIN_SECONDS, 7.0)
+        self.assertEqual(SHORT_TARGET_SECONDS, 15.0)
+        self.assertEqual(SHORT_MAX_SECONDS, 30.0)
         for seconds in (SHORT_MIN_SECONDS, SHORT_TARGET_SECONDS, SHORT_MAX_SECONDS):
             self.assertEqual(validate_short_duration(seconds, phase="test"), seconds)
         for seconds in (SHORT_MIN_SECONDS - 0.001, SHORT_MAX_SECONDS + 0.001):
@@ -220,11 +223,12 @@ class ShortContractTests(unittest.TestCase):
 
 
 class ShortPipelineSeamTests(unittest.TestCase):
-    def test_short_script_prompt_targets_75_seconds_and_reuses_template_context(self) -> None:
+    def test_short_script_prompt_keeps_compact_30s_ceiling_and_reuses_template_context(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
-        self.assertIn("145-185 spoken Arabic words", prompt)
-        self.assertIn("near 75 seconds", prompt)
+        self.assertIn("22-40 spoken Arabic words", prompt)
+        self.assertIn("legacy 15-second target", prompt)
+        self.assertIn("must never exceed 30 seconds", prompt)
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("CTA is", prompt)
         self.assertIn("fully disabled", prompt)
