@@ -4020,5 +4020,31 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertFalse((root / "tone-repair.json").exists())
 
 
+class ShortFactualitySectionTargetRegressionTests(unittest.TestCase):
+    def test_cohort_attempt1_section_s2_note_resolves_exact_target(self) -> None:
+        from clean_v2.pipeline import _factuality_location_issue_notes
+
+        report = {
+            "status": "block",
+            "unsupported_claims": [
+                "claim that expectations influence emotions more than energy"
+            ],
+            "professional_advice_flags": [],
+            "expert_persona_flags": [],
+            "notes": ["Section s2 contains an unsupported psychological claim."],
+        }
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "أحياناً يختفي الدافع كأنك في منتصف نهارٍ صامت."},
+                {"id": "s2", "narration": "لكن الحقيقة أن توقعاتنا للنتيجة تُشغِّل مشاعرنا أكثر من الطاقة نفسها."},
+                {"id": "s3", "narration": "ابدأ بتدوين هدف صغير اليوم، ثم اكتب خطوة واحدة لتحقيقه."},
+            ]
+        }
+
+        notes = _factuality_location_issue_notes(report, script)
+        self.assertEqual(notes, "- [factuality-location] s2")
+        self.assertEqual(_repair_target_section_ids(script, notes, {}), ("s2",))
+
+
 if __name__ == "__main__":
     unittest.main()
