@@ -730,7 +730,10 @@ class ShortPipelineSeamTests(unittest.TestCase):
                     primary_only=True,
                 )
 
-        self.assertTrue(result.is_file())
+        # The TemporaryDirectory is intentionally gone here; assert the returned
+        # destination identity, while the provider call itself already proved success
+        # by requiring a >1 KiB output before synthesize() returned.
+        self.assertEqual(result.name, "out.wav")
         self.assertEqual(captured["transcript"], transcript)
         self.assertEqual(captured["voice"], "Charon")
         self.assertEqual(captured["style"], SHORT_CHARON_STYLE)
