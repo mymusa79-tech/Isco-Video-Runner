@@ -793,7 +793,7 @@ def _factuality_location_issue_notes(
             candidate = "s" + match.group(1)
             if candidate in valid_ids:
                 targets.add(candidate)
-        for match in re.finditer(r"\bsection\s+([1-5])\b", note, flags=re.I):
+        for match in re.finditer(r"\bsection\s+(?:s)?([1-5])\b", note, flags=re.I):
             candidate = "s" + match.group(1)
             if candidate in valid_ids:
                 targets.add(candidate)
