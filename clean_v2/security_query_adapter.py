@@ -66,15 +66,26 @@ def _validate_original_or_run216_placeholders(value: str) -> str:
 
 
 def _fold_latin_diacritics(value: str) -> str:
-    """Fold a Latin letter with a diacritic to its plain ASCII base (caf\u00e9 -> cafe).
+    """Fold diacritics only when they belong to an ASCII Latin base letter.
 
-    NFKD decomposition separates a base letter from its combining diacritical mark;
-    dropping every character in Unicode category 'Mn' (nonspacing mark) keeps the base
-    Latin letter and removes only the accent. This is a general fold, not a one-word
-    patch, so it closes this entire class of failure rather than just 'caf\u00e9'.
+    NFD performs canonical decomposition without the broader compatibility folding of
+    NFKD. A nonspacing mark is dropped only while the current combining sequence is
+    attached to an ASCII Latin base (A-Z/a-z). Full-width/compatibility characters and
+    combining marks attached to non-Latin scripts remain unchanged for Security V1 to
+    accept or reject normally.
     """
-    decomposed = unicodedata.normalize("NFKD", value)
-    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+    decomposed = unicodedata.normalize("NFD", value)
+    folded: list[str] = []
+    ascii_latin_base = False
+    for ch in decomposed:
+        if unicodedata.category(ch) == "Mn":
+            if ascii_latin_base:
+                continue
+            folded.append(ch)
+            continue
+        folded.append(ch)
+        ascii_latin_base = ("A" <= ch <= "Z") or ("a" <= ch <= "z")
+    return "".join(folded)
 
 
 def _normalize_observed_separators(value: str) -> str:
@@ -92,9 +103,8 @@ def _normalize_observed_separators(value: str) -> str:
         .replace(")", " ")
         .replace(".", " ")
     )
-    # Fold diacritics last: NFKD would otherwise decompose U+2011 (non-breaking
-    # hyphen) to U+2010 (plain hyphen) before the explicit replacement above runs,
-    # leaving a non-ASCII character the .replace("\u2011", "-") call never sees.
+    # Fold diacritics last so the existing named-character replacements remain
+    # authoritative. NFD is intentionally used instead of compatibility folding.
     compatible = _fold_latin_diacritics(compatible)
     return " ".join(compatible.split())
 
