@@ -395,6 +395,69 @@ class ShortContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ShortFormatError, "short_hook_too_long"):
             validate_short_hook_contract(overlong)
 
+    def test_small_hook_overrun_trims_only_at_safe_boundary(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        value = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم، لكن الخطوة تكفي.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "لاحظ اللحظة التي تنتظر فيها الشعور قبل أن تتحرك دون لوم أو مبالغة.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "اختر خطوة صغيرة تستطيع تنفيذها الآن.",
+                },
+            ],
+        }
+
+        accepted = _validate_script_for_brief(value, plan, brief)
+
+        self.assertEqual(
+            accepted["sections"][0]["narration"],
+            "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم.",
+        )
+        report = validate_short_hook_contract(accepted)
+        self.assertEqual(report["hook_words"], 11)
+        self.assertLessEqual(report["hook_words"], SHORT_HOOK_MAX_WORDS)
+
+    def test_small_hook_overrun_without_safe_boundary_still_fails_closed(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        value = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم دون فهم السبب.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "لاحظ اللحظة التي تنتظر فيها الشعور قبل أن تتحرك دون لوم أو مبالغة.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "اختر خطوة صغيرة تستطيع تنفيذها الآن.",
+                },
+            ],
+        }
+
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            r"short_hook_too_long words=14 maximum=12",
+        ):
+            _validate_script_for_brief(value, plan, brief)
+
+        self.assertEqual(
+            value["sections"][0]["narration"],
+            "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم دون فهم السبب.",
+        )
+
     def test_duration_and_frame_contract_are_hard_bounds(self) -> None:
         self.assertEqual(SHORT_MIN_SECONDS, 7.0)
         self.assertEqual(SHORT_TARGET_SECONDS, 15.0)
