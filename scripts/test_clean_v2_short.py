@@ -15,11 +15,14 @@ from clean_v2.pipeline import (
     _script_prompt,
     _short_identity_not_applicable,
     _synthesize_sectioned_voice,
+    _validate_script_for_brief,
 )
 from clean_v2 import media as media_module
 from clean_v2.media import GeminiPrimaryPiperFallbackSynthesizer, VoiceInfrastructureError
+from clean_v2.providers import ProviderAdapter, ProviderRouter
 from clean_v2.short_format import (
     SHORT_HEIGHT,
+    SHORT_HOOK_MAX_WORDS,
     SHORT_MAX_SECONDS,
     SHORT_MIN_SECONDS,
     SHORT_SECTION_COUNT,
@@ -194,6 +197,78 @@ class ShortContractTests(unittest.TestCase):
         cta["sections"][2]["narration"] += " اشترك في القناة."
         with self.assertRaisesRegex(ShortFormatError, "zero_social_cta"):
             validate_short_script(cta)
+
+    def test_provider_success_with_overlong_hook_is_rejected_before_acceptance(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        invalid = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "هذه جملة افتتاحية طويلة جدًا تتجاوز الحد الصريح المسموح به في عقد الشورت الآن تمامًا.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "الفكرة هنا أن تلاحظ لحظة التراجع بهدوء، من دون لوم أو تهويل.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "اختر خطوة واحدة واضحة تستطيع تنفيذها الآن.",
+                },
+            ],
+        }
+        valid = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "قد لا تكون المشكلة في الدافع نفسه. توقف قليلًا وانظر بوضوح.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "الفكرة هنا أن تلاحظ لحظة التراجع بهدوء، من دون لوم أو تهويل.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "اختر خطوة واحدة واضحة تستطيع تنفيذها الآن.",
+                },
+            ],
+        }
+        calls: list[str] = []
+
+        def groq_like(_prompt, _max_tokens):
+            calls.append("groq")
+            return invalid
+
+        def mistral_like(_prompt, _max_tokens):
+            calls.append("mistral")
+            return valid
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("groq", groq_like),
+                ProviderAdapter("mistral", mistral_like),
+            )
+        )
+        result = router.route(
+            stage="script",
+            prompt="short script contract regression",
+            max_tokens=1000,
+            validator=lambda value: _validate_script_for_brief(value, plan, brief),
+        )
+
+        self.assertEqual(SHORT_HOOK_MAX_WORDS, 12)
+        self.assertEqual(calls, ["groq", "mistral"])
+        self.assertEqual(result["sections"][0]["narration"], valid["sections"][0]["narration"])
+        self.assertEqual(router.events[0]["provider"], "groq")
+        self.assertEqual(router.events[0]["result"], "invalid_output")
+        self.assertEqual(
+            router.events[0]["reason"],
+            "invalid_output_shortformaterror",
+        )
+        self.assertEqual(router.events[1]["provider"], "mistral")
+        self.assertEqual(router.events[1]["result"], "success")
 
     def test_duration_and_frame_contract_are_hard_bounds(self) -> None:
         self.assertEqual(SHORT_MIN_SECONDS, 7.0)
