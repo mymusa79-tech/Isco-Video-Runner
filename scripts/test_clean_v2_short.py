@@ -20,8 +20,13 @@ from clean_v2.pipeline import (
     _validate_script_for_brief,
 )
 from clean_v2 import media as media_module
-from clean_v2.media import GeminiPrimaryPiperFallbackSynthesizer, VoiceInfrastructureError
+from clean_v2.media import (
+    GeminiPrimaryPiperFallbackSynthesizer,
+    SHORT_CHARON_STYLE,
+    VoiceInfrastructureError,
+)
 from clean_v2.providers import ProviderAdapter, ProviderRouter
+from clean_v2.audio_mastering import CHARON_CORRECTIVE_FILTER, CHARON_CORRECTIVE_PROFILE
 from clean_v2.short_audio_polish import (
     MUSIC_MAX_REL_DB,
     MUSIC_MIN_REL_DB,
@@ -518,6 +523,13 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
 
 
 class ShortAudioPolishTests(unittest.TestCase):
+    def test_charon_corrective_mastering_reuses_certified_lite_profile_without_tempo_change(self) -> None:
+        self.assertEqual(CHARON_CORRECTIVE_PROFILE, "audio-mastering-lite-charon-v1")
+        for fragment in ("highpass=f=70", "equalizer=f=220", "equalizer=f=3200", "deesser=", "acompressor="):
+            self.assertIn(fragment, CHARON_CORRECTIVE_FILTER)
+        self.assertNotIn("atempo", CHARON_CORRECTIVE_FILTER)
+        self.assertNotIn("rubberband", CHARON_CORRECTIVE_FILTER)
+
     def test_actual_db_levels_keep_music_and_sfx_below_mastered_narration(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -683,6 +695,47 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertFalse(report["voice_fallback_used"])
         self.assertTrue(voice.primary_only_flags)
         self.assertTrue(all(voice.primary_only_flags))
+
+    def test_short_charon_passes_viewer_facing_performance_direction_without_rewriting(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_synthesize(api_key, transcript, output_path, *, model, voice, style=""):
+            captured.update(
+                {
+                    "api_key": api_key,
+                    "transcript": transcript,
+                    "model": model,
+                    "voice": voice,
+                    "style": style,
+                }
+            )
+            Path(output_path).write_bytes(b"W" * 2048)
+            return Path(output_path)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            synth = GeminiPrimaryPiperFallbackSynthesizer(
+                "gemini-key",
+                Path(temporary) / "unused.onnx",
+                None,
+            )
+            transcript = "ابدأ بخطوة واحدة واضحة الآن."
+            with (
+                mock.patch.object(media_module, "_legacy_voice_identity", return_value=("Charon", "Orus")),
+                mock.patch.object(media_module, "_assert_human_approved_voice_reference", return_value="fixture"),
+                mock.patch.object(media_module, "_legacy_gemini_synthesize", side_effect=fake_synthesize),
+            ):
+                result = synth.synthesize(
+                    transcript,
+                    Path(temporary) / "out.wav",
+                    primary_only=True,
+                )
+
+        self.assertTrue(result.is_file())
+        self.assertEqual(captured["transcript"], transcript)
+        self.assertEqual(captured["voice"], "Charon")
+        self.assertEqual(captured["style"], SHORT_CHARON_STYLE)
+        self.assertIn("immediately and conversationally", str(captured["style"]))
+        self.assertIn("announcer-like", str(captured["style"]))
 
     def test_primary_only_charon_failure_never_calls_azure_or_piper(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
