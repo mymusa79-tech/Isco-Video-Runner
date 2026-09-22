@@ -132,6 +132,18 @@ TEMPLATE_VISUAL_QUERY_DIRECTIVES = {
     ),
 }
 
+INNER_DIALOGUE_VOICE_RULES = (
+    "The entire narration must read as one continuous inner voice thinking to itself, never as a "
+    "narrator giving the viewer instructions.",
+    "Required progression: inner voice -> friction -> internal realization/turn -> earned payoff.",
+    'BAD: "ابدأ بخطوة صغيرة. عليك أن تتحرك الآن."',
+    'GOOD: "قلت لنفسي: لا أريد أن أبدأ. ثم لاحظت أنني كنت أنتظر شعورًا لن يأتي."',
+    'Do not address the viewer with "افعل" / "ابدأ" / "عليك" except in the final line only, where '
+    "at most one single-action imperative is allowed by the Short contract.",
+    "The turn must sound like an idea discovered by the inner voice itself, not preaching from an "
+    "external narrator.",
+)
+
 TEMPLATE_WRITING_DIRECTIVES = {
     "why_reframe": (
         "Short type is why_reframe. Open on one specific mistaken assumption, contrast it with the "
@@ -141,7 +153,7 @@ TEMPLATE_WRITING_DIRECTIVES = {
     "inner_dialogue": (
         "Short type is inner_dialogue. Open with an immediate internal-tension line, show the friction, "
         "turn the perspective, then land one practical payoff/action. Keep it intimate but not melodramatic "
-        "and never fabricate autobiography."
+        "and never fabricate autobiography. " + " ".join(INNER_DIALOGUE_VOICE_RULES)
     ),
     "micro_story": (
         "Short type is micro_story. Enter a tiny concrete scene immediately, show one event/turn, then land "
