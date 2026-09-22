@@ -61,10 +61,14 @@ def _validate_original_or_run216_placeholders(value: str) -> str:
 
 
 def _normalize_observed_separators(value: str) -> str:
-    """Normalize only punctuation forms proven by the failed five-run cohort."""
+    """Normalize only punctuation forms proven by production failures, including smart quotes."""
     compatible = (
         value.replace(",", " ")
         .replace("\u2011", "-")
+        .replace("\u2019", "'")
+        .replace("\u2018", "'")
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
         .replace("'", "")
         .replace('"', "")
         .replace("(", " ")
