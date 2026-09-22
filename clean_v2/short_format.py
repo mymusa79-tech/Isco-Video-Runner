@@ -395,7 +395,7 @@ def _practical_action_marker_count(text: object) -> int:
         return 0
     unique_markers = dict.fromkeys(_PRACTICAL_ACTION_MARKERS)
     return sum(
-        len(re.findall(rf"(?<!\\w){re.escape(marker)}(?!\\w)", compact, flags=re.I))
+        len(re.findall(rf"(?<!\w){re.escape(marker)}(?!\w)", compact, flags=re.I))
         for marker in unique_markers
     )
 
