@@ -159,6 +159,36 @@ class SecurityV1LiveBindingTests(unittest.TestCase):
             "hand writing a note with if-then on a sticky note no face",
         )
 
+    def test_cohort7_smart_apostrophe_in_todays_query_is_ascii_normalized_before_stock_gate(self) -> None:
+        raw = "person pausing before today’s task with notebook on table quiet morning light"
+        expected = "person pausing before todays task with notebook on table quiet morning light"
+
+        normalized = normalize_clean_v2_stock_query(raw)
+
+        self.assertEqual(normalized, expected)
+        self.assertTrue(normalized.isascii())
+
+        captured: list[str] = []
+
+        def provider(_key, query, **_kwargs):
+            captured.append(query)
+            return [1]
+
+        wrapped = security_binding._wrap_search(provider)
+        self.assertEqual(wrapped("key", normalized), [1])
+        self.assertEqual(captured, [expected])
+
+    def test_common_smart_quote_variants_do_not_reach_non_ascii_stock_gate(self) -> None:
+        for raw in (
+            "person reading ‘today’ note quietly",
+            "person reading “today” note quietly",
+            "person reading ”today“ note quietly",
+        ):
+            with self.subTest(raw=raw):
+                normalized = normalize_clean_v2_stock_query(raw)
+                self.assertTrue(normalized.isascii())
+                self.assertEqual(normalized, "person reading today note quietly")
+
     def test_run216_s2_parenthetical_example_is_cleaned_before_security_stock_gate(self) -> None:
         raw = (
             "hands putting off a task (e.g., avoiding a pile of paperwork) while scrolling "
