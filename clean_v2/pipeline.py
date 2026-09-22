@@ -1499,10 +1499,15 @@ def _run_one_bounded_factuality_repair(
 
     identity = _read_json_object(output_dir / "narrative-identity.json")
     cta_plan = _read_json_object(output_dir / "cta-plan.json")
-    target_ids = _repair_target_section_ids(script, issue_notes, cta_plan)
-    if not target_ids:
+    factuality_target_ids = _factuality_target_section_ids(blocked_report, script)
+    supplemental_notes = "\n".join(item for item in (tone_issue_notes, structural_issue_notes) if item)
+    supplemental_target_ids = _repair_target_section_ids(script, supplemental_notes, cta_plan) if supplemental_notes else ()
+    ordered_ids = [str(item.get("id") or "") for item in (script.get("sections") or []) if isinstance(item, Mapping)]
+    target_set = set(factuality_target_ids) | set(supplemental_target_ids)
+    target_ids = tuple(section_id for section_id in ordered_ids if section_id in target_set)
+    if not factuality_target_ids:
         raise RuntimeError(
-            "Factuality repair has no deterministic target section"
+            "Factuality repair has no structured target section"
         )
     repaired = router.route(
         stage="script_patch",
