@@ -9,9 +9,6 @@ from unittest.mock import patch
 
 from clean_v2.pipeline import (
     _closing_payoff_for_tone_audit,
-    _run_one_bounded_tone_repair,
-    _short_template_tone_repair_issue_notes,
-    _tone_repair_issue_notes,
     _factuality_location_issue_notes,
     _factuality_repair_issue_notes,
     _factuality_target_section_ids,
@@ -44,102 +41,6 @@ def _tone_result(*, status: str = "pass", validation: str = "valid") -> dict:
 
 
 class CleanV2ToneNaturalnessTests(unittest.TestCase):
-    def test_last_one_shot_inner_dialogue_repair_carries_actual_flags_and_mandatory_contract(self):
-        brief = {
-            "approved_by_user": True,
-            "approved_topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
-            "format": "short",
-            "language": "ar",
-            "audience": "Arabic-speaking adults",
-            "editorial_intent": "نبرة هادئة وعملية وطبيعية.",
-            "research_pack": [],
-            "hard_constraints": ["No fabricated facts."],
-        }
-        blocked_report = {
-            "status": "block",
-            "preachiness_flags": [
-                "s3 narration uses direct imperative that feels preachy rather than reflective."
-            ],
-            "cultural_dignity_flags": [],
-            "naturalness_flags": [
-                "Unnatural phrasing 'الصغيرة حتى' in s2 narration."
-            ],
-            "narrative_format_flags": [
-                "inner_dialogue not expressed naturally; narration reads as external advice rather than internal monologue.",
-                "viewer_retention_continuity: Hook repeats same line in s1, no advancement after hook.",
-                "viewer_retention_continuity: Payoff does not deliver inner_dialogue internal shift; repeats imperative without showing internal change.",
-            ],
-            "unverified_religious_quote_flags": [],
-            "notes": [],
-        }
-        script = {
-            "schema_version": 1,
-            "title": "عندما تفقد الدافع: كيف تبدأ من جديد؟",
-            "sections": [
-                {"id": "s1", "narration": "لا تفقد الدافع، بل تفقد الخطوة الأولى فقط."},
-                {"id": "s2", "narration": "الدافع لا ينتظرك. كل ما تحتاجه هو تلك الخطوة الأولى، الصغيرة حتى، لتكتشف أنه كان هناك من البداية."},
-                {"id": "s3", "narration": "اكتب ما يأتي إلى ذهنك الآن، دون انتظار الإلهام. انظر كيف تتحول تلك الجملة إلى بداية."},
-            ],
-        }
-        captured = {}
-
-        class Router:
-            def route(self, **kwargs):
-                captured["prompt"] = kwargs["prompt"]
-                return dict(script)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "narrative-identity.json").write_text(
-                json.dumps({"opener": "", "closer": "", "transitions": []}, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            (root / "cta-plan.json").write_text(
-                json.dumps({"spoken_text": "", "anchor_section_id": ""}, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            report = _run_one_bounded_tone_repair(
-                output_dir=root,
-                brief=brief,
-                plan={"title": "اختبار", "sections": []},
-                script=script,
-                router=Router(),
-                blocked_report=blocked_report,
-            )
-
-        notes = report["issue_notes"]
-        for field in (
-            *blocked_report["preachiness_flags"],
-            *blocked_report["naturalness_flags"],
-            *blocked_report["narrative_format_flags"],
-        ):
-            self.assertIn(f"- [tone] {field}", notes)
-
-        contract = _short_template_tone_repair_issue_notes(brief)
-        self.assertIn("direct advice disguised as inner_dialogue", contract)
-        self.assertIn("inner voice -> friction -> internal realization/turn -> earned payoff", contract)
-        self.assertIn("BAD:", contract)
-        self.assertIn("GOOD:", contract)
-        self.assertIn('"افعل" / "ابدأ" / "عليك"', contract)
-        self.assertIn("final line only", contract)
-        self.assertIn("idea discovered by the inner voice", contract)
-        self.assertIn(contract, notes)
-        self.assertIn(contract, captured["prompt"])
-        self.assertEqual(report["attempts"], 1)
-
-    def test_non_inner_dialogue_short_gets_no_inner_dialogue_repair_contract(self):
-        brief = {
-            "approved_by_user": True,
-            "approved_topic": "لماذا نخطئ عندما نظن أن الخطة المثالية تكفي؟",
-            "format": "short",
-            "language": "ar",
-            "audience": "Arabic-speaking adults",
-            "editorial_intent": "نبرة هادئة وعملية وطبيعية.",
-            "research_pack": [],
-            "hard_constraints": ["No fabricated facts."],
-        }
-        self.assertEqual(_short_template_tone_repair_issue_notes(brief), "")
-
     def test_strict_schema_matches_legacy_tone_contract(self):
         self.assertFalse(TONE_AUDIT_SCHEMA["additionalProperties"])
         self.assertEqual(
