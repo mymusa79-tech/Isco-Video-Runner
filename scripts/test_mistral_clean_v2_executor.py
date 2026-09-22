@@ -10,6 +10,7 @@ from unittest import mock
 
 from clean_v2 import mistral_executor
 from clean_v2 import providers
+from clean_v2 import providers as providers_module
 from clean_v2 import text_audit
 from clean_v2 import visual_qa
 from clean_v2.pipeline import (
