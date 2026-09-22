@@ -826,7 +826,7 @@ class CleanV2TextAuditRoutingTests(unittest.TestCase):
                 diagnostics=diagnostics,
             )
 
-        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["status"], "pass", result)
         self.assertEqual(calls, ["gemini", "groq", "openrouter", "mistral"])
         self.assertEqual(diagnostics["provider"], "mistral")
         self.assertEqual(
