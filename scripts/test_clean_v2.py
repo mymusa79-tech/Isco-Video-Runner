@@ -3234,6 +3234,142 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             structural = json.loads((root / "structural-ai-flags.json").read_text(encoding="utf-8"))
             self.assertEqual(structural["flags"], [])
 
+    def test_cohort7_inner_dialogue_block_gets_specific_contract_and_one_reaudit(self) -> None:
+        tone_block = {
+            "status": "block",
+            "validation": "valid",
+            "preachiness_flags": [
+                "s3 narration uses direct imperative that feels preachy rather than reflective.",
+            ],
+            "naturalness_flags": [
+                "Unnatural phrasing 'الصغيرة حتى' in s2 narration.",
+            ],
+            "narrative_format_flags": [
+                "inner_dialogue not expressed naturally; narration reads as external advice rather than internal monologue.",
+                "viewer_retention_continuity: Hook repeats same line in s1, no advancement after hook.",
+                "viewer_retention_continuity: Payoff does not deliver inner_dialogue internal shift; repeats imperative without showing internal change.",
+            ],
+            "cultural_dignity_flags": [],
+            "unverified_religious_quote_flags": [],
+            "notes": [],
+        }
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "كيف تنهض عندما تفقد الدافع وتقول لنفسك لا أستطيع؟",
+            "format": "short",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "editorial_intent": "نبرة هادئة وطبيعية.",
+            "research_pack": [],
+            "hard_constraints": ["No fabricated facts."],
+        }
+        plan = {
+            "title": "عندما تفقد الدافع: كيف تبدأ من جديد؟",
+            "promise": "تحول داخلي واحد يقود إلى خطوة صغيرة.",
+            "cta": "",
+            "sections": [
+                {"id": "s1", "heading": "الصوت الداخلي", "purpose": "فتح التوتر", "visual_query_en": "quiet person thinking by window"},
+                {"id": "s2", "heading": "الاحتكاك", "purpose": "إظهار ما يبقي التردد", "visual_query_en": "hands resting beside closed notebook"},
+                {"id": "s3", "heading": "التحول", "purpose": "إنهاء التوتر بفعل واحد", "visual_query_en": "hand writing one word in notebook"},
+            ],
+        }
+        original = {
+            "title": plan["title"],
+            "sections": [
+                {"id": "s1", "narration": "لا تفقد الدافع، بل تفقد الخطوة الأولى فقط."},
+                {"id": "s2", "narration": "الدافع لا ينتظرك. كل ما تحتاجه هو تلك الخطوة الأولى، الصغيرة حتى، لتكتشف أنه كان هناك من البداية."},
+                {"id": "s3", "narration": "اكتب ما يأتي إلى ذهنك الآن، دون انتظار الإلهم. انظر كيف تتحول تلك الجملة إلى بداية."},
+            ],
+        }
+        repaired_s2 = (
+            "في داخلي قلت: لا أريد أن أبدأ؛ كنت أنتظر أن أشعر بالدافع أولًا. "
+            "ثم لاحظت أن الانتظار نفسه هو ما يبقيني في مكاني."
+        )
+        repaired_s3 = (
+            "عندما كتبت أول كلمة، لم أشعر أن الدافع عاد؛ فقط بدا البدء أقل ثقلًا. "
+            "اكتب كلمة واحدة."
+        )
+
+        class ShortRouter:
+            def __init__(self):
+                self.calls = 0
+                self.prompts = []
+
+            def route(self, *, stage, prompt, max_tokens, validator):
+                self.calls += 1
+                self.prompts.append(prompt)
+                self_outer.assertEqual(stage, "script_patch")
+                self_outer.assertEqual(max_tokens, 1200)
+                return validator(
+                    {
+                        "patches": [
+                            {"section_id": "s2", "find": original["sections"][1]["narration"], "replace": repaired_s2},
+                            {"section_id": "s3", "find": original["sections"][2]["narration"], "replace": repaired_s3},
+                        ]
+                    }
+                )
+
+        self_outer = self
+        router = ShortRouter()
+        audit_calls = {"n": 0}
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            if audit_calls["n"] == 1:
+                raise CleanV2ToneContentBlock(tone_block)
+            return {
+                "schema_version": 1,
+                "status": "pass",
+                "factuality_status": "pass",
+                "tone_naturalness_status": "pass",
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "narrative-identity.json").write_text(
+                json.dumps({"opener": "", "closer": "", "transitions": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (root / "cta-plan.json").write_text(
+                json.dumps({"anchor_section_id": "", "spoken_text": "", "visual_only": True}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            script = json.loads(json.dumps(original, ensure_ascii=False))
+            result = _run_text_audit_with_one_bounded_tone_repair(
+                text_audit=text_audit,
+                router=router,
+                output_dir=root,
+                brief=brief,
+                plan=plan,
+                script=script,
+            )
+
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
+            self.assertEqual(result["tone_repair_attempts"], 1)
+            self.assertEqual(result["post_repair_structural_ai_status"], "pass")
+            self.assertNotEqual(script, original)
+            self.assertEqual(script["sections"][0]["narration"], original["sections"][0]["narration"])
+            self.assertEqual(script["sections"][1]["narration"], repaired_s2)
+            self.assertEqual(script["sections"][2]["narration"], repaired_s3)
+
+            prompt = router.prompts[0]
+            for field in ("preachiness_flags", "naturalness_flags", "narrative_format_flags"):
+                for flag in tone_block[field]:
+                    self.assertIn("- [tone] " + flag, prompt)
+            self.assertIn("direct advice disguised as inner_dialogue", prompt)
+            self.assertIn("inner voice -> friction -> internal realization/turn -> earned payoff", prompt)
+            self.assertIn('BAD: "ابدأ بخطوة صغيرة. عليك أن تتحرك الآن."', prompt)
+            self.assertIn('GOOD: "قلت لنفسي: لا أريد أن أبدأ. ثم لاحظت أنني كنت أنتظر شعورًا لن يأتي."', prompt)
+            self.assertIn('Do not address the viewer with "افعل" / "ابدأ" / "عليك" except in the final line only', prompt)
+            self.assertIn("not preaching from an external narrator", prompt)
+
+            repair = json.loads((root / "tone-repair.json").read_text(encoding="utf-8"))
+            self.assertEqual(repair["attempts"], 1)
+            self.assertEqual(repair["status"], "repaired")
+            persisted = json.loads((root / "script-post-tone-repair.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted, script)
+
     def test_run256_tone_repair_targets_occurrences_and_hard_research_boundaries(self) -> None:
         original = self._run199_script()
         original["sections"][1]["narration"] = (
