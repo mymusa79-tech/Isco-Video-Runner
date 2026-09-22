@@ -200,7 +200,7 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         cohort6_shape = _plan(
             [
                 "person sitting alone at wooden table hands still looking at empty notebook and pen early morning light",
-                "close-up of hands slowly turning a page in a book then pausing on a marked sentence quiet indoor lighting",
+                "close-up of hands holding a half-empty glass of water person hesitating before taking a sip quiet indoor setting",
                 "person writing one word in notebook then closing it with a slight smile hands resting on the page",
             ]
         )
