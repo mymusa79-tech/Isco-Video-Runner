@@ -971,6 +971,7 @@ def _validate_and_apply_script_patches(
     identity: Mapping[str, Any],
     cta_plan: Mapping[str, Any],
     revision_note: str,
+    allowed_section_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Apply exact local replacements to the original script; reject broad rewrites."""
     if not isinstance(value, Mapping):
@@ -980,7 +981,9 @@ def _validate_and_apply_script_patches(
         raise ValueError("script patch response requires 1-6 patches")
 
     allowed_ids = set(
-        _repair_target_section_ids(original_script, revision_note, cta_plan)
+        allowed_section_ids
+        if allowed_section_ids is not None
+        else _repair_target_section_ids(original_script, revision_note, cta_plan)
     )
     if not allowed_ids:
         raise ValueError("script patch has no deterministic target section")
