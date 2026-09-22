@@ -825,6 +825,25 @@ def _tone_repair_issue_notes(report: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _short_template_tone_repair_issue_notes(brief: Mapping[str, Any]) -> str:
+    """Add a deterministic template-specific repair contract only for blocked Shorts."""
+    if str(brief.get("format") or "").strip().casefold() != "short":
+        return ""
+    selection = select_short_template(brief)
+    if str(selection.get("template") or "") != "inner_dialogue":
+        return ""
+    return "\n".join(
+        (
+            "- [tone-template:inner_dialogue] The current draft reads as direct advice disguised as inner_dialogue; repair the writing so the viewer hears a believable inner voice rather than a narrator giving instructions.",
+            "- [tone-template:inner_dialogue] Required progression: inner voice -> friction -> internal realization/turn -> earned payoff.",
+            '- [tone-template:inner_dialogue] BAD: "ابدأ بخطوة صغيرة. عليك أن تتحرك الآن."',
+            '- [tone-template:inner_dialogue] GOOD: "قلت لنفسي: لا أريد أن أبدأ. ثم لاحظت أنني كنت أنتظر شعورًا لن يأتي."',
+            '- [tone-template:inner_dialogue] Do not address the viewer with "افعل" / "ابدأ" / "عليك" except in the final line only, where at most one single-action imperative is allowed by the Short contract.',
+            "- [tone-template:inner_dialogue] The turn must sound like an idea discovered by the inner voice, not preaching from an external narrator. Preserve the locked hook, then make the next beat genuinely advance it instead of restating it.",
+        )
+    )
+
+
 def _structural_repair_issue_notes(output_dir: Path) -> str:
     """Append the already-computed advisory Structural AI flags to the same repair."""
     path = output_dir / "structural-ai-flags.json"
@@ -1319,8 +1338,11 @@ def _run_one_bounded_tone_repair(
 ) -> dict[str, Any]:
     tone_issue_notes = _tone_repair_issue_notes(blocked_report)
     structural_issue_notes = _structural_repair_issue_notes(output_dir)
+    template_issue_notes = _short_template_tone_repair_issue_notes(brief)
     issue_notes = "\n".join(
-        item for item in (tone_issue_notes, structural_issue_notes) if item
+        item
+        for item in (tone_issue_notes, structural_issue_notes, template_issue_notes)
+        if item
     )
     atomic_write_json(
         output_dir / "tone-naturalness-audit-pre-repair.json",
