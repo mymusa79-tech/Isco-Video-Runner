@@ -753,7 +753,13 @@ def _factuality_location_issue_notes(
     report: Mapping[str, Any],
     script: Mapping[str, Any],
 ) -> str:
-    """Expose only explicit audited section ids as deterministic repair locations."""
+    """Resolve audited factuality locations without trusting the model to name a section.
+
+    Explicit section ids remain the first signal. As a deterministic fallback, scan every
+    factuality string for a verbatim offending excerpt and map that excerpt back to the
+    one script section that actually contains it. This keeps the repair scope local even
+    when an otherwise-valid audit omits "sN" / "Section N".
+    """
     sections = [
         item
         for item in (script.get("sections") or [])
@@ -762,20 +768,63 @@ def _factuality_location_issue_notes(
     ordered_ids = [str(item.get("id") or "") for item in sections]
     valid_ids = set(ordered_ids)
     targets: set[str] = set()
-    notes = report.get("notes") or []
-    if isinstance(notes, list):
-        for value in notes:
-            note = " ".join(str(value or "").split()).strip()
-            if not note:
-                continue
-            for match in re.finditer(r"\bs([1-5])\b", note, flags=re.I):
-                candidate = "s" + match.group(1)
-                if candidate in valid_ids:
-                    targets.add(candidate)
-            for match in re.finditer(r"\bsection\s+([1-5])\b", note, flags=re.I):
-                candidate = "s" + match.group(1)
-                if candidate in valid_ids:
-                    targets.add(candidate)
+
+    def _report_strings(value: Any) -> list[str]:
+        if isinstance(value, str):
+            normalized = " ".join(value.split()).strip()
+            return [normalized] if normalized else []
+        if isinstance(value, Mapping):
+            rows: list[str] = []
+            for nested in value.values():
+                rows.extend(_report_strings(nested))
+            return rows
+        if isinstance(value, list):
+            rows: list[str] = []
+            for nested in value:
+                rows.extend(_report_strings(nested))
+            return rows
+        return []
+
+    audit_strings = _report_strings(report)
+
+    # Primary path: preserve the already-supported explicit location markers.
+    for note in audit_strings:
+        for match in re.finditer(r"\bs([1-5])\b", note, flags=re.I):
+            candidate = "s" + match.group(1)
+            if candidate in valid_ids:
+                targets.add(candidate)
+        for match in re.finditer(r"\bsection\s+([1-5])\b", note, flags=re.I):
+            candidate = "s" + match.group(1)
+            if candidate in valid_ids:
+                targets.add(candidate)
+
+    # Fallback: match a literal audited claim/excerpt to the narration that contains it.
+    # Prefer quoted spans, then any sufficiently long audit string that is itself a
+    # contiguous excerpt of exactly one section. No semantic/AI inference is used here.
+    normalized_sections = {
+        str(item.get("id") or ""): " ".join(str(item.get("narration") or "").split())
+        for item in sections
+    }
+    candidates: list[str] = []
+    for value in audit_strings:
+        candidates.extend(
+            " ".join(match.split()).strip()
+            for match in re.findall(r"[«\"']([^«»\"']{8,400})[»\"']", value)
+        )
+        if 8 <= len(value) <= 400:
+            candidates.append(value)
+
+    for excerpt in candidates:
+        if not excerpt:
+            continue
+        matched = [
+            section_id
+            for section_id, narration in normalized_sections.items()
+            if excerpt in narration
+        ]
+        if len(matched) == 1:
+            targets.add(matched[0])
+
     return "\n".join(
         f"- [factuality-location] {section_id}"
         for section_id in ordered_ids
