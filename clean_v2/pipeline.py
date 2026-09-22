@@ -1761,6 +1761,22 @@ def _run_legacy_cinematic_layer(
         narration_path=narration_path,
         script=script,
     )
+
+    short_timed_text_report: dict[str, Any] | None = None
+    if fmt == "short":
+        from clean_v2.short_timed_text import apply_short_timed_text
+
+        short_timed_text_report = apply_short_timed_text(
+            output_dir=output_dir,
+            final_path=final_path,
+            narration_path=narration_path,
+            script=script,
+        )
+        atomic_write_json(
+            output_dir / "short-timed-text.json",
+            short_timed_text_report,
+        )
+
     return {
         **report,
         "contextual_cta": {
@@ -1768,6 +1784,7 @@ def _run_legacy_cinematic_layer(
             "render_status": cta_report.get("render_status"),
             "provider_calls_added": cta_report.get("provider_calls_added"),
         },
+        "short_timed_text": short_timed_text_report,
     }
 
 

@@ -20,6 +20,14 @@ from clean_v2.pipeline import (
 from clean_v2 import media as media_module
 from clean_v2.media import GeminiPrimaryPiperFallbackSynthesizer, VoiceInfrastructureError
 from clean_v2.providers import ProviderAdapter, ProviderRouter
+from clean_v2.short_timed_text import (
+    ACCENT_ASS,
+    MAX_DARK_SLATES,
+    build_rich_ass,
+    choose_dark_slate_index,
+    split_focus_phrase,
+    validate_progressive_text,
+)
 from clean_v2.short_format import (
     SHORT_HEIGHT,
     SHORT_HOOK_MAX_WORDS,
@@ -285,6 +293,49 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(report["social_cta"], "forbidden")
         self.assertEqual(report["narrative_identity"], "not_applicable")
         self.assertEqual(report["opening_director"], "not_applicable")
+
+
+class ShortTimedTextTests(unittest.TestCase):
+    def test_transition_word_creates_exactly_one_non_hook_dark_slate(self) -> None:
+        events = [
+            {
+                "start": 0.0,
+                "end": 3.8,
+                "text": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ.",
+                "role": "hook",
+            },
+            {
+                "start": 3.8,
+                "end": 8.4,
+                "text": "لكن الحقيقة أن البداية الصغيرة تغيّر اتجاه اللحظة.",
+                "role": "beat",
+            },
+            {
+                "start": 8.4,
+                "end": 13.5,
+                "text": "ابدأ بخطوة واحدة تستطيع تنفيذها الآن.",
+                "role": "payoff",
+            },
+        ]
+
+        validated = validate_progressive_text(events)
+        slate_index = choose_dark_slate_index(events, validated)
+        ass = build_rich_ass(events, slate_index=slate_index)
+
+        self.assertEqual(slate_index, 1)
+        self.assertNotEqual(slate_index, 0)
+        self.assertEqual(MAX_DARK_SLATES, 1)
+        self.assertIn("Style: SlateFocus", ass)
+        self.assertEqual(ass.count("SlateFocus,,0,0,0"), 1)
+        self.assertIn(r"\fscx103\fscy103", ass)
+        self.assertIn(r"{\an5\pos(", ass)
+        self.assertNotIn(r"{{\an5\pos(", ass)
+        self.assertEqual(ACCENT_ASS, "&H005BA8D7")
+
+    def test_body_focus_split_preserves_authored_words(self) -> None:
+        text = "لكن الحقيقة أن البداية الصغيرة تغيّر اتجاه اللحظة"
+        body, focus = split_focus_phrase(text, "beat")
+        self.assertEqual(" ".join((body + " " + focus).split()), text)
 
 
 class ShortPipelineSeamTests(unittest.TestCase):
