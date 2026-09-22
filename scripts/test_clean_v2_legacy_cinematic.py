@@ -144,6 +144,38 @@ class LegacyCinematicReuseContractTests(unittest.TestCase):
         self.assertEqual(result, expected)
         self.assertTrue(result.isascii())
 
+    def test_clean_v2_query_adapter_does_not_compatibility_fold_fullwidth_latin(self) -> None:
+        original = "ｒｏｌｅ desk"
+        with (
+            patch(
+                "clean_v2.security_query_adapter._validate_original_query",
+                side_effect=lambda value: value,
+            ),
+            patch(
+                "clean_v2.security_query_adapter.security_query_normalizer",
+                side_effect=lambda value: value,
+            ),
+        ):
+            result = normalize_clean_v2_stock_query(original)
+        self.assertEqual(result, original)
+        self.assertFalse(result.isascii())
+
+    def test_clean_v2_query_adapter_preserves_non_latin_combining_marks(self) -> None:
+        original = "مُكتب cafe"
+        with (
+            patch(
+                "clean_v2.security_query_adapter._validate_original_query",
+                side_effect=lambda value: value,
+            ),
+            patch(
+                "clean_v2.security_query_adapter.security_query_normalizer",
+                side_effect=lambda value: value,
+            ),
+        ):
+            result = normalize_clean_v2_stock_query(original)
+        self.assertEqual(result, original)
+        self.assertIn("ُ", result)
+
     def test_clean_v2_query_adapter_does_not_repair_unobserved_punctuation(self) -> None:
         original = "office desk: calendar"
         with (
