@@ -1,6 +1,7 @@
 name: Clean V2 Short Final One-Shot
 
 on:
+  workflow_dispatch:
   issue_comment:
     types: [created]
 
@@ -14,8 +15,9 @@ concurrency:
 jobs:
   final-one-shot:
     if: >-
-      github.actor == github.repository_owner &&
-      github.event.comment.body == '/clean-v2-short-final-one'
+      github.event_name == 'workflow_dispatch' ||
+      (github.actor == github.repository_owner &&
+       github.event.comment.body == '/clean-v2-short-final-one')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
