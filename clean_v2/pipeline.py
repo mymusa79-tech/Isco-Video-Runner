@@ -1379,6 +1379,9 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - Make the minimum wording/transition changes needed for the listed flags. No unrelated rewrite.
 - DO NOT return a rewritten script. Return only exact local text replacements.
 - Each patch.find MUST be copied verbatim from CURRENT_SCRIPT inside the named section.
+- Keep patch.find as SHORT as possible: the smallest exact phrase that pinpoints the flagged
+  problem, never a full sentence unless the whole sentence is the issue. A long copied span is
+  far more likely to contain a transcription slip and be rejected outright.
 - Each patch.replace MUST contain only the minimum local wording needed to fix that target.
 - Maximum 6 patches. Do not patch an unflagged section.
 
@@ -1547,6 +1550,9 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Make the minimum wording changes needed. No unrelated rewrite.
 - DO NOT return a rewritten script. Return only exact local text replacements.
 - Each patch.find MUST be copied verbatim from CURRENT_SCRIPT inside the named section.
+- Keep patch.find as SHORT as possible: the smallest exact phrase that pinpoints the flagged
+  problem, never a full sentence unless the whole sentence is the issue. A long copied span is
+  far more likely to contain a transcription slip and be rejected outright.
 - Each patch.replace MUST contain only the minimum local wording needed to fix that target.
 - Maximum 6 patches. Do not patch an unflagged section.
 
