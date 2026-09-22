@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -168,6 +169,42 @@ def build_events_from_section_audio(
             }
         )
         cursor = end
+    validate_progressive_text(events)
+    return events
+
+
+def build_events_from_voice_timeline(
+    *,
+    script: Mapping[str, Any],
+    timeline_report: Mapping[str, Any],
+) -> list[dict[str, object]]:
+    sections = script.get("sections") or []
+    raw_events = timeline_report.get("section_events")
+    if (
+        timeline_report.get("status") != "pass"
+        or not isinstance(sections, list)
+        or len(sections) != 3
+        or not isinstance(raw_events, list)
+        or len(raw_events) != 3
+    ):
+        raise ShortTimedTextError("short_timed_text_voice_timeline_invalid")
+
+    roles = ("hook", "beat", "payoff")
+    events: list[dict[str, object]] = []
+    for index, (section, raw, role) in enumerate(zip(sections, raw_events, roles), start=1):
+        if not isinstance(section, Mapping) or not isinstance(raw, Mapping):
+            raise ShortTimedTextError("short_timed_text_voice_timeline_invalid")
+        expected_id = f"s{index}"
+        if str(raw.get("section_id") or "") != expected_id:
+            raise ShortTimedTextError("short_timed_text_voice_timeline_section_order_invalid")
+        events.append(
+            {
+                "start": round(_seconds(raw.get("start"), "start"), 3),
+                "end": round(_seconds(raw.get("end"), "end"), 3),
+                "text": _select_event_text(section.get("narration"), role),
+                "role": role,
+            }
+        )
     validate_progressive_text(events)
     return events
 
@@ -413,11 +450,26 @@ def apply_short_timed_text(
     script: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Burn the restored three-event Short text layer onto the final picture."""
-    events = build_events_from_section_audio(
-        script=script,
-        audio_dir=Path(output_dir) / "audio",
-        mastered_narration=Path(narration_path),
-    )
+    timeline_path = Path(output_dir) / "short-voice-owned-timeline.json"
+    if timeline_path.is_file():
+        try:
+            timeline_report = json.loads(timeline_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ShortTimedTextError("short_timed_text_voice_timeline_invalid") from exc
+        if not isinstance(timeline_report, Mapping):
+            raise ShortTimedTextError("short_timed_text_voice_timeline_invalid")
+        events = build_events_from_voice_timeline(
+            script=script,
+            timeline_report=timeline_report,
+        )
+    else:
+        # Compatibility for older artifacts/tests that predate the explicit
+        # Voice-Owned Timeline certificate.
+        events = build_events_from_section_audio(
+            script=script,
+            audio_dir=Path(output_dir) / "audio",
+            mastered_narration=Path(narration_path),
+        )
     rendered = Path(output_dir) / ".final-short-timed-text.mp4"
     report = render_progressive_text(
         video=Path(final_path),
