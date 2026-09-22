@@ -11,6 +11,7 @@ SHORT_HEIGHT = 1920
 SHORT_TARGET_SECONDS = 15.0
 SHORT_MIN_SECONDS = 7.0
 SHORT_MAX_SECONDS = 30.0
+SHORT_HOOK_MAX_WORDS = 12
 
 TEMPLATE_ORDER = (
     "why_reframe",
@@ -383,9 +384,9 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     if not hook:
         raise ShortFormatError("short_hook_missing")
     hook_words = _word_count(hook)
-    if hook_words > 12:
+    if hook_words > SHORT_HOOK_MAX_WORDS:
         raise ShortFormatError(
-            f"short_hook_too_long words={hook_words} maximum=12"
+            f"short_hook_too_long words={hook_words} maximum={SHORT_HOOK_MAX_WORDS}"
         )
 
     hook_key = _semantic_key(hook)
