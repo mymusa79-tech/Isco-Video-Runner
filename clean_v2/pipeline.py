@@ -28,6 +28,7 @@ from .short_format import (
     SHORT_MAX_SECONDS,
     SHORT_MIN_SECONDS,
     SHORT_TARGET_SECONDS,
+    select_short_template,
     short_contract_report,
     short_prompt_context,
     validate_short_duration,
@@ -512,20 +513,23 @@ def _build_production_plan_for_audit(
         )
         for item in plan["sections"]
     ]
+    brief_format = str(brief.get("format") or "")
+    narrative_format = (
+        str(select_short_template(brief)["template"])
+        if brief_format == "short"
+        else "direct_cinematic"
+    )
     return ProductionPlan(
         topic=str(brief.get("approved_topic") or ""),
         pillar=str(brief.get("pillar") or ""),
-        format=(
-            "moment"
-            if str(brief.get("format") or "") == "short"
-            else str(brief.get("format") or "")
-        ),
+        format="moment" if brief_format == "short" else brief_format,
         hook="",
         title_options=[str(plan.get("title") or "")],
         thumbnail_concepts=[],
         sections=sections,
         cta=str(plan.get("cta") or ""),
         closing_payoff=str(plan.get("promise") or ""),
+        narrative_format=narrative_format,
     )
 
 
