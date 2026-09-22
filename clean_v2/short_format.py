@@ -6,9 +6,11 @@ from typing import Any, Mapping
 SHORT_SECTION_COUNT = 3
 SHORT_WIDTH = 1080
 SHORT_HEIGHT = 1920
-SHORT_TARGET_SECONDS = 75.0
-SHORT_MIN_SECONDS = 60.0
-SHORT_MAX_SECONDS = 90.0
+# Legacy Moment/Short baseline used target=15s and a 7s floor. Clean V2 keeps
+# that compact pacing but honors the channel's explicit absolute ceiling of 30s.
+SHORT_TARGET_SECONDS = 15.0
+SHORT_MIN_SECONDS = 7.0
+SHORT_MAX_SECONDS = 30.0
 
 TEMPLATE_ORDER = (
     "why_reframe",
