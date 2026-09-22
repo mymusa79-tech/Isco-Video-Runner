@@ -3846,7 +3846,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self._write_locked_runtime_files(root)
             with self.assertRaisesRegex(
                 RuntimeError,
-                "script patch response requires 1-6 patches",
+                "Independent factuality/AI-expert gate blocked real production",
             ):
                 _run_text_audit_with_one_bounded_tone_repair(
                     text_audit=text_audit,
