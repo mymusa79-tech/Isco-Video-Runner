@@ -118,6 +118,32 @@ class LegacyCinematicReuseContractTests(unittest.TestCase):
 
         self.assertEqual(events, [("validate", unsafe)])
 
+    def test_clean_v2_query_adapter_folds_latin_diacritics_run14(self) -> None:
+        # Exact failure class observed in Run #14 (first Short Cold attempt after #812):
+        # a widened (>80 char) query containing 'café' was rejected by Security V1's
+        # ASCII-only gate for that length class.
+        original = (
+            "close-up of hands holding a half-empty coffee cup, warm morning light, "
+            "indoor café lighting, no faces"
+        )
+        expected = (
+            "close-up of hands holding a half-empty coffee cup warm morning light "
+            "indoor cafe lighting no faces"
+        )
+        with (
+            patch(
+                "clean_v2.security_query_adapter._validate_original_query",
+                side_effect=lambda value: value,
+            ),
+            patch(
+                "clean_v2.security_query_adapter.security_query_normalizer",
+                side_effect=lambda value: value,
+            ),
+        ):
+            result = normalize_clean_v2_stock_query(original)
+        self.assertEqual(result, expected)
+        self.assertTrue(result.isascii())
+
     def test_clean_v2_query_adapter_does_not_repair_unobserved_punctuation(self) -> None:
         original = "office desk: calendar"
         with (

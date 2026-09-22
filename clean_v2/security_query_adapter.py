@@ -5,15 +5,20 @@ from __future__ import annotations
 Security V1's injection/firewall checks stay unchanged. Clean V2 planning historically
 emits comma-separated English stock-search phrases, Run #30 emitted one U+2011
 non-breaking hyphen, Run #142 emitted quoted stock-search terms such as 'if-then',
-and Run #216 emitted explanatory parentheses/periods plus two literal placeholders:
-[specific time] and [specific action]. Ordinary presentation punctuation is normalized
-only after the full original value passes Security V1's cross-provider injection checks.
-Those two exact bracket placeholders are the sole exception: their brackets are removed,
-then the complete candidate is revalidated through the same firewall before stock search.
+Run #216 emitted explanatory parentheses/periods plus two literal placeholders:
+[specific time] and [specific action], and Run #14 (Short, first Cold attempt after
+#812's inner_dialogue fix) emitted a Latin letter with a diacritic ('café') inside a
+widened (>80 char) query, which Security V1's ASCII-only gate for that length class
+rejects outright. Ordinary presentation punctuation is normalized only after the full
+original value passes Security V1's cross-provider injection checks. Those two exact
+bracket placeholders are the sole exception: their brackets are removed, then the
+complete candidate is revalidated through the same firewall before stock search.
 The resulting value
 then crosses Security V1's runtime stock-query gate, whose provider ceiling is coordinated
 with Clean V2's 200-character alternate-query contract.
 """
+
+import unicodedata
 
 from .legacy_cinematic import CleanV2LayerBlock, _block, security_query_normalizer
 
@@ -60,8 +65,20 @@ def _validate_original_or_run216_placeholders(value: str) -> str:
         return _validate_original_query(compatible)
 
 
+def _fold_latin_diacritics(value: str) -> str:
+    """Fold a Latin letter with a diacritic to its plain ASCII base (caf\u00e9 -> cafe).
+
+    NFKD decomposition separates a base letter from its combining diacritical mark;
+    dropping every character in Unicode category 'Mn' (nonspacing mark) keeps the base
+    Latin letter and removes only the accent. This is a general fold, not a one-word
+    patch, so it closes this entire class of failure rather than just 'caf\u00e9'.
+    """
+    decomposed = unicodedata.normalize("NFKD", value)
+    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn")
+
+
 def _normalize_observed_separators(value: str) -> str:
-    """Normalize only punctuation forms proven by production failures, including smart quotes."""
+    """Normalize only punctuation/character forms proven by production failures."""
     compatible = (
         value.replace(",", " ")
         .replace("\u2011", "-")
@@ -75,6 +92,10 @@ def _normalize_observed_separators(value: str) -> str:
         .replace(")", " ")
         .replace(".", " ")
     )
+    # Fold diacritics last: NFKD would otherwise decompose U+2011 (non-breaking
+    # hyphen) to U+2010 (plain hyphen) before the explicit replacement above runs,
+    # leaving a non-ASCII character the .replace("\u2011", "-") call never sees.
+    compatible = _fold_latin_diacritics(compatible)
     return " ".join(compatible.split())
 
 
@@ -87,7 +108,8 @@ def normalize_clean_v2_stock_query(value: str) -> str:
        a markup-only rejection; after stripping those brackets, the complete candidate is
        immediately revalidated by the same firewall. Any other bracket syntax stays blocked.
     2. After validation, convert observed presentation punctuation before stock search:
-       commas/parentheses/periods to spaces, U+2011 to ASCII hyphen, and remove quotes.
+       commas/parentheses/periods to spaces, U+2011 to ASCII hyphen, remove quotes, and
+       fold Latin letters with diacritics to their plain ASCII base (café -> cafe).
     3. Reuse the Security V1 stock-query gate (same safety checks, 200-char runtime ceiling).
 
     No other punctuation, non-English text, or malformed query class is repaired here.
