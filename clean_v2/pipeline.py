@@ -32,6 +32,7 @@ from .short_format import (
     short_prompt_context,
     validate_short_duration,
     validate_short_dimensions,
+    validate_short_hook_contract,
     validate_short_script,
 )
 
@@ -1968,6 +1969,11 @@ def _validate_script_for_brief(
 ) -> dict[str, Any]:
     script = validate_script(value, plan)
     if str(brief.get("format") or "") == "short":
+        # This validator runs inside ProviderRouter before any technically successful
+        # provider response can be accepted. Keep the hook ceiling explicit here so a
+        # Groq/Mistral/OpenRouter/Gemini response with an overlong s1 hook is a contract
+        # failure and the bounded router may continue to the next provider.
+        validate_short_hook_contract(script)
         validate_short_script(script)
     return script
 

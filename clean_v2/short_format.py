@@ -11,6 +11,7 @@ SHORT_HEIGHT = 1920
 SHORT_TARGET_SECONDS = 15.0
 SHORT_MIN_SECONDS = 7.0
 SHORT_MAX_SECONDS = 30.0
+SHORT_HOOK_MAX_WORDS = 12
 
 TEMPLATE_ORDER = (
     "why_reframe",
@@ -281,7 +282,7 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"- target_duration_seconds={SHORT_TARGET_SECONDS:g}; hard_range="
         f"{SHORT_MIN_SECONDS:g}-{SHORT_MAX_SECONDS:g}\n"
         f"- exact_sections={SHORT_SECTION_COUNT}; frame={SHORT_WIDTH}x{SHORT_HEIGHT}\n"
-        "- s1: the first spoken sentence is the truthful hook and must be at most 12 Arabic words; no greeting.\n"
+        f"- s1: the first spoken sentence is the truthful hook and must be at most {SHORT_HOOK_MAX_WORDS} Arabic words; no greeting.\n"
         "- s2: develop the selected template's specific tension/turn; do not switch to a generic motivational format.\n"
         "- s3: land the payoff, then give exactly ONE practical action in one clear imperative sentence.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
@@ -369,6 +370,32 @@ def _word_count(text: object) -> int:
     return len([word for word in _clean(text).split() if word])
 
 
+def validate_short_hook_contract(script: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate the provider-owned first spoken sentence before script acceptance."""
+    sections = script.get("sections")
+    if not isinstance(sections, list) or not sections or not isinstance(sections[0], Mapping):
+        raise ShortFormatError("short_hook_requires_first_section")
+
+    first_narration = _clean(sections[0].get("narration"))
+    hook = _first_sentence(first_narration)
+    if not hook:
+        raise ShortFormatError("short_hook_missing")
+    hook_words = _word_count(hook)
+    if hook_words > SHORT_HOOK_MAX_WORDS:
+        raise ShortFormatError(
+            f"short_hook_too_long words={hook_words} maximum={SHORT_HOOK_MAX_WORDS}"
+        )
+
+    hook_key = _semantic_key(hook)
+    if any(
+        hook_key == prefix or hook_key.startswith(prefix + " ")
+        for prefix in _GREETING_PREFIXES
+    ):
+        raise ShortFormatError("short_hook_must_not_start_with_greeting")
+
+    return {"hook": hook, "hook_words": hook_words}
+
+
 def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     sections = script.get("sections")
     if not isinstance(sections, list) or len(sections) != SHORT_SECTION_COUNT:
@@ -378,22 +405,9 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     if any(not isinstance(item, Mapping) for item in sections):
         raise ShortFormatError("short_script_section_invalid")
 
-    first_narration = _clean(sections[0].get("narration"))
-    hook = _first_sentence(first_narration)
-    if not hook:
-        raise ShortFormatError("short_hook_missing")
-    hook_words = _word_count(hook)
-    if hook_words > 12:
-        raise ShortFormatError(
-            f"short_hook_too_long words={hook_words} maximum=12"
-        )
-
-    hook_key = _semantic_key(hook)
-    if any(
-        hook_key == prefix or hook_key.startswith(prefix + " ")
-        for prefix in _GREETING_PREFIXES
-    ):
-        raise ShortFormatError("short_hook_must_not_start_with_greeting")
+    hook_report = validate_short_hook_contract(script)
+    hook = str(hook_report["hook"])
+    hook_words = int(hook_report["hook_words"])
 
     transcript = "\n".join(_clean(item.get("narration")) for item in sections)
     if _DIALOGUE_LABEL_RE.search(transcript):
