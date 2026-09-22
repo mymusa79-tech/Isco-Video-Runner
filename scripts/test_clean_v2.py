@@ -3827,7 +3827,15 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             "expert_persona_flags": [],
         }
         audit_calls = {"n": 0}
-        router = self._Router({"patches": []})
+        original = self._run199_script()
+        old_s4 = original["sections"][3]["narration"]
+        router = self._Router({
+            "patches": [{
+                "section_id": "s4",
+                "find": old_s4,
+                "replace": "اربط البداية بإشارة محددة في اليوم، ثم راقب النتيجة دون ضمان مسبق.",
+            }]
+        })
 
         def text_audit(**_kwargs):
             audit_calls["n"] += 1
@@ -3849,8 +3857,8 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                     script=self._run199_script(),
                 )
 
-            self.assertEqual(router.calls, 0)
-            self.assertEqual(audit_calls["n"], 1)
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
 
     def test_run220_host_overlay_keeps_naturalness_fix_and_restores_all_locked_anchors(self) -> None:
         original = self._run199_script()
