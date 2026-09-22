@@ -825,6 +825,51 @@ def _factuality_location_issue_notes(
         if len(matched) == 1:
             targets.add(matched[0])
 
+    # Some providers paraphrase the audited claim in English instead of copying the
+    # Arabic span. Keep that case deterministic too: a deliberately tiny bilingual
+    # concept table turns only concrete claim nouns/verbs into section anchors, then
+    # accepts the fallback only when one section has a unique strongest score.
+    if not targets:
+        concept_aliases = {
+            "action": ("حرك", "خطو", "فعل", "عمل"),
+            "actions": ("حرك", "خطو", "فعل", "عمل"),
+            "motivation": ("دافع", "حماس"),
+            "desire": ("رغب",),
+            "assumption": ("افتراض",),
+            "expectation": ("توقع",),
+            "expectations": ("توقع",),
+            "emotion": ("مشاعر", "شعور"),
+            "emotions": ("مشاعر", "شعور"),
+            "energy": ("طاق",),
+            "generate": ("تولد", "يولد", "ينتج"),
+            "generates": ("تولد", "يولد", "ينتج"),
+            "precede": ("قبل", "أول"),
+            "precedes": ("قبل", "أول"),
+        }
+        report_words = set(
+            re.findall(r"[a-z]+", " ".join(audit_strings).casefold())
+        )
+        active_aliases = [
+            aliases
+            for english, aliases in concept_aliases.items()
+            if english in report_words
+        ]
+        if active_aliases:
+            scores: dict[str, int] = {}
+            for section_id, narration in normalized_sections.items():
+                scores[section_id] = sum(
+                    1
+                    for aliases in active_aliases
+                    if any(alias in narration for alias in aliases)
+                )
+            best = max(scores.values(), default=0)
+            winners = [
+                section_id for section_id in ordered_ids
+                if best > 0 and scores.get(section_id) == best
+            ]
+            if len(winners) == 1:
+                targets.add(winners[0])
+
     return "\n".join(
         f"- [factuality-location] {section_id}"
         for section_id in ordered_ids
