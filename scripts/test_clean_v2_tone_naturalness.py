@@ -226,7 +226,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             ("s2",),
         )
 
-    def test_short_cohort_attempt_1_without_section_id_resolves_s2_from_claim_content(self):
+    def test_short_cohort_attempt_1_structured_id_resolves_s2_without_prose_hint(self):
         script = {
             "sections": [
                 {
@@ -263,7 +263,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertNotIn("s2", "\n".join(report["notes"] + [item["issue"] for item in report["unsupported_claims"]]))
         self.assertEqual(location_notes, "- [factuality-location] s2")
         self.assertEqual(
-            _repair_target_section_ids(script, revision_note, {}),
+            _factuality_target_section_ids(report, script),
             ("s2",),
         )
 
