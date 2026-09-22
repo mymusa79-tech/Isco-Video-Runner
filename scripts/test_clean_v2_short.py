@@ -157,12 +157,14 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertEqual(selection["extra_ai_calls"], 0)
                 self.assertIn(expected, TEMPLATE_VISUAL_QUERY_DIRECTIVES)
 
-    def test_cohort6_short_tone_audit_uses_selected_inner_dialogue_not_legacy_default(self) -> None:
-        brief = _brief("كيف تنهض عندما تفقد الدافع تمامًا؟")
-        self.assertEqual(select_short_template(brief)["template"], "inner_dialogue")
-        self.assertEqual(_audit_narrative_format_for_brief(brief), "inner_dialogue")
+    def test_short_tone_audit_uses_selected_template_for_all_four_formats(self) -> None:
+        for expected, fixture in _TEMPLATE_FIXTURES.items():
+            with self.subTest(template=expected):
+                brief = fixture["brief"]
+                self.assertEqual(select_short_template(brief)["template"], expected)
+                self.assertEqual(_audit_narrative_format_for_brief(brief), expected)
 
-        film = dict(brief)
+        film = dict(_TEMPLATE_FIXTURES["inner_dialogue"]["brief"])
         film["format"] = "film"
         self.assertEqual(_audit_narrative_format_for_brief(film), "direct_cinematic")
 
