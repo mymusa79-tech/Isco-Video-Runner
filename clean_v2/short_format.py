@@ -391,12 +391,14 @@ def _word_count(text: object) -> int:
 
 _SAFE_HOOK_TRIM_MAX_OVERRUN = 2
 _SAFE_HOOK_TRIM_MIN_WORDS = 10
-_SAFE_HOOK_BOUNDARY_PUNCTUATION = ("،", ",", ".", "؟", "!")
 _SAFE_HOOK_BOUNDARY_CONJUNCTIONS = {"لكن", "ولكن", "و"}
 _SAFE_HOOK_INCOMPLETE_ENDINGS = {
-    "في", "من", "إلى", "الى", "على", "عن", "مع", "بلا", "بدون",
-    "أن", "ان", "إن", "ان", "لأن", "لان", "حتى", "كي", "ثم", "أو", "او",
-    "بل", "لكن", "و", "إذا", "اذا", "عندما", "حين",
+    "في", "من", "إلى", "الى", "على", "عن", "مع", "بلا", "بدون", "دون",
+    "قبل", "بعد", "عند", "بين", "خلال", "لدى", "أن", "ان", "إن", "لأن", "لان",
+    "حتى", "كي", "ثم", "أو", "او", "بل", "لكن", "و", "إذا", "اذا", "عندما", "حين",
+}
+_SAFE_HOOK_INCOMPLETE_KEYS = {
+    _semantic_key(item) for item in _SAFE_HOOK_INCOMPLETE_ENDINGS
 }
 
 
@@ -407,7 +409,7 @@ def _safe_short_hook_trim_candidate(hook: str) -> str | None:
     if overrun not in (1, 2):
         return None
 
-    candidates: list[tuple[int, str]] = []
+    candidates: list[int] = []
     ceiling = min(SHORT_HOOK_MAX_WORDS, len(words))
     for index in range(ceiling):
         word = words[index]
@@ -415,20 +417,20 @@ def _safe_short_hook_trim_candidate(hook: str) -> str | None:
         if position < _SAFE_HOOK_TRIM_MIN_WORDS:
             continue
 
-        if any(mark in word for mark in _SAFE_HOOK_BOUNDARY_PUNCTUATION):
-            candidates.append((position, "after"))
+        if re.search(r"[،,.؟!]$", word):
+            candidates.append(position)
         normalized = re.sub(r"^[^\w\u0600-\u06ff]+|[^\w\u0600-\u06ff]+$", "", word)
         if normalized in _SAFE_HOOK_BOUNDARY_CONJUNCTIONS and index >= _SAFE_HOOK_TRIM_MIN_WORDS:
-            candidates.append((index, "before"))
+            candidates.append(index)
 
-    for cut, mode in reversed(candidates):
+    for cut in reversed(candidates):
         if cut < _SAFE_HOOK_TRIM_MIN_WORDS:
             continue
         kept = words[:cut]
         if not kept:
             continue
         last = re.sub(r"[^\w\u0600-\u06ff]+$", "", kept[-1])
-        if not last or _semantic_key(last) in {_semantic_key(item) for item in _SAFE_HOOK_INCOMPLETE_ENDINGS}:
+        if not last or _semantic_key(last) in _SAFE_HOOK_INCOMPLETE_KEYS:
             continue
 
         text = " ".join(kept).strip()
