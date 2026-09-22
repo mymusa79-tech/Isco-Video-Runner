@@ -33,6 +33,7 @@ from clean_v2.pipeline import (
     CleanV2FactualityContentBlock,
     CleanV2ToneContentBlock,
     _factuality_repair_prompt,
+    _factuality_target_section_ids,
     _repair_target_section_ids,
     _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
