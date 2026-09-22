@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import subprocess
 import tempfile
@@ -37,10 +38,18 @@ from clean_v2.short_audio_polish import (
 from clean_v2.short_timed_text import (
     ACCENT_ASS,
     MAX_DARK_SLATES,
+    build_events_from_voice_timeline,
     build_rich_ass,
     choose_dark_slate_index,
     split_focus_phrase,
     validate_progressive_text,
+)
+from clean_v2 import short_voice_owned_timeline as voice_timeline_module
+from clean_v2.short_voice_owned_timeline import (
+    ShortVoiceTimelineError,
+    build_short_voice_owned_timeline,
+    retime_events,
+    section_duration_map,
 )
 from clean_v2.short_format import (
     SHORT_HEIGHT,
@@ -375,6 +384,102 @@ class ShortTimedTextTests(unittest.TestCase):
         text = "لكن الحقيقة أن البداية الصغيرة تغيّر اتجاه اللحظة"
         body, focus = split_focus_phrase(text, "beat")
         self.assertEqual(" ".join((body + " " + focus).split()), text)
+
+
+class ShortVoiceOwnedTimelineTests(unittest.TestCase):
+    def test_cohort_attempt_3_31_03_fails_closed_without_regeneration_or_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            narration = root / "narration-mastered.wav"
+            narration.write_bytes(b"fixture")
+
+            with mock.patch(
+                "clean_v2.short_voice_owned_timeline.probe_duration",
+                return_value=31.03,
+            ), mock.patch(
+                "clean_v2.short_voice_owned_timeline.retime_events",
+                wraps=retime_events,
+            ) as retime_mock:
+                with self.assertRaisesRegex(
+                    ShortVoiceTimelineError,
+                    r"VOICE_EXCEEDS_SHORT_MAX voice=31\.030s max=30\.000s planning_repair_required=true",
+                ) as raised:
+                    build_short_voice_owned_timeline(
+                        output_dir=root,
+                        narration_path=narration,
+                    )
+
+            self.assertEqual(raised.exception.report["status"], "block")
+            self.assertEqual(
+                raised.exception.report["reason"],
+                "VOICE_EXCEEDS_SHORT_MAX",
+            )
+            self.assertTrue(raised.exception.report["planning_repair_required"])
+            self.assertFalse(
+                raised.exception.report["tts_regeneration_for_duration"]
+            )
+            self.assertEqual(raised.exception.report["duration_repair_attempts"], 0)
+            retime_mock.assert_not_called()
+
+        source = inspect.getsource(voice_timeline_module)
+        self.assertNotIn("atempo=", source)
+        self.assertNotIn("synthesize_", source)
+
+    def test_measured_charon_voice_retimes_sections_and_timed_text_exactly(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            audio_dir = root / "audio"
+            audio_dir.mkdir()
+            narration = root / "narration-mastered.wav"
+            narration.write_bytes(b"mastered")
+            for index in range(1, 4):
+                (audio_dir / f"{index:02d}.wav").write_bytes(b"section")
+
+            durations = {
+                "narration-mastered.wav": 24.0,
+                "01.wav": 5.0,
+                "02.wav": 7.0,
+                "03.wav": 12.0,
+            }
+
+            with mock.patch(
+                "clean_v2.short_voice_owned_timeline.probe_duration",
+                side_effect=lambda path: durations[Path(path).name],
+            ):
+                report = build_short_voice_owned_timeline(
+                    output_dir=root,
+                    narration_path=narration,
+                )
+
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["timeline_owner"], "measured_charon_voice")
+            self.assertFalse(report["time_compression"])
+            self.assertFalse(report["tts_regeneration_for_duration"])
+            self.assertEqual(
+                section_duration_map(report),
+                {"s1": 5.0, "s2": 7.0, "s3": 12.0},
+            )
+            self.assertEqual(
+                [(item["start"], item["end"]) for item in report["section_events"]],
+                [(0.0, 5.0), (5.0, 12.0), (12.0, 24.0)],
+            )
+
+            script = {
+                "sections": [
+                    {"id": "s1", "narration": "قد يختفي الدافع فجأة."},
+                    {"id": "s2", "narration": "لكن البداية لا تحتاج انتظارًا طويلًا."},
+                    {"id": "s3", "narration": "ابدأ بخطوة صغيرة الآن."},
+                ]
+            }
+            events = build_events_from_voice_timeline(
+                script=script,
+                timeline_report=report,
+            )
+            self.assertEqual(
+                [(item["start"], item["end"]) for item in events],
+                [(0.0, 5.0), (5.0, 12.0), (12.0, 24.0)],
+            )
+            self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
 
 
 class ShortAudioPolishTests(unittest.TestCase):
