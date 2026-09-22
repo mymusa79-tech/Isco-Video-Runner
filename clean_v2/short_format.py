@@ -288,7 +288,7 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation.\n"
         "- s3: resolve the SAME tension/question opened by s1-s2, then give exactly ONE practical action in one clear imperative sentence. "
         "That action sentence MUST begin with a direct Arabic imperative verb, not a descriptive suggestion, and must not append a second action with ثم/و. "
-        "Good examples: \"ابدأ بـ...\", \"جرّب أن...\", \"اختر...\", \"اكتب...\". "
+        "Good examples: \"ابدأ بـ...\", \"جرّب أن...\", \"افعل...\", \"اختر...\", \"اكتب...\". "
         "Bad examples: \"اكتب... ثم اخرج...\", \"يمكنك أن...\", \"من الأفضل أن...\", or a general description with no command.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
@@ -343,6 +343,7 @@ _GREETING_PREFIXES = (
 
 _PRACTICAL_ACTION_MARKERS = (
     "اختر",
+    "افعل",
     "ابدأ",
     "اكتب",
     "حدد",
