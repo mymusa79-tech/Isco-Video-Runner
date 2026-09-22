@@ -5,15 +5,20 @@ from __future__ import annotations
 Security V1's injection/firewall checks stay unchanged. Clean V2 planning historically
 emits comma-separated English stock-search phrases, Run #30 emitted one U+2011
 non-breaking hyphen, Run #142 emitted quoted stock-search terms such as 'if-then',
-and Run #216 emitted explanatory parentheses/periods plus two literal placeholders:
-[specific time] and [specific action]. Ordinary presentation punctuation is normalized
-only after the full original value passes Security V1's cross-provider injection checks.
-Those two exact bracket placeholders are the sole exception: their brackets are removed,
-then the complete candidate is revalidated through the same firewall before stock search.
+Run #216 emitted explanatory parentheses/periods plus two literal placeholders:
+[specific time] and [specific action], and Run #14 (Short, first Cold attempt after
+#812's inner_dialogue fix) emitted a Latin letter with a diacritic ('café') inside a
+widened (>80 char) query, which Security V1's ASCII-only gate for that length class
+rejects outright. Ordinary presentation punctuation is normalized only after the full
+original value passes Security V1's cross-provider injection checks. Those two exact
+bracket placeholders are the sole exception: their brackets are removed, then the
+complete candidate is revalidated through the same firewall before stock search.
 The resulting value
 then crosses Security V1's runtime stock-query gate, whose provider ceiling is coordinated
 with Clean V2's 200-character alternate-query contract.
 """
+
+import unicodedata
 
 from .legacy_cinematic import CleanV2LayerBlock, _block, security_query_normalizer
 
@@ -60,8 +65,31 @@ def _validate_original_or_run216_placeholders(value: str) -> str:
         return _validate_original_query(compatible)
 
 
+def _fold_latin_diacritics(value: str) -> str:
+    """Fold diacritics only when they belong to an ASCII Latin base letter.
+
+    NFD performs canonical decomposition without the broader compatibility folding of
+    NFKD. A nonspacing mark is dropped only while the current combining sequence is
+    attached to an ASCII Latin base (A-Z/a-z). Full-width/compatibility characters and
+    combining marks attached to non-Latin scripts remain unchanged for Security V1 to
+    accept or reject normally.
+    """
+    decomposed = unicodedata.normalize("NFD", value)
+    folded: list[str] = []
+    ascii_latin_base = False
+    for ch in decomposed:
+        if unicodedata.category(ch) == "Mn":
+            if ascii_latin_base:
+                continue
+            folded.append(ch)
+            continue
+        folded.append(ch)
+        ascii_latin_base = ("A" <= ch <= "Z") or ("a" <= ch <= "z")
+    return "".join(folded)
+
+
 def _normalize_observed_separators(value: str) -> str:
-    """Normalize only punctuation forms proven by production failures, including smart quotes."""
+    """Normalize only punctuation/character forms proven by production failures."""
     compatible = (
         value.replace(",", " ")
         .replace("\u2011", "-")
@@ -75,6 +103,9 @@ def _normalize_observed_separators(value: str) -> str:
         .replace(")", " ")
         .replace(".", " ")
     )
+    # Fold diacritics last so the existing named-character replacements remain
+    # authoritative. NFD is intentionally used instead of compatibility folding.
+    compatible = _fold_latin_diacritics(compatible)
     return " ".join(compatible.split())
 
 
@@ -87,7 +118,8 @@ def normalize_clean_v2_stock_query(value: str) -> str:
        a markup-only rejection; after stripping those brackets, the complete candidate is
        immediately revalidated by the same firewall. Any other bracket syntax stays blocked.
     2. After validation, convert observed presentation punctuation before stock search:
-       commas/parentheses/periods to spaces, U+2011 to ASCII hyphen, and remove quotes.
+       commas/parentheses/periods to spaces, U+2011 to ASCII hyphen, remove quotes, and
+       fold Latin letters with diacritics to their plain ASCII base (café -> cafe).
     3. Reuse the Security V1 stock-query gate (same safety checks, 200-char runtime ceiling).
 
     No other punctuation, non-English text, or malformed query class is repaired here.
