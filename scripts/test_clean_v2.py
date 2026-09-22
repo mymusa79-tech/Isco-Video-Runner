@@ -3587,7 +3587,8 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertEqual(result["post_repair_structural_ai_status"], "pass")
 
             prompt = router.prompts[0]
-            self.assertIn("- [factuality] s4/s5:", prompt)
+            self.assertIn("- [factuality:s4]", prompt)
+            self.assertIn("- [factuality:s5]", prompt)
             self.assertIn("- [structural] repeated_not_x_but_y:", prompt)
             self.assertIn("- [structural] duplicate_sentence", prompt)
             self.assertIn("weaken, qualify, or remove only the offending wording", prompt)
@@ -3623,9 +3624,10 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
     def test_run249_composite_audit_collects_tone_before_factuality_repair(self) -> None:
         factuality_block = {
             "status": "block",
-            "unsupported_claims": ["s3 claim exceeds approved evidence"],
+            "unsupported_claims": [{"section_id": "s3", "issue": "claim exceeds approved evidence"}],
             "professional_advice_flags": [],
             "expert_persona_flags": [],
+            "diagnostics": {"raw_result": {"unsupported_claims": [{"section_id": "s3", "issue": "claim exceeds approved evidence"}], "professional_advice_flags": [], "expert_persona_flags": []}},
         }
         tone_block = {
             "status": "block",
@@ -3747,7 +3749,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertEqual(audit_calls["n"], 2)
             self.assertEqual(result["factuality_repair_attempts"], 1)
             prompt = router.prompts[0]
-            self.assertIn("- [factuality] s3:", prompt)
+            self.assertIn("- [factuality:s3]", prompt)
             self.assertIn("- [tone] Opening narration reads as overly promotional", prompt)
             self.assertIn("- [tone] The CTA in s3 feels abrupt and promotional", prompt)
             self.assertIn("- [tone] viewer_retention_continuity:", prompt)
