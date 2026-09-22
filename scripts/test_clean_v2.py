@@ -37,7 +37,10 @@ from clean_v2.pipeline import (
     _repair_target_section_ids,
     _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
+    _script_text_haystack,
+    _tone_repair_issue_notes,
     _tone_repair_prompt,
+    _validate_and_apply_script_patches,
     _validate_tone_repair_script,
     _PLANNING_FACTUALITY_RULE,
     _narrative_identity_prompt,
@@ -594,6 +597,147 @@ class MistralScriptDiagnosticsTests(unittest.TestCase):
         self.assertIn(reversed_ids[0], log_text)
         self.assertNotIn(private_marker, log_text)
         self.assertNotIn("private title", log_text)
+
+
+class MistralScriptPatchDiagnosticsTests(unittest.TestCase):
+    """Run #315: OpenRouter's tone/naturalness audit cited quoted example
+    fragments (garbled mixed-script text) that never appeared anywhere in the
+    actual script. When those flags were flattened verbatim into the tone
+    repair prompt, the repair provider had no way to know the quotes were
+    unreliable, and any patch built from one fails the local find/replace
+    validator's exact-match check regardless of which provider produced it.
+    """
+
+    def test_run315_hallucinated_quote_find_rejected_by_real_validator(self) -> None:
+        plan = _plan()
+        script = _script()
+        identity = {"opener": "", "closer": "", "transitions": []}
+        cta_plan = {"anchor_section_id": "", "spoken_text": ""}
+        hallucinated_find = "نص-غير-موجود-إطلاقا"
+        self.assertNotIn(hallucinated_find, script["sections"][1]["narration"])
+
+        value = {
+            "patches": [
+                {
+                    "section_id": "s2",
+                    "find": hallucinated_find,
+                    "replace": "نص بديل",
+                }
+            ]
+        }
+        with self.assertRaisesRegex(
+            ValueError,
+            "script patch find text must match exactly once",
+        ):
+            _validate_and_apply_script_patches(
+                value,
+                plan=plan,
+                original_script=script,
+                identity=identity,
+                cta_plan=cta_plan,
+                revision_note="- [tone] s2: garbled fragment noted",
+            )
+
+    def test_script_patch_validator_logs_safe_raw_shape_without_find_replace_text(
+        self,
+    ) -> None:
+        plan = _plan()
+        script = _script()
+        identity = {"opener": "", "closer": "", "transitions": []}
+        cta_plan = {"anchor_section_id": "", "spoken_text": ""}
+        private_find = "PRIVATE_FIND_TEXT_MUST_NOT_BE_LOGGED"
+        raw_value = {
+            "patches": [
+                {
+                    "section_id": "s2",
+                    "find": private_find,
+                    "replace": "بديل غير حساس",
+                }
+            ]
+        }
+        raw_content = json.dumps(raw_value, ensure_ascii=False)
+
+        def mistral_call(_prompt, _tokens, stage):
+            self.assertEqual(stage, "script_patch")
+            return raw_value
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter(
+                    "mistral",
+                    mistral_call,
+                    stages=frozenset({"script_patch"}),
+                    accepts_stage=True,
+                ),
+            )
+        )
+        with mock.patch.object(
+            providers_module.mistral_executor,
+            "get_last_mistral_executor_raw_content",
+            return_value=raw_content,
+        ), mock.patch("builtins.print") as logged:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "mistral:invalid_output_valueerror",
+            ):
+                router.route(
+                    stage="script_patch",
+                    prompt="safe script_patch prompt",
+                    max_tokens=2200,
+                    validator=lambda value: _validate_and_apply_script_patches(
+                        value,
+                        plan=plan,
+                        original_script=script,
+                        identity=identity,
+                        cta_plan=cta_plan,
+                        revision_note="- [tone] s2: garbled fragment noted",
+                    ),
+                )
+
+        log_text = "\n".join(str(call.args[0]) for call in logged.call_args_list)
+        self.assertIn("Mistral script_patch validator rejected raw content", log_text)
+        self.assertIn("script patch find text must match exactly once", log_text)
+        self.assertIn('"find_chars"', log_text)
+        self.assertIn('"sha256"', log_text)
+        self.assertIn("s2", log_text)
+        self.assertNotIn(private_find, log_text)
+
+
+class ToneRepairFlagQuoteVerificationTests(unittest.TestCase):
+    """Run #315 root cause: `_tone_repair_issue_notes` must not pass a
+    quoted example an auditor cites straight into the repair prompt unless
+    that exact text actually exists in the script being repaired.
+    """
+
+    def test_run315_fabricated_quote_dropped_while_real_quote_and_plain_flag_survive(
+        self,
+    ) -> None:
+        script = _script()
+        real_excerpt = "حين نصغر الفعل الأول"
+        self.assertIn(real_excerpt, script["sections"][1]["narration"])
+        fabricated_excerpt = "الخططatego执行ية"
+        self.assertNotIn(fabricated_excerpt, _script_text_haystack(script))
+
+        report = {
+            "naturalness_flags": [
+                f"Script contains garbled fragments, e.g., '{fabricated_excerpt}', "
+                "breaking Modern Standard Arabic naturalness.",
+                f"Repeats the phrase '{real_excerpt}' awkwardly in s2.",
+                "Missing punctuation and run-on sentences reduce readability.",
+            ],
+        }
+
+        notes = _tone_repair_issue_notes(report, script)
+
+        self.assertNotIn(fabricated_excerpt, notes)
+        self.assertIn(real_excerpt, notes)
+        self.assertIn("Missing punctuation and run-on sentences", notes)
+
+    def test_no_script_supplied_keeps_legacy_unfiltered_behavior(self) -> None:
+        fabricated_excerpt = "نص لن يوجد أبدًا في أي سكربت"
+        report = {"naturalness_flags": [f"garbled example '{fabricated_excerpt}'"]}
+        notes = _tone_repair_issue_notes(report)
+        self.assertIn(fabricated_excerpt, notes)
 
 
 class ProviderAccountingTests(unittest.TestCase):
@@ -3010,11 +3154,11 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             "s5: The phrase 'حفظكم الله' at the end of a secular productivity video is culturally appropriate but feels disconnected from the rest of the narrative tone, creating a tonal mismatch.",
         ],
         "narrative_format_flags": [
-            "viewer_retention_continuity: s1 hook establishes a relatable daily scenario but s2 immediately pivots into abstract academic language ('الخطأ التخطيطي', 'الدراسات تُظهر') without building on the personal example introduced, creating a disconnect between the emotional hook and the analytical body.",
+            "viewer_retention_continuity: s1 hook establishes a relatable daily scenario but s2 immediately pivots into abstract academic language ('التخطيط fallacy', 'تقدير الزمن') without building on the personal example introduced, creating a disconnect between the emotional hook and the analytical body.",
             "viewer_retention_continuity: s3 introduces procrastination as a new concept without clearly linking it back to the planning fallacy discussed in s2, making the progression feel segmented rather than cumulative.",
             "viewer_retention_continuity: s4 presents 'الخطط إذا-فإن' as a solution but does not explicitly connect it to the two prior problems (planning fallacy and procrastination), weakening the causal chain.",
-            "editorial_promise_continuity: The hook and title promise an exploration of 'why time management plans fail,' but s5 shifts into a direct call-to-action ('اشترك في القناة') and a generic encouragement to try one step, which feels more like a standard YouTube outro than an earned payoff to the central question.",
-            "editorial_promise_continuity: The closing_payoff states 'نعرض طريقة واحدة مدعومة بالبحث لتحويل النية إلى فعل,' but the video only briefly mentions 'الأبحاث تُظهر' without citing specific studies or providing concrete evidence, making the payoff feel under-supported relative to the promise.",
+            "editorial_promise_continuity: The hook and title promise an exploration of 'لماذا تفشل خططك' but s5 shifts into a direct call-to-action ('اشترك في القناة') and a generic encouragement to try one step, which feels more like a standard YouTube outro than an earned payoff to the central question.",
+            "editorial_promise_continuity: The closing_payoff states 'الخطط إذا-فإن تربط الفعل' but the video only briefly mentions 'بإشارة محددة في اليوم' without citing specific studies or providing concrete evidence, making the payoff feel under-supported relative to the promise.",
         ],
         "unverified_religious_quote_flags": [],
     }

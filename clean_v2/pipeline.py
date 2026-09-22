@@ -810,8 +810,71 @@ def _factuality_location_issue_notes(
     )
 
 
-def _tone_repair_issue_notes(report: Mapping[str, Any]) -> str:
+_QUOTED_TONE_FLAG_EXAMPLE = re.compile(r"['\"]([^'\"]{1,220})['\"]")
+_WORD_TOKEN = re.compile(r"\w+", re.UNICODE)
+_QUOTE_WORD_OVERLAP_FLOOR = 0.6
+
+
+def _script_text_haystack(script: Mapping[str, Any]) -> str:
+    """Flatten every span of the original script a repair prompt may cite."""
+    parts = [str(script.get("title") or "")]
+    sections = script.get("sections") or []
+    if isinstance(sections, list):
+        parts.extend(
+            str(item.get("narration") or "")
+            for item in sections
+            if isinstance(item, Mapping)
+        )
+    return "\n".join(parts)
+
+
+def _quote_is_verifiable(excerpt: str, haystack: str, haystack_words: set[str]) -> bool:
+    """A quote is trustworthy if it is a real substring, or close enough in words.
+
+    Auditors routinely cite a real span in a lightly paraphrased form (a verb
+    quoted as its verbal noun, for example), which should still count as
+    verified. A quote built from fragments that share no real words with the
+    script at all (Run #315: mixed Arabic/Latin/CJK garbage like
+    'الخططatego执行ية' or a plain English word invented out of thin air like
+    'want') should not.
+    """
+    if excerpt in haystack:
+        return True
+    words = [token.casefold() for token in _WORD_TOKEN.findall(excerpt)]
+    if not words:
+        return False
+    matched = sum(1 for word in words if word in haystack_words)
+    return (matched / len(words)) >= _QUOTE_WORD_OVERLAP_FLOOR
+
+
+def _drop_unverified_flag_quotes(flag: str, haystack: str) -> str:
+    """Strip quoted examples an audit flag cites that never appear in the script.
+
+    A free-tier audit provider can hallucinate example fragments (garbled or
+    mixed-script text) that do not exist anywhere in the actual narration.
+    Passing a fabricated quote into the repair prompt as "evidence" invites the
+    repair provider to target text that isn't there, which the local
+    find/replace validator then rejects outright (Run #315:
+    narration.count(find) != 1). Drop only the unverifiable quote itself; keep
+    the rest of the flag's wording intact.
+    """
+    haystack_words = {token.casefold() for token in _WORD_TOKEN.findall(haystack)}
+
+    def _replace(match: "re.Match[str]") -> str:
+        excerpt = match.group(1).strip()
+        if excerpt and _quote_is_verifiable(excerpt, haystack, haystack_words):
+            return match.group(0)
+        return ""
+
+    cleaned = _QUOTED_TONE_FLAG_EXAMPLE.sub(_replace, flag)
+    return " ".join(cleaned.split())
+
+
+def _tone_repair_issue_notes(
+    report: Mapping[str, Any], script: Mapping[str, Any] | None = None
+) -> str:
     """Deterministically flatten only the actual tone flags into repair notes."""
+    haystack = _script_text_haystack(script) if script is not None else ""
     lines: list[str] = []
     seen: set[str] = set()
     for field in _TONE_REPAIR_FLAG_FIELDS:
@@ -820,6 +883,10 @@ def _tone_repair_issue_notes(report: Mapping[str, Any]) -> str:
             continue
         for value in values:
             flag = " ".join(str(value or "").split()).strip()
+            if not flag:
+                continue
+            if haystack:
+                flag = _drop_unverified_flag_quotes(flag, haystack)
             if flag and flag not in seen:
                 lines.append(f"- [tone] {flag}")
                 seen.add(flag)
@@ -1337,7 +1404,7 @@ def _run_one_bounded_tone_repair(
     router: Any,
     blocked_report: Mapping[str, Any],
 ) -> dict[str, Any]:
-    tone_issue_notes = _tone_repair_issue_notes(blocked_report)
+    tone_issue_notes = _tone_repair_issue_notes(blocked_report, script)
     structural_issue_notes = _structural_repair_issue_notes(output_dir)
     template_issue_notes = _short_template_tone_repair_issue_notes(brief)
     issue_notes = "\n".join(
@@ -1508,7 +1575,7 @@ def _run_one_bounded_factuality_repair(
 ) -> dict[str, Any]:
     factuality_issue_notes = _factuality_repair_issue_notes(blocked_report)
     factuality_location_notes = _factuality_location_issue_notes(blocked_report, script)
-    tone_issue_notes = _tone_repair_issue_notes(tone_report or {})
+    tone_issue_notes = _tone_repair_issue_notes(tone_report or {}, script)
     structural_issue_notes = _structural_repair_issue_notes(output_dir)
     issue_notes = "\n".join(
         item

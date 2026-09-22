@@ -386,6 +386,61 @@ def _safe_validator_reason(exc: Exception) -> str:
     return base
 
 
+def _safe_mistral_script_patch_raw_diagnostic(
+    raw_content: str, exc: Exception
+) -> dict[str, Any]:
+    """Describe rejected Mistral script_patch output without logging find/replace text."""
+    raw = str(raw_content or "")
+    raw_bytes = raw.encode("utf-8")
+    diagnostic: dict[str, Any] = {
+        "validator_error_type": type(exc).__name__,
+        "validator_error": str(exc)[:500],
+        "raw_content": {
+            "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+            "utf8_bytes": len(raw_bytes),
+        },
+    }
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        diagnostic["raw_content"]["shape"] = {"json_type": "invalid_json"}
+        return diagnostic
+
+    if not isinstance(value, dict):
+        diagnostic["raw_content"]["shape"] = {"json_type": type(value).__name__}
+        return diagnostic
+
+    shape: dict[str, Any] = {
+        "json_type": "object",
+        "top_level_keys": sorted(str(key)[:80] for key in value.keys())[:30],
+    }
+    patches = value.get("patches")
+    shape["patches_type"] = type(patches).__name__
+    if isinstance(patches, list):
+        shape["patches_count"] = len(patches)
+        patch_shapes: list[dict[str, Any]] = []
+        for index, item in enumerate(patches[:10]):
+            if not isinstance(item, dict):
+                patch_shapes.append({"index": index, "json_type": type(item).__name__})
+                continue
+            find = item.get("find")
+            replace = item.get("replace")
+            patch_shapes.append(
+                {
+                    "index": index,
+                    "keys": sorted(str(key)[:80] for key in item.keys())[:20],
+                    "section_id": str(item.get("section_id") or "")[:40],
+                    "find_type": type(find).__name__,
+                    "find_chars": len(find) if isinstance(find, str) else None,
+                    "replace_type": type(replace).__name__,
+                    "replace_chars": len(replace) if isinstance(replace, str) else None,
+                }
+            )
+        shape["patches"] = patch_shapes
+    diagnostic["raw_content"]["shape"] = shape
+    return diagnostic
+
+
 def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
     """Build Planning schema from validate_plan() semantics and the approved format."""
     marker = "APPROVED_BRIEF:\n"
@@ -755,6 +810,17 @@ class ProviderRouter:
                         "Mistral script validator rejected raw content: "
                         + json.dumps(
                             _safe_mistral_script_raw_diagnostic(raw_content, exc),
+                            ensure_ascii=True,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                    )
+                elif adapter.name == "mistral" and stage == "script_patch":
+                    raw_content = mistral_executor.get_last_mistral_executor_raw_content()
+                    print(
+                        "Mistral script_patch validator rejected raw content: "
+                        + json.dumps(
+                            _safe_mistral_script_patch_raw_diagnostic(raw_content, exc),
                             ensure_ascii=True,
                             sort_keys=True,
                             separators=(",", ":"),
