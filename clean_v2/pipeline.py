@@ -492,6 +492,18 @@ def _run_opening_director(
     )
 
 
+def _audit_narrative_format_for_brief(brief: Mapping[str, Any]) -> str:
+    """Bind legacy tone QA to the actual Clean V2 Short template.
+
+    Legacy ProductionPlan defaults narrative_format to direct_cinematic. That is
+    correct for legacy plans but wrong for standalone Clean V2 Shorts, whose
+    deterministic template selection is authoritative.
+    """
+    if str(brief.get("format") or "") == "short":
+        return str(select_short_template(brief)["template"])
+    return "direct_cinematic"
+
+
 def _build_production_plan_for_audit(
     *,
     brief: Mapping[str, Any],
@@ -514,11 +526,7 @@ def _build_production_plan_for_audit(
         for item in plan["sections"]
     ]
     brief_format = str(brief.get("format") or "")
-    narrative_format = (
-        str(select_short_template(brief)["template"])
-        if brief_format == "short"
-        else "direct_cinematic"
-    )
+    narrative_format = _audit_narrative_format_for_brief(brief)
     return ProductionPlan(
         topic=str(brief.get("approved_topic") or ""),
         pillar=str(brief.get("pillar") or ""),
