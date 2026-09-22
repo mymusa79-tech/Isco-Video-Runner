@@ -334,6 +334,60 @@ class ShortContractTests(unittest.TestCase):
         ):
             validate_short_script(double_action)
 
+    def test_mistral_only_gets_explicit_short_hook_counting_guidance(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        valid = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب فنؤجل الحركة نفسها."},
+                {"id": "s3", "narration": "ابدأ بخطوة صغيرة تستطيع تنفيذها الآن."},
+            ],
+        }
+        seen = {}
+
+        def fail(name):
+            def call(prompt, _tokens):
+                seen[name] = prompt
+                raise RuntimeError(name + "_capacity")
+            return call
+
+        def mistral(prompt, _tokens):
+            seen["mistral"] = prompt
+            return valid
+
+        router = ProviderRouter(
+            (
+                ProviderAdapter("gemini", fail("gemini")),
+                ProviderAdapter("groq", fail("groq")),
+                ProviderAdapter("openrouter", fail("openrouter")),
+                ProviderAdapter("mistral", mistral),
+            )
+        )
+        base_prompt = _script_prompt(brief, plan)
+        accepted = router.route(
+            stage="script",
+            prompt=base_prompt,
+            max_tokens=400,
+            validator=lambda value: _validate_script_for_brief(value, plan, brief),
+        )
+
+        self.assertEqual(accepted["sections"][0]["narration"], valid["sections"][0]["narration"])
+        for provider in ("gemini", "groq", "openrouter"):
+            self.assertEqual(seen[provider], base_prompt)
+            self.assertNotIn("MISTRAL_SHORT_HOOK_COMPLIANCE", seen[provider])
+        self.assertIn("MISTRAL_SHORT_HOOK_COMPLIANCE", seen["mistral"])
+        self.assertIn("MUST be 12 Arabic words or fewer", seen["mistral"])
+        self.assertIn("split the first sentence on whitespace", seen["mistral"])
+        self.assertIn("13+ words is INVALID", seen["mistral"])
+        self.assertIn("Operational target: write the Hook in 10-11 words", seen["mistral"])
+        self.assertIn("if count > 12, rewrite that sentence shorter", seen["mistral"])
+        self.assertIn(
+            'حين تنتظر الدافع طويلًا، تصبح أبسط بداية أصعب مما تتخيل.',
+            seen["mistral"],
+        )
+
     def test_provider_router_rejects_technically_successful_hook_over_12_words(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
