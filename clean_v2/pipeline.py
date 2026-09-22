@@ -2161,12 +2161,67 @@ def _run_audio_mastering_stage(
         narration_path=narration_path,
     )
     if fmt == "short":
-        _run_short_duration_gate(
-            output_dir=output_dir,
-            media_path=output_dir / "narration-mastered.wav",
-            phase="post_audio_mastering_pre_visuals",
-            report_name="short-duration-pre-visual.json",
+        from clean_v2.short_voice_owned_timeline import (
+            ShortVoiceTimelineError,
+            build_short_voice_owned_timeline,
         )
+
+        mastered = output_dir / "narration-mastered.wav"
+        try:
+            voice_timeline = build_short_voice_owned_timeline(
+                output_dir=output_dir,
+                narration_path=mastered,
+            )
+        except ShortVoiceTimelineError as exc:
+            blocked = dict(exc.report)
+            atomic_write_json(
+                output_dir / "short-voice-owned-timeline.json",
+                blocked,
+            )
+            atomic_write_json(
+                output_dir / "short-duration-pre-visual.json",
+                {
+                    "schema_version": 1,
+                    "source": "clean-v2-short-voice-owned-timeline-v1",
+                    "status": "block",
+                    "phase": "post_audio_mastering_pre_visuals",
+                    "duration_seconds": blocked.get("voice_seconds_measured"),
+                    "minimum_seconds": SHORT_MIN_SECONDS,
+                    "target_seconds": SHORT_TARGET_SECONDS,
+                    "maximum_seconds": SHORT_MAX_SECONDS,
+                    "timeline_owner": "measured_charon_voice",
+                    "planning_repair_required": bool(
+                        blocked.get("planning_repair_required")
+                    ),
+                    "provider_calls_added": 0,
+                },
+            )
+            raise RuntimeError(str(exc)) from exc
+
+        atomic_write_json(
+            output_dir / "short-voice-owned-timeline.json",
+            voice_timeline,
+        )
+        atomic_write_json(
+            output_dir / "short-duration-pre-visual.json",
+            {
+                "schema_version": 1,
+                "source": "clean-v2-short-voice-owned-timeline-v1",
+                "status": "pass",
+                "phase": "post_audio_mastering_pre_visuals",
+                "duration_seconds": voice_timeline["voice_seconds_measured"],
+                "minimum_seconds": SHORT_MIN_SECONDS,
+                "target_seconds": SHORT_TARGET_SECONDS,
+                "maximum_seconds": SHORT_MAX_SECONDS,
+                "timeline_owner": "measured_charon_voice",
+                "planning_repair_required": False,
+                "provider_calls_added": 0,
+            },
+        )
+        return {
+            **report,
+            "short_voice_owned_timeline": voice_timeline,
+        }
     return report
 
 
@@ -3056,11 +3111,25 @@ class CleanV2Pipeline:
                 sections_for_visuals = list(plan.get("sections") or [])[
                     : max(1, int(max_visuals))
                 ]
-                section_estimated_seconds = _estimate_section_seconds(
-                    sections_for_visuals,
-                    script,
-                    probe_duration(narration_path),
-                )
+                if str(brief["format"]) == "short":
+                    from clean_v2.short_voice_owned_timeline import section_duration_map
+
+                    voice_timeline = _read_json_object(
+                        output_dir / "short-voice-owned-timeline.json"
+                    )
+                    exact_voice_sections = section_duration_map(voice_timeline)
+                    section_estimated_seconds = {
+                        str(item.get("id") or ""): exact_voice_sections[
+                            str(item.get("id") or "")
+                        ]
+                        for item in sections_for_visuals
+                    }
+                else:
+                    section_estimated_seconds = _estimate_section_seconds(
+                        sections_for_visuals,
+                        script,
+                        probe_duration(narration_path),
+                    )
                 try:
                     clips, rights = journal.run(
                         "visuals",
@@ -3092,7 +3161,11 @@ class CleanV2Pipeline:
                         "schema_version": 1,
                         "assets": rights,
                         "estimated_section_seconds": section_estimated_seconds,
-                        "note": "Provider metadata captured at acquisition; no visual quality audit executed in Clean V2 bootstrap.",
+                        "note": (
+                            "Provider metadata captured at acquisition. Short section timing comes from the measured "
+                            "Charon voice-owned timeline; other formats keep the local narration-weighted estimate. "
+                            "No visual quality audit executed in Clean V2 bootstrap."
+                        ),
                     },
                 )
                 self._write_runtime_events(output_dir)
