@@ -13,6 +13,7 @@ from clean_v2.contextual_cta import CtaMode, bind_contextual_cta
 from clean_v2.contracts import ContractError, validate_plan
 from clean_v2.opening_director import run_opening_director
 from clean_v2.pipeline import (
+    _audit_narrative_format_for_brief,
     _planning_prompt,
     _script_prompt,
     _short_identity_not_applicable,
@@ -156,6 +157,15 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertEqual(selection["extra_ai_calls"], 0)
                 self.assertIn(expected, TEMPLATE_VISUAL_QUERY_DIRECTIVES)
 
+    def test_cohort6_short_tone_audit_uses_selected_inner_dialogue_not_legacy_default(self) -> None:
+        brief = _brief("كيف تنهض عندما تفقد الدافع تمامًا؟")
+        self.assertEqual(select_short_template(brief)["template"], "inner_dialogue")
+        self.assertEqual(_audit_narrative_format_for_brief(brief), "inner_dialogue")
+
+        film = dict(brief)
+        film["format"] = "film"
+        self.assertEqual(_audit_narrative_format_for_brief(film), "direct_cinematic")
+
     def test_quote_reflection_requires_real_quote_evidence(self) -> None:
         brief = _brief("هذه عبارة جميلة للتأمل")
         selection = select_short_template(brief)
@@ -184,6 +194,21 @@ class ShortTemplateSelectionTests(unittest.TestCase):
             "payoff_repeats_opening_action",
         ):
             validate_short_visual_queries(repeated, fixture["brief"])
+
+    def test_cohort6_inner_dialogue_rejects_notebook_opening_and_notebook_payoff(self) -> None:
+        fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
+        cohort6_shape = _plan(
+            [
+                "person sitting alone at wooden table hands still looking at empty notebook and pen early morning light",
+                "close-up of hands slowly turning a page in a book then pausing on a marked sentence quiet indoor lighting",
+                "person writing one word in notebook then closing it with a slight smile hands resting on the page",
+            ]
+        )
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "inner_dialogue_payoff_repeats_opening_action",
+        ):
+            validate_short_visual_queries(cohort6_shape, fixture["brief"])
 
     def test_inner_dialogue_rejects_generic_visual_queries(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
