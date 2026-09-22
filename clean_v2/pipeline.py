@@ -28,6 +28,7 @@ from .short_format import (
     SHORT_MAX_SECONDS,
     SHORT_MIN_SECONDS,
     SHORT_TARGET_SECONDS,
+    apply_safe_short_hook_trim,
     select_short_template,
     short_contract_report,
     short_prompt_context,
@@ -2064,10 +2065,10 @@ def _validate_script_for_brief(
 ) -> dict[str, Any]:
     script = validate_script(value, plan)
     if str(brief.get("format") or "") == "short":
-        # This validator runs inside ProviderRouter before any technically successful
-        # provider response can be accepted. Keep the hook ceiling explicit here so a
-        # Groq/Mistral/OpenRouter/Gemini response with an overlong s1 hook is a contract
-        # failure and the bounded router may continue to the next provider.
+        # A 1-2 word hook overrun may be repaired locally only at a conservative natural
+        # boundary. Unsafe continuous sentences remain hard contract failures so the
+        # bounded provider route can continue exactly as before.
+        apply_safe_short_hook_trim(script)
         validate_short_hook_contract(script)
         validate_short_script(script)
     return script

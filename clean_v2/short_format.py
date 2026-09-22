@@ -389,6 +389,78 @@ def _word_count(text: object) -> int:
     return len([word for word in _clean(text).split() if word])
 
 
+_SAFE_HOOK_TRIM_MAX_OVERRUN = 2
+_SAFE_HOOK_TRIM_MIN_WORDS = 10
+_SAFE_HOOK_BOUNDARY_CONJUNCTIONS = {"لكن", "ولكن", "و"}
+_SAFE_HOOK_INCOMPLETE_ENDINGS = {
+    "في", "من", "إلى", "الى", "على", "عن", "مع", "بلا", "بدون", "دون",
+    "قبل", "بعد", "عند", "بين", "خلال", "لدى", "أن", "ان", "إن", "لأن", "لان",
+    "حتى", "كي", "ثم", "أو", "او", "بل", "لكن", "و", "إذا", "اذا", "عندما", "حين",
+}
+_SAFE_HOOK_INCOMPLETE_KEYS = {
+    _semantic_key(item) for item in _SAFE_HOOK_INCOMPLETE_ENDINGS
+}
+
+
+def _safe_short_hook_trim_candidate(hook: str) -> str | None:
+    """Return a conservative local trim only for a 1-2 word hook overrun."""
+    words = _clean(hook).split()
+    overrun = len(words) - SHORT_HOOK_MAX_WORDS
+    if overrun not in (1, 2):
+        return None
+
+    candidates: list[int] = []
+    ceiling = min(SHORT_HOOK_MAX_WORDS, len(words))
+    for index in range(ceiling):
+        word = words[index]
+        position = index + 1
+        if position < _SAFE_HOOK_TRIM_MIN_WORDS:
+            continue
+
+        if re.search(r"[،,.؟!]$", word):
+            candidates.append(position)
+        normalized = re.sub(r"^[^\w\u0600-\u06ff]+|[^\w\u0600-\u06ff]+$", "", word)
+        if normalized in _SAFE_HOOK_BOUNDARY_CONJUNCTIONS and index >= _SAFE_HOOK_TRIM_MIN_WORDS:
+            candidates.append(index)
+
+    for cut in reversed(candidates):
+        if cut < _SAFE_HOOK_TRIM_MIN_WORDS:
+            continue
+        kept = words[:cut]
+        if not kept:
+            continue
+        last = re.sub(r"[^\w\u0600-\u06ff]+$", "", kept[-1])
+        if not last or _semantic_key(last) in _SAFE_HOOK_INCOMPLETE_KEYS:
+            continue
+
+        text = " ".join(kept).strip()
+        text = re.sub(r"[،,؛;:.!?؟!]+$", "", text).strip()
+        if not text or _word_count(text) > SHORT_HOOK_MAX_WORDS:
+            continue
+        return text + "."
+    return None
+
+
+def apply_safe_short_hook_trim(script: dict[str, Any]) -> bool:
+    """Trim only a tiny overrun at a proven natural boundary; otherwise do nothing."""
+    sections = script.get("sections")
+    if not isinstance(sections, list) or not sections or not isinstance(sections[0], dict):
+        return False
+
+    narration = _clean(sections[0].get("narration"))
+    hook = _first_sentence(narration)
+    if not hook or _word_count(hook) <= SHORT_HOOK_MAX_WORDS:
+        return False
+
+    trimmed = _safe_short_hook_trim_candidate(hook)
+    if trimmed is None:
+        return False
+
+    remainder = narration[len(hook):].lstrip()
+    sections[0]["narration"] = f"{trimmed} {remainder}".strip()
+    return True
+
+
 def _practical_action_marker_count(text: object) -> int:
     compact = _clean(text)
     if not compact:
