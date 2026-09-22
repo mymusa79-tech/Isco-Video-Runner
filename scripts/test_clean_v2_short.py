@@ -13,6 +13,7 @@ from clean_v2.contextual_cta import CtaMode, bind_contextual_cta
 from clean_v2.contracts import ContractError, validate_plan
 from clean_v2.opening_director import run_opening_director
 from clean_v2.pipeline import (
+    _audit_narrative_format_for_brief,
     _planning_prompt,
     _script_prompt,
     _short_identity_not_applicable,
@@ -25,7 +26,7 @@ from clean_v2.media import (
     SHORT_CHARON_STYLE,
     VoiceInfrastructureError,
 )
-from clean_v2.providers import ProviderAdapter, ProviderRouter
+from clean_v2.providers import ProviderAdapter, ProviderRouter, _safe_validator_reason
 from clean_v2.audio_mastering import CHARON_CORRECTIVE_FILTER, CHARON_CORRECTIVE_PROFILE
 from clean_v2.short_audio_polish import (
     MUSIC_MAX_REL_DB,
@@ -156,6 +157,17 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertEqual(selection["extra_ai_calls"], 0)
                 self.assertIn(expected, TEMPLATE_VISUAL_QUERY_DIRECTIVES)
 
+    def test_short_tone_audit_uses_selected_template_for_all_four_formats(self) -> None:
+        for expected, fixture in _TEMPLATE_FIXTURES.items():
+            with self.subTest(template=expected):
+                brief = fixture["brief"]
+                self.assertEqual(select_short_template(brief)["template"], expected)
+                self.assertEqual(_audit_narrative_format_for_brief(brief), expected)
+
+        film = dict(_TEMPLATE_FIXTURES["inner_dialogue"]["brief"])
+        film["format"] = "film"
+        self.assertEqual(_audit_narrative_format_for_brief(film), "direct_cinematic")
+
     def test_quote_reflection_requires_real_quote_evidence(self) -> None:
         brief = _brief("هذه عبارة جميلة للتأمل")
         selection = select_short_template(brief)
@@ -185,6 +197,21 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         ):
             validate_short_visual_queries(repeated, fixture["brief"])
 
+    def test_cohort6_inner_dialogue_rejects_notebook_opening_and_notebook_payoff(self) -> None:
+        fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
+        cohort6_shape = _plan(
+            [
+                "person sitting alone at wooden table hands still looking at empty notebook and pen early morning light",
+                "close-up of hands holding a half-empty glass of water person hesitating before taking a sip quiet indoor setting",
+                "quiet person writing one word in notebook then closing it with a slight smile hands resting on the page",
+            ]
+        )
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "inner_dialogue_payoff_repeats_opening_action",
+        ):
+            validate_short_visual_queries(cohort6_shape, fixture["brief"])
+
     def test_inner_dialogue_rejects_generic_visual_queries(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         generic = _plan(
@@ -213,6 +240,23 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn(f"selected_template={expected}", prompt)
                 self.assertIn("return an empty CTA string", prompt)
                 self.assertEqual(selection["extra_ai_calls"], 0)
+
+
+class ShortProviderDiagnosticsTests(unittest.TestCase):
+    def test_shortformaterror_persists_only_safe_rule_code(self) -> None:
+        reason = _safe_validator_reason(
+            ShortFormatError("short_s3_requires_one_action_only imperative_markers=2")
+        )
+        self.assertEqual(
+            reason,
+            "invalid_output_shortformaterror_short_s3_requires_one_action_only",
+        )
+
+    def test_non_short_validator_error_keeps_generic_reason(self) -> None:
+        self.assertEqual(
+            _safe_validator_reason(ValueError("sensitive rejected text")),
+            "invalid_output_valueerror",
+        )
 
 
 class ShortContractTests(unittest.TestCase):

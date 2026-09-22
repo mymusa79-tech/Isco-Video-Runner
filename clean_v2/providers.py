@@ -375,6 +375,17 @@ def _safe_mistral_script_raw_diagnostic(raw_content: str, exc: Exception) -> dic
     return diagnostic
 
 
+def _safe_validator_reason(exc: Exception) -> str:
+    """Persist only a deterministic validator code, never rejected content."""
+    base = f"invalid_output_{type(exc).__name__.lower()}"
+    if type(exc).__name__ != "ShortFormatError":
+        return base
+    code = str(exc).strip().split(maxsplit=1)[0].casefold()
+    if re.fullmatch(r"[a-z0-9_]{1,120}", code):
+        return f"{base}_{code}"
+    return base
+
+
 def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
     """Build Planning schema from validate_plan() semantics and the approved format."""
     marker = "APPROVED_BRIEF:\n"
@@ -749,7 +760,7 @@ class ProviderRouter:
                             separators=(",", ":"),
                         )
                     )
-                reason = f"invalid_output_{type(exc).__name__.lower()}"
+                reason = _safe_validator_reason(exc)
                 failures.append(f"{adapter.name}:{reason}")
                 self._event(
                     stage=stage,

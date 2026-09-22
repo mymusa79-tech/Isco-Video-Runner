@@ -537,6 +537,9 @@ def validate_short_visual_queries(
         allowed = _VISUAL_QUERY_TERMS[template]
         if any(not (item & allowed) for item in words):
             raise ShortFormatError("short_visual_query_inner_dialogue_not_reflective")
+        action_families = [_query_action_families(item) for item in words]
+        if action_families[0] and action_families[2] and action_families[0] & action_families[2]:
+            raise ShortFormatError("short_visual_query_inner_dialogue_payoff_repeats_opening_action")
     elif template == "quote_reflection":
         allowed = _VISUAL_QUERY_TERMS[template]
         if any(not (item & allowed) for item in words):
