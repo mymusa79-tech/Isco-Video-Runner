@@ -208,7 +208,7 @@ def _parse_json_object(raw: str, provider: str) -> dict[str, Any]:
     return value
 
 
-def _gemini_call(prompt: str, max_tokens: int) -> dict[str, Any]:
+def _gemini_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] | None = None) -> dict[str, Any]:
     key = _read_secret("GEMINI_API_KEY")
     if not key:
         raise NoWireFailure("missing_api_key")
@@ -224,6 +224,7 @@ def _gemini_call(prompt: str, max_tokens: int) -> dict[str, Any]:
                 "temperature": 0.3,
                 "maxOutputTokens": int(max_tokens),
                 "responseMimeType": "application/json",
+                **({"responseJsonSchema": response_schema} if response_schema is not None else {}),
             },
         },
         timeout=90,
@@ -244,7 +245,7 @@ def _gemini_call(prompt: str, max_tokens: int) -> dict[str, Any]:
     return _parse_json_object(raw, "gemini")
 
 
-def _groq_call(prompt: str, max_tokens: int) -> dict[str, Any]:
+def _groq_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] | None = None, schema_name: str = "isco_response") -> dict[str, Any]:
     key = _read_secret("GROQ_API_KEY")
     if not key:
         raise NoWireFailure("missing_api_key")
@@ -262,7 +263,7 @@ def _groq_call(prompt: str, max_tokens: int) -> dict[str, Any]:
                     "content": prompt + "\nReturn only one complete JSON object. No markdown.",
                 }
             ],
-            "response_format": {"type": "json_object"},
+            "response_format": ({"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": response_schema}} if response_schema is not None else {"type": "json_object"}),
             "temperature": 0.3,
             "max_completion_tokens": int(max_tokens),
         },
@@ -278,7 +279,7 @@ def _groq_call(prompt: str, max_tokens: int) -> dict[str, Any]:
     return _parse_json_object(str(message.get("content") or ""), "groq")
 
 
-def _openrouter_call(prompt: str, max_tokens: int) -> dict[str, Any]:
+def _openrouter_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] | None = None, schema_name: str = "isco_response") -> dict[str, Any]:
     key = _read_secret("OPENROUTER_API_KEY")
     if not key:
         raise NoWireFailure("missing_api_key")
@@ -300,8 +301,8 @@ def _openrouter_call(prompt: str, max_tokens: int) -> dict[str, Any]:
                     "content": prompt + "\nReturn only one complete JSON object. No markdown.",
                 }
             ],
-            "response_format": {"type": "json_object"},
-            "provider": {"allow_fallbacks": True},
+            "response_format": ({"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": response_schema}} if response_schema is not None else {"type": "json_object"}),
+            "provider": {"allow_fallbacks": True, **({"require_parameters": True} if response_schema is not None else {})},
             "temperature": 0.3,
             "max_tokens": int(max_tokens),
         },

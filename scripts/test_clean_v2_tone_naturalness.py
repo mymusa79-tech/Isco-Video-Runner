@@ -11,6 +11,7 @@ from clean_v2.pipeline import (
     _closing_payoff_for_tone_audit,
     _factuality_location_issue_notes,
     _factuality_repair_issue_notes,
+    _factuality_target_section_ids,
     _first_spoken_sentence,
     _repair_target_section_ids,
     _run_legacy_tone_naturalness_audit,
@@ -206,9 +207,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         }
         report = {
             "status": "block",
-            "unsupported_claims": [
-                "claim that expectations influence emotions more than energy"
-            ],
+            "unsupported_claims": [{"section_id": "s2", "issue": "claim that expectations influence emotions more than energy"}],
+            "diagnostics": {"raw_result": {"unsupported_claims": [{"section_id": "s2", "issue": "claim that expectations influence emotions more than energy"}], "professional_advice_flags": [], "expert_persona_flags": []}},
             "professional_advice_flags": [],
             "expert_persona_flags": [],
             "notes": ["Section s2 contains an unsupported psychological claim."],
@@ -222,11 +222,11 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
 
         self.assertEqual(location_notes, "- [factuality-location] s2")
         self.assertEqual(
-            _repair_target_section_ids(script, revision_note, {}),
+            _factuality_target_section_ids(report, script),
             ("s2",),
         )
 
-    def test_short_cohort_attempt_1_without_section_id_resolves_s2_from_claim_content(self):
+    def test_short_cohort_attempt_1_structured_id_resolves_s2_without_prose_hint(self):
         script = {
             "sections": [
                 {
@@ -245,9 +245,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         }
         report = {
             "status": "block",
-            "unsupported_claims": [
-                "The claim that small actions generate desire, contrary to the assumption that motivation precedes action."
-            ],
+            "unsupported_claims": [{"section_id": "s2", "issue": "The claim that small actions generate desire, contrary to the assumption that motivation precedes action."}],
+            "diagnostics": {"raw_result": {"unsupported_claims": [{"section_id": "s2", "issue": "The claim that small actions generate desire, contrary to the assumption that motivation precedes action."}], "professional_advice_flags": [], "expert_persona_flags": []}},
             "professional_advice_flags": [],
             "expert_persona_flags": [],
             "notes": [
@@ -261,10 +260,10 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             item for item in (factuality_notes, location_notes) if item
         )
 
-        self.assertNotIn("s2", "\n".join(report["notes"] + report["unsupported_claims"]))
+        self.assertNotIn("s2", "\n".join(report["notes"] + [item["issue"] for item in report["unsupported_claims"]]))
         self.assertEqual(location_notes, "- [factuality-location] s2")
         self.assertEqual(
-            _repair_target_section_ids(script, revision_note, {}),
+            _factuality_target_section_ids(report, script),
             ("s2",),
         )
 

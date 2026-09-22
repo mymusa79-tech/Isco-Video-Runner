@@ -33,6 +33,7 @@ from clean_v2.pipeline import (
     CleanV2FactualityContentBlock,
     CleanV2ToneContentBlock,
     _factuality_repair_prompt,
+    _factuality_target_section_ids,
     _repair_target_section_ids,
     _run_text_audits,
     _run_text_audit_with_one_bounded_tone_repair,
@@ -3478,14 +3479,19 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             "source": "clean-v2-legacy-factuality-audit",
             "status": "block",
             "unsupported_claims": [
-                "s4/s5: 'هناك ما يضمن أن هذا سيجعلك أكثر احتمالًا للنجاح' "
-                "overstates evidence that supports improved follow-through/probability, not a guarantee."
+                {"section_id": "s4", "issue": "'هناك ما يضمن أن هذا سيجعلك أكثر احتمالًا للنجاح' overstates evidence that supports improved follow-through/probability, not a guarantee."},
+                {"section_id": "s5", "issue": "'هناك ما يضمن أن هذا سيجعلك أكثر احتمالًا للنجاح' overstates evidence that supports improved follow-through/probability, not a guarantee."},
             ],
+            "diagnostics": {"raw_result": {
+                "unsupported_claims": [
+                    {"section_id": "s4", "issue": "'هناك ما يضمن أن هذا سيجعلك أكثر احتمالًا للنجاح' overstates evidence that supports improved follow-through/probability, not a guarantee."},
+                    {"section_id": "s5", "issue": "'هناك ما يضمن أن هذا سيجعلك أكثر احتمالًا للنجاح' overstates evidence that supports improved follow-through/probability, not a guarantee."},
+                ], "professional_advice_flags": [], "expert_persona_flags": []
+            }, "validation": "valid"},
             "professional_advice_flags": [],
             "expert_persona_flags": [],
             "notes": [],
-            "diagnostics": {"validation": "valid"},
-        }
+            }
         original = self._run199_script()
         repeated_claim = "هناك ما يضمن أن هذا سيجعلك أكثر احتمالًا للنجاح."
         s2_before = (
@@ -3582,7 +3588,8 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertEqual(result["post_repair_structural_ai_status"], "pass")
 
             prompt = router.prompts[0]
-            self.assertIn("- [factuality] s4/s5:", prompt)
+            self.assertIn("- [factuality:s4]", prompt)
+            self.assertIn("- [factuality:s5]", prompt)
             self.assertIn("- [structural] repeated_not_x_but_y:", prompt)
             self.assertIn("- [structural] duplicate_sentence", prompt)
             self.assertIn("weaken, qualify, or remove only the offending wording", prompt)
@@ -3618,9 +3625,10 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
     def test_run249_composite_audit_collects_tone_before_factuality_repair(self) -> None:
         factuality_block = {
             "status": "block",
-            "unsupported_claims": ["s3 claim exceeds approved evidence"],
+            "unsupported_claims": [{"section_id": "s3", "issue": "claim exceeds approved evidence"}],
             "professional_advice_flags": [],
             "expert_persona_flags": [],
+            "diagnostics": {"raw_result": {"unsupported_claims": [{"section_id": "s3", "issue": "claim exceeds approved evidence"}], "professional_advice_flags": [], "expert_persona_flags": []}},
         }
         tone_block = {
             "status": "block",
@@ -3657,9 +3665,8 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
     def test_run249_factuality_tone_and_structural_share_one_repair(self) -> None:
         factuality_block = {
             "status": "block",
-            "unsupported_claims": [
-                "s3: specificity was stated more strongly than the approved association."
-            ],
+            "unsupported_claims": [{"section_id": "s3", "issue": "specificity was stated more strongly than the approved association."}],
+            "diagnostics": {"raw_result": {"unsupported_claims": [{"section_id": "s3", "issue": "specificity was stated more strongly than the approved association."}], "professional_advice_flags": [], "expert_persona_flags": []}},
             "professional_advice_flags": [],
             "expert_persona_flags": [],
         }
@@ -3743,7 +3750,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertEqual(audit_calls["n"], 2)
             self.assertEqual(result["factuality_repair_attempts"], 1)
             prompt = router.prompts[0]
-            self.assertIn("- [factuality] s3:", prompt)
+            self.assertIn("- [factuality:s3]", prompt)
             self.assertIn("- [tone] Opening narration reads as overly promotional", prompt)
             self.assertIn("- [tone] The CTA in s3 feels abrupt and promotional", prompt)
             self.assertIn("- [tone] viewer_retention_continuity:", prompt)
@@ -3814,12 +3821,21 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
     def test_run245_factuality_repair_is_strictly_one_shot(self) -> None:
         factuality_block = {
             "status": "block",
-            "unsupported_claims": ["guarantee exceeds evidence"],
+            "unsupported_claims": [{"section_id": "s4", "issue": "guarantee exceeds evidence"}],
+            "diagnostics": {"raw_result": {"unsupported_claims": [{"section_id": "s4", "issue": "guarantee exceeds evidence"}], "professional_advice_flags": [], "expert_persona_flags": []}},
             "professional_advice_flags": [],
             "expert_persona_flags": [],
         }
         audit_calls = {"n": 0}
-        router = self._Router({"patches": []})
+        original = self._run199_script()
+        old_s4 = original["sections"][3]["narration"]
+        router = self._Router({
+            "patches": [{
+                "section_id": "s4",
+                "find": old_s4,
+                "replace": "اربط البداية بإشارة محددة في اليوم، ثم راقب النتيجة دون ضمان مسبق.",
+            }]
+        })
 
         def text_audit(**_kwargs):
             audit_calls["n"] += 1
@@ -3830,7 +3846,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self._write_locked_runtime_files(root)
             with self.assertRaisesRegex(
                 RuntimeError,
-                "no deterministic target section",
+                "Independent factuality/AI-expert gate blocked real production",
             ):
                 _run_text_audit_with_one_bounded_tone_repair(
                     text_audit=text_audit,
@@ -3841,8 +3857,8 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                     script=self._run199_script(),
                 )
 
-            self.assertEqual(router.calls, 0)
-            self.assertEqual(audit_calls["n"], 1)
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
 
     def test_run220_host_overlay_keeps_naturalness_fix_and_restores_all_locked_anchors(self) -> None:
         original = self._run199_script()
@@ -4026,9 +4042,8 @@ class ShortFactualitySectionTargetRegressionTests(unittest.TestCase):
 
         report = {
             "status": "block",
-            "unsupported_claims": [
-                "claim that expectations influence emotions more than energy"
-            ],
+            "unsupported_claims": [{"section_id": "s2", "issue": "claim that expectations influence emotions more than energy"}],
+            "diagnostics": {"raw_result": {"unsupported_claims": [{"section_id": "s2", "issue": "claim that expectations influence emotions more than energy"}], "professional_advice_flags": [], "expert_persona_flags": []}},
             "professional_advice_flags": [],
             "expert_persona_flags": [],
             "notes": ["Section s2 contains an unsupported psychological claim."],
@@ -4043,7 +4058,7 @@ class ShortFactualitySectionTargetRegressionTests(unittest.TestCase):
 
         notes = _factuality_location_issue_notes(report, script)
         self.assertEqual(notes, "- [factuality-location] s2")
-        self.assertEqual(_repair_target_section_ids(script, notes, {}), ("s2",))
+        self.assertEqual(_factuality_target_section_ids(report, script), ("s2",))
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from unittest import mock
 
 from clean_v2 import mistral_executor
 from clean_v2 import providers
+from clean_v2 import providers as providers_module
 from clean_v2 import text_audit
 from clean_v2 import visual_qa
 from clean_v2.pipeline import (
@@ -795,20 +796,22 @@ class CleanV2TextAuditRoutingTests(unittest.TestCase):
         calls: list[str] = []
         original_route = factuality.route_text_audit
 
-        def mistral_pass(_prompt: str):
+        def mistral_pass(_prompt: str, *, schema, section_ids):
             calls.append("mistral")
+            self.assertEqual(tuple(section_ids), ("s1", "s2", "s3", "s4", "s5"))
+            self.assertEqual(schema["properties"]["unsupported_claims"]["items"]["properties"]["section_id"]["enum"], list(section_ids))
             return dict(_FACT_PASS)
 
         diagnostics: dict = {}
         with mock.patch.object(
-            factuality, "json_text", side_effect=self._failure("gemini", calls)
+            providers_module, "_gemini_call", side_effect=self._failure("gemini", calls)
         ), mock.patch.object(
-            factuality.groq,
-            "json_text",
+            providers_module,
+            "_groq_call",
             side_effect=self._failure("groq", calls),
         ), mock.patch.object(
-            factuality.openrouter,
-            "json_text",
+            providers_module,
+            "_openrouter_call",
             side_effect=self._failure("openrouter", calls),
         ), mock.patch.object(
             text_audit,
@@ -823,7 +826,7 @@ class CleanV2TextAuditRoutingTests(unittest.TestCase):
                 diagnostics=diagnostics,
             )
 
-        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["status"], "pass", result)
         self.assertEqual(calls, ["gemini", "groq", "openrouter", "mistral"])
         self.assertEqual(diagnostics["provider"], "mistral")
         self.assertEqual(
@@ -837,13 +840,13 @@ class CleanV2TextAuditRoutingTests(unittest.TestCase):
 
         blocked = dict(_FACT_PASS)
         blocked["status"] = "block"
-        blocked["unsupported_claims"] = ["unsupported claim"]
+        blocked["unsupported_claims"] = [{"section_id": "s1", "issue": "unsupported claim"}]
         with mock.patch.object(
-            factuality, "json_text", return_value=blocked
+            providers_module, "_gemini_call", return_value=blocked
         ), mock.patch.object(
-            factuality.groq, "json_text"
+            providers_module, "_groq_call"
         ) as groq_call, mock.patch.object(
-            factuality.openrouter, "json_text"
+            providers_module, "_openrouter_call"
         ) as openrouter_call, mock.patch.object(
             text_audit, "_mistral_factuality_call"
         ) as mistral_call:
@@ -867,14 +870,14 @@ class CleanV2TextAuditRoutingTests(unittest.TestCase):
         malformed.pop("notes")
         diagnostics: dict = {}
         with mock.patch.object(
-            factuality, "json_text", side_effect=self._failure("gemini", calls)
+            providers_module, "_gemini_call", side_effect=self._failure("gemini", calls)
         ), mock.patch.object(
-            factuality.groq,
-            "json_text",
+            providers_module,
+            "_groq_call",
             side_effect=self._failure("groq", calls),
         ), mock.patch.object(
-            factuality.openrouter,
-            "json_text",
+            providers_module,
+            "_openrouter_call",
             side_effect=self._failure("openrouter", calls),
         ), mock.patch.object(
             text_audit,
