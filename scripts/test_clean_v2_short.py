@@ -201,7 +201,7 @@ class ShortTemplateSelectionTests(unittest.TestCase):
             [
                 "person sitting alone at wooden table hands still looking at empty notebook and pen early morning light",
                 "close-up of hands holding a half-empty glass of water person hesitating before taking a sip quiet indoor setting",
-                "person writing one word in notebook then closing it with a slight smile hands resting on the page",
+                "quiet person writing one word in notebook then closing it with a slight smile hands resting on the page",
             ]
         )
         with self.assertRaisesRegex(
