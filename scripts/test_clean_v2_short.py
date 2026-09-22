@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,6 +21,19 @@ from clean_v2.pipeline import (
 from clean_v2 import media as media_module
 from clean_v2.media import GeminiPrimaryPiperFallbackSynthesizer, VoiceInfrastructureError
 from clean_v2.providers import ProviderAdapter, ProviderRouter
+from clean_v2.short_audio_polish import (
+    MUSIC_MAX_REL_DB,
+    MUSIC_MIN_REL_DB,
+    MUSIC_TARGET_REL_DB,
+    SFX_MAX_REL_DB,
+    SFX_MIN_REL_DB,
+    SFX_TARGET_REL_DB,
+    _generate_raw_music,
+    _generate_raw_sfx,
+    _measure_mean_db,
+    _normalize_relative,
+    apply_short_audio_polish,
+)
 from clean_v2.short_timed_text import (
     ACCENT_ASS,
     MAX_DARK_SLATES,
@@ -336,6 +350,111 @@ class ShortTimedTextTests(unittest.TestCase):
         text = "لكن الحقيقة أن البداية الصغيرة تغيّر اتجاه اللحظة"
         body, focus = split_focus_phrase(text, "beat")
         self.assertEqual(" ".join((body + " " + focus).split()), text)
+
+
+class ShortAudioPolishTests(unittest.TestCase):
+    def test_actual_db_levels_keep_music_and_sfx_below_mastered_narration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            narration = root / "narration-mastered.wav"
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "sine=frequency=220:sample_rate=48000:duration=2.2",
+                    "-af",
+                    "volume=-10dB",
+                    "-c:a",
+                    "pcm_s16le",
+                    str(narration),
+                ],
+                check=True,
+            )
+            narration_mean = _measure_mean_db(narration)
+
+            raw_music = root / "music-raw.wav"
+            music = root / "music.wav"
+            _generate_raw_music(raw_music, 2.2)
+            music_report = _normalize_relative(
+                src=raw_music,
+                dest=music,
+                narration_mean_db=narration_mean,
+                target_relative_db=MUSIC_TARGET_REL_DB,
+                minimum_relative_db=MUSIC_MIN_REL_DB,
+                maximum_relative_db=MUSIC_MAX_REL_DB,
+            )
+            self.assertGreaterEqual(
+                music_report["relative_to_narration_db"], MUSIC_MIN_REL_DB
+            )
+            self.assertLessEqual(
+                music_report["relative_to_narration_db"], MUSIC_MAX_REL_DB
+            )
+
+            raw_sfx = root / "sfx-raw.wav"
+            sfx = root / "sfx.wav"
+            _generate_raw_sfx(raw_sfx, frequency=523.25)
+            sfx_report = _normalize_relative(
+                src=raw_sfx,
+                dest=sfx,
+                narration_mean_db=narration_mean,
+                target_relative_db=SFX_TARGET_REL_DB,
+                minimum_relative_db=SFX_MIN_REL_DB,
+                maximum_relative_db=SFX_MAX_REL_DB,
+            )
+            self.assertGreaterEqual(
+                sfx_report["relative_to_narration_db"], SFX_MIN_REL_DB
+            )
+            self.assertLessEqual(
+                sfx_report["relative_to_narration_db"], SFX_MAX_REL_DB
+            )
+
+    def test_generation_failure_is_fail_safe_not_production_block(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            final_path = root / "final.mp4"
+            narration = root / "narration-mastered.wav"
+            final_path.write_bytes(b"fixture")
+            narration.write_bytes(b"fixture")
+
+            with (
+                mock.patch(
+                    "clean_v2.short_audio_polish.probe_duration",
+                    create=True,
+                ),
+                mock.patch(
+                    "clean_v2.media.probe_duration",
+                    return_value=12.0,
+                ),
+                mock.patch(
+                    "clean_v2.short_audio_polish._measure_mean_db",
+                    return_value=-18.0,
+                ),
+                mock.patch(
+                    "clean_v2.short_audio_polish._generate_raw_music",
+                    side_effect=RuntimeError("music unavailable"),
+                ),
+                mock.patch(
+                    "clean_v2.short_audio_polish._generate_raw_sfx",
+                    side_effect=RuntimeError("sfx unavailable"),
+                ),
+            ):
+                report = apply_short_audio_polish(
+                    output_dir=root,
+                    final_path=final_path,
+                    narration_path=narration,
+                    timed_text_report=None,
+                )
+
+            self.assertEqual(report["status"], "skipped_fail_safe")
+            self.assertTrue(report["fail_safe"])
+            self.assertEqual(report["provider_calls_added"], 0)
+            self.assertEqual(final_path.read_bytes(), b"fixture")
 
 
 class ShortPipelineSeamTests(unittest.TestCase):
