@@ -11,6 +11,7 @@ from clean_v2.pipeline import (
     _closing_payoff_for_tone_audit,
     _factuality_location_issue_notes,
     _factuality_repair_issue_notes,
+    _factuality_target_section_ids,
     _first_spoken_sentence,
     _repair_target_section_ids,
     _run_legacy_tone_naturalness_audit,
