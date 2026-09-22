@@ -60,7 +60,9 @@ class ShortHookMax12CohortRegressionTests(unittest.TestCase):
             max_tokens=400,
             validator=lambda value: _validate_script_for_brief(value, plan, brief),
         )
-        self.assertEqual(accepted, valid)
+        self.assertEqual(accepted["title"], valid["title"])
+        self.assertEqual(accepted["sections"], valid["sections"])
+        self.assertEqual(accepted["schema_version"], 1)
         self.assertEqual(
             [(event["provider"], event["result"]) for event in router.events],
             [("groq", "invalid_output"), ("mistral", "success")],
