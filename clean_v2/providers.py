@@ -22,10 +22,12 @@ MAX_RESPONSE_BYTES = 20 * 1024 * 1024
 MAX_SHORT_RETRY_AFTER_SECONDS = 10.0
 SHORT_RETRY_AFTER_STAGES = frozenset({"planning", "script", "script_patch"})
 _MISTRAL_SHORT_HOOK_PROMPT_SUFFIX = """
-MISTRAL_SHORT_HOOK_COMPLIANCE — mandatory before returning JSON:
-- The first spoken sentence (Hook) MUST be 12 Arabic words or fewer. Count the words accurately before sending the response.
-- Prefer 10-11 words when possible.
-- Direct reference example (10 words): "حين تنتظر الدافع طويلًا، تصبح أبسط بداية أصعب مما تتخيل."
+MISTRAL_SHORT_HOOK_COMPLIANCE — mandatory preflight before returning JSON:
+- The first spoken sentence (Hook) MUST be 12 Arabic words or fewer. 13+ words is INVALID and must be rewritten before you send JSON.
+- Count words exactly like the validator: split the first sentence on whitespace; each non-empty item is one word, even when punctuation is attached.
+- Operational target: write the Hook in 10-11 words, leaving margin below the hard 12-word maximum.
+- Direct valid reference (10 words): "حين تنتظر الدافع طويلًا، تصبح أبسط بداية أصعب مما تتخيل."
+- Preflight algorithm: isolate s1 first sentence -> split on spaces -> count -> if count > 12, rewrite that sentence shorter -> count again -> only then return JSON.
 - Do not rely on downstream trimming to fix an overlong Hook.
 """.strip()
 
