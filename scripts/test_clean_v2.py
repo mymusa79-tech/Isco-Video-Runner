@@ -740,6 +740,43 @@ class ToneRepairFlagQuoteVerificationTests(unittest.TestCase):
         self.assertIn(fabricated_excerpt, notes)
 
 
+class RepairPatchSpanBrevityGuidanceTests(unittest.TestCase):
+    """Run #342: a schema-valid Mistral script_patch response still failed the
+    exact-match validator because at least one `find` span sat at/near the
+    400-char schema ceiling - long verbatim copies are far more likely to
+    contain a transcription slip. Both repair prompts must steer the provider
+    toward the shortest sufficient span instead of whole-sentence copies.
+    """
+
+    BREVITY_GUIDANCE = "Keep patch.find as SHORT as possible"
+
+    def test_tone_repair_prompt_asks_for_short_find_spans(self) -> None:
+        identity = {"opener": "", "closer": "", "transitions": ["أولاً", "ثم", "أخيرًا"]}
+        cta_plan = {"anchor_section_id": "", "spoken_text": ""}
+        prompt = _tone_repair_prompt(
+            brief=_brief(),
+            plan=_plan(),
+            script=_script(),
+            identity=identity,
+            cta_plan=cta_plan,
+            revision_note="- [tone] s2: garbled fragment noted",
+        )
+        self.assertIn(self.BREVITY_GUIDANCE, prompt)
+
+    def test_factuality_repair_prompt_asks_for_short_find_spans(self) -> None:
+        identity = {"opener": "", "closer": "", "transitions": ["أولاً", "ثم", "أخيرًا"]}
+        cta_plan = {"anchor_section_id": "", "spoken_text": ""}
+        prompt = _factuality_repair_prompt(
+            brief=_brief(),
+            plan=_plan(),
+            script=_script(),
+            identity=identity,
+            cta_plan=cta_plan,
+            revision_note="- [factuality] s2: guarantee exceeds evidence",
+        )
+        self.assertIn(self.BREVITY_GUIDANCE, prompt)
+
+
 class ProviderAccountingTests(unittest.TestCase):
     def test_local_unavailable_route_is_no_wire_and_does_not_take_attempt_number(self) -> None:
         def missing(_prompt: str, _tokens: int) -> dict:
