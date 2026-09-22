@@ -1377,6 +1377,7 @@ def _factuality_repair_prompt(
     identity: Mapping[str, Any],
     cta_plan: Mapping[str, Any],
     revision_note: str,
+    allowed_patch_section_ids: tuple[str, ...] | None = None,
 ) -> str:
     plan_json = json.dumps(
         dict(plan), ensure_ascii=False, separators=(",", ":")
@@ -1397,9 +1398,10 @@ def _factuality_repair_prompt(
         separators=(",", ":"),
     )
     hook = _first_spoken_sentence(script)
-    allowed_patch_section_ids = _repair_target_section_ids(
-        script, revision_note, cta_plan
-    )
+    if allowed_patch_section_ids is None:
+        allowed_patch_section_ids = _repair_target_section_ids(
+            script, revision_note, cta_plan
+        )
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded factuality repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
@@ -1518,6 +1520,7 @@ def _run_one_bounded_factuality_repair(
             identity=identity,
             cta_plan=cta_plan,
             revision_note=issue_notes,
+            allowed_patch_section_ids=target_ids,
         ),
         max_tokens=2200 if str(brief.get("format") or "") == "film" else 1200,
         validator=lambda value: _validate_and_apply_script_patches(
@@ -1527,6 +1530,7 @@ def _run_one_bounded_factuality_repair(
             identity=identity,
             cta_plan=cta_plan,
             revision_note=issue_notes,
+            allowed_section_ids=target_ids,
         ),
     )
     script.clear()
