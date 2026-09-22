@@ -379,8 +379,10 @@ class ShortContractTests(unittest.TestCase):
             self.assertNotIn("MISTRAL_SHORT_HOOK_COMPLIANCE", seen[provider])
         self.assertIn("MISTRAL_SHORT_HOOK_COMPLIANCE", seen["mistral"])
         self.assertIn("MUST be 12 Arabic words or fewer", seen["mistral"])
-        self.assertIn("Count the words accurately before sending the response", seen["mistral"])
-        self.assertIn("Prefer 10-11 words", seen["mistral"])
+        self.assertIn("split the first sentence on whitespace", seen["mistral"])
+        self.assertIn("13+ words is INVALID", seen["mistral"])
+        self.assertIn("Operational target: write the Hook in 10-11 words", seen["mistral"])
+        self.assertIn("if count > 12, rewrite that sentence shorter", seen["mistral"])
         self.assertIn(
             'حين تنتظر الدافع طويلًا، تصبح أبسط بداية أصعب مما تتخيل.',
             seen["mistral"],
