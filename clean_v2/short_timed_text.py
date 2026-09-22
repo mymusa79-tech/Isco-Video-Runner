@@ -17,6 +17,13 @@ ALLOWED_ROLES = {"hook", "beat", "payoff"}
 ACCENT_ASS = "&H005BA8D7"  # RGB #D7A85B warm gold
 PRIMARY_ASS = "&H00EAF1F4"  # RGB #F4F1EA warm off-white
 OUTLINE_ASS = "&HA0000000"
+BODY_FONT = "Noto Sans Arabic"
+FOCUS_FONT = "Noto Kufi Arabic"
+BODY_FONT_SIZE = 74
+FOCUS_FONT_SIZE = 98
+SLATE_BODY_FONT_SIZE = 80
+SLATE_FOCUS_FONT_SIZE = 112
+BODY_WRAP_WORDS = 5
 MAX_DARK_SLATES = 1
 TRANSITION_MARKERS = ("لكن", "الحقيقة", "المشكلة", "الآن", "ابدأ")
 
@@ -247,6 +254,17 @@ def _ass_escape(text: str) -> str:
     return _clean(text).replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}")
 
 
+def _ass_wrap_words(text: str, *, maximum_words: int = BODY_WRAP_WORDS) -> str:
+    words = _clean(text).split()
+    if not words:
+        return ""
+    lines = [
+        " ".join(words[index : index + maximum_words])
+        for index in range(0, len(words), maximum_words)
+    ]
+    return r"\N".join(_ass_escape(line) for line in lines)
+
+
 def _filter_escape_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
 
@@ -323,10 +341,10 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Body,Noto Sans Arabic,58,{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,80,80,0,1",
-        f"Style: Focus,Noto Sans Arabic,70,{ACCENT_ASS},{ACCENT_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,3,0,5,80,80,0,1",
-        f"Style: SlateBody,Noto Sans Arabic,62,{PRIMARY_ASS},{PRIMARY_ASS},&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,80,80,0,1",
-        f"Style: SlateFocus,Noto Sans Arabic,78,{ACCENT_ASS},{ACCENT_ASS},&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,80,80,0,1",
+        f"Style: Body,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,0,0,0,0,100,100,0,0,1,4,0,5,90,90,0,1",
+        f"Style: Focus,{FOCUS_FONT},{FOCUS_FONT_SIZE},{ACCENT_ASS},{ACCENT_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,5,0,5,80,80,0,1",
+        f"Style: SlateBody,{BODY_FONT},{SLATE_BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,90,90,0,1",
+        f"Style: SlateFocus,{FOCUS_FONT},{SLATE_FOCUS_FONT_SIZE},{ACCENT_ASS},{ACCENT_ASS},&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,80,80,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
@@ -338,15 +356,15 @@ def build_rich_ass(
         body, focus = split_focus_phrase(item.text, item.role)
         is_slate = index == slate_index
         if is_slate:
-            body_y, focus_y = 875, 1030
+            body_y, focus_y = 865, 1025
             body_style, focus_style = "SlateBody", "SlateFocus"
             body_tag = r"\fad(120,170)"
             focus_tag = r"\fad(150,180)\t(0,200,\fscx103\fscy103)"
         else:
-            focus_y = 1325 if item.role == "hook" else 1410
+            focus_y = 1260 if item.role == "hook" else 1355
             if item.role == "payoff":
-                focus_y = 1375
-            body_y = focus_y + 105
+                focus_y = 1305
+            body_y = focus_y + 145
             body_style, focus_style = "Body", "Focus"
             body_tag = r"\fad(80,140)"
             focus_tag = r"\fad(90,150)\t(0,180,\fscx103\fscy103)"
@@ -358,7 +376,7 @@ def build_rich_ass(
         if body:
             lines.append(
                 f"Dialogue: 0,{start},{end},{body_style},,0,0,0,,"
-                f"{{\\an5\\pos(540,{body_y}){body_tag}}}{_ass_escape(body)}"
+                f"{{\\an5\\pos(540,{body_y}){body_tag}}}{_ass_wrap_words(body)}"
             )
     lines.append("")
     return "\n".join(lines)
@@ -435,6 +453,11 @@ def render_progressive_text(
         "max_dark_slates": MAX_DARK_SLATES,
         "accent_rgb": "#D7A85B",
         "body_rgb": "#F4F1EA",
+        "focus_font": FOCUS_FONT,
+        "body_font": BODY_FONT,
+        "focus_font_size": FOCUS_FONT_SIZE,
+        "body_font_size": BODY_FONT_SIZE,
+        "body_wrap_words": BODY_WRAP_WORDS,
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
         "voice_owned_event_timing_preserved": True,
