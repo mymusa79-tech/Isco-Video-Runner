@@ -402,3 +402,32 @@ def render_progressive_text(
         "word_level_alignment_claimed": False,
         "voice_owned_event_timing_preserved": True,
     }
+
+
+
+def apply_short_timed_text(
+    *,
+    output_dir: Path,
+    final_path: Path,
+    narration_path: Path,
+    script: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Burn the restored three-event Short text layer onto the final picture."""
+    events = build_events_from_section_audio(
+        script=script,
+        audio_dir=Path(output_dir) / "audio",
+        mastered_narration=Path(narration_path),
+    )
+    rendered = Path(output_dir) / ".final-short-timed-text.mp4"
+    report = render_progressive_text(
+        video=Path(final_path),
+        events=events,
+        srt_path=Path(output_dir) / "short-timed-text.srt",
+        output=rendered,
+    )
+    os.replace(rendered, Path(final_path))
+    return {
+        **report,
+        "events": events,
+        "final_file": Path(final_path).name,
+    }
