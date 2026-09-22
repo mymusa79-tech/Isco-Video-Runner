@@ -37,6 +37,10 @@ from clean_v2.short_audio_polish import (
 )
 from clean_v2.short_timed_text import (
     ACCENT_ASS,
+    BODY_FONT,
+    BODY_FONT_SIZE,
+    FOCUS_FONT,
+    FOCUS_FONT_SIZE,
     MAX_DARK_SLATES,
     build_events_from_voice_timeline,
     build_rich_ass,
@@ -161,6 +165,21 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertEqual(report["status"], "pass")
                 self.assertEqual(len(report["queries"]), 3)
 
+    def test_why_reframe_rejects_repeating_same_writing_action_for_payoff(self) -> None:
+        fixture = _TEMPLATE_FIXTURES["why_reframe"]
+        repeated = _plan(
+            [
+                "frustrated person writing messy notes at desk",
+                "person pause reconsidering plan while standing",
+                "calm person writing simple note at desk",
+            ]
+        )
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "payoff_repeats_opening_action",
+        ):
+            validate_short_visual_queries(repeated, fixture["brief"])
+
     def test_inner_dialogue_rejects_generic_visual_queries(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         generic = _plan(
@@ -184,6 +203,8 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn("Use exactly 3 sections", prompt)
                 self.assertIn("VISUAL_QUERY_DIRECTION", prompt)
                 self.assertIn(selection["visual_query_directive"], prompt)
+                self.assertIn("visibly different dominant actions or states", prompt)
+                self.assertIn("active friction/decision", prompt)
                 self.assertIn(f"selected_template={expected}", prompt)
                 self.assertIn("return an empty CTA string", prompt)
                 self.assertEqual(selection["extra_ai_calls"], 0)
@@ -254,6 +275,15 @@ class ShortContractTests(unittest.TestCase):
         direct_action["sections"][2]["narration"] = "ابدأ بخطوة صغيرة تستطيع تنفيذها الآن."
         report = validate_short_script(direct_action)
         self.assertEqual(report["practical_action_sentences"], 1)
+        self.assertEqual(report["practical_action_markers"], 1)
+
+        double_action = json.loads(json.dumps(no_action, ensure_ascii=False))
+        double_action["sections"][2]["narration"] = "اكتب كلمة واحدة على ورقة ثم اخرج للمشي."
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            r"short_s3_requires_one_action_only imperative_markers=2",
+        ):
+            validate_short_script(double_action)
 
     def test_provider_router_rejects_technically_successful_hook_over_12_words(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
@@ -379,6 +409,11 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIn(r"{\an5\pos(", ass)
         self.assertNotIn(r"{{\an5\pos(", ass)
         self.assertEqual(ACCENT_ASS, "&H005BA8D7")
+        self.assertEqual(BODY_FONT, "Noto Sans Arabic")
+        self.assertEqual(FOCUS_FONT, "Noto Kufi Arabic")
+        self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
+        self.assertGreaterEqual(BODY_FONT_SIZE, 70)
+        self.assertIn(r"\N", ass)
 
     def test_body_focus_split_preserves_authored_words(self) -> None:
         text = "لكن الحقيقة أن البداية الصغيرة تغيّر اتجاه اللحظة"
@@ -507,6 +542,8 @@ class ShortAudioPolishTests(unittest.TestCase):
                 check=True,
             )
             narration_mean = _measure_mean_db(narration)
+            self.assertGreater(SFX_TARGET_REL_DB, -24.0)
+            self.assertLessEqual(SFX_TARGET_REL_DB, SFX_MAX_REL_DB)
 
             raw_music = root / "music-raw.wav"
             music = root / "music.wav"
@@ -597,6 +634,9 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("CTA is", prompt)
         self.assertIn("fully disabled", prompt)
+        self.assertIn("concrete felt friction", prompt)
+        self.assertIn("resolve the SAME tension/question", prompt)
+        self.assertIn("must not append a second action", prompt)
 
     def test_short_sectioned_voice_passes_primary_only_without_changing_chunking(self) -> None:
         class FakeCharon:
