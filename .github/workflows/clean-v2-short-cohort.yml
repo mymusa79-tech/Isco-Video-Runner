@@ -1,0 +1,231 @@
+name: Clean V2 Short 3-Attempt Cohort
+
+on:
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clean-v2-short-cohort-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  short-cohort:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       github.actor == github.repository_owner &&
+       github.event.comment.body == '/clean-v2-short-cohort-3')
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        attempt: [1, 2, 3]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+      GEMINI_CONTENT_MODEL: gemini-3.7-flash
+      GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+      GROQ_CONTENT_MODEL: openai/gpt-oss-20b
+      OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
+      MISTRAL_CONTENT_MODEL: ministral-14b-2512
+      CLOUDFLARE_VISION_FREE_ONLY: "true"
+      CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
+      CLEAN_V2_ALLOW_PIPER_FALLBACK: "false"
+      CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2-short-cohort/attempt-${{ matrix.attempt }}
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+
+    steps:
+      - name: Checkout exact Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Runner checkout
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Checkout frozen private Engine source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine pin
+        run: test "$(git -C engine rev-parse HEAD)" = "$ISCO_ENGINE_SHA"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install production dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y             ffmpeg             fonts-noto-core             tesseract-ocr             tesseract-ocr-ara
+          python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-deps -e engine
+          python -m pip install --disable-pip-version-check 'piper-tts==1.4.2'
+
+      - name: Build immutable Short cohort brief
+        run: |
+          set -euo pipefail
+          brief="$RUNNER_TEMP/clean-v2-short-cohort-brief.json"
+          cat > "$brief" <<'JSON'
+          {
+            "approved_by_user": true,
+            "approved_topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
+            "format": "short",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "editorial_intent": "نبرة هادئة وعملية وطبيعية؛ فكرة واحدة مكتملة، دون تشاؤم أو مبالغة.",
+            "research_pack": [],
+            "hard_constraints": [
+              "No fabricated facts.",
+              "One natural Arabic narrator only.",
+              "No social CTA.",
+              "Complete Short must not exceed 30 seconds."
+            ]
+          }
+          JSON
+          sha="$(BRIEF="$brief" python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from clean_v2.contracts import compute_brief_sha256
+          path = Path(os.environ["BRIEF"])
+          brief = json.loads(path.read_text(encoding="utf-8"))
+          print(compute_brief_sha256(brief))
+          PY
+          )"
+          echo "CLEAN_V2_SHORT_BRIEF=$brief" >> "$GITHUB_ENV"
+          echo "ISCO_APPROVED_BRIEF_SHA256=$sha" >> "$GITHUB_ENV"
+          test "${#sha}" = 64
+
+      - name: Restore verified Piper voice cache
+        id: voice_cache
+        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/piper-voices
+          key: clean-v2-piper-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}
+          restore-keys: |
+            piper-voice-v2-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}-
+
+      - name: Download Piper asset on cache miss
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/piper-voices"
+          if ! test -s "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx"             || ! test -s "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"; then
+            python -m piper.download_voices               --data-dir "$RUNNER_TEMP/piper-voices"               ar_JO-kareem-medium
+          fi
+
+      - name: Verify Piper asset identity
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from clean_v2.media import verify_voice_assets
+          verify_voice_assets(
+              Path(os.environ["RUNNER_TEMP"]) / "piper-voices/ar_JO-kareem-medium.onnx",
+              Path("engine/security/piper_voice_hashes.json"),
+          )
+          PY
+
+      - name: Save verified Piper voice cache candidate
+        if: steps.voice_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
+        with:
+          path: ${{ runner.temp }}/piper-voices
+          key: clean-v2-piper-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}
+
+      - name: Run cold Short attempt ${{ matrix.attempt }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_VISION_QUOTA_FILE: ${{ runner.temp }}/cloudflare-clean-v2-short-vision-quota-v1.json
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -euo pipefail
+          rm -rf "$CLEAN_V2_OUTPUT"
+          python -m clean_v2             --brief "$CLEAN_V2_SHORT_BRIEF"             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256"             --engine-sha "$ISCO_ENGINE_SHA"             --runner-sha "$GITHUB_SHA"             --piper-model "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx"             --voice-manifest "$GITHUB_WORKSPACE/engine/security/piper_voice_hashes.json"             --max-visuals 5             --output "$CLEAN_V2_OUTPUT"
+
+      - name: Verify Short V1 acceptance contract
+        run: |
+          set -euo pipefail
+          test -s "$CLEAN_V2_OUTPUT/final.mp4"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/run-manifest.json")" = "pass"
+          test "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" = "gemini:Charon"
+
+          test "$(jq -r .format "$CLEAN_V2_OUTPUT/short-contract.json")" = "short"
+          test "$(jq -r .section_count "$CLEAN_V2_OUTPUT/short-contract.json")" = "3"
+          test "$(jq -r .duration.minimum_seconds "$CLEAN_V2_OUTPUT/short-contract.json")" = "7"
+          test "$(jq -r .duration.target_seconds "$CLEAN_V2_OUTPUT/short-contract.json")" = "15"
+          test "$(jq -r .duration.maximum_seconds "$CLEAN_V2_OUTPUT/short-contract.json")" = "30"
+
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-pre-visual.json")" = "pass"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "pass"
+          test "$(jq -r .width "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1080"
+          test "$(jq -r .height "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1920"
+          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d >= 7 && d <= 30) }"
+
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "pass"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-master-qc.json")" = "pass"
+          test "$(jq -r .mode "$CLEAN_V2_OUTPUT/cta-plan.json")" = "none"
+
+          shots="$(jq -r '.assets | length' "$CLEAN_V2_OUTPUT/rights-manifest.json")"
+          test "$shots" -ge 2
+          test "$shots" -le 4
+
+      - name: Write cohort result
+        if: success()
+        env:
+          ATTEMPT: ${{ matrix.attempt }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["CLEAN_V2_OUTPUT"])
+          final_gate = json.loads((root / "short-duration-final.json").read_text(encoding="utf-8"))
+          contract = json.loads((root / "short-contract.json").read_text(encoding="utf-8"))
+          manifest = json.loads((root / "run-manifest.json").read_text(encoding="utf-8"))
+          rights = json.loads((root / "rights-manifest.json").read_text(encoding="utf-8"))
+          result = {
+              "attempt": int(os.environ["ATTEMPT"]),
+              "status": "pass",
+              "runner_sha": os.environ.get("GITHUB_SHA"),
+              "engine_sha": os.environ.get("ISCO_ENGINE_SHA"),
+              "topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
+              "template": contract.get("template"),
+              "duration_seconds": final_gate.get("duration_seconds"),
+              "voice_provider": manifest.get("voice_provider"),
+              "shot_count": len(rights.get("assets") or []),
+              "cold_attempt": True,
+              "resume_used": False,
+          }
+          (root / "cohort-result.json").write_text(
+              json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(result, ensure_ascii=False))
+          PY
+
+      - name: Upload Short cohort evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: clean-v2-short-cohort-${{ github.run_number }}-attempt-${{ matrix.attempt }}
+          path: ${{ env.CLEAN_V2_OUTPUT }}
+          if-no-files-found: warn
+          retention-days: 7
