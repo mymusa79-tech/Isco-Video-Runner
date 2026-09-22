@@ -26,7 +26,7 @@ from clean_v2.media import (
     SHORT_CHARON_STYLE,
     VoiceInfrastructureError,
 )
-from clean_v2.providers import ProviderAdapter, ProviderRouter
+from clean_v2.providers import ProviderAdapter, ProviderRouter, _safe_validator_reason
 from clean_v2.audio_mastering import CHARON_CORRECTIVE_FILTER, CHARON_CORRECTIVE_PROFILE
 from clean_v2.short_audio_polish import (
     MUSIC_MAX_REL_DB,
@@ -238,6 +238,23 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn(f"selected_template={expected}", prompt)
                 self.assertIn("return an empty CTA string", prompt)
                 self.assertEqual(selection["extra_ai_calls"], 0)
+
+
+class ShortProviderDiagnosticsTests(unittest.TestCase):
+    def test_shortformaterror_persists_only_safe_rule_code(self) -> None:
+        reason = _safe_validator_reason(
+            ShortFormatError("short_s3_requires_one_action_only imperative_markers=2")
+        )
+        self.assertEqual(
+            reason,
+            "invalid_output_shortformaterror_short_s3_requires_one_action_only",
+        )
+
+    def test_non_short_validator_error_keeps_generic_reason(self) -> None:
+        self.assertEqual(
+            _safe_validator_reason(ValueError("sensitive rejected text")),
+            "invalid_output_valueerror",
+        )
 
 
 class ShortContractTests(unittest.TestCase):
