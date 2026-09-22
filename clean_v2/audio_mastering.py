@@ -20,10 +20,27 @@ TARGET_LOUDNESS_RANGE = 11.0
 ALIMITER_CEILING_LINEAR = 0.84
 MAX_DURATION_DRIFT_SECONDS = 0.08
 
+# Exact conservative speech-cleanup shape restored from the certified Engine
+# Audio Mastering Lite V1. It is intentionally corrective only: no pitch,
+# tempo, excitement, widening, or synthetic "radio" processing.
+CHARON_CORRECTIVE_PROFILE = "audio-mastering-lite-charon-v1"
+CHARON_CORRECTIVE_FILTER = (
+    "highpass=f=70,"
+    "equalizer=f=220:t=q:w=0.8:g=-1,"
+    "equalizer=f=3200:t=q:w=0.9:g=0.8,"
+    "deesser=i=0.12:m=0.25:f=0.50:s=o,"
+    "acompressor=threshold=0.125:ratio=1.6:attack=25:release=180:"
+    "makeup=1.0:knee=2.5:mix=0.80"
+)
+
 _LOUDNORM_JSON_RE = re.compile(r"\{\s*\"input_i\".*?\}", re.S)
 
 
 def _measure_loudness(path: Path) -> dict[str, Any]:
+    loudnorm = (
+        f"loudnorm=I={TARGET_INTEGRATED_LUFS}:TP={TARGET_TRUE_PEAK_DBTP}:"
+        f"LRA={TARGET_LOUDNESS_RANGE}:print_format=json"
+    )
     proc = subprocess.run(
         [
             "ffmpeg",
@@ -32,10 +49,7 @@ def _measure_loudness(path: Path) -> dict[str, Any]:
             "-i",
             str(path),
             "-af",
-            (
-                f"loudnorm=I={TARGET_INTEGRATED_LUFS}:TP={TARGET_TRUE_PEAK_DBTP}:"
-                f"LRA={TARGET_LOUDNESS_RANGE}:print_format=json"
-            ),
+            f"{CHARON_CORRECTIVE_FILTER},{loudnorm}",
             "-f",
             "null",
             "-",
@@ -52,12 +66,12 @@ def _measure_loudness(path: Path) -> dict[str, Any]:
 
 
 def master_narration_loudness(src: Path, dest: Path) -> dict[str, Any]:
-    """Apply a genuine two-pass loudnorm + limiter to narration audio.
+    """Apply the Engine's conservative Charon cleanup, then two-pass loudnorm.
 
-    Mirrors the Engine's own certified mux() loudness pass (same targets, same
-    two-pass measure-then-correct methodology, same alimiter level=disabled fix)
-    but on the single Clean V2 narration track directly, since Clean V2 has no
-    music/SFX bed to mix ahead of this step.
+    This keeps the already-proven Audio Mastering Lite chain (HPF, tiny corrective
+    EQ, light de-essing and compression) ahead of the existing final loudness
+    authority. No tempo/pitch manipulation is introduced and narration duration
+    remains owned by the natural Charon recording.
     """
     src = Path(src)
     dest = Path(dest)
@@ -66,6 +80,7 @@ def master_narration_loudness(src: Path, dest: Path) -> dict[str, Any]:
     before = probe_duration(src)
     measured = _measure_loudness(src)
     corrective = (
+        f"{CHARON_CORRECTIVE_FILTER},"
         f"loudnorm=I={TARGET_INTEGRATED_LUFS}:TP={TARGET_TRUE_PEAK_DBTP}:"
         f"LRA={TARGET_LOUDNESS_RANGE}:measured_I={measured['input_i']}:"
         f"measured_TP={measured['input_tp']}:measured_LRA={measured['input_lra']}:"
@@ -106,6 +121,9 @@ def master_narration_loudness(src: Path, dest: Path) -> dict[str, Any]:
         "target_true_peak_dbtp": TARGET_TRUE_PEAK_DBTP,
         "target_loudness_range": TARGET_LOUDNESS_RANGE,
         "alimiter_ceiling_linear": ALIMITER_CEILING_LINEAR,
+        "corrective_profile": CHARON_CORRECTIVE_PROFILE,
+        "corrective_filter": CHARON_CORRECTIVE_FILTER,
+        "tempo_or_pitch_change": False,
         "measured_input_integrated_lufs": float(measured["input_i"]),
         "measured_input_true_peak_dbtp": float(measured["input_tp"]),
     }

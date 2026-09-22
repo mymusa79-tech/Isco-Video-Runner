@@ -282,17 +282,22 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"- target_duration_seconds={SHORT_TARGET_SECONDS:g}; hard_range="
         f"{SHORT_MIN_SECONDS:g}-{SHORT_MAX_SECONDS:g}\n"
         f"- exact_sections={SHORT_SECTION_COUNT}; frame={SHORT_WIDTH}x{SHORT_HEIGHT}\n"
-        f"- s1: the first spoken sentence is the truthful hook and must be at most {SHORT_HOOK_MAX_WORDS} Arabic words; no greeting.\n"
-        "- s2: develop the selected template's specific tension/turn; do not switch to a generic motivational format.\n"
-        "- s3: land the payoff, then give exactly ONE practical action in one clear imperative sentence. "
-        "That action sentence MUST begin with a direct Arabic imperative verb, not a descriptive suggestion. "
+        f"- s1: the first spoken sentence is the truthful hook and must be at most {SHORT_HOOK_MAX_WORDS} Arabic words; no greeting. "
+        "It must create immediate viewer tension by naming one concrete felt friction, contradiction, or unresolved consequence. "
+        "Do not open with an abstract definition, generic \"sometimes\" setup, or a formulaic X-is-not-Y-but-Z explanation.\n"
+        "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation.\n"
+        "- s3: resolve the SAME tension/question opened by s1-s2, then give exactly ONE practical action in one clear imperative sentence. "
+        "That action sentence MUST begin with a direct Arabic imperative verb, not a descriptive suggestion, and must not append a second action with ثم/و. "
         "Good examples: \"ابدأ بـ...\", \"جرّب أن...\", \"افعل...\", \"اختر...\", \"اكتب...\". "
-        "Bad examples: \"يمكنك أن...\", \"من الأفضل أن...\", or a general description with no command.\n"
+        "Bad examples: \"اكتب... ثم اخرج...\", \"يمكنك أن...\", \"من الأفضل أن...\", or a general description with no command.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
         "- VISUAL_QUERY_DIRECTION: "
-        f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]}"
+        f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]} "
+        "Across s1/s2/s3, use visibly different dominant actions or states so the picture itself progresses. "
+        "For s1 prefer an immediately readable active friction/decision over a passive generic desk shot. "
+        "For s3 depict the single payoff action itself or its immediate visible result; never repeat the same writing/desk action used earlier."
     )
 
 
@@ -338,6 +343,7 @@ _GREETING_PREFIXES = (
 
 _PRACTICAL_ACTION_MARKERS = (
     "اختر",
+    "افعل",
     "ابدأ",
     "اكتب",
     "حدد",
@@ -358,6 +364,16 @@ _PRACTICAL_ACTION_MARKERS = (
     "أغلق",
     "نفذ",
     "نفّذ",
+    "اخرج",
+    "امش",
+    "تحرك",
+    "تحرّك",
+    "راقب",
+    "اقرأ",
+    "اقرا",
+    "توقف",
+    "توقّف",
+    "قم",
 )
 
 
@@ -371,6 +387,17 @@ def _first_sentence(text: object) -> str:
 
 def _word_count(text: object) -> int:
     return len([word for word in _clean(text).split() if word])
+
+
+def _practical_action_marker_count(text: object) -> int:
+    compact = _clean(text)
+    if not compact:
+        return 0
+    unique_markers = dict.fromkeys(_PRACTICAL_ACTION_MARKERS)
+    return sum(
+        len(re.findall(rf"(?<!\w){re.escape(marker)}(?!\w)", compact, flags=re.I))
+        for marker in unique_markers
+    )
 
 
 def validate_short_hook_contract(script: Mapping[str, Any]) -> dict[str, Any]:
@@ -432,6 +459,12 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
             "short_s3_requires_exactly_one_practical_action "
             f"action_sentences={len(action_sentences)}"
         )
+    action_marker_count = _practical_action_marker_count(action_sentences[0])
+    if action_marker_count != 1:
+        raise ShortFormatError(
+            "short_s3_requires_one_action_only "
+            f"imperative_markers={action_marker_count}"
+        )
 
     return {
         "hook": hook,
@@ -439,6 +472,7 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
         "single_voice": True,
         "social_cta": False,
         "practical_action_sentences": 1,
+        "practical_action_markers": action_marker_count,
     }
 
 
@@ -459,9 +493,25 @@ _MICRO_STORY_ACTION_TERMS = frozenset({
     "moving", "reaching", "holding", "setting", "putting", "taking",
 })
 
+_VISUAL_ACTION_FAMILIES = {
+    "writing_desk": frozenset({"write", "writing", "rewriting", "notebook", "journal", "paper", "desk", "typing"}),
+    "walking": frozenset({"walk", "walking", "leaving", "moving", "steps", "path"}),
+    "phone": frozenset({"phone", "scrolling", "screen", "checking"}),
+    "reading": frozenset({"read", "reading", "book"}),
+    "organizing": frozenset({"organizing", "sorting", "placing", "packing", "arranging"}),
+}
+
 
 def _query_words(value: object) -> set[str]:
     return set(re.findall(r"[a-z]+", _clean(value).casefold()))
+
+
+def _query_action_families(words: set[str]) -> set[str]:
+    return {
+        family
+        for family, terms in _VISUAL_ACTION_FAMILIES.items()
+        if words & terms
+    }
 
 
 def validate_short_visual_queries(
@@ -499,6 +549,9 @@ def validate_short_visual_queries(
             raise ShortFormatError("short_visual_query_why_reframe_turn_missing")
         if not (words[2] & terms["new"]):
             raise ShortFormatError("short_visual_query_why_reframe_new_frame_missing")
+        action_families = [_query_action_families(item) for item in words]
+        if action_families[0] and action_families[2] and action_families[0] & action_families[2]:
+            raise ShortFormatError("short_visual_query_why_reframe_payoff_repeats_opening_action")
     elif template == "micro_story":
         if any(not (item & _MICRO_STORY_ACTION_TERMS) for item in words):
             raise ShortFormatError("short_visual_query_micro_story_action_missing")
@@ -514,6 +567,7 @@ def validate_short_visual_queries(
     return {
         "template": template,
         "queries": queries,
+        "action_families": [sorted(_query_action_families(item)) for item in words],
         "status": "pass",
     }
 

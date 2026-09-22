@@ -9,11 +9,12 @@ from typing import Any, Mapping
 MUSIC_TARGET_REL_DB = -23.0
 MUSIC_MIN_REL_DB = -25.0
 MUSIC_MAX_REL_DB = -20.0
-SFX_TARGET_REL_DB = -24.0
-SFX_MIN_REL_DB = -30.0
+SFX_TARGET_REL_DB = -20.5
+PAYOFF_SFX_TARGET_REL_DB = -21.5
+SFX_MIN_REL_DB = -28.0
 SFX_MAX_REL_DB = -18.0
 LEVEL_TOLERANCE_DB = 1.0
-HOOK_SFX_DELAY_SECONDS = 0.10
+HOOK_SFX_DELAY_SECONDS = 0.06
 
 _MEAN_VOLUME_RE = re.compile(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB", re.I)
 
@@ -166,6 +167,21 @@ def _generate_raw_music(dest: Path, duration: float) -> Path:
 
 
 def _generate_raw_sfx(dest: Path, *, frequency: float) -> Path:
+    """Generate one of two restrained original-owned accents.
+
+    The lower-frequency hook request becomes the Engine's proven soft air-whoosh
+    family rather than a bare sine beep; the payoff keeps a warm tonal chime.
+    The public helper signature stays unchanged for regression compatibility.
+    """
+    if frequency < 600.0:
+        source = "anoisesrc=color=pink:amplitude=0.06:sample_rate=48000:duration=0.52"
+        audio_filter = (
+            "highpass=f=900,lowpass=f=6000,"
+            "afade=t=in:st=0:d=0.12,afade=t=out:st=0.28:d=0.24"
+        )
+    else:
+        source = f"sine=frequency={frequency:.2f}:sample_rate=48000:duration=0.48"
+        audio_filter = "afade=t=in:st=0:d=0.025,afade=t=out:st=0.30:d=0.18"
     _run(
         [
             "ffmpeg",
@@ -176,9 +192,9 @@ def _generate_raw_sfx(dest: Path, *, frequency: float) -> Path:
             "-f",
             "lavfi",
             "-i",
-            f"sine=frequency={frequency:.2f}:sample_rate=48000:duration=0.62",
+            source,
             "-af",
-            "volume=0.12,lowpass=f=2200,afade=t=in:st=0:d=0.08,afade=t=out:st=0.10:d=0.52",
+            audio_filter,
             "-c:a",
             "pcm_s16le",
             str(dest),
@@ -299,7 +315,7 @@ def apply_short_audio_polish(
     specs = (
         ("music", MUSIC_TARGET_REL_DB, MUSIC_MIN_REL_DB, MUSIC_MAX_REL_DB),
         ("hook_sfx", SFX_TARGET_REL_DB, SFX_MIN_REL_DB, SFX_MAX_REL_DB),
-        ("payoff_sfx", SFX_TARGET_REL_DB - 2.0, SFX_MIN_REL_DB, SFX_MAX_REL_DB),
+        ("payoff_sfx", PAYOFF_SFX_TARGET_REL_DB, SFX_MIN_REL_DB, SFX_MAX_REL_DB),
     )
 
     for name, target, minimum, maximum in specs:
@@ -370,6 +386,9 @@ def apply_short_audio_polish(
         "music_target_relative_db": MUSIC_TARGET_REL_DB,
         "music_allowed_relative_db": [MUSIC_MIN_REL_DB, MUSIC_MAX_REL_DB],
         "sfx_allowed_relative_db": [SFX_MIN_REL_DB, SFX_MAX_REL_DB],
+        "hook_sfx_target_relative_db": SFX_TARGET_REL_DB,
+        "payoff_sfx_target_relative_db": PAYOFF_SFX_TARGET_REL_DB,
+        "sfx_profile": "engine-procedural-air-whoosh-plus-warm-chime",
         "percussion": False,
         "sharp_attacks": False,
         "hook_sfx_max_count": 1,

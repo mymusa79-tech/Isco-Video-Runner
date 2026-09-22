@@ -20,8 +20,13 @@ from clean_v2.pipeline import (
     _validate_script_for_brief,
 )
 from clean_v2 import media as media_module
-from clean_v2.media import GeminiPrimaryPiperFallbackSynthesizer, VoiceInfrastructureError
+from clean_v2.media import (
+    GeminiPrimaryPiperFallbackSynthesizer,
+    SHORT_CHARON_STYLE,
+    VoiceInfrastructureError,
+)
 from clean_v2.providers import ProviderAdapter, ProviderRouter
+from clean_v2.audio_mastering import CHARON_CORRECTIVE_FILTER, CHARON_CORRECTIVE_PROFILE
 from clean_v2.short_audio_polish import (
     MUSIC_MAX_REL_DB,
     MUSIC_MIN_REL_DB,
@@ -37,6 +42,10 @@ from clean_v2.short_audio_polish import (
 )
 from clean_v2.short_timed_text import (
     ACCENT_ASS,
+    BODY_FONT,
+    BODY_FONT_SIZE,
+    FOCUS_FONT,
+    FOCUS_FONT_SIZE,
     MAX_DARK_SLATES,
     build_events_from_voice_timeline,
     build_rich_ass,
@@ -161,6 +170,21 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertEqual(report["status"], "pass")
                 self.assertEqual(len(report["queries"]), 3)
 
+    def test_why_reframe_rejects_repeating_same_writing_action_for_payoff(self) -> None:
+        fixture = _TEMPLATE_FIXTURES["why_reframe"]
+        repeated = _plan(
+            [
+                "frustrated person writing messy notes at desk",
+                "person pause reconsidering plan while standing",
+                "calm person writing simple note at desk",
+            ]
+        )
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "payoff_repeats_opening_action",
+        ):
+            validate_short_visual_queries(repeated, fixture["brief"])
+
     def test_inner_dialogue_rejects_generic_visual_queries(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         generic = _plan(
@@ -184,6 +208,8 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn("Use exactly 3 sections", prompt)
                 self.assertIn("VISUAL_QUERY_DIRECTION", prompt)
                 self.assertIn(selection["visual_query_directive"], prompt)
+                self.assertIn("visibly different dominant actions or states", prompt)
+                self.assertIn("active friction/decision", prompt)
                 self.assertIn(f"selected_template={expected}", prompt)
                 self.assertIn("return an empty CTA string", prompt)
                 self.assertEqual(selection["extra_ai_calls"], 0)
@@ -254,6 +280,15 @@ class ShortContractTests(unittest.TestCase):
         direct_action["sections"][2]["narration"] = "ابدأ بخطوة صغيرة تستطيع تنفيذها الآن."
         report = validate_short_script(direct_action)
         self.assertEqual(report["practical_action_sentences"], 1)
+        self.assertEqual(report["practical_action_markers"], 1)
+
+        double_action = json.loads(json.dumps(no_action, ensure_ascii=False))
+        double_action["sections"][2]["narration"] = "اكتب كلمة واحدة على ورقة ثم اخرج للمشي."
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            r"short_s3_requires_one_action_only imperative_markers=2",
+        ):
+            validate_short_script(double_action)
 
     def test_provider_router_rejects_technically_successful_hook_over_12_words(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
@@ -379,6 +414,11 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIn(r"{\an5\pos(", ass)
         self.assertNotIn(r"{{\an5\pos(", ass)
         self.assertEqual(ACCENT_ASS, "&H005BA8D7")
+        self.assertEqual(BODY_FONT, "Noto Sans Arabic")
+        self.assertEqual(FOCUS_FONT, "Noto Kufi Arabic")
+        self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
+        self.assertGreaterEqual(BODY_FONT_SIZE, 70)
+        self.assertIn(r"\N", ass)
 
     def test_body_focus_split_preserves_authored_words(self) -> None:
         text = "لكن الحقيقة أن البداية الصغيرة تغيّر اتجاه اللحظة"
@@ -483,6 +523,13 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
 
 
 class ShortAudioPolishTests(unittest.TestCase):
+    def test_charon_corrective_mastering_reuses_certified_lite_profile_without_tempo_change(self) -> None:
+        self.assertEqual(CHARON_CORRECTIVE_PROFILE, "audio-mastering-lite-charon-v1")
+        for fragment in ("highpass=f=70", "equalizer=f=220", "equalizer=f=3200", "deesser=", "acompressor="):
+            self.assertIn(fragment, CHARON_CORRECTIVE_FILTER)
+        self.assertNotIn("atempo", CHARON_CORRECTIVE_FILTER)
+        self.assertNotIn("rubberband", CHARON_CORRECTIVE_FILTER)
+
     def test_actual_db_levels_keep_music_and_sfx_below_mastered_narration(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -507,6 +554,8 @@ class ShortAudioPolishTests(unittest.TestCase):
                 check=True,
             )
             narration_mean = _measure_mean_db(narration)
+            self.assertGreater(SFX_TARGET_REL_DB, -24.0)
+            self.assertLessEqual(SFX_TARGET_REL_DB, SFX_MAX_REL_DB)
 
             raw_music = root / "music-raw.wav"
             music = root / "music.wav"
@@ -597,6 +646,9 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("CTA is", prompt)
         self.assertIn("fully disabled", prompt)
+        self.assertIn("concrete felt friction", prompt)
+        self.assertIn("resolve the SAME tension/question", prompt)
+        self.assertIn("must not append a second action", prompt)
 
     def test_short_sectioned_voice_passes_primary_only_without_changing_chunking(self) -> None:
         class FakeCharon:
@@ -643,6 +695,50 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertFalse(report["voice_fallback_used"])
         self.assertTrue(voice.primary_only_flags)
         self.assertTrue(all(voice.primary_only_flags))
+
+    def test_short_charon_passes_viewer_facing_performance_direction_without_rewriting(self) -> None:
+        captured: dict[str, object] = {}
+
+        def fake_synthesize(api_key, transcript, output_path, *, model, voice, style=""):
+            captured.update(
+                {
+                    "api_key": api_key,
+                    "transcript": transcript,
+                    "model": model,
+                    "voice": voice,
+                    "style": style,
+                }
+            )
+            Path(output_path).write_bytes(b"W" * 2048)
+            return Path(output_path)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            synth = GeminiPrimaryPiperFallbackSynthesizer(
+                "gemini-key",
+                Path(temporary) / "unused.onnx",
+                None,
+            )
+            transcript = "ابدأ بخطوة واحدة واضحة الآن."
+            with (
+                mock.patch.object(media_module, "_legacy_voice_identity", return_value=("Charon", "Orus")),
+                mock.patch.object(media_module, "_assert_human_approved_voice_reference", return_value="fixture"),
+                mock.patch.object(media_module, "_legacy_gemini_synthesize", side_effect=fake_synthesize),
+            ):
+                result = synth.synthesize(
+                    transcript,
+                    Path(temporary) / "out.wav",
+                    primary_only=True,
+                )
+
+        # The TemporaryDirectory is intentionally gone here; assert the returned
+        # destination identity, while the provider call itself already proved success
+        # by requiring a >1 KiB output before synthesize() returned.
+        self.assertEqual(result.name, "out.wav")
+        self.assertEqual(captured["transcript"], transcript)
+        self.assertEqual(captured["voice"], "Charon")
+        self.assertEqual(captured["style"], SHORT_CHARON_STYLE)
+        self.assertIn("immediately and conversationally", str(captured["style"]))
+        self.assertIn("announcer-like", str(captured["style"]))
 
     def test_primary_only_charon_failure_never_calls_azure_or_piper(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

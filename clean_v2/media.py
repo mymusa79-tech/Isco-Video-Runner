@@ -28,6 +28,17 @@ CHARON_MAX_ATTEMPTS = 3
 CHARON_RETRY_DELAYS_SECONDS = (1.0, 2.0)
 MAX_SHORT_TTS_RETRY_AFTER_SECONDS = 10.0
 
+# Performance-only direction appended to the already-proven Engine Gemini TTS
+# preamble when Clean V2 is using the Short Charon-only contract. It changes no
+# words and adds no provider call; it only asks for a cleaner, more immediate
+# conversational section onset instead of an announcer-like pickup.
+SHORT_CHARON_STYLE = (
+    " For short-form narration, begin each section immediately and conversationally "
+    "with a clean first-word attack. Keep the opening thought slightly firmer in intent, "
+    "but never louder, theatrical, breathless, or announcer-like. Preserve natural clear "
+    "Modern Standard Arabic and let punctuation control the pauses."
+)
+
 AZURE_F0_VOICE = "ar-OM-AbdullahNeural"
 AZURE_F0_LOCALE = "ar-OM"
 AZURE_F0_OUTPUT_FORMAT = "riff-24khz-16bit-mono-pcm"
@@ -188,6 +199,7 @@ def _legacy_gemini_synthesize(
     *,
     model: str,
     voice: str,
+    style: str = "",
 ) -> Path:
     """Reuse the legacy Gemini TTS implementation with exactly one provider attempt."""
     from isco_video_agent.providers.gemini import synthesize_wav
@@ -198,7 +210,7 @@ def _legacy_gemini_synthesize(
         output_path,
         model=model,
         voice=voice,
-        style="",
+        style=style,
         attempts=1,
     )
 
@@ -592,6 +604,7 @@ class GeminiPrimaryPiperFallbackSynthesizer:
                         output_path,
                         model=self.tts_model,
                         voice=primary_voice,
+                        style=SHORT_CHARON_STYLE if primary_only else "",
                     )
                     if not output_path.is_file() or output_path.stat().st_size < 1024:
                         raise RuntimeError("Gemini TTS produced an empty narration file")
