@@ -25,6 +25,9 @@ from .contracts import (
 from .media import concat_wav_parts, inspect_final, probe_duration, render_video
 from .structural_ai import structural_ai_flags
 from .short_format import (
+    SHORT_MAX_SECONDS,
+    SHORT_MIN_SECONDS,
+    SHORT_TARGET_SECONDS,
     short_contract_report,
     short_prompt_context,
     validate_short_duration,
@@ -1958,16 +1961,16 @@ def _run_short_duration_gate(
     report_name: str,
 ) -> dict[str, Any]:
     seconds = probe_duration(media_path)
-    in_range = 60.0 <= seconds <= 90.0
+    in_range = SHORT_MIN_SECONDS <= seconds <= SHORT_MAX_SECONDS
     report = {
         "schema_version": 1,
         "source": "clean-v2-short-duration-gate",
         "status": "pass" if in_range else "block",
         "phase": phase,
         "duration_seconds": round(seconds, 3),
-        "minimum_seconds": 60.0,
-        "target_seconds": 75.0,
-        "maximum_seconds": 90.0,
+        "minimum_seconds": SHORT_MIN_SECONDS,
+        "target_seconds": SHORT_TARGET_SECONDS,
+        "maximum_seconds": SHORT_MAX_SECONDS,
         "provider_calls_added": 0,
     }
     atomic_write_json(output_dir / report_name, report)
@@ -2009,7 +2012,7 @@ def _inspect_final_with_short_gate(
         width = int(report.get("width") or 0)
         height = int(report.get("height") or 0)
         passed = (
-            60.0 <= duration <= 90.0
+            SHORT_MIN_SECONDS <= duration <= SHORT_MAX_SECONDS
             and width == 1080
             and height == 1920
         )
@@ -2022,9 +2025,9 @@ def _inspect_final_with_short_gate(
                 "duration_seconds": duration,
                 "width": width,
                 "height": height,
-                "minimum_seconds": 60.0,
-                "target_seconds": 75.0,
-                "maximum_seconds": 90.0,
+                "minimum_seconds": SHORT_MIN_SECONDS,
+                "target_seconds": SHORT_TARGET_SECONDS,
+                "maximum_seconds": SHORT_MAX_SECONDS,
                 "provider_calls_added": 0,
             },
         )
@@ -2094,8 +2097,9 @@ def _script_prompt(
         length = "Aim for roughly 650-900 spoken Arabic words across all sections."
     elif fmt == "short":
         length = (
-            "Aim for roughly 145-185 spoken Arabic words across all 3 sections so the fixed natural "
-            "voice is likely to land near 75 seconds; the measured audio duration gate remains authoritative."
+            "Keep the Short compact: aim for roughly 22-40 spoken Arabic words across all 3 sections, "
+            "with natural unhurried delivery near the legacy 15-second target. The measured audio duration "
+            "gate is authoritative and the complete Short must never exceed 30 seconds."
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
