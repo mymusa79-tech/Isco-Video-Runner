@@ -28,6 +28,7 @@ from .short_format import (
     SHORT_MAX_SECONDS,
     SHORT_MIN_SECONDS,
     SHORT_TARGET_SECONDS,
+    INNER_DIALOGUE_VOICE_RULES,
     apply_safe_short_hook_trim,
     select_short_template,
     short_contract_report,
@@ -900,16 +901,17 @@ def _short_template_tone_repair_issue_notes(brief: Mapping[str, Any]) -> str:
     selection = select_short_template(brief)
     if str(selection.get("template") or "") != "inner_dialogue":
         return ""
-    return "\n".join(
-        (
-            "- [tone-template:inner_dialogue] The current draft reads as direct advice disguised as inner_dialogue; repair the writing so the viewer hears a believable inner voice rather than a narrator giving instructions.",
-            "- [tone-template:inner_dialogue] Required progression: inner voice -> friction -> internal realization/turn -> earned payoff.",
-            '- [tone-template:inner_dialogue] BAD: "ابدأ بخطوة صغيرة. عليك أن تتحرك الآن."',
-            '- [tone-template:inner_dialogue] GOOD: "قلت لنفسي: لا أريد أن أبدأ. ثم لاحظت أنني كنت أنتظر شعورًا لن يأتي."',
-            '- [tone-template:inner_dialogue] Do not address the viewer with "افعل" / "ابدأ" / "عليك" except in the final line only, where at most one single-action imperative is allowed by the Short contract.',
-            "- [tone-template:inner_dialogue] The turn must sound like an idea discovered by the inner voice, not preaching from an external narrator. Preserve the locked hook, then make the next beat genuinely advance it instead of restating it.",
-        )
+    lines = [
+        "- [tone-template:inner_dialogue] The current draft reads as direct advice disguised as "
+        "inner_dialogue; repair the writing so the viewer hears a believable inner voice rather than "
+        "a narrator giving instructions."
+    ]
+    lines.extend(f"- [tone-template:inner_dialogue] {rule}" for rule in INNER_DIALOGUE_VOICE_RULES)
+    lines.append(
+        "- [tone-template:inner_dialogue] Preserve the locked hook, then make the next beat "
+        "genuinely advance it instead of restating it."
     )
+    return "\n".join(lines)
 
 
 def _structural_repair_issue_notes(output_dir: Path) -> str:
