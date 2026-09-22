@@ -226,6 +226,48 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             ("s2",),
         )
 
+    def test_short_cohort_attempt_1_without_section_id_resolves_s2_from_claim_content(self):
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "لا تنتظر أن يعود الدافع، لأنه لن يأتي بمفرده.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "الافتراض الخفي هو أن الحركة تحتاج إلى حماس أولًا، لكن العكس هو الصحيح: الحركة الصغيرة تولد الرغبة، لا العكس.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "خذ خطوة واحدة فقط الآن، مثل فتح الكتاب أو كتابة الجملة الأولى، ثم انظر كيف يتغير كل شيء.",
+                },
+            ]
+        }
+        report = {
+            "status": "block",
+            "unsupported_claims": [
+                "The claim that small actions generate desire, contrary to the assumption that motivation precedes action."
+            ],
+            "professional_advice_flags": [],
+            "expert_persona_flags": [],
+            "notes": [
+                "The script contains a psychological claim that action precedes motivation, which is not supported by the empty approved research context."
+            ],
+        }
+
+        factuality_notes = _factuality_repair_issue_notes(report)
+        location_notes = _factuality_location_issue_notes(report, script)
+        revision_note = "\n".join(
+            item for item in (factuality_notes, location_notes) if item
+        )
+
+        self.assertNotIn("s2", "\n".join(report["notes"] + report["unsupported_claims"]))
+        self.assertEqual(location_notes, "- [factuality-location] s2")
+        self.assertEqual(
+            _repair_target_section_ids(script, revision_note, {}),
+            ("s2",),
+        )
+
     def test_valid_content_block_is_quality_block_not_infrastructure(self):
         blocked = _tone_result(status="block")
         blocked["naturalness_flags"] = ["generic AI filler"]
