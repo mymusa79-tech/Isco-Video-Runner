@@ -796,8 +796,10 @@ class CleanV2TextAuditRoutingTests(unittest.TestCase):
         calls: list[str] = []
         original_route = factuality.route_text_audit
 
-        def mistral_pass(_prompt: str):
+        def mistral_pass(_prompt: str, *, schema, section_ids):
             calls.append("mistral")
+            self.assertEqual(tuple(section_ids), ("s1", "s2", "s3", "s4", "s5"))
+            self.assertEqual(schema["properties"]["unsupported_claims"]["items"]["properties"]["section_id"]["enum"], list(section_ids))
             return dict(_FACT_PASS)
 
         diagnostics: dict = {}
