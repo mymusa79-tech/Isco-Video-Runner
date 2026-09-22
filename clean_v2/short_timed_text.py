@@ -316,12 +316,12 @@ def build_rich_ass(
         if focus:
             lines.append(
                 f"Dialogue: 1,{start},{end},{focus_style},,0,0,0,,"
-                f"{{{{\\an5\\pos(540,{focus_y}){focus_tag}}}}}{_ass_escape(focus)}"
+                f"{{\\an5\\pos(540,{focus_y}){focus_tag}}}{_ass_escape(focus)}"
             )
         if body:
             lines.append(
                 f"Dialogue: 0,{start},{end},{body_style},,0,0,0,,"
-                f"{{{{\\an5\\pos(540,{body_y}){body_tag}}}}}{_ass_escape(body)}"
+                f"{{\\an5\\pos(540,{body_y}){body_tag}}}{_ass_escape(body)}"
             )
     lines.append("")
     return "\n".join(lines)
