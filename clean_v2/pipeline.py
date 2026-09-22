@@ -1400,6 +1400,19 @@ Return exactly one JSON object in this shape:
 """.strip()))
 
 
+def _normalized_narration_signature(script: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    """Canonical spoken-text signature used to reject no-op repair candidates."""
+    sections = script.get("sections") or []
+    return tuple(
+        (
+            str(item.get("id") or ""),
+            " ".join(str(item.get("narration") or "").split()),
+        )
+        for item in sections
+        if isinstance(item, Mapping)
+    )
+
+
 def _run_one_bounded_tone_repair(
     *,
     output_dir: Path,
@@ -1433,6 +1446,7 @@ def _run_one_bounded_tone_repair(
         raise RuntimeError(
             "Tone/Naturalness repair has no deterministic target section"
         )
+    narration_before = _normalized_narration_signature(script)
     repaired = router.route(
         stage="script_patch",
         prompt=_tone_repair_prompt(
@@ -1453,9 +1467,26 @@ def _run_one_bounded_tone_repair(
             revision_note=issue_notes,
         ),
     )
+    atomic_write_json(output_dir / "script-post-tone-repair.json", repaired)
+    if _normalized_narration_signature(repaired) == narration_before:
+        atomic_write_json(
+            output_dir / "tone-repair.json",
+            {
+                "schema_version": 1,
+                "source": "clean-v2-one-bounded-tone-repair",
+                "attempts": 1,
+                "issue_notes": issue_notes,
+                "status": "failed_closed",
+                "reason": "TONE_REPAIR_NO_EFFECT",
+                "narration_changed": False,
+            },
+        )
+        raise RuntimeError(
+            "TONE_REPAIR_NO_EFFECT: bounded tone repair made no narration changes"
+        )
+
     script.clear()
     script.update(repaired)
-    atomic_write_json(output_dir / "script-post-tone-repair.json", script)
     _assert_brand_signature_invariant(
         script["sections"],
         str(brief.get("format") or ""),
@@ -1473,6 +1504,7 @@ def _run_one_bounded_tone_repair(
         "source": "clean-v2-one-bounded-tone-repair",
         "attempts": 1,
         "issue_notes": issue_notes,
+        "narration_changed": True,
     }
 
 
