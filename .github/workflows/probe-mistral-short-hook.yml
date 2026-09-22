@@ -1,0 +1,118 @@
+name: Probe Mistral Short Hook Compliance
+
+on:
+  push:
+    branches:
+      - fix/mistral-short-hook-prompt-20260922
+    paths:
+      - .github/workflows/probe-mistral-short-hook.yml
+      - clean_v2/providers.py
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Probe five real Mistral Short scripts
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          RESULT_PATH: ${{ runner.temp }}/mistral-short-hook-compliance.json
+        run: |
+          set -euo pipefail
+          test -n "${MISTRAL_API_KEY:-}"
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          from clean_v2 import providers
+
+          plan = {
+              "title": "حين يتوقف الدافع",
+              "promise": "تحويل التردد إلى بداية صغيرة.",
+              "cta": "",
+              "sections": [
+                  {"id": "s1", "heading": "الصوت الداخلي", "purpose": "فتح توتر فقد الدافع", "visual_query_en": "person pausing before an unfinished task"},
+                  {"id": "s2", "heading": "الاحتكاك", "purpose": "كشف انتظار الشعور المناسب", "visual_query_en": "hands resting beside a closed notebook"},
+                  {"id": "s3", "heading": "التحول", "purpose": "إنهاء التوتر بفعل واحد", "visual_query_en": "hand taking one small practical action"},
+              ],
+          }
+          base_prompt = f"""
+          Write the final spoken script for one Arabic YouTube Short in natural Modern Standard Arabic.
+
+          LOCKED_PLAN:
+          {json.dumps(plan, ensure_ascii=False, separators=(",", ":"))}
+
+          The approved brief and locked plan are authoritative. Follow every hard constraint.
+          Write narration only. No social CTA.
+
+          SHORT_FORMAT_CONTRACT:
+          - selected_template=inner_dialogue
+          - exact_sections=3
+          - s1: the first spoken sentence is the truthful Hook and must be at most 12 Arabic words; no greeting.
+          - s2: advance the same internal tension with real friction and a turn.
+          - s3: resolve the tension, then give exactly one practical action.
+
+          Return one JSON object with title and sections. Each section must contain id and narration.
+          """.strip()
+          prompt = providers._provider_prompt(
+              base_prompt,
+              provider="mistral",
+              stage="script",
+          )
+          if "MISTRAL_SHORT_HOOK_COMPLIANCE" not in prompt:
+              raise SystemExit("Mistral Short hook guidance missing from provider prompt")
+
+          rows = []
+          for index in range(1, 6):
+              candidate = providers._mistral_call(prompt, 800, "script")
+              first = str(candidate["sections"][0]["narration"]).strip()
+              match = re.search(r"[.!؟!]", first)
+              hook = first[: match.end()].strip() if match else first
+              words = [word for word in hook.split() if word]
+              rows.append({
+                  "attempt": index,
+                  "hook_words": len(words),
+                  "compliant": len(words) <= 12,
+                  "hook_sha256": hashlib.sha256(hook.encode("utf-8")).hexdigest(),
+              })
+
+          compliant = sum(1 for row in rows if row["compliant"])
+          result = {
+              "schema_version": 1,
+              "runner_sha": os.environ["GITHUB_SHA"],
+              "model": "ministral-14b-2512",
+              "attempts": len(rows),
+              "compliant": compliant,
+              "compliance_rate": compliant / len(rows),
+              "rows": rows,
+          }
+          Path(os.environ["RESULT_PATH"]).write_text(
+              json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+          PY
+
+      - name: Upload probe evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mistral-short-hook-compliance-${{ github.run_number }}
+          path: ${{ runner.temp }}/mistral-short-hook-compliance.json
+          if-no-files-found: error
+          retention-days: 7
