@@ -206,9 +206,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         }
         report = {
             "status": "block",
-            "unsupported_claims": [
-                "claim that expectations influence emotions more than energy"
-            ],
+            "unsupported_claims": [{"section_id": "s2", "issue": "claim that expectations influence emotions more than energy"}],
+            "diagnostics": {"raw_result": {"unsupported_claims": [{"section_id": "s2", "issue": "claim that expectations influence emotions more than energy"}], "professional_advice_flags": [], "expert_persona_flags": []}},
             "professional_advice_flags": [],
             "expert_persona_flags": [],
             "notes": ["Section s2 contains an unsupported psychological claim."],
@@ -222,7 +221,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
 
         self.assertEqual(location_notes, "- [factuality-location] s2")
         self.assertEqual(
-            _repair_target_section_ids(script, revision_note, {}),
+            _factuality_target_section_ids(report, script),
             ("s2",),
         )
 
@@ -245,9 +244,8 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         }
         report = {
             "status": "block",
-            "unsupported_claims": [
-                "The claim that small actions generate desire, contrary to the assumption that motivation precedes action."
-            ],
+            "unsupported_claims": [{"section_id": "s2", "issue": "The claim that small actions generate desire, contrary to the assumption that motivation precedes action."}],
+            "diagnostics": {"raw_result": {"unsupported_claims": [{"section_id": "s2", "issue": "The claim that small actions generate desire, contrary to the assumption that motivation precedes action."}], "professional_advice_flags": [], "expert_persona_flags": []}},
             "professional_advice_flags": [],
             "expert_persona_flags": [],
             "notes": [
@@ -261,7 +259,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             item for item in (factuality_notes, location_notes) if item
         )
 
-        self.assertNotIn("s2", "\n".join(report["notes"] + report["unsupported_claims"]))
+        self.assertNotIn("s2", "\n".join(report["notes"] + [item["issue"] for item in report["unsupported_claims"]]))
         self.assertEqual(location_notes, "- [factuality-location] s2")
         self.assertEqual(
             _repair_target_section_ids(script, revision_note, {}),
