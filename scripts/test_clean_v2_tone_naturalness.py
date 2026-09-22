@@ -9,7 +9,10 @@ from unittest.mock import patch
 
 from clean_v2.pipeline import (
     _closing_payoff_for_tone_audit,
+    _factuality_location_issue_notes,
+    _factuality_repair_issue_notes,
     _first_spoken_sentence,
+    _repair_target_section_ids,
     _run_legacy_tone_naturalness_audit,
     _run_text_audits,
 )
@@ -183,6 +186,45 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertIn("are not quotations or attributions by themselves", scoped)
         self.assertIn("unless they actually quote or attribute", scoped)
         self.assertEqual(scoped.count("Scope clarification for Clean V2"), 1)
+
+    def test_short_cohort_attempt_1_factuality_note_resolves_s2(self):
+        script = {
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "أحياناً يختفي الدافع كأنك في منتصف نهارٍ صامت.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "لكن الحقيقة أن توقعاتنا للنتيجة تُشغِّل مشاعرنا أكثر من الطاقة نفسها.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "ابدأ بتدوين هدف صغير اليوم، ثم اكتب خطوة واحدة لتحقيقه.",
+                },
+            ]
+        }
+        report = {
+            "status": "block",
+            "unsupported_claims": [
+                "claim that expectations influence emotions more than energy"
+            ],
+            "professional_advice_flags": [],
+            "expert_persona_flags": [],
+            "notes": ["Section s2 contains an unsupported psychological claim."],
+        }
+
+        factuality_notes = _factuality_repair_issue_notes(report)
+        location_notes = _factuality_location_issue_notes(report, script)
+        revision_note = "\n".join(
+            item for item in (factuality_notes, location_notes) if item
+        )
+
+        self.assertEqual(location_notes, "- [factuality-location] s2")
+        self.assertEqual(
+            _repair_target_section_ids(script, revision_note, {}),
+            ("s2",),
+        )
 
     def test_valid_content_block_is_quality_block_not_infrastructure(self):
         blocked = _tone_result(status="block")
