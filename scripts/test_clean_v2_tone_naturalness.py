@@ -15,6 +15,7 @@ from clean_v2.pipeline import (
     _first_spoken_sentence,
     _repair_target_section_ids,
     _run_legacy_tone_naturalness_audit,
+    _run_one_bounded_tone_repair,
     _run_text_audits,
 )
 from clean_v2.tone_audit import (
@@ -327,6 +328,118 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                     plan={"sections": []},
                     script={"sections": [{"id": "s1", "narration": "افتتاح واضح."}]},
                 )
+
+    def test_run15_no_effect_tone_repair_fails_closed_before_reaudit(self):
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "أجلس وأنتظر الدافع."},
+                {"id": "s2", "narration": "أقول لنفسي إن الحركة مؤجلة."},
+                {"id": "s3", "narration": "أفتح الدفتر وأكتب كلمة واحدة."},
+            ]
+        }
+        original = json.loads(json.dumps(script, ensure_ascii=False))
+
+        class NoOpRouter:
+            def route(self, **_kwargs):
+                return json.loads(json.dumps(original, ensure_ascii=False))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "narrative-identity.json").write_text(
+                json.dumps({"opener": "", "closer": "", "transitions": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (root / "cta-plan.json").write_text(
+                json.dumps({"mode": "none", "spoken_text": ""}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with patch(
+                "clean_v2.pipeline._tone_repair_issue_notes",
+                return_value="- [tone] inner dialogue still sounds external",
+            ), patch(
+                "clean_v2.pipeline._structural_repair_issue_notes",
+                return_value="",
+            ), patch(
+                "clean_v2.pipeline._short_template_tone_repair_issue_notes",
+                return_value="",
+            ), patch(
+                "clean_v2.pipeline._repair_target_section_ids",
+                return_value=("s1", "s2", "s3"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "TONE_REPAIR_NO_EFFECT"):
+                    _run_one_bounded_tone_repair(
+                        output_dir=root,
+                        brief={"format": "short"},
+                        plan={"sections": []},
+                        script=script,
+                        router=NoOpRouter(),
+                        blocked_report={"status": "block"},
+                    )
+
+            self.assertEqual(script, original)
+            candidate = json.loads(
+                (root / "script-post-tone-repair.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(candidate, original)
+            report = json.loads(
+                (root / "tone-repair.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(report["status"], "failed_closed")
+            self.assertEqual(report["reason"], "TONE_REPAIR_NO_EFFECT")
+            self.assertFalse(report["narration_changed"])
+
+    def test_tone_repair_guard_allows_real_narration_change(self):
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "أجلس وأنتظر الدافع."},
+                {"id": "s2", "narration": "أقول لنفسي إن الحركة مؤجلة."},
+                {"id": "s3", "narration": "أفتح الدفتر وأكتب كلمة واحدة."},
+            ]
+        }
+        repaired = json.loads(json.dumps(script, ensure_ascii=False))
+        repaired["sections"][1]["narration"] = "لاحظت أنني أؤجل الحركة وأنا أنتظر شعورًا قد لا يأتي."
+
+        class ChangedRouter:
+            def route(self, **_kwargs):
+                return json.loads(json.dumps(repaired, ensure_ascii=False))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "narrative-identity.json").write_text(
+                json.dumps({"opener": "", "closer": "", "transitions": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (root / "cta-plan.json").write_text(
+                json.dumps({"mode": "none", "spoken_text": ""}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with patch(
+                "clean_v2.pipeline._tone_repair_issue_notes",
+                return_value="- [tone] inner dialogue still sounds external",
+            ), patch(
+                "clean_v2.pipeline._structural_repair_issue_notes",
+                return_value="",
+            ), patch(
+                "clean_v2.pipeline._short_template_tone_repair_issue_notes",
+                return_value="",
+            ), patch(
+                "clean_v2.pipeline._repair_target_section_ids",
+                return_value=("s2",),
+            ), patch(
+                "clean_v2.pipeline._assert_brand_signature_invariant",
+                return_value=None,
+            ):
+                report = _run_one_bounded_tone_repair(
+                    output_dir=root,
+                    brief={"format": "short"},
+                    plan={"sections": []},
+                    script=script,
+                    router=ChangedRouter(),
+                    blocked_report={"status": "block"},
+                )
+
+            self.assertTrue(report["narration_changed"])
+            self.assertEqual(script["sections"][1]["narration"], repaired["sections"][1]["narration"])
 
     def test_composite_runs_factuality_before_tone(self):
         order = []
