@@ -328,6 +328,8 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertIn("Style: SlateFocus", ass)
         self.assertEqual(ass.count("SlateFocus,,0,0,0"), 1)
         self.assertIn(r"\fscx103\fscy103", ass)
+        self.assertIn(r"{\an5\pos(", ass)
+        self.assertNotIn(r"{{\an5\pos(", ass)
         self.assertEqual(ACCENT_ASS, "&H005BA8D7")
 
     def test_body_focus_split_preserves_authored_words(self) -> None:
