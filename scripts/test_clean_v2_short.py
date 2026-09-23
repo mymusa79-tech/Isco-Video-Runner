@@ -1061,22 +1061,20 @@ class ShortAudioPolishTests(unittest.TestCase):
 
 
 class ShortPipelineSeamTests(unittest.TestCase):
-    def test_short_script_prompt_keeps_compact_30s_ceiling_and_reuses_template_context(self) -> None:
+    def test_short_script_prompt_keeps_rich_45s_ceiling_and_reuses_template_context(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
-        self.assertIn("22-40 spoken Arabic words", prompt)
-        self.assertIn("legacy 15-second target", prompt)
-        self.assertIn("must never exceed 30 seconds", prompt)
+        self.assertIn("65-105 spoken Arabic words", prompt)
+        self.assertIn("30-40 second result", prompt)
+        self.assertIn("20-45 seconds", prompt)
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("CTA is", prompt)
         self.assertIn("fully disabled", prompt)
-        self.assertIn("concrete felt friction", prompt)
+        self.assertIn("paradox, direct scene, real question", prompt)
         self.assertIn("resolve the SAME tension/question", prompt)
         self.assertIn("must not append a second action", prompt)
         self.assertIn("SPOKEN_NATURALNESS_LITE", prompt)
         self.assertIn("write for the ear, not the page", prompt)
-        self.assertIn("65-105 spoken Arabic words", prompt)
-        self.assertIn("20-45 seconds", prompt)
         self.assertIn("complete miniature idea", prompt)
         self.assertIn("السبب الحقيقي", prompt)
         self.assertIn("ليس X بل Y", prompt)
