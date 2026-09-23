@@ -230,9 +230,9 @@ def infer_with_native_pause_duration_boost(
         )
 
     # Each duration frame is 600 samples = 25 ms at 24 kHz.
-    # These are deliberately modest: enough to create a felt pause without
+    # These are deliberately modest: commas get +100 ms because +50 ms was not perceptible enough; enough to create a felt pause without
     # stretching ordinary speech or altering lexical phoneme durations.
-    extra_frames = {",": 2, "…": 8, "—": 5}
+    extra_frames = {",": 4, "…": 8, "—": 5}
     changes: list[dict] = []
     for char_index, ch in enumerate(chars, start=1):  # +1 for BOS
         extra = extra_frames.get(ch)
