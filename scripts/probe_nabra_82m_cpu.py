@@ -29,7 +29,7 @@ from kokoro import pipeline as kpipeline_mod
 REPO_ID = "oddadmix/Nabra-82M-v0.1"
 SAMPLE_RATE = 24000
 NATIVE_SPEED = 0.94
-NATIVE_PROSODY_SPEED = 0.80
+NATIVE_PROSODY_SPEED = 0.87
 
 # Manually corrected MSA tashkeel. This intentionally bypasses Camel's wrong
 # guesses seen in the first probe (e.g. أَنَّ, أَبْدَأ, فِرَقًا).
@@ -650,7 +650,7 @@ def main() -> int:
             "native-punctuation sample changes punctuation tokens only; lexical phonemes are invariant",
             "native-punctuation sample has zero waveform splices and zero post-generation silence insertion",
             "native-punctuation sample is one continuous inference call, preventing repeated sentence onsets",
-            "native-calm sample uses the exact same phonemes and punctuation at model speed 0.80",
+            "native-calm sample uses the exact same phonemes and punctuation at model speed 0.87",
             "native-calm sample has no atempo, no waveform splice, and no sentence-by-sentence synthesis",
             "native-pause-token sample changes punctuation tokens only and stays one continuous inference",
             "native-pause-token sample has zero waveform edits and therefore cannot introduce splice cuts",
