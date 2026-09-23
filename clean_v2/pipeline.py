@@ -1077,6 +1077,25 @@ def _repair_target_section_ids(
     return ()
 
 
+_HOOK_WORD_FIX_MAX_CHARS = 40
+
+
+def _audit_verified_repair_terms(revision_note: str) -> frozenset[str]:
+    """Terms the validated audit itself quoted as the defect.
+
+    _tone_repair_issue_notes/_factuality_repair_issue_notes already strip any
+    quoted excerpt from a flag that _quote_is_verifiable rejects before the
+    flag reaches revision_note (Run #315). Every quote still present here has
+    therefore already survived that check, so it is trustworthy evidence for
+    a scoped edit inside an otherwise-locked anchor such as the hook.
+    """
+    return frozenset(
+        compact
+        for match in _QUOTED_TONE_FLAG_EXAMPLE.findall(revision_note)
+        if (compact := " ".join(match.split()).strip())
+    )
+
+
 def _validate_and_apply_script_patches(
     value: Any,
     *,
@@ -1113,6 +1132,8 @@ def _validate_and_apply_script_patches(
     }
 
     original_hook = _first_spoken_sentence(original_script)
+    audit_verified_terms = _audit_verified_repair_terms(revision_note)
+    hook_word_fix_used = False
     opener = str(identity.get("opener") or "").strip()
     closer = str(identity.get("closer") or "").strip()
     spoken_cta = str(cta_plan.get("spoken_text") or "").strip()
@@ -1147,6 +1168,26 @@ def _validate_and_apply_script_patches(
         if narration.count(find) != 1:
             raise ValueError("script patch find text must match exactly once")
 
+        if (
+            original_hook
+            and sections
+            and section_id == str(sections[0].get("id") or "")
+            and find in original_hook
+        ):
+            # A short, audit-verified word/phrase fix inside the hook (e.g. a
+            # flagged typo or non-standard verb) is allowed once, in addition
+            # to the broad-rewrite guard below. Anything else touching the
+            # hook still falls through to the hard equality check after the
+            # loop.
+            compact_find = " ".join(find.split()).strip()
+            if (
+                hook_word_fix_used
+                or len(find) > _HOOK_WORD_FIX_MAX_CHARS
+                or compact_find not in audit_verified_terms
+            ):
+                raise ValueError("script patch changed the locked hook")
+            hook_word_fix_used = True
+
         for locked_name, locked_text in (
             ("hook", original_hook if section_id == str(sections[0].get("id") or "") else ""),
             ("opener", opener),
@@ -1159,7 +1200,11 @@ def _validate_and_apply_script_patches(
         item["narration"] = narration.replace(find, replace, 1)
 
     normalized = validate_script(repaired, plan)
-    if original_hook and _first_spoken_sentence(normalized) != original_hook:
+    if (
+        original_hook
+        and not hook_word_fix_used
+        and _first_spoken_sentence(normalized) != original_hook
+    ):
         raise ValueError("script patch changed the locked hook")
     joined = "\n".join(
         str(item.get("narration") or "")

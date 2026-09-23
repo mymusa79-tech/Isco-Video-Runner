@@ -4502,6 +4502,207 @@ class OneBoundedToneRepairRun17WholeScriptFlagTests(unittest.TestCase):
             )
 
 
+class HookAuditVerifiedWordFixTests(unittest.TestCase):
+    """Run #18: s1 was a single sentence, so it was also the entire locked
+    hook. A validated naturalness flag ("Unnatural Arabic phrase 'أستكين' in
+    narration s1; likely a typo or non-standard verb.") quoted a real,
+    verified word inside that sentence, but any patch touching s1 was
+    rejected outright by the hard hook-equality check, so the run failed
+    even though every provider that responded (Mistral) proposed exactly the
+    minimal fix the audit asked for. A short, audit-quoted word/phrase fix
+    inside the hook must now be accepted once; anything broader must still
+    be rejected.
+    """
+
+    PLAN = {
+        "title": "كيف تنهض عندما تفقد الدافع؟",
+        "promise": "تحول داخلي واحد يقود إلى خطوة صغيرة.",
+        "cta": "",
+        "sections": [
+            {"id": "s1", "heading": "الصوت الداخلي", "purpose": "فتح التوتر", "visual_query_en": "quiet person thinking"},
+            {"id": "s2", "heading": "الاحتكاك", "purpose": "إظهار ما يبقي التردد", "visual_query_en": "hands resting beside notebook"},
+            {"id": "s3", "heading": "التحول", "purpose": "إنهاء التوتر بفعل واحد", "visual_query_en": "hand writing one word"},
+        ],
+    }
+    ORIGINAL_HOOK = "أشعر أنني أستكين في مكان واحد بينما أريد أن أتحرك."
+    ORIGINAL = {
+        "title": PLAN["title"],
+        "sections": [
+            {"id": "s1", "narration": ORIGINAL_HOOK},
+            {
+                "id": "s2",
+                "narration": (
+                    "أفكر أن لا أبدأ إلا عندما أستشعر الحماس، لكني أجد نفسي أنتظر شعورًا لن يأتي."
+                ),
+            },
+            {"id": "s3", "narration": "ابدأ بكتابة جملة واحدة في دفتر."},
+        ],
+    }
+    IDENTITY = {"opener": "", "closer": "", "transitions": []}
+    CTA_PLAN = {"anchor_section_id": "", "spoken_text": ""}
+    REVISION_NOTE = (
+        "- [tone] Unnatural Arabic phrase 'أستكين' in narration s1; likely a typo or "
+        "non-standard verb."
+    )
+
+    def _patch_value(self, find: str, replace: str) -> dict:
+        return {"patches": [{"section_id": "s1", "find": find, "replace": replace}]}
+
+    def test_short_audit_verified_word_fix_inside_hook_is_accepted(self) -> None:
+        script = json.loads(json.dumps(self.ORIGINAL, ensure_ascii=False))
+        repaired = _validate_and_apply_script_patches(
+            self._patch_value("أستكين", "أتجمّد"),
+            plan=self.PLAN,
+            original_script=script,
+            identity=self.IDENTITY,
+            cta_plan=self.CTA_PLAN,
+            revision_note=self.REVISION_NOTE,
+        )
+        self.assertEqual(
+            repaired["sections"][0]["narration"],
+            "أشعر أنني أتجمّد في مكان واحد بينما أريد أن أتحرك.",
+        )
+
+    def test_unquoted_word_inside_hook_is_still_rejected(self) -> None:
+        script = json.loads(json.dumps(self.ORIGINAL, ensure_ascii=False))
+        with self.assertRaisesRegex(ValueError, "script patch changed the locked hook"):
+            _validate_and_apply_script_patches(
+                self._patch_value("أشعر", "أحس"),
+                plan=self.PLAN,
+                original_script=script,
+                identity=self.IDENTITY,
+                cta_plan=self.CTA_PLAN,
+                revision_note=self.REVISION_NOTE,
+            )
+
+    def test_full_hook_rewrite_disguised_as_a_fix_is_still_rejected(self) -> None:
+        script = json.loads(json.dumps(self.ORIGINAL, ensure_ascii=False))
+        with self.assertRaisesRegex(ValueError, "script patch changed the locked hook"):
+            _validate_and_apply_script_patches(
+                self._patch_value(self.ORIGINAL_HOOK, "جملة مختلفة كليًا تستبدل الخطاف."),
+                plan=self.PLAN,
+                original_script=script,
+                identity=self.IDENTITY,
+                cta_plan=self.CTA_PLAN,
+                revision_note=self.REVISION_NOTE,
+            )
+
+    def test_second_hook_touching_patch_is_rejected_even_if_quoted(self) -> None:
+        note = (
+            self.REVISION_NOTE
+            + "\n- [tone] Also unnatural: 'واحد' placement in narration s1."
+        )
+        script = json.loads(json.dumps(self.ORIGINAL, ensure_ascii=False))
+        with self.assertRaisesRegex(ValueError, "script patch changed the locked hook"):
+            _validate_and_apply_script_patches(
+                {
+                    "patches": [
+                        {"section_id": "s1", "find": "أستكين", "replace": "أتجمّد"},
+                        {"section_id": "s1", "find": "واحد", "replace": "معيّن"},
+                    ]
+                },
+                plan=self.PLAN,
+                original_script=script,
+                identity=self.IDENTITY,
+                cta_plan=self.CTA_PLAN,
+                revision_note=note,
+            )
+
+    def test_run18_whole_script_and_hook_typo_flags_get_a_real_accepted_repair(
+        self,
+    ) -> None:
+        tone_block = {
+            "status": "block",
+            "validation": "valid",
+            "preachiness_flags": [],
+            "naturalness_flags": [
+                "Unnatural Arabic phrase 'أستكين' in narration s1; likely a typo or "
+                "non-standard verb."
+            ],
+            "narrative_format_flags": [
+                "editorial_promise_continuity: narrative format mismatch: inner_dialogue "
+                "used but content is monologue."
+            ],
+            "cultural_dignity_flags": [],
+            "unverified_religious_quote_flags": [],
+            "notes": [],
+        }
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
+            "format": "short",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "editorial_intent": "نبرة هادئة وطبيعية.",
+            "research_pack": [],
+            "hard_constraints": ["No fabricated facts."],
+        }
+
+        class ShortRouter:
+            def __init__(self):
+                self.calls = 0
+
+            def route(self, *, stage, prompt, max_tokens, validator):
+                self.calls += 1
+                self_outer.assertEqual(stage, "script_patch")
+                return validator(
+                    {
+                        "patches": [
+                            {"section_id": "s1", "find": "أستكين", "replace": "أتجمّد"},
+                        ]
+                    }
+                )
+
+        self_outer = self
+        router = ShortRouter()
+        audit_calls = {"n": 0}
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            if audit_calls["n"] == 1:
+                raise CleanV2ToneContentBlock(tone_block)
+            return {
+                "schema_version": 1,
+                "status": "pass",
+                "factuality_status": "pass",
+                "tone_naturalness_status": "pass",
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "narrative-identity.json").write_text(
+                json.dumps(self.IDENTITY, ensure_ascii=False), encoding="utf-8"
+            )
+            (root / "cta-plan.json").write_text(
+                json.dumps(
+                    {**self.CTA_PLAN, "visual_only": True}, ensure_ascii=False
+                ),
+                encoding="utf-8",
+            )
+            (root / "structural-ai-flags.json").write_text(
+                json.dumps({"flags": [], "mode": "advisory"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            script = json.loads(json.dumps(self.ORIGINAL, ensure_ascii=False))
+            result = _run_text_audit_with_one_bounded_tone_repair(
+                text_audit=text_audit,
+                router=router,
+                output_dir=root,
+                brief=brief,
+                plan=self.PLAN,
+                script=script,
+            )
+
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
+            self.assertEqual(result["tone_repair_attempts"], 1)
+            self.assertEqual(result["post_repair_structural_ai_status"], "pass")
+            self.assertEqual(
+                script["sections"][0]["narration"],
+                "أشعر أنني أتجمّد في مكان واحد بينما أريد أن أتحرك.",
+            )
+
+
 class ShortFactualitySectionTargetRegressionTests(unittest.TestCase):
     def test_cohort_attempt1_section_s2_note_resolves_exact_target(self) -> None:
         from clean_v2.pipeline import _factuality_location_issue_notes
