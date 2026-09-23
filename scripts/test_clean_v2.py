@@ -4353,6 +4353,155 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertFalse((root / "tone-repair.json").exists())
 
 
+class OneBoundedToneRepairRun17WholeScriptFlagTests(unittest.TestCase):
+    """Run #17: the blocked tone audit's only flag described the whole draft
+    ("narrative format inner_dialogue not expressed naturally; script is
+    monologue") with no section number and no quoted excerpt to locate it.
+    _repair_target_section_ids returned no targets, so the bounded repair
+    raised RuntimeError before any repair provider was even called. A
+    whole-draft complaint has no single section by definition, so the
+    deterministic fallback must offer every section as the allowed patch
+    scope instead of failing closed pre-attempt.
+    """
+
+    TONE_BLOCK = {
+        "status": "block",
+        "validation": "valid",
+        "preachiness_flags": [],
+        "naturalness_flags": [],
+        "narrative_format_flags": [
+            "viewer_retention_continuity: narrative format inner_dialogue not "
+            "expressed naturally; script is monologue"
+        ],
+        "cultural_dignity_flags": [],
+        "unverified_religious_quote_flags": [],
+        "notes": [],
+    }
+    BRIEF = {
+        "approved_by_user": True,
+        "approved_topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
+        "format": "short",
+        "language": "ar",
+        "audience": "Arabic-speaking adults",
+        "editorial_intent": "نبرة هادئة وطبيعية.",
+        "research_pack": [],
+        "hard_constraints": ["No fabricated facts."],
+    }
+    PLAN = {
+        "title": "كيف تنهض عندما تفقد الدافع؟",
+        "promise": "تحول داخلي واحد يقود إلى خطوة صغيرة.",
+        "cta": "",
+        "sections": [
+            {"id": "s1", "heading": "الصوت الداخلي", "purpose": "فتح التوتر", "visual_query_en": "quiet person thinking"},
+            {"id": "s2", "heading": "الاحتكاك", "purpose": "إظهار ما يبقي التردد", "visual_query_en": "hands resting beside notebook"},
+            {"id": "s3", "heading": "التحول", "purpose": "إنهاء التوتر بفعل واحد", "visual_query_en": "hand writing one word"},
+        ],
+    }
+    ORIGINAL = {
+        "title": PLAN["title"],
+        "sections": [
+            {"id": "s1", "narration": "أشعر أن الدافع يختفي كلما احتجته"},
+            {"id": "s2", "narration": "أدرك أن السبب ليس نقص الدافع، بل توقع النتيجة"},
+            {"id": "s3", "narration": "اكتب هدفًا صغيرًا على ملصق وضعه على الثلاجة"},
+        ],
+    }
+
+    def test_repair_target_section_ids_falls_back_to_all_sections_for_whole_script_flag(
+        self,
+    ) -> None:
+        cta_plan = {"anchor_section_id": "", "spoken_text": ""}
+        revision_note = "- [tone] " + self.TONE_BLOCK["narrative_format_flags"][0]
+        target_ids = _repair_target_section_ids(self.ORIGINAL, revision_note, cta_plan)
+        self.assertEqual(target_ids, ("s1", "s2", "s3"))
+
+    def test_repair_target_section_ids_still_empty_with_no_issue_text(self) -> None:
+        cta_plan = {"anchor_section_id": "", "spoken_text": ""}
+        self.assertEqual(_repair_target_section_ids(self.ORIGINAL, "", cta_plan), ())
+
+    def test_run17_whole_script_monologue_flag_gets_a_real_repair_attempt(self) -> None:
+        repaired_s3 = (
+            "قلت لنفسي: لماذا أؤجل هذا؟ ثم كتبت هدفًا صغيرًا ووضعته أمامي كل صباح."
+        )
+
+        class ShortRouter:
+            def __init__(self):
+                self.calls = 0
+                self.prompts = []
+
+            def route(self, *, stage, prompt, max_tokens, validator):
+                self.calls += 1
+                self.prompts.append(prompt)
+                self_outer.assertEqual(stage, "script_patch")
+                self_outer.assertEqual(max_tokens, 1200)
+                return validator(
+                    {
+                        "patches": [
+                            {
+                                "section_id": "s3",
+                                "find": self_outer.ORIGINAL["sections"][2]["narration"],
+                                "replace": repaired_s3,
+                            }
+                        ]
+                    }
+                )
+
+        self_outer = self
+        router = ShortRouter()
+        audit_calls = {"n": 0}
+
+        def text_audit(**_kwargs):
+            audit_calls["n"] += 1
+            if audit_calls["n"] == 1:
+                raise CleanV2ToneContentBlock(self.TONE_BLOCK)
+            return {
+                "schema_version": 1,
+                "status": "pass",
+                "factuality_status": "pass",
+                "tone_naturalness_status": "pass",
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "narrative-identity.json").write_text(
+                json.dumps(
+                    {"opener": "", "closer": "", "transitions": []}, ensure_ascii=False
+                ),
+                encoding="utf-8",
+            )
+            (root / "cta-plan.json").write_text(
+                json.dumps(
+                    {"anchor_section_id": "", "spoken_text": "", "visual_only": True},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (root / "structural-ai-flags.json").write_text(
+                json.dumps({"flags": [], "mode": "advisory"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            script = json.loads(json.dumps(self.ORIGINAL, ensure_ascii=False))
+            result = _run_text_audit_with_one_bounded_tone_repair(
+                text_audit=text_audit,
+                router=router,
+                output_dir=root,
+                brief=self.BRIEF,
+                plan=self.PLAN,
+                script=script,
+            )
+
+            self.assertEqual(router.calls, 1)
+            self.assertEqual(audit_calls["n"], 2)
+            self.assertEqual(result["tone_repair_attempts"], 1)
+            self.assertEqual(result["post_repair_structural_ai_status"], "pass")
+            self.assertEqual(script["sections"][2]["narration"], repaired_s3)
+            self.assertEqual(
+                script["sections"][0]["narration"], self.ORIGINAL["sections"][0]["narration"]
+            )
+            self.assertEqual(
+                script["sections"][1]["narration"], self.ORIGINAL["sections"][1]["narration"]
+            )
+
+
 class ShortFactualitySectionTargetRegressionTests(unittest.TestCase):
     def test_cohort_attempt1_section_s2_note_resolves_exact_target(self) -> None:
         from clean_v2.pipeline import _factuality_location_issue_notes

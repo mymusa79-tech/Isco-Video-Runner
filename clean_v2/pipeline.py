@@ -1061,7 +1061,20 @@ def _repair_target_section_ids(
             if _NOT_X_BUT_Y_OCCURRENCE.search(narration):
                 targets.add(str(item.get("id") or ""))
 
-    return tuple(section_id for section_id in ordered_ids if section_id in targets)
+    resolved = tuple(section_id for section_id in ordered_ids if section_id in targets)
+    if resolved:
+        return resolved
+
+    # Some validated audit flags describe the whole draft (e.g. "script is monologue,
+    # narrative format not expressed naturally") rather than one sentence. There is no
+    # single section to pin such a flag to by definition. Rather than fail closed before
+    # any repair is attempted, fall back to every section as the allowed patch scope; the
+    # model still must find a verbatim phrase to replace, the 1-6 patch cap and every
+    # locked-anchor check in _validate_and_apply_script_patches still apply unchanged.
+    if revision_note.strip() and ordered_ids:
+        return tuple(ordered_ids)
+
+    return ()
 
 
 def _validate_and_apply_script_patches(
