@@ -378,7 +378,7 @@ def run_final_cut_visual_qa(
             for index, section in enumerate(sections, start=1):
                 section_id = str(section.get("id") or "").strip()
                 narration_context = script_by_id.get(section_id, "")
-                intended_visual = str(section.get("visual_query_en") or "").strip()
+                section_intended_visual = str(section.get("visual_query_en") or "").strip()
 
                 # Every clip that will actually appear in the final render for
                 # this section - the primary plus any pacing_auxiliary extras
@@ -397,6 +397,7 @@ def run_final_cut_visual_qa(
                             f"position={clip_position} reason=selected_visual_missing"
                         )
                     audited_selected_clip_count += 1
+                    intended_visual = str(row.get("query") or section_intended_visual).strip()
 
                     primary_audit, primary_floor = review_clip(
                         index=index,

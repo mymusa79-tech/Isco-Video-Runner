@@ -6,12 +6,15 @@ from typing import Any, Mapping
 SHORT_SECTION_COUNT = 3
 SHORT_WIDTH = 1080
 SHORT_HEIGHT = 1920
-# Legacy Moment/Short baseline used target=15s and a 7s floor. Clean V2 keeps
-# that compact pacing but honors the channel's explicit absolute ceiling of 30s.
-SHORT_TARGET_SECONDS = 15.0
-SHORT_MIN_SECONDS = 7.0
-SHORT_MAX_SECONDS = 30.0
-SHORT_HOOK_MAX_WORDS = 12
+# Rich Short Lite: complete the idea instead of compressing it into fragments.
+# The target is intentionally a center, not a padding requirement; a complete
+# Short may finish earlier, while 45s is the hard ceiling.
+SHORT_TARGET_SECONDS = 36.0
+SHORT_MIN_SECONDS = 20.0
+SHORT_MAX_SECONDS = 45.0
+SHORT_HOOK_MAX_WORDS = 18
+SHORT_HOOK_PREFERRED_MIN_WORDS = 8
+SHORT_HOOK_PREFERRED_MAX_WORDS = 16
 
 TEMPLATE_ORDER = (
     "why_reframe",
@@ -302,9 +305,11 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"- target_duration_seconds={SHORT_TARGET_SECONDS:g}; hard_range="
         f"{SHORT_MIN_SECONDS:g}-{SHORT_MAX_SECONDS:g}\n"
         f"- exact_sections={SHORT_SECTION_COUNT}; frame={SHORT_WIDTH}x{SHORT_HEIGHT}\n"
-        f"- s1: the first spoken sentence is the truthful hook and must be at most {SHORT_HOOK_MAX_WORDS} Arabic words; no greeting. "
-        "It must create immediate viewer tension by naming one concrete felt friction, contradiction, or unresolved consequence. "
-        "Do not open with an abstract definition, generic \"sometimes\" setup, or a formulaic X-is-not-Y-but-Z explanation.\n"
+        f"- s1: the first spoken sentence is the truthful hook: one complete, natural Arabic sentence, preferably "
+        f"{SHORT_HOOK_PREFERRED_MIN_WORDS}-{SHORT_HOOK_PREFERRED_MAX_WORDS} words and never more than {SHORT_HOOK_MAX_WORDS}; no greeting. "
+        "Choose the hook family that best fits the topic (paradox, direct scene, real question, result-first, unexpected observation, "
+        "common-belief break, hidden cost, or cold open). It must create a real information gap without becoming clickbait. "
+        "Do not sacrifice grammar or meaning just to make it shorter.\n"
         "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
         "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned payoff, then give exactly ONE practical action in one clear imperative sentence. The ending must feel like a strong answer to the hook, not generic advice. "
         "That action sentence MUST begin with a direct Arabic imperative verb, not a descriptive suggestion, and must not append a second action with ثم/و. "
@@ -313,9 +318,10 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
-        "- SPOKEN_NATURALNESS_LITE: write for the ear, not the page. Keep sentences short and concrete; "
-        "avoid abstract diagnosis, polished essay transitions, generic motivational slogans, and repeated rhetorical formulas. "
-        "If a sentence sounds like a coach explaining a lesson rather than a person noticing a real moment, rewrite it more simply.\n"
+        "- SPOKEN_NATURALNESS_LITE: write for the ear, not the page, but never dumb the idea down. Use complete, grammatically sound "
+        "sentences that carry enough context to be understood on first listen. Prefer concrete observations and natural sentence-length variation; "
+        "avoid fragments, abstract diagnosis, polished essay transitions, generic motivational slogans, and repeated rhetorical formulas. "
+        "The whole Short should feel like one complete miniature idea, not a chain of motivational captions.\n"
         "- VISUAL_QUERY_DIRECTION: "
         f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]} "
         "Across s1/s2/s3, use visibly different dominant actions or states so the picture itself progresses. "
@@ -631,8 +637,13 @@ def validate_short_visual_queries(
     if not isinstance(sections, list) or len(sections) != SHORT_SECTION_COUNT:
         raise ShortFormatError("short_visual_query_contract_requires_three_sections")
     queries = [_clean(item.get("visual_query_en")) for item in sections if isinstance(item, Mapping)]
+    alternate_queries = [_clean(item.get("visual_query_alt_en")) for item in sections if isinstance(item, Mapping)]
     if len(queries) != SHORT_SECTION_COUNT or any(not query for query in queries):
         raise ShortFormatError("short_visual_query_missing")
+    if len(alternate_queries) != SHORT_SECTION_COUNT or any(not query for query in alternate_queries):
+        raise ShortFormatError("short_visual_query_alt_missing")
+    if any(_semantic_key(primary) == _semantic_key(alternate) for primary, alternate in zip(queries, alternate_queries)):
+        raise ShortFormatError("short_visual_query_alt_must_add_new_visual_information")
     words = [_query_words(query) for query in queries]
 
     if template == "inner_dialogue":
@@ -676,6 +687,7 @@ def validate_short_visual_queries(
     return {
         "template": template,
         "queries": queries,
+        "alternate_queries": alternate_queries,
         "action_families": [sorted(_query_action_families(item)) for item in words],
         "status": "pass",
     }
@@ -694,7 +706,7 @@ def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
         },
         "hook": {
             "first_spoken_sentence": True,
-            "maximum_words": 12,
+            "maximum_words": SHORT_HOOK_MAX_WORDS,
             "greeting_forbidden": True,
         },
         "voice": {

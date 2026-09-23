@@ -62,22 +62,24 @@ PACING_MAX_SHOT_SECONDS = 22.0
 PACING_MIN_SHOT_SECONDS = 3.5
 PACING_MAX_SHOTS_PER_SECTION = 3
 
-# Short Visual Lite: keep the three semantic sections, but give the finished
-# 7-30s Short enough visual movement to feel authored rather than like three
-# long stock backgrounds. This is arithmetic only: no new AI/candidate layer.
-SHORT_VISUAL_TARGET = 5
-SHORT_VISUAL_MAX = 6
-SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS = 18.0
-SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS = 4.5
-SHORT_TURN_ONE_SHOT_MAX_SECONDS = 6.5
+# Rich Short Visual Lite: still exactly three semantic sections, but 6-9
+# final shots depending only on measured voice duration. No new AI stage.
+SHORT_STOCK_ASSET_MAX = 6
+SHORT_VISUAL_MIN = 6
+SHORT_VISUAL_TARGET = 7
+SHORT_VISUAL_MAX = 9
+SHORT_VISUAL_SEVEN_SHOT_THRESHOLD_SECONDS = 30.0
+SHORT_VISUAL_EIGHT_SHOT_THRESHOLD_SECONDS = 36.0
+SHORT_VISUAL_NINE_SHOT_THRESHOLD_SECONDS = 41.0
 SHORT_CUT_DISSOLVE_SECONDS = 0.12
+SHORT_MOTION_ZOOM = 0.045
 SHORT_MASTER_LOOK_FILTER = (
-    "eq=contrast=1.03:saturation=0.84,"
-    "colorbalance=rs=0.025:gs=0.005:bs=-0.020"
+    "eq=contrast=1.04:saturation=0.90,"
+    "colorbalance=rs=0.015:gs=0.003:bs=-0.012"
 )
 SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
 SHORT_LOCAL_AI_STILL_SECONDS = 8.0
-SHORT_MIN_COLOR_SATURATION_AVG = 4.0
+SHORT_MIN_COLOR_SATURATION_AVG = 5.0
 
 
 def _utc_now() -> str:
@@ -881,6 +883,96 @@ def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
     return True, None
 
 
+def _stock_local_rank_score(
+    *,
+    index: int,
+    count: int,
+    width: int,
+    height: int,
+    duration: float,
+    portrait: bool,
+) -> float:
+    """Legacy-inspired local ranking over results already returned by one search."""
+    count = max(1, int(count))
+    relevance = 1.0 - (max(0, int(index)) / count)
+    orientation_ok = (height > width) if portrait else (width >= height)
+    pixels = min(max(0, width * height), 1920 * 1080) / float(1920 * 1080)
+    duration_fit = min(1.0, max(0.0, float(duration)) / 4.0)
+    return (
+        relevance * 0.55
+        + (1.0 if orientation_ok else 0.0) * 0.20
+        + pixels * 0.15
+        + duration_fit * 0.10
+    )
+
+
+def _short_shot_distribution(total_seconds: float) -> tuple[int, int, int]:
+    seconds = max(0.0, float(total_seconds))
+    if seconds > SHORT_VISUAL_NINE_SHOT_THRESHOLD_SECONDS:
+        return (3, 3, 3)
+    if seconds > SHORT_VISUAL_EIGHT_SHOT_THRESHOLD_SECONDS:
+        return (3, 2, 3)
+    if seconds > SHORT_VISUAL_SEVEN_SHOT_THRESHOLD_SECONDS:
+        return (3, 2, 2)
+    return (2, 2, 2)
+
+
+def _expand_short_visual_sequence(
+    paths: list[Path],
+    section_ids: list[str] | None,
+    total_seconds: float,
+) -> list[Path]:
+    """Create 6-9 rendered shots from at most six already-approved stock assets."""
+    if section_ids is None or len(paths) != len(section_ids):
+        return list(paths)
+    order: list[str] = []
+    groups: dict[str, list[Path]] = {}
+    for path, section_id in zip(paths, section_ids):
+        if section_id not in groups:
+            order.append(section_id)
+            groups[section_id] = []
+        groups[section_id].append(path)
+    if len(order) != 3 or any(len(groups[item]) < 2 for item in order):
+        return list(paths)
+
+    desired = _short_shot_distribution(total_seconds)
+    expanded: list[Path] = []
+    for section_id, shot_count in zip(order, desired):
+        assets = groups[section_id][:2]
+        expanded.extend(assets)
+        if shot_count >= 3:
+            # Reuse the already-audited first asset as a new local edit beat.
+            # _build_section_body_segments gives each occurrence a different
+            # motion mode, so this adds a cut without another provider/QA call.
+            expanded.append(assets[0])
+    return expanded
+
+
+def _short_motion_filter(
+    *,
+    width: int,
+    height: int,
+    seconds: float,
+    mode: str,
+) -> str:
+    """Three restrained deterministic moves; no motion model or extra analysis."""
+    frames = max(1, int(round(max(0.5, float(seconds)) * 30.0)))
+    if mode == "push":
+        z = f"min({1.0 + SHORT_MOTION_ZOOM:.6f},1+{SHORT_MOTION_ZOOM:.6f}*on/{frames})"
+        x = "iw/2-(iw/zoom/2)"
+    elif mode == "pull":
+        z = f"max(1,{1.0 + SHORT_MOTION_ZOOM:.6f}-{SHORT_MOTION_ZOOM:.6f}*on/{frames})"
+        x = "iw/2-(iw/zoom/2)"
+    else:
+        z = f"{1.0 + SHORT_MOTION_ZOOM:.6f}"
+        x = f"(iw-iw/zoom)*on/{frames}"
+    y = "ih/2-(ih/zoom/2)"
+    return (
+        f"zoompan=z='{z}':x='{x}':y='{y}':"
+        f"d=1:s={width}x{height}:fps=30"
+    )
+
+
 class StockVisualSource:
     def __init__(
         self,
@@ -934,15 +1026,34 @@ class StockVisualSource:
                 f"https://api.pexels.com/v1/videos/search?{params}",
                 headers={"Authorization": key},
             )
-            for video in body.get("videos") or []:
-                if not isinstance(video, dict):
-                    continue
+            videos = [item for item in (body.get("videos") or []) if isinstance(item, dict)]
+            ranked: list[tuple[float, dict[str, Any], Mapping[str, Any], tuple[str, str]]] = []
+            count = max(1, len(videos))
+            for index, video in enumerate(videos):
                 identity = ("pexels", str(video.get("id") or ""))
                 selected = _pexels_file(video, portrait=portrait)
                 if identity in self._used or selected is None:
                     continue
+                width = int(selected.get("width") or 0)
+                height = int(selected.get("height") or 0)
+                duration = float(video.get("duration") or 0.0)
+                ranked.append((
+                    _stock_local_rank_score(
+                        index=index,
+                        count=count,
+                        width=width,
+                        height=height,
+                        duration=duration,
+                        portrait=portrait,
+                    ),
+                    video,
+                    selected,
+                    identity,
+                ))
+            if ranked:
+                _, video, selected, identity = max(ranked, key=lambda item: item[0])
                 self._used.add(identity)
-                self._event("pexels", query, "selected", wire_attempted=True)
+                self._event("pexels", query, "selected_ranked", wire_attempted=True)
                 user = video.get("user") or {}
                 return {
                     "provider": "pexels",
@@ -980,9 +1091,10 @@ class StockVisualSource:
         )
         try:
             body = _get_json(f"https://pixabay.com/api/videos/?{params}")
-            for hit in body.get("hits") or []:
-                if not isinstance(hit, dict):
-                    continue
+            hits = [item for item in (body.get("hits") or []) if isinstance(item, dict)]
+            ranked: list[tuple[float, dict[str, Any], Mapping[str, Any], tuple[str, str]]] = []
+            count = max(1, len(hits))
+            for index, hit in enumerate(hits):
                 identity = ("pixabay", str(hit.get("id") or ""))
                 if identity in self._used:
                     continue
@@ -995,14 +1107,34 @@ class StockVisualSource:
                 ]
                 if not candidates:
                     continue
-                oriented = [
-                    item
-                    for item in candidates
-                    if ((int(item.get("height") or 0) > int(item.get("width") or 0)) if portrait else (int(item.get("width") or 0) >= int(item.get("height") or 0)))
-                ]
-                selected = (oriented or candidates)[0]
+                selected = max(
+                    candidates,
+                    key=lambda item: _stock_local_rank_score(
+                        index=index,
+                        count=count,
+                        width=int(item.get("width") or 0),
+                        height=int(item.get("height") or 0),
+                        duration=float(hit.get("duration") or 0.0),
+                        portrait=portrait,
+                    ),
+                )
+                ranked.append((
+                    _stock_local_rank_score(
+                        index=index,
+                        count=count,
+                        width=int(selected.get("width") or 0),
+                        height=int(selected.get("height") or 0),
+                        duration=float(hit.get("duration") or 0.0),
+                        portrait=portrait,
+                    ),
+                    hit,
+                    selected,
+                    identity,
+                ))
+            if ranked:
+                _, hit, selected, identity = max(ranked, key=lambda item: item[0])
                 self._used.add(identity)
-                self._event("pixabay", query, "selected", wire_attempted=True)
+                self._event("pixabay", query, "selected_ranked", wire_attempted=True)
                 return {
                     "provider": "pixabay",
                     "asset_id": identity[1],
@@ -1052,48 +1184,12 @@ class StockVisualSource:
 
         short_shots_by_section: dict[str, int] = {}
         if fmt == "short" and len(sections) == 3:
-            measured_total = sum(
-                max(0.0, float(value))
-                for value in (section_estimated_seconds or {}).values()
-            )
-            hook_seconds = max(
-                0.0,
-                float((section_estimated_seconds or {}).get("s1") or 0.0),
-            )
-            turn_seconds = max(
-                0.0,
-                float((section_estimated_seconds or {}).get("s2") or 0.0),
-            )
-            short_total_target = (
-                SHORT_VISUAL_MAX
-                if (
-                    measured_total >= SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS
-                    or short_ai_still is not None
-                )
-                else SHORT_VISUAL_TARGET
-            )
-            # Keep the whole Short bounded at 5-6 visuals. The hook gets two
-            # quick shots by default; when voice time allows and the middle
-            # section is not already long, the sixth slot goes to a third
-            # hook shot for stronger scroll-stop pressure. The payoff always
-            # keeps two visuals so the ending does not collapse after a strong
-            # opening. A local AI still, when present, uses the middle slot
-            # instead of stealing one from the payoff.
-            if short_total_target == 6 and short_ai_still is not None:
-                distribution = (2, 2, 2)
-            elif (
-                short_total_target == 6
-                and hook_seconds >= SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS
-                and turn_seconds <= SHORT_TURN_ONE_SHOT_MAX_SECONDS
-            ):
-                distribution = (3, 1, 2)
-            elif short_total_target == 6:
-                distribution = (2, 2, 2)
-            else:
-                distribution = (2, 1, 2)
+            # Exactly two provider-backed assets per section at most. Richer
+            # 7-9 shot pacing is created later from these same approved assets
+            # locally, so provider and Vision load does not scale with shot count.
             short_shots_by_section = {
-                str(section.get("id") or ""): distribution[index]
-                for index, section in enumerate(sections)
+                str(section.get("id") or ""): 2
+                for section in sections
                 if isinstance(section, Mapping)
             }
 
@@ -1225,10 +1321,13 @@ class StockVisualSource:
 
         for section in sections:
             query = str(section.get("visual_query_en") or "").strip()
+            alt_query = str(section.get("visual_query_alt_en") or "").strip()
             if not query:
                 continue
             if self.query_normalizer is not None:
                 query = self.query_normalizer(query)
+                if alt_query:
+                    alt_query = self.query_normalizer(alt_query)
             section_id = str(section.get("id") or "")
             if not _acquire_one(query, section_id, auxiliary=False):
                 continue
@@ -1239,15 +1338,16 @@ class StockVisualSource:
                 else None
             )
             if fmt == "short":
-                # Short Visual Lite intentionally targets 5-6 distinct stock
-                # assets across the same three semantic sections. Reusing the
-                # approved query keeps this zero-AI and bounded; _used prevents
-                # selecting the same provider asset twice.
+                # Two intents come from the same Planning call and produce at
+                # most two provider-backed assets for this section. Any third
+                # rendered beat is a local edit reuse, never another search/QA call.
                 shots = short_shots_by_section.get(section_id, 1)
-                for _ in range(max(0, shots - 1)):
-                    if section_id == "s2" and _acquire_local_ai_still(section_id):
+                extra_queries = [alt_query or query]
+                for extra_index in range(max(0, shots - 1)):
+                    if section_id == "s2" and extra_index == 0 and _acquire_local_ai_still(section_id):
                         continue
-                    if not _acquire_one(query, section_id, auxiliary=True):
+                    selected_query = extra_queries[extra_index % len(extra_queries)]
+                    if not _acquire_one(selected_query, section_id, auxiliary=True):
                         break
             elif section_seconds is not None and section_seconds > PACING_MAX_SHOT_SECONDS:
                 # Longer formats retain the existing narration-weighted pacing
@@ -1959,9 +2059,17 @@ def _trim_and_grade_clip(
     width: int,
     height: int,
     seconds: float,
+    motion_mode: str | None = None,
 ) -> Path:
     grade = _grade_clip_filter(source)
     vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},setsar=1,fps=30"
+    if motion_mode:
+        vf = f"{vf}," + _short_motion_filter(
+            width=width,
+            height=height,
+            seconds=seconds,
+            mode=motion_mode,
+        )
     if grade:
         vf = f"{vf},{grade}"
     vf = f"{vf},trim=duration={seconds:.3f},setpts=PTS-STARTPTS"
@@ -2062,6 +2170,7 @@ def _build_section_body_segments(
     width: int,
     height: int,
     dissolve_seconds: float = COHESION_DISSOLVE_SECONDS,
+    short_motion_lite: bool = False,
 ) -> list[Path]:
     """Grade and trim every body clip, then dissolve adjacent clips that
     share a section (visual pacing's own extra same-query coverage) into one
@@ -2099,6 +2208,11 @@ def _build_section_body_segments(
                     width=width,
                     height=height,
                     seconds=durations[clip_index],
+                    motion_mode=(
+                        ("push", "pan", "pull")[clip_index % 3]
+                        if short_motion_lite
+                        else None
+                    ),
                 )
             )
         merged = trimmed[0]
@@ -2184,10 +2298,12 @@ def render_video(
             paths = opening_paths
             durations = [7.0, 11.0, 12.0]
     else:
-        # No fixed upper bound here either, for the same reason as the body
-        # clips above: acquire() already bounds the real total via
-        # max_visuals * PACING_MAX_SHOTS_PER_SECTION.
+        # Short may render 6-9 edit beats while keeping at most six provider-backed
+        # assets. Extra beats reuse already-audited assets locally.
         paths = [Path(item) for item in visual_paths]
+        if fmt == "short":
+            section_ids = _pacing_section_ids(Path(output_path).parent, paths)
+            paths = _expand_short_visual_sequence(paths, section_ids, duration)
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2220,6 +2336,7 @@ def render_video(
                     if fmt == "short"
                     else COHESION_DISSOLVE_SECONDS
                 ),
+                short_motion_lite=(fmt == "short"),
             )
         else:
             body_segments = []

@@ -25,12 +25,14 @@ from clean_v2.media import (
     GeminiPrimaryPiperFallbackSynthesizer,
     SHORT_CHARON_STYLE,
     SHORT_CUT_DISSOLVE_SECONDS,
-    SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS,
     SHORT_MASTER_LOOK_FILTER,
     SHORT_MIN_COLOR_SATURATION_AVG,
+    SHORT_STOCK_ASSET_MAX,
     SHORT_VISUAL_MAX,
+    SHORT_VISUAL_MIN,
     SHORT_VISUAL_TARGET,
     StockVisualSource,
+    _expand_short_visual_sequence,
     VoiceInfrastructureError,
 )
 from clean_v2.providers import ProviderAdapter, ProviderRouter, _safe_validator_reason
@@ -115,6 +117,7 @@ def _plan(queries: list[str]) -> dict:
                 "heading": f"قسم {index}",
                 "purpose": f"غرض القسم {index}",
                 "visual_query_en": query,
+                "visual_query_alt_en": f"{query} close detail",
             }
             for index, query in enumerate(queries, 1)
         ],
@@ -244,6 +247,8 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn("Use exactly 3 sections", prompt)
                 self.assertIn("VISUAL_QUERY_DIRECTION", prompt)
                 self.assertIn(selection["visual_query_directive"], prompt)
+                self.assertIn("visual_query_alt_en", prompt)
+                self.assertIn("TWO distinct visual intents", prompt)
                 self.assertIn("visibly different dominant actions or states", prompt)
                 self.assertIn("scroll-stop visual beat", prompt)
                 self.assertIn("must not feel visually flat", prompt)
@@ -306,7 +311,7 @@ class ShortContractTests(unittest.TestCase):
         report = validate_short_script(valid)
         self.assertTrue(report["single_voice"])
         self.assertFalse(report["social_cta"])
-        self.assertLessEqual(report["hook_words"], 12)
+        self.assertLessEqual(report["hook_words"], SHORT_HOOK_MAX_WORDS)
 
         dialogue = json.loads(json.dumps(valid, ensure_ascii=False))
         dialogue["sections"][0]["narration"] = "A: هل أبدأ الآن؟ B: نعم، بخطوة واحدة واضحة."
@@ -396,17 +401,13 @@ class ShortContractTests(unittest.TestCase):
             self.assertEqual(seen[provider], base_prompt)
             self.assertNotIn("MISTRAL_SHORT_HOOK_COMPLIANCE", seen[provider])
         self.assertIn("MISTRAL_SHORT_HOOK_COMPLIANCE", seen["mistral"])
-        self.assertIn("MUST be 12 Arabic words or fewer", seen["mistral"])
+        self.assertIn("preferably 8-16 words", seen["mistral"])
         self.assertIn("split the first sentence on whitespace", seen["mistral"])
-        self.assertIn("13+ words is INVALID", seen["mistral"])
-        self.assertIn("Operational target: write the Hook in 10-11 words", seen["mistral"])
-        self.assertIn("if count > 12, rewrite that sentence shorter", seen["mistral"])
-        self.assertIn(
-            'حين تنتظر الدافع طويلًا، تصبح أبسط بداية أصعب مما تتخيل.',
-            seen["mistral"],
-        )
+        self.assertIn("NEVER more than 18", seen["mistral"])
+        self.assertIn("if count > 18", seen["mistral"])
+        self.assertIn("without fragmenting the sentence", seen["mistral"])
 
-    def test_provider_router_rejects_technically_successful_hook_over_12_words(self) -> None:
+    def test_provider_router_rejects_technically_successful_hook_over_18_words(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
         overlong = {
@@ -414,7 +415,7 @@ class ShortContractTests(unittest.TestCase):
             "sections": [
                 {
                     "id": "s1",
-                    "narration": "هذا هوك طويل جدًا لأنه يحتوي كلمات كثيرة أكثر من الحد المسموح للشورت الآن.",
+                    "narration": "هذا هوك طويل جدًا لأنه يشرح الفكرة بتفاصيل كثيرة لا نحتاجها الآن ويواصل الكلام حتى يتجاوز الحد الصلب بوضوح.",
                 },
                 {
                     "id": "s2",
@@ -463,7 +464,7 @@ class ShortContractTests(unittest.TestCase):
             [("groq", "invalid_output"), ("mistral", "success")],
         )
         self.assertIn("shortformaterror", str(router.events[0]["reason"]))
-        self.assertEqual(SHORT_HOOK_MAX_WORDS, 12)
+        self.assertEqual(SHORT_HOOK_MAX_WORDS, 18)
         with self.assertRaisesRegex(ShortFormatError, "short_hook_too_long"):
             validate_short_hook_contract(overlong)
 
@@ -475,7 +476,7 @@ class ShortContractTests(unittest.TestCase):
             "sections": [
                 {
                     "id": "s1",
-                    "narration": "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم، لكن الخطوة تكفي.",
+                    "narration": "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك رغم أنك تعرف المطلوب، لكن خطوة صغيرة تكفي.",
                 },
                 {
                     "id": "s2",
@@ -492,10 +493,9 @@ class ShortContractTests(unittest.TestCase):
 
         self.assertEqual(
             accepted["sections"][0]["narration"],
-            "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم.",
+            "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك رغم أنك تعرف المطلوب.",
         )
         report = validate_short_hook_contract(accepted)
-        self.assertEqual(report["hook_words"], 11)
         self.assertLessEqual(report["hook_words"], SHORT_HOOK_MAX_WORDS)
 
     def test_small_hook_overrun_without_safe_boundary_still_fails_closed(self) -> None:
@@ -506,7 +506,7 @@ class ShortContractTests(unittest.TestCase):
             "sections": [
                 {
                     "id": "s1",
-                    "narration": "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم دون فهم السبب.",
+                    "narration": "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك وتستمر في التأجيل دون فهم واضح لما يمنعك من الحركة الآن.",
                 },
                 {
                     "id": "s2",
@@ -521,13 +521,13 @@ class ShortContractTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ShortFormatError,
-            r"short_hook_too_long words=14 maximum=12",
+            r"short_hook_too_long words=22 maximum=18",
         ):
             _validate_script_for_brief(value, plan, brief)
 
         self.assertEqual(
             value["sections"][0]["narration"],
-            "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم دون فهم السبب.",
+            "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك وتستمر في التأجيل دون فهم واضح لما يمنعك من الحركة الآن.",
         )
 
     def test_inner_dialogue_hook_visual_can_use_active_pressure_not_only_calm_reflection(self) -> None:
@@ -562,7 +562,7 @@ class ShortContractTests(unittest.TestCase):
             validate_short_visual_queries(plan, brief)
 
     def test_short_color_cohesion_rejects_near_monochrome_candidate_before_grade(self) -> None:
-        self.assertEqual(SHORT_MIN_COLOR_SATURATION_AVG, 4.0)
+        self.assertEqual(SHORT_MIN_COLOR_SATURATION_AVG, 5.0)
         source = StockVisualSource()
         plan = {
             "sections": [
@@ -618,7 +618,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(len(rejected), 1)
         self.assertIn("short_near_monochrome", str(rejected[0]["reason"]))
 
-    def test_short_visual_lite_requests_five_or_six_distinct_assets_without_ai(self) -> None:
+    def test_short_visual_lite_keeps_provider_assets_fixed_and_expands_edit_beats_locally(self) -> None:
         plan = _plan(
             [
                 "thoughtful person alone pausing by window",
@@ -626,66 +626,69 @@ class ShortContractTests(unittest.TestCase):
                 "contemplative person calmly taking one step",
             ]
         )
+        source = StockVisualSource()
+        counter = {"value": 0}
 
-        def run_case(total_seconds: float) -> tuple[list[Path], list[dict]]:
-            source = StockVisualSource()
-            counter = {"value": 0}
+        def candidate(_query, *, portrait):
+            counter["value"] += 1
+            return {
+                "provider": "pexels",
+                "asset_id": str(counter["value"]),
+                "download_url": f"https://videos.pexels.com/video-{counter['value']}.mp4",
+                "source_url": "https://pexels.com",
+                "creator": "fixture",
+                "creator_url": "https://pexels.com",
+                "query": _query,
+            }
 
-            def candidate(_query, *, portrait):
-                counter["value"] += 1
-                return {
-                    "provider": "pexels",
-                    "asset_id": str(counter["value"]),
-                    "download_url": f"https://videos.pexels.com/video-{counter['value']}.mp4",
-                    "source_url": "https://pexels.com",
-                    "creator": "fixture",
-                    "creator_url": "https://pexels.com",
-                    "query": _query,
-                }
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            source, "_pexels", side_effect=candidate
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch(
+            "clean_v2.media._download_media",
+            side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(temporary),
+                "short",
+                9,
+                section_estimated_seconds={"s1": 12.0, "s2": 12.0, "s3": 12.0},
+            )
 
-            with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
-                source, "_pexels", side_effect=candidate
-            ), mock.patch.object(
-                source, "_pixabay", return_value=None
-            ), mock.patch(
-                "clean_v2.media._download_media",
-                side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
-            ):
-                per_section = total_seconds / 3.0
-                clips, rights = source.acquire(
-                    plan,
-                    Path(temporary),
-                    "short",
-                    5,
-                    section_estimated_seconds={
-                        "s1": per_section,
-                        "s2": per_section,
-                        "s3": per_section,
-                    },
-                )
-                return list(clips), list(rights)
-
-        five_clips, five_rights = run_case(15.0)
-        self.assertEqual(len(five_clips), SHORT_VISUAL_TARGET)
+        self.assertEqual(len(clips), SHORT_STOCK_ASSET_MAX)
+        self.assertEqual(len(rights), SHORT_STOCK_ASSET_MAX)
         self.assertEqual(
-            [row["section_id"] for row in five_rights],
-            ["s1", "s1", "s2", "s3", "s3"],
+            [row["section_id"] for row in rights],
+            ["s1", "s1", "s2", "s2", "s3", "s3"],
         )
-        self.assertEqual(sum(bool(row.get("pacing_auxiliary")) for row in five_rights), 2)
+        for index in range(0, 6, 2):
+            self.assertNotEqual(rights[index]["query"], rights[index + 1]["query"])
 
-        six_clips, six_rights = run_case(19.0)
-        self.assertEqual(len(six_clips), SHORT_VISUAL_MAX)
+        section_ids = ["s1", "s1", "s2", "s2", "s3", "s3"]
         self.assertEqual(
-            [row["section_id"] for row in six_rights],
-            ["s1", "s1", "s1", "s2", "s3", "s3"],
+            len(_expand_short_visual_sequence(clips, section_ids, 28.0)),
+            SHORT_VISUAL_MIN,
         )
-        self.assertEqual(sum(bool(row.get("pacing_auxiliary")) for row in six_rights), 3)
-        self.assertEqual(SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS, 4.5)
+        self.assertEqual(
+            len(_expand_short_visual_sequence(clips, section_ids, 34.0)),
+            SHORT_VISUAL_TARGET,
+        )
+        self.assertEqual(
+            len(_expand_short_visual_sequence(clips, section_ids, 39.0)),
+            8,
+        )
+        self.assertEqual(
+            len(_expand_short_visual_sequence(clips, section_ids, 44.0)),
+            SHORT_VISUAL_MAX,
+        )
         self.assertLess(SHORT_CUT_DISSOLVE_SECONDS, 0.2)
-        self.assertIn("saturation=0.84", SHORT_MASTER_LOOK_FILTER)
+        self.assertIn("saturation=0.90", SHORT_MASTER_LOOK_FILTER)
         self.assertIn("colorbalance=", SHORT_MASTER_LOOK_FILTER)
+        self.assertIn("_short_motion_filter", inspect.getsource(media_module._trim_and_grade_clip))
         self.assertIn(
-            "SHORT_MASTER_LOOK_FILTER",
+            "_expand_short_visual_sequence",
             inspect.getsource(media_module.render_video),
         )
 
@@ -745,7 +748,7 @@ class ShortContractTests(unittest.TestCase):
                     section_estimated_seconds={"s1": 6.4, "s2": 6.3, "s3": 6.3},
                 )
 
-        self.assertEqual(len(clips), SHORT_VISUAL_MAX)
+        self.assertEqual(len(clips), SHORT_VISUAL_MIN)
         local = [row for row in rights if row.get("provider") == "generated_local_ai_still"]
         self.assertEqual(len(local), 1)
         self.assertEqual(local[0]["section_id"], "s2")
@@ -753,9 +756,9 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(local[0]["network_generation_calls"], 0)
 
     def test_duration_and_frame_contract_are_hard_bounds(self) -> None:
-        self.assertEqual(SHORT_MIN_SECONDS, 7.0)
-        self.assertEqual(SHORT_TARGET_SECONDS, 15.0)
-        self.assertEqual(SHORT_MAX_SECONDS, 30.0)
+        self.assertEqual(SHORT_MIN_SECONDS, 20.0)
+        self.assertEqual(SHORT_TARGET_SECONDS, 36.0)
+        self.assertEqual(SHORT_MAX_SECONDS, 45.0)
         for seconds in (SHORT_MIN_SECONDS, SHORT_TARGET_SECONDS, SHORT_MAX_SECONDS):
             self.assertEqual(validate_short_duration(seconds, phase="test"), seconds)
         for seconds in (SHORT_MIN_SECONDS - 0.001, SHORT_MAX_SECONDS + 0.001):
@@ -796,12 +799,14 @@ class ShortTimedTextTests(unittest.TestCase):
         self.assertEqual(BODY_FONT, "Noto Sans Arabic")
         self.assertEqual(FOCUS_FONT, BODY_FONT)
         self.assertEqual(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertGreaterEqual(BODY_FONT_SIZE, 90)
+        self.assertGreaterEqual(BODY_FONT_SIZE, 110)
         self.assertIn("Style: Caption", ass)
         self.assertNotIn("Slate", ass)
         self.assertNotIn("Style: Focus", ass)
         self.assertIn(r"{\c&H0000D4FF}", ass)
-        self.assertIn(r"\fscx96\fscy96", ass)
+        self.assertIn(r"\fscx98\fscy98", ass)
+        self.assertIn("\u202B", ass)
+        self.assertGreater(ass.count("Dialogue:"), len(events))
         self.assertNotIn("drawbox", ass)
 
     def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
@@ -838,7 +843,7 @@ class ShortTimedTextTests(unittest.TestCase):
 
 
 class ShortVoiceOwnedTimelineTests(unittest.TestCase):
-    def test_cohort_attempt_3_31_03_fails_closed_without_regeneration_or_extension(self) -> None:
+    def test_voice_46_03_fails_closed_without_regeneration_or_extension(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             narration = root / "narration-mastered.wav"
@@ -846,14 +851,14 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
 
             with mock.patch(
                 "clean_v2.short_voice_owned_timeline.probe_duration",
-                return_value=31.03,
+                return_value=46.03,
             ), mock.patch(
                 "clean_v2.short_voice_owned_timeline.retime_events",
                 wraps=retime_events,
             ) as retime_mock:
                 with self.assertRaisesRegex(
                     ShortVoiceTimelineError,
-                    r"VOICE_EXCEEDS_SHORT_MAX voice=31\.030s max=30\.000s planning_repair_required=true",
+                    r"VOICE_EXCEEDS_SHORT_MAX voice=46\.030s max=45\.000s planning_repair_required=true",
                 ) as raised:
                     build_short_voice_owned_timeline(
                         output_dir=root,
@@ -973,6 +978,9 @@ class ShortAudioPolishTests(unittest.TestCase):
             raw_music = root / "music-raw.wav"
             music = root / "music.wav"
             _generate_raw_music(raw_music, 2.2)
+            music_source = inspect.getsource(_generate_raw_music)
+            self.assertIn("anoisesrc", music_source)
+            self.assertNotIn("sine=frequency", music_source)
             music_report = _normalize_relative(
                 src=raw_music,
                 dest=music,
@@ -1050,20 +1058,21 @@ class ShortAudioPolishTests(unittest.TestCase):
 
 
 class ShortPipelineSeamTests(unittest.TestCase):
-    def test_short_script_prompt_keeps_compact_30s_ceiling_and_reuses_template_context(self) -> None:
+    def test_short_script_prompt_keeps_rich_45s_ceiling_and_reuses_template_context(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
-        self.assertIn("22-40 spoken Arabic words", prompt)
-        self.assertIn("legacy 15-second target", prompt)
-        self.assertIn("must never exceed 30 seconds", prompt)
+        self.assertIn("65-105 spoken Arabic words", prompt)
+        self.assertIn("30-40 second result", prompt)
+        self.assertIn("20-45 seconds", prompt)
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("CTA is", prompt)
         self.assertIn("fully disabled", prompt)
-        self.assertIn("concrete felt friction", prompt)
+        self.assertIn("paradox, direct scene, real question", prompt)
         self.assertIn("resolve the SAME tension/question", prompt)
         self.assertIn("must not append a second action", prompt)
         self.assertIn("SPOKEN_NATURALNESS_LITE", prompt)
         self.assertIn("write for the ear, not the page", prompt)
+        self.assertIn("complete miniature idea", prompt)
         self.assertIn("السبب الحقيقي", prompt)
         self.assertIn("ليس X بل Y", prompt)
         self.assertIn("مرّ اليوم ولم أبدأ", prompt)

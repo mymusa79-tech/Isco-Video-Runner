@@ -6,13 +6,13 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
-MUSIC_TARGET_REL_DB = -23.0
-MUSIC_MIN_REL_DB = -25.0
-MUSIC_MAX_REL_DB = -20.0
-SFX_TARGET_REL_DB = -20.5
-PAYOFF_SFX_TARGET_REL_DB = -21.5
-SFX_MIN_REL_DB = -28.0
-SFX_MAX_REL_DB = -18.0
+MUSIC_TARGET_REL_DB = -18.5
+MUSIC_MIN_REL_DB = -21.0
+MUSIC_MAX_REL_DB = -16.5
+SFX_TARGET_REL_DB = -16.5
+PAYOFF_SFX_TARGET_REL_DB = -17.5
+SFX_MIN_REL_DB = -22.0
+SFX_MAX_REL_DB = -14.5
 LEVEL_TOLERANCE_DB = 1.0
 HOOK_SFX_DELAY_SECONDS = 0.06
 
@@ -126,6 +126,7 @@ def _normalize_relative(
 
 
 def _generate_raw_music(dest: Path, duration: float) -> Path:
+    """Create a non-tonal evolving ambient bed; avoids the old stationary hum."""
     fade_out_start = max(0.0, duration - 1.0)
     _run(
         [
@@ -137,23 +138,17 @@ def _generate_raw_music(dest: Path, duration: float) -> Path:
             "-f",
             "lavfi",
             "-i",
-            f"sine=frequency=130.81:sample_rate=48000:duration={duration:.3f}",
+            f"anoisesrc=color=pink:amplitude=0.035:sample_rate=48000:duration={duration:.3f}",
             "-f",
             "lavfi",
             "-i",
-            f"sine=frequency=196.00:sample_rate=48000:duration={duration:.3f}",
-            "-f",
-            "lavfi",
-            "-i",
-            f"sine=frequency=329.63:sample_rate=48000:duration={duration:.3f}",
+            f"anoisesrc=color=brown:amplitude=0.018:sample_rate=48000:duration={duration:.3f}",
             "-filter_complex",
             (
-                "[0:a]volume=0.055[a0];"
-                "[1:a]volume=0.028[a1];"
-                "[2:a]volume=0.016[a2];"
-                "[a0][a1][a2]amix=inputs=3:normalize=0,"
-                "lowpass=f=950,"
-                "afade=t=in:st=0:d=0.8,"
+                "[0:a]highpass=f=180,lowpass=f=3600,tremolo=f=0.10:d=0.20[a0];"
+                "[1:a]highpass=f=70,lowpass=f=700,tremolo=f=0.10:d=0.16[a1];"
+                "[a0][a1]amix=inputs=2:normalize=0,"
+                "afade=t=in:st=0:d=0.7,"
                 f"afade=t=out:st={fade_out_start:.3f}:d=1.0[a]"
             ),
             "-map",
@@ -161,6 +156,23 @@ def _generate_raw_music(dest: Path, duration: float) -> Path:
             "-c:a",
             "pcm_s16le",
             str(dest),
+        ]
+    )
+    return dest
+
+
+def _prepare_local_music_bed(src: Path, dest: Path, duration: float) -> Path:
+    """Loop one optional owned/local bed; no download and no provider call."""
+    fade_out_start = max(0.0, duration - 1.0)
+    _run(
+        [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-stream_loop", "-1", "-i", str(src),
+            "-af",
+            f"atrim=duration={duration:.3f},asetpts=PTS-STARTPTS,"
+            "afade=t=in:st=0:d=0.7,"
+            f"afade=t=out:st={fade_out_start:.3f}:d=1.0",
+            "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", str(dest),
         ]
     )
     return dest
@@ -323,7 +335,12 @@ def apply_short_audio_polish(
         adjusted = temp_dir / f"{name}.wav"
         try:
             if name == "music":
-                _generate_raw_music(raw, duration)
+                local_bed = str(os.environ.get("CLEAN_V2_SHORT_MUSIC_BED") or "").strip()
+                local_path = Path(local_bed).expanduser() if local_bed else None
+                if local_path is not None and local_path.is_file() and local_path.stat().st_size > 1024:
+                    _prepare_local_music_bed(local_path, raw, duration)
+                else:
+                    _generate_raw_music(raw, duration)
             elif name == "hook_sfx":
                 _generate_raw_sfx(raw, frequency=523.25)
             else:
@@ -377,9 +394,9 @@ def apply_short_audio_polish(
 
     return {
         "schema_version": 1,
-        "source": "clean-v2-short-audio-polish-v1",
+        "source": "clean-v2-short-audio-polish-v2",
         "status": status,
-        "asset_origin": "local_procedural_ffmpeg",
+        "asset_origin": "optional_local_owned_bed_or_non_tonal_procedural_ffmpeg",
         "external_download_required": False,
         "narration_mastering_untouched": True,
         "narration_mean_db": narration_mean_db,
@@ -397,5 +414,5 @@ def apply_short_audio_polish(
         "components": component_reports,
         "provider_calls_added": 0,
         "fail_safe": True,
-        "internal_music_tone_change": "deferred_v2",
+        "internal_music_tone_change": "stationary_sine_hum_removed",
     }

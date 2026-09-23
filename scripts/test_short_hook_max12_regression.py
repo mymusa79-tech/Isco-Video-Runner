@@ -7,8 +7,8 @@ from clean_v2.providers import ProviderAdapter, ProviderRouter
 from clean_v2.short_format import SHORT_HOOK_MAX_WORDS, ShortFormatError, validate_short_hook_contract
 
 
-class ShortHookMax12CohortRegressionTests(unittest.TestCase):
-    def test_cohort_over_12_word_hook_is_rejected_before_provider_output_acceptance(self) -> None:
+class ShortHookRichCeilingRegressionTests(unittest.TestCase):
+    def test_over_18_word_hook_is_rejected_before_provider_output_acceptance(self) -> None:
         brief = {
             "approved_by_user": True,
             "approved_topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
@@ -32,7 +32,7 @@ class ShortHookMax12CohortRegressionTests(unittest.TestCase):
         overlong = {
             "title": "شورت",
             "sections": [
-                {"id": "s1", "narration": "حين يختفي الدافع لا يعني أنك كسول بل ربما تنتظر شعورًا لن يأتي وحده اليوم أبدًا."},
+                {"id": "s1", "narration": "هذا هوك طويل جدًا لأنه يشرح الفكرة بتفاصيل كثيرة لا نحتاجها الآن ويواصل الكلام حتى يتجاوز الحد الصلب بوضوح."},
                 {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب، فنؤجل الحركة نفسها دون أن نلاحظ."},
                 {"id": "s3", "narration": "ابدأ بخطوة صغيرة تستطيع تنفيذها الآن."},
             ],
@@ -46,8 +46,8 @@ class ShortHookMax12CohortRegressionTests(unittest.TestCase):
             ],
         }
 
-        self.assertEqual(SHORT_HOOK_MAX_WORDS, 12)
-        with self.assertRaisesRegex(ShortFormatError, r"short_hook_too_long words=16 maximum=12"):
+        self.assertEqual(SHORT_HOOK_MAX_WORDS, 18)
+        with self.assertRaisesRegex(ShortFormatError, r"short_hook_too_long words=19 maximum=18"):
             validate_short_hook_contract(overlong)
 
         router = ProviderRouter((

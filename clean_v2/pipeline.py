@@ -2409,6 +2409,20 @@ def _planning_prompt(brief: Mapping[str, Any]) -> str:
     else:
         section_requirement = "2 to 4 sections"
     short_context = short_prompt_context(brief) if fmt == "short" else ""
+    short_visual_query_instruction = (
+        "For short only: every section must provide TWO distinct visual intents: "
+        "visual_query_en and visual_query_alt_en. The alternate must stay on the same "
+        "section idea but show a different observable action, detail, consequence, or "
+        "result so the next shot adds information instead of duplicate B-roll. Do not "
+        "paraphrase the same search phrase."
+        if fmt == "short"
+        else ""
+    )
+    short_visual_query_shape = (
+        ',\n      "visual_query_alt_en": "second distinct concrete English stock footage query for the same section"'
+        if fmt == "short"
+        else ""
+    )
     payload = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     return with_human_feel(with_channel_persona(f"""
 You are planning one complete video for the Arabic YouTube channel نداء اليقظة.
@@ -2424,6 +2438,7 @@ English stock-footage search phrase. Keep every section purpose complete (never 
 and keep each visual query concise and at most 260 characters. Prefer environments, hands, objects,
 routines, and wide shots without identifiable faces. Keep visuals modest and suitable for a broad
 Arab/Muslim audience.
+{short_visual_query_instruction}
 
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
 share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
@@ -2443,7 +2458,7 @@ Return one JSON object with exactly this useful shape:
       "id": "s1",
       "heading": "Arabic internal heading",
       "purpose": "Arabic description of what this section must accomplish",
-      "visual_query_en": "concrete English stock footage query"
+      "visual_query_en": "concrete English stock footage query"{short_visual_query_shape}
     }}
   ]
 }}
@@ -2461,9 +2476,10 @@ def _script_prompt(
         length = "Aim for roughly 650-900 spoken Arabic words across all sections."
     elif fmt == "short":
         length = (
-            "Keep the Short compact: aim for roughly 22-40 spoken Arabic words across all 3 sections, "
-            "with natural unhurried delivery near the legacy 15-second target. The measured audio duration "
-            "gate is authoritative and the complete Short must never exceed 30 seconds."
+            "Write a complete miniature idea, not caption fragments: aim for roughly 65-105 spoken Arabic words across all 3 sections, "
+            "usually 4-6 complete sentences with natural variation in length. Every sentence must be grammatically sound and carry enough "
+            "context to be understood on first listen. Prefer a 30-40 second result, but do not pad a complete idea; the measured audio gate "
+            "is authoritative and the complete Short must stay within 20-45 seconds."
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
