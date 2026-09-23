@@ -7,6 +7,12 @@ on:
     paths:
       - "scripts/probe_chatterbox_cpu.py"
       - ".github/workflows/chatterbox-cpu-probe.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/probe_chatterbox_cpu.py"
+      - ".github/workflows/chatterbox-cpu-probe.yml"
   workflow_dispatch:
 
 permissions:
@@ -42,13 +48,13 @@ jobs:
       - name: Install pinned Chatterbox upstream
         run: |
           python -m pip install --upgrade pip
-          python -m pip install             "git+https://github.com/resemble-ai/chatterbox.git@5de7a54aa4e5e2baadb0182dde554908b48b85c2"             psutil             soundfile
+          python -m pip install "git+https://github.com/resemble-ai/chatterbox.git@5de7a54aa4e5e2baadb0182dde554908b48b85c2" psutil soundfile
 
       - name: Run isolated Arabic CPU probe
         id: probe
         run: |
+          set -o pipefail
           /usr/bin/time -v python scripts/probe_chatterbox_cpu.py 2>&1 | tee chatterbox-probe.log
-          test ${PIPESTATUS[0]} -eq 0
 
       - name: Print probe result
         if: always()
