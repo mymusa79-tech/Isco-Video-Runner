@@ -459,6 +459,25 @@ ALIVE_VARIANTS = (
             "aresample=48000"
         ),
     },
+    {
+        "name": "21-alive-warm-pulse",
+        "profiles": (
+            {"length_scale": 0.96, "noise_scale": 0.58, "noise_w_scale": 0.80, "gain_db": 0.5},
+            {"length_scale": 1.03, "noise_scale": 0.49, "noise_w_scale": 0.64, "gain_db": -0.4},
+            {"length_scale": 0.91, "noise_scale": 0.68, "noise_w_scale": 0.94, "gain_db": 1.1},
+            {"length_scale": 1.03, "noise_scale": 0.58, "noise_w_scale": 0.80, "gain_db": 0.1},
+        ),
+        "pauses_ms": (400, 150, 490),
+        "master_filter": (
+            "highpass=f=64,"
+            "equalizer=f=210:t=q:w=1.10:g=-1.8,"
+            "equalizer=f=2850:t=q:w=1.0:g=-0.5,"
+            "equalizer=f=5200:t=q:w=0.9:g=-0.7,"
+            "volume=2.8dB,"
+            "alimiter=limit=0.84,"
+            "aresample=48000"
+        ),
+    },
 )
 
 
