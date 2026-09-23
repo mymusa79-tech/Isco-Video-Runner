@@ -706,7 +706,7 @@ def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
         },
         "hook": {
             "first_spoken_sentence": True,
-            "maximum_words": 12,
+            "maximum_words": SHORT_HOOK_MAX_WORDS,
             "greeting_forbidden": True,
         },
         "voice": {
