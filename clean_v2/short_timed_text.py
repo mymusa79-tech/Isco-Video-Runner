@@ -11,8 +11,8 @@ from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 2
-RICH_RENDERER_VERSION = "clean-v2-short-caption-lite-v2"
+SCHEMA_VERSION = 3
+RICH_RENDERER_VERSION = "clean-v2-short-karaoke-lite-v3"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
 
 # Caption Lite: one Arabic font, one large caption block, white text with one
@@ -23,7 +23,7 @@ PRIMARY_ASS = "&H00FFFFFF"  # RGB #FFFFFF
 OUTLINE_ASS = "&H00000000"  # opaque black
 BODY_FONT = "Noto Sans Arabic"
 FOCUS_FONT = BODY_FONT
-BODY_FONT_SIZE = 92
+BODY_FONT_SIZE = 112
 FOCUS_FONT_SIZE = BODY_FONT_SIZE
 BODY_WRAP_WORDS = 5
 CAPTION_MIN_WORDS = 2
@@ -420,11 +420,11 @@ def _accent_word_index(text: str) -> int:
     return len(words) - 1
 
 
-def _accent_caption(text: str) -> str:
+def _accent_caption(text: str, focus_index: int) -> str:
+    """Render one stable RTL phrase with only the currently spoken word yellow."""
     words = _clean(text).split()
     if not words:
         return ""
-    focus_index = _accent_word_index(text)
     rendered: list[str] = []
     for index, word in enumerate(words):
         escaped = _ass_escape(word)
@@ -434,7 +434,28 @@ def _accent_caption(text: str) -> str:
             )
         else:
             rendered.append(escaped)
-    return " ".join(rendered)
+    # Explicit RTL embedding keeps libass from visually reordering Arabic runs
+    # when inline colour tags split shaping spans.
+    return "\u202B" + " ".join(rendered) + "\u202C"
+
+
+def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, int]]:
+    words = _clean(item.text).split()
+    if not words:
+        return []
+    duration = item.end - item.start
+    weights = [
+        max(1, len(re.sub(r"[^\\w\\u0600-\\u06FF]+", "", word, flags=re.UNICODE)))
+        for word in words
+    ]
+    total = max(1, sum(weights))
+    cursor = item.start
+    windows: list[tuple[float, float, int]] = []
+    for index, weight in enumerate(weights):
+        end = item.end if index == len(weights) - 1 else cursor + duration * (weight / total)
+        windows.append((cursor, end, index))
+        cursor = end
+    return windows
 
 
 def build_rich_ass(
@@ -455,21 +476,25 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,5,1,5,70,70,0,1",
+        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,6,1,5,70,70,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
 
     for item in validated:
-        start = _ass_time(item.start)
-        end = _ass_time(item.end)
-        caption = _accent_caption(item.text)
-        tag = rf"\an5\pos(540,{CAPTION_Y})\fad(60,80)\fscx96\fscy96\t(0,120,\fscx100\fscy100)"
-        lines.append(
-            f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
-            f"{{{tag}}}{caption}"
-        )
+        for word_start, word_end, focus_index in _word_highlight_windows(item):
+            start = _ass_time(word_start)
+            end = _ass_time(word_end)
+            caption = _accent_caption(item.text, focus_index)
+            if focus_index == 0:
+                tag = rf"\an5\pos(540,{CAPTION_Y})\fscx98\fscy98\t(0,100,\fscx100\fscy100)"
+            else:
+                tag = rf"\an5\pos(540,{CAPTION_Y})\fscx100\fscy100"
+            lines.append(
+                f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
+                f"{{{tag}}}{caption}"
+            )
     lines.append("")
     return "\n".join(lines)
 
@@ -525,7 +550,7 @@ def render_progressive_text(
 
     return {
         "schema_version": SCHEMA_VERSION,
-        "renderer": "ffmpeg_libass_phrase_caption_lite",
+        "renderer": "ffmpeg_libass_karaoke_lite",
         "renderer_version": RICH_RENDERER_VERSION,
         "status": "pass",
         "srt": str(srt),
@@ -549,6 +574,8 @@ def render_progressive_text(
         "caption_y": CAPTION_Y,
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
+        "word_highlight_timing": "deterministic_phrase_weighted_approximation",
+        "word_highlight_count": sum(len(_word_highlight_windows(item)) for item in validated),
         "voice_owned_event_timing_preserved": True,
     }
 
