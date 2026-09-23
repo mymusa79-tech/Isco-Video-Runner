@@ -404,7 +404,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertIn("preferably 8-16 words", seen["mistral"])
         self.assertIn("split the first sentence on whitespace", seen["mistral"])
         self.assertIn("NEVER more than 18", seen["mistral"])
-                self.assertIn("if count > 18", seen["mistral"])
+        self.assertIn("if count > 18", seen["mistral"])
         self.assertIn("without fragmenting the sentence", seen["mistral"])
 
     def test_provider_router_rejects_technically_successful_hook_over_18_words(self) -> None:
