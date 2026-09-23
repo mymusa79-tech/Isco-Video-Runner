@@ -595,6 +595,69 @@ class ShortContractTests(unittest.TestCase):
         )
         self.assertEqual(sum(bool(row.get("pacing_auxiliary")) for row in six_rights), 3)
 
+    def test_optional_local_ai_still_replaces_one_short_auxiliary_without_network_generation(self) -> None:
+        plan = _plan(
+            [
+                "thoughtful person alone pausing by window",
+                "reflective person quietly closing phone",
+                "contemplative person calmly taking one step",
+            ]
+        )
+        source = StockVisualSource()
+        counter = {"value": 0}
+
+        def candidate(_query, *, portrait):
+            counter["value"] += 1
+            return {
+                "provider": "pexels",
+                "asset_id": str(counter["value"]),
+                "download_url": f"https://videos.pexels.com/video-{counter['value']}.mp4",
+                "source_url": "https://pexels.com",
+                "creator": "fixture",
+                "creator_url": "https://pexels.com",
+                "query": _query,
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            still = root / "insert.png"
+            still.write_bytes(b"I" * 4096)
+            output = root / "visuals"
+
+            def render_still(_source, destination):
+                Path(destination).write_bytes(b"A" * 4096)
+                return Path(destination)
+
+            with mock.patch.dict(
+                "os.environ",
+                {"CLEAN_V2_SHORT_AI_STILL": str(still)},
+                clear=False,
+            ), mock.patch.object(
+                source, "_pexels", side_effect=candidate
+            ), mock.patch.object(
+                source, "_pixabay", return_value=None
+            ), mock.patch(
+                "clean_v2.media._download_media",
+                side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
+            ), mock.patch(
+                "clean_v2.media._render_local_short_ai_still",
+                side_effect=render_still,
+            ):
+                clips, rights = source.acquire(
+                    plan,
+                    output,
+                    "short",
+                    5,
+                    section_estimated_seconds={"s1": 6.4, "s2": 6.3, "s3": 6.3},
+                )
+
+        self.assertEqual(len(clips), SHORT_VISUAL_MAX)
+        local = [row for row in rights if row.get("provider") == "generated_local_ai_still"]
+        self.assertEqual(len(local), 1)
+        self.assertEqual(local[0]["section_id"], "s2")
+        self.assertEqual(local[0]["generation_cost"], 0)
+        self.assertEqual(local[0]["network_generation_calls"], 0)
+
     def test_duration_and_frame_contract_are_hard_bounds(self) -> None:
         self.assertEqual(SHORT_MIN_SECONDS, 7.0)
         self.assertEqual(SHORT_TARGET_SECONDS, 15.0)
