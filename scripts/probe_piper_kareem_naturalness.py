@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """One-shot naturalness probe for the existing ar_JO-kareem-medium Piper voice.
 
-This is deliberately isolated from Clean V2 production. It compares the current
-raw/default inference against a small bounded set of inference-only variants.
+Isolated from Clean V2 production. First compares bounded global settings, then
+adds a final user-feedback round that targets only two observed defects:
+(1) heavy/muddy timbre, and (2) same prosodic cadence across sentences.
+
 No model training, no provider calls, no production wiring.
 """
 
@@ -10,13 +12,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import tempfile
 import time
 import wave
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from piper import PiperVoice
+from piper.config import SynthesisConfig
 
 TEXT = (
     "أحيانًا لا تحتاج إلى بداية جديدة، بل تحتاج إلى خطوة صادقة تعيدك إلى طريقك. "
@@ -24,9 +28,6 @@ TEXT = (
     "فالاستمرار الهادئ، حين يتكرر كل يوم، يصنع فرقًا أكبر مما تتخيل."
 )
 
-# Small, bounded search around Kareem's shipped defaults.
-# The goal is not to brute-force settings; it is to learn whether inference-only
-# tuning creates an audible jump before considering any larger TTS project.
 VARIANTS = (
     {
         "name": "00-baseline-current",
@@ -78,6 +79,58 @@ VARIANTS = (
     },
 )
 
+# Final bounded round based on the listener's feedback:
+# - speech is ~80% clear
+# - timbre is heavy/uncomfortable
+# - every sentence has nearly the same cadence
+#
+# Each profile deliberately changes pacing/noise per sentence. A very light
+# deterministic EQ then removes some low-mid weight and restores presence.
+DYNAMIC_VARIANTS = (
+    {
+        "name": "06-dynamic-light",
+        "profiles": (
+            {"length_scale": 0.94, "noise_scale": 0.54, "noise_w_scale": 0.72},
+            {"length_scale": 1.01, "noise_scale": 0.48, "noise_w_scale": 0.58},
+            {"length_scale": 1.06, "noise_scale": 0.56, "noise_w_scale": 0.74},
+        ),
+        "pauses_ms": (170, 310),
+        "eq_filter": (
+            "highpass=f=75,"
+            "equalizer=f=230:t=q:w=1.15:g=-2.5,"
+            "equalizer=f=2900:t=q:w=1.0:g=1.6"
+        ),
+    },
+    {
+        "name": "07-dynamic-conversational",
+        "profiles": (
+            {"length_scale": 0.96, "noise_scale": 0.52, "noise_w_scale": 0.68},
+            {"length_scale": 1.04, "noise_scale": 0.50, "noise_w_scale": 0.60},
+            {"length_scale": 0.99, "noise_scale": 0.60, "noise_w_scale": 0.80},
+        ),
+        "pauses_ms": (140, 260),
+        "eq_filter": (
+            "highpass=f=70,"
+            "equalizer=f=250:t=q:w=1.2:g=-2.0,"
+            "equalizer=f=3200:t=q:w=1.0:g=1.8"
+        ),
+    },
+    {
+        "name": "08-dynamic-soft",
+        "profiles": (
+            {"length_scale": 0.99, "noise_scale": 0.45, "noise_w_scale": 0.55},
+            {"length_scale": 1.05, "noise_scale": 0.47, "noise_w_scale": 0.61},
+            {"length_scale": 1.09, "noise_scale": 0.51, "noise_w_scale": 0.66},
+        ),
+        "pauses_ms": (220, 360),
+        "eq_filter": (
+            "highpass=f=70,"
+            "equalizer=f=240:t=q:w=1.15:g=-3.0,"
+            "equalizer=f=3000:t=q:w=1.0:g=1.3"
+        ),
+    },
+)
+
 
 @dataclass
 class WavInfo:
@@ -101,14 +154,15 @@ def wav_info(path: Path) -> WavInfo:
 
 
 def _sentences(text: str) -> list[str]:
-    # Keep terminal punctuation attached so Piper/eSpeak still owns phrase-final prosody.
     import re
 
     parts = re.findall(r".+?(?:[.!؟?]+|$)", text.strip(), flags=re.S)
     return [part.strip() for part in parts if part.strip()]
 
 
-def _write_silence(handle: wave.Wave_write, *, ms: int, rate: int, channels: int, width: int) -> None:
+def _write_silence(
+    handle: wave.Wave_write, *, ms: int, rate: int, channels: int, width: int
+) -> None:
     if ms <= 0:
         return
     frames = int(rate * (ms / 1000.0))
@@ -139,34 +193,85 @@ def _synthesize_sentence_mode(
                 voice.synthesize_wav(sentence, wav)
             sentence_paths.append(path)
 
-        with wave.open(str(output), "wb") as dst:
-            params = None
-            for index, path in enumerate(sentence_paths):
-                with wave.open(str(path), "rb") as src:
-                    if params is None:
-                        params = src.getparams()
-                        dst.setparams(params)
-                    elif (
-                        src.getnchannels(),
-                        src.getsampwidth(),
-                        src.getframerate(),
-                        src.getcomptype(),
-                    ) != (
-                        params.nchannels,
-                        params.sampwidth,
-                        params.framerate,
-                        params.comptype,
-                    ):
-                        raise RuntimeError("sentence WAV format mismatch")
-                    dst.writeframes(src.readframes(src.getnframes()))
-                    if index + 1 < len(sentence_paths):
-                        _write_silence(
-                            dst,
-                            ms=pause_ms,
-                            rate=params.framerate,
-                            channels=params.nchannels,
-                            width=params.sampwidth,
-                        )
+        _concat(sentence_paths, output, pauses_ms=[pause_ms] * (len(sentence_paths) - 1))
+
+
+def _concat(paths: list[Path], output: Path, *, pauses_ms: list[int]) -> None:
+    with wave.open(str(output), "wb") as dst:
+        params = None
+        for index, path in enumerate(paths):
+            with wave.open(str(path), "rb") as src:
+                if params is None:
+                    params = src.getparams()
+                    dst.setparams(params)
+                elif (
+                    src.getnchannels(),
+                    src.getsampwidth(),
+                    src.getframerate(),
+                    src.getcomptype(),
+                ) != (
+                    params.nchannels,
+                    params.sampwidth,
+                    params.framerate,
+                    params.comptype,
+                ):
+                    raise RuntimeError("sentence WAV format mismatch")
+                dst.writeframes(src.readframes(src.getnframes()))
+                if index < len(pauses_ms):
+                    _write_silence(
+                        dst,
+                        ms=int(pauses_ms[index]),
+                        rate=params.framerate,
+                        channels=params.nchannels,
+                        width=params.sampwidth,
+                    )
+
+
+def _synthesize_dynamic(
+    voice: PiperVoice,
+    text: str,
+    output: Path,
+    *,
+    profiles: tuple[dict, ...],
+    pauses_ms: tuple[int, ...],
+) -> None:
+    sentences = _sentences(text)
+    if len(sentences) != len(profiles):
+        raise RuntimeError(
+            f"dynamic profile mismatch: sentences={len(sentences)} profiles={len(profiles)}"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="piper-dynamic-") as tmp:
+        sentence_paths: list[Path] = []
+        for index, (sentence, profile) in enumerate(zip(sentences, profiles)):
+            path = Path(tmp) / f"{index:02d}.wav"
+            config = SynthesisConfig(
+                length_scale=float(profile["length_scale"]),
+                noise_scale=float(profile["noise_scale"]),
+                noise_w_scale=float(profile["noise_w_scale"]),
+            )
+            with wave.open(str(path), "wb") as wav:
+                voice.synthesize_wav(sentence, wav, syn_config=config)
+            sentence_paths.append(path)
+        _concat(sentence_paths, output, pauses_ms=list(pauses_ms))
+
+
+def _lighten_timbre(source: Path, destination: Path, *, audio_filter: str) -> None:
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(source),
+        "-af",
+        audio_filter,
+        "-c:a",
+        "pcm_s16le",
+        str(destination),
+    ]
+    subprocess.run(command, check=True)
 
 
 def main() -> int:
@@ -188,10 +293,10 @@ def main() -> int:
         "espeak_voice": str(voice.config.espeak_voice),
     }
 
-    # Current Piper supports an Arabic tashkeel stage. Record whether the installed
-    # build exposes it; do not mutate the setting in this probe.
     tashkeel_available = hasattr(voice, "use_tashkeel")
-    tashkeel_enabled = bool(getattr(voice, "use_tashkeel", False)) if tashkeel_available else None
+    tashkeel_enabled = (
+        bool(getattr(voice, "use_tashkeel", False)) if tashkeel_available else None
+    )
 
     results = []
     for variant in VARIANTS:
@@ -223,6 +328,37 @@ def main() -> int:
             }
         )
 
+    for variant in DYNAMIC_VARIANTS:
+        final_path = output / f'{variant["name"]}.wav'
+        with tempfile.TemporaryDirectory(prefix="piper-lighten-") as tmp:
+            raw_path = Path(tmp) / "raw.wav"
+            started = time.perf_counter()
+            _synthesize_dynamic(
+                voice,
+                TEXT,
+                raw_path,
+                profiles=variant["profiles"],
+                pauses_ms=variant["pauses_ms"],
+            )
+            _lighten_timbre(
+                raw_path,
+                final_path,
+                audio_filter=str(variant["eq_filter"]),
+            )
+            generation_seconds = time.perf_counter() - started
+
+        info = wav_info(final_path)
+        results.append(
+            {
+                **variant,
+                "mode": "per_sentence_dynamic_plus_light_eq",
+                "generation_seconds": round(generation_seconds, 3),
+                "realtime_factor": round(generation_seconds / info.duration_seconds, 3),
+                "wav": asdict(info),
+                "path": str(final_path),
+            }
+        )
+
     report = {
         "status": "success",
         "voice": "ar_JO-kareem-medium",
@@ -233,10 +369,15 @@ def main() -> int:
         "tashkeel_enabled": tashkeel_enabled,
         "variant_count": len(results),
         "results": results,
+        "listener_feedback_driving_final_round": {
+            "clarity_estimate": "about_80_percent",
+            "problem_1": "voice_heavy_and_uncomfortable",
+            "problem_2": "same_cadence_across_sentences",
+        },
         "decision_rule": (
-            "Listen blind if possible. Keep inference-only tuning only if at least one "
-            "variant is clearly more natural than 00-baseline-current without harming "
-            "Arabic pronunciation. Otherwise stop tuning Kareem."
+            "Compare 06/07/08 mainly against 04/05 and baseline. "
+            "If timbre still feels heavy or sentence-to-sentence cadence is still flat, "
+            "stop tuning Kareem and treat the model voice itself as the limiting factor."
         ),
     }
     report_path = output / "piper-kareem-naturalness-report.json"
