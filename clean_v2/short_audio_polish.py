@@ -146,7 +146,7 @@ def _generate_raw_music(dest: Path, duration: float) -> Path:
             "-filter_complex",
             (
                 "[0:a]highpass=f=180,lowpass=f=3600,tremolo=f=0.10:d=0.20[a0];"
-                "[1:a]highpass=f=70,lowpass=f=700,tremolo=f=0.07:d=0.16[a1];"
+                "[1:a]highpass=f=70,lowpass=f=700,tremolo=f=0.10:d=0.16[a1];"
                 "[a0][a1]amix=inputs=2:normalize=0,"
                 "afade=t=in:st=0:d=0.7,"
                 f"afade=t=out:st={fade_out_start:.3f}:d=1.0[a]"
