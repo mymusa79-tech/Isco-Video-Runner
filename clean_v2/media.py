@@ -1146,6 +1146,17 @@ class StockVisualSource:
                             reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
                         )
                         return False
+                color_ok, color_reason = _short_visual_color_compatible(destination)
+                if not color_ok:
+                    destination.unlink(missing_ok=True)
+                    self._event(
+                        "local_ai_still",
+                        "",
+                        "color_rejected",
+                        wire_attempted=False,
+                        reason=color_reason,
+                    )
+                    return False
                 if self.media_transform is not None:
                     destination = Path(self.media_transform(destination))
             except Exception as exc:
