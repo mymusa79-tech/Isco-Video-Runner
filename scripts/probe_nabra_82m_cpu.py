@@ -56,6 +56,9 @@ PRONUNCIATION_PATCH_CANDIDATES = (
     # strongly fused article+root form that the listener heard as ض.
     ("ʔaddːˈaːfiʕ", "ʔad dˈaːfiʕ", "الدافع"),
     ("ʔaddˈaːfiʕ", "ʔad dˈaːfiʕ", "الدافع"),
+    # Keep اليوم as /al-yawm/ with no trailing vowel-like release.
+    ("tˈastatˌiːʕ aljˈaum.", "tˈastatˌiːʕ aljˈawm.", "اليوم بعد تستطيع"),
+    ("kullˌa jˈaum", "kullˌa jˈawm", "كل يوم"),
 )
 
 
@@ -230,9 +233,13 @@ def infer_with_native_pause_duration_boost(
         )
 
     # Each duration frame is 600 samples = 25 ms at 24 kHz.
-    # These are deliberately modest: commas get +100 ms because +50 ms was not perceptible enough; enough to create a felt pause without
-    # stretching ordinary speech or altering lexical phoneme durations.
-    extra_frames = {",": 4, "…": 8, "—": 5}
+    # Listener-tuned three-level pause hierarchy. Only punctuation-token
+    # durations change; lexical phoneme durations remain untouched.
+    # Listener-approved final hierarchy at 24 kHz (25 ms/frame):
+    # comma = short +175 ms; ellipsis = medium +325 ms;
+    # em-dash = +200 ms, so combined semantic runs (… — / … — —)
+    # naturally become the long / extra-long pauses.
+    extra_frames = {",": 7, "…": 13, "—": 8}
     changes: list[dict] = []
     for char_index, ch in enumerate(chars, start=1):  # +1 for BOS
         extra = extra_frames.get(ch)
