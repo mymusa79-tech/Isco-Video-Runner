@@ -71,6 +71,10 @@ SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS = 18.0
 SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS = 4.5
 SHORT_TURN_ONE_SHOT_MAX_SECONDS = 6.5
 SHORT_CUT_DISSOLVE_SECONDS = 0.12
+SHORT_MASTER_LOOK_FILTER = (
+    "eq=contrast=1.03:saturation=0.84,"
+    "colorbalance=rs=0.025:gs=0.005:bs=-0.020"
+)
 SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
 SHORT_LOCAL_AI_STILL_SECONDS = 8.0
 SHORT_MIN_COLOR_SATURATION_AVG = 4.0
@@ -2254,7 +2258,11 @@ def render_video(
             # applicable) by _build_section_body_segments - just reset PTS.
             filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
             input_index += 1
-        filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vout]")
+        if fmt == "short":
+            filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
+            filters.append(f"[vcat]{SHORT_MASTER_LOOK_FILTER}[vout]")
+        else:
+            filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vout]")
 
         command.extend(
             [
