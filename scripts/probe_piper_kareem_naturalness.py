@@ -129,6 +129,54 @@ DYNAMIC_VARIANTS = (
             "equalizer=f=3000:t=q:w=1.0:g=1.3"
         ),
     },
+    {
+        "name": "09-soft-lighter-gentle",
+        "profiles": (
+            {"length_scale": 0.98, "noise_scale": 0.45, "noise_w_scale": 0.55},
+            {"length_scale": 1.03, "noise_scale": 0.47, "noise_w_scale": 0.61},
+            {"length_scale": 1.07, "noise_scale": 0.51, "noise_w_scale": 0.66},
+        ),
+        "pauses_ms": (200, 330),
+        "eq_filter": (
+            "highpass=f=78,"
+            "equalizer=f=220:t=q:w=1.10:g=-3.8,"
+            "equalizer=f=450:t=q:w=1.0:g=-1.2,"
+            "equalizer=f=3200:t=q:w=1.0:g=1.7,"
+            "asetrate=22381,aresample=22050,atempo=1.008"
+        ),
+    },
+    {
+        "name": "10-soft-lighter-natural",
+        "profiles": (
+            {"length_scale": 0.97, "noise_scale": 0.45, "noise_w_scale": 0.55},
+            {"length_scale": 1.02, "noise_scale": 0.47, "noise_w_scale": 0.61},
+            {"length_scale": 1.06, "noise_scale": 0.51, "noise_w_scale": 0.66},
+        ),
+        "pauses_ms": (190, 315),
+        "eq_filter": (
+            "highpass=f=82,"
+            "equalizer=f=220:t=q:w=1.10:g=-4.3,"
+            "equalizer=f=460:t=q:w=1.0:g=-1.5,"
+            "equalizer=f=3300:t=q:w=1.0:g=2.0,"
+            "asetrate=22535,aresample=22050,atempo=1.010"
+        ),
+    },
+    {
+        "name": "11-soft-lighter-bright",
+        "profiles": (
+            {"length_scale": 0.96, "noise_scale": 0.45, "noise_w_scale": 0.55},
+            {"length_scale": 1.01, "noise_scale": 0.47, "noise_w_scale": 0.61},
+            {"length_scale": 1.05, "noise_scale": 0.51, "noise_w_scale": 0.66},
+        ),
+        "pauses_ms": (180, 300),
+        "eq_filter": (
+            "highpass=f=86,"
+            "equalizer=f=210:t=q:w=1.05:g=-4.8,"
+            "equalizer=f=480:t=q:w=1.0:g=-1.8,"
+            "equalizer=f=3400:t=q:w=1.0:g=2.2,"
+            "asetrate=22712,aresample=22050,atempo=1.012"
+        ),
+    },
 )
 
 
@@ -375,9 +423,9 @@ def main() -> int:
             "problem_2": "same_cadence_across_sentences",
         },
         "decision_rule": (
-            "Compare 06/07/08 mainly against 04/05 and baseline. "
-            "If timbre still feels heavy or sentence-to-sentence cadence is still flat, "
-            "stop tuning Kareem and treat the model voice itself as the limiting factor."
+            "08 was listener-preferred. Compare 09/10/11 only against 08. "
+            "Choose the smallest lift that removes excess depth without making the voice thin. "
+            "If none beats 08 naturally, stop here and keep 08 as Kareem's ceiling."
         ),
     }
     report_path = output / "piper-kareem-naturalness-report.json"
