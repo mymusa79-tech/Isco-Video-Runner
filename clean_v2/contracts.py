@@ -147,10 +147,11 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
                 f"plan section {section_id} visual_query_en exceeds 260 characters"
             )
         if fmt == "short":
+            # Fresh provider outputs are required by the strict response schema to
+            # supply this field. The deterministic fallback below exists only so
+            # older saved/resumed plans do not become unreadable after the upgrade.
             if not alt_query:
-                raise ContractError(
-                    f"plan section {section_id} visual_query_alt_en is required for short"
-                )
+                alt_query = f"{query} close detail"[:260]
             if len(alt_query) > 260:
                 raise ContractError(
                     f"plan section {section_id} visual_query_alt_en exceeds 260 characters"
