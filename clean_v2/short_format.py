@@ -114,10 +114,12 @@ TEMPLATE_VISUAL_QUERY_DIRECTIVES = {
         "productivity imagery that does not carry that contrast."
     ),
     "inner_dialogue": (
-        "For every visual_query_en, use an intimate quiet human moment that visually supports internal "
-        "dialogue: a person alone, thoughtful, reflective, pausing, sitting quietly, or moving through a "
-        "calm environment. Prefer concrete search language such as alone, thoughtful, reflective, quiet "
-        "moment, contemplative. Avoid generic desks, calendars, or unrelated symbolic footage."
+        "Keep one coherent inner-dialogue arc, but do NOT make the hook visually calm. "
+        "For s1 show immediate active friction or pressure in an observable no-face moment: hesitation, "
+        "a hand stopping mid-action, a rushed/tense detail, an unfinished task, or another readable visual conflict. "
+        "For s2 let the image become more reflective as the thought turns. "
+        "For s3 show a decisive single payoff action or its immediate visible result. "
+        "Prefer concrete no-face search language and avoid generic passive desks, calendars, or unrelated symbolism."
     ),
     "micro_story": (
         "Make the three visual_query_en values a simple sequential micro-story about one concrete situation: "
@@ -300,8 +302,8 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"- s1: the first spoken sentence is the truthful hook and must be at most {SHORT_HOOK_MAX_WORDS} Arabic words; no greeting. "
         "It must create immediate viewer tension by naming one concrete felt friction, contradiction, or unresolved consequence. "
         "Do not open with an abstract definition, generic \"sometimes\" setup, or a formulaic X-is-not-Y-but-Z explanation.\n"
-        "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation.\n"
-        "- s3: resolve the SAME tension/question opened by s1-s2, then give exactly ONE practical action in one clear imperative sentence. "
+        "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
+        "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned payoff, then give exactly ONE practical action in one clear imperative sentence. The ending must feel like a strong answer to the hook, not generic advice. "
         "That action sentence MUST begin with a direct Arabic imperative verb, not a descriptive suggestion, and must not append a second action with ثم/و. "
         "Good examples: \"ابدأ بـ...\", \"جرّب أن...\", \"افعل...\", \"اختر...\", \"اكتب...\". "
         "Bad examples: \"اكتب... ثم اخرج...\", \"يمكنك أن...\", \"من الأفضل أن...\", or a general description with no command.\n"
@@ -314,8 +316,8 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "- VISUAL_QUERY_DIRECTION: "
         f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]} "
         "Across s1/s2/s3, use visibly different dominant actions or states so the picture itself progresses. "
-        "For s1 prefer an immediately readable active friction/decision over a passive generic desk shot. "
-        "For s3 depict the single payoff action itself or its immediate visible result; never repeat the same writing/desk action used earlier."
+        "For s1 create a scroll-stop visual beat: active pressure, hesitation, interruption, or unresolved movement that reads instantly; avoid passive calm openings. "
+        "For s3 depict the single payoff action itself or its immediate visible result with a clear sense of release/completion; never repeat the same writing/desk action used earlier."
     )
 
 
