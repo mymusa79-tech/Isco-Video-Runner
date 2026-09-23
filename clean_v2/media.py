@@ -62,6 +62,13 @@ PACING_MAX_SHOT_SECONDS = 22.0
 PACING_MIN_SHOT_SECONDS = 3.5
 PACING_MAX_SHOTS_PER_SECTION = 3
 
+# Short Visual Lite: keep the three semantic sections, but give the finished
+# 7-30s Short enough visual movement to feel authored rather than like three
+# long stock backgrounds. This is arithmetic only: no new AI/candidate layer.
+SHORT_VISUAL_TARGET = 5
+SHORT_VISUAL_MAX = 6
+SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS = 18.0
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -937,6 +944,26 @@ class StockVisualSource:
         rights: list[dict[str, Any]] = []
         sections = list(plan.get("sections") or [])[: max(1, int(max_visuals))]
 
+        short_shots_by_section: dict[str, int] = {}
+        if fmt == "short" and len(sections) == 3:
+            measured_total = sum(
+                max(0.0, float(value))
+                for value in (section_estimated_seconds or {}).values()
+            )
+            short_total_target = (
+                SHORT_VISUAL_MAX
+                if measured_total >= SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS
+                else SHORT_VISUAL_TARGET
+            )
+            # Five shots: hook/detail, turn, payoff/result => 2/1/2.
+            # Six shots: two distinct stock assets per semantic section.
+            distribution = (2, 2, 2) if short_total_target == 6 else (2, 1, 2)
+            short_shots_by_section = {
+                str(section.get("id") or ""): distribution[index]
+                for index, section in enumerate(sections)
+                if isinstance(section, Mapping)
+            }
+
         def _acquire_one(query: str, section_id: str, *, auxiliary: bool) -> bool:
             for finder in (self._pexels, self._pixabay):
                 candidate = finder(query, portrait=portrait)
@@ -992,18 +1019,23 @@ class StockVisualSource:
             if not _acquire_one(query, section_id, auxiliary=False):
                 continue
 
-            # A section whose own estimated on-screen time would leave a
-            # single clip lingering too long gets extra same-query coverage
-            # instead: same stock search, no new AI call, bounded by the
-            # pacing constants above so this never fires unbounded provider
-            # requests. The estimate comes from that section's own narration
-            # length (pipeline.py), not a flat equal-share assumption.
             section_seconds = (
                 section_estimated_seconds.get(section_id)
                 if section_estimated_seconds is not None
                 else None
             )
-            if section_seconds is not None and section_seconds > PACING_MAX_SHOT_SECONDS:
+            if fmt == "short":
+                # Short Visual Lite intentionally targets 5-6 distinct stock
+                # assets across the same three semantic sections. Reusing the
+                # approved query keeps this zero-AI and bounded; _used prevents
+                # selecting the same provider asset twice.
+                shots = short_shots_by_section.get(section_id, 1)
+                for _ in range(max(0, shots - 1)):
+                    if not _acquire_one(query, section_id, auxiliary=True):
+                        break
+            elif section_seconds is not None and section_seconds > PACING_MAX_SHOT_SECONDS:
+                # Longer formats retain the existing narration-weighted pacing
+                # expansion and its original 3.5s / max-3 bounds.
                 shots = min(
                     PACING_MAX_SHOTS_PER_SECTION,
                     math.ceil(section_seconds / PACING_MAX_SHOT_SECONDS),
