@@ -29,6 +29,7 @@ from kokoro import pipeline as kpipeline_mod
 REPO_ID = "oddadmix/Nabra-82M-v0.1"
 SAMPLE_RATE = 24000
 NATIVE_SPEED = 0.94
+NATIVE_PROSODY_SPEED = 0.80
 
 # Manually corrected MSA tashkeel. This intentionally bypasses Camel's wrong
 # guesses seen in the first probe (e.g. أَنَّ, أَبْدَأ, فِرَقًا).
@@ -419,6 +420,27 @@ def main() -> int:
     prosody_final_path = output / "17-nabra-native-punctuation-prosody-mix-ready.wav"
     mix_ready(prosody_raw_path, prosody_final_path)
 
+    # Listener feedback: the continuous 0.94 rendering is too compressed even
+    # though its pronunciation is correct. Re-synthesize the exact same
+    # phonemes/punctuation in one continuous call at a calmer native model
+    # pace. This is model-time prosody, not post-generation atempo.
+    calm_started = time.perf_counter()
+    with torch.inference_mode():
+        calm_output = KPipeline.infer(
+            model,
+            prosody_phonemes,
+            voice.to(model.device),
+            speed=NATIVE_PROSODY_SPEED,
+        )
+    calm_seconds = time.perf_counter() - calm_started
+    calm_audio = calm_output.audio.detach().cpu().numpy().astype(np.float32)
+    calm_audio = soften_segment_onset(calm_audio)
+
+    calm_raw_path = output / "18-nabra-native-prosody-calm-raw.wav"
+    sf.write(calm_raw_path, calm_audio, SAMPLE_RATE, subtype="PCM_16")
+    calm_final_path = output / "19-nabra-native-prosody-calm-mix-ready.wav"
+    mix_ready(calm_raw_path, calm_final_path)
+
     structural_phonemes = add_model_native_structural_prosody(patched_phonemes)
     structural_started = time.perf_counter()
     with torch.inference_mode():
@@ -522,6 +544,13 @@ def main() -> int:
         "native_punctuation_synthesis_seconds": round(prosody_seconds, 3),
         "native_punctuation_raw_wav": wav_info(prosody_raw_path),
         "native_punctuation_mix_ready_wav": wav_info(prosody_final_path),
+        "native_calm_speed": NATIVE_PROSODY_SPEED,
+        "native_calm_same_phonemes": prosody_phonemes,
+        "native_calm_single_inference": True,
+        "native_calm_zero_waveform_splices": True,
+        "native_calm_synthesis_seconds": round(calm_seconds, 3),
+        "native_calm_raw_wav": wav_info(calm_raw_path),
+        "native_calm_mix_ready_wav": wav_info(calm_final_path),
         "native_structural_phonemes": structural_phonemes,
         "native_structural_lexical_phonemes_unchanged": True,
         "native_structural_single_inference": True,
@@ -553,6 +582,8 @@ def main() -> int:
             "native-punctuation sample changes punctuation tokens only; lexical phonemes are invariant",
             "native-punctuation sample has zero waveform splices and zero post-generation silence insertion",
             "native-punctuation sample is one continuous inference call, preventing repeated sentence onsets",
+            "native-calm sample uses the exact same phonemes and punctuation at model speed 0.80",
+            "native-calm sample has no atempo, no waveform splice, and no sentence-by-sentence synthesis",
             "native-structural sample uses Kokoro punctuation tokens only, including em-dash structural beats",
             "native-structural sample has zero waveform edits and one continuous inference call",
             "human-pause version uses pred_dur only as an approximate locator, then snaps to a low-energy zero crossing",
