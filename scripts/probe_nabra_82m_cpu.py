@@ -58,7 +58,7 @@ PRONUNCIATION_PATCH_CANDIDATES = (
     ("ʔaddˈaːfiʕ", "ʔad dˈaːfiʕ", "الدافع"),
     # Keep اليوم as /al-yawm/ with no trailing vowel-like release.
     ("tˈastatˌiːʕ aljˈaum.", "tˈastatˌiːʕ aljˈawm.", "اليوم بعد تستطيع"),
-    ("kullˌa jˈaum", "kullˌa jˈawm", "كل يوم"),
+    ("kullˌa jˈawm", "kullˌa jˈawm", "كل يوم"),
 )
 
 
@@ -85,10 +85,10 @@ def add_native_pause_tokens(phonemes: str) -> str:
         # Warning -> action transition.
         ("kaːmˌilan. ", "kaːmˌilan… — "),
         # Action line -> closing reflection: strongest pause.
-        ("aljˈaum. faːl", "aljˈaum… — — faːl"),
+        ("aljˈawm. faːl", "aljˈaum… — — faːl"),
         # Closing sentence internal breathing points.
         ("alhˈaːdiʔ ", "alhˈaːdiʔ, "),
-        ("kullˌa jˈaum ", "kullˌa jˈaum, "),
+        ("kullˌa jˈawm ", "kullˌa jˈawm, "),
     )
     for source, target in replacements:
         if out.count(source) != 1:
@@ -124,10 +124,10 @@ def add_model_native_prosody_punctuation(phonemes: str) -> str:
         # Emphasize the core phrase but keep one continuous breath.
         ("saːdˈiqat ", "saːdˈiqat, "),
         # Action line gets a reflective transition into the closing idea.
-        ("aljˈaum. faːl", "aljˈaum… faːl"),
+        ("aljˈawm. faːl", "aljˈaum… faːl"),
         # Natural micro-beats inside the final thought.
         ("alhˈaːdiʔ ", "alhˈaːdiʔ, "),
-        ("kullˌa jˈaum ", "kullˌa jˈaum, "),
+        ("kullˌa jˈawm ", "kullˌa jˈawm, "),
     )
 
     for source, target in replacements:
@@ -163,9 +163,9 @@ def add_model_native_structural_prosody(phonemes: str) -> str:
         ("saːdˈiqat ", "saːdˈiqat, "),
         ("tarˈiːqikˌa. ", "tarˈiːqikˌa — "),
         ("kaːmˌilan. ", "kaːmˌilan… "),
-        ("aljˈaum. faːl", "aljˈaum — — faːl"),
+        ("aljˈawm. faːl", "aljˈaum — — faːl"),
         ("alhˈaːdiʔ ", "alhˈaːdiʔ, "),
-        ("kullˌa jˈaum ", "kullˌa jˈaum, "),
+        ("kullˌa jˈawm ", "kullˌa jˈawm, "),
     )
     for source, target in replacements:
         if out.count(source) != 1:
@@ -376,7 +376,7 @@ def insert_human_pauses_from_pred_dur(
         ("sentence_3", ".", 3, 420, "اكتمال التحذير قبل الانتقال للفعل"),
         ("sentence_4", ".", 4, 600, "ترك جملة الفعل تستقر قبل الخاتمة"),
         ("last_reflective_beat", "alhˈaːdiʔ", 1, 170, "وقفة خفيفة بعد الاستمرار الهادئ"),
-        ("last_daily_beat", "kullˌa jˈaum", 1, 200, "إبراز معنى التكرار اليومي قبل النتيجة"),
+        ("last_daily_beat", "kullˌa jˈawm", 1, 200, "إبراز معنى التكرار اليومي قبل النتيجة"),
     )
 
     boundaries: list[tuple[int, int, str, str, str, int, float]] = []
