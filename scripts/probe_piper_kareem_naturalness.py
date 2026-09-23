@@ -179,6 +179,80 @@ DYNAMIC_VARIANTS = (
     },
 )
 
+# Listener-selected direction after 09:
+# keep the lighter/comfortable timbre, but remove the "compressed/serious"
+# delivery by phrasing the same message as six semantic beats. Selective Arabic
+# diacritics are used only where they help pronunciation; no artificial tatweel
+# characters are inserted.
+PERFORMANCE_TEXTS = (
+    "أحيانًا، لا تحتاج إلى بِداية جديدة",
+    "بل تحتاج إلى خُطوة صادقة، تعيدك إلى طريقك",
+    "لا تنتظر أن يأتي الدافع كاملًا",
+    "ابدأ بما تستطيع اليوم",
+    "فالاستمرار الهادئ، حين يتكرر كل يوم",
+    "يصنع فرقًا أكبر مما تتخيل",
+)
+
+PERFORMANCE_VARIANTS = (
+    {
+        "name": "12-warm-breathing",
+        "profiles": (
+            {"length_scale": 1.01, "noise_scale": 0.45, "noise_w_scale": 0.55},
+            {"length_scale": 1.08, "noise_scale": 0.47, "noise_w_scale": 0.62},
+            {"length_scale": 0.98, "noise_scale": 0.46, "noise_w_scale": 0.58},
+            {"length_scale": 1.03, "noise_scale": 0.50, "noise_w_scale": 0.64},
+            {"length_scale": 1.10, "noise_scale": 0.48, "noise_w_scale": 0.62},
+            {"length_scale": 1.06, "noise_scale": 0.52, "noise_w_scale": 0.68},
+        ),
+        "pauses_ms": (180, 360, 210, 340, 240),
+        "eq_filter": (
+            "highpass=f=76,"
+            "equalizer=f=220:t=q:w=1.10:g=-3.7,"
+            "equalizer=f=450:t=q:w=1.0:g=-1.1,"
+            "equalizer=f=3150:t=q:w=1.0:g=1.5,"
+            "asetrate=22381,aresample=22050,atempo=0.996"
+        ),
+    },
+    {
+        "name": "13-gentle-reflective",
+        "profiles": (
+            {"length_scale": 1.03, "noise_scale": 0.44, "noise_w_scale": 0.54},
+            {"length_scale": 1.11, "noise_scale": 0.46, "noise_w_scale": 0.60},
+            {"length_scale": 0.99, "noise_scale": 0.45, "noise_w_scale": 0.56},
+            {"length_scale": 1.05, "noise_scale": 0.49, "noise_w_scale": 0.63},
+            {"length_scale": 1.13, "noise_scale": 0.47, "noise_w_scale": 0.60},
+            {"length_scale": 1.08, "noise_scale": 0.50, "noise_w_scale": 0.66},
+        ),
+        "pauses_ms": (210, 410, 230, 390, 270),
+        "eq_filter": (
+            "highpass=f=74,"
+            "equalizer=f=220:t=q:w=1.10:g=-3.5,"
+            "equalizer=f=440:t=q:w=1.0:g=-1.0,"
+            "equalizer=f=3050:t=q:w=1.0:g=1.3,"
+            "asetrate=22381,aresample=22050,atempo=0.992"
+        ),
+    },
+    {
+        "name": "14-soft-conversational",
+        "profiles": (
+            {"length_scale": 0.99, "noise_scale": 0.48, "noise_w_scale": 0.62},
+            {"length_scale": 1.06, "noise_scale": 0.50, "noise_w_scale": 0.68},
+            {"length_scale": 0.96, "noise_scale": 0.49, "noise_w_scale": 0.64},
+            {"length_scale": 1.00, "noise_scale": 0.54, "noise_w_scale": 0.72},
+            {"length_scale": 1.08, "noise_scale": 0.50, "noise_w_scale": 0.66},
+            {"length_scale": 1.03, "noise_scale": 0.56, "noise_w_scale": 0.74},
+        ),
+        "pauses_ms": (160, 330, 180, 320, 220),
+        "eq_filter": (
+            "highpass=f=78,"
+            "equalizer=f=220:t=q:w=1.10:g=-3.8,"
+            "equalizer=f=450:t=q:w=1.0:g=-1.2,"
+            "equalizer=f=3200:t=q:w=1.0:g=1.7,"
+            "asetrate=22381,aresample=22050,atempo=1.000"
+        ),
+    },
+)
+
 
 @dataclass
 class WavInfo:
@@ -304,6 +378,33 @@ def _synthesize_dynamic(
         _concat(sentence_paths, output, pauses_ms=list(pauses_ms))
 
 
+def _synthesize_performance(
+    voice: PiperVoice,
+    output: Path,
+    *,
+    profiles: tuple[dict, ...],
+    pauses_ms: tuple[int, ...],
+) -> None:
+    if len(PERFORMANCE_TEXTS) != len(profiles):
+        raise RuntimeError(
+            f"performance profile mismatch: beats={len(PERFORMANCE_TEXTS)} profiles={len(profiles)}"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="piper-performance-") as tmp:
+        beat_paths: list[Path] = []
+        for index, (beat, profile) in enumerate(zip(PERFORMANCE_TEXTS, profiles)):
+            path = Path(tmp) / f"{index:02d}.wav"
+            config = SynthesisConfig(
+                length_scale=float(profile["length_scale"]),
+                noise_scale=float(profile["noise_scale"]),
+                noise_w_scale=float(profile["noise_w_scale"]),
+            )
+            with wave.open(str(path), "wb") as wav:
+                voice.synthesize_wav(beat, wav, syn_config=config)
+            beat_paths.append(path)
+        _concat(beat_paths, output, pauses_ms=list(pauses_ms))
+
+
 def _lighten_timbre(source: Path, destination: Path, *, audio_filter: str) -> None:
     command = [
         "ffmpeg",
@@ -407,6 +508,37 @@ def main() -> int:
             }
         )
 
+    for variant in PERFORMANCE_VARIANTS:
+        final_path = output / f'{variant["name"]}.wav'
+        with tempfile.TemporaryDirectory(prefix="piper-performance-eq-") as tmp:
+            raw_path = Path(tmp) / "raw.wav"
+            started = time.perf_counter()
+            _synthesize_performance(
+                voice,
+                raw_path,
+                profiles=variant["profiles"],
+                pauses_ms=variant["pauses_ms"],
+            )
+            _lighten_timbre(
+                raw_path,
+                final_path,
+                audio_filter=str(variant["eq_filter"]),
+            )
+            generation_seconds = time.perf_counter() - started
+
+        info = wav_info(final_path)
+        results.append(
+            {
+                **variant,
+                "mode": "six_semantic_beats_selective_diacritics_plus_light_eq",
+                "performance_texts": PERFORMANCE_TEXTS,
+                "generation_seconds": round(generation_seconds, 3),
+                "realtime_factor": round(generation_seconds / info.duration_seconds, 3),
+                "wav": asdict(info),
+                "path": str(final_path),
+            }
+        )
+
     report = {
         "status": "success",
         "voice": "ar_JO-kareem-medium",
@@ -421,11 +553,13 @@ def main() -> int:
             "clarity_estimate": "about_80_percent",
             "problem_1": "voice_heavy_and_uncomfortable",
             "problem_2": "same_cadence_across_sentences",
+            "problem_3": "09_pronunciation_feels_compressed_and_too_serious_for_channel",
         },
         "decision_rule": (
-            "08 was listener-preferred. Compare 09/10/11 only against 08. "
-            "Choose the smallest lift that removes excess depth without making the voice thin. "
-            "If none beats 08 naturally, stop here and keep 08 as Kareem's ceiling."
+            "09 is the listener-selected timbre direction. Compare 12/13/14 only against 09. "
+            "Prefer the version that sounds least compressed and least announcer-serious while "
+            "keeping clear Arabic. The semantic-beat pauses and selective lengthening must feel "
+            "natural, not theatrical."
         ),
     }
     report_path = output / "piper-kareem-naturalness-report.json"
