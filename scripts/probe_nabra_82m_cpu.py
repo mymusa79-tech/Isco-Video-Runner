@@ -446,6 +446,123 @@ def insert_human_pauses_from_pred_dur(
     applied.reverse()
     return out, applied
 
+def trim_chunk_fastapi_style(
+    audio: np.ndarray,
+    *,
+    speed: float,
+    punctuation: str = ".",
+    silence_threshold_db: float = -45.0,
+) -> tuple[np.ndarray, dict]:
+    """FastAPI-style dynamic chunk boundary trim.
+
+    Mirrors the production idea used by Kokoro-FastAPI: trim low-level onset /
+    tail noise by threshold, preserve 50 ms before first speech, and preserve
+    punctuation-aware release at the end. This is specifically to prevent the
+    repeated sentence-start breath/hiss we heard with naive chunk synthesis.
+    """
+    if audio.size == 0:
+        return audio, {"empty": True}
+
+    work = audio.astype(np.float32, copy=True)
+    base_trim = min(int(SAMPLE_RATE * 0.001), max(0, work.size // 4))
+    if work.size > 2 * base_trim and base_trim > 0:
+        work = work[base_trim:-base_trim]
+
+    threshold = float(10 ** (silence_threshold_db / 20.0))
+    active = np.flatnonzero(np.abs(work) > threshold)
+    if active.size == 0:
+        return work, {
+            "threshold_dbfs": silence_threshold_db,
+            "all_below_threshold": True,
+        }
+
+    first = int(active[0])
+    last = int(active[-1])
+
+    pre_roll = int(SAMPLE_RATE * 0.050)
+    multiplier = {".": 1.0, "!": 0.9, "?": 1.0, ",": 0.8}.get(
+        punctuation, 1.0
+    )
+    dynamic_total = int(
+        SAMPLE_RATE * 0.410 * multiplier / max(speed, 1e-6)
+    )
+    post_roll = max(dynamic_total - pre_roll, int(SAMPLE_RATE * 0.060))
+
+    start = max(0, first - pre_roll)
+    end = min(work.size, last + post_roll)
+    trimmed = work[start:end].astype(np.float32, copy=False)
+
+    return trimmed, {
+        "threshold_dbfs": silence_threshold_db,
+        "input_ms": round(audio.size * 1000.0 / SAMPLE_RATE, 2),
+        "output_ms": round(trimmed.size * 1000.0 / SAMPLE_RATE, 2),
+        "trimmed_start_ms": round((base_trim + start) * 1000.0 / SAMPLE_RATE, 2),
+        "trimmed_end_ms": round(
+            (audio.size - base_trim - end) * 1000.0 / SAMPLE_RATE, 2
+        ),
+        "pre_roll_ms": 50.0,
+        "dynamic_release_ms": round(post_roll * 1000.0 / SAMPLE_RATE, 2),
+    }
+
+
+def synthesize_explicit_semantic_pauses(
+    model: KModel,
+    voice: torch.Tensor,
+    phonemes: str,
+) -> tuple[np.ndarray, list[dict]]:
+    """Five semantic chunks + exact pauses, with dynamic boundary cleanup.
+
+    Pronunciation comes from the already-approved full-text phoneme stream.
+    Only the four full-stop boundaries are split. Each chunk is synthesized at
+    native 0.87 speed, then FastAPI-style boundary trimming removes repeated
+    low-level sentence onsets before exact silence is concatenated.
+    """
+    parts = phonemes.split(". ")
+    if len(parts) != 5:
+        raise RuntimeError(f"expected 5 semantic sentences, got {len(parts)}")
+
+    chunks = []
+    for i, part in enumerate(parts):
+        p = part if part.endswith(".") else part + "."
+        chunks.append(p)
+
+    pause_ms = (420, 360, 420, 600)
+    out: list[np.ndarray] = []
+    details: list[dict] = []
+
+    with torch.inference_mode():
+        for index, p in enumerate(chunks):
+            result = KPipeline.infer(
+                model,
+                p,
+                voice.to(model.device),
+                speed=NATIVE_PROSODY_SPEED,
+            )
+            raw = result.audio.detach().cpu().numpy().astype(np.float32)
+            cleaned, trim_report = trim_chunk_fastapi_style(
+                raw,
+                speed=NATIVE_PROSODY_SPEED,
+                punctuation=".",
+            )
+            out.append(cleaned)
+            details.append(
+                {
+                    "chunk": index + 1,
+                    "phonemes": p,
+                    "trim": trim_report,
+                }
+            )
+            if index < len(pause_ms):
+                silence = np.zeros(
+                    int(SAMPLE_RATE * pause_ms[index] / 1000.0),
+                    dtype=np.float32,
+                )
+                out.append(silence)
+                details[-1]["pause_after_ms"] = pause_ms[index]
+
+    return np.concatenate(out).astype(np.float32), details
+
+
 def wav_info(path: Path) -> dict:
     with wave.open(str(path), "rb") as wf:
         return {
@@ -638,6 +755,23 @@ def main() -> int:
     cleaned_pause_final_path = output / "23-nabra-reserved-pause-cleanup-mix-ready.wav"
     mix_ready(cleaned_pause_raw_path, cleaned_pause_final_path)
 
+    explicit_pause_started = time.perf_counter()
+    explicit_pause_audio, explicit_pause_details = synthesize_explicit_semantic_pauses(
+        model,
+        voice,
+        patched_phonemes,
+    )
+    explicit_pause_seconds = time.perf_counter() - explicit_pause_started
+    explicit_pause_raw_path = output / "24-nabra-fastapi-style-explicit-pauses-raw.wav"
+    sf.write(
+        explicit_pause_raw_path,
+        explicit_pause_audio,
+        SAMPLE_RATE,
+        subtype="PCM_16",
+    )
+    explicit_pause_final_path = output / "25-nabra-fastapi-style-explicit-pauses-mix-ready.wav"
+    mix_ready(explicit_pause_raw_path, explicit_pause_final_path)
+
     structural_phonemes = add_model_native_structural_prosody(patched_phonemes)
     structural_started = time.perf_counter()
     with torch.inference_mode():
@@ -764,6 +898,17 @@ def main() -> int:
         "reserved_pause_cleanup_single_inference": True,
         "reserved_pause_cleanup_raw_wav": wav_info(cleaned_pause_raw_path),
         "reserved_pause_cleanup_mix_ready_wav": wav_info(cleaned_pause_final_path),
+        "fastapi_style_explicit_pause_speed": NATIVE_PROSODY_SPEED,
+        "fastapi_style_explicit_pause_details": explicit_pause_details,
+        "fastapi_style_explicit_pause_synthesis_seconds": round(
+            explicit_pause_seconds, 3
+        ),
+        "fastapi_style_explicit_pause_raw_wav": wav_info(
+            explicit_pause_raw_path
+        ),
+        "fastapi_style_explicit_pause_mix_ready_wav": wav_info(
+            explicit_pause_final_path
+        ),
         "native_structural_phonemes": structural_phonemes,
         "native_structural_lexical_phonemes_unchanged": True,
         "native_structural_single_inference": True,
@@ -801,6 +946,8 @@ def main() -> int:
             "native-pause-token sample has zero waveform edits and therefore cannot introduce splice cuts",
             "reserved-pause cleanup follows upstream Kokoro #365: keep release and next-word attack, gate only punctuation-reserved middle",
             "reserved-pause cleanup inserts/deletes zero samples and keeps the exact same timeline length",
+            "FastAPI-style explicit pause sample uses semantic chunks, -45 dBFS dynamic boundary trim, 50 ms pre-roll, and exact pauses",
+            "FastAPI-style explicit pause sample keeps approved phonemes and native speed 0.87; no atempo or pitch processing",
             "native-structural sample uses Kokoro punctuation tokens only, including em-dash structural beats",
             "native-structural sample has zero waveform edits and one continuous inference call",
             "human-pause version uses pred_dur only as an approximate locator, then snaps to a low-energy zero crossing",
