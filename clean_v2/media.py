@@ -70,6 +70,7 @@ SHORT_VISUAL_MAX = 6
 SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS = 18.0
 SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
 SHORT_LOCAL_AI_STILL_SECONDS = 8.0
+SHORT_MIN_COLOR_SATURATION_AVG = 4.0
 
 
 def _utc_now() -> str:
@@ -857,6 +858,22 @@ def _pexels_file(video: Mapping[str, Any], *, portrait: bool) -> Mapping[str, An
     return max(files, key=score)
 
 
+def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
+    """Reject only near-monochrome Short stock; leave normal footage to the existing grade."""
+    try:
+        from isco_video_agent.media.color import measure_color_stats
+    except Exception:
+        return True, None
+    try:
+        stats = measure_color_stats(Path(path))
+    except Exception:
+        return True, None
+    saturation = float(stats.saturation_avg)
+    if saturation < SHORT_MIN_COLOR_SATURATION_AVG:
+        return False, f"short_near_monochrome saturation_avg={saturation:.2f}"
+    return True, None
+
+
 class StockVisualSource:
     def __init__(
         self,
@@ -1079,6 +1096,18 @@ class StockVisualSource:
                             "security_blocked",
                             wire_attempted=False,
                             reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
+                        )
+                        destination.unlink(missing_ok=True)
+                        continue
+                if fmt == "short":
+                    color_ok, color_reason = _short_visual_color_compatible(destination)
+                    if not color_ok:
+                        self._event(
+                            str(candidate["provider"]),
+                            query,
+                            "color_rejected",
+                            wire_attempted=False,
+                            reason=color_reason,
                         )
                         destination.unlink(missing_ok=True)
                         continue
