@@ -68,6 +68,8 @@ PACING_MAX_SHOTS_PER_SECTION = 3
 SHORT_VISUAL_TARGET = 5
 SHORT_VISUAL_MAX = 6
 SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS = 18.0
+SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
+SHORT_LOCAL_AI_STILL_SECONDS = 8.0
 
 
 def _utc_now() -> str:
@@ -771,6 +773,73 @@ def _download_media(url: str, destination: Path) -> None:
         raise RuntimeError("empty_media")
 
 
+def _validated_local_short_ai_still() -> tuple[Path | None, str | None]:
+    """Resolve an optional local AI still without network/provider coupling."""
+    raw = str(os.environ.get("CLEAN_V2_SHORT_AI_STILL") or "").strip()
+    if not raw:
+        return None, None
+    path = Path(raw).expanduser()
+    try:
+        path = path.resolve()
+    except OSError:
+        return None, "invalid_local_ai_still_path"
+    if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        return None, "unsupported_local_ai_still_type"
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None, "local_ai_still_missing"
+    if size <= 0 or size > SHORT_LOCAL_AI_STILL_MAX_BYTES:
+        return None, "local_ai_still_size_invalid"
+    return path, None
+
+
+def _render_local_short_ai_still(source: Path, destination: Path) -> Path:
+    """Turn one local still into a restrained zero-cost portrait motion clip."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    vf = (
+        "scale=1080:1920:force_original_aspect_ratio=increase,"
+        "crop=1080:1920,"
+        "zoompan=z='min(pzoom+0.0006,1.06)':"
+        "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        "d=1:s=1080x1920:fps=30,format=yuv420p"
+    )
+    _run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-loop",
+            "1",
+            "-framerate",
+            "30",
+            "-i",
+            str(source),
+            "-vf",
+            vf,
+            "-t",
+            f"{SHORT_LOCAL_AI_STILL_SECONDS:g}",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "21",
+            "-pix_fmt",
+            "yuv420p",
+            str(destination),
+        ],
+        timeout=180,
+    )
+    if not destination.is_file() or destination.stat().st_size < 1024:
+        destination.unlink(missing_ok=True)
+        raise RuntimeError("local_ai_still_render_failed")
+    return destination
+
+
 def _pexels_file(video: Mapping[str, Any], *, portrait: bool) -> Mapping[str, Any] | None:
     files = [item for item in (video.get("video_files") or []) if isinstance(item, dict) and item.get("link")]
     if not files:
@@ -944,6 +1013,19 @@ class StockVisualSource:
         rights: list[dict[str, Any]] = []
         sections = list(plan.get("sections") or [])[: max(1, int(max_visuals))]
 
+        short_ai_still: Path | None = None
+        short_ai_still_used = False
+        if fmt == "short":
+            short_ai_still, still_reason = _validated_local_short_ai_still()
+            if still_reason:
+                self._event(
+                    "local_ai_still",
+                    "",
+                    "unavailable",
+                    wire_attempted=False,
+                    reason=still_reason,
+                )
+
         short_shots_by_section: dict[str, int] = {}
         if fmt == "short" and len(sections) == 3:
             measured_total = sum(
@@ -957,7 +1039,14 @@ class StockVisualSource:
             )
             # Five shots: hook/detail, turn, payoff/result => 2/1/2.
             # Six shots: two distinct stock assets per semantic section.
-            distribution = (2, 2, 2) if short_total_target == 6 else (2, 1, 2)
+            if short_total_target == 6:
+                distribution = (2, 2, 2)
+            elif short_ai_still is not None:
+                # Give the optional still the middle-section auxiliary slot
+                # without increasing the total beyond five.
+                distribution = (2, 2, 1)
+            else:
+                distribution = (2, 1, 2)
             short_shots_by_section = {
                 str(section.get("id") or ""): distribution[index]
                 for index, section in enumerate(sections)
@@ -1009,6 +1098,64 @@ class StockVisualSource:
                 return True
             return False
 
+        def _acquire_local_ai_still(section_id: str) -> bool:
+            nonlocal short_ai_still_used
+            if short_ai_still is None or short_ai_still_used:
+                return False
+            destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
+            try:
+                _render_local_short_ai_still(short_ai_still, destination)
+                if self.media_preflight is not None:
+                    blocked = self.media_preflight(destination)
+                    if blocked is not None:
+                        destination.unlink(missing_ok=True)
+                        self._event(
+                            "local_ai_still",
+                            "",
+                            "security_blocked",
+                            wire_attempted=False,
+                            reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
+                        )
+                        return False
+                if self.media_transform is not None:
+                    destination = Path(self.media_transform(destination))
+            except Exception as exc:
+                destination.unlink(missing_ok=True)
+                self._event(
+                    "local_ai_still",
+                    "",
+                    "failed",
+                    wire_attempted=False,
+                    reason=str(exc)[:80],
+                )
+                return False
+
+            short_ai_still_used = True
+            clips.append(destination)
+            rights.append(
+                {
+                    "provider": "generated_local_ai_still",
+                    "asset_id": _sha256(short_ai_still)[:16],
+                    "source_url": None,
+                    "creator": "local user-provided AI still",
+                    "creator_url": None,
+                    "query": None,
+                    "local_file": destination.name,
+                    "section_id": section_id,
+                    "pacing_auxiliary": True,
+                    "generation_cost": 0,
+                    "network_generation_calls": 0,
+                }
+            )
+            self._event(
+                "local_ai_still",
+                "",
+                "selected",
+                wire_attempted=False,
+                reason="zero_cost_local_insert",
+            )
+            return True
+
         for section in sections:
             query = str(section.get("visual_query_en") or "").strip()
             if not query:
@@ -1031,6 +1178,8 @@ class StockVisualSource:
                 # selecting the same provider asset twice.
                 shots = short_shots_by_section.get(section_id, 1)
                 for _ in range(max(0, shots - 1)):
+                    if section_id == "s2" and _acquire_local_ai_still(section_id):
+                        continue
                     if not _acquire_one(query, section_id, auxiliary=True):
                         break
             elif section_seconds is not None and section_seconds > PACING_MAX_SHOT_SECONDS:
