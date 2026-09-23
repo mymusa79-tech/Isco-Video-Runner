@@ -777,6 +777,50 @@ class RepairPatchSpanBrevityGuidanceTests(unittest.TestCase):
         self.assertIn(self.BREVITY_GUIDANCE, prompt)
 
 
+class RepairAddressEveryFlagGuidanceTests(unittest.TestCase):
+    """Run #20: the tone audit raised three independent flags (a preachy,
+    unprepared closing; an informal word 'أستنى'; and an awkward phrase
+    'أظل أُقف', both inside the hook). The accepted repair (Groq) fixed only
+    the closing and left the two hook-area naturalness flags untouched. The
+    mandatory full re-audit that follows still blocked on those two, and the
+    strict one-shot policy then failed the run - even though the model had
+    every permission it needed (s1 was an allowed patch target and the
+    schema allows up to 6 patches) to fix all three in the same response.
+    Both repair prompts must say explicitly that every listed flag - not
+    just one - must be addressed in the single attempt.
+    """
+
+    ADDRESS_EVERY_FLAG_GUIDANCE = "Fix EVERY concrete"
+
+    def test_tone_repair_prompt_asks_to_address_every_flag(self) -> None:
+        identity = {"opener": "", "closer": "", "transitions": ["أولاً", "ثم", "أخيرًا"]}
+        cta_plan = {"anchor_section_id": "", "spoken_text": ""}
+        prompt = _tone_repair_prompt(
+            brief=_brief(),
+            plan=_plan(),
+            script=_script(),
+            identity=identity,
+            cta_plan=cta_plan,
+            revision_note="- [tone] s2: garbled fragment noted",
+        )
+        self.assertIn(self.ADDRESS_EVERY_FLAG_GUIDANCE, prompt)
+        self.assertIn("not just one", prompt)
+
+    def test_factuality_repair_prompt_asks_to_address_every_flag(self) -> None:
+        identity = {"opener": "", "closer": "", "transitions": ["أولاً", "ثم", "أخيرًا"]}
+        cta_plan = {"anchor_section_id": "", "spoken_text": ""}
+        prompt = _factuality_repair_prompt(
+            brief=_brief(),
+            plan=_plan(),
+            script=_script(),
+            identity=identity,
+            cta_plan=cta_plan,
+            revision_note="- [factuality] s2: guarantee exceeds evidence",
+        )
+        self.assertIn(self.ADDRESS_EVERY_FLAG_GUIDANCE, prompt)
+        self.assertIn("not just one", prompt)
+
+
 class ProviderAccountingTests(unittest.TestCase):
     def test_local_unavailable_route_is_no_wire_and_does_not_take_attempt_number(self) -> None:
         def missing(_prompt: str, _tokens: int) -> dict:
@@ -4073,7 +4117,7 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
             self.assertIn("- [tone] viewer_retention_continuity:", prompt)
             self.assertIn("- [structural] duplicate_sentence", prompt)
             self.assertIn(
-                "Fix only the concrete factuality, tone/naturalness, and structural problems",
+                "Fix EVERY concrete factuality, tone/naturalness, and structural problem",
                 prompt,
             )
             self.assertIn("ALLOWED_PATCH_SECTION_IDS:", prompt)

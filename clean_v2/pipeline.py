@@ -1417,7 +1417,10 @@ ALLOWED_PATCH_SECTION_IDS:
 {targeted_structural}
 
 ONE_BOUNDED_TONE_REPAIR_CONTRACT:
-- Fix only the concrete tone/naturalness and structural problems listed in REVISION_NOTE.
+- Fix EVERY concrete tone/naturalness and structural problem listed in REVISION_NOTE, not just one
+  of them. This is your only repair attempt: the full audit runs again on whatever you return, and
+  any flag you leave unaddressed will still block the result exactly as if you had changed nothing.
+  Use as many of your patches as the listed flags require, up to the maximum below.
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 - Preserve the section count, ids, order, title, and each section's role.
@@ -1622,7 +1625,10 @@ ALLOWED_PATCH_SECTION_IDS:
 {targeted_structural}
 
 ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
-- Fix only the concrete factuality, tone/naturalness, and structural problems listed in REVISION_NOTE.
+- Fix EVERY concrete factuality, tone/naturalness, and structural problem listed in REVISION_NOTE,
+  not just one of them. This is your only repair attempt: the full audit runs again on whatever you
+  return, and any flag you leave unaddressed will still block the result exactly as if you had
+  changed nothing. Use as many of your patches as the listed flags require, up to the maximum below.
 - For each [factuality] issue, weaken, qualify, or remove only the offending wording so the claim
   does not exceed the evidence in the approved research pack.
 - For each [tone] issue, repair only the flagged narration flow, naturalness, preachiness, or
