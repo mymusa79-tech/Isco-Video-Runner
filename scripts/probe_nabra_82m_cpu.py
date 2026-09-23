@@ -58,6 +58,52 @@ PRONUNCIATION_PATCH_CANDIDATES = (
 )
 
 
+PUNCTUATION_CHARS = set(",.;:!?—…")
+
+
+def add_model_native_prosody_punctuation(phonemes: str) -> str:
+    """Restore semantic punctuation *inside* the Kokoro/Nabra phoneme stream.
+
+    Arabic espeak G2P preserves sentence dots but drops most commas and other
+    prosody punctuation. Kokoro has learned punctuation tokens, so we restore
+    only punctuation while keeping all lexical phonemes untouched.
+    """
+    out = phonemes
+
+    replacements = (
+        # Small reflective beat after the opening adverb.
+        ("ʔˈaħjaːnˌan ", "ʔˈaħjaːnˌan, "),
+        # Let the first reframe land without synthesizing a new sentence.
+        ("ʤadˈiːdat. ", "ʤadˈiːdat… "),
+        # Emphasize the core phrase but keep one continuous breath.
+        ("saːdˈiqat ", "saːdˈiqat, "),
+        # Action line gets a reflective transition into the closing idea.
+        ("aljˈaum. faːl", "aljˈaum… faːl"),
+        # Natural micro-beats inside the final thought.
+        ("alhˈaːdiʔ ", "alhˈaːdiʔ, "),
+        ("kullˌa jˈaum ", "kullˌa jˈaum, "),
+    )
+
+    for source, target in replacements:
+        if out.count(source) != 1:
+            raise RuntimeError(
+                f"prosody punctuation target must occur exactly once: {source!r}"
+            )
+        out = out.replace(source, target, 1)
+
+    # Safety proof: removing punctuation must recover the exact same lexical
+    # phoneme stream (whitespace normalized). No pronunciation may change here.
+    def lexical_only(value: str) -> str:
+        return " ".join(
+            "".join(ch for ch in value if ch not in PUNCTUATION_CHARS).split()
+        )
+
+    if lexical_only(out) != lexical_only(phonemes):
+        raise RuntimeError("prosody punctuation changed lexical phonemes")
+
+    return out
+
+
 def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
     """Gently fade the model's phrase-start onset without cutting speech.
 
@@ -320,6 +366,25 @@ def main() -> int:
     selective_final_path = output / "11-nabra-selective-pronunciation-mix-ready.wav"
     mix_ready(selective_raw_path, selective_final_path)
 
+    prosody_phonemes = add_model_native_prosody_punctuation(patched_phonemes)
+    prosody_started = time.perf_counter()
+    with torch.inference_mode():
+        prosody_output = KPipeline.infer(
+            model,
+            prosody_phonemes,
+            voice.to(model.device),
+            speed=NATIVE_SPEED,
+        )
+    prosody_seconds = time.perf_counter() - prosody_started
+    prosody_audio = prosody_output.audio.detach().cpu().numpy().astype(np.float32)
+    # One and only model onset for the full passage.
+    prosody_audio = soften_segment_onset(prosody_audio)
+
+    prosody_raw_path = output / "16-nabra-native-punctuation-prosody-raw.wav"
+    sf.write(prosody_raw_path, prosody_audio, SAMPLE_RATE, subtype="PCM_16")
+    prosody_final_path = output / "17-nabra-native-punctuation-prosody-mix-ready.wav"
+    mix_ready(prosody_raw_path, prosody_final_path)
+
     if selective_output.pred_dur is None:
         raise RuntimeError("Nabra did not return pred_dur; cannot add safe post-generation pauses")
     human_audio, human_pauses = insert_human_pauses_from_pred_dur(
@@ -399,6 +464,12 @@ def main() -> int:
         "selective_synthesis_seconds": round(selective_seconds, 3),
         "selective_raw_wav": wav_info(selective_raw_path),
         "selective_mix_ready_wav": wav_info(selective_final_path),
+        "native_punctuation_phonemes": prosody_phonemes,
+        "native_punctuation_lexical_phonemes_unchanged": True,
+        "native_punctuation_single_inference": True,
+        "native_punctuation_synthesis_seconds": round(prosody_seconds, 3),
+        "native_punctuation_raw_wav": wav_info(prosody_raw_path),
+        "native_punctuation_mix_ready_wav": wav_info(prosody_final_path),
         "human_pause_insertions": human_pauses,
         "human_pause_requested_samples": requested_pause_samples,
         "human_pause_actual_added_samples": actual_added_samples,
@@ -420,6 +491,9 @@ def main() -> int:
             "selective sample starts from Nabra G2P for the entire passage",
             "only exact known-bad phoneme spans may be patched; all other phonemes are asserted unchanged",
             "selective sample is one continuous inference call, so there is no repeated sentence-start onset",
+            "native-punctuation sample changes punctuation tokens only; lexical phonemes are invariant",
+            "native-punctuation sample has zero waveform splices and zero post-generation silence insertion",
+            "native-punctuation sample is one continuous inference call, preventing repeated sentence onsets",
             "human-pause version uses pred_dur only as an approximate locator, then snaps to a low-energy zero crossing",
             "human-pause version does not regenerate or modify any speech samples; unsafe splice points fail closed",
             "pause durations are exact sample-count contracts, not model-estimated timing",
