@@ -232,7 +232,7 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             ShortFormatError,
-            "inner_dialogue_not_reflective",
+            "inner_dialogue_hook_not_readable",
         ):
             validate_short_visual_queries(generic, fixture["brief"])
 
@@ -245,7 +245,8 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn("VISUAL_QUERY_DIRECTION", prompt)
                 self.assertIn(selection["visual_query_directive"], prompt)
                 self.assertIn("visibly different dominant actions or states", prompt)
-                self.assertIn("active friction/decision", prompt)
+                self.assertIn("scroll-stop visual beat", prompt)
+                self.assertIn("active pressure", prompt)
                 self.assertIn(f"selected_template={expected}", prompt)
                 self.assertIn("return an empty CTA string", prompt)
                 self.assertEqual(selection["extra_ai_calls"], 0)
