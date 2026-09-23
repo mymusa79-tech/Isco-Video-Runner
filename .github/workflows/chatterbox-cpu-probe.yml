@@ -1,0 +1,69 @@
+name: Chatterbox CPU Probe
+
+on:
+  push:
+    branches:
+      - probe/chatterbox-cpu-20260923
+    paths:
+      - "scripts/probe_chatterbox_cpu.py"
+      - ".github/workflows/chatterbox-cpu-probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: multilingual-v3-cpu
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout probe branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Show runner resources
+        run: |
+          python --version
+          nproc
+          free -h
+          df -h /
+
+      - name: Install system audio dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsndfile1
+
+      - name: Install pinned Chatterbox upstream
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install             "git+https://github.com/resemble-ai/chatterbox.git@5de7a54aa4e5e2baadb0182dde554908b48b85c2"             psutil             soundfile
+
+      - name: Run isolated Arabic CPU probe
+        id: probe
+        run: |
+          /usr/bin/time -v python scripts/probe_chatterbox_cpu.py 2>&1 | tee chatterbox-probe.log
+          test ${PIPESTATUS[0]} -eq 0
+
+      - name: Print probe result
+        if: always()
+        run: |
+          echo "===== probe JSON ====="
+          cat probe_artifacts/chatterbox-cpu-probe.json || true
+          echo "===== end probe JSON ====="
+
+      - name: Upload probe artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatterbox-cpu-probe
+          path: |
+            probe_artifacts/
+            chatterbox-probe.log
+          if-no-files-found: warn
+          retention-days: 7
