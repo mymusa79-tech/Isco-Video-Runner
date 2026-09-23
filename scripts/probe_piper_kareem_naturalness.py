@@ -481,6 +481,68 @@ ALIVE_VARIANTS = (
 )
 
 
+# Refinement based on listener preference for 20-alive-pulse:
+# keep its lively dry character, soften the tone slightly, and break the
+# "everything sounds the same" cadence with short human micro-pauses around
+# important words plus stronger speed/dynamics contrast between phrases.
+HUMAN_PULSE_TEXTS = (
+    "أحيانًا، لا تحتاج إلى بِداية جديدة",
+    "بل تحتاج إلى خُطوة صادقة تعيدك إلى طريقك.",
+    "لا تنتظر أن يأتي الدافع كاملًا.",
+    "ابدأ",
+    "بما تستطيع اليوم.",
+    "فالاستمرار الهادئ، حين يتكرر كل يوم",
+    "يصنع فرقًا أكبر مما تتخيل.",
+)
+
+HUMAN_PULSE_VARIANTS = (
+    {
+        "name": "22-human-pulse-soft",
+        "profiles": (
+            {"length_scale": 0.96, "noise_scale": 0.58, "noise_w_scale": 0.80, "gain_db": 0.3},
+            {"length_scale": 1.04, "noise_scale": 0.52, "noise_w_scale": 0.68, "gain_db": -0.2},
+            {"length_scale": 1.06, "noise_scale": 0.46, "noise_w_scale": 0.58, "gain_db": -0.6},
+            {"length_scale": 0.88, "noise_scale": 0.70, "noise_w_scale": 0.96, "gain_db": 1.2},
+            {"length_scale": 0.96, "noise_scale": 0.62, "noise_w_scale": 0.84, "gain_db": 0.6},
+            {"length_scale": 1.08, "noise_scale": 0.49, "noise_w_scale": 0.64, "gain_db": -0.3},
+            {"length_scale": 1.03, "noise_scale": 0.58, "noise_w_scale": 0.78, "gain_db": 0.1},
+        ),
+        "pauses_ms": (150, 430, 360, 125, 520, 240),
+        "master_filter": (
+            "highpass=f=64,"
+            "equalizer=f=210:t=q:w=1.10:g=-1.6,"
+            "equalizer=f=2850:t=q:w=1.0:g=-0.8,"
+            "equalizer=f=5000:t=q:w=0.9:g=-1.0,"
+            "volume=2.6dB,"
+            "alimiter=limit=0.86,"
+            "aresample=48000"
+        ),
+    },
+    {
+        "name": "23-human-pulse-varied",
+        "profiles": (
+            {"length_scale": 0.93, "noise_scale": 0.62, "noise_w_scale": 0.86, "gain_db": 0.6},
+            {"length_scale": 1.06, "noise_scale": 0.50, "noise_w_scale": 0.66, "gain_db": -0.4},
+            {"length_scale": 1.08, "noise_scale": 0.44, "noise_w_scale": 0.56, "gain_db": -0.8},
+            {"length_scale": 0.85, "noise_scale": 0.74, "noise_w_scale": 1.00, "gain_db": 1.4},
+            {"length_scale": 0.93, "noise_scale": 0.66, "noise_w_scale": 0.90, "gain_db": 0.8},
+            {"length_scale": 1.10, "noise_scale": 0.47, "noise_w_scale": 0.62, "gain_db": -0.5},
+            {"length_scale": 1.01, "noise_scale": 0.61, "noise_w_scale": 0.84, "gain_db": 0.2},
+        ),
+        "pauses_ms": (120, 470, 390, 110, 560, 260),
+        "master_filter": (
+            "highpass=f=64,"
+            "equalizer=f=210:t=q:w=1.10:g=-1.5,"
+            "equalizer=f=2800:t=q:w=1.0:g=-0.9,"
+            "equalizer=f=5000:t=q:w=0.9:g=-1.1,"
+            "volume=2.5dB,"
+            "alimiter=limit=0.87,"
+            "aresample=48000"
+        ),
+    },
+)
+
+
 @dataclass
 class WavInfo:
     duration_seconds: float
@@ -701,6 +763,46 @@ def _synthesize_alive(
                     ],
                     check=True,
                 )
+            phrase_paths.append(path)
+
+        _concat(phrase_paths, output, pauses_ms=list(pauses_ms))
+
+
+def _synthesize_human_pulse(
+    voice: PiperVoice,
+    output: Path,
+    *,
+    profiles: tuple[dict, ...],
+    pauses_ms: tuple[int, ...],
+) -> None:
+    if len(HUMAN_PULSE_TEXTS) != len(profiles):
+        raise RuntimeError(
+            f"human pulse profile mismatch: phrases={len(HUMAN_PULSE_TEXTS)} profiles={len(profiles)}"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="piper-human-pulse-") as tmp:
+        phrase_paths: list[Path] = []
+        for index, (phrase, profile) in enumerate(zip(HUMAN_PULSE_TEXTS, profiles)):
+            raw_path = Path(tmp) / f"{index:02d}-raw.wav"
+            path = Path(tmp) / f"{index:02d}.wav"
+            config = SynthesisConfig(
+                length_scale=float(profile["length_scale"]),
+                noise_scale=float(profile["noise_scale"]),
+                noise_w_scale=float(profile["noise_w_scale"]),
+            )
+            with wave.open(str(raw_path), "wb") as wav:
+                voice.synthesize_wav(phrase, wav, syn_config=config)
+
+            gain_db = float(profile.get("gain_db") or 0.0)
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", str(raw_path),
+                    "-af", f"volume={gain_db:+.3f}dB",
+                    "-c:a", "pcm_s16le", str(path),
+                ],
+                check=True,
+            )
             phrase_paths.append(path)
 
         _concat(phrase_paths, output, pauses_ms=list(pauses_ms))
@@ -933,6 +1035,37 @@ def main() -> int:
             }
         )
 
+    for variant in HUMAN_PULSE_VARIANTS:
+        final_path = output / f'{variant["name"]}.wav'
+        with tempfile.TemporaryDirectory(prefix="piper-human-pulse-master-") as tmp:
+            raw_path = Path(tmp) / "raw.wav"
+            started = time.perf_counter()
+            _synthesize_human_pulse(
+                voice,
+                raw_path,
+                profiles=variant["profiles"],
+                pauses_ms=variant["pauses_ms"],
+            )
+            _lighten_timbre(
+                raw_path,
+                final_path,
+                audio_filter=str(variant["master_filter"]),
+            )
+            generation_seconds = time.perf_counter() - started
+
+        info = wav_info(final_path)
+        results.append(
+            {
+                **variant,
+                "mode": "preferred_20_soft_tone_human_micro_pauses_varied_delivery",
+                "performance_texts": HUMAN_PULSE_TEXTS,
+                "generation_seconds": round(generation_seconds, 3),
+                "realtime_factor": round(generation_seconds / info.duration_seconds, 3),
+                "wav": asdict(info),
+                "path": str(final_path),
+            }
+        )
+
     report = {
         "status": "success",
         "voice": "ar_JO-kareem-medium",
@@ -950,12 +1083,13 @@ def main() -> int:
             "problem_3": "09_pronunciation_feels_compressed_and_too_serious_for_channel",
             "target_comparison": "mixed target suggests lighter pitch and wider motion; exact F0 is partially confounded by background music; target master measures about -16.1 LUFS and -1.2 dBTP",
             "comfort_followup": "remove_prior_3k_presence_boost_use_formant_preserved_pitch_and_no_extra_compressor",
+            "preferred_20_followup": "soften_tone_slightly_and_break_similar_delivery_with_human_micro_pauses_and_speed_contrast",
         },
         "decision_rule": (
-            "14 is the closest dry Piper direction. Compare 18/19/20 against 14. "
-            "Prefer the lowest pitch lift that becomes repeat-listenable: preserved formants, "
-            "softened 3-5 kHz presence, real semantic breathing, no extra compressor, and "
-            "a 48 kHz master near -16 LUFS."
+            "20-alive-pulse is listener-preferred. Compare 22/23 only against that 20. "
+            "Keep its liveliness while softening the tone and making each thought feel different: "
+            "fast emphasis on key words, calmer reflective phrases, brief micro-pauses inside ideas, "
+            "and longer pauses only after completed thoughts."
         ),
     }
     report_path = output / "piper-kareem-naturalness-report.json"
