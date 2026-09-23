@@ -115,6 +115,24 @@ def _phrase_chunks(text: object) -> list[str]:
             cursor += size
             if piece:
                 chunks.append(" ".join(piece))
+
+    # Avoid one-word flashes when punctuation created a tiny standalone
+    # sentence. Merge locally when a neighbor still stays within five words.
+    index = 0
+    while len(chunks) > 1 and index < len(chunks):
+        if len(chunks[index].split()) >= CAPTION_MIN_WORDS:
+            index += 1
+            continue
+        if index > 0 and len(chunks[index - 1].split()) < CAPTION_MAX_WORDS:
+            chunks[index - 1] = f"{chunks[index - 1]} {chunks[index]}"
+            chunks.pop(index)
+            continue
+        if index + 1 < len(chunks) and len(chunks[index + 1].split()) < CAPTION_MAX_WORDS:
+            chunks[index] = f"{chunks[index]} {chunks[index + 1]}"
+            chunks.pop(index + 1)
+            index += 1
+            continue
+        index += 1
     return chunks
 
 
@@ -213,7 +231,6 @@ def build_events_from_section_audio(
     if not isinstance(sections, list) or len(sections) != 3:
         raise ShortTimedTextError("short_timed_text_requires_exactly_three_sections")
 
-    roles = ("hook", "beat", "payoff")
     durations: list[float] = []
     for index in range(1, 4):
         path = Path(audio_dir) / f"{index:02d}.wav"
