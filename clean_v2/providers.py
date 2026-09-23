@@ -496,16 +496,21 @@ def _mistral_planning_response_schema(prompt: str) -> dict[str, Any]:
         cta_schema = {"type": "string"}
     else:
         cta_schema = dict(non_blank_string)
+    section_properties = {
+        # validate_plan() deliberately synthesizes sN when id is omitted.
+        "id": dict(non_blank_string),
+        "heading": dict(non_blank_string),
+        "purpose": dict(non_blank_string),
+        "visual_query_en": dict(non_blank_string),
+    }
+    section_required = ["heading", "purpose", "visual_query_en"]
+    if fmt == "short":
+        section_properties["visual_query_alt_en"] = dict(non_blank_string)
+        section_required.append("visual_query_alt_en")
     section_schema = {
         "type": "object",
-        "properties": {
-            # validate_plan() deliberately synthesizes sN when id is omitted.
-            "id": dict(non_blank_string),
-            "heading": dict(non_blank_string),
-            "purpose": dict(non_blank_string),
-            "visual_query_en": dict(non_blank_string),
-        },
-        "required": ["heading", "purpose", "visual_query_en"],
+        "properties": section_properties,
+        "required": section_required,
         "additionalProperties": False,
     }
     return {
