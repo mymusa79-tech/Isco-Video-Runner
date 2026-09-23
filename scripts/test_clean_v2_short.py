@@ -246,7 +246,15 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn(selection["visual_query_directive"], prompt)
                 self.assertIn("visibly different dominant actions or states", prompt)
                 self.assertIn("scroll-stop visual beat", prompt)
-                self.assertIn("active pressure", prompt)
+                self.assertIn("must not feel visually flat", prompt)
+                if expected == "why_reframe":
+                    self.assertIn("visually unresolved", prompt)
+                elif expected == "inner_dialogue":
+                    self.assertIn("do NOT make the hook visually calm", prompt)
+                elif expected == "micro_story":
+                    self.assertIn("action or event already in motion", prompt)
+                elif expected == "quote_reflection":
+                    self.assertIn("visually arresting through composition rather than frantic motion", prompt)
                 self.assertIn(f"selected_template={expected}", prompt)
                 self.assertIn("return an empty CTA string", prompt)
                 self.assertEqual(selection["extra_ai_calls"], 0)
