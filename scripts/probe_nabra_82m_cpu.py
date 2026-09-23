@@ -104,6 +104,40 @@ def add_model_native_prosody_punctuation(phonemes: str) -> str:
     return out
 
 
+def add_model_native_structural_prosody(phonemes: str) -> str:
+    """Use only Kokoro-native punctuation tokens to create stronger breathing room.
+
+    No waveform editing, no sentence re-synthesis, no external silence. Repeated
+    em-dash markers are a structural prosody cue inside the same model call.
+    """
+    out = phonemes
+    replacements = (
+        ("ʔˈaħjaːnˌan ", "ʔˈaħjaːnˌan, "),
+        ("ʤadˈiːdat. ", "ʤadˈiːdat — "),
+        ("saːdˈiqat ", "saːdˈiqat, "),
+        ("tarˈiːqikˌa. ", "tarˈiːqikˌa — "),
+        ("kaːmˌilan. ", "kaːmˌilan… "),
+        ("aljˈaum. faːl", "aljˈaum — — faːl"),
+        ("alhˈaːdiʔ ", "alhˈaːdiʔ, "),
+        ("kullˌa jˈaum ", "kullˌa jˈaum, "),
+    )
+    for source, target in replacements:
+        if out.count(source) != 1:
+            raise RuntimeError(
+                f"structural prosody target must occur exactly once: {source!r}"
+            )
+        out = out.replace(source, target, 1)
+
+    def lexical_only(value: str) -> str:
+        return " ".join(
+            "".join(ch for ch in value if ch not in PUNCTUATION_CHARS).split()
+        )
+
+    if lexical_only(out) != lexical_only(phonemes):
+        raise RuntimeError("structural prosody changed lexical phonemes")
+    return out
+
+
 def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
     """Gently fade the model's phrase-start onset without cutting speech.
 
@@ -385,6 +419,24 @@ def main() -> int:
     prosody_final_path = output / "17-nabra-native-punctuation-prosody-mix-ready.wav"
     mix_ready(prosody_raw_path, prosody_final_path)
 
+    structural_phonemes = add_model_native_structural_prosody(patched_phonemes)
+    structural_started = time.perf_counter()
+    with torch.inference_mode():
+        structural_output = KPipeline.infer(
+            model,
+            structural_phonemes,
+            voice.to(model.device),
+            speed=NATIVE_SPEED,
+        )
+    structural_seconds = time.perf_counter() - structural_started
+    structural_audio = structural_output.audio.detach().cpu().numpy().astype(np.float32)
+    structural_audio = soften_segment_onset(structural_audio)
+
+    structural_raw_path = output / "18-nabra-native-structural-prosody-raw.wav"
+    sf.write(structural_raw_path, structural_audio, SAMPLE_RATE, subtype="PCM_16")
+    structural_final_path = output / "19-nabra-native-structural-prosody-mix-ready.wav"
+    mix_ready(structural_raw_path, structural_final_path)
+
     if selective_output.pred_dur is None:
         raise RuntimeError("Nabra did not return pred_dur; cannot add safe post-generation pauses")
     human_audio, human_pauses = insert_human_pauses_from_pred_dur(
@@ -470,6 +522,13 @@ def main() -> int:
         "native_punctuation_synthesis_seconds": round(prosody_seconds, 3),
         "native_punctuation_raw_wav": wav_info(prosody_raw_path),
         "native_punctuation_mix_ready_wav": wav_info(prosody_final_path),
+        "native_structural_phonemes": structural_phonemes,
+        "native_structural_lexical_phonemes_unchanged": True,
+        "native_structural_single_inference": True,
+        "native_structural_zero_waveform_splices": True,
+        "native_structural_synthesis_seconds": round(structural_seconds, 3),
+        "native_structural_raw_wav": wav_info(structural_raw_path),
+        "native_structural_mix_ready_wav": wav_info(structural_final_path),
         "human_pause_insertions": human_pauses,
         "human_pause_requested_samples": requested_pause_samples,
         "human_pause_actual_added_samples": actual_added_samples,
@@ -494,6 +553,8 @@ def main() -> int:
             "native-punctuation sample changes punctuation tokens only; lexical phonemes are invariant",
             "native-punctuation sample has zero waveform splices and zero post-generation silence insertion",
             "native-punctuation sample is one continuous inference call, preventing repeated sentence onsets",
+            "native-structural sample uses Kokoro punctuation tokens only, including em-dash structural beats",
+            "native-structural sample has zero waveform edits and one continuous inference call",
             "human-pause version uses pred_dur only as an approximate locator, then snaps to a low-energy zero crossing",
             "human-pause version does not regenerate or modify any speech samples; unsafe splice points fail closed",
             "pause durations are exact sample-count contracts, not model-estimated timing",
