@@ -543,6 +543,64 @@ HUMAN_PULSE_VARIANTS = (
 )
 
 
+# Final articulation refinement from listener-selected 23.
+# Overall pace stays near 23; only articulation flow changes. "اِبْدَأْ" is
+# kept inside its full phrase so it is not synthesized as an isolated fragment.
+ARTICULATION_TEXTS = (
+    "أحيانًا، لا تحتاج إلى بِداية جديدة",
+    "بل تحتاج إلى خُطوة صادقة تعيدك إلى طريقك.",
+    "لا تنتظر أن يأتي الدافع كاملًا.",
+    "اِبْدَأْ بما تستطيع اليوم.",
+    "فالاستمرار الهادئ، حين يتكرر كل يوم",
+    "يصنع فرقًا أكبر مما تتخيل.",
+)
+
+ARTICULATION_VARIANTS = (
+    {
+        "name": "24-articulation-clear-flow",
+        "profiles": (
+            {"length_scale": 0.92, "noise_scale": 0.58, "noise_w_scale": 0.82, "gain_db": 0.5},
+            {"length_scale": 1.03, "noise_scale": 0.49, "noise_w_scale": 0.64, "gain_db": -0.3},
+            {"length_scale": 1.05, "noise_scale": 0.43, "noise_w_scale": 0.55, "gain_db": -0.7},
+            {"length_scale": 0.97, "noise_scale": 0.54, "noise_w_scale": 0.72, "gain_db": 0.8},
+            {"length_scale": 1.07, "noise_scale": 0.47, "noise_w_scale": 0.61, "gain_db": -0.4},
+            {"length_scale": 0.98, "noise_scale": 0.59, "noise_w_scale": 0.80, "gain_db": 0.2},
+        ),
+        "pauses_ms": (120, 470, 390, 520, 260),
+        "master_filter": (
+            "highpass=f=64,"
+            "equalizer=f=210:t=q:w=1.10:g=-1.5,"
+            "equalizer=f=2800:t=q:w=1.0:g=-0.9,"
+            "equalizer=f=5000:t=q:w=0.9:g=-1.1,"
+            "volume=2.5dB,"
+            "alimiter=limit=0.87,"
+            "aresample=48000"
+        ),
+    },
+    {
+        "name": "25-articulation-natural-flow",
+        "profiles": (
+            {"length_scale": 0.90, "noise_scale": 0.60, "noise_w_scale": 0.84, "gain_db": 0.6},
+            {"length_scale": 1.02, "noise_scale": 0.50, "noise_w_scale": 0.66, "gain_db": -0.2},
+            {"length_scale": 1.04, "noise_scale": 0.44, "noise_w_scale": 0.56, "gain_db": -0.6},
+            {"length_scale": 0.95, "noise_scale": 0.56, "noise_w_scale": 0.75, "gain_db": 0.9},
+            {"length_scale": 1.06, "noise_scale": 0.48, "noise_w_scale": 0.63, "gain_db": -0.3},
+            {"length_scale": 0.96, "noise_scale": 0.61, "noise_w_scale": 0.82, "gain_db": 0.3},
+        ),
+        "pauses_ms": (110, 480, 380, 530, 250),
+        "master_filter": (
+            "highpass=f=64,"
+            "equalizer=f=210:t=q:w=1.10:g=-1.5,"
+            "equalizer=f=2800:t=q:w=1.0:g=-0.9,"
+            "equalizer=f=5000:t=q:w=0.9:g=-1.1,"
+            "volume=2.5dB,"
+            "alimiter=limit=0.87,"
+            "aresample=48000"
+        ),
+    },
+)
+
+
 @dataclass
 class WavInfo:
     duration_seconds: float
@@ -783,6 +841,46 @@ def _synthesize_human_pulse(
     with tempfile.TemporaryDirectory(prefix="piper-human-pulse-") as tmp:
         phrase_paths: list[Path] = []
         for index, (phrase, profile) in enumerate(zip(HUMAN_PULSE_TEXTS, profiles)):
+            raw_path = Path(tmp) / f"{index:02d}-raw.wav"
+            path = Path(tmp) / f"{index:02d}.wav"
+            config = SynthesisConfig(
+                length_scale=float(profile["length_scale"]),
+                noise_scale=float(profile["noise_scale"]),
+                noise_w_scale=float(profile["noise_w_scale"]),
+            )
+            with wave.open(str(raw_path), "wb") as wav:
+                voice.synthesize_wav(phrase, wav, syn_config=config)
+
+            gain_db = float(profile.get("gain_db") or 0.0)
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", str(raw_path),
+                    "-af", f"volume={gain_db:+.3f}dB",
+                    "-c:a", "pcm_s16le", str(path),
+                ],
+                check=True,
+            )
+            phrase_paths.append(path)
+
+        _concat(phrase_paths, output, pauses_ms=list(pauses_ms))
+
+
+def _synthesize_articulation(
+    voice: PiperVoice,
+    output: Path,
+    *,
+    profiles: tuple[dict, ...],
+    pauses_ms: tuple[int, ...],
+) -> None:
+    if len(ARTICULATION_TEXTS) != len(profiles):
+        raise RuntimeError(
+            f"articulation profile mismatch: phrases={len(ARTICULATION_TEXTS)} profiles={len(profiles)}"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="piper-articulation-") as tmp:
+        phrase_paths: list[Path] = []
+        for index, (phrase, profile) in enumerate(zip(ARTICULATION_TEXTS, profiles)):
             raw_path = Path(tmp) / f"{index:02d}-raw.wav"
             path = Path(tmp) / f"{index:02d}.wav"
             config = SynthesisConfig(
@@ -1059,6 +1157,37 @@ def main() -> int:
                 **variant,
                 "mode": "preferred_20_soft_tone_human_micro_pauses_varied_delivery",
                 "performance_texts": HUMAN_PULSE_TEXTS,
+                "generation_seconds": round(generation_seconds, 3),
+                "realtime_factor": round(generation_seconds / info.duration_seconds, 3),
+                "wav": asdict(info),
+                "path": str(final_path),
+            }
+        )
+
+    for variant in ARTICULATION_VARIANTS:
+        final_path = output / f'{variant["name"]}.wav'
+        with tempfile.TemporaryDirectory(prefix="piper-articulation-master-") as tmp:
+            raw_path = Path(tmp) / "raw.wav"
+            started = time.perf_counter()
+            _synthesize_articulation(
+                voice,
+                raw_path,
+                profiles=variant["profiles"],
+                pauses_ms=variant["pauses_ms"],
+            )
+            _lighten_timbre(
+                raw_path,
+                final_path,
+                audio_filter=str(variant["master_filter"]),
+            )
+            generation_seconds = time.perf_counter() - started
+
+        info = wav_info(final_path)
+        results.append(
+            {
+                **variant,
+                "mode": "preferred_23_same_overall_pace_clearer_articulation",
+                "performance_texts": ARTICULATION_TEXTS,
                 "generation_seconds": round(generation_seconds, 3),
                 "realtime_factor": round(generation_seconds / info.duration_seconds, 3),
                 "wav": asdict(info),
