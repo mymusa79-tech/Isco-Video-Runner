@@ -254,6 +254,74 @@ PERFORMANCE_VARIANTS = (
 )
 
 
+# Acoustic comparison against the user-provided target short showed three
+# dominant gaps versus variant 14: much wider intonation, substantially longer
+# idea-level pauses, and a finished loudness/mastering profile near -16 LUFS.
+# These variants keep 14's lighter timbre but add only those three properties.
+TARGET_MATCH_VARIANTS = (
+    {
+        "name": "15-target-comfort-balanced",
+        "profiles": (
+            {"length_scale": 0.99, "noise_scale": 0.48, "noise_w_scale": 0.62, "pitch_ratio": 1.032},
+            {"length_scale": 1.06, "noise_scale": 0.50, "noise_w_scale": 0.68, "pitch_ratio": 1.012},
+            {"length_scale": 0.97, "noise_scale": 0.49, "noise_w_scale": 0.64, "pitch_ratio": 1.045},
+            {"length_scale": 1.01, "noise_scale": 0.54, "noise_w_scale": 0.72, "pitch_ratio": 1.025},
+            {"length_scale": 1.08, "noise_scale": 0.50, "noise_w_scale": 0.66, "pitch_ratio": 1.004},
+            {"length_scale": 1.04, "noise_scale": 0.54, "noise_w_scale": 0.72, "pitch_ratio": 0.994},
+        ),
+        "pauses_ms": (300, 850, 280, 760, 360),
+        "eq_filter": (
+            "highpass=f=76,"
+            "equalizer=f=220:t=q:w=1.10:g=-3.6,"
+            "equalizer=f=450:t=q:w=1.0:g=-1.0,"
+            "equalizer=f=3150:t=q:w=1.0:g=1.4,"
+            "acompressor=threshold=-20dB:ratio=1.6:attack=18:release=150:makeup=1.4dB,"
+            "loudnorm=I=-16:LRA=3:TP=-1.5"
+        ),
+    },
+    {
+        "name": "16-target-comfort-gentle",
+        "profiles": (
+            {"length_scale": 1.01, "noise_scale": 0.46, "noise_w_scale": 0.58, "pitch_ratio": 1.028},
+            {"length_scale": 1.08, "noise_scale": 0.48, "noise_w_scale": 0.64, "pitch_ratio": 1.010},
+            {"length_scale": 0.99, "noise_scale": 0.47, "noise_w_scale": 0.60, "pitch_ratio": 1.040},
+            {"length_scale": 1.03, "noise_scale": 0.51, "noise_w_scale": 0.68, "pitch_ratio": 1.022},
+            {"length_scale": 1.10, "noise_scale": 0.48, "noise_w_scale": 0.62, "pitch_ratio": 1.002},
+            {"length_scale": 1.06, "noise_scale": 0.52, "noise_w_scale": 0.70, "pitch_ratio": 0.992},
+        ),
+        "pauses_ms": (330, 930, 300, 840, 390),
+        "eq_filter": (
+            "highpass=f=74,"
+            "equalizer=f=220:t=q:w=1.10:g=-3.4,"
+            "equalizer=f=440:t=q:w=1.0:g=-0.9,"
+            "equalizer=f=3050:t=q:w=1.0:g=1.2,"
+            "acompressor=threshold=-20dB:ratio=1.5:attack=22:release=170:makeup=1.3dB,"
+            "loudnorm=I=-16:LRA=3:TP=-1.5"
+        ),
+    },
+    {
+        "name": "17-target-comfort-expressive",
+        "profiles": (
+            {"length_scale": 0.98, "noise_scale": 0.50, "noise_w_scale": 0.66, "pitch_ratio": 1.040},
+            {"length_scale": 1.05, "noise_scale": 0.52, "noise_w_scale": 0.72, "pitch_ratio": 1.014},
+            {"length_scale": 0.96, "noise_scale": 0.51, "noise_w_scale": 0.69, "pitch_ratio": 1.052},
+            {"length_scale": 1.00, "noise_scale": 0.56, "noise_w_scale": 0.76, "pitch_ratio": 1.030},
+            {"length_scale": 1.07, "noise_scale": 0.52, "noise_w_scale": 0.70, "pitch_ratio": 1.000},
+            {"length_scale": 1.03, "noise_scale": 0.57, "noise_w_scale": 0.76, "pitch_ratio": 0.988},
+        ),
+        "pauses_ms": (270, 780, 250, 710, 330),
+        "eq_filter": (
+            "highpass=f=78,"
+            "equalizer=f=220:t=q:w=1.10:g=-3.7,"
+            "equalizer=f=450:t=q:w=1.0:g=-1.1,"
+            "equalizer=f=3250:t=q:w=1.0:g=1.5,"
+            "acompressor=threshold=-20dB:ratio=1.7:attack=16:release=135:makeup=1.5dB,"
+            "loudnorm=I=-16:LRA=3:TP=-1.5"
+        ),
+    },
+)
+
+
 @dataclass
 class WavInfo:
     duration_seconds: float
@@ -393,14 +461,41 @@ def _synthesize_performance(
     with tempfile.TemporaryDirectory(prefix="piper-performance-") as tmp:
         beat_paths: list[Path] = []
         for index, (beat, profile) in enumerate(zip(PERFORMANCE_TEXTS, profiles)):
+            raw_path = Path(tmp) / f"{index:02d}-raw.wav"
             path = Path(tmp) / f"{index:02d}.wav"
             config = SynthesisConfig(
                 length_scale=float(profile["length_scale"]),
                 noise_scale=float(profile["noise_scale"]),
                 noise_w_scale=float(profile["noise_w_scale"]),
             )
-            with wave.open(str(path), "wb") as wav:
+            with wave.open(str(raw_path), "wb") as wav:
                 voice.synthesize_wav(beat, wav, syn_config=config)
+
+            pitch_ratio = float(profile.get("pitch_ratio") or 1.0)
+            if abs(pitch_ratio - 1.0) < 0.0001:
+                path.write_bytes(raw_path.read_bytes())
+            else:
+                # Raise/lower each semantic beat slightly while preserving its
+                # duration. This creates sentence-to-sentence intonation without
+                # globally chipmunking or speeding up the voice.
+                tempo = 1.0 / pitch_ratio
+                subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-y",
+                        "-i",
+                        str(raw_path),
+                        "-af",
+                        f"asetrate=22050*{pitch_ratio:.6f},aresample=22050,atempo={tempo:.6f}",
+                        "-c:a",
+                        "pcm_s16le",
+                        str(path),
+                    ],
+                    check=True,
+                )
             beat_paths.append(path)
         _concat(beat_paths, output, pauses_ms=list(pauses_ms))
 
@@ -539,6 +634,37 @@ def main() -> int:
             }
         )
 
+    for variant in TARGET_MATCH_VARIANTS:
+        final_path = output / f'{variant["name"]}.wav'
+        with tempfile.TemporaryDirectory(prefix="piper-target-match-") as tmp:
+            raw_path = Path(tmp) / "raw.wav"
+            started = time.perf_counter()
+            _synthesize_performance(
+                voice,
+                raw_path,
+                profiles=variant["profiles"],
+                pauses_ms=variant["pauses_ms"],
+            )
+            _lighten_timbre(
+                raw_path,
+                final_path,
+                audio_filter=str(variant["eq_filter"]),
+            )
+            generation_seconds = time.perf_counter() - started
+
+        info = wav_info(final_path)
+        results.append(
+            {
+                **variant,
+                "mode": "target_guided_semantic_pitch_pauses_mastering",
+                "performance_texts": PERFORMANCE_TEXTS,
+                "generation_seconds": round(generation_seconds, 3),
+                "realtime_factor": round(generation_seconds / info.duration_seconds, 3),
+                "wav": asdict(info),
+                "path": str(final_path),
+            }
+        )
+
     report = {
         "status": "success",
         "voice": "ar_JO-kareem-medium",
@@ -554,12 +680,13 @@ def main() -> int:
             "problem_1": "voice_heavy_and_uncomfortable",
             "problem_2": "same_cadence_across_sentences",
             "problem_3": "09_pronunciation_feels_compressed_and_too_serious_for_channel",
+            "target_comparison": "target_has_longer_idea_pauses_wider_pitch_motion_and_finished_minus_16_lufs_mastering",
         },
         "decision_rule": (
-            "09 is the listener-selected timbre direction. Compare 12/13/14 only against 09. "
-            "Prefer the version that sounds least compressed and least announcer-serious while "
-            "keeping clear Arabic. The semantic-beat pauses and selective lengthening must feel "
-            "natural, not theatrical."
+            "14 is the closest Piper direction, but the target short is more repeat-listenable. "
+            "Compare 15/16/17 mainly against 14. Prefer comfort over dramatic expression: long "
+            "idea-level breathing, wider but subtle beat-to-beat intonation, and mastered loudness "
+            "near -16 LUFS without harsh peaks."
         ),
     }
     report_path = output / "piper-kareem-naturalness-report.json"
