@@ -181,6 +181,128 @@ def add_model_native_structural_prosody(phonemes: str) -> str:
     return out
 
 
+def gate_reserved_punctuation_pauses(
+    audio: np.ndarray,
+    phonemes: str,
+    pred_dur: torch.LongTensor,
+) -> tuple[np.ndarray, list[dict]]:
+    """Turn Kokoro's booked major-punctuation spans into clean pauses.
+
+    Based on the upstream Kokoro #365 workaround: punctuation tokens can book
+    real duration while containing voiced junk, and the next word onset can
+    begin inside the punctuation reservation. We therefore:
+      * never insert/delete samples;
+      * preserve 100 ms of release after the previous word;
+      * preserve any high-energy run at the end as possible next-word attack;
+      * silence only the safe middle, with short fades.
+    """
+    if pred_dur is None:
+        raise RuntimeError("pred_dur is required for punctuation reservation cleanup")
+
+    out = audio.astype(np.float32, copy=True)
+    floor = float(10 ** (-45.0 / 20.0))
+    frame = max(1, int(SAMPLE_RATE * 0.010))
+    release = int(SAMPLE_RATE * 0.100)
+    fade = max(1, int(SAMPLE_RATE * 0.012))
+
+    anchors = (
+        ("first_idea", "ʤadˈiːdat"),
+        ("second_idea", "tarˈiːqikˌa"),
+        ("warning_to_action", "kaːmˌilan"),
+        ("action_to_closing", "aljˈaum"),
+    )
+
+    applied: list[dict] = []
+    for label, anchor in anchors:
+        anchor_pos = phonemes.find(anchor)
+        if anchor_pos < 0 or phonemes.find(anchor, anchor_pos + 1) >= 0:
+            raise RuntimeError(f"major pause anchor must occur exactly once: {label}")
+
+        region_start_char = anchor_pos + len(anchor)
+        region_end_char = region_start_char
+        while region_end_char < len(phonemes):
+            ch = phonemes[region_end_char]
+            if ch in PUNCTUATION_CHARS or ch.isspace():
+                region_end_char += 1
+                continue
+            break
+
+        if region_end_char <= region_start_char:
+            raise RuntimeError(f"no punctuation reservation after anchor: {label}")
+
+        # pred_dur layout: BOS + one duration per phoneme character + EOS.
+        span_start = int(pred_dur[: region_start_char + 1].sum().item() * 600)
+        span_end = int(pred_dur[: region_end_char + 1].sum().item() * 600)
+        span_start = max(0, min(span_start, int(out.size)))
+        span_end = max(span_start, min(span_end, int(out.size)))
+
+        safe_start = min(span_end, span_start + release)
+
+        # Protect a possible next-word onset that starts early inside the
+        # punctuation reservation. Walk backward only through the contiguous
+        # high-energy tail; stop at the first quiet 10 ms frame.
+        protected_tail_start = span_end
+        cursor = span_end
+        while cursor - frame > safe_start:
+            seg = audio[cursor - frame : cursor]
+            rms = float(np.sqrt(np.mean(np.square(seg), dtype=np.float64)))
+            if rms > floor:
+                protected_tail_start = cursor - frame
+                cursor -= frame
+            else:
+                break
+
+        gate_start = safe_start
+        gate_end = protected_tail_start
+        gate_ms = max(0.0, (gate_end - gate_start) * 1000.0 / SAMPLE_RATE)
+
+        if gate_end - gate_start < (2 * fade + frame):
+            applied.append(
+                {
+                    "label": label,
+                    "punctuation": phonemes[region_start_char:region_end_char],
+                    "reserved_ms": round((span_end-span_start)*1000.0/SAMPLE_RATE, 2),
+                    "gated_ms": 0.0,
+                    "reason": "reservation too short after release/onset protection",
+                }
+            )
+            continue
+
+        # Fade speech/tail down to silence and back up inside already-booked
+        # punctuation time. No sample insertion, deletion, or relocation.
+        fade_down_end = gate_start + fade
+        fade_up_start = gate_end - fade
+        out[gate_start:fade_down_end] *= np.linspace(
+            1.0, 0.0, fade, endpoint=False, dtype=np.float32
+        )
+        out[fade_down_end:fade_up_start] = 0.0
+        out[fade_up_start:gate_end] *= np.linspace(
+            0.0, 1.0, fade, endpoint=False, dtype=np.float32
+        )
+
+        middle = audio[gate_start:gate_end]
+        middle_rms_before = (
+            float(np.sqrt(np.mean(np.square(middle), dtype=np.float64)))
+            if middle.size else 0.0
+        )
+        applied.append(
+            {
+                "label": label,
+                "punctuation": phonemes[region_start_char:region_end_char],
+                "reserved_ms": round((span_end-span_start)*1000.0/SAMPLE_RATE, 2),
+                "release_grace_ms": 100.0,
+                "protected_next_onset_ms": round(
+                    (span_end-protected_tail_start)*1000.0/SAMPLE_RATE, 2
+                ),
+                "gated_ms": round(gate_ms, 2),
+                "middle_rms_before": round(middle_rms_before, 6),
+                "floor_dbfs": -45,
+            }
+        )
+
+    return out, applied
+
+
 def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
     """Gently fade the model's phrase-start onset without cutting speech.
 
@@ -501,6 +623,21 @@ def main() -> int:
     pause_token_final_path = output / "21-nabra-native-pause-tokens-mix-ready.wav"
     mix_ready(pause_token_raw_path, pause_token_final_path)
 
+    if pause_token_output.pred_dur is None:
+        raise RuntimeError("Nabra did not return pred_dur for punctuation cleanup")
+    cleaned_pause_audio, cleaned_pause_regions = gate_reserved_punctuation_pauses(
+        pause_token_audio,
+        pause_token_phonemes,
+        pause_token_output.pred_dur.detach().cpu(),
+    )
+    if cleaned_pause_audio.size != pause_token_audio.size:
+        raise RuntimeError("punctuation cleanup changed timeline length")
+
+    cleaned_pause_raw_path = output / "22-nabra-reserved-pause-cleanup-raw.wav"
+    sf.write(cleaned_pause_raw_path, cleaned_pause_audio, SAMPLE_RATE, subtype="PCM_16")
+    cleaned_pause_final_path = output / "23-nabra-reserved-pause-cleanup-mix-ready.wav"
+    mix_ready(cleaned_pause_raw_path, cleaned_pause_final_path)
+
     structural_phonemes = add_model_native_structural_prosody(patched_phonemes)
     structural_started = time.perf_counter()
     with torch.inference_mode():
@@ -619,6 +756,14 @@ def main() -> int:
         "native_pause_tokens_synthesis_seconds": round(pause_token_seconds, 3),
         "native_pause_tokens_raw_wav": wav_info(pause_token_raw_path),
         "native_pause_tokens_mix_ready_wav": wav_info(pause_token_final_path),
+        "reserved_pause_cleanup_source": "hexgrad/kokoro issue #365 workaround",
+        "reserved_pause_cleanup_regions": cleaned_pause_regions,
+        "reserved_pause_cleanup_same_sample_count": (
+            cleaned_pause_audio.size == pause_token_audio.size
+        ),
+        "reserved_pause_cleanup_single_inference": True,
+        "reserved_pause_cleanup_raw_wav": wav_info(cleaned_pause_raw_path),
+        "reserved_pause_cleanup_mix_ready_wav": wav_info(cleaned_pause_final_path),
         "native_structural_phonemes": structural_phonemes,
         "native_structural_lexical_phonemes_unchanged": True,
         "native_structural_single_inference": True,
@@ -654,6 +799,8 @@ def main() -> int:
             "native-calm sample has no atempo, no waveform splice, and no sentence-by-sentence synthesis",
             "native-pause-token sample changes punctuation tokens only and stays one continuous inference",
             "native-pause-token sample has zero waveform edits and therefore cannot introduce splice cuts",
+            "reserved-pause cleanup follows upstream Kokoro #365: keep release and next-word attack, gate only punctuation-reserved middle",
+            "reserved-pause cleanup inserts/deletes zero samples and keeps the exact same timeline length",
             "native-structural sample uses Kokoro punctuation tokens only, including em-dash structural beats",
             "native-structural sample has zero waveform edits and one continuous inference call",
             "human-pause version uses pred_dur only as an approximate locator, then snaps to a low-energy zero crossing",
