@@ -75,6 +75,66 @@ def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
     return out
 
 
+def insert_human_pauses_from_pred_dur(
+    audio: np.ndarray,
+    phonemes: str,
+    pred_dur: torch.LongTensor,
+) -> tuple[np.ndarray, list[dict]]:
+    """Insert pauses into already-generated audio without re-synthesizing speech.
+
+    Kokoro/Nabra exposes predicted durations per phoneme. We use those exact
+    timings to splice silence after semantic boundaries while preserving every
+    original speech sample byte-for-byte.
+    """
+    rules = (
+        ("sentence_1", ".", 1, 520),
+        ("sentence_2", ".", 2, 650),
+        ("sentence_3", ".", 3, 520),
+        ("sentence_4", ".", 4, 760),
+        ("last_reflective_beat", "alhˈaːdiʔ", 1, 260),
+        ("last_daily_beat", "jˈaum jˈasnaʕ", 1, 180),
+    )
+
+    boundaries: list[tuple[int, int, str, str]] = []
+    for label, needle, occurrence, pause_ms in rules:
+        start = -1
+        cursor = 0
+        for _ in range(occurrence):
+            start = phonemes.find(needle, cursor)
+            if start < 0:
+                raise RuntimeError(
+                    f"pause boundary not found: {label} needle={needle!r} occurrence={occurrence}"
+                )
+            cursor = start + len(needle)
+        char_end = start + len(needle)
+
+        # pred_dur layout: BOS, one duration per phoneme character, EOS.
+        # Kokoro documents 600 audio samples per duration frame at 24 kHz.
+        dur_index_end = min(char_end + 1, int(pred_dur.numel()) - 1)
+        sample_index = int(pred_dur[:dur_index_end].sum().item() * 600)
+        sample_index = max(0, min(sample_index, int(audio.size)))
+        boundaries.append((sample_index, pause_ms, label, needle))
+
+    # Keep original speech untouched. Multiple inserts are applied against
+    # original sample coordinates, from right to left.
+    out = audio.astype(np.float32, copy=True)
+    applied: list[dict] = []
+    for sample_index, pause_ms, label, needle in sorted(boundaries, reverse=True):
+        silence = np.zeros(int(SAMPLE_RATE * pause_ms / 1000.0), dtype=np.float32)
+        out = np.concatenate((out[:sample_index], silence, out[sample_index:]))
+        applied.append(
+            {
+                "label": label,
+                "needle": needle,
+                "pause_ms": pause_ms,
+                "original_sample_index": sample_index,
+            }
+        )
+
+    applied.reverse()
+    return out, applied
+
+
 def wav_info(path: Path) -> dict:
     with wave.open(str(path), "rb") as wf:
         return {
@@ -194,6 +254,18 @@ def main() -> int:
     selective_final_path = output / "11-nabra-selective-pronunciation-mix-ready.wav"
     mix_ready(selective_raw_path, selective_final_path)
 
+    if selective_output.pred_dur is None:
+        raise RuntimeError("Nabra did not return pred_dur; cannot add safe post-generation pauses")
+    human_audio, human_pauses = insert_human_pauses_from_pred_dur(
+        selective_audio,
+        patched_phonemes,
+        selective_output.pred_dur.detach().cpu(),
+    )
+    human_raw_path = output / "12-nabra-selective-human-pauses-raw.wav"
+    sf.write(human_raw_path, human_audio, SAMPLE_RATE, subtype="PCM_16")
+    human_final_path = output / "13-nabra-selective-human-pauses-mix-ready.wav"
+    mix_ready(human_raw_path, human_final_path)
+
     synth_started = time.perf_counter()
     chunks: list[np.ndarray] = []
     emitted_phonemes: list[str] = []
@@ -250,6 +322,10 @@ def main() -> int:
         "selective_synthesis_seconds": round(selective_seconds, 3),
         "selective_raw_wav": wav_info(selective_raw_path),
         "selective_mix_ready_wav": wav_info(selective_final_path),
+        "human_pause_insertions": human_pauses,
+        "human_pauses_speech_audio_unchanged": True,
+        "human_pauses_raw_wav": wav_info(human_raw_path),
+        "human_pauses_mix_ready_wav": wav_info(human_final_path),
         "notes": [
             "official Nabra repo_id and disable_complex inference path",
             "manually verified spoken-MSA tashkeel: lexical vowels preserved, unnecessary final case endings omitted",
@@ -261,6 +337,8 @@ def main() -> int:
             "selective sample starts from Nabra G2P for the entire passage",
             "only exact known-bad phoneme spans may be patched; all other phonemes are asserted unchanged",
             "selective sample is one continuous inference call, so there is no repeated sentence-start onset",
+            "human-pause version inserts silence after synthesis using Nabra pred_dur timestamps",
+            "human-pause version does not regenerate or modify any speech samples",
             "experimental only; no Clean V2 production wiring",
         ],
     }
