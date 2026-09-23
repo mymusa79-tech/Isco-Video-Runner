@@ -41,17 +41,20 @@ SEGMENTS = (
 )
 PAUSES_MS = (260, 420, 340, 500)
 
-# Direct phoneme lock for the listener-sensitive phrases. This bypasses Arabic
-# G2P/diacritization entirely during synthesis, uses spoken MSA endings (no
-# heavy case inflection), and generates the whole passage in one call so there
-# is only one model onset.
-LOCKED_PHONEMES = (
-    "ʔˈaħjaːnˌan, laː tˈaħtaːʤ ʔˈilaː bidˈaːja ʤadˈiːda. "
-    "bal tˈaħtaːʤ ʔˈilaː χˈutwa sˈaːdiqa tuʕˈiːduk ʔˈilaː tarˈiːqik. "
-    "laː tˈantaðˌir ʔˈan jˈaʔtiː ʔadˈaːfiʕ kˈaːmilan. "
-    "ʔˈibdaʔ bimˌaː tastˈatiːʕ ʔaljˈaum. "
-    "falˌistimrˈaːr alhˈaːdiʔ, ħˈiːna jˌatakˈarrar kˈull jˈaum, "
-    "jˈasnaʕ farqˌan ʔˈakbar mˈimmaː tˌataχaˈiːal."
+# Whole-text pronunciation safety: obtain Nabra's own phonemes for the entire
+# passage, then patch only exact known-bad spans. Every other character in the
+# phoneme stream must remain unchanged. One continuous inference call also
+# avoids a fresh model onset before every sentence.
+FULL_TEXT = " ".join(SEGMENTS)
+
+PRONUNCIATION_PATCH_CANDIDATES = (
+    # If an inflected form ever appears, use spoken-MSA endings without touching
+    # the surrounding phonemes. Current SEGMENTS should normally avoid this.
+    ("bidˈaːjatˌin ʤadˈiːdatˌin", "bidˈaːja ʤadˈiːda", "بداية جديدة"),
+    # Make the /d/ boundary in "الدافع" explicit if Nabra's G2P returns the
+    # strongly fused article+root form that the listener heard as ض.
+    ("ʔaddːˈaːfiʕ", "ʔad dˈaːfiʕ", "الدافع"),
+    ("ʔaddˈaːfiʕ", "ʔad dˈaːfiʕ", "الدافع"),
 )
 
 
@@ -64,7 +67,7 @@ def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
     """
     if audio.size == 0:
         return audio
-    fade_frames = min(audio.size, int(SAMPLE_RATE * 0.045))
+    fade_frames = min(audio.size, int(SAMPLE_RATE * 0.025))
     if fade_frames <= 1:
         return audio
     out = audio.astype(np.float32, copy=True)
@@ -141,25 +144,55 @@ def main() -> int:
     voice = torch.load(voice_path, map_location="cpu", weights_only=True)
     load_seconds = time.perf_counter() - load_started
 
-    # Pronunciation-locked single-pass synthesis for final listening check.
-    # KPipeline.infer accepts raw phonemes and the already-loaded voice pack.
-    locked_started = time.perf_counter()
+    # Build the baseline phoneme stream for the *entire* passage first.
+    baseline_phonemes, _ = clean_arabic_g2p(FULL_TEXT)
+    patched_phonemes = baseline_phonemes
+    applied_patches: list[dict] = []
+    touched_sources: list[str] = []
+
+    for source, target, label in PRONUNCIATION_PATCH_CANDIDATES:
+        count = patched_phonemes.count(source)
+        if count == 0:
+            continue
+        if count != 1:
+            raise RuntimeError(
+                f"pronunciation patch for {label!r} matched {count} times; refusing broad change"
+            )
+        before = patched_phonemes
+        patched_phonemes = patched_phonemes.replace(source, target, 1)
+        if before == patched_phonemes:
+            raise RuntimeError(f"pronunciation patch for {label!r} made no change")
+        applied_patches.append(
+            {"label": label, "source": source, "target": target, "count": 1}
+        )
+        touched_sources.append(source)
+
+    # Deterministic safety proof: recreate the expected patched stream from the
+    # untouched baseline and require byte-for-byte equality. This guarantees
+    # that no phoneme outside the exact listed patches changed.
+    expected = baseline_phonemes
+    for patch in applied_patches:
+        expected = expected.replace(patch["source"], patch["target"], 1)
+    if expected != patched_phonemes:
+        raise RuntimeError("pronunciation patch modified phonemes outside approved spans")
+
+    selective_started = time.perf_counter()
     with torch.inference_mode():
-        locked_output = KPipeline.infer(
+        selective_output = KPipeline.infer(
             model,
-            LOCKED_PHONEMES,
+            patched_phonemes,
             voice.to(model.device),
             speed=NATIVE_SPEED,
         )
-    locked_seconds = time.perf_counter() - locked_started
-    locked_audio = locked_output.audio.detach().cpu().numpy().astype(np.float32)
-    # Only soften the one global model onset; nothing is cut.
-    locked_audio = soften_segment_onset(locked_audio)
+    selective_seconds = time.perf_counter() - selective_started
+    selective_audio = selective_output.audio.detach().cpu().numpy().astype(np.float32)
+    # One global onset only. Preserve all samples; use a short 25 ms fade.
+    selective_audio = soften_segment_onset(selective_audio)
 
-    locked_raw_path = output / "08-nabra-pronunciation-locked-raw.wav"
-    sf.write(locked_raw_path, locked_audio, SAMPLE_RATE, subtype="PCM_16")
-    locked_final_path = output / "09-nabra-pronunciation-locked-mix-ready.wav"
-    mix_ready(locked_raw_path, locked_final_path)
+    selective_raw_path = output / "10-nabra-selective-pronunciation-raw.wav"
+    sf.write(selective_raw_path, selective_audio, SAMPLE_RATE, subtype="PCM_16")
+    selective_final_path = output / "11-nabra-selective-pronunciation-mix-ready.wav"
+    mix_ready(selective_raw_path, selective_final_path)
 
     synth_started = time.perf_counter()
     chunks: list[np.ndarray] = []
@@ -210,10 +243,13 @@ def main() -> int:
         "runner_cpu_count": os.cpu_count(),
         "raw_wav": raw,
         "mix_ready_wav": final,
-        "pronunciation_locked_phonemes": LOCKED_PHONEMES,
-        "pronunciation_locked_synthesis_seconds": round(locked_seconds, 3),
-        "pronunciation_locked_raw_wav": wav_info(locked_raw_path),
-        "pronunciation_locked_mix_ready_wav": wav_info(locked_final_path),
+        "baseline_full_text_phonemes": baseline_phonemes,
+        "selective_patched_phonemes": patched_phonemes,
+        "applied_pronunciation_patches": applied_patches,
+        "outside_patch_phonemes_unchanged": expected == patched_phonemes,
+        "selective_synthesis_seconds": round(selective_seconds, 3),
+        "selective_raw_wav": wav_info(selective_raw_path),
+        "selective_mix_ready_wav": wav_info(selective_final_path),
         "notes": [
             "official Nabra repo_id and disable_complex inference path",
             "manually verified spoken-MSA tashkeel: lexical vowels preserved, unnecessary final case endings omitted",
@@ -222,8 +258,9 @@ def main() -> int:
             "no audio samples are trimmed; only a 45 ms fade-in reduces phrase-start hiss",
             "no EQ, pitch shift, compressor, or voice retiming",
             "mix-ready file is loudness normalization plus 48 kHz resample only",
-            "pronunciation-locked sample bypasses G2P and uses one continuous phoneme sequence",
-            "problem phrases use spoken-MSA phonemes without heavy case endings",
+            "selective sample starts from Nabra G2P for the entire passage",
+            "only exact known-bad phoneme spans may be patched; all other phonemes are asserted unchanged",
+            "selective sample is one continuous inference call, so there is no repeated sentence-start onset",
             "experimental only; no Clean V2 production wiring",
         ],
     }
