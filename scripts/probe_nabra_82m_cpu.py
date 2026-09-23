@@ -327,6 +327,17 @@ def main() -> int:
         patched_phonemes,
         selective_output.pred_dur.detach().cpu(),
     )
+
+    requested_pause_samples = sum(
+        int(SAMPLE_RATE * item["pause_ms"] / 1000.0) for item in human_pauses
+    )
+    actual_added_samples = int(human_audio.size - selective_audio.size)
+    if actual_added_samples != requested_pause_samples:
+        raise RuntimeError(
+            "pause duration contract violated: "
+            f"requested_samples={requested_pause_samples} "
+            f"actual_added_samples={actual_added_samples}"
+        )
     human_raw_path = output / "14-nabra-semantic-pauses-safe-splice-raw.wav"
     sf.write(human_raw_path, human_audio, SAMPLE_RATE, subtype="PCM_16")
     human_final_path = output / "15-nabra-semantic-pauses-safe-splice-mix-ready.wav"
@@ -389,6 +400,12 @@ def main() -> int:
         "selective_raw_wav": wav_info(selective_raw_path),
         "selective_mix_ready_wav": wav_info(selective_final_path),
         "human_pause_insertions": human_pauses,
+        "human_pause_requested_samples": requested_pause_samples,
+        "human_pause_actual_added_samples": actual_added_samples,
+        "human_pause_exact_duration_verified": (
+            actual_added_samples == requested_pause_samples
+        ),
+        "human_pauses_single_continuous_inference": True,
         "human_pauses_speech_audio_unchanged": True,
         "human_pauses_raw_wav": wav_info(human_raw_path),
         "human_pauses_mix_ready_wav": wav_info(human_final_path),
@@ -405,6 +422,8 @@ def main() -> int:
             "selective sample is one continuous inference call, so there is no repeated sentence-start onset",
             "human-pause version uses pred_dur only as an approximate locator, then snaps to a low-energy zero crossing",
             "human-pause version does not regenerate or modify any speech samples; unsafe splice points fail closed",
+            "pause durations are exact sample-count contracts, not model-estimated timing",
+            "single continuous inference means no fresh sentence-start TTS onset is introduced",
             "experimental only; no Clean V2 production wiring",
         ],
     }
