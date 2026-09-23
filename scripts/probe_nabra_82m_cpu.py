@@ -33,45 +33,30 @@ NATIVE_SPEED = 0.94
 # Manually corrected MSA tashkeel. This intentionally bypasses Camel's wrong
 # guesses seen in the first probe (e.g. أَنَّ, أَبْدَأ, فِرَقًا).
 SEGMENTS = (
-    "أحيانًا، لا تحتاج إلى بداية جديدة.",
-    "بل تحتاج إلى خُطوة صادقة تُعيدك إلى طريقك.",
-    "لا تنتظر أَنْ يأتي الدافع كاملًا.",
-    "اِبْدَأْ بما تستطيع اليوم.",
-    "فالاستمرار الهادئ، حين يتكرر كل يوم، يصنع فَرْقًا أكبر مما تتخيل.",
+    "أَحْيَانًا، لَا تَحْتَاجُ إِلَى بِدَايَةٍ جَدِيدَةٍ.",
+    "بَلْ تَحْتَاجُ إِلَى خُطْوَةٍ صَادِقَةٍ تُعِيدُكَ إِلَى طَرِيقِكَ.",
+    "لَا تَنْتَظِرْ أَنْ يَأْتِيَ الدَّافِعُ كَامِلًا.",
+    "اِبْدَأْ بِمَا تَسْتَطِيعُ الْيَوْمَ.",
+    "فَالِاسْتِمْرَارُ الْهَادِئُ، حِينَ يَتَكَرَّرُ كُلَّ يَوْمٍ، يَصْنَعُ فَرْقًا أَكْبَرَ مِمَّا تَتَخَيَّلُ.",
 )
 PAUSES_MS = (260, 420, 340, 500)
 
 
-def trim_segment_onset(audio: np.ndarray) -> np.ndarray:
-    """Remove only the tiny synthetic onset before each independently generated phrase.
+def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
+    """Gently fade the model's phrase-start onset without cutting speech.
 
-    Nabra can emit a short breath/hiss-like onset when a fresh phrase starts.
-    Detect the first stable speech frame relative to the phrase RMS and keep a
-    small 25 ms pre-roll so consonant attacks are not clipped.
+    The previous probe trimmed samples before detected speech and damaged Arabic
+    initial consonants. This version preserves every sample and applies only a
+    45 ms linear fade-in, which reduces the breath/hiss-like synthetic onset.
     """
-    if audio.size < SAMPLE_RATE // 10:
+    if audio.size == 0:
         return audio
-    frame = max(1, int(SAMPLE_RATE * 0.010))
-    rms = []
-    for start in range(0, min(audio.size, int(SAMPLE_RATE * 0.45)), frame):
-        chunk = audio[start:start + frame]
-        if chunk.size:
-            rms.append(float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64))))
-    if not rms:
+    fade_frames = min(audio.size, int(SAMPLE_RATE * 0.045))
+    if fade_frames <= 1:
         return audio
-    peak = max(rms)
-    if peak <= 1e-6:
-        return audio
-    threshold = max(0.003, peak * 0.18)
-    stable = None
-    for i in range(max(0, len(rms) - 2)):
-        if rms[i] >= threshold and rms[i + 1] >= threshold:
-            stable = i
-            break
-    if stable is None:
-        return audio
-    cut = max(0, stable * frame - int(SAMPLE_RATE * 0.025))
-    return audio[cut:]
+    out = audio.astype(np.float32, copy=True)
+    out[:fade_frames] *= np.linspace(0.0, 1.0, fade_frames, dtype=np.float32)
+    return out
 
 
 def wav_info(path: Path) -> dict:
@@ -155,15 +140,15 @@ def main() -> int:
                 segment_chunks.append(audio.detach().cpu().numpy())
             if not segment_chunks:
                 raise RuntimeError(f"Nabra emitted no audio for segment: {segment}")
-            chunks.append(trim_segment_onset(np.concatenate(segment_chunks).astype(np.float32)))
+            chunks.append(soften_segment_onset(np.concatenate(segment_chunks).astype(np.float32)))
 
     synth_seconds = time.perf_counter() - synth_started
 
     audio = add_silence(chunks, PAUSES_MS)
-    raw_path = output / "04-nabra-82m-final-clean-raw.wav"
+    raw_path = output / "06-nabra-82m-full-tashkeel-soft-onset-raw.wav"
     sf.write(raw_path, audio, SAMPLE_RATE, subtype="PCM_16")
 
-    final_path = output / "05-nabra-82m-final-clean-mix-ready.wav"
+    final_path = output / "07-nabra-82m-full-tashkeel-soft-onset-mix-ready.wav"
     mix_ready(raw_path, final_path)
 
     raw = wav_info(raw_path)
@@ -176,7 +161,7 @@ def main() -> int:
         "voice": "af_msa",
         "device": "cpu",
         "official_inference_path": True,
-        "manual_tashkeel": "selective_only",
+        "manual_tashkeel": "full_verified_msa",
         "native_speed": NATIVE_SPEED,
         "segments": SEGMENTS,
         "pauses_ms": PAUSES_MS,
@@ -194,10 +179,10 @@ def main() -> int:
         "mix_ready_wav": final,
         "notes": [
             "official Nabra repo_id and disable_complex inference path",
-            "selective MSA tashkeel only on ambiguous/problem words; avoids robotic full case endings",
+            "full manually verified MSA tashkeel; required by Nabra for stable phonemization",
             "native Nabra speed=0.94; no atempo or post speed change",
             "semantic pauses inserted only between complete ideas",
-            "per-segment synthetic onset is trimmed with conservative 25 ms pre-roll",
+            "no audio samples are trimmed; only a 45 ms fade-in reduces phrase-start hiss",
             "no EQ, pitch shift, compressor, or voice retiming",
             "mix-ready file is loudness normalization plus 48 kHz resample only",
             "experimental only; no Clean V2 production wiring",
