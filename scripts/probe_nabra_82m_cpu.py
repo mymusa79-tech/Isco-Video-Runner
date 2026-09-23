@@ -62,6 +62,48 @@ PRONUNCIATION_PATCH_CANDIDATES = (
 PUNCTUATION_CHARS = set(",.;:!?—…")
 
 
+def add_native_pause_tokens(phonemes: str) -> str:
+    """Add model-native pause cues at semantic boundaries only.
+
+    No waveform editing is used. Kokoro/Nabra receives one continuous phoneme
+    sequence and generates the pauses as part of its own duration/prosody.
+    Lexical phonemes must remain unchanged.
+    """
+    out = phonemes
+    replacements = (
+        # Opening hesitation: small, not a full stop.
+        ("ʔˈaħjaːnˌan ", "ʔˈaħjaːnˌan, "),
+        # End of first idea: clearly felt reflective pause.
+        ("ʤadˈiːdat. ", "ʤadˈiːdat… — "),
+        # Core phrase emphasis: very short internal beat.
+        ("saːdˈiqat ", "saːdˈiqat, "),
+        # End of second idea.
+        ("tarˈiːqikˌa. ", "tarˈiːqikˌa… "),
+        # Warning -> action transition.
+        ("kaːmˌilan. ", "kaːmˌilan… — "),
+        # Action line -> closing reflection: strongest pause.
+        ("aljˈaum. faːl", "aljˈaum… — — faːl"),
+        # Closing sentence internal breathing points.
+        ("alhˈaːdiʔ ", "alhˈaːdiʔ, "),
+        ("kullˌa jˈaum ", "kullˌa jˈaum, "),
+    )
+    for source, target in replacements:
+        if out.count(source) != 1:
+            raise RuntimeError(
+                f"native pause target must occur exactly once: {source!r}"
+            )
+        out = out.replace(source, target, 1)
+
+    def lexical_only(value: str) -> str:
+        return " ".join(
+            "".join(ch for ch in value if ch not in PUNCTUATION_CHARS).split()
+        )
+
+    if lexical_only(out) != lexical_only(phonemes):
+        raise RuntimeError("native pause tokens changed lexical phonemes")
+    return out
+
+
 def add_model_native_prosody_punctuation(phonemes: str) -> str:
     """Restore semantic punctuation *inside* the Kokoro/Nabra phoneme stream.
 
@@ -441,6 +483,24 @@ def main() -> int:
     calm_final_path = output / "19-nabra-native-prosody-calm-mix-ready.wav"
     mix_ready(calm_raw_path, calm_final_path)
 
+    pause_token_phonemes = add_native_pause_tokens(patched_phonemes)
+    pause_token_started = time.perf_counter()
+    with torch.inference_mode():
+        pause_token_output = KPipeline.infer(
+            model,
+            pause_token_phonemes,
+            voice.to(model.device),
+            speed=NATIVE_PROSODY_SPEED,
+        )
+    pause_token_seconds = time.perf_counter() - pause_token_started
+    pause_token_audio = pause_token_output.audio.detach().cpu().numpy().astype(np.float32)
+    pause_token_audio = soften_segment_onset(pause_token_audio)
+
+    pause_token_raw_path = output / "20-nabra-native-pause-tokens-raw.wav"
+    sf.write(pause_token_raw_path, pause_token_audio, SAMPLE_RATE, subtype="PCM_16")
+    pause_token_final_path = output / "21-nabra-native-pause-tokens-mix-ready.wav"
+    mix_ready(pause_token_raw_path, pause_token_final_path)
+
     structural_phonemes = add_model_native_structural_prosody(patched_phonemes)
     structural_started = time.perf_counter()
     with torch.inference_mode():
@@ -551,6 +611,14 @@ def main() -> int:
         "native_calm_synthesis_seconds": round(calm_seconds, 3),
         "native_calm_raw_wav": wav_info(calm_raw_path),
         "native_calm_mix_ready_wav": wav_info(calm_final_path),
+        "native_pause_token_phonemes": pause_token_phonemes,
+        "native_pause_tokens_lexical_phonemes_unchanged": True,
+        "native_pause_tokens_single_inference": True,
+        "native_pause_tokens_zero_waveform_splices": True,
+        "native_pause_tokens_speed": NATIVE_PROSODY_SPEED,
+        "native_pause_tokens_synthesis_seconds": round(pause_token_seconds, 3),
+        "native_pause_tokens_raw_wav": wav_info(pause_token_raw_path),
+        "native_pause_tokens_mix_ready_wav": wav_info(pause_token_final_path),
         "native_structural_phonemes": structural_phonemes,
         "native_structural_lexical_phonemes_unchanged": True,
         "native_structural_single_inference": True,
@@ -584,6 +652,8 @@ def main() -> int:
             "native-punctuation sample is one continuous inference call, preventing repeated sentence onsets",
             "native-calm sample uses the exact same phonemes and punctuation at model speed 0.80",
             "native-calm sample has no atempo, no waveform splice, and no sentence-by-sentence synthesis",
+            "native-pause-token sample changes punctuation tokens only and stays one continuous inference",
+            "native-pause-token sample has zero waveform edits and therefore cannot introduce splice cuts",
             "native-structural sample uses Kokoro punctuation tokens only, including em-dash structural beats",
             "native-structural sample has zero waveform edits and one continuous inference call",
             "human-pause version uses pred_dur only as an approximate locator, then snaps to a low-energy zero crossing",
