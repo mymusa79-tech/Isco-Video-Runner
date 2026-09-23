@@ -33,13 +33,45 @@ NATIVE_SPEED = 0.94
 # Manually corrected MSA tashkeel. This intentionally bypasses Camel's wrong
 # guesses seen in the first probe (e.g. أَنَّ, أَبْدَأ, فِرَقًا).
 SEGMENTS = (
-    "أَحْيانًا، لا تَحْتاجُ إِلى بِدايَةٍ جَديدَةٍ.",
-    "بَلْ تَحْتاجُ إِلى خُطْوَةٍ صادِقَةٍ تُعيدُكَ إِلى طَريقِكَ.",
-    "لا تَنْتَظِرْ أَنْ يَأْتِيَ الدّافِعُ كامِلًا.",
-    "اِبْدَأْ بِما تَسْتَطيعُ اليَوْمَ.",
-    "فَالاسْتِمْرارُ الهادِئُ، حينَ يَتَكَرَّرُ كُلَّ يَوْمٍ، يَصْنَعُ فَرْقًا أَكْبَرَ مِمّا تَتَخَيَّلُ.",
+    "أحيانًا، لا تحتاج إلى بداية جديدة.",
+    "بل تحتاج إلى خُطوة صادقة تُعيدك إلى طريقك.",
+    "لا تنتظر أَنْ يأتي الدافع كاملًا.",
+    "اِبْدَأْ بما تستطيع اليوم.",
+    "فالاستمرار الهادئ، حين يتكرر كل يوم، يصنع فَرْقًا أكبر مما تتخيل.",
 )
 PAUSES_MS = (260, 420, 340, 500)
+
+
+def trim_segment_onset(audio: np.ndarray) -> np.ndarray:
+    """Remove only the tiny synthetic onset before each independently generated phrase.
+
+    Nabra can emit a short breath/hiss-like onset when a fresh phrase starts.
+    Detect the first stable speech frame relative to the phrase RMS and keep a
+    small 25 ms pre-roll so consonant attacks are not clipped.
+    """
+    if audio.size < SAMPLE_RATE // 10:
+        return audio
+    frame = max(1, int(SAMPLE_RATE * 0.010))
+    rms = []
+    for start in range(0, min(audio.size, int(SAMPLE_RATE * 0.45)), frame):
+        chunk = audio[start:start + frame]
+        if chunk.size:
+            rms.append(float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64))))
+    if not rms:
+        return audio
+    peak = max(rms)
+    if peak <= 1e-6:
+        return audio
+    threshold = max(0.003, peak * 0.18)
+    stable = None
+    for i in range(max(0, len(rms) - 2)):
+        if rms[i] >= threshold and rms[i + 1] >= threshold:
+            stable = i
+            break
+    if stable is None:
+        return audio
+    cut = max(0, stable * frame - int(SAMPLE_RATE * 0.025))
+    return audio[cut:]
 
 
 def wav_info(path: Path) -> dict:
@@ -123,15 +155,15 @@ def main() -> int:
                 segment_chunks.append(audio.detach().cpu().numpy())
             if not segment_chunks:
                 raise RuntimeError(f"Nabra emitted no audio for segment: {segment}")
-            chunks.append(np.concatenate(segment_chunks).astype(np.float32))
+            chunks.append(trim_segment_onset(np.concatenate(segment_chunks).astype(np.float32)))
 
     synth_seconds = time.perf_counter() - synth_started
 
     audio = add_silence(chunks, PAUSES_MS)
-    raw_path = output / "02-nabra-82m-comfort-paced-raw.wav"
+    raw_path = output / "04-nabra-82m-final-clean-raw.wav"
     sf.write(raw_path, audio, SAMPLE_RATE, subtype="PCM_16")
 
-    final_path = output / "03-nabra-82m-comfort-paced-mix-ready.wav"
+    final_path = output / "05-nabra-82m-final-clean-mix-ready.wav"
     mix_ready(raw_path, final_path)
 
     raw = wav_info(raw_path)
@@ -144,7 +176,7 @@ def main() -> int:
         "voice": "af_msa",
         "device": "cpu",
         "official_inference_path": True,
-        "manual_tashkeel": True,
+        "manual_tashkeel": "selective_only",
         "native_speed": NATIVE_SPEED,
         "segments": SEGMENTS,
         "pauses_ms": PAUSES_MS,
@@ -162,9 +194,10 @@ def main() -> int:
         "mix_ready_wav": final,
         "notes": [
             "official Nabra repo_id and disable_complex inference path",
-            "manual corrected MSA tashkeel; no Camel auto-diacritization in synthesis",
+            "selective MSA tashkeel only on ambiguous/problem words; avoids robotic full case endings",
             "native Nabra speed=0.94; no atempo or post speed change",
             "semantic pauses inserted only between complete ideas",
+            "per-segment synthetic onset is trimmed with conservative 25 ms pre-roll",
             "no EQ, pitch shift, compressor, or voice retiming",
             "mix-ready file is loudness normalization plus 48 kHz resample only",
             "experimental only; no Clean V2 production wiring",
