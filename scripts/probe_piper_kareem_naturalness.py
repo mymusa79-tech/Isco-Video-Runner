@@ -391,6 +391,77 @@ COMFORT_FINAL_VARIANTS = (
 )
 
 
+# Final target-guided refinement from direct target-vs-17 comparison:
+# 17 was good but sounded like a reader and slightly echoey/processed.
+# Measured target LRA ~2.9 LU vs 17 ~1.9 LU, so this round removes
+# post pitch shifting and compression, restores phrase-level dynamics, and
+# reduces upper-mid brightness. Four larger speech phrases avoid the stitched
+# "one beat = one read line" effect of the six-beat versions.
+ALIVE_TEXTS = (
+    "أحيانًا، لا تحتاج إلى بِداية جديدة؛ بل تحتاج إلى خُطوة صادقة تعيدك إلى طريقك.",
+    "لا تنتظر أن يأتي الدافع كاملًا.",
+    "ابدأ بما تستطيع اليوم.",
+    "فالاستمرار الهادئ، حين يتكرر كل يوم، يصنع فرقًا أكبر مما تتخيل.",
+)
+
+ALIVE_VARIANTS = (
+    {
+        "name": "18-alive-clean",
+        "profiles": (
+            {"length_scale": 0.97, "noise_scale": 0.54, "noise_w_scale": 0.72, "gain_db": 0.4},
+            {"length_scale": 1.02, "noise_scale": 0.48, "noise_w_scale": 0.60, "gain_db": -0.2},
+            {"length_scale": 0.94, "noise_scale": 0.60, "noise_w_scale": 0.82, "gain_db": 1.0},
+            {"length_scale": 1.04, "noise_scale": 0.53, "noise_w_scale": 0.70, "gain_db": 0.1},
+        ),
+        "pauses_ms": (430, 170, 500),
+        "master_filter": (
+            "highpass=f=68,"
+            "equalizer=f=220:t=q:w=1.10:g=-2.4,"
+            "equalizer=f=3100:t=q:w=1.0:g=0.2,"
+            "volume=3.0dB,"
+            "alimiter=limit=0.84,"
+            "aresample=48000"
+        ),
+    },
+    {
+        "name": "19-alive-warm",
+        "profiles": (
+            {"length_scale": 0.99, "noise_scale": 0.52, "noise_w_scale": 0.70, "gain_db": 0.2},
+            {"length_scale": 1.04, "noise_scale": 0.47, "noise_w_scale": 0.58, "gain_db": -0.5},
+            {"length_scale": 0.95, "noise_scale": 0.58, "noise_w_scale": 0.80, "gain_db": 0.9},
+            {"length_scale": 1.06, "noise_scale": 0.51, "noise_w_scale": 0.68, "gain_db": -0.1},
+        ),
+        "pauses_ms": (470, 190, 540),
+        "master_filter": (
+            "highpass=f=64,"
+            "equalizer=f=210:t=q:w=1.10:g=-1.9,"
+            "equalizer=f=2900:t=q:w=1.0:g=-0.2,"
+            "volume=2.8dB,"
+            "alimiter=limit=0.84,"
+            "aresample=48000"
+        ),
+    },
+    {
+        "name": "20-alive-pulse",
+        "profiles": (
+            {"length_scale": 0.95, "noise_scale": 0.60, "noise_w_scale": 0.84, "gain_db": 0.7},
+            {"length_scale": 1.03, "noise_scale": 0.49, "noise_w_scale": 0.62, "gain_db": -0.7},
+            {"length_scale": 0.92, "noise_scale": 0.66, "noise_w_scale": 0.90, "gain_db": 1.2},
+            {"length_scale": 1.02, "noise_scale": 0.57, "noise_w_scale": 0.78, "gain_db": 0.0},
+        ),
+        "pauses_ms": (380, 140, 460),
+        "master_filter": (
+            "highpass=f=68,"
+            "equalizer=f=220:t=q:w=1.10:g=-2.2,"
+            "equalizer=f=3000:t=q:w=1.0:g=0.0,"
+            "volume=2.9dB,"
+            "alimiter=limit=0.84,"
+            "aresample=48000"
+        ),
+    },
+)
+
+
 @dataclass
 class WavInfo:
     duration_seconds: float
@@ -571,6 +642,49 @@ def _synthesize_performance(
                 )
             beat_paths.append(path)
         _concat(beat_paths, output, pauses_ms=list(pauses_ms))
+
+
+def _synthesize_alive(
+    voice: PiperVoice,
+    output: Path,
+    *,
+    profiles: tuple[dict, ...],
+    pauses_ms: tuple[int, ...],
+) -> None:
+    if len(ALIVE_TEXTS) != len(profiles):
+        raise RuntimeError(
+            f"alive profile mismatch: phrases={len(ALIVE_TEXTS)} profiles={len(profiles)}"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="piper-alive-") as tmp:
+        phrase_paths: list[Path] = []
+        for index, (phrase, profile) in enumerate(zip(ALIVE_TEXTS, profiles)):
+            raw_path = Path(tmp) / f"{index:02d}-raw.wav"
+            path = Path(tmp) / f"{index:02d}.wav"
+            config = SynthesisConfig(
+                length_scale=float(profile["length_scale"]),
+                noise_scale=float(profile["noise_scale"]),
+                noise_w_scale=float(profile["noise_w_scale"]),
+            )
+            with wave.open(str(raw_path), "wb") as wav:
+                voice.synthesize_wav(phrase, wav, syn_config=config)
+
+            gain_db = float(profile.get("gain_db") or 0.0)
+            if abs(gain_db) < 0.001:
+                path.write_bytes(raw_path.read_bytes())
+            else:
+                subprocess.run(
+                    [
+                        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                        "-i", str(raw_path),
+                        "-af", f"volume={gain_db:+.3f}dB",
+                        "-c:a", "pcm_s16le", str(path),
+                    ],
+                    check=True,
+                )
+            phrase_paths.append(path)
+
+        _concat(phrase_paths, output, pauses_ms=list(pauses_ms))
 
 
 def _lighten_timbre(source: Path, destination: Path, *, audio_filter: str) -> None:
@@ -762,6 +876,37 @@ def main() -> int:
                 **variant,
                 "mode": "formant_preserved_pitch_semantic_breathing_soft_master",
                 "performance_texts": PERFORMANCE_TEXTS,
+                "generation_seconds": round(generation_seconds, 3),
+                "realtime_factor": round(generation_seconds / info.duration_seconds, 3),
+                "wav": asdict(info),
+                "path": str(final_path),
+            }
+        )
+
+    for variant in ALIVE_VARIANTS:
+        final_path = output / f'{variant["name"]}.wav'
+        with tempfile.TemporaryDirectory(prefix="piper-alive-master-") as tmp:
+            raw_path = Path(tmp) / "raw.wav"
+            started = time.perf_counter()
+            _synthesize_alive(
+                voice,
+                raw_path,
+                profiles=variant["profiles"],
+                pauses_ms=variant["pauses_ms"],
+            )
+            _lighten_timbre(
+                raw_path,
+                final_path,
+                audio_filter=str(variant["master_filter"]),
+            )
+            generation_seconds = time.perf_counter() - started
+
+        info = wav_info(final_path)
+        results.append(
+            {
+                **variant,
+                "mode": "target_guided_alive_no_pitchshift_no_compressor",
+                "performance_texts": ALIVE_TEXTS,
                 "generation_seconds": round(generation_seconds, 3),
                 "realtime_factor": round(generation_seconds / info.duration_seconds, 3),
                 "wav": asdict(info),
