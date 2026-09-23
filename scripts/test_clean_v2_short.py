@@ -27,10 +27,12 @@ from clean_v2.media import (
     SHORT_CUT_DISSOLVE_SECONDS,
     SHORT_MASTER_LOOK_FILTER,
     SHORT_MIN_COLOR_SATURATION_AVG,
+    SHORT_STOCK_ASSET_MAX,
     SHORT_VISUAL_MAX,
     SHORT_VISUAL_MIN,
     SHORT_VISUAL_TARGET,
     StockVisualSource,
+    _expand_short_visual_sequence,
     VoiceInfrastructureError,
 )
 from clean_v2.providers import ProviderAdapter, ProviderRouter, _safe_validator_reason
@@ -616,7 +618,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(len(rejected), 1)
         self.assertIn("short_near_monochrome", str(rejected[0]["reason"]))
 
-    def test_short_visual_lite_scales_six_to_nine_assets_without_ai(self) -> None:
+    def test_short_visual_lite_keeps_provider_assets_fixed_and_expands_edit_beats_locally(self) -> None:
         plan = _plan(
             [
                 "thoughtful person alone pausing by window",
@@ -624,74 +626,69 @@ class ShortContractTests(unittest.TestCase):
                 "contemplative person calmly taking one step",
             ]
         )
+        source = StockVisualSource()
+        counter = {"value": 0}
 
-        def run_case(total_seconds: float) -> tuple[list[Path], list[dict]]:
-            source = StockVisualSource()
-            counter = {"value": 0}
+        def candidate(_query, *, portrait):
+            counter["value"] += 1
+            return {
+                "provider": "pexels",
+                "asset_id": str(counter["value"]),
+                "download_url": f"https://videos.pexels.com/video-{counter['value']}.mp4",
+                "source_url": "https://pexels.com",
+                "creator": "fixture",
+                "creator_url": "https://pexels.com",
+                "query": _query,
+            }
 
-            def candidate(_query, *, portrait):
-                counter["value"] += 1
-                return {
-                    "provider": "pexels",
-                    "asset_id": str(counter["value"]),
-                    "download_url": f"https://videos.pexels.com/video-{counter['value']}.mp4",
-                    "source_url": "https://pexels.com",
-                    "creator": "fixture",
-                    "creator_url": "https://pexels.com",
-                    "query": _query,
-                }
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            source, "_pexels", side_effect=candidate
+        ), mock.patch.object(
+            source, "_pixabay", return_value=None
+        ), mock.patch(
+            "clean_v2.media._download_media",
+            side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(temporary),
+                "short",
+                9,
+                section_estimated_seconds={"s1": 12.0, "s2": 12.0, "s3": 12.0},
+            )
 
-            with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
-                source, "_pexels", side_effect=candidate
-            ), mock.patch.object(
-                source, "_pixabay", return_value=None
-            ), mock.patch(
-                "clean_v2.media._download_media",
-                side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
-            ):
-                per_section = total_seconds / 3.0
-                clips, rights = source.acquire(
-                    plan,
-                    Path(temporary),
-                    "short",
-                    9,
-                    section_estimated_seconds={
-                        "s1": per_section,
-                        "s2": per_section,
-                        "s3": per_section,
-                    },
-                )
-                return list(clips), list(rights)
-
-        six_clips, six_rights = run_case(28.0)
-        self.assertEqual(len(six_clips), SHORT_VISUAL_MIN)
+        self.assertEqual(len(clips), SHORT_STOCK_ASSET_MAX)
+        self.assertEqual(len(rights), SHORT_STOCK_ASSET_MAX)
         self.assertEqual(
-            [row["section_id"] for row in six_rights],
+            [row["section_id"] for row in rights],
             ["s1", "s1", "s2", "s2", "s3", "s3"],
         )
+        for index in range(0, 6, 2):
+            self.assertNotEqual(rights[index]["query"], rights[index + 1]["query"])
 
-        seven_clips, seven_rights = run_case(34.0)
-        self.assertEqual(len(seven_clips), SHORT_VISUAL_TARGET)
+        section_ids = ["s1", "s1", "s2", "s2", "s3", "s3"]
         self.assertEqual(
-            [row["section_id"] for row in seven_rights],
-            ["s1", "s1", "s1", "s2", "s2", "s3", "s3"],
+            len(_expand_short_visual_sequence(clips, section_ids, 28.0)),
+            SHORT_VISUAL_MIN,
         )
-
-        eight_clips, _ = run_case(39.0)
-        self.assertEqual(len(eight_clips), 8)
-
-        nine_clips, nine_rights = run_case(44.0)
-        self.assertEqual(len(nine_clips), SHORT_VISUAL_MAX)
         self.assertEqual(
-            [row["section_id"] for row in nine_rights],
-            ["s1", "s1", "s1", "s2", "s2", "s2", "s3", "s3", "s3"],
+            len(_expand_short_visual_sequence(clips, section_ids, 34.0)),
+            SHORT_VISUAL_TARGET,
+        )
+        self.assertEqual(
+            len(_expand_short_visual_sequence(clips, section_ids, 39.0)),
+            8,
+        )
+        self.assertEqual(
+            len(_expand_short_visual_sequence(clips, section_ids, 44.0)),
+            SHORT_VISUAL_MAX,
         )
         self.assertLess(SHORT_CUT_DISSOLVE_SECONDS, 0.2)
         self.assertIn("saturation=0.90", SHORT_MASTER_LOOK_FILTER)
         self.assertIn("colorbalance=", SHORT_MASTER_LOOK_FILTER)
         self.assertIn("_short_motion_filter", inspect.getsource(media_module._trim_and_grade_clip))
         self.assertIn(
-            "SHORT_MASTER_LOOK_FILTER",
+            "_expand_short_visual_sequence",
             inspect.getsource(media_module.render_video),
         )
 
