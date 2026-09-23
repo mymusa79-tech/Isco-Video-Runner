@@ -75,36 +75,89 @@ def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
     return out
 
 
+def _snap_to_quiet_zero_crossing(
+    audio: np.ndarray,
+    center_sample: int,
+    *,
+    radius_ms: int = 350,
+    window_ms: int = 20,
+) -> tuple[int, float]:
+    """Find a safe splice near a semantic boundary.
+
+    pred_dur is only an approximate locator. We scan around it for the
+    lowest-energy window, then snap to the nearest zero crossing so inserting
+    silence cannot cut through an audible phoneme or create a click.
+    """
+    radius = int(SAMPLE_RATE * radius_ms / 1000.0)
+    window = max(16, int(SAMPLE_RATE * window_ms / 1000.0))
+    low = max(window, center_sample - radius)
+    high = min(int(audio.size) - window, center_sample + radius)
+    if low >= high:
+        raise RuntimeError("no search room around semantic pause boundary")
+
+    best: tuple[float, int, float] | None = None
+    step = max(1, int(SAMPLE_RATE * 0.005))
+    half = window // 2
+
+    for sample in range(low, high, step):
+        segment = audio[sample - half: sample + half]
+        if segment.size < window:
+            continue
+        rms = float(np.sqrt(np.mean(np.square(segment), dtype=np.float64)))
+
+        # Prefer a true zero crossing within +/- 3 ms of the quiet-window center.
+        search = int(SAMPLE_RATE * 0.003)
+        zlow = max(1, sample - search)
+        zhigh = min(int(audio.size) - 1, sample + search)
+        local = audio[zlow:zhigh + 1]
+        crossings = np.flatnonzero(np.signbit(local[:-1]) != np.signbit(local[1:]))
+        if crossings.size:
+            absolute = zlow + crossings
+            splice = int(absolute[np.argmin(np.abs(absolute - sample))])
+        else:
+            splice = sample
+
+        amplitude = abs(float(audio[splice]))
+        score = rms + (0.10 * amplitude)
+        if best is None or score < best[0]:
+            best = (score, splice, rms)
+
+    if best is None:
+        raise RuntimeError("no quiet splice candidate found")
+
+    _, splice, rms = best
+    # Fail closed rather than cut through active speech. 0.03 RMS is generous
+    # enough for room tone/model noise but rejects obvious voiced speech.
+    if rms > 0.03:
+        raise RuntimeError(
+            f"semantic pause boundary has no safe low-energy splice: rms={rms:.4f}"
+        )
+    return splice, rms
+
+
 def insert_human_pauses_from_pred_dur(
     audio: np.ndarray,
     phonemes: str,
     pred_dur: torch.LongTensor,
 ) -> tuple[np.ndarray, list[dict]]:
-    """Insert pauses into already-generated audio without re-synthesizing speech.
+    """Insert semantically justified pauses without re-synthesizing speech.
 
-    Kokoro/Nabra exposes predicted durations per phoneme. We use those exact
-    timings to splice silence after semantic boundaries while preserving every
-    original speech sample byte-for-byte.
+    Nabra pred_dur provides an approximate semantic locator. Each locator is
+    snapped to the nearest low-energy zero crossing before any silence is added.
+    Original speech samples are preserved byte-for-byte.
     """
     rules = (
-        # Opening reflection: tiny hesitation after "أحيانًا" so the listener
-        # enters the thought without breaking the sentence.
         ("opening_reflection", "ʔˈaħjaːnˌan", 1, 160, "تمهيد تأملي قصير قبل الفكرة"),
-        # Full thought completed: give the reframe time to land.
-        ("sentence_1", ".", 1, 520, "اكتمال الفكرة الأولى"),
-        # "خطوة صادقة" is the emotional center of sentence 2. A micro-pause
-        # lets it register before the consequence "تعيدك إلى طريقك".
-        ("honest_step_emphasis", "saːdˈiqat", 1, 130, "تأكيد العبارة المحورية خطوة صادقة"),
-        ("sentence_2", ".", 2, 430, "اكتمال الجواب المقابل للفكرة الأولى"),
-        ("sentence_3", ".", 3, 470, "اكتمال التحذير قبل الانتقال للفعل"),
-        # "ابدأ بما تستطيع اليوم" is the action line and deserves the longest
-        # breath before the closing reflection.
-        ("sentence_4", ".", 4, 650, "ترك جملة الفعل تستقر قبل الخاتمة"),
-        ("last_reflective_beat", "alhˈaːdiʔ", 1, 180, "وقفة خفيفة بعد الاستمرار الهادئ"),
-        ("last_daily_beat", "kullˌa jˈaum", 1, 220, "إبراز معنى التكرار اليومي قبل النتيجة"),
+        ("sentence_1", ".", 1, 480, "اكتمال الفكرة الأولى"),
+        ("honest_step_emphasis", "saːdˈiqat", 1, 120, "تأكيد العبارة المحورية خطوة صادقة"),
+        ("sentence_2", ".", 2, 380, "اكتمال الجواب المقابل للفكرة الأولى"),
+        ("sentence_3", ".", 3, 420, "اكتمال التحذير قبل الانتقال للفعل"),
+        ("sentence_4", ".", 4, 600, "ترك جملة الفعل تستقر قبل الخاتمة"),
+        ("last_reflective_beat", "alhˈaːdiʔ", 1, 170, "وقفة خفيفة بعد الاستمرار الهادئ"),
+        ("last_daily_beat", "kullˌa jˈaum", 1, 200, "إبراز معنى التكرار اليومي قبل النتيجة"),
     )
 
-    boundaries: list[tuple[int, int, str, str, str]] = []
+    boundaries: list[tuple[int, int, str, str, str, int, float]] = []
     for label, needle, occurrence, pause_ms, reason in rules:
         start = -1
         cursor = 0
@@ -117,33 +170,36 @@ def insert_human_pauses_from_pred_dur(
             cursor = start + len(needle)
         char_end = start + len(needle)
 
-        # pred_dur layout: BOS, one duration per phoneme character, EOS.
-        # Kokoro documents 600 audio samples per duration frame at 24 kHz.
         dur_index_end = min(char_end + 1, int(pred_dur.numel()) - 1)
-        sample_index = int(pred_dur[:dur_index_end].sum().item() * 600)
-        sample_index = max(0, min(sample_index, int(audio.size)))
-        boundaries.append((sample_index, pause_ms, label, needle, reason))
+        approximate = int(pred_dur[:dur_index_end].sum().item() * 600)
+        approximate = max(0, min(approximate, int(audio.size)))
+        splice, local_rms = _snap_to_quiet_zero_crossing(audio, approximate)
+        boundaries.append(
+            (splice, pause_ms, label, needle, reason, approximate, local_rms)
+        )
 
-    # Keep original speech untouched. Multiple inserts are applied against
-    # original sample coordinates, from right to left.
     out = audio.astype(np.float32, copy=True)
     applied: list[dict] = []
-    for sample_index, pause_ms, label, needle, reason in sorted(boundaries, reverse=True):
+    for splice, pause_ms, label, needle, reason, approximate, local_rms in sorted(
+        boundaries, reverse=True
+    ):
         silence = np.zeros(int(SAMPLE_RATE * pause_ms / 1000.0), dtype=np.float32)
-        out = np.concatenate((out[:sample_index], silence, out[sample_index:]))
+        out = np.concatenate((out[:splice], silence, out[splice:]))
         applied.append(
             {
                 "label": label,
                 "needle": needle,
                 "pause_ms": pause_ms,
                 "reason": reason,
-                "original_sample_index": sample_index,
+                "pred_dur_approx_sample": approximate,
+                "safe_splice_sample": splice,
+                "snap_delta_ms": round((splice - approximate) * 1000.0 / SAMPLE_RATE, 2),
+                "splice_rms": round(local_rms, 6),
             }
         )
 
     applied.reverse()
     return out, applied
-
 
 def wav_info(path: Path) -> dict:
     with wave.open(str(path), "rb") as wf:
@@ -271,9 +327,9 @@ def main() -> int:
         patched_phonemes,
         selective_output.pred_dur.detach().cpu(),
     )
-    human_raw_path = output / "12-nabra-selective-human-pauses-raw.wav"
+    human_raw_path = output / "14-nabra-semantic-pauses-safe-splice-raw.wav"
     sf.write(human_raw_path, human_audio, SAMPLE_RATE, subtype="PCM_16")
-    human_final_path = output / "13-nabra-selective-human-pauses-mix-ready.wav"
+    human_final_path = output / "15-nabra-semantic-pauses-safe-splice-mix-ready.wav"
     mix_ready(human_raw_path, human_final_path)
 
     synth_started = time.perf_counter()
@@ -347,8 +403,8 @@ def main() -> int:
             "selective sample starts from Nabra G2P for the entire passage",
             "only exact known-bad phoneme spans may be patched; all other phonemes are asserted unchanged",
             "selective sample is one continuous inference call, so there is no repeated sentence-start onset",
-            "human-pause version inserts semantically justified silence after synthesis using Nabra pred_dur timestamps",
-            "human-pause version does not regenerate or modify any speech samples",
+            "human-pause version uses pred_dur only as an approximate locator, then snaps to a low-energy zero crossing",
+            "human-pause version does not regenerate or modify any speech samples; unsafe splice points fail closed",
             "experimental only; no Clean V2 production wiring",
         ],
     }
