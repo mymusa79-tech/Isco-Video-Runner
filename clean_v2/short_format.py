@@ -568,6 +568,13 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+_INNER_DIALOGUE_HOOK_VISUAL_TERMS = frozenset({
+    "tense", "hesitating", "hesitation", "rushed", "urgent", "frustrated",
+    "overwhelmed", "stopping", "interrupted", "unfinished", "gripping",
+    "reaching", "deadline", "alarm", "pressure",
+})
+
+
 _VISUAL_QUERY_TERMS = {
     "why_reframe": {
         "old": frozenset({"confused", "cluttered", "overwhelmed", "stuck", "wrong", "messy", "frustrated", "chaotic"}),
@@ -627,7 +634,9 @@ def validate_short_visual_queries(
 
     if template == "inner_dialogue":
         allowed = _VISUAL_QUERY_TERMS[template]
-        if any(not (item & allowed) for item in words):
+        if not (words[0] & (allowed | _INNER_DIALOGUE_HOOK_VISUAL_TERMS)):
+            raise ShortFormatError("short_visual_query_inner_dialogue_hook_not_readable")
+        if any(not (item & allowed) for item in words[1:]):
             raise ShortFormatError("short_visual_query_inner_dialogue_not_reflective")
         action_families = [_query_action_families(item) for item in words]
         if action_families[0] and action_families[2] and action_families[0] & action_families[2]:
