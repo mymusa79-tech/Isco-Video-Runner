@@ -303,6 +303,79 @@ def gate_reserved_punctuation_pauses(
     return out, applied
 
 
+def infer_with_native_pause_durations(
+    model: KModel,
+    phonemes: str,
+    ref_s: torch.FloatTensor,
+    *,
+    speed: float,
+) -> KModel.Output:
+    """Extend punctuation duration before decoding, leaving lexical tokens alone.
+
+    This follows Kokoro's own forward_with_tokens path, with one bounded change:
+    only punctuation token durations are multiplied before alignment/F0/decoder.
+    No waveform editing, silence insertion, chunking, or phoneme replacement.
+    """
+    token_chars: list[str] = []
+    token_ids: list[int] = []
+    for ch in phonemes:
+        token_id = model.vocab.get(ch)
+        if token_id is None:
+            continue
+        token_chars.append(ch)
+        token_ids.append(token_id)
+
+    input_ids = torch.LongTensor([[0, *token_ids, 0]]).to(model.device)
+    ref_s = ref_s.to(model.device)
+    input_lengths = torch.full(
+        (input_ids.shape[0],),
+        input_ids.shape[-1],
+        device=model.device,
+        dtype=torch.long,
+    )
+    text_mask = torch.arange(input_lengths.max(), device=model.device).unsqueeze(0)
+    text_mask = text_mask.expand(input_lengths.shape[0], -1).type_as(input_lengths)
+    text_mask = torch.gt(text_mask + 1, input_lengths.unsqueeze(1)).to(model.device)
+
+    bert_dur = model.bert(input_ids, attention_mask=(~text_mask).int())
+    d_en = model.bert_encoder(bert_dur).transpose(-1, -2)
+    s = ref_s[:, 128:]
+    d = model.predictor.text_encoder(d_en, s, input_lengths, text_mask)
+    x, _ = model.predictor.lstm(d)
+    duration = model.predictor.duration_proj(x)
+    duration = torch.sigmoid(duration).sum(axis=-1) / speed
+    pred_dur = torch.round(duration).clamp(min=1).long().squeeze()
+
+    # input token index = phoneme token index + BOS(1)
+    multipliers = {",": 1.35, ".": 1.8, "…": 2.8, "—": 2.2}
+    for idx, ch in enumerate(token_chars, start=1):
+        mult = multipliers.get(ch)
+        if mult is not None:
+            pred_dur[idx] = max(
+                1,
+                int(round(float(pred_dur[idx].item()) * mult)),
+            )
+
+    indices = torch.repeat_interleave(
+        torch.arange(input_ids.shape[1], device=model.device),
+        pred_dur.to(model.device),
+    )
+    pred_aln_trg = torch.zeros(
+        (input_ids.shape[1], indices.shape[0]),
+        device=model.device,
+    )
+    pred_aln_trg[indices, torch.arange(indices.shape[0], device=model.device)] = 1
+    pred_aln_trg = pred_aln_trg.unsqueeze(0)
+
+    en = d.transpose(-1, -2) @ pred_aln_trg
+    F0_pred, N_pred = model.predictor.F0Ntrain(en, s)
+    t_en = model.text_encoder(input_ids, input_lengths, text_mask)
+    asr = t_en @ pred_aln_trg
+    audio = model.decoder(asr, F0_pred, N_pred, ref_s[:, :128]).squeeze().cpu()
+
+    return KModel.Output(audio=audio, pred_dur=pred_dur.cpu())
+
+
 def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
     """Gently fade the model's phrase-start onset without cutting speech.
 
@@ -740,6 +813,23 @@ def main() -> int:
     pause_token_final_path = output / "21-nabra-native-pause-tokens-mix-ready.wav"
     mix_ready(pause_token_raw_path, pause_token_final_path)
 
+    duration_pause_started = time.perf_counter()
+    with torch.inference_mode():
+        duration_pause_output = infer_with_native_pause_durations(
+            model,
+            pause_token_phonemes,
+            voice[len(pause_token_phonemes)-1].unsqueeze(0),
+            speed=NATIVE_PROSODY_SPEED,
+        )
+    duration_pause_seconds = time.perf_counter() - duration_pause_started
+    duration_pause_audio = duration_pause_output.audio.detach().cpu().numpy().astype(np.float32)
+    duration_pause_audio = soften_segment_onset(duration_pause_audio)
+
+    duration_pause_raw_path = output / "24-nabra-native-duration-pauses-raw.wav"
+    sf.write(duration_pause_raw_path, duration_pause_audio, SAMPLE_RATE, subtype="PCM_16")
+    duration_pause_final_path = output / "25-nabra-native-duration-pauses-mix-ready.wav"
+    mix_ready(duration_pause_raw_path, duration_pause_final_path)
+
     if pause_token_output.pred_dur is None:
         raise RuntimeError("Nabra did not return pred_dur for punctuation cleanup")
     cleaned_pause_audio, cleaned_pause_regions = gate_reserved_punctuation_pauses(
@@ -890,6 +980,14 @@ def main() -> int:
         "native_pause_tokens_synthesis_seconds": round(pause_token_seconds, 3),
         "native_pause_tokens_raw_wav": wav_info(pause_token_raw_path),
         "native_pause_tokens_mix_ready_wav": wav_info(pause_token_final_path),
+        "native_duration_pause_method": "pred_dur punctuation-only pre-decoder scaling",
+        "native_duration_pause_multipliers": {",": 1.35, ".": 1.8, "…": 2.8, "—": 2.2},
+        "native_duration_pause_same_phonemes": pause_token_phonemes,
+        "native_duration_pause_single_inference": True,
+        "native_duration_pause_zero_waveform_edits": True,
+        "native_duration_pause_synthesis_seconds": round(duration_pause_seconds, 3),
+        "native_duration_pause_raw_wav": wav_info(duration_pause_raw_path),
+        "native_duration_pause_mix_ready_wav": wav_info(duration_pause_final_path),
         "reserved_pause_cleanup_source": "hexgrad/kokoro issue #365 workaround",
         "reserved_pause_cleanup_regions": cleaned_pause_regions,
         "reserved_pause_cleanup_same_sample_count": (
@@ -944,6 +1042,7 @@ def main() -> int:
             "native-calm sample has no atempo, no waveform splice, and no sentence-by-sentence synthesis",
             "native-pause-token sample changes punctuation tokens only and stays one continuous inference",
             "native-pause-token sample has zero waveform edits and therefore cannot introduce splice cuts",
+            "native-duration-pause sample changes punctuation pred_dur before decoder only; lexical phonemes and waveform pipeline are untouched",
             "reserved-pause cleanup follows upstream Kokoro #365: keep release and next-word attack, gate only punctuation-reserved middle",
             "reserved-pause cleanup inserts/deletes zero samples and keeps the exact same timeline length",
             "FastAPI-style explicit pause sample uses semantic chunks, -45 dBFS dynamic boundary trim, 50 ms pre-roll, and exact pauses",
