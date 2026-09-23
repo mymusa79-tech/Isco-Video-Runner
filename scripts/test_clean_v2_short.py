@@ -24,6 +24,8 @@ from clean_v2 import media as media_module
 from clean_v2.media import (
     GeminiPrimaryPiperFallbackSynthesizer,
     SHORT_CHARON_STYLE,
+    SHORT_CUT_DISSOLVE_SECONDS,
+    SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS,
     SHORT_MIN_COLOR_SATURATION_AVG,
     SHORT_VISUAL_MAX,
     SHORT_VISUAL_TARGET,
@@ -518,6 +520,22 @@ class ShortContractTests(unittest.TestCase):
             "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم دون فهم السبب.",
         )
 
+    def test_inner_dialogue_hook_visual_can_use_active_pressure_not_only_calm_reflection(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(
+            [
+                "tense hands stopping mid action unfinished task pressure",
+                "reflective person alone pausing in quiet room",
+                "contemplative person calmly closing notebook and standing",
+            ]
+        )
+        report = validate_short_visual_queries(plan, brief)
+        self.assertEqual(report["status"], "pass")
+        prompt = short_prompt_context(brief)
+        self.assertIn("do NOT make the hook visually calm", prompt)
+        self.assertIn("scroll-stop visual beat", prompt)
+        self.assertIn("strong answer to the hook", prompt)
+
     def test_inner_dialogue_rejects_middle_to_payoff_action_repeat(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(
@@ -649,9 +667,11 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(len(six_clips), SHORT_VISUAL_MAX)
         self.assertEqual(
             [row["section_id"] for row in six_rights],
-            ["s1", "s1", "s2", "s2", "s3", "s3"],
+            ["s1", "s1", "s1", "s2", "s3", "s3"],
         )
         self.assertEqual(sum(bool(row.get("pacing_auxiliary")) for row in six_rights), 3)
+        self.assertEqual(SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS, 4.5)
+        self.assertLess(SHORT_CUT_DISSOLVE_SECONDS, 0.2)
 
     def test_optional_local_ai_still_replaces_one_short_auxiliary_without_network_generation(self) -> None:
         plan = _plan(
