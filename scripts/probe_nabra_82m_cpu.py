@@ -181,6 +181,98 @@ def add_model_native_structural_prosody(phonemes: str) -> str:
     return out
 
 
+def infer_with_native_pause_duration_boost(
+    model: KModel,
+    phonemes: str,
+    ref_s: torch.FloatTensor,
+    speed: float,
+) -> tuple[np.ndarray, torch.LongTensor, list[dict]]:
+    """Extend punctuation durations inside Kokoro before waveform synthesis.
+
+    This preserves the exact accepted phoneme string, voice pack, and model
+    speed. Only punctuation-token durations are increased before alignment and
+    decoding, so there is no waveform splice, no post silence insertion, and no
+    sentence-by-sentence re-synthesis.
+    """
+    mapped = [(ch, model.vocab.get(ch)) for ch in phonemes]
+    mapped = [(ch, token_id) for ch, token_id in mapped if token_id is not None]
+    chars = [ch for ch, _ in mapped]
+    ids = [token_id for _, token_id in mapped]
+
+    input_ids = torch.LongTensor([[0, *ids, 0]]).to(model.device)
+    ref_s = ref_s.to(model.device)
+    input_lengths = torch.full(
+        (input_ids.shape[0],),
+        input_ids.shape[-1],
+        device=input_ids.device,
+        dtype=torch.long,
+    )
+    text_mask = (
+        torch.arange(input_lengths.max())
+        .unsqueeze(0)
+        .expand(input_lengths.shape[0], -1)
+        .type_as(input_lengths)
+    )
+    text_mask = torch.gt(text_mask + 1, input_lengths.unsqueeze(1)).to(model.device)
+
+    bert_dur = model.bert(input_ids, attention_mask=(~text_mask).int())
+    d_en = model.bert_encoder(bert_dur).transpose(-1, -2)
+    s = ref_s[:, 128:]
+    d = model.predictor.text_encoder(d_en, s, input_lengths, text_mask)
+    x, _ = model.predictor.lstm(d)
+    duration = model.predictor.duration_proj(x)
+    duration = torch.sigmoid(duration).sum(axis=-1) / speed
+    pred_dur = torch.round(duration).clamp(min=1).long().squeeze()
+
+    if pred_dur.numel() != len(chars) + 2:
+        raise RuntimeError(
+            f"duration/token mismatch: pred_dur={pred_dur.numel()} chars={len(chars)}"
+        )
+
+    # Each duration frame is 600 samples = 25 ms at 24 kHz.
+    # These are deliberately modest: enough to create a felt pause without
+    # stretching ordinary speech or altering lexical phoneme durations.
+    extra_frames = {",": 2, "…": 8, "—": 5}
+    changes: list[dict] = []
+    for char_index, ch in enumerate(chars, start=1):  # +1 for BOS
+        extra = extra_frames.get(ch)
+        if extra is None:
+            continue
+        before = int(pred_dur[char_index].item())
+        pred_dur[char_index] += extra
+        after = int(pred_dur[char_index].item())
+        changes.append(
+            {
+                "char": ch,
+                "char_index": char_index - 1,
+                "before_frames": before,
+                "after_frames": after,
+                "added_ms": extra * 25,
+            }
+        )
+
+    indices = torch.repeat_interleave(
+        torch.arange(input_ids.shape[1], device=model.device), pred_dur
+    )
+    pred_aln_trg = torch.zeros(
+        (input_ids.shape[1], indices.shape[0]), device=model.device
+    )
+    pred_aln_trg[indices, torch.arange(indices.shape[0])] = 1
+    pred_aln_trg = pred_aln_trg.unsqueeze(0).to(model.device)
+
+    en = d.transpose(-1, -2) @ pred_aln_trg
+    f0_pred, n_pred = model.predictor.F0Ntrain(en, s)
+    t_en = model.text_encoder(input_ids, input_lengths, text_mask)
+    asr = t_en @ pred_aln_trg
+    audio = model.decoder(asr, f0_pred, n_pred, ref_s[:, :128]).squeeze()
+
+    return (
+        audio.detach().cpu().numpy().astype(np.float32),
+        pred_dur.detach().cpu(),
+        changes,
+    )
+
+
 def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
     """Gently fade the model's phrase-start onset without cutting speech.
 
@@ -501,6 +593,28 @@ def main() -> int:
     pause_token_final_path = output / "21-nabra-native-pause-tokens-mix-ready.wav"
     mix_ready(pause_token_raw_path, pause_token_final_path)
 
+    duration_boost_started = time.perf_counter()
+    duration_boost_audio, duration_boost_pred_dur, duration_boost_changes = (
+        infer_with_native_pause_duration_boost(
+            model,
+            pause_token_phonemes,
+            voice.to(model.device)[len(pause_token_phonemes) - 1],
+            NATIVE_PROSODY_SPEED,
+        )
+    )
+    duration_boost_seconds = time.perf_counter() - duration_boost_started
+    duration_boost_audio = soften_segment_onset(duration_boost_audio)
+
+    duration_boost_raw_path = output / "24-nabra-native-duration-pauses-raw.wav"
+    sf.write(
+        duration_boost_raw_path,
+        duration_boost_audio,
+        SAMPLE_RATE,
+        subtype="PCM_16",
+    )
+    duration_boost_final_path = output / "25-nabra-native-duration-pauses-mix-ready.wav"
+    mix_ready(duration_boost_raw_path, duration_boost_final_path)
+
     structural_phonemes = add_model_native_structural_prosody(patched_phonemes)
     structural_started = time.perf_counter()
     with torch.inference_mode():
@@ -619,6 +733,16 @@ def main() -> int:
         "native_pause_tokens_synthesis_seconds": round(pause_token_seconds, 3),
         "native_pause_tokens_raw_wav": wav_info(pause_token_raw_path),
         "native_pause_tokens_mix_ready_wav": wav_info(pause_token_final_path),
+        "native_duration_pause_same_phonemes": pause_token_phonemes,
+        "native_duration_pause_speed": NATIVE_PROSODY_SPEED,
+        "native_duration_pause_single_inference": True,
+        "native_duration_pause_zero_waveform_splices": True,
+        "native_duration_pause_zero_post_silence_insertion": True,
+        "native_duration_pause_changes": duration_boost_changes,
+        "native_duration_pause_pred_dur": duration_boost_pred_dur.tolist(),
+        "native_duration_pause_synthesis_seconds": round(duration_boost_seconds, 3),
+        "native_duration_pause_raw_wav": wav_info(duration_boost_raw_path),
+        "native_duration_pause_mix_ready_wav": wav_info(duration_boost_final_path),
         "native_structural_phonemes": structural_phonemes,
         "native_structural_lexical_phonemes_unchanged": True,
         "native_structural_single_inference": True,
@@ -654,6 +778,8 @@ def main() -> int:
             "native-calm sample has no atempo, no waveform splice, and no sentence-by-sentence synthesis",
             "native-pause-token sample changes punctuation tokens only and stays one continuous inference",
             "native-pause-token sample has zero waveform edits and therefore cannot introduce splice cuts",
+            "native-duration-pause sample preserves the accepted phoneme string, voice, and speed 0.87",
+            "native-duration-pause sample extends punctuation pred_dur before alignment/decoder; no waveform editing",
             "native-structural sample uses Kokoro punctuation tokens only, including em-dash structural beats",
             "native-structural sample has zero waveform edits and one continuous inference call",
             "human-pause version uses pred_dur only as an approximate locator, then snaps to a low-energy zero crossing",
