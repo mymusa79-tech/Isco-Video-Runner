@@ -64,6 +64,7 @@ PACING_MAX_SHOTS_PER_SECTION = 3
 
 # Rich Short Visual Lite: still exactly three semantic sections, but 6-9
 # final shots depending only on measured voice duration. No new AI stage.
+SHORT_STOCK_ASSET_MAX = 6
 SHORT_VISUAL_MIN = 6
 SHORT_VISUAL_TARGET = 7
 SHORT_VISUAL_MAX = 9
@@ -916,6 +917,37 @@ def _short_shot_distribution(total_seconds: float) -> tuple[int, int, int]:
     return (2, 2, 2)
 
 
+def _expand_short_visual_sequence(
+    paths: list[Path],
+    section_ids: list[str] | None,
+    total_seconds: float,
+) -> list[Path]:
+    """Create 6-9 rendered shots from at most six already-approved stock assets."""
+    if section_ids is None or len(paths) != len(section_ids):
+        return list(paths)
+    order: list[str] = []
+    groups: dict[str, list[Path]] = {}
+    for path, section_id in zip(paths, section_ids):
+        if section_id not in groups:
+            order.append(section_id)
+            groups[section_id] = []
+        groups[section_id].append(path)
+    if len(order) != 3 or any(len(groups[item]) < 2 for item in order):
+        return list(paths)
+
+    desired = _short_shot_distribution(total_seconds)
+    expanded: list[Path] = []
+    for section_id, shot_count in zip(order, desired):
+        assets = groups[section_id][:2]
+        expanded.extend(assets)
+        if shot_count >= 3:
+            # Reuse the already-audited first asset as a new local edit beat.
+            # _build_section_body_segments gives each occurrence a different
+            # motion mode, so this adds a cut without another provider/QA call.
+            expanded.append(assets[0])
+    return expanded
+
+
 def _short_motion_filter(
     *,
     width: int,
@@ -1152,14 +1184,12 @@ class StockVisualSource:
 
         short_shots_by_section: dict[str, int] = {}
         if fmt == "short" and len(sections) == 3:
-            measured_total = sum(
-                max(0.0, float(value))
-                for value in (section_estimated_seconds or {}).values()
-            )
-            distribution = _short_shot_distribution(measured_total)
+            # Exactly two provider-backed assets per section at most. Richer
+            # 7-9 shot pacing is created later from these same approved assets
+            # locally, so provider and Vision load does not scale with shot count.
             short_shots_by_section = {
-                str(section.get("id") or ""): distribution[index]
-                for index, section in enumerate(sections)
+                str(section.get("id") or ""): 2
+                for section in sections
                 if isinstance(section, Mapping)
             }
 
@@ -1308,11 +1338,11 @@ class StockVisualSource:
                 else None
             )
             if fmt == "short":
-                # Two intents come from the same Planning call. Alternate them
-                # across the section's bounded 2-3 shots so each cut adds a
-                # new observable beat instead of repeating the same B-roll idea.
+                # Two intents come from the same Planning call and produce at
+                # most two provider-backed assets for this section. Any third
+                # rendered beat is a local edit reuse, never another search/QA call.
                 shots = short_shots_by_section.get(section_id, 2)
-                extra_queries = [alt_query or query, query]
+                extra_queries = [alt_query or query]
                 for extra_index in range(max(0, shots - 1)):
                     if section_id == "s2" and extra_index == 0 and _acquire_local_ai_still(section_id):
                         continue
@@ -2268,10 +2298,12 @@ def render_video(
             paths = opening_paths
             durations = [7.0, 11.0, 12.0]
     else:
-        # No fixed upper bound here either, for the same reason as the body
-        # clips above: acquire() already bounds the real total via
-        # max_visuals * PACING_MAX_SHOTS_PER_SECTION.
+        # Short may render 6-9 edit beats while keeping at most six provider-backed
+        # assets. Extra beats reuse already-audited assets locally.
         paths = [Path(item) for item in visual_paths]
+        if fmt == "short":
+            section_ids = _pacing_section_ids(Path(output_path).parent, paths)
+            paths = _expand_short_visual_sequence(paths, section_ids, duration)
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
