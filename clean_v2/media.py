@@ -68,6 +68,9 @@ PACING_MAX_SHOTS_PER_SECTION = 3
 SHORT_VISUAL_TARGET = 5
 SHORT_VISUAL_MAX = 6
 SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS = 18.0
+SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS = 4.5
+SHORT_TURN_ONE_SHOT_MAX_SECONDS = 6.5
+SHORT_CUT_DISSOLVE_SECONDS = 0.12
 SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
 SHORT_LOCAL_AI_STILL_SECONDS = 8.0
 SHORT_MIN_COLOR_SATURATION_AVG = 4.0
@@ -1049,19 +1052,39 @@ class StockVisualSource:
                 max(0.0, float(value))
                 for value in (section_estimated_seconds or {}).values()
             )
+            hook_seconds = max(
+                0.0,
+                float((section_estimated_seconds or {}).get("s1") or 0.0),
+            )
+            turn_seconds = max(
+                0.0,
+                float((section_estimated_seconds or {}).get("s2") or 0.0),
+            )
             short_total_target = (
                 SHORT_VISUAL_MAX
-                if measured_total >= SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS
+                if (
+                    measured_total >= SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS
+                    or short_ai_still is not None
+                )
                 else SHORT_VISUAL_TARGET
             )
-            # Five shots: hook/detail, turn, payoff/result => 2/1/2.
-            # Six shots: two distinct stock assets per semantic section.
-            if short_total_target == 6:
+            # Keep the whole Short bounded at 5-6 visuals. The hook gets two
+            # quick shots by default; when voice time allows and the middle
+            # section is not already long, the sixth slot goes to a third
+            # hook shot for stronger scroll-stop pressure. The payoff always
+            # keeps two visuals so the ending does not collapse after a strong
+            # opening. A local AI still, when present, uses the middle slot
+            # instead of stealing one from the payoff.
+            if short_total_target == 6 and short_ai_still is not None:
                 distribution = (2, 2, 2)
-            elif short_ai_still is not None:
-                # Give the optional still the middle-section auxiliary slot
-                # without increasing the total beyond five.
-                distribution = (2, 2, 1)
+            elif (
+                short_total_target == 6
+                and hook_seconds >= SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS
+                and turn_seconds <= SHORT_TURN_ONE_SHOT_MAX_SECONDS
+            ):
+                distribution = (3, 1, 2)
+            elif short_total_target == 6:
+                distribution = (2, 2, 2)
             else:
                 distribution = (2, 1, 2)
             short_shots_by_section = {
@@ -2034,6 +2057,7 @@ def _build_section_body_segments(
     *,
     width: int,
     height: int,
+    dissolve_seconds: float = COHESION_DISSOLVE_SECONDS,
 ) -> list[Path]:
     """Grade and trim every body clip, then dissolve adjacent clips that
     share a section (visual pacing's own extra same-query coverage) into one
@@ -2080,6 +2104,7 @@ def _build_section_body_segments(
                     merged,
                     trimmed[member_index],
                     work_dir / f"dissolve-{group_index:02d}-{member_index:02d}.mp4",
+                    dissolve_seconds=dissolve_seconds,
                 )
             except RuntimeError:
                 # A sub-clip too short for a timing-preserving crossfade
@@ -2186,6 +2211,11 @@ def render_video(
                 body_section_ids,
                 width=width,
                 height=height,
+                dissolve_seconds=(
+                    SHORT_CUT_DISSOLVE_SECONDS
+                    if fmt == "short"
+                    else COHESION_DISSOLVE_SECONDS
+                ),
             )
         else:
             body_segments = []
