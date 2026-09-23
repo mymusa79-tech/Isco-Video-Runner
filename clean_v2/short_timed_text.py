@@ -445,7 +445,7 @@ def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, in
         return []
     duration = item.end - item.start
     weights = [
-        max(1, len(re.sub(r"[^\\w\\u0600-\\u06FF]+", "", word, flags=re.UNICODE)))
+        max(1, len(re.sub(r"[^\w\u0600-\u06FF]+", "", word, flags=re.UNICODE)))
         for word in words
     ]
     total = max(1, sum(weights))
