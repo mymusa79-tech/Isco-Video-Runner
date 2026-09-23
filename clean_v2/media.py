@@ -1341,7 +1341,7 @@ class StockVisualSource:
                 # Two intents come from the same Planning call and produce at
                 # most two provider-backed assets for this section. Any third
                 # rendered beat is a local edit reuse, never another search/QA call.
-                shots = short_shots_by_section.get(section_id, 2)
+                shots = short_shots_by_section.get(section_id, 1)
                 extra_queries = [alt_query or query]
                 for extra_index in range(max(0, shots - 1)):
                     if section_id == "s2" and extra_index == 0 and _acquire_local_ai_still(section_id):
