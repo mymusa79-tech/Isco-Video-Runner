@@ -133,15 +133,18 @@ TEMPLATE_VISUAL_QUERY_DIRECTIVES = {
 }
 
 INNER_DIALOGUE_VOICE_RULES = (
-    "The entire narration must read as one continuous inner voice thinking to itself, never as a "
-    "narrator giving the viewer instructions.",
-    "Required progression: inner voice -> friction -> internal realization/turn -> earned payoff.",
-    'BAD: "ابدأ بخطوة صغيرة. عليك أن تتحرك الآن."',
-    'GOOD: "قلت لنفسي: لا أريد أن أبدأ. ثم لاحظت أنني كنت أنتظر شعورًا لن يأتي."',
+    "The narration must sound natural when spoken aloud in Modern Standard Arabic: short, concrete, "
+    "and conversational rather than essay-like or analytical.",
+    "Required progression: felt moment -> brief inner thought -> natural realization/turn -> one earned action.",
+    'BAD: "قلت لنفسي: السبب الحقيقي ليس الإرهاق، بل أنك لم تحدد ما تريد."',
+    'GOOD: "مرّ اليوم ولم أبدأ. القائمة بدت أكبر مني. ربما أحتاج بداية أصغر."',
+    'Avoid formulaic self-help language such as "السبب الحقيقي", repeated "قلت لنفسي", and the '
+    '"ليس X بل Y" construction unless the approved source itself requires that exact contrast.',
+    "Do not explain the lesson to the viewer. Prefer one small observable detail or thought that lets "
+    "the realization emerge naturally.",
     'Do not address the viewer with "افعل" / "ابدأ" / "عليك" except in the final line only, where '
     "at most one single-action imperative is allowed by the Short contract.",
-    "The turn must sound like an idea discovered by the inner voice itself, not preaching from an "
-    "external narrator.",
+    "The turn must sound discovered inside the moment, not preached by an external narrator.",
 )
 
 TEMPLATE_WRITING_DIRECTIVES = {
@@ -305,6 +308,9 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
+        "- SPOKEN_NATURALNESS_LITE: write for the ear, not the page. Keep sentences short and concrete; "
+        "avoid abstract diagnosis, polished essay transitions, generic motivational slogans, and repeated rhetorical formulas. "
+        "If a sentence sounds like a coach explaining a lesson rather than a person noticing a real moment, rewrite it more simply.\n"
         "- VISUAL_QUERY_DIRECTION: "
         f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]} "
         "Across s1/s2/s3, use visibly different dominant actions or states so the picture itself progresses. "
@@ -624,6 +630,8 @@ def validate_short_visual_queries(
         action_families = [_query_action_families(item) for item in words]
         if action_families[0] and action_families[2] and action_families[0] & action_families[2]:
             raise ShortFormatError("short_visual_query_inner_dialogue_payoff_repeats_opening_action")
+        if action_families[1] and action_families[2] and action_families[1] & action_families[2]:
+            raise ShortFormatError("short_visual_query_inner_dialogue_payoff_repeats_middle_action")
     elif template == "quote_reflection":
         allowed = _VISUAL_QUERY_TERMS[template]
         if any(not (item & allowed) for item in words):
