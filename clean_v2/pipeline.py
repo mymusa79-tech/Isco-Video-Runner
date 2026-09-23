@@ -494,6 +494,19 @@ def _run_opening_director(
     )
 
 
+_AUDIT_NARRATIVE_FORMAT_OVERRIDES = {
+    # "inner_dialogue" is a Clean V2 Short template label whose own name
+    # misleads the reused frozen-Engine tone audit into expecting an actual
+    # back-and-forth exchange between two voices (Runs #17 and #22 both
+    # blocked correct single-voice inner narration with "content is a
+    # monologue, not dialogue"). Send the audit an unambiguous equivalent
+    # label instead; this only changes what the Engine's audit sees, not the
+    # Clean V2 template name used everywhere else (prompts, contracts,
+    # manifests).
+    "inner_dialogue": "inner_monologue",
+}
+
+
 def _audit_narrative_format_for_brief(brief: Mapping[str, Any]) -> str:
     """Bind legacy tone QA to the actual Clean V2 Short template.
 
@@ -502,7 +515,8 @@ def _audit_narrative_format_for_brief(brief: Mapping[str, Any]) -> str:
     deterministic template selection is authoritative.
     """
     if str(brief.get("format") or "") == "short":
-        return str(select_short_template(brief)["template"])
+        template = str(select_short_template(brief)["template"])
+        return _AUDIT_NARRATIVE_FORMAT_OVERRIDES.get(template, template)
     return "direct_cinematic"
 
 

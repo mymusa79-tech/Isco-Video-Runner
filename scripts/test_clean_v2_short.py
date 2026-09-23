@@ -170,11 +170,18 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn(expected, TEMPLATE_VISUAL_QUERY_DIRECTIVES)
 
     def test_short_tone_audit_uses_selected_template_for_all_four_formats(self) -> None:
+        # inner_dialogue is relabeled for the Engine's reused audit only (Runs
+        # #17/#22: its own name misled the audit into expecting an actual
+        # two-voice exchange). Every other template name passes through as-is.
+        audit_overrides = {"inner_dialogue": "inner_monologue"}
         for expected, fixture in _TEMPLATE_FIXTURES.items():
             with self.subTest(template=expected):
                 brief = fixture["brief"]
                 self.assertEqual(select_short_template(brief)["template"], expected)
-                self.assertEqual(_audit_narrative_format_for_brief(brief), expected)
+                self.assertEqual(
+                    _audit_narrative_format_for_brief(brief),
+                    audit_overrides.get(expected, expected),
+                )
 
         film = dict(_TEMPLATE_FIXTURES["inner_dialogue"]["brief"])
         film["format"] = "film"
