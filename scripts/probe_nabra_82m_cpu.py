@@ -33,11 +33,11 @@ NATIVE_SPEED = 0.94
 # Manually corrected MSA tashkeel. This intentionally bypasses Camel's wrong
 # guesses seen in the first probe (e.g. أَنَّ, أَبْدَأ, فِرَقًا).
 SEGMENTS = (
-    "أَحْيَانًا، لَا تَحْتَاجُ إِلَى بِدَايَةٍ جَدِيدَةٍ.",
-    "بَلْ تَحْتَاجُ إِلَى خُطْوَةٍ صَادِقَةٍ تُعِيدُكَ إِلَى طَرِيقِكَ.",
-    "لَا تَنْتَظِرْ أَنْ يَأْتِيَ الدَّافِعُ كَامِلًا.",
-    "اِبْدَأْ بِمَا تَسْتَطِيعُ الْيَوْمَ.",
-    "فَالِاسْتِمْرَارُ الْهَادِئُ، حِينَ يَتَكَرَّرُ كُلَّ يَوْمٍ، يَصْنَعُ فَرْقًا أَكْبَرَ مِمَّا تَتَخَيَّلُ.",
+    "أَحْيَانًا، لَا تَحْتَاج إِلَى بِدَايَة جَدِيدَة.",
+    "بَلْ تَحْتَاج إِلَى خُطْوَة صَادِقَة تُعِيدُكَ إِلَى طَرِيقِكَ.",
+    "لَا تَنْتَظِرْ أَنْ يَأْتِيَ الدَّافِع كَامِلًا.",
+    "اِبْدَأْ بِمَا تَسْتَطِيع الْيَوْم.",
+    "فَالاسْتِمْرَار الْهَادِئ، حِينَ يَتَكَرَّر كُلَّ يَوْم، يَصْنَع فَرْقًا أَكْبَر مِمَّا تَتَخَيَّل.",
 )
 PAUSES_MS = (260, 420, 340, 500)
 
@@ -145,10 +145,10 @@ def main() -> int:
     synth_seconds = time.perf_counter() - synth_started
 
     audio = add_silence(chunks, PAUSES_MS)
-    raw_path = output / "06-nabra-82m-full-tashkeel-soft-onset-raw.wav"
+    raw_path = output / "08-nabra-82m-spoken-msa-raw.wav"
     sf.write(raw_path, audio, SAMPLE_RATE, subtype="PCM_16")
 
-    final_path = output / "07-nabra-82m-full-tashkeel-soft-onset-mix-ready.wav"
+    final_path = output / "09-nabra-82m-spoken-msa-mix-ready.wav"
     mix_ready(raw_path, final_path)
 
     raw = wav_info(raw_path)
@@ -161,7 +161,7 @@ def main() -> int:
         "voice": "af_msa",
         "device": "cpu",
         "official_inference_path": True,
-        "manual_tashkeel": "full_verified_msa",
+        "manual_tashkeel": "spoken_msa_verified",
         "native_speed": NATIVE_SPEED,
         "segments": SEGMENTS,
         "pauses_ms": PAUSES_MS,
@@ -179,7 +179,7 @@ def main() -> int:
         "mix_ready_wav": final,
         "notes": [
             "official Nabra repo_id and disable_complex inference path",
-            "full manually verified MSA tashkeel; required by Nabra for stable phonemization",
+            "manually verified spoken-MSA tashkeel: lexical vowels preserved, unnecessary final case endings omitted",
             "native Nabra speed=0.94; no atempo or post speed change",
             "semantic pauses inserted only between complete ideas",
             "no audio samples are trimmed; only a 45 ms fade-in reduces phrase-start hiss",
