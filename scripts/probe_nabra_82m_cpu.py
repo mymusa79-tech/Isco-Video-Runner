@@ -87,16 +87,25 @@ def insert_human_pauses_from_pred_dur(
     original speech sample byte-for-byte.
     """
     rules = (
-        ("sentence_1", ".", 1, 520),
-        ("sentence_2", ".", 2, 650),
-        ("sentence_3", ".", 3, 520),
-        ("sentence_4", ".", 4, 760),
-        ("last_reflective_beat", "alhˈaːdiʔ", 1, 260),
-        ("last_daily_beat", "jˈaum jˈasnaʕ", 1, 180),
+        # Opening reflection: tiny hesitation after "أحيانًا" so the listener
+        # enters the thought without breaking the sentence.
+        ("opening_reflection", "ʔˈaħjaːnˌan", 1, 160, "تمهيد تأملي قصير قبل الفكرة"),
+        # Full thought completed: give the reframe time to land.
+        ("sentence_1", ".", 1, 520, "اكتمال الفكرة الأولى"),
+        # "خطوة صادقة" is the emotional center of sentence 2. A micro-pause
+        # lets it register before the consequence "تعيدك إلى طريقك".
+        ("honest_step_emphasis", "saːdˈiqat", 1, 130, "تأكيد العبارة المحورية خطوة صادقة"),
+        ("sentence_2", ".", 2, 430, "اكتمال الجواب المقابل للفكرة الأولى"),
+        ("sentence_3", ".", 3, 470, "اكتمال التحذير قبل الانتقال للفعل"),
+        # "ابدأ بما تستطيع اليوم" is the action line and deserves the longest
+        # breath before the closing reflection.
+        ("sentence_4", ".", 4, 650, "ترك جملة الفعل تستقر قبل الخاتمة"),
+        ("last_reflective_beat", "alhˈaːdiʔ", 1, 180, "وقفة خفيفة بعد الاستمرار الهادئ"),
+        ("last_daily_beat", "kullˌa jˈaum", 1, 220, "إبراز معنى التكرار اليومي قبل النتيجة"),
     )
 
-    boundaries: list[tuple[int, int, str, str]] = []
-    for label, needle, occurrence, pause_ms in rules:
+    boundaries: list[tuple[int, int, str, str, str]] = []
+    for label, needle, occurrence, pause_ms, reason in rules:
         start = -1
         cursor = 0
         for _ in range(occurrence):
@@ -113,13 +122,13 @@ def insert_human_pauses_from_pred_dur(
         dur_index_end = min(char_end + 1, int(pred_dur.numel()) - 1)
         sample_index = int(pred_dur[:dur_index_end].sum().item() * 600)
         sample_index = max(0, min(sample_index, int(audio.size)))
-        boundaries.append((sample_index, pause_ms, label, needle))
+        boundaries.append((sample_index, pause_ms, label, needle, reason))
 
     # Keep original speech untouched. Multiple inserts are applied against
     # original sample coordinates, from right to left.
     out = audio.astype(np.float32, copy=True)
     applied: list[dict] = []
-    for sample_index, pause_ms, label, needle in sorted(boundaries, reverse=True):
+    for sample_index, pause_ms, label, needle, reason in sorted(boundaries, reverse=True):
         silence = np.zeros(int(SAMPLE_RATE * pause_ms / 1000.0), dtype=np.float32)
         out = np.concatenate((out[:sample_index], silence, out[sample_index:]))
         applied.append(
@@ -127,6 +136,7 @@ def insert_human_pauses_from_pred_dur(
                 "label": label,
                 "needle": needle,
                 "pause_ms": pause_ms,
+                "reason": reason,
                 "original_sample_index": sample_index,
             }
         )
@@ -337,7 +347,7 @@ def main() -> int:
             "selective sample starts from Nabra G2P for the entire passage",
             "only exact known-bad phoneme spans may be patched; all other phonemes are asserted unchanged",
             "selective sample is one continuous inference call, so there is no repeated sentence-start onset",
-            "human-pause version inserts silence after synthesis using Nabra pred_dur timestamps",
+            "human-pause version inserts semantically justified silence after synthesis using Nabra pred_dur timestamps",
             "human-pause version does not regenerate or modify any speech samples",
             "experimental only; no Clean V2 production wiring",
         ],
