@@ -32,6 +32,7 @@ from clean_v2.pipeline import (
     CleanV2Pipeline,
     CleanV2FactualityContentBlock,
     CleanV2ToneContentBlock,
+    _audit_narrative_format_for_brief,
     _factuality_repair_prompt,
     _factuality_target_section_ids,
     _repair_target_section_ids,
@@ -53,6 +54,7 @@ from clean_v2.providers import (
     ProviderRouter,
     ProviderWireFailure,
 )
+from clean_v2.short_format import select_short_template
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2 import providers as providers_module
 from clean_v2 import media as media_module
@@ -819,6 +821,80 @@ class RepairAddressEveryFlagGuidanceTests(unittest.TestCase):
         )
         self.assertIn(self.ADDRESS_EVERY_FLAG_GUIDANCE, prompt)
         self.assertIn("not just one", prompt)
+
+
+class AuditNarrativeFormatAvoidsDialogueConfusionTests(unittest.TestCase):
+    """Runs #17 and #22: the frozen Engine's reused tone audit was sent
+    narrative_format="inner_dialogue" verbatim - a Clean V2-only Short
+    template label the Engine's own audit prompt was never taught, whose
+    name literally contains the word "dialogue". Both runs blocked wholly
+    correct single-voice inner narration with "content is a monologue, not
+    dialogue". The legacy/Long path never hits this because it always sends
+    the Engine's own known "direct_cinematic" value. Send the audit an
+    unambiguous equivalent label for inner_dialogue specifically; every
+    other Clean V2 template name (used by the Engine's audit call) and the
+    Clean V2-internal template name (used everywhere else: prompts,
+    contracts, manifests) are unaffected.
+    """
+
+    def test_inner_dialogue_short_is_relabeled_for_the_audit_only(self) -> None:
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
+            "format": "short",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "editorial_intent": "نبرة هادئة وطبيعية.",
+            "research_pack": [],
+            "hard_constraints": ["No fabricated facts."],
+        }
+        self.assertEqual(select_short_template(brief)["template"], "inner_dialogue")
+        audit_format = _audit_narrative_format_for_brief(brief)
+        self.assertEqual(audit_format, "inner_monologue")
+        self.assertNotIn("dialogue", audit_format)
+
+    def test_other_short_templates_are_unaffected(self) -> None:
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "لماذا نؤجل الأشياء المهمة؟",
+            "format": "short",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "editorial_intent": "نبرة هادئة وطبيعية.",
+            "research_pack": [],
+            "hard_constraints": ["No fabricated facts."],
+        }
+        template = select_short_template(brief)["template"]
+        self.assertNotEqual(template, "inner_dialogue")
+        self.assertEqual(_audit_narrative_format_for_brief(brief), template)
+
+    def test_long_format_keeps_legacy_direct_cinematic(self) -> None:
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "كيف تبدأ بخطوة صغيرة",
+            "format": "film",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "editorial_intent": "شرح عملي هادئ.",
+            "research_pack": [],
+            "hard_constraints": ["No fabricated facts."],
+        }
+        self.assertEqual(_audit_narrative_format_for_brief(brief), "direct_cinematic")
+
+    def test_internal_template_name_used_elsewhere_stays_inner_dialogue(self) -> None:
+        brief = {
+            "approved_by_user": True,
+            "approved_topic": "كيف تنهض عندما تفقد الدافع تمامًا؟",
+            "format": "short",
+            "language": "ar",
+            "audience": "Arabic-speaking adults",
+            "editorial_intent": "نبرة هادئة وطبيعية.",
+            "research_pack": [],
+            "hard_constraints": ["No fabricated facts."],
+        }
+        # The relabel is audit-facing only; the template used for prompts,
+        # contracts, and manifests must still resolve to inner_dialogue.
+        self.assertEqual(select_short_template(brief)["template"], "inner_dialogue")
 
 
 class ProviderAccountingTests(unittest.TestCase):
