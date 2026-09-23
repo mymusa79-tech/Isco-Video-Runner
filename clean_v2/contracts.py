@@ -141,10 +141,24 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         heading = str(raw.get("heading") or "").strip()
         purpose = str(raw.get("purpose") or "").strip()
         query = str(raw.get("visual_query_en") or "").strip()
+        alt_query = str(raw.get("visual_query_alt_en") or "").strip()
         if len(query) > 260:
             raise ContractError(
                 f"plan section {section_id} visual_query_en exceeds 260 characters"
             )
+        if fmt == "short":
+            if not alt_query:
+                raise ContractError(
+                    f"plan section {section_id} visual_query_alt_en is required for short"
+                )
+            if len(alt_query) > 260:
+                raise ContractError(
+                    f"plan section {section_id} visual_query_alt_en exceeds 260 characters"
+                )
+            if " ".join(query.casefold().split()) == " ".join(alt_query.casefold().split()):
+                raise ContractError(
+                    f"plan section {section_id} visual queries must be distinct"
+                )
         if purpose.count("(") != purpose.count(")") or purpose.count("«") != purpose.count("»"):
             raise ContractError(f"plan section {section_id} purpose looks truncated")
         if not section_id or section_id in seen:
@@ -152,14 +166,15 @@ def validate_plan(value: Any, brief: Mapping[str, Any]) -> dict[str, Any]:
         if not heading or not purpose or not query:
             raise ContractError(f"plan section {section_id} is incomplete")
         seen.add(section_id)
-        sections.append(
-            {
-                "id": section_id,
-                "heading": heading[:240],
-                "purpose": purpose[:800],
-                "visual_query_en": query,
-            }
-        )
+        section_value = {
+            "id": section_id,
+            "heading": heading[:240],
+            "purpose": purpose[:800],
+            "visual_query_en": query,
+        }
+        if fmt == "short":
+            section_value["visual_query_alt_en"] = alt_query
+        sections.append(section_value)
     return {
         "schema_version": 1,
         "title": title[:300],
