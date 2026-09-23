@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""One bounded CPU benchmark of Nabra-82M against the current Kareem reference text.
+"""Bounded CPU benchmark/refinement of Nabra-82M.
 
-Experimental only. No production wiring, no provider/API calls, no secrets.
+Experimental only. Uses the official current Nabra inference path, then makes
+one listener-guided comfort sample: manually corrected tashkeel, slightly
+slower native model speed, and semantic pauses. No production wiring.
 """
 
 from __future__ import annotations
@@ -20,23 +22,24 @@ import numpy as np
 import soundfile as sf
 import torch
 from huggingface_hub import hf_hub_download
-from arabic_g2p import ArabicG2P, EXTRA_SYMBOLS, clean_phonemes, normalize_text
+from arabic_g2p import EXTRA_SYMBOLS, clean_phonemes
 from kokoro import KModel, KPipeline
 from kokoro import pipeline as kpipeline_mod
 
 REPO_ID = "oddadmix/Nabra-82M-v0.1"
-BASE_REPO = "hexgrad/Kokoro-82M"
 SAMPLE_RATE = 24000
+NATIVE_SPEED = 0.94
 
-# Same semantic sample used to converge on the Kareem 23/25 direction.
-TEXT = (
-    "أحيانًا، لا تحتاج إلى بداية جديدة. "
-    "بل تحتاج إلى خطوة صادقة تعيدك إلى طريقك. "
-    "لا تنتظر أن يأتي الدافع كاملًا. "
-    "ابدأ بما تستطيع اليوم. "
-    "فالاستمرار الهادئ، حين يتكرر كل يوم، "
-    "يصنع فرقًا أكبر مما تتخيل."
+# Manually corrected MSA tashkeel. This intentionally bypasses Camel's wrong
+# guesses seen in the first probe (e.g. أَنَّ, أَبْدَأ, فِرَقًا).
+SEGMENTS = (
+    "أَحْيانًا، لا تَحْتاجُ إِلى بِدايَةٍ جَديدَةٍ.",
+    "بَلْ تَحْتاجُ إِلى خُطْوَةٍ صادِقَةٍ تُعيدُكَ إِلى طَريقِكَ.",
+    "لا تَنْتَظِرْ أَنْ يَأْتِيَ الدّافِعُ كامِلًا.",
+    "اِبْدَأْ بِما تَسْتَطيعُ اليَوْمَ.",
+    "فَالاسْتِمْرارُ الهادِئُ، حينَ يَتَكَرَّرُ كُلَّ يَوْمٍ، يَصْنَعُ فَرْقًا أَكْبَرَ مِمّا تَتَخَيَّلُ.",
 )
+PAUSES_MS = (260, 420, 340, 500)
 
 
 def wav_info(path: Path) -> dict:
@@ -50,7 +53,17 @@ def wav_info(path: Path) -> dict:
         }
 
 
-def run_ffmpeg(source: Path, destination: Path) -> None:
+def add_silence(chunks: list[np.ndarray], pauses_ms: tuple[int, ...]) -> np.ndarray:
+    out: list[np.ndarray] = []
+    for index, chunk in enumerate(chunks):
+        out.append(chunk.astype(np.float32))
+        if index < len(pauses_ms):
+            frames = int(SAMPLE_RATE * pauses_ms[index] / 1000.0)
+            out.append(np.zeros(frames, dtype=np.float32))
+    return np.concatenate(out).astype(np.float32)
+
+
+def mix_ready(source: Path, destination: Path) -> None:
     subprocess.run(
         [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -79,54 +92,50 @@ def main() -> int:
 
     load_started = time.perf_counter()
     model = KModel(
-        repo_id=BASE_REPO,
+        repo_id=REPO_ID,
         config=config_path,
         model=model_path,
+        disable_complex=True,
     ).eval()
     model.vocab.update(EXTRA_SYMBOLS)
 
     kpipeline_mod.LANG_CODES.setdefault("ar", "ar")
-    pipeline = KPipeline(lang_code="ar", repo_id=BASE_REPO, model=model)
-
-    g2p = ArabicG2P(diacritize=True)
+    pipeline = KPipeline(lang_code="ar", repo_id=REPO_ID, model=model)
     original_g2p = pipeline.g2p
 
-    def arabic_frontend(text: str):
-        normalized, _ = normalize_text(text)
-        diacritized = g2p.diacritize(normalized)
-        phonemes, extra = original_g2p(diacritized)
+    def clean_arabic_g2p(text: str):
+        phonemes, extra = original_g2p(text)
         return clean_phonemes(phonemes), extra
 
-    pipeline.g2p = arabic_frontend
+    pipeline.g2p = clean_arabic_g2p
     voice = torch.load(voice_path, map_location="cpu", weights_only=True)
     load_seconds = time.perf_counter() - load_started
 
-    normalized, latin_dropped = normalize_text(TEXT)
-    diacritized = g2p.diacritize(normalized)
-    preview_phonemes, _ = original_g2p(diacritized)
-    preview_phonemes = clean_phonemes(preview_phonemes)
-
     synth_started = time.perf_counter()
-    chunks = []
-    emitted_phonemes = []
+    chunks: list[np.ndarray] = []
+    emitted_phonemes: list[str] = []
+
     with torch.inference_mode():
-        for _, phonemes, audio in pipeline(TEXT, voice=voice, speed=1.0):
-            emitted_phonemes.append(phonemes)
-            chunks.append(audio.detach().cpu().numpy())
+        for segment in SEGMENTS:
+            segment_chunks = []
+            for _, phonemes, audio in pipeline(segment, voice=voice, speed=NATIVE_SPEED):
+                emitted_phonemes.append(phonemes)
+                segment_chunks.append(audio.detach().cpu().numpy())
+            if not segment_chunks:
+                raise RuntimeError(f"Nabra emitted no audio for segment: {segment}")
+            chunks.append(np.concatenate(segment_chunks).astype(np.float32))
+
     synth_seconds = time.perf_counter() - synth_started
 
-    if not chunks:
-        raise RuntimeError("Nabra emitted no audio")
-
-    audio = np.concatenate(chunks).astype(np.float32)
-    raw_path = output / "00-nabra-82m-raw.wav"
+    audio = add_silence(chunks, PAUSES_MS)
+    raw_path = output / "02-nabra-82m-comfort-paced-raw.wav"
     sf.write(raw_path, audio, SAMPLE_RATE, subtype="PCM_16")
 
-    mix_path = output / "01-nabra-82m-mix-ready.wav"
-    run_ffmpeg(raw_path, mix_path)
+    final_path = output / "03-nabra-82m-comfort-paced-mix-ready.wav"
+    mix_ready(raw_path, final_path)
 
     raw = wav_info(raw_path)
-    mix = wav_info(mix_path)
+    final = wav_info(final_path)
     peak_rss_kb = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
     report = {
@@ -134,12 +143,12 @@ def main() -> int:
         "model": REPO_ID,
         "voice": "af_msa",
         "device": "cpu",
-        "text": TEXT,
-        "normalized_text": normalized,
-        "diacritized_text": diacritized,
-        "phonemes_preview": preview_phonemes,
+        "official_inference_path": True,
+        "manual_tashkeel": True,
+        "native_speed": NATIVE_SPEED,
+        "segments": SEGMENTS,
+        "pauses_ms": PAUSES_MS,
         "phonemes_emitted": emitted_phonemes,
-        "latin_runs_dropped": latin_dropped,
         "download_seconds": round(download_seconds, 3),
         "model_and_frontend_load_seconds": round(load_seconds, 3),
         "synthesis_seconds": round(synth_seconds, 3),
@@ -150,21 +159,23 @@ def main() -> int:
         "python": platform.python_version(),
         "runner_cpu_count": os.cpu_count(),
         "raw_wav": raw,
-        "mix_ready_wav": mix,
+        "mix_ready_wav": final,
         "notes": [
-            "single synthesis pass",
-            "official Nabra Arabic G2P path with camel-tools diacritization",
-            "mix-ready file is only loudness normalization plus 48 kHz resample",
-            "no EQ, pitch shift, compressor, atempo, or voice retiming",
+            "official Nabra repo_id and disable_complex inference path",
+            "manual corrected MSA tashkeel; no Camel auto-diacritization in synthesis",
+            "native Nabra speed=0.94; no atempo or post speed change",
+            "semantic pauses inserted only between complete ideas",
+            "no EQ, pitch shift, compressor, or voice retiming",
+            "mix-ready file is loudness normalization plus 48 kHz resample only",
             "experimental only; no Clean V2 production wiring",
         ],
     }
 
-    (output / "report.json").write_text(
+    (output / "report-refined.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    print("NABRA_CPU_REPORT=" + json.dumps(report, ensure_ascii=False))
+    print("NABRA_REFINED_REPORT=" + json.dumps(report, ensure_ascii=False))
     return 0
 
 
