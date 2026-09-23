@@ -26,6 +26,7 @@ from clean_v2.media import (
     SHORT_CHARON_STYLE,
     SHORT_CUT_DISSOLVE_SECONDS,
     SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS,
+    SHORT_MASTER_LOOK_FILTER,
     SHORT_MIN_COLOR_SATURATION_AVG,
     SHORT_VISUAL_MAX,
     SHORT_VISUAL_TARGET,
@@ -672,6 +673,12 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(sum(bool(row.get("pacing_auxiliary")) for row in six_rights), 3)
         self.assertEqual(SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS, 4.5)
         self.assertLess(SHORT_CUT_DISSOLVE_SECONDS, 0.2)
+        self.assertIn("saturation=0.84", SHORT_MASTER_LOOK_FILTER)
+        self.assertIn("colorbalance=", SHORT_MASTER_LOOK_FILTER)
+        self.assertIn(
+            "SHORT_MASTER_LOOK_FILTER",
+            inspect.getsource(media_module.render_video),
+        )
 
     def test_optional_local_ai_still_replaces_one_short_auxiliary_without_network_generation(self) -> None:
         plan = _plan(
