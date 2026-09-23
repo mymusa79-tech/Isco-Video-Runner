@@ -245,6 +245,8 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn("Use exactly 3 sections", prompt)
                 self.assertIn("VISUAL_QUERY_DIRECTION", prompt)
                 self.assertIn(selection["visual_query_directive"], prompt)
+                self.assertIn("visual_query_alt_en", prompt)
+                self.assertIn("TWO distinct visual intents", prompt)
                 self.assertIn("visibly different dominant actions or states", prompt)
                 self.assertIn("scroll-stop visual beat", prompt)
                 self.assertIn("must not feel visually flat", prompt)
@@ -472,7 +474,7 @@ class ShortContractTests(unittest.TestCase):
             "sections": [
                 {
                     "id": "s1",
-                    "narration": "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك رغم أنك تعرف المطلوب جيدًا، لكن خطوة صغيرة الآن تكفي.",
+                    "narration": "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك رغم أنك تعرف المطلوب، لكن خطوة صغيرة تكفي.",
                 },
                 {
                     "id": "s2",
@@ -489,10 +491,9 @@ class ShortContractTests(unittest.TestCase):
 
         self.assertEqual(
             accepted["sections"][0]["narration"],
-            "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك رغم أنك تعرف المطلوب جيدًا.",
+            "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك رغم أنك تعرف المطلوب.",
         )
         report = validate_short_hook_contract(accepted)
-        self.assertLessEqual(report["hook_words"], SHORT_HOOK_MAX_WORDS)
         self.assertLessEqual(report["hook_words"], SHORT_HOOK_MAX_WORDS)
 
     def test_small_hook_overrun_without_safe_boundary_still_fails_closed(self) -> None:
@@ -524,7 +525,7 @@ class ShortContractTests(unittest.TestCase):
 
         self.assertEqual(
             value["sections"][0]["narration"],
-            "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم دون فهم السبب.",
+            "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ يومك وتستمر في التأجيل دون فهم واضح لما يمنعك من الحركة الآن.",
         )
 
     def test_inner_dialogue_hook_visual_can_use_active_pressure_not_only_calm_reflection(self) -> None:
@@ -1074,6 +1075,9 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertIn("must not append a second action", prompt)
         self.assertIn("SPOKEN_NATURALNESS_LITE", prompt)
         self.assertIn("write for the ear, not the page", prompt)
+        self.assertIn("65-105 spoken Arabic words", prompt)
+        self.assertIn("20-45 seconds", prompt)
+        self.assertIn("complete miniature idea", prompt)
         self.assertIn("السبب الحقيقي", prompt)
         self.assertIn("ليس X بل Y", prompt)
         self.assertIn("مرّ اليوم ولم أبدأ", prompt)
