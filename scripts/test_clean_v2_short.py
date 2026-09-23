@@ -24,6 +24,7 @@ from clean_v2 import media as media_module
 from clean_v2.media import (
     GeminiPrimaryPiperFallbackSynthesizer,
     SHORT_CHARON_STYLE,
+    SHORT_MIN_COLOR_SATURATION_AVG,
     SHORT_VISUAL_MAX,
     SHORT_VISUAL_TARGET,
     StockVisualSource,
@@ -531,6 +532,63 @@ class ShortContractTests(unittest.TestCase):
             "short_visual_query_inner_dialogue_payoff_repeats_middle_action",
         ):
             validate_short_visual_queries(plan, brief)
+
+    def test_short_color_cohesion_rejects_near_monochrome_candidate_before_grade(self) -> None:
+        self.assertEqual(SHORT_MIN_COLOR_SATURATION_AVG, 4.0)
+        source = StockVisualSource()
+        plan = {
+            "sections": [
+                {"id": "s1", "visual_query_en": "quiet reflective person by window"},
+            ]
+        }
+        pexels = {
+            "provider": "pexels",
+            "asset_id": "mono",
+            "download_url": "https://videos.pexels.com/mono.mp4",
+            "source_url": "https://pexels.com/mono",
+            "creator": "fixture",
+            "creator_url": "https://pexels.com",
+            "query": "quiet reflective person by window",
+        }
+        pixabay = {
+            "provider": "pixabay",
+            "asset_id": "color",
+            "download_url": "https://cdn.pixabay.com/color.mp4",
+            "source_url": "https://pixabay.com/color",
+            "creator": "fixture",
+            "creator_url": "",
+            "query": "quiet reflective person by window",
+        }
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            source, "_pexels", return_value=pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=pixabay
+        ), mock.patch(
+            "clean_v2.media._download_media",
+            side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
+        ), mock.patch(
+            "clean_v2.media._short_visual_color_compatible",
+            side_effect=[
+                (False, "short_near_monochrome saturation_avg=0.50"),
+                (True, None),
+            ],
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(temporary),
+                "short",
+                5,
+                section_estimated_seconds={"s1": 5.0},
+            )
+
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(rights[0]["provider"], "pixabay")
+        rejected = [
+            event for event in source.events
+            if event.get("result") == "color_rejected"
+        ]
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("short_near_monochrome", str(rejected[0]["reason"]))
 
     def test_short_visual_lite_requests_five_or_six_distinct_assets_without_ai(self) -> None:
         plan = _plan(
