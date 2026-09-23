@@ -62,6 +62,23 @@ PACING_MAX_SHOT_SECONDS = 22.0
 PACING_MIN_SHOT_SECONDS = 3.5
 PACING_MAX_SHOTS_PER_SECTION = 3
 
+# Short Visual Lite: keep the three semantic sections, but give the finished
+# 7-30s Short enough visual movement to feel authored rather than like three
+# long stock backgrounds. This is arithmetic only: no new AI/candidate layer.
+SHORT_VISUAL_TARGET = 5
+SHORT_VISUAL_MAX = 6
+SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS = 18.0
+SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS = 4.5
+SHORT_TURN_ONE_SHOT_MAX_SECONDS = 6.5
+SHORT_CUT_DISSOLVE_SECONDS = 0.12
+SHORT_MASTER_LOOK_FILTER = (
+    "eq=contrast=1.03:saturation=0.84,"
+    "colorbalance=rs=0.025:gs=0.005:bs=-0.020"
+)
+SHORT_LOCAL_AI_STILL_MAX_BYTES = 20 * 1024 * 1024
+SHORT_LOCAL_AI_STILL_SECONDS = 8.0
+SHORT_MIN_COLOR_SATURATION_AVG = 4.0
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -764,6 +781,73 @@ def _download_media(url: str, destination: Path) -> None:
         raise RuntimeError("empty_media")
 
 
+def _validated_local_short_ai_still() -> tuple[Path | None, str | None]:
+    """Resolve an optional local AI still without network/provider coupling."""
+    raw = str(os.environ.get("CLEAN_V2_SHORT_AI_STILL") or "").strip()
+    if not raw:
+        return None, None
+    path = Path(raw).expanduser()
+    try:
+        path = path.resolve()
+    except OSError:
+        return None, "invalid_local_ai_still_path"
+    if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        return None, "unsupported_local_ai_still_type"
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None, "local_ai_still_missing"
+    if size <= 0 or size > SHORT_LOCAL_AI_STILL_MAX_BYTES:
+        return None, "local_ai_still_size_invalid"
+    return path, None
+
+
+def _render_local_short_ai_still(source: Path, destination: Path) -> Path:
+    """Turn one local still into a restrained zero-cost portrait motion clip."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    vf = (
+        "scale=1080:1920:force_original_aspect_ratio=increase,"
+        "crop=1080:1920,"
+        "zoompan=z='min(pzoom+0.0006,1.06)':"
+        "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+        "d=1:s=1080x1920:fps=30,format=yuv420p"
+    )
+    _run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-loop",
+            "1",
+            "-framerate",
+            "30",
+            "-i",
+            str(source),
+            "-vf",
+            vf,
+            "-t",
+            f"{SHORT_LOCAL_AI_STILL_SECONDS:g}",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "21",
+            "-pix_fmt",
+            "yuv420p",
+            str(destination),
+        ],
+        timeout=180,
+    )
+    if not destination.is_file() or destination.stat().st_size < 1024:
+        destination.unlink(missing_ok=True)
+        raise RuntimeError("local_ai_still_render_failed")
+    return destination
+
+
 def _pexels_file(video: Mapping[str, Any], *, portrait: bool) -> Mapping[str, Any] | None:
     files = [item for item in (video.get("video_files") or []) if isinstance(item, dict) and item.get("link")]
     if not files:
@@ -779,6 +863,22 @@ def _pexels_file(video: Mapping[str, Any], *, portrait: bool) -> Mapping[str, An
         return orientation, usable, distance
 
     return max(files, key=score)
+
+
+def _short_visual_color_compatible(path: Path) -> tuple[bool, str | None]:
+    """Reject only near-monochrome Short stock; leave normal footage to the existing grade."""
+    try:
+        from isco_video_agent.media.color import measure_color_stats
+    except Exception:
+        return True, None
+    try:
+        stats = measure_color_stats(Path(path))
+    except Exception:
+        return True, None
+    saturation = float(stats.saturation_avg)
+    if saturation < SHORT_MIN_COLOR_SATURATION_AVG:
+        return False, f"short_near_monochrome saturation_avg={saturation:.2f}"
+    return True, None
 
 
 class StockVisualSource:
@@ -937,6 +1037,66 @@ class StockVisualSource:
         rights: list[dict[str, Any]] = []
         sections = list(plan.get("sections") or [])[: max(1, int(max_visuals))]
 
+        short_ai_still: Path | None = None
+        short_ai_still_used = False
+        if fmt == "short":
+            short_ai_still, still_reason = _validated_local_short_ai_still()
+            if still_reason:
+                self._event(
+                    "local_ai_still",
+                    "",
+                    "unavailable",
+                    wire_attempted=False,
+                    reason=still_reason,
+                )
+
+        short_shots_by_section: dict[str, int] = {}
+        if fmt == "short" and len(sections) == 3:
+            measured_total = sum(
+                max(0.0, float(value))
+                for value in (section_estimated_seconds or {}).values()
+            )
+            hook_seconds = max(
+                0.0,
+                float((section_estimated_seconds or {}).get("s1") or 0.0),
+            )
+            turn_seconds = max(
+                0.0,
+                float((section_estimated_seconds or {}).get("s2") or 0.0),
+            )
+            short_total_target = (
+                SHORT_VISUAL_MAX
+                if (
+                    measured_total >= SHORT_VISUAL_SIX_SHOT_THRESHOLD_SECONDS
+                    or short_ai_still is not None
+                )
+                else SHORT_VISUAL_TARGET
+            )
+            # Keep the whole Short bounded at 5-6 visuals. The hook gets two
+            # quick shots by default; when voice time allows and the middle
+            # section is not already long, the sixth slot goes to a third
+            # hook shot for stronger scroll-stop pressure. The payoff always
+            # keeps two visuals so the ending does not collapse after a strong
+            # opening. A local AI still, when present, uses the middle slot
+            # instead of stealing one from the payoff.
+            if short_total_target == 6 and short_ai_still is not None:
+                distribution = (2, 2, 2)
+            elif (
+                short_total_target == 6
+                and hook_seconds >= SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS
+                and turn_seconds <= SHORT_TURN_ONE_SHOT_MAX_SECONDS
+            ):
+                distribution = (3, 1, 2)
+            elif short_total_target == 6:
+                distribution = (2, 2, 2)
+            else:
+                distribution = (2, 1, 2)
+            short_shots_by_section = {
+                str(section.get("id") or ""): distribution[index]
+                for index, section in enumerate(sections)
+                if isinstance(section, Mapping)
+            }
+
         def _acquire_one(query: str, section_id: str, *, auxiliary: bool) -> bool:
             for finder in (self._pexels, self._pixabay):
                 candidate = finder(query, portrait=portrait)
@@ -966,6 +1126,18 @@ class StockVisualSource:
                         )
                         destination.unlink(missing_ok=True)
                         continue
+                if fmt == "short":
+                    color_ok, color_reason = _short_visual_color_compatible(destination)
+                    if not color_ok:
+                        self._event(
+                            str(candidate["provider"]),
+                            query,
+                            "color_rejected",
+                            wire_attempted=False,
+                            reason=color_reason,
+                        )
+                        destination.unlink(missing_ok=True)
+                        continue
                 if self.media_transform is not None:
                     destination = Path(self.media_transform(destination))
                 candidate = {
@@ -982,6 +1154,75 @@ class StockVisualSource:
                 return True
             return False
 
+        def _acquire_local_ai_still(section_id: str) -> bool:
+            nonlocal short_ai_still_used
+            if short_ai_still is None or short_ai_still_used:
+                return False
+            destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
+            try:
+                _render_local_short_ai_still(short_ai_still, destination)
+                if self.media_preflight is not None:
+                    blocked = self.media_preflight(destination)
+                    if blocked is not None:
+                        destination.unlink(missing_ok=True)
+                        self._event(
+                            "local_ai_still",
+                            "",
+                            "security_blocked",
+                            wire_attempted=False,
+                            reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
+                        )
+                        return False
+                color_ok, color_reason = _short_visual_color_compatible(destination)
+                if not color_ok:
+                    destination.unlink(missing_ok=True)
+                    self._event(
+                        "local_ai_still",
+                        "",
+                        "color_rejected",
+                        wire_attempted=False,
+                        reason=color_reason,
+                    )
+                    return False
+                if self.media_transform is not None:
+                    destination = Path(self.media_transform(destination))
+            except Exception as exc:
+                destination.unlink(missing_ok=True)
+                self._event(
+                    "local_ai_still",
+                    "",
+                    "failed",
+                    wire_attempted=False,
+                    reason=str(exc)[:80],
+                )
+                return False
+
+            short_ai_still_used = True
+            clips.append(destination)
+            rights.append(
+                {
+                    "provider": "generated_local_ai_still",
+                    "asset_id": _sha256(short_ai_still)[:16],
+                    "source_url": None,
+                    "creator": "local user-provided AI still",
+                    "creator_url": None,
+                    "query": None,
+                    "local_file": destination.name,
+                    "section_id": section_id,
+                    "pacing_auxiliary": True,
+                    "generation_cost": 0,
+                    "network_generation_calls": 0,
+                }
+            )
+            self._event(
+                "local_ai_still",
+                "",
+                "selected",
+                wire_attempted=False,
+                reason="zero_cost_local_insert",
+            )
+            return True
+
         for section in sections:
             query = str(section.get("visual_query_en") or "").strip()
             if not query:
@@ -992,18 +1233,25 @@ class StockVisualSource:
             if not _acquire_one(query, section_id, auxiliary=False):
                 continue
 
-            # A section whose own estimated on-screen time would leave a
-            # single clip lingering too long gets extra same-query coverage
-            # instead: same stock search, no new AI call, bounded by the
-            # pacing constants above so this never fires unbounded provider
-            # requests. The estimate comes from that section's own narration
-            # length (pipeline.py), not a flat equal-share assumption.
             section_seconds = (
                 section_estimated_seconds.get(section_id)
                 if section_estimated_seconds is not None
                 else None
             )
-            if section_seconds is not None and section_seconds > PACING_MAX_SHOT_SECONDS:
+            if fmt == "short":
+                # Short Visual Lite intentionally targets 5-6 distinct stock
+                # assets across the same three semantic sections. Reusing the
+                # approved query keeps this zero-AI and bounded; _used prevents
+                # selecting the same provider asset twice.
+                shots = short_shots_by_section.get(section_id, 1)
+                for _ in range(max(0, shots - 1)):
+                    if section_id == "s2" and _acquire_local_ai_still(section_id):
+                        continue
+                    if not _acquire_one(query, section_id, auxiliary=True):
+                        break
+            elif section_seconds is not None and section_seconds > PACING_MAX_SHOT_SECONDS:
+                # Longer formats retain the existing narration-weighted pacing
+                # expansion and its original 3.5s / max-3 bounds.
                 shots = min(
                     PACING_MAX_SHOTS_PER_SECTION,
                     math.ceil(section_seconds / PACING_MAX_SHOT_SECONDS),
@@ -1813,6 +2061,7 @@ def _build_section_body_segments(
     *,
     width: int,
     height: int,
+    dissolve_seconds: float = COHESION_DISSOLVE_SECONDS,
 ) -> list[Path]:
     """Grade and trim every body clip, then dissolve adjacent clips that
     share a section (visual pacing's own extra same-query coverage) into one
@@ -1859,6 +2108,7 @@ def _build_section_body_segments(
                     merged,
                     trimmed[member_index],
                     work_dir / f"dissolve-{group_index:02d}-{member_index:02d}.mp4",
+                    dissolve_seconds=dissolve_seconds,
                 )
             except RuntimeError:
                 # A sub-clip too short for a timing-preserving crossfade
@@ -1965,6 +2215,11 @@ def render_video(
                 body_section_ids,
                 width=width,
                 height=height,
+                dissolve_seconds=(
+                    SHORT_CUT_DISSOLVE_SECONDS
+                    if fmt == "short"
+                    else COHESION_DISSOLVE_SECONDS
+                ),
             )
         else:
             body_segments = []
@@ -2003,7 +2258,11 @@ def render_video(
             # applicable) by _build_section_body_segments - just reset PTS.
             filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
             input_index += 1
-        filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vout]")
+        if fmt == "short":
+            filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
+            filters.append(f"[vcat]{SHORT_MASTER_LOOK_FILTER}[vout]")
+        else:
+            filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vout]")
 
         command.extend(
             [

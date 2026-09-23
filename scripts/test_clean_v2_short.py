@@ -24,6 +24,13 @@ from clean_v2 import media as media_module
 from clean_v2.media import (
     GeminiPrimaryPiperFallbackSynthesizer,
     SHORT_CHARON_STYLE,
+    SHORT_CUT_DISSOLVE_SECONDS,
+    SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS,
+    SHORT_MASTER_LOOK_FILTER,
+    SHORT_MIN_COLOR_SATURATION_AVG,
+    SHORT_VISUAL_MAX,
+    SHORT_VISUAL_TARGET,
+    StockVisualSource,
     VoiceInfrastructureError,
 )
 from clean_v2.providers import ProviderAdapter, ProviderRouter, _safe_validator_reason
@@ -45,6 +52,8 @@ from clean_v2.short_timed_text import (
     ACCENT_ASS,
     BODY_FONT,
     BODY_FONT_SIZE,
+    CAPTION_MAX_WORDS,
+    CAPTION_MIN_WORDS,
     FOCUS_FONT,
     FOCUS_FONT_SIZE,
     MAX_DARK_SLATES,
@@ -223,7 +232,7 @@ class ShortTemplateSelectionTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             ShortFormatError,
-            "inner_dialogue_not_reflective",
+            "inner_dialogue_hook_not_readable",
         ):
             validate_short_visual_queries(generic, fixture["brief"])
 
@@ -236,7 +245,16 @@ class ShortTemplateSelectionTests(unittest.TestCase):
                 self.assertIn("VISUAL_QUERY_DIRECTION", prompt)
                 self.assertIn(selection["visual_query_directive"], prompt)
                 self.assertIn("visibly different dominant actions or states", prompt)
-                self.assertIn("active friction/decision", prompt)
+                self.assertIn("scroll-stop visual beat", prompt)
+                self.assertIn("must not feel visually flat", prompt)
+                if expected == "why_reframe":
+                    self.assertIn("visually unresolved", prompt)
+                elif expected == "inner_dialogue":
+                    self.assertIn("do NOT make the hook visually calm", prompt)
+                elif expected == "micro_story":
+                    self.assertIn("action or event already in motion", prompt)
+                elif expected == "quote_reflection":
+                    self.assertIn("visually arresting through composition rather than frantic motion", prompt)
                 self.assertIn(f"selected_template={expected}", prompt)
                 self.assertIn("return an empty CTA string", prompt)
                 self.assertEqual(selection["extra_ai_calls"], 0)
@@ -512,6 +530,228 @@ class ShortContractTests(unittest.TestCase):
             "قد تفقد الدافع حين تنتظر الشعور المناسب قبل أن تبدأ اليوم دون فهم السبب.",
         )
 
+    def test_inner_dialogue_hook_visual_can_use_active_pressure_not_only_calm_reflection(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(
+            [
+                "tense hands stopping mid action unfinished task pressure",
+                "reflective person alone pausing in quiet room",
+                "contemplative person calmly closing notebook and standing",
+            ]
+        )
+        report = validate_short_visual_queries(plan, brief)
+        self.assertEqual(report["status"], "pass")
+        prompt = short_prompt_context(brief)
+        self.assertIn("do NOT make the hook visually calm", prompt)
+        self.assertIn("scroll-stop visual beat", prompt)
+        self.assertIn("strong answer to the hook", prompt)
+
+    def test_inner_dialogue_rejects_middle_to_payoff_action_repeat(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(
+            [
+                "thoughtful person alone walking slowly in quiet room",
+                "reflective person alone writing in notebook at desk",
+                "quiet contemplative person writing on paper at desk",
+            ]
+        )
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_visual_query_inner_dialogue_payoff_repeats_middle_action",
+        ):
+            validate_short_visual_queries(plan, brief)
+
+    def test_short_color_cohesion_rejects_near_monochrome_candidate_before_grade(self) -> None:
+        self.assertEqual(SHORT_MIN_COLOR_SATURATION_AVG, 4.0)
+        source = StockVisualSource()
+        plan = {
+            "sections": [
+                {"id": "s1", "visual_query_en": "quiet reflective person by window"},
+            ]
+        }
+        pexels = {
+            "provider": "pexels",
+            "asset_id": "mono",
+            "download_url": "https://videos.pexels.com/mono.mp4",
+            "source_url": "https://pexels.com/mono",
+            "creator": "fixture",
+            "creator_url": "https://pexels.com",
+            "query": "quiet reflective person by window",
+        }
+        pixabay = {
+            "provider": "pixabay",
+            "asset_id": "color",
+            "download_url": "https://cdn.pixabay.com/color.mp4",
+            "source_url": "https://pixabay.com/color",
+            "creator": "fixture",
+            "creator_url": "",
+            "query": "quiet reflective person by window",
+        }
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            source, "_pexels", return_value=pexels
+        ), mock.patch.object(
+            source, "_pixabay", return_value=pixabay
+        ), mock.patch(
+            "clean_v2.media._download_media",
+            side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
+        ), mock.patch(
+            "clean_v2.media._short_visual_color_compatible",
+            side_effect=[
+                (False, "short_near_monochrome saturation_avg=0.50"),
+                (True, None),
+            ],
+        ):
+            clips, rights = source.acquire(
+                plan,
+                Path(temporary),
+                "short",
+                5,
+                section_estimated_seconds={"s1": 5.0},
+            )
+
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(rights[0]["provider"], "pixabay")
+        rejected = [
+            event for event in source.events
+            if event.get("result") == "color_rejected"
+        ]
+        self.assertEqual(len(rejected), 1)
+        self.assertIn("short_near_monochrome", str(rejected[0]["reason"]))
+
+    def test_short_visual_lite_requests_five_or_six_distinct_assets_without_ai(self) -> None:
+        plan = _plan(
+            [
+                "thoughtful person alone pausing by window",
+                "reflective person quietly closing phone",
+                "contemplative person calmly taking one step",
+            ]
+        )
+
+        def run_case(total_seconds: float) -> tuple[list[Path], list[dict]]:
+            source = StockVisualSource()
+            counter = {"value": 0}
+
+            def candidate(_query, *, portrait):
+                counter["value"] += 1
+                return {
+                    "provider": "pexels",
+                    "asset_id": str(counter["value"]),
+                    "download_url": f"https://videos.pexels.com/video-{counter['value']}.mp4",
+                    "source_url": "https://pexels.com",
+                    "creator": "fixture",
+                    "creator_url": "https://pexels.com",
+                    "query": _query,
+                }
+
+            with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+                source, "_pexels", side_effect=candidate
+            ), mock.patch.object(
+                source, "_pixabay", return_value=None
+            ), mock.patch(
+                "clean_v2.media._download_media",
+                side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
+            ):
+                per_section = total_seconds / 3.0
+                clips, rights = source.acquire(
+                    plan,
+                    Path(temporary),
+                    "short",
+                    5,
+                    section_estimated_seconds={
+                        "s1": per_section,
+                        "s2": per_section,
+                        "s3": per_section,
+                    },
+                )
+                return list(clips), list(rights)
+
+        five_clips, five_rights = run_case(15.0)
+        self.assertEqual(len(five_clips), SHORT_VISUAL_TARGET)
+        self.assertEqual(
+            [row["section_id"] for row in five_rights],
+            ["s1", "s1", "s2", "s3", "s3"],
+        )
+        self.assertEqual(sum(bool(row.get("pacing_auxiliary")) for row in five_rights), 2)
+
+        six_clips, six_rights = run_case(19.0)
+        self.assertEqual(len(six_clips), SHORT_VISUAL_MAX)
+        self.assertEqual(
+            [row["section_id"] for row in six_rights],
+            ["s1", "s1", "s1", "s2", "s3", "s3"],
+        )
+        self.assertEqual(sum(bool(row.get("pacing_auxiliary")) for row in six_rights), 3)
+        self.assertEqual(SHORT_HOOK_THREE_SHOT_THRESHOLD_SECONDS, 4.5)
+        self.assertLess(SHORT_CUT_DISSOLVE_SECONDS, 0.2)
+        self.assertIn("saturation=0.84", SHORT_MASTER_LOOK_FILTER)
+        self.assertIn("colorbalance=", SHORT_MASTER_LOOK_FILTER)
+        self.assertIn(
+            "SHORT_MASTER_LOOK_FILTER",
+            inspect.getsource(media_module.render_video),
+        )
+
+    def test_optional_local_ai_still_replaces_one_short_auxiliary_without_network_generation(self) -> None:
+        plan = _plan(
+            [
+                "thoughtful person alone pausing by window",
+                "reflective person quietly closing phone",
+                "contemplative person calmly taking one step",
+            ]
+        )
+        source = StockVisualSource()
+        counter = {"value": 0}
+
+        def candidate(_query, *, portrait):
+            counter["value"] += 1
+            return {
+                "provider": "pexels",
+                "asset_id": str(counter["value"]),
+                "download_url": f"https://videos.pexels.com/video-{counter['value']}.mp4",
+                "source_url": "https://pexels.com",
+                "creator": "fixture",
+                "creator_url": "https://pexels.com",
+                "query": _query,
+            }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            still = root / "insert.png"
+            still.write_bytes(b"I" * 4096)
+            output = root / "visuals"
+
+            def render_still(_source, destination):
+                Path(destination).write_bytes(b"A" * 4096)
+                return Path(destination)
+
+            with mock.patch.dict(
+                "os.environ",
+                {"CLEAN_V2_SHORT_AI_STILL": str(still)},
+                clear=False,
+            ), mock.patch.object(
+                source, "_pexels", side_effect=candidate
+            ), mock.patch.object(
+                source, "_pixabay", return_value=None
+            ), mock.patch(
+                "clean_v2.media._download_media",
+                side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
+            ), mock.patch(
+                "clean_v2.media._render_local_short_ai_still",
+                side_effect=render_still,
+            ):
+                clips, rights = source.acquire(
+                    plan,
+                    output,
+                    "short",
+                    5,
+                    section_estimated_seconds={"s1": 6.4, "s2": 6.3, "s3": 6.3},
+                )
+
+        self.assertEqual(len(clips), SHORT_VISUAL_MAX)
+        local = [row for row in rights if row.get("provider") == "generated_local_ai_still"]
+        self.assertEqual(len(local), 1)
+        self.assertEqual(local[0]["section_id"], "s2")
+        self.assertEqual(local[0]["generation_cost"], 0)
+        self.assertEqual(local[0]["network_generation_calls"], 0)
+
     def test_duration_and_frame_contract_are_hard_bounds(self) -> None:
         self.assertEqual(SHORT_MIN_SECONDS, 7.0)
         self.assertEqual(SHORT_TARGET_SECONDS, 15.0)
@@ -540,46 +780,56 @@ class ShortContractTests(unittest.TestCase):
 
 
 class ShortTimedTextTests(unittest.TestCase):
-    def test_transition_word_creates_exactly_one_non_hook_dark_slate(self) -> None:
+    def test_caption_lite_uses_one_large_arabic_font_one_yellow_word_and_no_slate(self) -> None:
         events = [
-            {
-                "start": 0.0,
-                "end": 3.8,
-                "text": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ.",
-                "role": "hook",
-            },
-            {
-                "start": 3.8,
-                "end": 8.4,
-                "text": "لكن الحقيقة أن البداية الصغيرة تغيّر اتجاه اللحظة.",
-                "role": "beat",
-            },
-            {
-                "start": 8.4,
-                "end": 13.5,
-                "text": "ابدأ بخطوة واحدة تستطيع تنفيذها الآن.",
-                "role": "payoff",
-            },
+            {"start": 0.0, "end": 2.0, "text": "مرّ اليوم ولم أبدأ", "role": "hook"},
+            {"start": 2.0, "end": 4.2, "text": "القائمة بدت أكبر مني", "role": "beat"},
+            {"start": 4.2, "end": 6.5, "text": "ابدأ بمهمة واحدة الآن", "role": "payoff"},
         ]
-
         validated = validate_progressive_text(events)
         slate_index = choose_dark_slate_index(events, validated)
         ass = build_rich_ass(events, slate_index=slate_index)
 
-        self.assertEqual(slate_index, 1)
-        self.assertNotEqual(slate_index, 0)
-        self.assertEqual(MAX_DARK_SLATES, 1)
-        self.assertIn("Style: SlateFocus", ass)
-        self.assertEqual(ass.count("SlateFocus,,0,0,0"), 1)
-        self.assertIn(r"\fscx103\fscy103", ass)
-        self.assertIn(r"{\an5\pos(", ass)
-        self.assertNotIn(r"{{\an5\pos(", ass)
-        self.assertEqual(ACCENT_ASS, "&H005BA8D7")
+        self.assertIsNone(slate_index)
+        self.assertEqual(MAX_DARK_SLATES, 0)
+        self.assertEqual(ACCENT_ASS, "&H0000D4FF")
         self.assertEqual(BODY_FONT, "Noto Sans Arabic")
-        self.assertEqual(FOCUS_FONT, "Noto Kufi Arabic")
-        self.assertGreater(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
-        self.assertGreaterEqual(BODY_FONT_SIZE, 70)
-        self.assertIn(r"\N", ass)
+        self.assertEqual(FOCUS_FONT, BODY_FONT)
+        self.assertEqual(FOCUS_FONT_SIZE, BODY_FONT_SIZE)
+        self.assertGreaterEqual(BODY_FONT_SIZE, 90)
+        self.assertIn("Style: Caption", ass)
+        self.assertNotIn("Slate", ass)
+        self.assertNotIn("Style: Focus", ass)
+        self.assertIn(r"{\c&H0000D4FF}", ass)
+        self.assertIn(r"\fscx96\fscy96", ass)
+        self.assertNotIn("drawbox", ass)
+
+    def test_phrase_captions_stay_compact_and_preserve_voice_owned_section_edges(self) -> None:
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "مرّ اليوم ولم أبدأ رغم أن المهمة أمامي."},
+                {"id": "s2", "narration": "القائمة بدت أكبر مني كلما نظرت إليها."},
+                {"id": "s3", "narration": "ابدأ بمهمة واحدة صغيرة الآن."},
+            ]
+        }
+        timeline = {
+            "status": "pass",
+            "section_events": [
+                {"section_id": "s1", "start": 0.0, "end": 5.0},
+                {"section_id": "s2", "start": 5.0, "end": 10.0},
+                {"section_id": "s3", "start": 10.0, "end": 15.0},
+            ],
+        }
+        events = build_events_from_voice_timeline(script=script, timeline_report=timeline)
+        self.assertGreater(len(events), 3)
+        self.assertEqual(events[0]["start"], 0.0)
+        self.assertEqual(events[-1]["end"], 15.0)
+        self.assertEqual(events[0]["role"], "hook")
+        self.assertEqual(events[-1]["role"], "payoff")
+        for event in events:
+            words = len(str(event["text"]).split())
+            self.assertLessEqual(words, CAPTION_MAX_WORDS)
+            self.assertGreaterEqual(words, CAPTION_MIN_WORDS)
 
     def test_body_focus_split_preserves_authored_words(self) -> None:
         text = "لكن الحقيقة أن البداية الصغيرة تغيّر اتجاه اللحظة"
@@ -676,11 +926,13 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
                 script=script,
                 timeline_report=report,
             )
-            self.assertEqual(
-                [(item["start"], item["end"]) for item in events],
-                [(0.0, 5.0), (5.0, 12.0), (12.0, 24.0)],
-            )
+            self.assertEqual(events[0]["start"], 0.0)
             self.assertEqual(events[-1]["end"], report["voice_seconds_measured"])
+            self.assertEqual(events[0]["role"], "hook")
+            self.assertEqual(events[-1]["role"], "payoff")
+            self.assertGreaterEqual(len(events), 4)
+            for event in events:
+                self.assertLessEqual(len(str(event["text"]).split()), CAPTION_MAX_WORDS)
 
 
 class ShortAudioPolishTests(unittest.TestCase):
@@ -810,6 +1062,11 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertIn("concrete felt friction", prompt)
         self.assertIn("resolve the SAME tension/question", prompt)
         self.assertIn("must not append a second action", prompt)
+        self.assertIn("SPOKEN_NATURALNESS_LITE", prompt)
+        self.assertIn("write for the ear, not the page", prompt)
+        self.assertIn("السبب الحقيقي", prompt)
+        self.assertIn("ليس X بل Y", prompt)
+        self.assertIn("مرّ اليوم ولم أبدأ", prompt)
 
     def test_short_sectioned_voice_passes_primary_only_without_changing_chunking(self) -> None:
         class FakeCharon:

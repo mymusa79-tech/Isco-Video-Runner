@@ -11,20 +11,25 @@ from typing import Any, Mapping, Sequence
 
 from .media import probe_duration
 
-SCHEMA_VERSION = 1
-RICH_RENDERER_VERSION = "clean-v2-short-rich-timed-text-v1"
+SCHEMA_VERSION = 2
+RICH_RENDERER_VERSION = "clean-v2-short-caption-lite-v2"
 ALLOWED_ROLES = {"hook", "beat", "payoff"}
-ACCENT_ASS = "&H005BA8D7"  # RGB #D7A85B warm gold
-PRIMARY_ASS = "&H00EAF1F4"  # RGB #F4F1EA warm off-white
-OUTLINE_ASS = "&HA0000000"
+
+# Caption Lite: one Arabic font, one large caption block, white text with one
+# bright-yellow focus word. Keeping the same font across both colors avoids the
+# missing-glyph squares seen when Focus used a second Arabic font.
+ACCENT_ASS = "&H0000D4FF"  # RGB #FFD400 reference-like bright yellow
+PRIMARY_ASS = "&H00FFFFFF"  # RGB #FFFFFF
+OUTLINE_ASS = "&H00000000"  # opaque black
 BODY_FONT = "Noto Sans Arabic"
-FOCUS_FONT = "Noto Kufi Arabic"
-BODY_FONT_SIZE = 74
-FOCUS_FONT_SIZE = 98
-SLATE_BODY_FONT_SIZE = 80
-SLATE_FOCUS_FONT_SIZE = 112
+FOCUS_FONT = BODY_FONT
+BODY_FONT_SIZE = 92
+FOCUS_FONT_SIZE = BODY_FONT_SIZE
 BODY_WRAP_WORDS = 5
-MAX_DARK_SLATES = 1
+CAPTION_MIN_WORDS = 2
+CAPTION_MAX_WORDS = 5
+CAPTION_Y = 1360
+MAX_DARK_SLATES = 0
 TRANSITION_MARKERS = ("لكن", "الحقيقة", "المشكلة", "الآن", "ابدأ")
 
 _SECRET_ENV_NAMES = {
@@ -91,6 +96,88 @@ def _sentences(text: object) -> list[str]:
     ] or [compact]
 
 
+def _phrase_chunks(text: object) -> list[str]:
+    """Split authored narration into balanced 2-5 word caption phrases."""
+    chunks: list[str] = []
+    for sentence in _sentences(text):
+        words = sentence.split()
+        if not words:
+            continue
+        if len(words) <= CAPTION_MAX_WORDS:
+            chunks.append(" ".join(words))
+            continue
+        chunk_count = math.ceil(len(words) / CAPTION_MAX_WORDS)
+        base, extra = divmod(len(words), chunk_count)
+        cursor = 0
+        for index in range(chunk_count):
+            size = base + (1 if index < extra else 0)
+            piece = words[cursor : cursor + size]
+            cursor += size
+            if piece:
+                chunks.append(" ".join(piece))
+
+    # Avoid one-word flashes when punctuation created a tiny standalone
+    # sentence. Merge locally when a neighbor still stays within five words.
+    index = 0
+    while len(chunks) > 1 and index < len(chunks):
+        if len(chunks[index].split()) >= CAPTION_MIN_WORDS:
+            index += 1
+            continue
+        if index > 0 and len(chunks[index - 1].split()) < CAPTION_MAX_WORDS:
+            chunks[index - 1] = f"{chunks[index - 1]} {chunks[index]}"
+            chunks.pop(index)
+            continue
+        if index + 1 < len(chunks) and len(chunks[index + 1].split()) < CAPTION_MAX_WORDS:
+            chunks[index] = f"{chunks[index]} {chunks[index + 1]}"
+            chunks.pop(index + 1)
+            index += 1
+            continue
+        index += 1
+    return chunks
+
+
+def _section_phrase_events(
+    narration: object,
+    *,
+    section_index: int,
+    start: float,
+    end: float,
+) -> list[dict[str, object]]:
+    chunks = _phrase_chunks(narration)
+    if not chunks:
+        raise ShortTimedTextError("timed_text_section_narration_missing")
+    duration = end - start
+    if duration <= 0:
+        raise ShortTimedTextError("timed_text_duration_invalid")
+    weights = [max(1, len(chunk.split())) for chunk in chunks]
+    total_weight = sum(weights)
+    cursor = start
+    events: list[dict[str, object]] = []
+    for index, (chunk, weight) in enumerate(zip(chunks, weights)):
+        chunk_start = cursor
+        chunk_end = (
+            end
+            if index == len(chunks) - 1
+            else cursor + duration * (weight / total_weight)
+        )
+        if section_index == 0 and index == 0:
+            role = "hook"
+        elif section_index == 2 and index == len(chunks) - 1:
+            role = "payoff"
+        else:
+            role = "beat"
+        events.append(
+            {
+                "start": round(chunk_start, 3),
+                "end": round(chunk_end, 3),
+                "text": chunk,
+                "role": role,
+            }
+        )
+        cursor = chunk_end
+    return events
+
+
 def validate_progressive_text(events: Sequence[Mapping[str, object]]) -> tuple[TimedTextEvent, ...]:
     if not isinstance(events, Sequence) or isinstance(events, (str, bytes)) or not events:
         raise ShortTimedTextError("timed_text_events_missing_or_malformed")
@@ -144,7 +231,6 @@ def build_events_from_section_audio(
     if not isinstance(sections, list) or len(sections) != 3:
         raise ShortTimedTextError("short_timed_text_requires_exactly_three_sections")
 
-    roles = ("hook", "beat", "payoff")
     durations: list[float] = []
     for index in range(1, 4):
         path = Path(audio_dir) / f"{index:02d}.wav"
@@ -157,23 +243,24 @@ def build_events_from_section_audio(
     if raw_total <= 0 or mastered_total <= 0:
         raise ShortTimedTextError("short_timed_text_audio_duration_invalid")
 
-    # Preserve the exact section boundaries produced by the sectioned TTS files,
-    # scaled only for tiny deterministic mastering-duration drift.
+    # Preserve exact section boundaries, then split only the display layer into
+    # short phrases. Timing remains owned by measured voice; no word alignment
+    # or extra model call is claimed.
     scale = mastered_total / raw_total
     cursor = 0.0
     events: list[dict[str, object]] = []
-    for index, (section, role, duration) in enumerate(zip(sections, roles, durations), start=1):
+    for section_index, (section, duration) in enumerate(zip(sections, durations)):
         if not isinstance(section, Mapping):
             raise ShortTimedTextError("short_timed_text_section_invalid")
         start = cursor
-        end = mastered_total if index == 3 else cursor + duration * scale
-        events.append(
-            {
-                "start": round(start, 3),
-                "end": round(end, 3),
-                "text": _select_event_text(section.get("narration"), role),
-                "role": role,
-            }
+        end = mastered_total if section_index == 2 else cursor + duration * scale
+        events.extend(
+            _section_phrase_events(
+                section.get("narration"),
+                section_index=section_index,
+                start=start,
+                end=end,
+            )
         )
         cursor = end
     validate_progressive_text(events)
@@ -196,21 +283,20 @@ def build_events_from_voice_timeline(
     ):
         raise ShortTimedTextError("short_timed_text_voice_timeline_invalid")
 
-    roles = ("hook", "beat", "payoff")
     events: list[dict[str, object]] = []
-    for index, (section, raw, role) in enumerate(zip(sections, raw_events, roles), start=1):
+    for section_index, (section, raw) in enumerate(zip(sections, raw_events)):
         if not isinstance(section, Mapping) or not isinstance(raw, Mapping):
             raise ShortTimedTextError("short_timed_text_voice_timeline_invalid")
-        expected_id = f"s{index}"
+        expected_id = f"s{section_index + 1}"
         if str(raw.get("section_id") or "") != expected_id:
             raise ShortTimedTextError("short_timed_text_voice_timeline_section_order_invalid")
-        events.append(
-            {
-                "start": round(_seconds(raw.get("start"), "start"), 3),
-                "end": round(_seconds(raw.get("end"), "end"), 3),
-                "text": _select_event_text(section.get("narration"), role),
-                "role": role,
-            }
+        events.extend(
+            _section_phrase_events(
+                section.get("narration"),
+                section_index=section_index,
+                start=_seconds(raw.get("start"), "start"),
+                end=_seconds(raw.get("end"), "end"),
+            )
         )
     validate_progressive_text(events)
     return events
@@ -308,17 +394,47 @@ def choose_dark_slate_index(
     events: Sequence[Mapping[str, object]],
     validated: Sequence[TimedTextEvent] | None = None,
 ) -> int | None:
-    normalized = tuple(validated or validate_progressive_text(events))
-    if len(normalized) < 3:
-        return None
-    best_index: int | None = None
-    best_score = 0
-    for index, event in enumerate(normalized):
-        score = _slate_score(event)
-        if score > best_score:
-            best_score = score
-            best_index = index
-    return best_index
+    # Caption Lite never covers footage with a dark slate.
+    validate_progressive_text(events) if validated is None else tuple(validated)
+    return None
+
+
+_ARABIC_CAPTION_STOPWORDS = frozenset({
+    "في", "من", "على", "إلى", "عن", "مع", "أن", "إن", "ثم", "أو", "بل",
+    "لكن", "هذا", "هذه", "ذلك", "التي", "الذي", "هو", "هي", "كان", "كنت",
+    "ما", "لا", "لم", "لن", "قد", "كل", "حتى", "فقط",
+})
+
+
+def _accent_word_index(text: str) -> int:
+    words = _clean(text).split()
+    if not words:
+        return 0
+    candidates: list[tuple[int, int]] = []
+    for index, word in enumerate(words):
+        bare = re.sub(r"[^\w\u0600-\u06FF]+", "", word, flags=re.UNICODE)
+        if bare and bare not in _ARABIC_CAPTION_STOPWORDS:
+            candidates.append((len(bare), index))
+    if candidates:
+        return max(candidates)[1]
+    return len(words) - 1
+
+
+def _accent_caption(text: str) -> str:
+    words = _clean(text).split()
+    if not words:
+        return ""
+    focus_index = _accent_word_index(text)
+    rendered: list[str] = []
+    for index, word in enumerate(words):
+        escaped = _ass_escape(word)
+        if index == focus_index:
+            rendered.append(
+                "{\\c" + ACCENT_ASS + "}" + escaped + "{\\c" + PRIMARY_ASS + "}"
+            )
+        else:
+            rendered.append(escaped)
+    return " ".join(rendered)
 
 
 def build_rich_ass(
@@ -327,13 +443,11 @@ def build_rich_ass(
     slate_index: int | None = None,
 ) -> str:
     validated = validate_progressive_text(events)
-    if slate_index is None:
-        slate_index = choose_dark_slate_index(events, validated)
 
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
-        "WrapStyle: 2",
+        "WrapStyle: 0",
         "ScaledBorderAndShadow: yes",
         "PlayResX: 1080",
         "PlayResY: 1920",
@@ -341,43 +455,21 @@ def build_rich_ass(
         "",
         "[V4+ Styles]",
         "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding",
-        f"Style: Body,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,0,0,0,0,100,100,0,0,1,4,0,5,90,90,0,1",
-        f"Style: Focus,{FOCUS_FONT},{FOCUS_FONT_SIZE},{ACCENT_ASS},{ACCENT_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,5,0,5,80,80,0,1",
-        f"Style: SlateBody,{BODY_FONT},{SLATE_BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,5,90,90,0,1",
-        f"Style: SlateFocus,{FOCUS_FONT},{SLATE_FOCUS_FONT_SIZE},{ACCENT_ASS},{ACCENT_ASS},&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,80,80,0,1",
+        f"Style: Caption,{BODY_FONT},{BODY_FONT_SIZE},{PRIMARY_ASS},{PRIMARY_ASS},{OUTLINE_ASS},&H00000000,-1,0,0,0,100,100,0,0,1,5,1,5,70,70,0,1",
         "",
         "[Events]",
         "Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text",
     ]
 
-    for index, item in enumerate(validated):
+    for item in validated:
         start = _ass_time(item.start)
         end = _ass_time(item.end)
-        body, focus = split_focus_phrase(item.text, item.role)
-        is_slate = index == slate_index
-        if is_slate:
-            body_y, focus_y = 865, 1025
-            body_style, focus_style = "SlateBody", "SlateFocus"
-            body_tag = r"\fad(120,170)"
-            focus_tag = r"\fad(150,180)\t(0,200,\fscx103\fscy103)"
-        else:
-            focus_y = 1260 if item.role == "hook" else 1355
-            if item.role == "payoff":
-                focus_y = 1305
-            body_y = focus_y + 145
-            body_style, focus_style = "Body", "Focus"
-            body_tag = r"\fad(80,140)"
-            focus_tag = r"\fad(90,150)\t(0,180,\fscx103\fscy103)"
-        if focus:
-            lines.append(
-                f"Dialogue: 1,{start},{end},{focus_style},,0,0,0,,"
-                f"{{\\an5\\pos(540,{focus_y}){focus_tag}}}{_ass_escape(focus)}"
-            )
-        if body:
-            lines.append(
-                f"Dialogue: 0,{start},{end},{body_style},,0,0,0,,"
-                f"{{\\an5\\pos(540,{body_y}){body_tag}}}{_ass_wrap_words(body)}"
-            )
+        caption = _accent_caption(item.text)
+        tag = rf"\an5\pos(540,{CAPTION_Y})\fad(60,80)\fscx96\fscy96\t(0,120,\fscx100\fscy100)"
+        lines.append(
+            f"Dialogue: 0,{start},{end},Caption,,0,0,0,,"
+            f"{{{tag}}}{caption}"
+        )
     lines.append("")
     return "\n".join(lines)
 
@@ -391,18 +483,11 @@ def render_progressive_text(
 ) -> dict[str, Any]:
     validated = validate_progressive_text(events)
     srt = write_progressive_srt(events, Path(srt_path))
-    slate_index = choose_dark_slate_index(events, validated)
+    slate_index = None
     ass_path = Path(srt_path).with_suffix(".rich.ass")
-    ass_path.write_text(build_rich_ass(events, slate_index=slate_index), encoding="utf-8")
+    ass_path.write_text(build_rich_ass(events, slate_index=None), encoding="utf-8")
 
-    filters: list[str] = []
-    if slate_index is not None:
-        slate = validated[slate_index]
-        filters.append(
-            "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.94:t=fill:"
-            f"enable='between(t,{slate.start:.3f},{slate.end:.3f})'"
-        )
-    filters.append(f"subtitles='{_filter_escape_path(ass_path)}'")
+    filters: list[str] = [f"subtitles='{_filter_escape_path(ass_path)}'"]
     vf = ",".join(filters)
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -440,24 +525,28 @@ def render_progressive_text(
 
     return {
         "schema_version": SCHEMA_VERSION,
-        "renderer": "ffmpeg_libass_contextual_two_tone",
+        "renderer": "ffmpeg_libass_phrase_caption_lite",
         "renderer_version": RICH_RENDERER_VERSION,
         "status": "pass",
         "srt": str(srt),
         "output": str(output),
         "portrait": True,
         "event_count": len(validated),
-        "dark_slate_count": 1 if slate_index is not None else 0,
-        "dark_slate_index": slate_index,
+        "dark_slate_count": 0,
+        "dark_slate_index": None,
         "dark_slate_hook_forbidden": True,
         "max_dark_slates": MAX_DARK_SLATES,
-        "accent_rgb": "#D7A85B",
-        "body_rgb": "#F4F1EA",
+        "accent_rgb": "#FFD400",
+        "body_rgb": "#FFFFFF",
+        "caption_font": BODY_FONT,
         "focus_font": FOCUS_FONT,
         "body_font": BODY_FONT,
         "focus_font_size": FOCUS_FONT_SIZE,
         "body_font_size": BODY_FONT_SIZE,
         "body_wrap_words": BODY_WRAP_WORDS,
+        "caption_min_words": CAPTION_MIN_WORDS,
+        "caption_max_words": CAPTION_MAX_WORDS,
+        "caption_y": CAPTION_Y,
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
         "voice_owned_event_timing_preserved": True,

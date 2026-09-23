@@ -108,40 +108,48 @@ TEMPLATE_COMPENSATION = {
 
 TEMPLATE_VISUAL_QUERY_DIRECTIVES = {
     "why_reframe": (
-        "For every visual_query_en, make the three sections form a visible contrast arc: section 1 should "
-        "show the old/common mistaken framing, section 2 should show the visual turn or contrast, and "
-        "section 3 should show the clearer/new framing in an observable stock-footage scene. Avoid generic "
-        "productivity imagery that does not carry that contrast."
+        "For every visual_query_en, make the three sections form a visible contrast arc. "
+        "For s1 use an immediately readable contradiction, mistake, interruption, or consequence that feels visually unresolved "
+        "and strong enough to stop the scroll without melodrama. "
+        "For s2 show the visual turn or contrast. For s3 show the clearer/new framing as a decisive observable payoff. "
+        "Avoid generic productivity imagery that does not carry that contrast."
     ),
     "inner_dialogue": (
-        "For every visual_query_en, use an intimate quiet human moment that visually supports internal "
-        "dialogue: a person alone, thoughtful, reflective, pausing, sitting quietly, or moving through a "
-        "calm environment. Prefer concrete search language such as alone, thoughtful, reflective, quiet "
-        "moment, contemplative. Avoid generic desks, calendars, or unrelated symbolic footage."
+        "Keep one coherent inner-dialogue arc, but do NOT make the hook visually calm. "
+        "For s1 show immediate active friction or pressure in an observable no-face moment: hesitation, "
+        "a hand stopping mid-action, a rushed/tense detail, an unfinished task, or another readable visual conflict. "
+        "For s2 let the image become more reflective as the thought turns. "
+        "For s3 show a decisive single payoff action or its immediate visible result. "
+        "Prefer concrete no-face search language and avoid generic passive desks, calendars, or unrelated symbolism."
     ),
     "micro_story": (
-        "Make the three visual_query_en values a simple sequential micro-story about one concrete situation: "
-        "section 1 establishes the starting situation, section 2 shows the small development/turn, and "
-        "section 3 shows the visual outcome. Each query must describe a realistic observable stock-footage "
-        "moment from that same miniature situation, not generic or purely symbolic footage."
+        "Make the three visual_query_en values a simple sequential micro-story about one concrete situation. "
+        "For s1 begin inside an observable action or event already in motion; do not spend the hook on a quiet establishing shot. "
+        "For s2 show the development/turn, and for s3 show a clear visible outcome/payoff. "
+        "Each query must describe a realistic observable stock-footage moment from that same miniature situation, "
+        "not generic or purely symbolic footage."
     ),
     "quote_reflection": (
-        "For every visual_query_en, use calm reflective footage that supports one central approved quotation "
-        "or idea without competing detail: quiet setting, slow/simple action, restrained composition, and "
-        "minimal visual distraction. Avoid busy motion, multiple simultaneous actions, or unrelated imagery."
+        "Keep the reflective identity, but make s1 visually arresting through composition rather than frantic motion: "
+        "a striking close detail, strong light/shadow contrast, meaningful object, or immediate visual tension that can hold a quote. "
+        "For s2 return to calm reflective footage with minimal distraction. For s3 show a clean release or concrete payoff image. "
+        "Avoid busy motion, multiple simultaneous actions, or unrelated imagery."
     ),
 }
 
 INNER_DIALOGUE_VOICE_RULES = (
-    "The entire narration must read as one continuous inner voice thinking to itself, never as a "
-    "narrator giving the viewer instructions.",
-    "Required progression: inner voice -> friction -> internal realization/turn -> earned payoff.",
-    'BAD: "ابدأ بخطوة صغيرة. عليك أن تتحرك الآن."',
-    'GOOD: "قلت لنفسي: لا أريد أن أبدأ. ثم لاحظت أنني كنت أنتظر شعورًا لن يأتي."',
+    "The narration must sound natural when spoken aloud in Modern Standard Arabic: short, concrete, "
+    "and conversational rather than essay-like or analytical.",
+    "Required progression: felt moment -> brief inner thought -> natural realization/turn -> one earned action.",
+    'BAD: "قلت لنفسي: السبب الحقيقي ليس الإرهاق، بل أنك لم تحدد ما تريد."',
+    'GOOD: "مرّ اليوم ولم أبدأ. القائمة بدت أكبر مني. ربما أحتاج بداية أصغر."',
+    'Avoid formulaic self-help language such as "السبب الحقيقي", repeated "قلت لنفسي", and the '
+    '"ليس X بل Y" construction unless the approved source itself requires that exact contrast.',
+    "Do not explain the lesson to the viewer. Prefer one small observable detail or thought that lets "
+    "the realization emerge naturally.",
     'Do not address the viewer with "افعل" / "ابدأ" / "عليك" except in the final line only, where '
     "at most one single-action imperative is allowed by the Short contract.",
-    "The turn must sound like an idea discovered by the inner voice itself, not preaching from an "
-    "external narrator.",
+    "The turn must sound discovered inside the moment, not preached by an external narrator.",
 )
 
 TEMPLATE_WRITING_DIRECTIVES = {
@@ -297,19 +305,22 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         f"- s1: the first spoken sentence is the truthful hook and must be at most {SHORT_HOOK_MAX_WORDS} Arabic words; no greeting. "
         "It must create immediate viewer tension by naming one concrete felt friction, contradiction, or unresolved consequence. "
         "Do not open with an abstract definition, generic \"sometimes\" setup, or a formulaic X-is-not-Y-but-Z explanation.\n"
-        "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation.\n"
-        "- s3: resolve the SAME tension/question opened by s1-s2, then give exactly ONE practical action in one clear imperative sentence. "
+        "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
+        "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned payoff, then give exactly ONE practical action in one clear imperative sentence. The ending must feel like a strong answer to the hook, not generic advice. "
         "That action sentence MUST begin with a direct Arabic imperative verb, not a descriptive suggestion, and must not append a second action with ثم/و. "
         "Good examples: \"ابدأ بـ...\", \"جرّب أن...\", \"افعل...\", \"اختر...\", \"اكتب...\". "
         "Bad examples: \"اكتب... ثم اخرج...\", \"يمكنك أن...\", \"من الأفضل أن...\", or a general description with no command.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
+        "- SPOKEN_NATURALNESS_LITE: write for the ear, not the page. Keep sentences short and concrete; "
+        "avoid abstract diagnosis, polished essay transitions, generic motivational slogans, and repeated rhetorical formulas. "
+        "If a sentence sounds like a coach explaining a lesson rather than a person noticing a real moment, rewrite it more simply.\n"
         "- VISUAL_QUERY_DIRECTION: "
         f"{TEMPLATE_VISUAL_QUERY_DIRECTIVES[selection['template']]} "
         "Across s1/s2/s3, use visibly different dominant actions or states so the picture itself progresses. "
-        "For s1 prefer an immediately readable active friction/decision over a passive generic desk shot. "
-        "For s3 depict the single payoff action itself or its immediate visible result; never repeat the same writing/desk action used earlier."
+        "For s1 create the template-specific scroll-stop visual beat described above; it must read instantly and must not feel visually flat. "
+        "For s3 depict the single payoff action itself or its immediate visible result with a clear sense of release/completion; never repeat the same writing/desk action used earlier."
     )
 
 
@@ -560,6 +571,13 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+_INNER_DIALOGUE_HOOK_VISUAL_TERMS = frozenset({
+    "tense", "hesitating", "hesitation", "rushed", "urgent", "frustrated",
+    "overwhelmed", "stopping", "interrupted", "unfinished", "gripping",
+    "reaching", "deadline", "alarm", "pressure",
+})
+
+
 _VISUAL_QUERY_TERMS = {
     "why_reframe": {
         "old": frozenset({"confused", "cluttered", "overwhelmed", "stuck", "wrong", "messy", "frustrated", "chaotic"}),
@@ -619,11 +637,15 @@ def validate_short_visual_queries(
 
     if template == "inner_dialogue":
         allowed = _VISUAL_QUERY_TERMS[template]
-        if any(not (item & allowed) for item in words):
+        if not (words[0] & (allowed | _INNER_DIALOGUE_HOOK_VISUAL_TERMS)):
+            raise ShortFormatError("short_visual_query_inner_dialogue_hook_not_readable")
+        if any(not (item & allowed) for item in words[1:]):
             raise ShortFormatError("short_visual_query_inner_dialogue_not_reflective")
         action_families = [_query_action_families(item) for item in words]
         if action_families[0] and action_families[2] and action_families[0] & action_families[2]:
             raise ShortFormatError("short_visual_query_inner_dialogue_payoff_repeats_opening_action")
+        if action_families[1] and action_families[2] and action_families[1] & action_families[2]:
+            raise ShortFormatError("short_visual_query_inner_dialogue_payoff_repeats_middle_action")
     elif template == "quote_reflection":
         allowed = _VISUAL_QUERY_TERMS[template]
         if any(not (item & allowed) for item in words):

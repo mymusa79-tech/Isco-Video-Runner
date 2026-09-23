@@ -3583,11 +3583,13 @@ class OneBoundedToneRepairRun199Tests(unittest.TestCase):
                 for flag in tone_block[field]:
                     self.assertIn("- [tone] " + flag, prompt)
             self.assertIn("direct advice disguised as inner_dialogue", prompt)
-            self.assertIn("inner voice -> friction -> internal realization/turn -> earned payoff", prompt)
-            self.assertIn('BAD: "ابدأ بخطوة صغيرة. عليك أن تتحرك الآن."', prompt)
-            self.assertIn('GOOD: "قلت لنفسي: لا أريد أن أبدأ. ثم لاحظت أنني كنت أنتظر شعورًا لن يأتي."', prompt)
+            self.assertIn("felt moment -> brief inner thought -> natural realization/turn -> one earned action", prompt)
+            self.assertIn('BAD: "قلت لنفسي: السبب الحقيقي ليس الإرهاق، بل أنك لم تحدد ما تريد."', prompt)
+            self.assertIn('GOOD: "مرّ اليوم ولم أبدأ. القائمة بدت أكبر مني. ربما أحتاج بداية أصغر."', prompt)
+            self.assertIn('repeated "قلت لنفسي"', prompt)
+            self.assertIn('"ليس X بل Y"', prompt)
             self.assertIn('Do not address the viewer with "افعل" / "ابدأ" / "عليك" except in the final line only', prompt)
-            self.assertIn("not preaching from an external narrator", prompt)
+            self.assertIn("not preached by an external narrator", prompt)
 
             repair = json.loads((root / "tone-repair.json").read_text(encoding="utf-8"))
             self.assertEqual(repair["attempts"], 1)
