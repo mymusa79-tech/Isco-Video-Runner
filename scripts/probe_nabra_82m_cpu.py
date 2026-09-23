@@ -41,6 +41,19 @@ SEGMENTS = (
 )
 PAUSES_MS = (260, 420, 340, 500)
 
+# Direct phoneme lock for the listener-sensitive phrases. This bypasses Arabic
+# G2P/diacritization entirely during synthesis, uses spoken MSA endings (no
+# heavy case inflection), and generates the whole passage in one call so there
+# is only one model onset.
+LOCKED_PHONEMES = (
+    "ʔˈaħjaːnˌan, laː tˈaħtaːʤ ʔˈilaː bidˈaːja ʤadˈiːda. "
+    "bal tˈaħtaːʤ ʔˈilaː χˈutwa sˈaːdiqa tuʕˈiːduk ʔˈilaː tarˈiːqik. "
+    "laː tˈantaðˌir ʔˈan jˈaʔtiː ʔadˈaːfiʕ kˈaːmilan. "
+    "ʔˈibdaʔ bimˌaː tastˈatiːʕ ʔaljˈaum. "
+    "falˌistimrˈaːr alhˈaːdiʔ, ħˈiːna jˌatakˈarrar kˈull jˈaum, "
+    "jˈasnaʕ farqˌan ʔˈakbar mˈimmaː tˌataχaˈiːal."
+)
+
 
 def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
     """Gently fade the model's phrase-start onset without cutting speech.
@@ -128,6 +141,26 @@ def main() -> int:
     voice = torch.load(voice_path, map_location="cpu", weights_only=True)
     load_seconds = time.perf_counter() - load_started
 
+    # Pronunciation-locked single-pass synthesis for final listening check.
+    # KPipeline.infer accepts raw phonemes and the already-loaded voice pack.
+    locked_started = time.perf_counter()
+    with torch.inference_mode():
+        locked_output = KPipeline.infer(
+            model,
+            LOCKED_PHONEMES,
+            voice.to(model.device),
+            speed=NATIVE_SPEED,
+        )
+    locked_seconds = time.perf_counter() - locked_started
+    locked_audio = locked_output.audio.detach().cpu().numpy().astype(np.float32)
+    # Only soften the one global model onset; nothing is cut.
+    locked_audio = soften_segment_onset(locked_audio)
+
+    locked_raw_path = output / "08-nabra-pronunciation-locked-raw.wav"
+    sf.write(locked_raw_path, locked_audio, SAMPLE_RATE, subtype="PCM_16")
+    locked_final_path = output / "09-nabra-pronunciation-locked-mix-ready.wav"
+    mix_ready(locked_raw_path, locked_final_path)
+
     synth_started = time.perf_counter()
     chunks: list[np.ndarray] = []
     emitted_phonemes: list[str] = []
@@ -177,6 +210,10 @@ def main() -> int:
         "runner_cpu_count": os.cpu_count(),
         "raw_wav": raw,
         "mix_ready_wav": final,
+        "pronunciation_locked_phonemes": LOCKED_PHONEMES,
+        "pronunciation_locked_synthesis_seconds": round(locked_seconds, 3),
+        "pronunciation_locked_raw_wav": wav_info(locked_raw_path),
+        "pronunciation_locked_mix_ready_wav": wav_info(locked_final_path),
         "notes": [
             "official Nabra repo_id and disable_complex inference path",
             "manually verified spoken-MSA tashkeel: lexical vowels preserved, unnecessary final case endings omitted",
@@ -185,6 +222,8 @@ def main() -> int:
             "no audio samples are trimmed; only a 45 ms fade-in reduces phrase-start hiss",
             "no EQ, pitch shift, compressor, or voice retiming",
             "mix-ready file is loudness normalization plus 48 kHz resample only",
+            "pronunciation-locked sample bypasses G2P and uses one continuous phoneme sequence",
+            "problem phrases use spoken-MSA phonemes without heavy case endings",
             "experimental only; no Clean V2 production wiring",
         ],
     }
