@@ -639,11 +639,11 @@ def infer_with_terminal_duration_cap(
             length_idx = length_pos + 1
             before_u = int(pred_dur[u_idx].item())
             before_len = int(pred_dur[length_idx].item())
-            # Preserve at least one frame for each symbol. Only cap the length marker
-            # if the combined vowel duration exceeds 150 ms.
+            # Preserve at least one frame for each symbol. For listener-confirmed
+            # sentence-final /uːʔ/ ("بهدوء"), cap the vowel portion at 100 ms.
             combined = before_u + before_len
-            if combined > 6:
-                target_len = max(1, 6 - before_u)
+            if combined > 4:
+                target_len = max(1, 4 - before_u)
                 pred_dur[length_idx] = torch.clamp(pred_dur[length_idx], max=target_len)
             final_long_vowel_change = {
                 "u_before_frames": before_u,
