@@ -775,6 +775,14 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         print("Clean V2 voice provider selected: nabra:af_msa")
         return result
 
+    def activate_full_run_nabra_fallback(self) -> None:
+        """Lock the next full narration pass to Nabra after a mid-run Charon outage."""
+        self._route_lock = "nabra"
+        self.last_provider = None
+        self.fallback_used = True
+        self.voice_approval_status = "human_approved_fallback"
+        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
+
     def synthesize(
         self,
         transcript: str,
