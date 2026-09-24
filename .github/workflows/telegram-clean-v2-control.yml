@@ -1,0 +1,120 @@
+name: Clean V2 Telegram Editorial Lite
+
+on:
+  workflow_dispatch:
+    inputs:
+      webhook_update_b64:
+        description: Authenticated Telegram update forwarded by the Lite Worker
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: clean-v2-telegram-state
+  cancel-in-progress: false
+
+jobs:
+  control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      STATE_BRANCH: clean-v2-telegram-state
+      STATE_FILE: state/telegram-clean-v2.json
+      DISPATCH_FILE: ${{ runner.temp }}/clean-v2-telegram-dispatch.json
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_CONTENT_MODEL: gemini-3.7-flash
+
+    steps:
+      - name: Checkout exact main controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: true
+          fetch-depth: 0
+
+      - name: Restore simple Telegram JSON state
+        run: |
+          set -euo pipefail
+          state_root="$RUNNER_TEMP/clean-v2-telegram-state"
+          if git fetch --no-tags origin "$STATE_BRANCH:refs/remotes/origin/$STATE_BRANCH" 2>/dev/null; then
+            git worktree add -B "$STATE_BRANCH" "$state_root" "origin/$STATE_BRANCH"
+          else
+            git worktree add -b "$STATE_BRANCH" "$state_root" origin/main
+          fi
+          mkdir -p "$state_root/state"
+          if [ ! -s "$state_root/$STATE_FILE" ]; then
+            printf '%s\n' '{"schema_version":1,"ideas":[],"sessions":{},"requests":{},"current_request_id":null,"updated_at":null}' > "$state_root/$STATE_FILE"
+          fi
+          echo "TELEGRAM_STATE_ROOT=$state_root" >> "$GITHUB_ENV"
+          echo "TELEGRAM_STATE_PATH=$state_root/$STATE_FILE" >> "$GITHUB_ENV"
+
+      - name: Handle authorized Telegram update
+        env:
+          WEBHOOK_UPDATE_B64: ${{ inputs.webhook_update_b64 }}
+        run: |
+          set -euo pipefail
+          test -n "$TELEGRAM_BOT_TOKEN"
+          test -n "$TELEGRAM_CHAT_ID"
+          python scripts/telegram_clean_v2_control.py handle \
+            --state "$TELEGRAM_STATE_PATH" \
+            --update-b64 "$WEBHOOK_UPDATE_B64" \
+            --dispatch "$DISPATCH_FILE"
+
+      - name: Persist editorial state before any production dispatch
+        run: |
+          set -euo pipefail
+          git -C "$TELEGRAM_STATE_ROOT" config user.name "isco-clean-v2-telegram"
+          git -C "$TELEGRAM_STATE_ROOT" config user.email "actions@users.noreply.github.com"
+          git -C "$TELEGRAM_STATE_ROOT" add "$STATE_FILE"
+          if ! git -C "$TELEGRAM_STATE_ROOT" diff --cached --quiet; then
+            git -C "$TELEGRAM_STATE_ROOT" commit -m "state: Clean V2 Telegram editorial decision"
+            git -C "$TELEGRAM_STATE_ROOT" push origin "HEAD:$STATE_BRANCH"
+          fi
+
+      - name: Dispatch Clean V2 only after exact confirmation
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ ! -s "$DISPATCH_FILE" ]; then
+            echo "sent=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          request_id="$(jq -r .request_id "$DISPATCH_FILE")"
+          request_sha="$(jq -r .request_sha256 "$DISPATCH_FILE")"
+          test -n "$request_id"
+          test "$request_sha" != "null"
+          payload="$(jq -nc --arg ref "main" --arg request_id "$request_id" --arg request_sha256 "$request_sha" '{ref:$ref,inputs:{request_id:$request_id,request_sha256:$request_sha256}}')"
+          code="$(curl --silent --show-error --output "$RUNNER_TEMP/dispatch-response.txt" --write-out '%{http_code}' \
+            -X POST "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/clean-v2-telegram-production.yml/dispatches" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/json" \
+            --data "$payload")"
+          test "$code" = "204"
+          echo "sent=true" >> "$GITHUB_OUTPUT"
+          echo "request_id=$request_id" >> "$GITHUB_OUTPUT"
+          echo "request_sha256=$request_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Mark dispatch durable after GitHub accepts it
+        if: steps.dispatch.outputs.sent == 'true'
+        run: |
+          set -euo pipefail
+          git -C "$TELEGRAM_STATE_ROOT" pull --ff-only origin "$STATE_BRANCH"
+          python scripts/telegram_clean_v2_control.py mark-dispatched \
+            --state "$TELEGRAM_STATE_PATH" \
+            --request-id "${{ steps.dispatch.outputs.request_id }}" \
+            --request-sha256 "${{ steps.dispatch.outputs.request_sha256 }}"
+          git -C "$TELEGRAM_STATE_ROOT" add "$STATE_FILE"
+          if ! git -C "$TELEGRAM_STATE_ROOT" diff --cached --quiet; then
+            git -C "$TELEGRAM_STATE_ROOT" commit -m "state: mark Clean V2 request dispatched"
+            git -C "$TELEGRAM_STATE_ROOT" push origin "HEAD:$STATE_BRANCH"
+          fi
