@@ -25,11 +25,11 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
             ]
         }
         self.assertEqual(
-            [name for name, _ in milestone_messages(manifest, set())],
+            [name for name, _ in milestone_messages(manifest, set(), kind="long")],
             ["planning", "script"],
         )
         self.assertEqual(
-            [name for name, _ in milestone_messages(manifest, {"planning"})],
+            [name for name, _ in milestone_messages(manifest, {"planning"}, kind="long")],
             ["script"],
         )
         self.assertEqual(current_stage(manifest), "voice")
@@ -102,6 +102,18 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         self.assertIn("طويل", text)
         self.assertIn("شورت", text)
         self.assertIn("موضوع تجريبي", text)
+
+    def test_stage_messages_are_arabic_and_identify_content_type(self):
+        manifest = {
+            "stages": [
+                {"name": "planning", "status": "pass"},
+                {"name": "script", "status": "pass"},
+            ]
+        }
+        messages = dict(milestone_messages(manifest, set(), kind="short"))
+        self.assertIn("⚡ الشورت", messages["planning"])
+        self.assertIn("1/6 التخطيط", messages["planning"])
+        self.assertIn("2/6 النص", messages["script"])
 
 
 if __name__ == "__main__":

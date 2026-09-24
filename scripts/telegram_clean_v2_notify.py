@@ -9,12 +9,12 @@ from pathlib import Path
 from typing import Any
 
 MILESTONES = (
-    ("planning", "Planning"),
-    ("script", "Script"),
-    ("voice", "Voice"),
-    ("visuals", "Visuals"),
-    ("render", "Render"),
-    ("final_master_qc", "Final Master"),
+    ("planning", "التخطيط"),
+    ("script", "النص"),
+    ("voice", "الصوت"),
+    ("visuals", "المشاهد"),
+    ("render", "المونتاج"),
+    ("final_master_qc", "الفحص النهائي"),
 )
 TERMINAL = {"pass", "failed", "quality_pending"}
 
@@ -73,12 +73,19 @@ def passed_stages(manifest: dict[str, Any]) -> set[str]:
     }
 
 
-def milestone_messages(manifest: dict[str, Any], sent: set[str]) -> list[tuple[str, str]]:
+def milestone_messages(
+    manifest: dict[str, Any],
+    sent: set[str],
+    *,
+    kind: str,
+) -> list[tuple[str, str]]:
     passed = passed_stages(manifest)
+    prefix = "🎬 الطويل" if kind == "long" else "⚡ الشورت"
     result: list[tuple[str, str]] = []
-    for stage, label in MILESTONES:
+    total = len(MILESTONES)
+    for index, (stage, label) in enumerate(MILESTONES, 1):
         if stage in passed and stage not in sent:
-            result.append((stage, f"✅ Clean V2 · {label} تم"))
+            result.append((stage, f"{prefix} · {index}/{total} {label} ✅"))
     return result
 
 
@@ -165,13 +172,12 @@ def terminal_text(*, manifest: dict[str, Any], job_status: str, kind: str, run_u
 
 
 def watch(output: Path, *, kind: str, poll_seconds: float) -> int:
-    del kind
     manifest_path = output / "run-manifest.json"
     sent: set[str] = set()
     while True:
         manifest = _read_json(manifest_path)
         if manifest:
-            for stage, text in milestone_messages(manifest, sent):
+            for stage, text in milestone_messages(manifest, sent, kind=kind):
                 send_message(text)
                 sent.add(stage)
             if str(manifest.get("status") or "") in TERMINAL:
