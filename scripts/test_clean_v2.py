@@ -1489,9 +1489,18 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 [event["stage"] for event in first_router.events],
                 ["planning", "script"],
             )
-            # First section is intentionally split once at the hook boundary so
-            # the approved Intro can be inserted at an exact measured timestamp.
-            self.assertEqual(first_voice.calls, len(_script()["sections"]) + 1)
+            # Timeline First intentionally synthesizes measured semantic voice
+            # units (hook/prayer/channel identity/topic/outro). Lock the test to the
+            # persisted unit manifest instead of the old one-extra-hook-chunk count.
+            voice_manifest = json.loads(
+                (first_output / "voice-sections.json").read_text(encoding="utf-8")
+            )
+            expected_voice_calls = sum(
+                int(section.get("chunk_count") or 0)
+                for section in voice_manifest.get("sections", [])
+            )
+            self.assertGreater(expected_voice_calls, len(_script()["sections"]))
+            self.assertEqual(first_voice.calls, expected_voice_calls)
             self.assertEqual(first_visuals.calls, 1)
 
             class _ForbiddenRouter:
