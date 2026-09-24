@@ -443,6 +443,27 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertNotIn("مصدر ثالث", text)
         self.assertIn(control.CONFIRM_TEXT, text)
 
+    def test_stats_copy_is_plain_arabic_without_internal_terms(self):
+        stats = {
+            "subscribers": 20,
+            "hidden_subscribers": False,
+            "total_views": 1500,
+            "video_count": 12,
+            "last_long": None,
+            "last_short": None,
+            "views_today": None,
+            "views_7d": None,
+            "subscribers_today": None,
+            "subscribers_7d": None,
+        }
+        text = control.render_channel_stats(stats)
+        self.assertIn("إحصائيات قناة نداء اليقظة", text)
+        self.assertIn("بانتظار أول قياس يومي", text)
+        self.assertNotIn("Channel Intelligence", text)
+        self.assertNotIn("baseline", text)
+        self.assertNotIn("snapshots", text)
+        self.assertNotIn("OAuth", text)
+
 
 if __name__ == "__main__":
     unittest.main()

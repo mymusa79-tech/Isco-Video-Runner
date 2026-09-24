@@ -407,14 +407,14 @@ def render_channel_stats(stats: dict[str, Any]) -> str:
     today_views = stats.get("views_today")
     week_views = stats.get("views_7d")
     lines = [
-        "📊 نداء اليقظة — Channel Intelligence",
+        "📊 إحصائيات قناة نداء اليقظة",
         "",
         f"👥 المشتركون: {subscribers}",
         f"👁️ إجمالي مشاهدات القناة: {_format_number(int(stats.get('total_views') or 0))}",
         f"🎞️ إجمالي الفيديوهات: {_format_number(int(stats.get('video_count') or 0))}",
         "",
-        f"📈 مشاهدات اليوم: {'+' + _format_number(today_views) if isinstance(today_views, int) else 'بانتظار baseline يومية'}",
-        f"📅 مشاهدات آخر 7 أيام: {'+' + _format_number(week_views) if isinstance(week_views, int) else 'بانتظار 7 أيام من snapshots'}",
+        f"📈 مشاهدات اليوم: {'+' + _format_number(today_views) if isinstance(today_views, int) else 'بانتظار أول قياس يومي'}",
+        f"📅 مشاهدات آخر 7 أيام: {'+' + _format_number(week_views) if isinstance(week_views, int) else 'بانتظار اكتمال 7 أيام من القياسات'}",
     ]
     if not stats.get("hidden_subscribers"):
         sub_today = stats.get("subscribers_today")
@@ -425,12 +425,12 @@ def render_channel_stats(stats: dict[str, Any]) -> str:
                 f"👤 تغير المشتركين 7 أيام: {'+' + _format_number(sub_week) if isinstance(sub_week, int) else '—'}",
             ]
         )
-    lines.extend(["", *_video_stats_line("🎬 آخر Long", stats.get("last_long"))])
-    lines.extend(["", *_video_stats_line("⚡ آخر Short", stats.get("last_short"))])
+    lines.extend(["", *_video_stats_line("🎬 آخر فيديو طويل", stats.get("last_long"))])
+    lines.extend(["", *_video_stats_line("⚡ آخر شورت", stats.get("last_short"))])
     lines.extend(
         [
             "",
-            "ℹ️ أرقام اليوم و7 أيام تُحسب من snapshots إجمالي القناة عبر YouTube Data API، وليست Retention/Analytics OAuth.",
+            "ℹ️ أرقام اليوم و7 أيام تُحسب من قياسات يومية لإجمالي القناة.",
         ]
     )
     return "\n".join(lines)
