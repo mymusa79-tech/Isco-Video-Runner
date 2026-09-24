@@ -503,6 +503,12 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertIn("موضوع ناجح", text)
         self.assertEqual(keyboard[0][0]["url"], "https://github.example/artifacts/9")
 
+    def test_bundle_research_prompt_requires_long_and_derived_short_fit(self):
+        instruction = control._scope_research_instruction("bundle")
+        self.assertIn("حلقة طويلة", instruction)
+        self.assertIn("شورت مستقل", instruction)
+        self.assertNotEqual(instruction, control._scope_research_instruction("long"))
+
 
 if __name__ == "__main__":
     unittest.main()

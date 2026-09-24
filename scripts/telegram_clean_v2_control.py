@@ -539,16 +539,23 @@ def market_evidence(query: str) -> tuple[float, dict[str, Any]]:
     }
 
 
+def _scope_research_instruction(scope: str) -> str:
+    if scope == "short":
+        return "الأفكار يجب أن تصلح لشورت واحد مكثف بفكرة واحدة مكتملة."
+    if scope == "bundle":
+        return (
+            "كل فكرة يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح، "
+            "وفي الوقت نفسه تسمح باشتقاق شورت مستقل وقوي منها دون إعادة صياغة الحلقة كاملة."
+        )
+    return "الأفكار يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح."
+
+
 def _gemini_candidates(trends: list[str], scope: str) -> list[dict[str, str]]:
     key = str(os.environ.get("GEMINI_API_KEY") or "").strip()
     if not key:
         return []
     trend_text = "\n".join(f"- {item}" for item in trends[:12]) or "- لا توجد إشارات Trends موثوقة"
-    scope_instruction = (
-        "الأفكار يجب أن تصلح لشورت واحد مكثف بفكرة واحدة مكتملة."
-        if scope == "short"
-        else "الأفكار يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح."
-    )
+    scope_instruction = _scope_research_instruction(scope)
     prompt = f"""أنت محرر أبحاث لقناة عربية اسمها نداء اليقظة عن التطور الشخصي والوعي النفسي بأسلوب متفائل وواقعي.
 {scope_instruction}
 اقترح 8 أفكار أصلية مناسبة للنطاق المطلوب. تجنب التشخيص الطبي والوعود المبالغ فيها والتكرار.
