@@ -18,9 +18,18 @@ permissions:
 jobs:
   overlay-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install minimal Arabic renderer dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --no-cache-dir "Pillow==11.3.0"
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-core fonts-noto-extra
+          fc-cache -f
 
       - name: Check Arabic rendering environment
         shell: bash
