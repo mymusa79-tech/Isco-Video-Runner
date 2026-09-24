@@ -37,6 +37,8 @@ PRONUNCIATION_PATCHES = (
     ("tˌakaˈuːna", "takˈuːna", "تكون"),
     ("jˌataħaˈuːal", "jˌataħˈawːal", "يتحول"),
     ("faħˈaiˌaːt", "falħˈaiˌaːt", "فالحياة"),
+    ("dˈafʕat waːħˈidat", "dˈafʕa waːħˈida", "دفعة واحدة"),
+    ("mˈarrat baʕd mˈarrat", "mˈarra baʕd mˈarra", "مرة بعد مرة"),
 )
 
 def repair_obvious_g2p_artifacts(phonemes: str) -> tuple[str, list[dict]]:
@@ -203,6 +205,8 @@ def smooth_sentence_edges(
     pre_roll_ms: int = 12,
     post_roll_ms: int = 180,
     onset_fade_ms: int = 4,
+    pre_release_soften_ms: int = 0,
+    pre_release_floor: float = 1.0,
     release_hold_ms: int = 35,
     release_fade_ms: int = 110,
 ) -> tuple[np.ndarray, dict]:
@@ -280,6 +284,18 @@ def smooth_sentence_edges(
             np.linspace(0.0, np.pi / 2.0, onset_fade, dtype=np.float32)
         ) ** 2
 
+    pre_release_len = min(
+        int(SAMPLE_RATE * pre_release_soften_ms / 1000.0),
+        max(0, speech_end_local),
+    )
+    if pre_release_len > 1 and pre_release_floor < 1.0:
+        soften_start = speech_end_local - pre_release_len
+        # Very gentle equal-power easing inside only the final tens of ms.
+        # This prepares the ear for silence without muting or cutting the final phoneme.
+        phase = np.linspace(0.0, np.pi / 2.0, pre_release_len, dtype=np.float32)
+        envelope = 1.0 - (1.0 - float(pre_release_floor)) * (np.sin(phase) ** 2)
+        out[soften_start:speech_end_local] *= envelope
+
     available_tail = max(0, int(out.size) - speech_end_local)
     hold = min(
         int(SAMPLE_RATE * release_hold_ms / 1000.0),
@@ -318,6 +334,8 @@ def smooth_sentence_edges(
         "pre_roll_ms": pre_roll_ms,
         "pre_roll_zeroed": True,
         "onset_fade_ms_applied": round(onset_fade * 1000.0 / SAMPLE_RATE, 2),
+        "pre_release_soften_ms_applied": round(pre_release_len * 1000.0 / SAMPLE_RATE, 2),
+        "pre_release_floor": pre_release_floor,
         "model_reserved_lead_ms": round(model_lead_original * 1000.0 / SAMPLE_RATE, 2),
         "model_lead_cleanup_ms": round(model_lead_cleaned * 1000.0 / SAMPLE_RATE, 2),
         "model_lead_fade_ms": round(model_lead_fade * 1000.0 / SAMPLE_RATE, 2),
@@ -339,6 +357,9 @@ def synthesize_passage(
     g2p,
     sentences: tuple[str, ...],
     pauses_ms: tuple[int, ...],
+    onset_fade_ms: int,
+    pre_release_soften_ms: int,
+    pre_release_floor: float,
 ) -> tuple[np.ndarray, list[dict], list[str], float]:
     if len(pauses_ms) != len(sentences) - 1:
         raise RuntimeError("pause count must equal sentence count minus one")
@@ -366,6 +387,9 @@ def synthesize_passage(
             chunk, edge_report = smooth_sentence_edges(
                 chunk,
                 pred_dur=output.pred_dur.detach().cpu() if output.pred_dur is not None else None,
+                onset_fade_ms=onset_fade_ms,
+                pre_release_soften_ms=pre_release_soften_ms,
+                pre_release_floor=pre_release_floor,
             )
             edge_report["sentence_index"] = index + 1
             edge_report["text"] = sentence
@@ -430,6 +454,9 @@ def main() -> int:
         g2p=verified_g2p,
         sentences=SHORT_SENTENCES,
         pauses_ms=SHORT_PAUSES_MS,
+        onset_fade_ms=14,
+        pre_release_soften_ms=65,
+        pre_release_floor=0.86,
     )
     short_raw = output / "01-nabra-new-short-smooth-raw.wav"
     short_mix = output / "02-nabra-new-short-smooth-mix-ready.wav"
@@ -442,6 +469,9 @@ def main() -> int:
         g2p=verified_g2p,
         sentences=LONG_SENTENCES,
         pauses_ms=LONG_PAUSES_MS,
+        onset_fade_ms=9,
+        pre_release_soften_ms=45,
+        pre_release_floor=0.90,
     )
     long_raw = output / "03-nabra-long-validation-smooth-raw.wav"
     long_mix = output / "04-nabra-long-validation-smooth-mix-ready.wav"
@@ -459,12 +489,15 @@ def main() -> int:
             "frame_ms": 10,
             "pre_roll_ms": 12,
             "post_roll_ms": 180,
-            "onset_fade_ms": 4,
+            "short_onset_fade_ms": 14,
+            "long_onset_fade_ms": 9,
+            "short_pre_release_soften_ms": 65,
+            "long_pre_release_soften_ms": 45,
             "release_hold_ms": 35,
             "release_fade_ms": 110,
             "principle": (
-                "silence only model-reserved BOS lead; tiny fade at first lexical token; "
-                "fade only after detected lexical speech at the end; never retime speech core"
+                "silence only model-reserved BOS lead; gentle passage-specific fade-in; "
+                "very small pre-release easing before semantic silence; preserve lexical timing"
             ),
         },
         "short": {
