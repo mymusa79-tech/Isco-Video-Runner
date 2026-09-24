@@ -313,7 +313,7 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
         "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned payoff, then give exactly ONE practical action in one clear imperative sentence. The ending must feel like a strong answer to the hook, not generic advice. "
         "That action sentence MUST begin with a direct Arabic imperative verb, contain exactly ONE imperative verb, and express exactly ONE practical action. "
-        "Do not append a second action with ثم/و, punctuation, or any other construction. Every other sentence in s3 must be purely descriptive, with ZERO command verbs. "
+        "That action sentence must not append a second action with ثم/و, punctuation, or any other construction. Every other sentence in s3 must be purely descriptive, with ZERO command verbs. "
         "STRICTER SAFEGUARD: outside the single designated action sentence, do not use any of these words or any inflection/derivative of them, even as a noun, past tense, or description: "
         "اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. "
         "SELF-CHECK before finalizing s3: count every imperative verb in the whole s3 and every sentence containing one; both counts must equal exactly 1. If either count is not 1, rewrite s3 completely. "
