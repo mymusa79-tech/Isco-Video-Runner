@@ -1185,65 +1185,91 @@ def _validate_and_apply_script_patches(
     prayer = PRAYER_SENTENCE if PRAYER_SENTENCE in original_narration_joined else ""
     total_find_chars = 0
     seen: set[tuple[str, str]] = set()
+    applied_count = 0
+    failure_reasons: list[str] = []
 
+    # Each patch is validated independently and applied on its own merits. A
+    # single bad patch (wrong section, wrong span, a locked-anchor violation)
+    # no longer discards an otherwise-valid batch: the one bounded repair
+    # attempt is scarce (every other provider is typically already exhausted
+    # by the time Mistral responds), and a mixed response used to lose 100%
+    # of its value to reject the entire candidate over one bad patch among
+    # several good ones (Run #30: two valid, unflagged-section-scoped
+    # patches were discarded alongside one out-of-scope patch). Every
+    # existing per-patch safety check is unchanged and still hard; only the
+    # granularity of what gets thrown away on failure changes.
     for raw in patches:
-        if not isinstance(raw, Mapping):
-            raise ValueError("script patch item must be an object")
-        if set(raw) != {"section_id", "find", "replace"}:
-            raise ValueError("script patch item has unexpected fields")
-        section_id = str(raw.get("section_id") or "").strip()
-        find = str(raw.get("find") or "")
-        replace = str(raw.get("replace") or "")
-        if section_id not in allowed_ids or section_id not in by_id:
-            raise ValueError("script patch targeted an unflagged section")
-        if not find.strip() or len(find) > 400 or len(replace) > 550:
-            raise ValueError("script patch span exceeds local repair bounds")
-        if len(replace) > len(find) + 180:
-            raise ValueError("script patch expanded the target too far")
-        key = (section_id, find)
-        if key in seen:
-            raise ValueError("script patch duplicated a target")
+        try:
+            if not isinstance(raw, Mapping):
+                raise ValueError("script patch item must be an object")
+            if set(raw) != {"section_id", "find", "replace"}:
+                raise ValueError("script patch item has unexpected fields")
+            section_id = str(raw.get("section_id") or "").strip()
+            find = str(raw.get("find") or "")
+            replace = str(raw.get("replace") or "")
+            if section_id not in allowed_ids or section_id not in by_id:
+                raise ValueError("script patch targeted an unflagged section")
+            if not find.strip() or len(find) > 400 or len(replace) > 550:
+                raise ValueError("script patch span exceeds local repair bounds")
+            if len(replace) > len(find) + 180:
+                raise ValueError("script patch expanded the target too far")
+            key = (section_id, find)
+            if key in seen:
+                raise ValueError("script patch duplicated a target")
+            if total_find_chars + len(find) > 900:
+                raise ValueError("script patch total repair surface exceeds 900 characters")
+
+            item = by_id[section_id]
+            narration = str(item.get("narration") or "")
+            if narration.count(find) != 1:
+                raise ValueError("script patch find text must match exactly once")
+
+            hook_fix_this_patch = False
+            if (
+                original_hook
+                and sections
+                and section_id == str(sections[0].get("id") or "")
+                and find in original_hook
+            ):
+                # A short, audit-verified word/phrase fix inside the hook (e.g. a
+                # flagged typo or non-standard verb) is allowed once, in addition
+                # to the broad-rewrite guard below. Anything else touching the
+                # hook still falls through to the hard equality check after the
+                # loop.
+                compact_find = " ".join(find.split()).strip()
+                if (
+                    hook_word_fix_used
+                    or len(find) > _HOOK_WORD_FIX_MAX_CHARS
+                    or compact_find not in audit_verified_terms
+                ):
+                    raise ValueError("script patch changed the locked hook")
+                hook_fix_this_patch = True
+
+            for locked_name, locked_text in (
+                ("hook", original_hook if section_id == str(sections[0].get("id") or "") else ""),
+                ("opener", opener),
+                ("closer", closer),
+                ("cta", spoken_cta if section_id == cta_anchor else ""),
+                ("prayer", prayer),
+            ):
+                if locked_text and locked_text in find and replace.count(locked_text) != 1:
+                    raise ValueError(f"script patch changed locked {locked_name}")
+        except ValueError as exc:
+            failure_reasons.append(str(exc))
+            continue
+
         seen.add(key)
         total_find_chars += len(find)
-        if total_find_chars > 900:
-            raise ValueError("script patch total repair surface exceeds 900 characters")
-
-        item = by_id[section_id]
-        narration = str(item.get("narration") or "")
-        if narration.count(find) != 1:
-            raise ValueError("script patch find text must match exactly once")
-
-        if (
-            original_hook
-            and sections
-            and section_id == str(sections[0].get("id") or "")
-            and find in original_hook
-        ):
-            # A short, audit-verified word/phrase fix inside the hook (e.g. a
-            # flagged typo or non-standard verb) is allowed once, in addition
-            # to the broad-rewrite guard below. Anything else touching the
-            # hook still falls through to the hard equality check after the
-            # loop.
-            compact_find = " ".join(find.split()).strip()
-            if (
-                hook_word_fix_used
-                or len(find) > _HOOK_WORD_FIX_MAX_CHARS
-                or compact_find not in audit_verified_terms
-            ):
-                raise ValueError("script patch changed the locked hook")
+        if hook_fix_this_patch:
             hook_word_fix_used = True
-
-        for locked_name, locked_text in (
-            ("hook", original_hook if section_id == str(sections[0].get("id") or "") else ""),
-            ("opener", opener),
-            ("closer", closer),
-            ("cta", spoken_cta if section_id == cta_anchor else ""),
-            ("prayer", prayer),
-        ):
-            if locked_text and locked_text in find and replace.count(locked_text) != 1:
-                raise ValueError(f"script patch changed locked {locked_name}")
-
         item["narration"] = narration.replace(find, replace, 1)
+        applied_count += 1
+
+    if applied_count == 0:
+        raise ValueError(
+            "script patch response had no valid patches to apply: "
+            + "; ".join(failure_reasons)
+        )
 
     normalized = validate_script(repaired, plan)
     if (

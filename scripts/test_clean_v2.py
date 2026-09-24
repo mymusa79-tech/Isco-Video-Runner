@@ -4721,26 +4721,33 @@ class HookAuditVerifiedWordFixTests(unittest.TestCase):
                 revision_note=self.REVISION_NOTE,
             )
 
-    def test_second_hook_touching_patch_is_rejected_even_if_quoted(self) -> None:
+    def test_second_hook_touching_patch_is_silently_skipped_not_fatal(self) -> None:
+        # Only one audit-verified hook word-fix is allowed per repair. A second
+        # patch that also touches the hook is no longer fatal to the whole
+        # response (Run #30: a batch's one bad patch used to discard every
+        # good patch alongside it) - it is simply not applied, and the first,
+        # valid hook fix still goes through.
         note = (
             self.REVISION_NOTE
             + "\n- [tone] Also unnatural: 'واحد' placement in narration s1."
         )
         script = json.loads(json.dumps(self.ORIGINAL, ensure_ascii=False))
-        with self.assertRaisesRegex(ValueError, "script patch changed the locked hook"):
-            _validate_and_apply_script_patches(
-                {
-                    "patches": [
-                        {"section_id": "s1", "find": "أستكين", "replace": "أتجمّد"},
-                        {"section_id": "s1", "find": "واحد", "replace": "معيّن"},
-                    ]
-                },
-                plan=self.PLAN,
-                original_script=script,
-                identity=self.IDENTITY,
-                cta_plan=self.CTA_PLAN,
-                revision_note=note,
-            )
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {"section_id": "s1", "find": "أستكين", "replace": "أتجمّد"},
+                    {"section_id": "s1", "find": "واحد", "replace": "معيّن"},
+                ]
+            },
+            plan=self.PLAN,
+            original_script=script,
+            identity=self.IDENTITY,
+            cta_plan=self.CTA_PLAN,
+            revision_note=note,
+        )
+        narration = repaired["sections"][0]["narration"]
+        self.assertIn("أتجمّد", narration)
+        self.assertNotIn("معيّن", narration)
 
     def test_run18_whole_script_and_hook_typo_flags_get_a_real_accepted_repair(
         self,
@@ -4938,6 +4945,83 @@ class PrayerSentenceHardLockTests(unittest.TestCase):
             revision_note="- [tone] s2: word choice noted",
         )
         self.assertIn("الصعوبة", repaired["sections"][1]["narration"])
+
+
+class MixedValidityPatchBatchTests(unittest.TestCase):
+    """Run #30: Mistral proposed three patches in one response - one correctly
+    scoped to the only flagged section (s1), two targeting unflagged sections
+    (s2, s3). The whole candidate was rejected ("targeted an unflagged
+    section"), discarding the valid s1 fix along with the two invalid ones,
+    and the repair attempt was wasted entirely. Each patch must now be
+    judged - and applied or skipped - on its own merits.
+    """
+
+    PLAN = {
+        "title": "كيف تنهض عندما تفقد الدافع؟",
+        "promise": "تحول داخلي واحد يقود إلى خطوة صغيرة.",
+        "cta": "",
+        "sections": [
+            {"id": "s1", "heading": "الصوت الداخلي", "purpose": "فتح التوتر", "visual_query_en": "quiet person thinking"},
+            {"id": "s2", "heading": "الاحتكاك", "purpose": "إظهار ما يبقي التردد", "visual_query_en": "hands resting beside notebook"},
+            {"id": "s3", "heading": "التحول", "purpose": "إنهاء التوتر بفعل واحد", "visual_query_en": "hand writing one word"},
+        ],
+    }
+    ORIGINAL = {
+        "title": PLAN["title"],
+        "sections": [
+            {"id": "s1", "narration": "أحسّيت أن الدافع يختفي كلما احتجته فعلًا في يومي."},
+            {"id": "s2", "narration": "ربما المشكلة ليست في الدافع، بل في أننا نطلب منه أن يكون قويًا."},
+            {"id": "s3", "narration": "ابدأ بشيء صغير لا يتطلب دافعًا كبيرًا."},
+        ],
+    }
+    IDENTITY = {"opener": "", "closer": "", "transitions": []}
+    CTA_PLAN = {"anchor_section_id": "", "spoken_text": ""}
+    REVISION_NOTE = (
+        "- [tone] Use of colloquial Arabic 'أحسّيت' instead of MSA 'شعرت' in narration s1."
+    )
+
+    def test_valid_patch_survives_when_batched_with_unflagged_section_patches(self) -> None:
+        script = json.loads(json.dumps(self.ORIGINAL, ensure_ascii=False))
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {"section_id": "s1", "find": "أحسّيت", "replace": "شعرت"},
+                    {"section_id": "s2", "find": "قويًا", "replace": "قويًا منذ البداية"},
+                    {"section_id": "s3", "find": "كبيرًا", "replace": "ضخمًا"},
+                ]
+            },
+            plan=self.PLAN,
+            original_script=script,
+            identity=self.IDENTITY,
+            cta_plan=self.CTA_PLAN,
+            revision_note=self.REVISION_NOTE,
+        )
+        self.assertIn("شعرت", repaired["sections"][0]["narration"])
+        self.assertNotIn("أحسّيت", repaired["sections"][0]["narration"])
+        # Unflagged sections are untouched - neither out-of-scope patch applied.
+        self.assertEqual(
+            repaired["sections"][1]["narration"], self.ORIGINAL["sections"][1]["narration"]
+        )
+        self.assertEqual(
+            repaired["sections"][2]["narration"], self.ORIGINAL["sections"][2]["narration"]
+        )
+
+    def test_batch_with_no_valid_patches_still_raises_with_specific_reason(self) -> None:
+        script = json.loads(json.dumps(self.ORIGINAL, ensure_ascii=False))
+        with self.assertRaisesRegex(ValueError, "targeted an unflagged section"):
+            _validate_and_apply_script_patches(
+                {
+                    "patches": [
+                        {"section_id": "s2", "find": "قويًا", "replace": "قويًا منذ البداية"},
+                        {"section_id": "s3", "find": "كبيرًا", "replace": "ضخمًا"},
+                    ]
+                },
+                plan=self.PLAN,
+                original_script=script,
+                identity=self.IDENTITY,
+                cta_plan=self.CTA_PLAN,
+                revision_note=self.REVISION_NOTE,
+            )
 
 
 class ShortFactualitySectionTargetRegressionTests(unittest.TestCase):
