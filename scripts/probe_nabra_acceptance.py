@@ -550,6 +550,7 @@ def infer_with_terminal_duration_cap(
     terminal_cap_frames: int = 4,
     punctuation_cap_frames: int = 1,
     eos_cap_frames: int = 1,
+    final_long_vowel_cap_frames: int = 3,
 ) -> tuple[torch.Tensor, torch.LongTensor, dict]:
     """Kokoro/Nabra inference with a bounded sentence-final duration cap only.
 
@@ -564,6 +565,10 @@ def infer_with_terminal_duration_cap(
         ch for ch in phonemes
         if model.vocab.get(ch) is not None
     ]
+    # Two listener-confirmed residual ending families:
+    # 1) "ذلك." can synthesize an epenthetic release vowel after /k/ when "." is voiced.
+    #    Suppress only the terminal punctuation token; EOS + external pause still close the sentence.
+    suppress_terminal_period = phonemes.rstrip().endswith("ðˈalik.")
     input_ids = [model.vocab[ch] for ch in mapped_chars]
     assert len(input_ids) + 2 <= model.context_length, (
         len(input_ids) + 2,
@@ -612,20 +617,63 @@ def infer_with_terminal_duration_cap(
                 max=terminal_cap_frames,
             )
 
+    # Record and, only for sentence-final /uːʔ/, bound an overlong long-vowel
+    # segment before the glottal stop. This targets "بهدوء" family without touching
+    # the final glottal stop itself or other words.
+    tail_before = []
+    for pos in range(max(0, len(mapped_chars) - 10), len(mapped_chars)):
+        pred_index = pos + 1
+        tail_before.append({
+            "char": mapped_chars[pos],
+            "frames": int(original[pred_index].item()),
+            "ms": int(original[pred_index].item()) * 25,
+        })
+
+    final_long_vowel_change = None
+    lexical_end = "".join(mapped_chars[: final_char_pos + 1]) if final_char_pos is not None else ""
+    if lexical_end.endswith("uːʔ"):
+        u_pos = final_char_pos - 2
+        length_pos = final_char_pos - 1
+        if u_pos >= 0 and length_pos >= 0:
+            u_idx = u_pos + 1
+            length_idx = length_pos + 1
+            before_u = int(pred_dur[u_idx].item())
+            before_len = int(pred_dur[length_idx].item())
+            # Preserve at least one frame for each symbol. Only cap the length marker
+            # if the combined vowel duration exceeds 150 ms.
+            combined = before_u + before_len
+            if combined > 6:
+                target_len = max(1, 6 - before_u)
+                pred_dur[length_idx] = torch.clamp(pred_dur[length_idx], max=target_len)
+            final_long_vowel_change = {
+                "u_before_frames": before_u,
+                "length_before_frames": before_len,
+                "combined_before_ms": combined * 25,
+                "u_after_frames": int(pred_dur[u_idx].item()),
+                "length_after_frames": int(pred_dur[length_idx].item()),
+                "combined_after_ms": int((pred_dur[u_idx] + pred_dur[length_idx]).item()) * 25,
+            }
+
     punctuation_changes = []
     if final_char_pos is not None:
         for pos in range(final_char_pos + 1, len(mapped_chars)):
             if mapped_chars[pos] in punctuation_chars:
                 pred_index = pos + 1
                 before = int(pred_dur[pred_index].item())
-                pred_dur[pred_index] = torch.clamp(
-                    pred_dur[pred_index],
-                    max=punctuation_cap_frames,
-                )
+                if suppress_terminal_period and mapped_chars[pos] == ".":
+                    pred_dur[pred_index] = 0
+                else:
+                    pred_dur[pred_index] = torch.clamp(
+                        pred_dur[pred_index],
+                        max=punctuation_cap_frames,
+                    )
                 punctuation_changes.append({
                     "char": mapped_chars[pos],
                     "before_frames": before,
                     "after_frames": int(pred_dur[pred_index].item()),
+                    "suppressed_for_epenthetic_release": bool(
+                        suppress_terminal_period and mapped_chars[pos] == "."
+                    ),
                 })
 
     pred_dur[-1] = torch.clamp(pred_dur[-1], max=eos_cap_frames)
@@ -667,6 +715,9 @@ def infer_with_terminal_duration_cap(
         "normal_terminal_lexical_duration_preserved": (
             terminal_before is None or terminal_before <= terminal_cap_frames
         ),
+        "tail_before": tail_before,
+        "final_long_vowel_change": final_long_vowel_change,
+        "terminal_period_suppressed": suppress_terminal_period,
         "only_terminal_duration_family_modified": True,
     }
     return audio, pred_dur.detach().cpu(), duration_report
