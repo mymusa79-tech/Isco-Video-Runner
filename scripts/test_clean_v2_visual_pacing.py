@@ -60,205 +60,111 @@ def _pacing_plan(*section_ids: str) -> dict:
     }
 
 
-class StockVisualSourceAcquirePacingTests(unittest.TestCase):
-    def test_long_section_acquires_extra_same_query_clips(self) -> None:
-        # A ~70s estimated duration for one section, well past
-        # PACING_MAX_SHOT_SECONDS (22s): ceil(70/22) = 4, capped at
-        # PACING_MAX_SHOTS_PER_SECTION (3).
+class StockVisualSourceAcquireBeatTests(unittest.TestCase):
+    @staticmethod
+    def _story(*beats: dict) -> dict:
+        return {
+            "visual_world": (
+                "Grounded hopeful realism, soft natural light, warm neutral colors, "
+                "objects and hands only, no identifiable faces."
+            ),
+            "story_arc": {
+                "beginning": "notice the friction",
+                "transformation": "see the smaller action",
+                "arrival": "understand the practical next step",
+            },
+            "beats": list(beats),
+        }
+
+    @staticmethod
+    def _beat(beat_id: str, section_id: str, shot_intent: str) -> dict:
+        return {
+            "id": beat_id,
+            "section_id": section_id,
+            "viewer_intent": f"understand {beat_id}",
+            "shot_intent": shot_intent,
+            "source_preference": "stock_motion",
+        }
+
+    def _acquire(self, *, fmt: str, beats: list[dict], seconds: float) -> tuple[list[Path], list[dict]]:
         source = media_module.StockVisualSource()
-        pexels_candidates = [
-            _candidate("pexels", "p1"),
-            _candidate("pexels", "p2"),
-            _candidate("pexels", "p3"),
+        candidates = [
+            _candidate("pexels", f"p{index}") for index in range(1, len(beats) + 2)
         ]
 
         def fake_pexels(_query, *, portrait):
             del portrait
-            return pexels_candidates.pop(0) if pexels_candidates else None
+            return candidates.pop(0) if candidates else None
 
         def fake_download(_url, destination):
             Path(destination).parent.mkdir(parents=True, exist_ok=True)
             Path(destination).write_bytes(b"V" * 4096)
 
+        plan = _pacing_plan("s1")
+        plan["visual_story"] = self._story(*beats)
         with tempfile.TemporaryDirectory() as root, mock.patch.object(
             source, "_pexels", side_effect=fake_pexels
         ), mock.patch.object(
             source, "_pixabay", return_value=None
         ), mock.patch.object(
             media_module, "_download_media", side_effect=fake_download
+        ), mock.patch.object(
+            media_module, "_short_visual_color_compatible", return_value=(True, "ok")
         ):
-            clips, rights = source.acquire(
-                _pacing_plan("s1"),
+            return source.acquire(
+                plan,
                 Path(root),
-                "film",
+                fmt,
                 5,
-                section_estimated_seconds={"s1": 70.0},
+                section_estimated_seconds={"s1": seconds},
             )
 
-        self.assertEqual(len(clips), 3)
-        self.assertEqual(len(rights), 3)
-        self.assertTrue(all(row["section_id"] == "s1" for row in rights))
-        self.assertFalse(rights[0].get("pacing_auxiliary"))
-        self.assertTrue(rights[1].get("pacing_auxiliary"))
-        self.assertTrue(rights[2].get("pacing_auxiliary"))
-
-    def test_normal_section_is_unaffected(self) -> None:
-        source = media_module.StockVisualSource()
-        pexels_candidates = [_candidate("pexels", "p1"), _candidate("pexels", "p2")]
-
-        def fake_pexels(_query, *, portrait):
-            del portrait
-            return pexels_candidates.pop(0) if pexels_candidates else None
-
-        def fake_download(_url, destination):
-            Path(destination).parent.mkdir(parents=True, exist_ok=True)
-            Path(destination).write_bytes(b"V" * 4096)
-
-        with tempfile.TemporaryDirectory() as root, mock.patch.object(
-            source, "_pexels", side_effect=fake_pexels
-        ), mock.patch.object(
-            source, "_pixabay", return_value=None
-        ), mock.patch.object(
-            media_module, "_download_media", side_effect=fake_download
-        ):
-            # A 12s flat slot is under PACING_MAX_SHOT_SECONDS (22s): exactly
-            # today's behavior, one clip, no auxiliary tag.
-            clips, rights = source.acquire(
-                _pacing_plan("s1"),
-                Path(root),
-                "film",
-                5,
-                section_estimated_seconds={"s1": 12.0},
-            )
-
+    def test_continuing_beat_does_not_create_duration_forced_scene(self) -> None:
+        # 70 seconds used to force 3 shots. One semantic beat now stays one scene.
+        clips, rights = self._acquire(
+            fmt="film",
+            beats=[self._beat("b1", "s1", "quiet desk notebook wide shot")],
+            seconds=70.0,
+        )
         self.assertEqual(len(clips), 1)
+        self.assertEqual([row["beat_id"] for row in rights], ["b1"])
         self.assertFalse(rights[0].get("pacing_auxiliary"))
 
-    def test_no_slot_hint_behaves_exactly_as_before(self) -> None:
-        source = media_module.StockVisualSource()
-
-        def fake_pexels(_query, *, portrait):
-            del portrait
-            return _candidate("pexels", "p1")
-
-        def fake_download(_url, destination):
-            Path(destination).parent.mkdir(parents=True, exist_ok=True)
-            Path(destination).write_bytes(b"V" * 4096)
-
-        with tempfile.TemporaryDirectory() as root, mock.patch.object(
-            source, "_pexels", side_effect=fake_pexels
-        ), mock.patch.object(
-            media_module, "_download_media", side_effect=fake_download
-        ):
-            clips, rights = source.acquire(_pacing_plan("s1"), Path(root), "film", 5)
-
-        self.assertEqual(len(clips), 1)
-        self.assertFalse(rights[0].get("pacing_auxiliary"))
-
-    def test_minimum_shot_seconds_floor_reduces_extra_shot_count(self) -> None:
-        # A 40s flat slot: ceil(40/22)=2 desired, but 40/3 < 3.5 would be the
-        # third split - the floor must keep this at 2, not 3.
-        source = media_module.StockVisualSource()
-        pexels_candidates = [
-            _candidate("pexels", "p1"),
-            _candidate("pexels", "p2"),
-            _candidate("pexels", "p3"),
-        ]
-
-        def fake_pexels(_query, *, portrait):
-            del portrait
-            return pexels_candidates.pop(0) if pexels_candidates else None
-
-        def fake_download(_url, destination):
-            Path(destination).parent.mkdir(parents=True, exist_ok=True)
-            Path(destination).write_bytes(b"V" * 4096)
-
-        with tempfile.TemporaryDirectory() as root, mock.patch.object(
-            source, "_pexels", side_effect=fake_pexels
-        ), mock.patch.object(
-            source, "_pixabay", return_value=None
-        ), mock.patch.object(
-            media_module, "_download_media", side_effect=fake_download
-        ):
-            clips, _rights = source.acquire(
-                _pacing_plan("s1"),
-                Path(root),
-                "film",
-                5,
-                section_estimated_seconds={"s1": 40.0},
-            )
-
+    def test_new_beat_creates_visual_transition_even_when_section_is_short(self) -> None:
+        # 12 seconds used to stay one shot. A real idea/action change now creates two.
+        clips, rights = self._acquire(
+            fmt="film",
+            beats=[
+                self._beat("b1", "s1", "closed notebook on quiet desk"),
+                self._beat("b2", "s1", "hand writes one task in notebook"),
+            ],
+            seconds=12.0,
+        )
         self.assertEqual(len(clips), 2)
-
-    def test_extra_shots_stop_gracefully_when_stock_is_exhausted(self) -> None:
-        source = media_module.StockVisualSource()
-        # Only the primary candidate is available; extras must be skipped,
-        # never raise.
-        pexels_candidates = [_candidate("pexels", "p1")]
-
-        def fake_pexels(_query, *, portrait):
-            del portrait
-            return pexels_candidates.pop(0) if pexels_candidates else None
-
-        def fake_download(_url, destination):
-            Path(destination).parent.mkdir(parents=True, exist_ok=True)
-            Path(destination).write_bytes(b"V" * 4096)
-
-        with tempfile.TemporaryDirectory() as root, mock.patch.object(
-            source, "_pexels", side_effect=fake_pexels
-        ), mock.patch.object(
-            source, "_pixabay", return_value=None
-        ), mock.patch.object(
-            media_module, "_download_media", side_effect=fake_download
-        ):
-            clips, rights = source.acquire(
-                _pacing_plan("s1"),
-                Path(root),
-                "film",
-                5,
-                section_estimated_seconds={"s1": 70.0},
-            )
-
-        self.assertEqual(len(clips), 1)
+        self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
         self.assertFalse(rights[0].get("pacing_auxiliary"))
+        self.assertTrue(rights[1].get("story_beat_auxiliary"))
 
-    def test_flat_slot_applies_independently_to_every_section(self) -> None:
-        # A per-section estimated duration is supplied independently for
-        # each section - two sections given the same estimate both split
-        # the same way, but each section's own value drives its own split.
-        source = media_module.StockVisualSource()
-        pexels_candidates = [
-            _candidate("pexels", f"p{index}") for index in range(1, 7)
-        ]
+    def test_short_uses_the_same_beat_driven_acquisition_path(self) -> None:
+        clips, rights = self._acquire(
+            fmt="short",
+            beats=[
+                self._beat("b1", "s1", "phone face down beside notebook"),
+                self._beat("b2", "s1", "hand circles one task on paper"),
+            ],
+            seconds=45.0,
+        )
+        self.assertEqual(len(clips), 2)
+        self.assertEqual([row["beat_id"] for row in rights], ["b1", "b2"])
 
-        def fake_pexels(_query, *, portrait):
-            del portrait
-            return pexels_candidates.pop(0) if pexels_candidates else None
-
-        def fake_download(_url, destination):
-            Path(destination).parent.mkdir(parents=True, exist_ok=True)
-            Path(destination).write_bytes(b"V" * 4096)
-
-        with tempfile.TemporaryDirectory() as root, mock.patch.object(
-            source, "_pexels", side_effect=fake_pexels
-        ), mock.patch.object(
-            source, "_pixabay", return_value=None
-        ), mock.patch.object(
-            media_module, "_download_media", side_effect=fake_download
-        ):
-            clips, rights = source.acquire(
-                _pacing_plan("s1", "s2"),
-                Path(root),
-                "film",
-                5,
-                section_estimated_seconds={"s1": 45.0, "s2": 45.0},
-            )
-
-        self.assertEqual(len(clips), 6)
-        by_section: dict[str, int] = {}
-        for row in rights:
-            by_section[row["section_id"]] = by_section.get(row["section_id"], 0) + 1
-        self.assertEqual(by_section, {"s1": 3, "s2": 3})
+    def test_ai_still_preference_is_marker_only_and_does_not_activate_ai_source(self) -> None:
+        beat = self._beat("b1", "s1", "warm desk by window no face")
+        beat["source_preference"] = "ai_still"
+        clips, rights = self._acquire(fmt="film", beats=[beat], seconds=90.0)
+        self.assertEqual(len(clips), 1)
+        self.assertEqual(rights[0]["source_preference"], "ai_still")
+        self.assertEqual(rights[0]["source_actual"], "stock_motion")
+        self.assertEqual(rights[0]["provider"], "pexels")
 
 
 class SectionDurationEstimationTests(unittest.TestCase):
