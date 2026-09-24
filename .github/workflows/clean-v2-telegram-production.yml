@@ -13,7 +13,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: clean-v2-telegram-production
@@ -43,7 +43,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: main
-          persist-credentials: false
+          persist-credentials: true
           fetch-depth: 1
 
       - name: Checkout frozen private Engine source
@@ -90,17 +90,27 @@ jobs:
           test "$status" = "dispatched"
           test "$stored_sha" = "$REQUEST_SHA256"
           scope="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].scope // empty' "$state")"
+          topic="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].approved_topic // empty' "$state")"
           case "$scope" in
             long|bundle|short) ;;
             *) echo "Unsupported Telegram request scope" >&2; exit 2 ;;
           esac
           echo "TELEGRAM_REQUEST_STATE=$state" >> "$GITHUB_ENV"
           echo "TELEGRAM_REQUEST_SCOPE=$scope" >> "$GITHUB_ENV"
+          echo "TELEGRAM_REQUEST_TOPIC=$topic" >> "$GITHUB_ENV"
           echo "CLEAN_V2_TELEGRAM_OUTPUT=$GITHUB_WORKSPACE/output/clean-v2-telegram/$REQUEST_ID" >> "$GITHUB_ENV"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
+
+      - name: Notify Telegram that production actually started
+        run: |
+          GITHUB_RUNTIME_TOKEN="${{ github.token }}" \
+          python scripts/telegram_clean_v2_notify.py started \
+            --scope "$TELEGRAM_REQUEST_SCOPE" \
+            --topic "$TELEGRAM_REQUEST_TOPIC" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
 
       - name: Install production dependencies
         run: |
@@ -160,7 +170,14 @@ jobs:
             local brief_sha
             brief_sha="$(BRIEF="$brief" python -c 'import json,os; from pathlib import Path; from clean_v2.contracts import compute_brief_sha256; p=Path(os.environ["BRIEF"]); print(compute_brief_sha256(json.loads(p.read_text(encoding="utf-8"))))')"
             rm -rf "$out"
-            python scripts/telegram_clean_v2_notify.py watch --output "$out" --kind "$kind" --poll-seconds 4 &
+            GITHUB_RUNTIME_TOKEN="${{ github.token }}" \
+            python scripts/telegram_clean_v2_notify.py watch \
+              --output "$out" \
+              --kind "$kind" \
+              --scope "$TELEGRAM_REQUEST_SCOPE" \
+              --topic "$TELEGRAM_REQUEST_TOPIC" \
+              --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --poll-seconds 4 &
             local notify_pid=$!
             cleanup_notify() {
               kill "$notify_pid" 2>/dev/null || true
@@ -183,11 +200,13 @@ jobs:
 
             local job_status="success"
             if [ "$status" -ne 0 ]; then job_status="failure"; fi
-            python scripts/telegram_clean_v2_notify.py terminal \
+            if python scripts/telegram_clean_v2_notify.py terminal \
               --output "$out" \
               --kind "$kind" \
               --job-status "$job_status" \
-              --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
+              --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"; then
+              touch "$out/.telegram-terminal-sent"
+            fi
 
             if [ "$status" -ne 0 ]; then return "$status"; fi
             test -s "$out/final.mp4"
@@ -203,12 +222,21 @@ jobs:
               run_one short short
               ;;
             bundle)
-              run_one film long
+              if ! run_one film long; then
+                python scripts/telegram_clean_v2_notify.py bundle-blocked \
+                  --topic "$TELEGRAM_REQUEST_TOPIC" \
+                  --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
+                exit 1
+              fi
               run_one short short
+              python scripts/telegram_clean_v2_notify.py bundle-summary \
+                --topic "$TELEGRAM_REQUEST_TOPIC" \
+                --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
               ;;
           esac
 
       - name: Upload Telegram Clean V2 production evidence
+        id: upload
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -216,3 +244,29 @@ jobs:
           path: ${{ github.workspace }}/output/clean-v2-telegram
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Send final video artifact link
+        if: success()
+        env:
+          TELEGRAM_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          if [ -n "$TELEGRAM_ARTIFACT_URL" ]; then
+            GITHUB_RUNTIME_TOKEN="${{ github.token }}" \
+            python scripts/telegram_clean_v2_notify.py artifact \
+              --scope "$TELEGRAM_REQUEST_SCOPE" \
+              --topic "$TELEGRAM_REQUEST_TOPIC" \
+              --url "$TELEGRAM_ARTIFACT_URL" || true
+          fi
+
+      - name: Telegram terminal watchdog
+        if: always()
+        env:
+          TELEGRAM_JOB_STATUS: ${{ job.status }}
+        run: |
+          GITHUB_RUNTIME_TOKEN="${{ github.token }}" \
+          python scripts/telegram_clean_v2_notify.py watchdog \
+            --output-root "${CLEAN_V2_TELEGRAM_OUTPUT:-$GITHUB_WORKSPACE/output/clean-v2-telegram}" \
+            --scope "${TELEGRAM_REQUEST_SCOPE:-long}" \
+            --job-status "$TELEGRAM_JOB_STATUS" \
+            --topic "${TELEGRAM_REQUEST_TOPIC:-}" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true

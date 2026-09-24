@@ -23,6 +23,7 @@ function target(update) {
       chat: String((callback.message && callback.message.chat && callback.message.chat.id) || ""),
       callbackId: String(callback.id || ""),
       data: String(callback.data || ""),
+      messageId: String((callback.message && callback.message.message_id) || ""),
     };
   }
   const message = (update && update.message) || {};
@@ -31,6 +32,7 @@ function target(update) {
     chat: String((message.chat && message.chat.id) || ""),
     callbackId: "",
     data: "",
+    messageId: "",
   };
 }
 
@@ -56,12 +58,40 @@ function scopeKeyboard() {
   };
 }
 
+async function sendWelcome(env, chatId) {
+  await telegram(env, "sendMessage", {
+    chat_id: chatId,
+    text:
+      "👋 مرحبًا بك في مساعد نداء اليقظة\n\n" +
+      "1) ابحث عن فكرة مناسبة للقناة.\n" +
+      "2) اختر الفكرة التي تناسبك.\n" +
+      "3) أرسل «تأكيد الإنتاج» فقط عندما تريد بدء الإنتاج فعليًا.\n\n" +
+      "الاختيار وحده لا يبدأ أي إنتاج.\n" +
+      "📊 للإحصائيات استخدم /stats.\n" +
+      "🔎 للبحث استخدم /research.",
+    reply_markup: scopeKeyboard(),
+  });
+}
+
 async function sendScopeMenu(env, chatId) {
   await telegram(env, "sendMessage", {
     chat_id: chatId,
-    text: "🧭 Clean V2 Editorial Lite\n\nاختر نطاق البحث. البحث والاختيار لا يبدأان Production.",
+    text: "🔎 اختر نوع المحتوى الذي تريد البحث له. لن يبدأ الإنتاج قبل تأكيدك النهائي.",
     reply_markup: scopeKeyboard(),
   });
+}
+
+async function clearCallbackKeyboard(env, current) {
+  if (!current.chat || !current.messageId) return;
+  try {
+    await telegram(env, "editMessageReplyMarkup", {
+      chat_id: current.chat,
+      message_id: Number(current.messageId),
+      reply_markup: { inline_keyboard: [] },
+    });
+  } catch (_) {
+    // Visual cleanup is best-effort; server-side session closure remains authoritative.
+  }
 }
 
 async function answerCallback(env, callbackId, text = "") {
@@ -109,8 +139,24 @@ async function dispatchControl(env, update) {
   }
 }
 
-function isLocalMenuText(text) {
-  return ["/start", "/menu", "/research", "بحث"].includes(String(text || "").trim());
+function isStartText(text) {
+  return ["/start", "start", "ابدأ", "ابدأ البوت"].includes(String(text || "").trim());
+}
+
+function isResearchText(text) {
+  return ["/menu", "menu", "/research", "research", "بحث"].includes(String(text || "").trim());
+}
+
+function isCancelText(text) {
+  return ["/cancel", "cancel", "إلغاء", "الغاء"].includes(String(text || "").trim());
+}
+
+function isLastText(text) {
+  return ["/last", "last", "آخر إنتاج", "اخر انتاج"].includes(String(text || "").trim());
+}
+
+function isStatusText(text) {
+  return ["/status", "status", "الحالة", "حالة الإنتاج", "حاله الانتاج"].includes(String(text || "").trim());
 }
 
 function isStatsText(text) {
@@ -153,6 +199,7 @@ export default {
         ctx.waitUntil(answerCallback(env, current.callbackId, "🔎 بدأ البحث…"));
       } else if (current.data.startsWith("pick:")) {
         ctx.waitUntil(answerCallback(env, current.callbackId, "✅ أسجل الاختيار…"));
+        ctx.waitUntil(clearCallbackKeyboard(env, current));
       } else {
         ctx.waitUntil(answerCallback(env, current.callbackId, "أمر غير معروف"));
         return new Response("OK");
@@ -169,8 +216,45 @@ export default {
     }
 
     const text = String((update.message && update.message.text) || "").trim();
-    if (isLocalMenuText(text)) {
+    if (isStartText(text)) {
+      ctx.waitUntil(sendWelcome(env, current.chat));
+      return new Response("OK");
+    }
+    if (isResearchText(text)) {
       ctx.waitUntil(sendScopeMenu(env, current.chat));
+      return new Response("OK");
+    }
+    if (isCancelText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر تمرير طلب الإلغاء الآن. لم يبدأ أي إنتاج جديد.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
+    if (isLastText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر قراءة آخر إنتاج ناجح الآن.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
+    if (isStatusText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر قراءة حالة الإنتاج الآن.",
+          }),
+        ),
+      );
       return new Response("OK");
     }
     if (isStatsText(text)) {

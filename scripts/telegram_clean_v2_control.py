@@ -28,6 +28,7 @@ MODEL = os.environ.get("GEMINI_CONTENT_MODEL", "gemini-3.7-flash")
 YOUTUBE_REGION = os.environ.get("YOUTUBE_REGION", "SA")
 YOUTUBE_LANGUAGE = os.environ.get("YOUTUBE_LANGUAGE", "ar")
 WINDOW_DAYS = 30
+SHORT_MAX_SECONDS = 30
 YOUTUBE_CHANNEL_ID = os.environ.get("YOUTUBE_CHANNEL_ID", "UC_fmWGRen6QUQNd4Dj80MgA")
 OMAN_OFFSET = timedelta(hours=4)
 
@@ -179,6 +180,26 @@ def _parse_duration_seconds(value: str) -> int:
     )
 
 
+def _latest_by_clean_v2_format(videos: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    last_short = next(
+        (
+            item
+            for item in videos
+            if 0 < int(item.get("duration_seconds") or 0) <= SHORT_MAX_SECONDS
+        ),
+        None,
+    )
+    last_long = next(
+        (
+            item
+            for item in videos
+            if int(item.get("duration_seconds") or 0) > SHORT_MAX_SECONDS
+        ),
+        None,
+    )
+    return last_short, last_long
+
+
 def _youtube_api(resource: str, params: dict[str, str]) -> dict[str, Any]:
     key = str(os.environ.get("YOUTUBE_API_KEY") or "").strip()
     if not key:
@@ -248,14 +269,7 @@ def fetch_channel_snapshot() -> dict[str, Any]:
                 }
             )
     videos.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
-    last_short = next(
-        (item for item in videos if 0 < int(item.get("duration_seconds") or 0) <= 180),
-        None,
-    )
-    last_long = next(
-        (item for item in videos if int(item.get("duration_seconds") or 0) > 180),
-        None,
-    )
+    last_short, last_long = _latest_by_clean_v2_format(videos)
     return {
         "captured_at": utc_now(),
         "channel_id": channel_id,
@@ -312,6 +326,29 @@ def _baseline_snapshot(
     return eligible[0][1]
 
 
+def _midnight_baseline_snapshot(
+    snapshots: list[dict[str, Any]],
+    midnight_utc: datetime,
+    *,
+    tolerance: timedelta = timedelta(minutes=15),
+) -> dict[str, Any] | None:
+    nearby: list[tuple[float, dict[str, Any]]] = []
+    for item in snapshots:
+        if not isinstance(item, dict):
+            continue
+        try:
+            when = _parse_utc(str(item.get("captured_at") or ""))
+        except (TypeError, ValueError):
+            continue
+        distance = abs((when - midnight_utc).total_seconds())
+        if distance <= tolerance.total_seconds():
+            nearby.append((distance, item))
+    if nearby:
+        nearby.sort(key=lambda pair: pair[0])
+        return nearby[0][1]
+    return _baseline_snapshot(snapshots, midnight_utc)
+
+
 def channel_stats(state: dict[str, Any]) -> dict[str, Any]:
     current = fetch_channel_snapshot()
     existing = [
@@ -324,7 +361,7 @@ def channel_stats(state: dict[str, Any]) -> dict[str, Any]:
     oman_midnight = oman_now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_cutoff = oman_midnight - OMAN_OFFSET
     week_cutoff = now_utc - timedelta(days=7)
-    today_base = _baseline_snapshot(existing, today_cutoff)
+    today_base = _midnight_baseline_snapshot(existing, today_cutoff)
     week_base = _baseline_snapshot(existing, week_cutoff)
 
     def delta(base: dict[str, Any] | None, key: str) -> int | None:
@@ -370,14 +407,14 @@ def render_channel_stats(stats: dict[str, Any]) -> str:
     today_views = stats.get("views_today")
     week_views = stats.get("views_7d")
     lines = [
-        "📊 نداء اليقظة — Channel Intelligence",
+        "📊 إحصائيات قناة نداء اليقظة",
         "",
         f"👥 المشتركون: {subscribers}",
         f"👁️ إجمالي مشاهدات القناة: {_format_number(int(stats.get('total_views') or 0))}",
         f"🎞️ إجمالي الفيديوهات: {_format_number(int(stats.get('video_count') or 0))}",
         "",
-        f"📈 مشاهدات اليوم: {'+' + _format_number(today_views) if isinstance(today_views, int) else 'بانتظار baseline يومية'}",
-        f"📅 مشاهدات آخر 7 أيام: {'+' + _format_number(week_views) if isinstance(week_views, int) else 'بانتظار 7 أيام من snapshots'}",
+        f"📈 مشاهدات اليوم: {'+' + _format_number(today_views) if isinstance(today_views, int) else 'بانتظار أول قياس يومي'}",
+        f"📅 مشاهدات آخر 7 أيام: {'+' + _format_number(week_views) if isinstance(week_views, int) else 'بانتظار اكتمال 7 أيام من القياسات'}",
     ]
     if not stats.get("hidden_subscribers"):
         sub_today = stats.get("subscribers_today")
@@ -388,12 +425,12 @@ def render_channel_stats(stats: dict[str, Any]) -> str:
                 f"👤 تغير المشتركين 7 أيام: {'+' + _format_number(sub_week) if isinstance(sub_week, int) else '—'}",
             ]
         )
-    lines.extend(["", *_video_stats_line("🎬 آخر Long", stats.get("last_long"))])
-    lines.extend(["", *_video_stats_line("⚡ آخر Short", stats.get("last_short"))])
+    lines.extend(["", *_video_stats_line("🎬 آخر فيديو طويل", stats.get("last_long"))])
+    lines.extend(["", *_video_stats_line("⚡ آخر شورت", stats.get("last_short"))])
     lines.extend(
         [
             "",
-            "ℹ️ أرقام اليوم و7 أيام تُحسب من snapshots إجمالي القناة عبر YouTube Data API، وليست Retention/Analytics OAuth.",
+            "ℹ️ أرقام اليوم و7 أيام تُحسب من قياسات يومية لإجمالي القناة.",
         ]
     )
     return "\n".join(lines)
@@ -502,16 +539,23 @@ def market_evidence(query: str) -> tuple[float, dict[str, Any]]:
     }
 
 
+def _scope_research_instruction(scope: str) -> str:
+    if scope == "short":
+        return "الأفكار يجب أن تصلح لشورت واحد مكثف بفكرة واحدة مكتملة."
+    if scope == "bundle":
+        return (
+            "كل فكرة يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح، "
+            "وفي الوقت نفسه تسمح باشتقاق شورت مستقل وقوي منها دون إعادة صياغة الحلقة كاملة."
+        )
+    return "الأفكار يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح."
+
+
 def _gemini_candidates(trends: list[str], scope: str) -> list[dict[str, str]]:
     key = str(os.environ.get("GEMINI_API_KEY") or "").strip()
     if not key:
         return []
     trend_text = "\n".join(f"- {item}" for item in trends[:12]) or "- لا توجد إشارات Trends موثوقة"
-    scope_instruction = (
-        "الأفكار يجب أن تصلح لشورت واحد مكثف بفكرة واحدة مكتملة."
-        if scope == "short"
-        else "الأفكار يجب أن تتحمل حلقة طويلة ذات عمق وبناء واضح."
-    )
+    scope_instruction = _scope_research_instruction(scope)
     prompt = f"""أنت محرر أبحاث لقناة عربية اسمها نداء اليقظة عن التطور الشخصي والوعي النفسي بأسلوب متفائل وواقعي.
 {scope_instruction}
 اقترح 8 أفكار أصلية مناسبة للنطاق المطلوب. تجنب التشخيص الطبي والوعود المبالغ فيها والتكرار.
@@ -592,6 +636,14 @@ def _research_pack(evidence: dict[str, Any]) -> list[dict[str, str]]:
 def research(state: dict[str, Any], scope: str) -> dict[str, Any]:
     if scope not in SCOPES:
         raise RuntimeError("unsupported scope")
+    obsolete_at = utc_now()
+    for existing_session in state.get("sessions", {}).values():
+        if (
+            isinstance(existing_session, dict)
+            and not existing_session.get("closed_at")
+            and not existing_session.get("obsolete_at")
+        ):
+            existing_session["obsolete_at"] = obsolete_at
     historical = [
         str(item.get("title") or "")
         for item in state.get("ideas", [])
@@ -609,11 +661,7 @@ def research(state: dict[str, Any], scope: str) -> dict[str, Any]:
         score, evidence = market_evidence(str(raw.get("market_query") or title))
         reason = str(raw.get("reason") or "").strip()
         if evidence.get("sample_count", 0):
-            reason = (
-                f"{reason} قياس آخر {WINDOW_DAYS} يومًا: "
-                f"{evidence.get('sample_count', 0)} عينات من "
-                f"{evidence.get('distinct_channels', 0)} قنوات."
-            ).strip()
+            reason = reason.strip()
         measured.append(
             {
                 "idea_id": "idea-" + secrets.token_hex(5),
@@ -644,9 +692,9 @@ def research(state: dict[str, Any], scope: str) -> dict[str, Any]:
         if int((item.get("market_evidence") or {}).get("sample_count", 0)) >= 1
     ]
     chosen = evidence_backed[:3]
-    if len(chosen) < 3:
-        raise RuntimeError("research could not produce three unused evidence-backed candidates")
     state["ideas"].extend(measured)
+    if not chosen:
+        raise RuntimeError("research found no unused evidence-backed candidates")
     session_id = secrets.token_hex(4)
     state["sessions"][session_id] = {
         "session_id": session_id,
@@ -698,6 +746,8 @@ def select_candidate(state: dict[str, Any], session_id: str, index: int) -> dict
     session = state.get("sessions", {}).get(session_id)
     if not isinstance(session, dict):
         raise RuntimeError("research session expired")
+    if session.get("closed_at") or session.get("obsolete_at"):
+        raise RuntimeError("research session is closed")
     ids = session.get("idea_ids")
     if not isinstance(ids, list) or not 0 <= index < len(ids):
         raise RuntimeError("invalid candidate selection")
@@ -728,6 +778,23 @@ def select_candidate(state: dict[str, Any], session_id: str, index: int) -> dict
     request["request_sha256"] = _request_hash(request)
     state["requests"][request_id] = request
     state["current_request_id"] = request_id
+    session["closed_at"] = utc_now()
+    session["selected_index"] = index
+    return request
+
+
+def cancel_current(state: dict[str, Any]) -> dict[str, Any]:
+    request_id = str(state.get("current_request_id") or "")
+    request = state.get("requests", {}).get(request_id)
+    if not isinstance(request, dict):
+        raise RuntimeError("no selected request is waiting for cancellation")
+    if request.get("request_sha256") != _request_hash(request):
+        raise RuntimeError("selected request integrity check failed")
+    if request.get("status") != "awaiting_confirmation":
+        raise RuntimeError("selected request can no longer be cancelled")
+    request["status"] = "cancelled"
+    request["cancelled_at"] = utc_now()
+    state["current_request_id"] = None
     return request
 
 
@@ -773,7 +840,9 @@ def scope_keyboard() -> list[list[dict[str, str]]]:
 
 
 def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, str]]]]:
-    lines = ["🔎 3 أفكار جديدة", ""]
+    count = len(result["candidates"])
+    noun = "فكرة" if count == 1 else "فكرتان" if count == 2 else "أفكار"
+    lines = [f"🔎 {count} {noun} مناسبة", ""]
     rows = []
     for index, item in enumerate(result["candidates"], 1):
         evidence = item.get("market_evidence") or {}
@@ -782,8 +851,9 @@ def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, 
                 f"{index}) {item['title']}",
                 f"   {item['reason']}",
                 (
-                    f"   دليل السوق: {int(evidence.get('sample_count', 0))} عينات · "
-                    f"{int(evidence.get('distinct_channels', 0))} قنوات"
+                    f"   اهتمام حديث: وجدنا {int(evidence.get('sample_count', 0))} فيديوهات "
+                    f"حول الفكرة من {int(evidence.get('distinct_channels', 0))} قنوات مختلفة "
+                    f"خلال آخر {WINDOW_DAYS} يومًا."
                 ),
                 "",
             ]
@@ -800,6 +870,32 @@ def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, 
     return "\n".join(lines), rows
 
 
+def render_selection_confirmation(request: dict[str, Any]) -> str:
+    scope_label = {"long": "فيديو طويل فقط", "bundle": "فيديو طويل + شورت", "short": "شورت فقط"}[str(request["scope"])]
+    pack = [item for item in request.get("research_pack", []) if isinstance(item, dict)]
+    lines = [
+        "✅ تم اختيار الفكرة وحفظ مصادر البحث",
+        "",
+        f"الموضوع: {request['approved_topic']}",
+        f"النطاق: {scope_label}",
+    ]
+    if pack:
+        lines.extend(["", "🔎 أهم المصادر قبل التأكيد:"])
+        for index, source in enumerate(pack[:2], 1):
+            lines.append(f"{index}) {str(source.get('source_title') or 'مصدر')}")
+            url = str(source.get("source_url") or "").strip()
+            if url:
+                lines.append(f"   {url}")
+    lines.extend(
+        [
+            "",
+            "لم يبدأ الإنتاج بعد.",
+            f"إذا كان القرار نهائيًا أرسل حرفيًا:\n{CONFIRM_TEXT}",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _actor_chat(update: dict[str, Any]) -> tuple[str, str]:
     callback = update.get("callback_query")
     if isinstance(callback, dict):
@@ -811,6 +907,62 @@ def _actor_chat(update: dict[str, Any]) -> tuple[str, str]:
     actor = message.get("from") or {}
     chat = message.get("chat") or {}
     return str(actor.get("id") or ""), str(chat.get("id") or "")
+
+
+def load_runtime_status() -> dict[str, Any]:
+    raw_path = str(os.environ.get("TELEGRAM_RUNTIME_STATE_PATH") or "").strip()
+    if not raw_path:
+        return {}
+    try:
+        value = json.loads(Path(raw_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def render_production_status(runtime: dict[str, Any]) -> str:
+    if not runtime.get("active"):
+        return "⚪ لا يوجد إنتاج يعمل الآن."
+    scope_label = {
+        "long": "🎬 فيديو طويل",
+        "short": "⚡ شورت",
+        "bundle": "🎬 طويل + ⚡ شورت",
+    }.get(str(runtime.get("scope") or ""), "إنتاج")
+    kind = str(runtime.get("kind") or "")
+    if str(runtime.get("scope") or "") == "bundle" and kind:
+        scope_label += " — " + ("الطويل" if kind == "long" else "الشورت")
+    lines = [
+        "🟢 يوجد إنتاج يعمل الآن",
+        f"النوع: {scope_label}",
+        f"آخر مرحلة: {str(runtime.get('stage') or 'بدأ التشغيل')}",
+    ]
+    topic = str(runtime.get("topic") or "").strip()
+    if topic:
+        lines.append(f"الموضوع: {topic}")
+    run_url = str(runtime.get("run_url") or "").strip()
+    if run_url:
+        lines.extend(["", f"متابعة التشغيل: {run_url}"])
+    return "\n".join(lines)
+
+
+def render_last_success(runtime: dict[str, Any]) -> tuple[str, list[list[dict[str, str]]] | None]:
+    last = runtime.get("last_success")
+    if not isinstance(last, dict):
+        return "⚪ لا يوجد إنتاج ناجح محفوظ بعد.", None
+    scope_label = {
+        "long": "🎬 فيديو طويل",
+        "short": "⚡ شورت",
+        "bundle": "🎬 طويل + ⚡ شورت",
+    }.get(str(last.get("scope") or ""), "إنتاج")
+    topic = str(last.get("topic") or "").strip()
+    url = str(last.get("artifact_url") or "").strip()
+    lines = ["✅ آخر إنتاج ناجح", f"النوع: {scope_label}"]
+    if topic:
+        lines.append(f"الموضوع: {topic}")
+    keyboard = None
+    if url:
+        keyboard = [[{"text": "🎥 فتح الفيديو النهائي", "url": url}]]
+    return "\n".join(lines), keyboard
 
 
 def authorized(update: dict[str, Any]) -> bool:
@@ -832,8 +984,8 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             except Exception as exc:
                 print(f"Telegram research failed: {type(exc).__name__}")
                 send_telegram(
-                    "⚠️ لم أجد 3 أفكار جديدة بدليل سوق صالح في هذه المحاولة. "
-                    "لم يبدأ أي Production؛ أعد البحث لاحقًا."
+                    "⚠️ لم يُعثر على مواضيع مناسبة بهذه المعايير الآن. "
+                    "لم يبدأ أي إنتاج؛ جرّب معايير مختلفة أو أعد البحث لاحقًا."
                 )
                 return
             text, keyboard = render_candidates(result)
@@ -848,25 +1000,36 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             except Exception:
                 send_telegram("⚠️ هذا الاختيار لم يعد صالحًا. اطلب /research من جديد.")
                 return
-            pack_count = len(request.get("research_pack") or [])
-            scope_label = {"long": "Long فقط", "bundle": "Long + Short", "short": "Short فقط"}[request["scope"]]
-            send_telegram(
-                "✅ تم اختيار الفكرة وحفظ Research Pack\n\n"
-                f"الموضوع: {request['approved_topic']}\n"
-                f"النطاق: {scope_label}\n"
-                f"مصادر الدليل: {pack_count}\n\n"
-                f"لم يبدأ الإنتاج. إذا كان القرار نهائيًا أرسل حرفيًا:\n{CONFIRM_TEXT}"
-            )
+            send_telegram(render_selection_confirmation(request))
             return
         raise RuntimeError("unsupported callback")
 
     message = update.get("message") or {}
     text = str(message.get("text") or "").strip()
-    if text in {"/start", "/menu", "/research", "بحث"}:
+    if text in {"/start", "start", "ابدأ", "ابدأ البوت"}:
         send_telegram(
-            "🧭 Clean V2 Editorial Lite\n\nاختر ما تريد البحث له. البحث والاختيار لا يبدأان Production.\n\n📊 استخدم /stats لإحصائيات القناة.",
+            "👋 مرحبًا بك في مساعد نداء اليقظة\n\n"
+            "1) ابحث عن فكرة مناسبة للقناة.\n"
+            "2) اختر الفكرة التي تناسبك.\n"
+            "3) أرسل «تأكيد الإنتاج» فقط عندما تريد بدء الإنتاج فعليًا.\n\n"
+            "الاختيار وحده لا يبدأ أي إنتاج.\n"
+            "📊 للإحصائيات استخدم /stats.\n"
+            "🔎 للبحث استخدم /research.",
             scope_keyboard(),
         )
+        return
+    if text in {"/menu", "menu", "/research", "research", "بحث"}:
+        send_telegram(
+            "🔎 اختر نوع المحتوى الذي تريد البحث له. لن يبدأ الإنتاج قبل تأكيدك النهائي.",
+            scope_keyboard(),
+        )
+        return
+    if text in {"/status", "status", "الحالة", "حالة الإنتاج", "حاله الانتاج"}:
+        send_telegram(render_production_status(load_runtime_status()))
+        return
+    if text in {"/last", "last", "آخر إنتاج", "اخر انتاج"}:
+        last_text, last_keyboard = render_last_success(load_runtime_status())
+        send_telegram(last_text, last_keyboard)
         return
     if text in {"/stats", "stats", "إحصائيات", "الاحصائيات", "الإحصائيات"}:
         try:
@@ -876,6 +1039,14 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             send_telegram("⚠️ تعذر تحديث إحصائيات YouTube الآن. لم يتأثر البحث أو الإنتاج.")
             return
         send_telegram(render_channel_stats(stats))
+        return
+    if text in {"/cancel", "cancel", "إلغاء", "الغاء"}:
+        try:
+            request = cancel_current(state)
+        except Exception:
+            send_telegram("⚠️ لا يوجد اختيار معلّق يمكن إلغاؤه الآن.")
+            return
+        send_telegram(f"🛑 تم إلغاء الاختيار المعلّق:\n{request['approved_topic']}\n\nلم يبدأ أي إنتاج.")
         return
     if text == CONFIRM_TEXT:
         try:
