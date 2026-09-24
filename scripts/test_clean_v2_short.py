@@ -1068,12 +1068,12 @@ class ShortPipelineSeamTests(unittest.TestCase):
     def test_short_script_prompt_keeps_rich_45s_ceiling_and_reuses_template_context(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
-        self.assertIn("65-105 spoken Arabic words", prompt)
-        self.assertIn("30-40 second result", prompt)
+        self.assertIn("50-80 authored Arabic words", prompt)
+        self.assertIn("final 30-40 second result including identity media", prompt)
         self.assertIn("20-45 seconds", prompt)
         self.assertIn("selected_template=inner_dialogue", prompt)
-        self.assertIn("CTA is", prompt)
-        self.assertIn("fully disabled", prompt)
+        self.assertIn("social CTA remains visual-only", prompt)
+        self.assertIn("IDENTITY_SEQUENCE is also HOST-MANAGED", prompt)
         self.assertIn("paradox, direct scene, real question", prompt)
         self.assertIn("resolve the SAME tension/question", prompt)
         self.assertIn("must not append a second action", prompt)
