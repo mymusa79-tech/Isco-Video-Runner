@@ -4,6 +4,7 @@ import unittest
 
 from scripts.telegram_clean_v2_notify import (
     current_stage,
+    failure_guidance,
     milestone_messages,
     short_failure_reason,
     terminal_text,
@@ -77,6 +78,22 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         self.assertIn("تعذر إكمال الشورت", text)
         self.assertIn("الخطوة التالية", text)
         self.assertIn("https://github.example/run/2", text)
+
+    def test_failure_guidance_turns_infrastructure_into_user_action(self):
+        manifest = {
+            "status": "failed",
+            "stages": [
+                {
+                    "name": "script",
+                    "status": "failed",
+                    "error_type": "RuntimeError",
+                    "failure_classification": "infrastructure",
+                }
+            ],
+        }
+        guidance = failure_guidance(manifest, "failure")
+        self.assertIn("انتظر قليلًا", guidance)
+        self.assertIn("أعد المحاولة", guidance)
 
 
 if __name__ == "__main__":

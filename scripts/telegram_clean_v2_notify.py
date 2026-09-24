@@ -122,6 +122,30 @@ def short_failure_reason(manifest: dict[str, Any], job_status: str) -> str:
     return "راجع GitHub Run للتفاصيل التقنية"
 
 
+def failure_guidance(manifest: dict[str, Any], job_status: str) -> str:
+    rows = manifest.get("stages")
+    failed = None
+    if isinstance(rows, list):
+        failed = next(
+            (
+                row
+                for row in reversed(rows)
+                if isinstance(row, dict) and row.get("status") in {"failed", "blocked"}
+            ),
+            None,
+        )
+    classification = str((failed or {}).get("failure_classification") or "").casefold()
+    stage = str((failed or {}).get("name") or "").casefold()
+    error_type = str((failed or {}).get("error_type") or "").casefold()
+    if classification == "infrastructure" or stage == "voice":
+        return "مشكلة مؤقتة في الخدمة أو المزوّد. انتظر قليلًا ثم أعد المحاولة."
+    if any(token in classification + " " + error_type for token in ("quality", "content", "validation", "factual")):
+        return "المحتوى لم يجتز الفحص. ابدأ بحثًا جديدًا أو اختر موضوعًا آخر."
+    if str(manifest.get("status") or "") == "pass" and job_status != "success":
+        return "الإنتاج نفسه اكتمل، لكن خطوة لاحقة في GitHub تعثرت. افتح التفاصيل التقنية."
+    return "أعد المحاولة مرة واحدة. إذا تكرر الفشل، افتح التفاصيل التقنية."
+
+
 def terminal_text(*, manifest: dict[str, Any], job_status: str, kind: str, run_url: str) -> str:
     label = "Short" if kind == "short" else "Long"
     manifest_status = str(manifest.get("status") or "")
@@ -134,6 +158,7 @@ def terminal_text(*, manifest: dict[str, Any], job_status: str, kind: str, run_u
     lines.append(f"آخر مرحلة: {stage}")
     if not success:
         lines.append(f"السبب المختصر: {short_failure_reason(manifest, job_status)}")
+        lines.append(f"الخطوة التالية: {failure_guidance(manifest, job_status)}")
     if run_url:
         lines.extend(["", f"GitHub Run: {run_url}"])
     return "\n".join(lines)
