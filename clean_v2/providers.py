@@ -291,7 +291,7 @@ def _groq_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] 
                 }
             ],
             "response_format": ({"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": response_schema}} if response_schema is not None else {"type": "json_object"}),
-            "reasoning_format": "hidden",
+            "include_reasoning": False,
             "temperature": 0.3,
             "max_completion_tokens": int(max_tokens),
         },
