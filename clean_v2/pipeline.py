@@ -2539,17 +2539,18 @@ def _run_short_duration_gate(
     phase: str,
     report_name: str,
 ) -> dict[str, Any]:
+    """Compatibility report: only the distant operational ceiling remains."""
     seconds = probe_duration(media_path)
-    in_range = SHORT_MIN_SECONDS <= seconds <= SHORT_MAX_SECONDS
+    passed = 0 < seconds <= SHORT_DURATION_SAFETY_MAX_SECONDS
     report = {
         "schema_version": 1,
-        "source": "clean-v2-short-duration-gate",
-        "status": "pass" if in_range else "block",
+        "source": "clean-v2-short-operational-safety-gate",
+        "status": "pass" if passed else "block",
         "phase": phase,
         "duration_seconds": round(seconds, 3),
-        "minimum_seconds": SHORT_MIN_SECONDS,
-        "target_seconds": SHORT_TARGET_SECONDS,
-        "maximum_seconds": SHORT_MAX_SECONDS,
+        "timeline_owner": "measured_charon_voice",
+        "editorial_target_seconds": None,
+        "safety_maximum_seconds": SHORT_DURATION_SAFETY_MAX_SECONDS,
         "provider_calls_added": 0,
     }
     atomic_write_json(output_dir / report_name, report)
@@ -2568,69 +2569,70 @@ def _run_audio_mastering_stage(
         output_dir=output_dir,
         narration_path=narration_path,
     )
+    if fmt not in {"short", "film"}:
+        return report
+
+    from clean_v2.timeline_first import TimelineFirstError, build_voice_owned_timeline
+
+    mastered = output_dir / "narration-mastered.wav"
+    try:
+        voice_timeline = build_voice_owned_timeline(
+            output_dir=output_dir,
+            narration_path=mastered,
+            fmt=fmt,
+            require_identity=True,
+        )
+    except TimelineFirstError as exc:
+        blocked = dict(exc.report)
+        if blocked:
+            atomic_write_json(output_dir / "timeline-first.json", blocked)
+        raise RuntimeError(str(exc)) from exc
+
+    atomic_write_json(output_dir / "timeline-first.json", voice_timeline)
+    atomic_write_json(output_dir / "voice-owned-timeline.json", voice_timeline)
     if fmt == "short":
-        from clean_v2.short_voice_owned_timeline import (
-            ShortVoiceTimelineError,
-            build_short_voice_owned_timeline,
-        )
-
-        mastered = output_dir / "narration-mastered.wav"
-        try:
-            voice_timeline = build_short_voice_owned_timeline(
-                output_dir=output_dir,
-                narration_path=mastered,
-            )
-        except ShortVoiceTimelineError as exc:
-            blocked = dict(exc.report)
-            atomic_write_json(
-                output_dir / "short-voice-owned-timeline.json",
-                blocked,
-            )
-            atomic_write_json(
-                output_dir / "short-duration-pre-visual.json",
-                {
-                    "schema_version": 1,
-                    "source": "clean-v2-short-voice-owned-timeline-v1",
-                    "status": "block",
-                    "phase": "post_audio_mastering_pre_visuals",
-                    "duration_seconds": blocked.get("voice_seconds_measured"),
-                    "minimum_seconds": SHORT_MIN_SECONDS,
-                    "target_seconds": SHORT_TARGET_SECONDS,
-                    "maximum_seconds": SHORT_MAX_SECONDS,
-                    "timeline_owner": "measured_charon_voice",
-                    "planning_repair_required": bool(
-                        blocked.get("planning_repair_required")
-                    ),
-                    "provider_calls_added": 0,
-                },
-            )
-            raise RuntimeError(str(exc)) from exc
-
-        atomic_write_json(
-            output_dir / "short-voice-owned-timeline.json",
-            voice_timeline,
-        )
+        atomic_write_json(output_dir / "short-voice-owned-timeline.json", voice_timeline)
         atomic_write_json(
             output_dir / "short-duration-pre-visual.json",
             {
                 "schema_version": 1,
-                "source": "clean-v2-short-voice-owned-timeline-v1",
+                "source": "clean-v2-timeline-first-v1",
                 "status": "pass",
                 "phase": "post_audio_mastering_pre_visuals",
                 "duration_seconds": voice_timeline["voice_seconds_measured"],
-                "minimum_seconds": SHORT_MIN_SECONDS,
-                "target_seconds": SHORT_TARGET_SECONDS,
-                "maximum_seconds": SHORT_MAX_SECONDS,
                 "timeline_owner": "measured_charon_voice",
-                "planning_repair_required": False,
+                "editorial_target_seconds": None,
+                "safety_maximum_seconds": voice_timeline["safety_maximum_seconds"],
                 "provider_calls_added": 0,
             },
         )
-        return {
-            **report,
-            "short_voice_owned_timeline": voice_timeline,
-        }
-    return report
+
+    atomic_write_json(
+        output_dir / "identity-sequence.json",
+        {
+            "schema_version": 2,
+            "source": "clean-v2-timeline-first-v1",
+            "status": "pass",
+            "format": fmt,
+            "sequence": [
+                "hook",
+                "intro",
+                "prayer_sentence_with_visual",
+                "channel_definition",
+                "topic",
+                "outro",
+            ],
+            "timeline_owner": "measured_charon_voice",
+            "identity_events": voice_timeline["identity_events"],
+            "voice_seconds": voice_timeline["voice_seconds_measured"],
+            "post_render_identity_splice": False,
+            "provider_calls_added": 0,
+        },
+    )
+    return {
+        **report,
+        "voice_owned_timeline": voice_timeline,
+    }
 
 
 def _inspect_final_with_short_gate(
@@ -2641,32 +2643,40 @@ def _inspect_final_with_short_gate(
     fmt: str,
 ) -> dict[str, Any]:
     report = final_inspector(final_path)
+    if fmt in {"short", "film"}:
+        from clean_v2.timeline_first import assert_final_matches_voice
+
+        timeline = _read_json_object(output_dir / "timeline-first.json")
+        assert_final_matches_voice(
+            final_seconds=float(report["duration_seconds"]),
+            timeline=timeline,
+        )
+
     if fmt == "short":
         duration = float(report["duration_seconds"])
         width = int(report.get("width") or 0)
         height = int(report.get("height") or 0)
-        passed = (
-            SHORT_MIN_SECONDS <= duration <= SHORT_MAX_SECONDS
-            and width == 1080
-            and height == 1920
-        )
+        validate_short_duration(duration, phase="final_render")
+        validate_short_dimensions(width, height)
+        timeline = _read_json_object(output_dir / "timeline-first.json")
+        voice_seconds = float(timeline["voice_seconds_measured"])
         atomic_write_json(
             output_dir / "short-duration-final.json",
             {
                 "schema_version": 1,
-                "source": "clean-v2-short-final-gate",
-                "status": "pass" if passed else "block",
+                "source": "clean-v2-timeline-first-final-gate",
+                "status": "pass",
                 "duration_seconds": duration,
+                "voice_seconds": voice_seconds,
+                "duration_delta_seconds": round(duration - voice_seconds, 3),
                 "width": width,
                 "height": height,
-                "minimum_seconds": SHORT_MIN_SECONDS,
-                "target_seconds": SHORT_TARGET_SECONDS,
-                "maximum_seconds": SHORT_MAX_SECONDS,
+                "timeline_owner": "measured_charon_voice",
+                "editorial_target_seconds": None,
+                "safety_maximum_seconds": SHORT_DURATION_SAFETY_MAX_SECONDS,
                 "provider_calls_added": 0,
             },
         )
-        validate_short_duration(duration, phase="final_render")
-        validate_short_dimensions(width, height)
     return report
 
 
