@@ -50,15 +50,7 @@ jobs:
           node --check cloudflare/telegram-clean-v2-lite/index.js
           python -m py_compile scripts/telegram_clean_v2_control.py
           python -m unittest -v scripts.test_telegram_clean_v2_control scripts.test_telegram_clean_v2_notify
-          python - <<'PY'
-import pathlib, tomllib
-data = tomllib.loads(pathlib.Path("cloudflare/telegram-clean-v2-lite/wrangler.toml.example").read_text(encoding="utf-8"))
-assert data.get("workers_dev") is True
-assert data.get("main") == "index.js"
-assert data.get("vars", {}).get("ZERO_COST_MODE") == "true"
-for forbidden in ("kv_namespaces", "d1_databases", "r2_buckets", "durable_objects", "queues"):
-    assert forbidden not in data
-PY
+          python -c 'import pathlib,tomllib; d=tomllib.loads(pathlib.Path("cloudflare/telegram-clean-v2-lite/wrangler.toml.example").read_text(encoding="utf-8")); assert d.get("workers_dev") is True; assert d.get("main") == "index.js"; assert d.get("vars",{}).get("ZERO_COST_MODE") == "true"; assert not set(("kv_namespaces","d1_databases","r2_buckets","durable_objects","queues")).intersection(d)'
           git diff --check origin/main...HEAD
 
   deploy:
@@ -92,11 +84,7 @@ PY
       - name: Generate one deployment webhook secret
         run: |
           set -euo pipefail
-          secret="$(python - <<'PY'
-import secrets
-print(secrets.token_urlsafe(32))
-PY
-)"
+          secret="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
           echo "::add-mask::$secret"
           echo "TELEGRAM_WEBHOOK_SECRET=$secret" >> "$GITHUB_ENV"
 
@@ -127,18 +115,10 @@ PY
           set -euo pipefail
           health="$(curl --fail-with-body --silent --show-error "$WORKER_URL/health")"
           printf '%s' "$health" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("phase") == "C"'
+          webhook_body="$(jq -nc --arg url "${WORKER_URL%/}/telegram" --arg secret "$TELEGRAM_WEBHOOK_SECRET" '{url:$url,secret_token:$secret,allowed_updates:["message","callback_query"],drop_pending_updates:false}')"
           response="$(curl --fail-with-body --silent --show-error \
             -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
             -H 'content-type: application/json' \
-            --data "$(python - <<'PY'
-import json, os
-print(json.dumps({
-    "url": os.environ["WORKER_URL"].rstrip("/") + "/telegram",
-    "secret_token": os.environ["TELEGRAM_WEBHOOK_SECRET"],
-    "allowed_updates": ["message", "callback_query"],
-    "drop_pending_updates": False,
-}))
-PY
-)")"
+            --data "$webhook_body")"
           printf '%s' "$response" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("result") is True'
           echo "Clean V2 Telegram Lite active at $WORKER_URL/telegram"
