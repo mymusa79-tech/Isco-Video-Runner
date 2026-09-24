@@ -35,13 +35,19 @@ def main() -> None:
     assert (short_p.width, short_p.height) == (1080, 1920)
 
     assert long_p.allowed_placements == ("left", "right")
-    assert long_p.preferred_font_size == 84
+    assert long_p.preferred_font_size == 82
+    assert long_p.intro_font_size == 54
+    assert long_p.highlight_font_size == 82
+    assert long_p.breathing_gap_px == 34
     assert long_p.preferred_stroke_width == 3
     assert long_p.line_spacing_ratio == 0.12
 
     assert short_p.allowed_placements == ("top",)
     assert short_p.preferred_placement == "top"
-    assert short_p.preferred_font_size == 112
+    assert short_p.preferred_font_size == 116
+    assert short_p.intro_font_size == 76
+    assert short_p.highlight_font_size == 116
+    assert short_p.breathing_gap_px == 42
     assert short_p.preferred_stroke_width == 3
     assert short_p.line_spacing_ratio == 0.10
 
