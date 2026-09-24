@@ -412,6 +412,20 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertIn("الاختيار وحده لا يبدأ", text)
         self.assertIn("/stats", text)
 
+    def test_research_copy_uses_human_market_language(self):
+        result = {
+            "session_id": "s1",
+            "candidates": [{
+                "title": "موضوع",
+                "reason": "سبب واضح",
+                "market_evidence": {"sample_count": 6, "distinct_channels": 3},
+            }],
+        }
+        rendered, _ = control.render_candidates(result)
+        self.assertIn("وجدنا 6 فيديوهات", rendered)
+        self.assertIn("3 قنوات مختلفة", rendered)
+        self.assertNotIn("عينات", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

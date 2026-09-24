@@ -646,11 +646,7 @@ def research(state: dict[str, Any], scope: str) -> dict[str, Any]:
         score, evidence = market_evidence(str(raw.get("market_query") or title))
         reason = str(raw.get("reason") or "").strip()
         if evidence.get("sample_count", 0):
-            reason = (
-                f"{reason} قياس آخر {WINDOW_DAYS} يومًا: "
-                f"{evidence.get('sample_count', 0)} عينات من "
-                f"{evidence.get('distinct_channels', 0)} قنوات."
-            ).strip()
+            reason = reason.strip()
         measured.append(
             {
                 "idea_id": "idea-" + secrets.token_hex(5),
@@ -840,8 +836,9 @@ def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, 
                 f"{index}) {item['title']}",
                 f"   {item['reason']}",
                 (
-                    f"   دليل السوق: {int(evidence.get('sample_count', 0))} عينات · "
-                    f"{int(evidence.get('distinct_channels', 0))} قنوات"
+                    f"   اهتمام حديث: وجدنا {int(evidence.get('sample_count', 0))} فيديوهات "
+                    f"حول الفكرة من {int(evidence.get('distinct_channels', 0))} قنوات مختلفة "
+                    f"خلال آخر {WINDOW_DAYS} يومًا."
                 ),
                 "",
             ]
