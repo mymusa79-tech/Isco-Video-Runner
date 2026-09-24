@@ -1,0 +1,53 @@
+name: Probe Nidaa FLUX.2 Thumbnail Explainer
+
+on:
+  push:
+    branches:
+      - probe/nidaa-flux2-thumbnail-explainer-20260924
+    paths:
+      - experiments/nidaa_flux2_thumbnail_explainer_probe.py
+      - .github/workflows/probe-nidaa-flux2-thumbnail-explainer.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Cloudflare secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}" || { echo "CLOUDFLARE_API_TOKEN missing" >&2; exit 2; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID}" || { echo "CLOUDFLARE_ACCOUNT_ID missing" >&2; exit 2; }
+
+      - name: Run isolated Nidaa FLUX.2 probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/nidaa_flux2_thumbnail_explainer_probe.py
+
+      - name: Print result manifest
+        if: always()
+        shell: bash
+        run: |
+          if [ -f artifacts/nidaa-flux2-probe/manifest.json ]; then
+            cat artifacts/nidaa-flux2-probe/manifest.json
+          fi
+
+      - name: Upload probe images and telemetry
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nidaa-flux2-thumbnail-explainer-probe
+          path: artifacts/nidaa-flux2-probe/
+          if-no-files-found: error
+          retention-days: 7
