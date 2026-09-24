@@ -22,6 +22,12 @@ _PRAYER_IMAGE = _ASSET_DIR / "prayer_image.jpg"
 _SENTENCE_END_RE = re.compile(r"[.!؟!]")
 
 
+def identity_asset_paths(fmt: str) -> dict[str, Path]:
+    """Return approved visual identity assets; timing is owned elsewhere by audio."""
+    intro, outro, _width, _height = _asset_pair(fmt)
+    return {"intro": intro, "prayer": _PRAYER_IMAGE, "outro": outro}
+
+
 def _first_sentence(text: str) -> str:
     compact = " ".join(str(text or "").split()).strip()
     if not compact:
