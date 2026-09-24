@@ -622,6 +622,35 @@ def _query_action_families(words: set[str]) -> set[str]:
     }
 
 
+_VISIBLE_FACE_PATTERNS = (
+    "portrait",
+    "selfie",
+    "facial close",
+    "face close",
+    "close up face",
+    "close-up face",
+    "looking at camera",
+    "smiling face",
+)
+_FACE_SAFE_CUES = (
+    "no face",
+    "no-face",
+    "without face",
+    "face hidden",
+    "hidden face",
+    "from behind",
+    "back view",
+)
+
+
+def _assert_no_explicit_face_query(query: str) -> None:
+    lowered = _clean(query).casefold()
+    if any(cue in lowered for cue in _FACE_SAFE_CUES):
+        return
+    if any(pattern in lowered for pattern in _VISIBLE_FACE_PATTERNS):
+        raise ShortFormatError("short_visual_query_explicit_face_forbidden")
+
+
 def validate_short_visual_queries(
     plan: Mapping[str, Any],
     brief: Mapping[str, Any],
@@ -644,6 +673,8 @@ def validate_short_visual_queries(
         raise ShortFormatError("short_visual_query_alt_missing")
     if any(_semantic_key(primary) == _semantic_key(alternate) for primary, alternate in zip(queries, alternate_queries)):
         raise ShortFormatError("short_visual_query_alt_must_add_new_visual_information")
+    for query in (*queries, *alternate_queries):
+        _assert_no_explicit_face_query(query)
     words = [_query_words(query) for query in queries]
 
     if template == "inner_dialogue":
