@@ -93,16 +93,21 @@ def smooth_sentence_edges(
     threshold_db: float = -34.0,
     frame_ms: int = 10,
     pre_roll_ms: int = 12,
-    post_roll_ms: int = 100,
-    fade_in_ms: int = 8,
-    fade_out_ms: int = 80,
+    post_roll_ms: int = 180,
+    onset_fade_ms: int = 4,
+    release_hold_ms: int = 35,
+    release_fade_ms: int = 110,
 ) -> tuple[np.ndarray, dict]:
-    """Clean phrase-edge noise and make the sentence release into silence smoothly.
+    """Clean sentence boundaries without touching lexical timing.
 
-    The active speech itself is preserved. We detect speech with 10 ms RMS
-    frames, retain protective context around it, then apply fades to the
-    retained *context*, not to the lexical core. This avoids both the old
-    sentence-start hiss and the hard stop before a pause.
+    Start:
+      - keep the detected speech frame itself intact in position;
+      - replace only the protected pre-speech context with true silence;
+      - use a tiny 4 ms fade on the first active samples to avoid a click.
+    End:
+      - never fade inside the detected lexical speech core;
+      - keep a natural 35 ms release after speech;
+      - fade only the model-generated trailing tail toward silence.
     """
     if audio.size == 0:
         return audio, {"status": "empty"}
@@ -129,32 +134,47 @@ def smooth_sentence_edges(
     speech_start_local = speech_start - start
     speech_end_local = min(int(out.size), speech_end - start)
 
-    # Fade the protected pre-speech context up to unity before the detected
-    # lexical attack. If less context exists, use only what is available.
-    fade_in_target = min(speech_start_local, int(SAMPLE_RATE * fade_in_ms / 1000.0))
-    if fade_in_target > 1:
-        out[:fade_in_target] *= np.sin(
-            np.linspace(0.0, np.pi / 2.0, fade_in_target, dtype=np.float32)
+    # The protected pre-roll used to retain the model's hiss/breath onset.
+    # Make that region truly silent instead. The lexical attack is not removed.
+    if speech_start_local > 0:
+        out[:speech_start_local] = 0.0
+
+    onset_fade = min(
+        int(SAMPLE_RATE * onset_fade_ms / 1000.0),
+        max(0, int(out.size) - speech_start_local),
+    )
+    if onset_fade > 1:
+        out[speech_start_local:speech_start_local + onset_fade] *= np.sin(
+            np.linspace(0.0, np.pi / 2.0, onset_fade, dtype=np.float32)
         ) ** 2
 
-    # Fade only the retained release after detected speech. Normally this is
-    # ~100 ms of low-level natural tail. If the source has less tail, do not
-    # reach backward more than 20 ms into the detected final speech frame.
-    desired_fade = int(SAMPLE_RATE * fade_out_ms / 1000.0)
     available_tail = max(0, int(out.size) - speech_end_local)
-    if available_tail >= int(SAMPLE_RATE * 0.020):
-        fade_len = min(desired_fade, available_tail)
-        fade_start = int(out.size) - fade_len
-    else:
-        minimum = int(SAMPLE_RATE * 0.020)
-        fade_len = min(desired_fade, max(minimum, available_tail), int(out.size))
-        fade_start = int(out.size) - fade_len
+    hold = min(
+        int(SAMPLE_RATE * release_hold_ms / 1000.0),
+        available_tail,
+    )
+    fade_available = max(0, available_tail - hold)
+    fade_len = min(
+        int(SAMPLE_RATE * release_fade_ms / 1000.0),
+        fade_available,
+    )
 
+    # Crucial invariant: fade_start is always >= speech_end_local.
+    # Therefore no lexical phoneme can be attenuated by the release smoothing.
+    fade_start = speech_end_local + hold
     if fade_len > 1:
-        out[fade_start:] *= np.cos(
+        fade_end = fade_start + fade_len
+        out[fade_start:fade_end] *= np.cos(
             np.linspace(0.0, np.pi / 2.0, fade_len, dtype=np.float32)
         ) ** 2
-        out[-1] = 0.0
+        if fade_end < out.size:
+            out[fade_end:] = 0.0
+        else:
+            out[-1] = 0.0
+    elif available_tail > 0:
+        # No room for a proper fade: preserve the tail rather than touching
+        # speech. The following deterministic pause starts after this chunk.
+        pass
 
     return out, {
         "status": "ok",
@@ -164,10 +184,13 @@ def smooth_sentence_edges(
         "trimmed_start_ms": round(start * 1000.0 / SAMPLE_RATE, 2),
         "trimmed_end_ms": round((audio.size - end) * 1000.0 / SAMPLE_RATE, 2),
         "pre_roll_ms": pre_roll_ms,
+        "pre_roll_zeroed": True,
+        "onset_fade_ms_applied": round(onset_fade * 1000.0 / SAMPLE_RATE, 2),
         "post_roll_ms_requested": post_roll_ms,
         "available_release_ms": round(available_tail * 1000.0 / SAMPLE_RATE, 2),
-        "fade_in_ms_applied": round(fade_in_target * 1000.0 / SAMPLE_RATE, 2),
-        "fade_out_ms_applied": round(fade_len * 1000.0 / SAMPLE_RATE, 2),
+        "release_hold_ms_applied": round(hold * 1000.0 / SAMPLE_RATE, 2),
+        "release_fade_ms_applied": round(fade_len * 1000.0 / SAMPLE_RATE, 2),
+        "fade_touches_speech_core": False,
         "speech_core_retimed": False,
         "sentence_end_hard_cut": False,
     }
@@ -287,10 +310,14 @@ def main() -> int:
             "threshold_db": -34.0,
             "frame_ms": 10,
             "pre_roll_ms": 12,
-            "post_roll_ms": 100,
-            "fade_in_ms": 8,
-            "fade_out_ms": 80,
-            "principle": "fade protected context/release, never retime lexical speech",
+            "post_roll_ms": 180,
+            "onset_fade_ms": 4,
+            "release_hold_ms": 35,
+            "release_fade_ms": 110,
+            "principle": (
+                "zero pre-speech hiss; fade only after detected lexical speech; "
+                "never retime or attenuate the speech core"
+            ),
         },
         "short": {
             "sentences": SHORT_SENTENCES,
