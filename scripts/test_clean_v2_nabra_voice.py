@@ -28,7 +28,7 @@ class _FakeNabra:
 class NabraRouteTests(unittest.TestCase):
     def test_approved_nabra_profile_is_locked(self) -> None:
         self.assertEqual(NABRA_VOICE, "af_msa")
-        self.assertEqual(NABRA_SPEED, 0.94)
+        self.assertEqual(NABRA_SPEED, 0.87)
 
     def _patch_identity(self):
         return mock.patch.multiple(
