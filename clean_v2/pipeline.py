@@ -648,13 +648,11 @@ def _factuality_issue_is_high_risk(
 
 def _deterministic_factuality_policy(
     *,
-    diagnostics: Mapping[str, Any],
+    result: Mapping[str, Any],
     audit_script: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Convert provider detections into the local authoritative hard/advisory split."""
-    raw = diagnostics.get("raw_result")
-    if not isinstance(raw, Mapping):
-        raw = {}
+    """Convert validated provider detections into the local hard/advisory split."""
+    raw = result if isinstance(result, Mapping) else {}
 
     unsupported = [
         dict(item) for item in (raw.get("unsupported_claims") or [])
@@ -756,7 +754,7 @@ def _run_legacy_factuality_audit(
     )
     provider_status = str(result.get("status") or "")
     local_policy = _deterministic_factuality_policy(
-        diagnostics=diagnostics,
+        result=result,
         audit_script=audit_script,
     )
     local_status = str(local_policy["status"])
