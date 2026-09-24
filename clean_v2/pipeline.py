@@ -1459,6 +1459,8 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - Preserve the section count, ids, order, title, and each section's role.
 - Preserve this first spoken hook sentence exactly: {hook}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
+- If the current script contains the approved prayer sentence or channel-definition sentence,
+  preserve each of those host-owned identity lines exactly once and do not patch them.
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
   its existing anchor section when needed to make the surrounding transition sound natural.
@@ -1673,6 +1675,8 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Preserve the section count, ids, order, title, and each section's role.
 - Preserve this first spoken hook sentence exactly: {hook}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
+- If the current script contains the approved prayer sentence or channel-definition sentence,
+  preserve each of those host-owned identity lines exactly once and do not patch them.
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
   its existing anchor section when needed to make the surrounding transition sound natural.
