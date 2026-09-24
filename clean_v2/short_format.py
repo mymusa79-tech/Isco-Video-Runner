@@ -544,6 +544,120 @@ def _practical_action_marker_count(text: object) -> int:
     )
 
 
+def _practical_action_marker_spans(text: object) -> list[tuple[int, int]]:
+    compact = _clean(text)
+    spans: list[tuple[int, int]] = []
+    for marker in dict.fromkeys(_PRACTICAL_ACTION_MARKERS):
+        spans.extend(
+            match.span()
+            for match in re.finditer(
+                rf"(?<!\w){re.escape(marker)}(?!\w)",
+                compact,
+                flags=re.I,
+            )
+        )
+    return sorted(set(spans))
+
+
+def _safe_trim_joined_second_action(sentence: str) -> str | None:
+    """Trim only an explicitly joined second command from one s3 sentence."""
+    compact = _clean(sentence)
+    spans = _practical_action_marker_spans(compact)
+    if len(spans) != 2:
+        return None
+
+    _first_start, first_end = spans[0]
+    second_start, _second_end = spans[1]
+    between = compact[first_end:second_start]
+    separator = re.search(
+        r"(?:[،,؛;:]\s*(?:(?:ثم|و)\s*)?|\s+(?:ثم|و)\s+)$",
+        between,
+    )
+    if separator is None:
+        return None
+
+    cut = first_end + separator.start()
+    first_action_body = compact[first_end:cut]
+    if _word_count(first_action_body) < 2:
+        return None
+
+    repaired = compact[:cut].rstrip(" ،,؛;:")
+    repaired = re.sub(r"[.!؟!]+$", "", repaired).strip() + "."
+    if not _sentence_begins_with_direct_action(repaired):
+        return None
+    if _practical_action_marker_count(repaired) != 1:
+        return None
+    return repaired
+
+
+def apply_safe_short_s3_single_action_trim(script: dict[str, Any]) -> bool:
+    """Conservatively remove one clearly separated extra s3 command.
+
+    The repair never invents text and never weakens the contract. It is accepted
+    only when the full unchanged Short validator passes afterward; otherwise the
+    original narration is restored and the provider result remains fail-closed.
+    """
+    sections = script.get("sections")
+    if not isinstance(sections, list) or len(sections) != SHORT_SECTION_COUNT:
+        return False
+    if not isinstance(sections[2], dict):
+        return False
+
+    original = sections[2].get("narration")
+    s3 = _clean(original)
+    sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!؟!])\s+", s3)
+        if sentence.strip()
+    ]
+    if not sentences:
+        return False
+
+    action_indexes = [
+        index
+        for index, sentence in enumerate(sentences)
+        if _practical_action_marker_count(sentence) > 0
+    ]
+    repaired_sentences = list(sentences)
+
+    if len(action_indexes) == 1:
+        index = action_indexes[0]
+        repaired = _safe_trim_joined_second_action(sentences[index])
+        if repaired is None:
+            return False
+        repaired_sentences[index] = repaired
+    elif len(action_indexes) == 2:
+        if len(sentences) <= 2:
+            return False
+        if any(
+            _practical_action_marker_count(sentences[index]) != 1
+            or not _sentence_begins_with_direct_action(sentences[index])
+            for index in action_indexes
+        ):
+            return False
+        # Keep the final explicit action so the repaired s3 remains payoff -> action.
+        drop = action_indexes[0]
+        repaired_sentences = [
+            sentence
+            for index, sentence in enumerate(sentences)
+            if index != drop
+        ]
+    else:
+        return False
+
+    candidate = " ".join(repaired_sentences).strip()
+    if not candidate or candidate == s3:
+        return False
+
+    sections[2]["narration"] = candidate
+    try:
+        validate_short_script(script)
+    except ShortFormatError:
+        sections[2]["narration"] = original
+        return False
+    return True
+
+
 def validate_short_hook_contract(script: Mapping[str, Any]) -> dict[str, Any]:
     """Validate the provider-owned first spoken sentence before script acceptance."""
     sections = script.get("sections")
