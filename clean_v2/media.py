@@ -2198,11 +2198,22 @@ COLOR_MATCH_SCALE_MIN = 0.88
 COLOR_MATCH_SCALE_MAX = 1.12
 COLOR_MATCH_OFFSET_MAX = 18.0
 MASTER_LOOK_LUT_SIZE = 17
-MASTER_LOOK_CONTRAST = 1.025
-MASTER_LOOK_SATURATION = 0.94
-MASTER_LOOK_WARM_R = 0.006
-MASTER_LOOK_WARM_G = 0.002
-MASTER_LOOK_WARM_B = -0.006
+MASTER_LOOK_CONTRAST = 1.045
+MASTER_LOOK_SATURATION = 0.98
+MASTER_LOOK_WARM_R = 0.012
+MASTER_LOOK_WARM_G = 0.004
+MASTER_LOOK_WARM_B = -0.010
+
+# Final deterministic cinematic finish shared by Film and Short.
+# It cannot invent missing scene geometry; it deepens the footage that was
+# actually selected: stronger local separation, crisper edges and a restrained
+# optical falloff without adding AI/network cost or changing timing.
+CINEMATIC_FINISH_VERSION = "clean-v2-cinematic-finish-v1"
+CINEMATIC_FINISH_FILTER = (
+    "eq=contrast=1.050:brightness=-0.008:saturation=1.030:gamma=0.990,"
+    "unsharp=5:5:0.45:5:5:0.0,"
+    "vignette=PI/12"
+)
 
 
 @dataclass(frozen=True)
@@ -2826,7 +2837,8 @@ def render_video(
         master_lut = _write_master_look_lut(work_dir / "warm-neutral-master-v1.cube")
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
         master_look = (
-            f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral"
+            f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
+            f"{CINEMATIC_FINISH_FILTER}"
         )
         if timeline:
             filters.append(
