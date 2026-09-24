@@ -221,7 +221,10 @@ def repair_sentence_final_pause(
     protected_long_letter = bool(last_bare) and last_bare[-1] in "اىيوة"
     final_base_pos = None
     for pos in range(len(last_surface) - 1, -1, -1):
-        if ARABIC_WORD_RE.fullmatch(last_surface[pos]):
+        ch = last_surface[pos]
+        if ARABIC_DIACRITICS_RE.fullmatch(ch):
+            continue
+        if re.fullmatch(r"[\u0621-\u064A\u0671\u0670]", ch):
             final_base_pos = pos
             break
     trailing_marks = last_surface[final_base_pos + 1:] if final_base_pos is not None else ""
