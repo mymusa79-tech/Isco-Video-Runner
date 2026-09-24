@@ -112,42 +112,54 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
 """.strip()
 
 
+def _enforce_hook_quality_contract(result: dict[str, Any]) -> dict[str, Any]:
+    """Apply the local hook verdict without importing the frozen Engine.
+
+    Keeping this tiny policy pure lets Clean V2's Engine-free contract tests exercise
+    the real generic/specific examples while production still validates the full
+    legacy audit contract immediately before this step.
+    """
+    wrong_hook_fields = [
+        field
+        for field in _HOOK_QUALITY_FIELDS
+        if field not in result or type(result[field]) is not bool
+    ]
+    if wrong_hook_fields:
+        raise ValueError(
+            "tone audit response missing/invalid hook boolean(s): "
+            + ", ".join(wrong_hook_fields)
+        )
+
+    failed: list[str] = []
+    if not result["hook_specificity"]:
+        failed.append("hook_specificity")
+    if not result["hook_honesty"]:
+        failed.append("hook_honesty")
+    if not result["hook_curiosity"]:
+        failed.append("hook_curiosity")
+    if result["hook_genericness"]:
+        failed.append("hook_genericness")
+
+    if failed:
+        result["status"] = "block"
+        flags = result.get("narrative_format_flags")
+        if not isinstance(flags, list):
+            raise ValueError("tone audit narrative_format_flags must be an array")
+        if not any(str(item).startswith("hook_quality:") for item in flags):
+            flags.append("hook_quality: failed " + ", ".join(failed))
+    return result
+
+
 def _validate_tone_result(result: dict[str, Any]) -> dict[str, Any]:
     from isco_video_agent.text_audit_router import validate_audit_payload
 
     try:
         validate_audit_payload(result, required_arrays=_REQUIRED_ARRAYS)
-        wrong_hook_fields = [
-            field
-            for field in _HOOK_QUALITY_FIELDS
-            if field not in result or type(result[field]) is not bool
-        ]
-        if wrong_hook_fields:
-            raise ValueError(
-                "tone audit response missing/invalid hook boolean(s): "
-                + ", ".join(wrong_hook_fields)
-            )
-
-        failed: list[str] = []
-        if not result["hook_specificity"]:
-            failed.append("hook_specificity")
-        if not result["hook_honesty"]:
-            failed.append("hook_honesty")
-        if not result["hook_curiosity"]:
-            failed.append("hook_curiosity")
-        if result["hook_genericness"]:
-            failed.append("hook_genericness")
-
-        if failed:
-            result["status"] = "block"
-            flags = result["narrative_format_flags"]
-            if not any(str(item).startswith("hook_quality:") for item in flags):
-                flags.append("hook_quality: failed " + ", ".join(failed))
+        return _enforce_hook_quality_contract(result)
     except Exception as exc:
         raise MistralExecutorWireFailure(
             f"tone audit invalid contract {type(exc).__name__.lower()}"
         ) from exc
-    return result
 
 
 def _mistral_tone_call(prompt: str) -> dict[str, Any]:
