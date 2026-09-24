@@ -3748,14 +3748,6 @@ class CleanV2Pipeline:
                 ),
             )
 
-            from clean_v2.visual_qa import verify_final_composition_visual_qa
-
-            final_composition_qa_report = verify_final_composition_visual_qa(
-                output_dir=output_dir,
-                final_path=final_path,
-                script=script,
-            )
-
             journal.payload["quality_layers_executed"] = [
                 TEXT_AUDIT_STAGE,
                 CINEMATIC_STAGE,
@@ -3774,6 +3766,16 @@ class CleanV2Pipeline:
                     rights=primary_rights,
                     fmt=str(brief["format"]),
                 ),
+            )
+
+            # Final-composition QA must inspect the media after every post-render
+            # visual/text/CTA layer, not the pre-cinematic intermediate.
+            from clean_v2.visual_qa import verify_final_composition_visual_qa
+
+            final_composition_qa_report = verify_final_composition_visual_qa(
+                output_dir=output_dir,
+                final_path=final_path,
+                script=script,
             )
 
             identity_media_report = _read_json_object(output_dir / "identity-sequence.json")
