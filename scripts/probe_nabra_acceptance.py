@@ -13,6 +13,7 @@ import json
 import os
 import platform
 import resource
+import re
 import subprocess
 import time
 import wave
@@ -37,8 +38,6 @@ PRONUNCIATION_PATCHES = (
     ("tˌakaˈuːna", "takˈuːna", "تكون"),
     ("jˌataħaˈuːal", "jˌataħˈawːal", "يتحول"),
     ("faħˈaiˌaːt", "falħˈaiˌaːt", "فالحياة"),
-    ("dˈafʕat waːħˈidat", "dˈafʕa waːħˈida", "دفعة واحدة"),
-    ("mˈarrat baʕd mˈarrat", "mˈarra baʕd mˈarra", "مرة بعد مرة"),
 )
 
 def repair_obvious_g2p_artifacts(phonemes: str) -> tuple[str, list[dict]]:
@@ -55,6 +54,124 @@ def repair_obvious_g2p_artifacts(phonemes: str) -> tuple[str, list[dict]]:
         out = out.replace(source, target, 1)
         applied.append({"label": label, "source": source, "target": target})
     return out, applied
+
+
+ARABIC_DIACRITICS_RE = re.compile(r"[\u064B-\u065F\u0670\u06D6-\u06ED]")
+ARABIC_WORD_RE = re.compile(r"[\u0621-\u064A\u0671\u0670\u064B-\u065F]+")
+HARD_BOUNDARY_CHARS = set("،؛.!؟?!:")
+
+
+def _undia(value: str) -> str:
+    return ARABIC_DIACRITICS_RE.sub("", value)
+
+
+def repair_spoken_msa_orthography(
+    sentence: str,
+    phonemes: str,
+) -> tuple[str, list[dict], list[dict]]:
+    """Conservative source-aware Arabic orthography -> spoken-MSA repair.
+
+    Current auto-repair family:
+      - taa marbuta (ة): pausal/adjectival form loses erroneous final /t/;
+        clear construct-state before a following definite noun keeps /t/.
+      - taa maftuha (ت), haa (ه), alif maqsura (ى), yaa (ي), and hamza
+        are never rewritten by this family; they are only guarded/diagnosed.
+
+    Safety: requires one Arabic orthographic word per whitespace-delimited
+    phoneme word. If alignment is not exact, make no orthographic repair.
+    """
+    matches = list(ARABIC_WORD_RE.finditer(sentence))
+    phones = phonemes.split()
+    repairs: list[dict] = []
+    diagnostics: list[dict] = []
+
+    if len(matches) != len(phones):
+        diagnostics.append({
+            "kind": "alignment",
+            "status": "skipped",
+            "arabic_words": len(matches),
+            "phoneme_words": len(phones),
+        })
+        return phonemes, repairs, diagnostics
+
+    out = list(phones)
+    for index, match in enumerate(matches):
+        surface = match.group(0)
+        bare = _undia(surface)
+        phone = out[index]
+
+        next_bare = ""
+        separator = sentence[match.end():]
+        if index + 1 < len(matches):
+            next_match = matches[index + 1]
+            next_bare = _undia(next_match.group(0))
+            separator = sentence[match.end():next_match.start()]
+
+        boundary_after = any(ch in HARD_BOUNDARY_CHARS for ch in separator)
+
+        if bare.endswith("ة"):
+            # Spoken MSA: word-final taa marbuta is normally /a/ in pausal
+            # speech. Keep /t/ only in a clear construct state such as
+            # "قيمة الاستمرار": no punctuation boundary + following definite noun.
+            clear_construct = (
+                bool(next_bare)
+                and not boundary_after
+                and next_bare.startswith("ال")
+            )
+            if clear_construct:
+                diagnostics.append({
+                    "kind": "taa_marbuta",
+                    "word": bare,
+                    "status": "construct_t_preserved",
+                })
+            elif phone.endswith("at"):
+                repaired = phone[:-1]
+                out[index] = repaired
+                repairs.append({
+                    "kind": "taa_marbuta",
+                    "word": bare,
+                    "source": phone,
+                    "target": repaired,
+                    "reason": "spoken_msa_pausal_taa_marbuta",
+                })
+            else:
+                diagnostics.append({
+                    "kind": "taa_marbuta",
+                    "word": bare,
+                    "status": "no_final_at_pattern",
+                    "phoneme": phone,
+                })
+
+        elif bare.endswith("ت"):
+            diagnostics.append({
+                "kind": "taa_maftuha",
+                "word": bare,
+                "status": "protected_no_rewrite",
+                "phoneme": phone,
+            })
+        elif bare.endswith("ه"):
+            diagnostics.append({
+                "kind": "haa_final",
+                "word": bare,
+                "status": "protected_no_rewrite",
+                "phoneme": phone,
+            })
+        elif bare.endswith("ى"):
+            diagnostics.append({
+                "kind": "alif_maqsura",
+                "word": bare,
+                "status": "protected_no_rewrite",
+                "phoneme": phone,
+            })
+        elif bare.endswith("ي"):
+            diagnostics.append({
+                "kind": "yaa_final",
+                "word": bare,
+                "status": "protected_no_rewrite",
+                "phoneme": phone,
+            })
+
+    return " ".join(out), repairs, diagnostics
 
 
 SHORT_SENTENCES = (
@@ -375,6 +492,11 @@ def synthesize_passage(
             phonemes, _ = g2p(sentence)
             phonemes = clean_phonemes(phonemes)
             phonemes, repairs = repair_obvious_g2p_artifacts(phonemes)
+            phonemes, orthography_repairs, orthography_diagnostics = repair_spoken_msa_orthography(
+                sentence,
+                phonemes,
+            )
+            repairs.extend(orthography_repairs)
             phoneme_rows.append(phonemes)
             pronunciation_repairs.append(repairs)
             output = KPipeline.infer(
@@ -394,6 +516,7 @@ def synthesize_passage(
             edge_report["sentence_index"] = index + 1
             edge_report["text"] = sentence
             edge_report["phonemes"] = phonemes
+            edge_report["orthography_diagnostics"] = orthography_diagnostics
             reports.append(edge_report)
             chunks.append(chunk)
 
