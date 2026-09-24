@@ -1,0 +1,8 @@
+name = "isco-clean-v2-telegram-lite"
+main = "index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[vars]
+GITHUB_REPO = "mymusa79-tech/Isco-Video-Runner"
+ZERO_COST_MODE = "true"
