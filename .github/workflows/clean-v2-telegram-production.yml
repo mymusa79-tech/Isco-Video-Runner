@@ -1,0 +1,225 @@
+name: Clean V2 Telegram Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Immutable Telegram request id
+        required: true
+        type: string
+      request_sha256:
+        description: Immutable Telegram request hash
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clean-v2-telegram-production
+  cancel-in-progress: false
+
+jobs:
+  produce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      ISCO_ENGINE_SHA: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+      GEMINI_CONTENT_MODEL: gemini-3.7-flash
+      GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
+      GROQ_CONTENT_MODEL: openai/gpt-oss-20b
+      OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
+      MISTRAL_CONTENT_MODEL: ministral-14b-2512
+      CLOUDFLARE_VISION_FREE_ONLY: "true"
+      CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
+      STATE_BRANCH: clean-v2-telegram-state
+      STATE_FILE: state/telegram-clean-v2.json
+      PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      - name: Checkout exact Runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout frozen private Engine source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: mymusa79-tech/Isco-Video-Agent
+          ref: 3cbd689819e6b0e0b2ea9904d1998e24a5e2a293
+          token: ${{ secrets.PRIVATE_SOURCE_TOKEN }}
+          path: engine
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact Engine pin
+        run: test "$(git -C engine rev-parse HEAD)" = "$ISCO_ENGINE_SHA"
+
+      - name: Read dispatched request from simple state
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+        run: |
+          set -euo pipefail
+          state_root="$RUNNER_TEMP/clean-v2-telegram-production-state"
+          git clone --quiet --depth 1 --branch "$STATE_BRANCH" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" "$state_root"
+          state="$state_root/$STATE_FILE"
+          test -s "$state"
+
+          # The controller persists confirmed_pending_dispatch, asks GitHub to
+          # create this run, then commits status=dispatched. A newly-created
+          # production run can start a few seconds before that final state push.
+          # Wait only for that durable state transition; never proceed on the
+          # earlier confirmed state.
+          status=""
+          stored_sha=""
+          for attempt in $(seq 1 12); do
+            git -C "$state_root" fetch --quiet origin "$STATE_BRANCH"
+            git -C "$state_root" reset --quiet --hard "origin/$STATE_BRANCH"
+            status="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].status // empty' "$state")"
+            stored_sha="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].request_sha256 // empty' "$state")"
+            if [ "$status" = "dispatched" ] && [ "$stored_sha" = "$REQUEST_SHA256" ]; then
+              break
+            fi
+            sleep 2
+          done
+          test "$status" = "dispatched"
+          test "$stored_sha" = "$REQUEST_SHA256"
+          scope="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].scope // empty' "$state")"
+          case "$scope" in
+            long|bundle|short) ;;
+            *) echo "Unsupported Telegram request scope" >&2; exit 2 ;;
+          esac
+          echo "TELEGRAM_REQUEST_STATE=$state" >> "$GITHUB_ENV"
+          echo "TELEGRAM_REQUEST_SCOPE=$scope" >> "$GITHUB_ENV"
+          echo "CLEAN_V2_TELEGRAM_OUTPUT=$GITHUB_WORKSPACE/output/clean-v2-telegram/$REQUEST_ID" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install production dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y \
+            ffmpeg \
+            fonts-noto-core \
+            tesseract-ocr \
+            tesseract-ocr-ara \
+            espeak-ng \
+            libsndfile1
+          python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
+          python -m pip install --disable-pip-version-check --no-deps -e engine
+          python -m pip install --disable-pip-version-check \
+            --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install --disable-pip-version-check \
+            soundfile huggingface_hub 'misaki[en]>=0.9.4' \
+            'phonemizer-fork>=3.3.2' camel-tools
+          python -m pip install --disable-pip-version-check \
+            'kokoro @ git+https://github.com/Oddadmix/kokoro.git@df50e07df746aec0bd7a6f237752d7109ace0b3d'
+          camel_data -i disambig-mle-calima-msa-r13
+          curl -fsSL \
+            'https://gist.githubusercontent.com/Oddadmix/dc699f7942a9516ce29d4842c7aed756/raw/827b541c892a862f9ef3b44006a6e27b100d1bdd/arabic_g2p.py' \
+            -o scripts/arabic_g2p.py
+          test -s scripts/arabic_g2p.py
+
+      - name: Produce exact approved Telegram scope
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_SHA256: ${{ inputs.request_sha256 }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$CLEAN_V2_TELEGRAM_OUTPUT"
+
+          run_one() {
+            local fmt="$1"
+            local kind="$2"
+            local out="$CLEAN_V2_TELEGRAM_OUTPUT/$fmt"
+            local brief="$RUNNER_TEMP/telegram-$fmt-brief.json"
+
+            python scripts/telegram_clean_v2_control.py materialize-brief \
+              --state "$TELEGRAM_REQUEST_STATE" \
+              --request-id "$REQUEST_ID" \
+              --request-sha256 "$REQUEST_SHA256" \
+              --format "$fmt" \
+              --output "$brief"
+
+            local brief_sha
+            brief_sha="$(BRIEF="$brief" python - <<'PY'
+import json, os
+from pathlib import Path
+from clean_v2.contracts import compute_brief_sha256
+p=Path(os.environ["BRIEF"])
+print(compute_brief_sha256(json.loads(p.read_text(encoding="utf-8"))))
+PY
+)"
+            rm -rf "$out"
+            python scripts/telegram_clean_v2_notify.py watch --output "$out" --kind "$kind" --poll-seconds 4 &
+            local notify_pid=$!
+            cleanup_notify() {
+              kill "$notify_pid" 2>/dev/null || true
+              wait "$notify_pid" 2>/dev/null || true
+            }
+            trap cleanup_notify RETURN
+
+            set +e
+            python -m clean_v2 \
+              --brief "$brief" \
+              --approved-sha "$brief_sha" \
+              --engine-sha "$ISCO_ENGINE_SHA" \
+              --runner-sha "$GITHUB_SHA" \
+              --max-visuals 5 \
+              --output "$out"
+            local status=$?
+            set -e
+            cleanup_notify
+            trap - RETURN
+
+            local job_status="success"
+            if [ "$status" -ne 0 ]; then job_status="failure"; fi
+            python scripts/telegram_clean_v2_notify.py terminal \
+              --output "$out" \
+              --kind "$kind" \
+              --job-status "$job_status" \
+              --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
+
+            if [ "$status" -ne 0 ]; then return "$status"; fi
+            test -s "$out/final.mp4"
+            test "$(jq -r .status "$out/run-manifest.json")" = "pass"
+            test "$(jq -r .status "$out/final-master-qc.json")" = "pass"
+          }
+
+          case "$TELEGRAM_REQUEST_SCOPE" in
+            long)
+              run_one film long
+              ;;
+            short)
+              run_one short short
+              ;;
+            bundle)
+              run_one film long
+              run_one short short
+              ;;
+          esac
+
+      - name: Upload Telegram Clean V2 production evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: clean-v2-telegram-${{ github.run_number }}
+          path: ${{ github.workspace }}/output/clean-v2-telegram
+          if-no-files-found: warn
+          retention-days: 7
