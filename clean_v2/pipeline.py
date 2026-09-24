@@ -2059,6 +2059,19 @@ def _run_legacy_cinematic_layer(
             short_audio_polish_report,
         )
 
+    # Final CTA surface is local and deterministic: only the user-approved icon
+    # PNGs / original subscribe+bell clip / original click sound are allowed.
+    # It runs after any Short music bed so the click remains audible above music.
+    from clean_v2.visual_cta import apply_visual_cta_assets
+
+    visual_cta_report = apply_visual_cta_assets(
+        output_dir=output_dir,
+        final_path=final_path,
+        narration_path=narration_path,
+        script=script,
+        fmt=fmt,
+    )
+
     return {
         **report,
         "contextual_cta": {
@@ -2066,6 +2079,7 @@ def _run_legacy_cinematic_layer(
             "render_status": cta_report.get("render_status"),
             "provider_calls_added": cta_report.get("provider_calls_added"),
         },
+        "visual_cta": visual_cta_report,
         "short_timed_text": short_timed_text_report,
         "short_audio_polish": short_audio_polish_report,
     }
