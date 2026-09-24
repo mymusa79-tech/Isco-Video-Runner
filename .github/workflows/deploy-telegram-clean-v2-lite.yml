@@ -1,0 +1,142 @@
+name: Deploy Clean V2 Telegram Lite
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/telegram-clean-v2-lite/**"
+      - ".github/workflows/deploy-telegram-clean-v2-lite.yml"
+      - ".github/workflows/telegram-clean-v2-control.yml"
+      - ".github/workflows/clean-v2-telegram-production.yml"
+      - "scripts/telegram_clean_v2_control.py"
+  pull_request:
+    paths:
+      - "cloudflare/telegram-clean-v2-lite/**"
+      - ".github/workflows/deploy-telegram-clean-v2-lite.yml"
+      - ".github/workflows/telegram-clean-v2-control.yml"
+      - ".github/workflows/clean-v2-telegram-production.yml"
+      - "scripts/telegram_clean_v2_control.py"
+      - "scripts/test_telegram_clean_v2_control.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-clean-v2-telegram-lite
+  cancel-in-progress: false
+
+env:
+  WRANGLER_VERSION: "4.125.0"
+  ZERO_COST_MODE: "true"
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - name: Validate Lite worker and control contracts
+        run: |
+          set -euo pipefail
+          node --check cloudflare/telegram-clean-v2-lite/index.js
+          python -m py_compile scripts/telegram_clean_v2_control.py
+          python -m unittest -v scripts.test_telegram_clean_v2_control scripts.test_telegram_clean_v2_notify
+          python - <<'PY'
+import pathlib, tomllib
+data = tomllib.loads(pathlib.Path("cloudflare/telegram-clean-v2-lite/wrangler.toml.example").read_text(encoding="utf-8"))
+assert data.get("workers_dev") is True
+assert data.get("main") == "index.js"
+assert data.get("vars", {}).get("ZERO_COST_MODE") == "true"
+for forbidden in ("kv_namespaces", "d1_databases", "r2_buckets", "durable_objects", "queues"):
+    assert forbidden not in data
+PY
+          git diff --check origin/main...HEAD
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GITHUB_CONTROL_TOKEN: ${{ secrets.ISCO_GITHUB_CONTROL_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Validate required activation secrets
+        run: |
+          set -euo pipefail
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID GITHUB_CONTROL_TOKEN; do
+            test -n "${!name:-}" || { echo "::error::$name is missing"; exit 2; }
+          done
+
+      - name: Validate before deploy
+        run: |
+          set -euo pipefail
+          node --check cloudflare/telegram-clean-v2-lite/index.js
+          python -m unittest -v scripts.test_telegram_clean_v2_control scripts.test_telegram_clean_v2_notify
+
+      - name: Generate one deployment webhook secret
+        run: |
+          set -euo pipefail
+          secret="$(python - <<'PY'
+import secrets
+print(secrets.token_urlsafe(32))
+PY
+)"
+          echo "::add-mask::$secret"
+          echo "TELEGRAM_WEBHOOK_SECRET=$secret" >> "$GITHUB_ENV"
+
+      - name: Deploy zero-cost workers.dev endpoint
+        working-directory: cloudflare/telegram-clean-v2-lite
+        run: |
+          set -euo pipefail
+          cp wrangler.toml.example wrangler.toml
+          npx --yes "wrangler@$WRANGLER_VERSION" deploy --config wrangler.toml 2>&1 | tee "$RUNNER_TEMP/wrangler.log"
+          worker_url="$(grep -Eo 'https://[A-Za-z0-9._-]+\.workers\.dev' "$RUNNER_TEMP/wrangler.log" | tail -1 || true)"
+          test -n "$worker_url"
+          echo "WORKER_URL=$worker_url" >> "$GITHUB_ENV"
+
+      - name: Install Worker secrets
+        working-directory: cloudflare/telegram-clean-v2-lite
+        run: |
+          set -euo pipefail
+          put_secret() {
+            printf '%s' "$2" | npx --yes "wrangler@$WRANGLER_VERSION" secret put "$1" --config wrangler.toml >/dev/null
+          }
+          put_secret TELEGRAM_BOT_TOKEN "$TELEGRAM_BOT_TOKEN"
+          put_secret TELEGRAM_CHAT_ID "$TELEGRAM_CHAT_ID"
+          put_secret TELEGRAM_WEBHOOK_SECRET "$TELEGRAM_WEBHOOK_SECRET"
+          put_secret GITHUB_CONTROL_TOKEN "$GITHUB_CONTROL_TOKEN"
+
+      - name: Verify worker health and bind Telegram webhook
+        run: |
+          set -euo pipefail
+          health="$(curl --fail-with-body --silent --show-error "$WORKER_URL/health")"
+          printf '%s' "$health" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("phase") == "B"'
+          response="$(curl --fail-with-body --silent --show-error \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+            -H 'content-type: application/json' \
+            --data "$(python - <<'PY'
+import json, os
+print(json.dumps({
+    "url": os.environ["WORKER_URL"].rstrip("/") + "/telegram",
+    "secret_token": os.environ["TELEGRAM_WEBHOOK_SECRET"],
+    "allowed_updates": ["message", "callback_query"],
+    "drop_pending_updates": False,
+}))
+PY
+)")"
+          printf '%s' "$response" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("result") is True'
+          echo "Clean V2 Telegram Lite active at $WORKER_URL/telegram"
