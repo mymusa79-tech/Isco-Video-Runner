@@ -38,6 +38,8 @@ PRONUNCIATION_PATCHES = (
     ("tˌakaˈuːna", "takˈuːna", "تكون"),
     ("jˌataħaˈuːal", "jˌataħˈawːal", "يتحول"),
     ("faħˈaiˌaːt", "falħˈaiˌaːt", "فالحياة"),
+    ("χˈatːatt", "χˈatːatta", "خططتَ"),
+    ("tˌaqadːˈumakˌa", "tˌaqadːˈumak", "تقدمك في الوقف"),
 )
 
 def repair_obvious_g2p_artifacts(phonemes: str) -> tuple[str, list[dict]]:
@@ -175,7 +177,7 @@ def repair_spoken_msa_orthography(
 
 
 SHORT_SENTENCES = (
-    "بَعْضُ الأَيّام لا تَسير كَما خَطَّطْت.",
+    "بَعْضُ الأَيّام لا تَسير كَما خَطَّطْتَ.",
     "وَهَذا لا يَعْني أَنَّكَ خَسِرْت تَقَدُّمَك.",
     "أَصْلِح ما تَسْتَطيع، وَاتْرُك ما لا تَسْتَطيع تَغْييرَه الآن.",
     "ثُمَّ عُد إِلى خُطْوَتِك التّالِيَة بِهُدوء.",
