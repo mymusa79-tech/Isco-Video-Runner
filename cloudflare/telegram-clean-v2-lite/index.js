@@ -51,10 +51,22 @@ function webhookSecretValid(request, env) {
 function scopeKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "🎬 Long فقط", callback_data: "scope:long" }],
-      [{ text: "🎬➕⚡ Long + Short", callback_data: "scope:bundle" }],
-      [{ text: "⚡ Short فقط", callback_data: "scope:short" }],
+      [{ text: "🎬 طويل فقط", callback_data: "scope:long" }],
+      [{ text: "🎬 طويل + ⚡ شورت", callback_data: "scope:bundle" }],
+      [{ text: "⚡ شورت فقط", callback_data: "scope:short" }],
     ],
+  };
+}
+
+function arabicMainKeyboard() {
+  return {
+    keyboard: [
+      [{ text: "🔎 بحث جديد" }, { text: "📊 الإحصائيات" }],
+      [{ text: "🟢 حالة الإنتاج" }, { text: "🎥 آخر إنتاج" }],
+      [{ text: "❌ إلغاء الاختيار" }],
+    ],
+    resize_keyboard: true,
+    is_persistent: true,
   };
 }
 
@@ -69,6 +81,12 @@ async function sendWelcome(env, chatId) {
       "الاختيار وحده لا يبدأ أي إنتاج.\n" +
       "📊 للإحصائيات استخدم /stats.\n" +
       "🔎 للبحث استخدم /research.",
+    reply_markup: arabicMainKeyboard(),
+  });
+
+  await telegram(env, "sendMessage", {
+    chat_id: chatId,
+    text: "ابدأ من القائمة العربية بالأسفل، أو اختر نوع المحتوى للبحث:",
     reply_markup: scopeKeyboard(),
   });
 }
@@ -144,23 +162,23 @@ function isStartText(text) {
 }
 
 function isResearchText(text) {
-  return ["/menu", "menu", "/research", "research", "بحث"].includes(String(text || "").trim());
+  return ["/menu", "menu", "/research", "research", "بحث", "🔎 بحث جديد"].includes(String(text || "").trim());
 }
 
 function isCancelText(text) {
-  return ["/cancel", "cancel", "إلغاء", "الغاء"].includes(String(text || "").trim());
+  return ["/cancel", "cancel", "إلغاء", "الغاء", "❌ إلغاء الاختيار"].includes(String(text || "").trim());
 }
 
 function isLastText(text) {
-  return ["/last", "last", "آخر إنتاج", "اخر انتاج"].includes(String(text || "").trim());
+  return ["/last", "last", "آخر إنتاج", "اخر انتاج", "🎥 آخر إنتاج"].includes(String(text || "").trim());
 }
 
 function isStatusText(text) {
-  return ["/status", "status", "الحالة", "حالة الإنتاج", "حاله الانتاج"].includes(String(text || "").trim());
+  return ["/status", "status", "الحالة", "حالة الإنتاج", "حاله الانتاج", "🟢 حالة الإنتاج"].includes(String(text || "").trim());
 }
 
 function isStatsText(text) {
-  return ["/stats", "stats", "إحصائيات", "الاحصائيات", "الإحصائيات"].includes(String(text || "").trim());
+  return ["/stats", "stats", "إحصائيات", "الاحصائيات", "الإحصائيات", "📊 الإحصائيات"].includes(String(text || "").trim());
 }
 
 export default {
