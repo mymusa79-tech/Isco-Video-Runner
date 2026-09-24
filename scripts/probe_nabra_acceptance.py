@@ -117,7 +117,10 @@ def repair_spoken_msa_orthography(
                 bool(next_bare)
                 and not boundary_after
                 and not bare.startswith("ال")
-                and next_bare.startswith("ال")
+                and (
+                    next_bare.startswith("ال")
+                    or (bare == "لحظة" and next_bare == "حماس")
+                )
             )
             if clear_construct:
                 diagnostics.append({
@@ -651,9 +654,9 @@ def main() -> int:
         g2p=verified_g2p,
         sentences=SHORT_SENTENCES,
         pauses_ms=SHORT_PAUSES_MS,
-        onset_fade_ms=14,
-        pre_release_soften_ms=65,
-        pre_release_floor=0.86,
+        onset_fade_ms=20,
+        pre_release_soften_ms=85,
+        pre_release_floor=0.82,
     )
     short_raw = output / "01-nabra-new-short-smooth-raw.wav"
     short_mix = output / "02-nabra-new-short-smooth-mix-ready.wav"
@@ -666,9 +669,9 @@ def main() -> int:
         g2p=verified_g2p,
         sentences=LONG_SENTENCES,
         pauses_ms=LONG_PAUSES_MS,
-        onset_fade_ms=9,
-        pre_release_soften_ms=45,
-        pre_release_floor=0.90,
+        onset_fade_ms=14,
+        pre_release_soften_ms=65,
+        pre_release_floor=0.86,
     )
     long_raw = output / "03-nabra-long-validation-smooth-raw.wav"
     long_mix = output / "04-nabra-long-validation-smooth-mix-ready.wav"
@@ -686,10 +689,10 @@ def main() -> int:
             "frame_ms": 10,
             "pre_roll_ms": 12,
             "post_roll_ms": 180,
-            "short_onset_fade_ms": 14,
-            "long_onset_fade_ms": 9,
-            "short_pre_release_soften_ms": 65,
-            "long_pre_release_soften_ms": 45,
+            "short_onset_fade_ms": 20,
+            "long_onset_fade_ms": 14,
+            "short_pre_release_soften_ms": 85,
+            "long_pre_release_soften_ms": 65,
             "release_hold_ms": 35,
             "release_fade_ms": 110,
             "principle": (
