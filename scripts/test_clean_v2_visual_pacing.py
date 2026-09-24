@@ -833,9 +833,10 @@ class PipelineWiringTests(unittest.TestCase):
 
             visuals = _RecordingVisuals()
             visual_qa = _RecordingVisualQA()
-            # Runtime identity gives the first section one extra measured hook chunk.
-            # This fixture returns a fixed 26s per synth call, so its synthetic total
-            # becomes 156s (6 * 26s) while the real provider remains text-duration-owned.
+            # Timeline First synthesizes multiple measured semantic voice units
+            # (hook/prayer/channel identity/topic/outro). This fixture returns a fixed
+            # 26s per synth call; the test must follow the measured voice-owned timeline,
+            # not a historical hard-coded synth-call count.
             long_voice = _LongFakeVoice(26.0)
             pipeline = CleanV2Pipeline(
                 router=_FakeRouter(),
@@ -872,7 +873,15 @@ class PipelineWiringTests(unittest.TestCase):
             self.assertEqual(set(received), {"s1", "s2", "s3", "s4", "s5"})
             for seconds in received.values():
                 self.assertGreater(seconds, 0.0)
-            self.assertAlmostEqual(sum(received.values()), 156.0, places=3)
+            timeline = json.loads(
+                (output / "timeline-first.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(timeline["timeline_owner"], "measured_charon_voice")
+            self.assertAlmostEqual(
+                sum(received.values()),
+                float(timeline["voice_seconds_measured"]),
+                places=3,
+            )
             # Not a flat 26.0s-each split: sections have different narration
             # lengths, so their shares differ.
             self.assertGreater(max(received.values()) - min(received.values()), 1.0)
