@@ -460,6 +460,16 @@ class ShortContractTests(unittest.TestCase):
         ):
             validate_short_script(only_forbidden_payoff)
 
+    def test_pipeline_reapplies_safe_s3_trim_after_text_repair(self) -> None:
+        source = inspect.getsource(pipeline_module.CleanV2Pipeline.run)
+        post_repair = source.split(
+            "# A successful bounded repair mutates script.json in place.",
+            1,
+        )[1].split("identity_runtime =", 1)[0]
+        trim_index = post_repair.index("apply_safe_short_s3_single_action_trim(script)")
+        validate_index = post_repair.index("validate_short_script(script)")
+        self.assertLess(trim_index, validate_index)
+
     def test_pipeline_applies_safe_s3_action_trim_before_acceptance(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
