@@ -2492,7 +2492,9 @@ IDENTITY_SEQUENCE is runtime-owned and must be respected by the plan: the first 
 always the hook; immediately after that hook the approved visual intro is inserted; narration then
 continues with the approved prayer sentence, one short channel-definition sentence, and only then
 the topic/body. Do not plan any greeting, prayer, channel introduction, or extra preamble before the
-hook, and do not duplicate those identity lines inside section purpose text.
+hook, and do not duplicate those identity lines inside section purpose text. The approved Outro is
+renderer-owned and appended after the completed content, so keep the final topic beat complete and do not
+plan any extra CTA or identity material for after the Outro.
 
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
 share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
@@ -2571,7 +2573,8 @@ a greeting, prayer sentence, or channel introduction yourself: after script vali
 inserts exactly one approved prayer sentence and one channel-definition sentence immediately after
 the hook, and the approved visual intro is later inserted between the hook and that prayer. Therefore
 the next topic sentence you write must resume naturally after a short identity beat, without phrases
-such as "كما قلت" or references that assume uninterrupted speech.
+such as "كما قلت" or references that assume uninterrupted speech. The approved Outro is appended
+by the renderer after the completed narration; finish the topic naturally before that boundary.
 
 {short_context}
 
