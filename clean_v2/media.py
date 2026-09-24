@@ -1329,31 +1329,68 @@ class StockVisualSource:
         rights: list[dict[str, Any]] = []
         sections = list(plan.get("sections") or [])[: max(1, int(max_visuals))]
 
-        short_ai_still: Path | None = None
-        short_ai_still_used = False
-        if fmt == "short":
-            short_ai_still, still_reason = _validated_local_short_ai_still()
-            if still_reason:
-                self._event(
-                    "local_ai_still",
-                    "",
-                    "unavailable",
-                    wire_attempted=False,
-                    reason=still_reason,
+        # One provider-backed visual per semantic beat. The beat list is shared by
+        # long and short formats and is produced during Planning. The current
+        # section_estimated_seconds input is intentionally ignored for scene count;
+        # it is retained in the method signature only for Phase-A compatibility and
+        # later render-time allocation.
+        del section_estimated_seconds
+        section_by_id = {
+            str(section.get("id") or ""): section
+            for section in sections
+            if isinstance(section, Mapping)
+        }
+        raw_story = plan.get("visual_story")
+        raw_beats = (
+            list(raw_story.get("beats") or [])
+            if isinstance(raw_story, Mapping)
+            else []
+        )
+        beats: list[dict[str, Any]] = []
+        for index, raw_beat in enumerate(raw_beats, start=1):
+            if not isinstance(raw_beat, Mapping):
+                continue
+            section_id = str(raw_beat.get("section_id") or "").strip()
+            if section_id not in section_by_id:
+                continue
+            shot_intent = str(raw_beat.get("shot_intent") or "").strip()
+            if not shot_intent:
+                shot_intent = str(
+                    section_by_id[section_id].get("visual_query_en") or ""
+                ).strip()
+            beats.append(
+                {
+                    "id": str(raw_beat.get("id") or f"b{index}").strip(),
+                    "section_id": section_id,
+                    "viewer_intent": str(raw_beat.get("viewer_intent") or "").strip(),
+                    "shot_intent": shot_intent,
+                    "source_preference": str(
+                        raw_beat.get("source_preference") or "stock_motion"
+                    ).strip(),
+                }
+            )
+
+        # Compatibility path for old plans/tests that predate visual-story.json:
+        # exactly one semantic beat per section, never duration-derived splitting.
+        if not beats:
+            for index, section in enumerate(sections, start=1):
+                beats.append(
+                    {
+                        "id": f"b{index}",
+                        "section_id": str(section.get("id") or ""),
+                        "viewer_intent": str(section.get("purpose") or "").strip(),
+                        "shot_intent": str(section.get("visual_query_en") or "").strip(),
+                        "source_preference": "stock_motion",
+                    }
                 )
 
-        short_shots_by_section: dict[str, int] = {}
-        if fmt == "short" and len(sections) == 3:
-            # Exactly two provider-backed assets per section at most. Richer
-            # 7-9 shot pacing is created later from these same approved assets
-            # locally, so provider and Vision load does not scale with shot count.
-            short_shots_by_section = {
-                str(section.get("id") or ""): 2
-                for section in sections
-                if isinstance(section, Mapping)
-            }
-
-        def _acquire_one(query: str, section_id: str, *, auxiliary: bool) -> bool:
+        def _acquire_one(
+            query: str,
+            section_id: str,
+            beat: Mapping[str, Any],
+            *,
+            auxiliary: bool,
+        ) -> bool:
             for finder in (self._pexels, self._pixabay):
                 candidate = finder(query, portrait=portrait)
                 if candidate is None:
@@ -1403,124 +1440,37 @@ class StockVisualSource:
                 }
                 candidate["local_file"] = destination.name
                 candidate["section_id"] = section_id
+                candidate["beat_id"] = str(beat.get("id") or "")
+                candidate["viewer_intent"] = str(beat.get("viewer_intent") or "")
+                candidate["shot_intent"] = str(beat.get("shot_intent") or query)
+                # Marker only. Even ai_still preference still uses the current
+                # stock-motion source in Phase B; no AI-image provider is activated.
+                candidate["source_preference"] = str(
+                    beat.get("source_preference") or "stock_motion"
+                )
+                candidate["source_actual"] = "stock_motion"
                 if auxiliary:
+                    # Keep this compatibility flag because existing render/opening
+                    # code uses it to distinguish the first section visual. Its cause
+                    # is now a real story beat, not timing-based pacing.
                     candidate["pacing_auxiliary"] = True
+                    candidate["story_beat_auxiliary"] = True
                 clips.append(destination)
                 rights.append(candidate)
                 return True
             return False
 
-        def _acquire_local_ai_still(section_id: str) -> bool:
-            nonlocal short_ai_still_used
-            if short_ai_still is None or short_ai_still_used:
-                return False
-            destination = output_dir / f"visual-{len(clips) + 1:02d}.mp4"
-            try:
-                _render_local_short_ai_still(short_ai_still, destination)
-                if self.media_preflight is not None:
-                    blocked = self.media_preflight(destination)
-                    if blocked is not None:
-                        destination.unlink(missing_ok=True)
-                        self._event(
-                            "local_ai_still",
-                            "",
-                            "security_blocked",
-                            wire_attempted=False,
-                            reason=str(blocked.get("local_media_rejection") or "security_v1_block")[:80],
-                        )
-                        return False
-                color_ok, color_reason = _short_visual_color_compatible(destination)
-                if not color_ok:
-                    destination.unlink(missing_ok=True)
-                    self._event(
-                        "local_ai_still",
-                        "",
-                        "color_rejected",
-                        wire_attempted=False,
-                        reason=color_reason,
-                    )
-                    return False
-                if self.media_transform is not None:
-                    destination = Path(self.media_transform(destination))
-            except Exception as exc:
-                destination.unlink(missing_ok=True)
-                self._event(
-                    "local_ai_still",
-                    "",
-                    "failed",
-                    wire_attempted=False,
-                    reason=str(exc)[:80],
-                )
-                return False
-
-            short_ai_still_used = True
-            clips.append(destination)
-            rights.append(
-                {
-                    "provider": "generated_local_ai_still",
-                    "asset_id": _sha256(short_ai_still)[:16],
-                    "source_url": None,
-                    "creator": "local user-provided AI still",
-                    "creator_url": None,
-                    "query": None,
-                    "local_file": destination.name,
-                    "section_id": section_id,
-                    "pacing_auxiliary": True,
-                    "generation_cost": 0,
-                    "network_generation_calls": 0,
-                }
-            )
-            self._event(
-                "local_ai_still",
-                "",
-                "selected",
-                wire_attempted=False,
-                reason="zero_cost_local_insert",
-            )
-            return True
-
-        for section in sections:
-            query = str(section.get("visual_query_en") or "").strip()
-            alt_query = str(section.get("visual_query_alt_en") or "").strip()
+        seen_sections: set[str] = set()
+        for beat in beats:
+            section_id = str(beat.get("section_id") or "")
+            query = str(beat.get("shot_intent") or "").strip()
             if not query:
                 continue
             if self.query_normalizer is not None:
                 query = self.query_normalizer(query)
-                if alt_query:
-                    alt_query = self.query_normalizer(alt_query)
-            section_id = str(section.get("id") or "")
-            if not _acquire_one(query, section_id, auxiliary=False):
-                continue
-
-            section_seconds = (
-                section_estimated_seconds.get(section_id)
-                if section_estimated_seconds is not None
-                else None
-            )
-            if fmt == "short":
-                # Two intents come from the same Planning call and produce at
-                # most two provider-backed assets for this section. Any third
-                # rendered beat is a local edit reuse, never another search/QA call.
-                shots = short_shots_by_section.get(section_id, 1)
-                extra_queries = [alt_query or query]
-                for extra_index in range(max(0, shots - 1)):
-                    if section_id == "s2" and extra_index == 0 and _acquire_local_ai_still(section_id):
-                        continue
-                    selected_query = extra_queries[extra_index % len(extra_queries)]
-                    if not _acquire_one(selected_query, section_id, auxiliary=True):
-                        break
-            elif section_seconds is not None and section_seconds > PACING_MAX_SHOT_SECONDS:
-                # Longer formats retain the existing narration-weighted pacing
-                # expansion and its original 3.5s / max-3 bounds.
-                shots = min(
-                    PACING_MAX_SHOTS_PER_SECTION,
-                    math.ceil(section_seconds / PACING_MAX_SHOT_SECONDS),
-                )
-                while shots > 1 and (section_seconds / shots) < PACING_MIN_SHOT_SECONDS:
-                    shots -= 1
-                for _ in range(shots - 1):
-                    if not _acquire_one(query, section_id, auxiliary=True):
-                        break
+            auxiliary = section_id in seen_sections
+            if _acquire_one(query, section_id, beat, auxiliary=auxiliary):
+                seen_sections.add(section_id)
 
         if not clips:
             fallback = output_dir / "visual-fallback.mp4"
