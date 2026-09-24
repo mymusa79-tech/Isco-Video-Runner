@@ -29,7 +29,7 @@ from kokoro import pipeline as kpipeline_mod
 REPO_ID = "oddadmix/Nabra-82M-v0.1"
 SAMPLE_RATE = 24000
 NATIVE_SPEED = 0.94
-NATIVE_PROSODY_SPEED = 0.84
+NATIVE_PROSODY_SPEED = 0.87
 
 # Manually corrected MSA tashkeel. This intentionally bypasses Camel's wrong
 # guesses seen in the first probe (e.g. أَنَّ, أَبْدَأ, فِرَقًا).
@@ -278,6 +278,39 @@ def infer_with_native_pause_duration_boost(
         pred_dur.detach().cpu(),
         changes,
     )
+
+
+def trim_boundary_noise_with_padding(
+    audio: np.ndarray,
+    *,
+    threshold_db: float = -45.0,
+    protect_ms: int = 50,
+) -> tuple[np.ndarray, dict]:
+    """Trim only low-level leading/trailing boundary noise, preserving attacks.
+
+    Mirrors Kokoro-FastAPI's production normalization idea: find the first and
+    last sample clearly above a low dBFS floor, then keep 50 ms of protective
+    audio on both sides. This removes synthetic phrase-edge hiss without
+    trimming into Arabic consonant attacks.
+    """
+    if audio.size == 0:
+        return audio, {"trimmed_start_ms": 0.0, "trimmed_end_ms": 0.0}
+
+    threshold = float(10 ** (threshold_db / 20.0))
+    active = np.flatnonzero(np.abs(audio) > threshold)
+    if active.size == 0:
+        return audio, {"trimmed_start_ms": 0.0, "trimmed_end_ms": 0.0}
+
+    protect = int(SAMPLE_RATE * protect_ms / 1000.0)
+    start = max(0, int(active[0]) - protect)
+    end = min(int(audio.size), int(active[-1]) + protect + 1)
+    trimmed = audio[start:end].astype(np.float32, copy=True)
+    return trimmed, {
+        "threshold_db": threshold_db,
+        "protect_ms": protect_ms,
+        "trimmed_start_ms": round(start * 1000.0 / SAMPLE_RATE, 2),
+        "trimmed_end_ms": round((audio.size - end) * 1000.0 / SAMPLE_RATE, 2),
+    }
 
 
 def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
@@ -600,6 +633,50 @@ def main() -> int:
     pause_token_final_path = output / "21-nabra-native-pause-tokens-mix-ready.wav"
     mix_ready(pause_token_raw_path, pause_token_final_path)
 
+    # Final listener-guided candidate: restore the natural sentence-level
+    # pacing of the original Paced sample while preserving the now-approved
+    # lexical phonemes and 0.87 native speed. Each phrase edge is normalized
+    # with protected silence trimming before deterministic semantic pauses.
+    sentence_phonemes = patched_phonemes.split(". ")
+    if len(sentence_phonemes) != len(SEGMENTS):
+        raise RuntimeError(
+            f"expected {len(SEGMENTS)} sentence phoneme chunks, got {len(sentence_phonemes)}"
+        )
+    sentence_phonemes = [
+        value if value.endswith(".") else value + "."
+        for value in sentence_phonemes
+    ]
+
+    final_chunks: list[np.ndarray] = []
+    boundary_trims: list[dict] = []
+    final_segment_started = time.perf_counter()
+    with torch.inference_mode():
+        for index, phoneme_chunk in enumerate(sentence_phonemes):
+            chunk_output = KPipeline.infer(
+                model,
+                phoneme_chunk,
+                voice.to(model.device),
+                speed=NATIVE_PROSODY_SPEED,
+            )
+            chunk_audio = chunk_output.audio.detach().cpu().numpy().astype(np.float32)
+            chunk_audio, trim_report = trim_boundary_noise_with_padding(chunk_audio)
+            trim_report["sentence_index"] = index + 1
+            trim_report["phonemes"] = phoneme_chunk
+            boundary_trims.append(trim_report)
+            final_chunks.append(chunk_audio)
+    final_segment_seconds = time.perf_counter() - final_segment_started
+
+    final_segmented_audio = add_silence(final_chunks, PAUSES_MS)
+    final_segmented_raw_path = output / "26-nabra-final-natural-pauses-raw.wav"
+    sf.write(
+        final_segmented_raw_path,
+        final_segmented_audio,
+        SAMPLE_RATE,
+        subtype="PCM_16",
+    )
+    final_segmented_mix_path = output / "27-nabra-final-natural-pauses-mix-ready.wav"
+    mix_ready(final_segmented_raw_path, final_segmented_mix_path)
+
     duration_boost_started = time.perf_counter()
     duration_boost_audio, duration_boost_pred_dur, duration_boost_changes = (
         infer_with_native_pause_duration_boost(
@@ -740,6 +817,13 @@ def main() -> int:
         "native_pause_tokens_synthesis_seconds": round(pause_token_seconds, 3),
         "native_pause_tokens_raw_wav": wav_info(pause_token_raw_path),
         "native_pause_tokens_mix_ready_wav": wav_info(pause_token_final_path),
+        "final_natural_pause_speed": NATIVE_PROSODY_SPEED,
+        "final_natural_pause_phonemes": sentence_phonemes,
+        "final_natural_pause_ms": PAUSES_MS,
+        "final_natural_pause_boundary_trims": boundary_trims,
+        "final_natural_pause_synthesis_seconds": round(final_segment_seconds, 3),
+        "final_natural_pause_raw_wav": wav_info(final_segmented_raw_path),
+        "final_natural_pause_mix_ready_wav": wav_info(final_segmented_mix_path),
         "native_duration_pause_same_phonemes": pause_token_phonemes,
         "native_duration_pause_speed": NATIVE_PROSODY_SPEED,
         "native_duration_pause_single_inference": True,
@@ -781,11 +865,14 @@ def main() -> int:
             "native-punctuation sample changes punctuation tokens only; lexical phonemes are invariant",
             "native-punctuation sample has zero waveform splices and zero post-generation silence insertion",
             "native-punctuation sample is one continuous inference call, preventing repeated sentence onsets",
-            "native-calm sample uses the exact same phonemes and punctuation at model speed 0.84",
+            "native-calm sample uses the exact same phonemes and punctuation at model speed 0.87",
             "native-calm sample has no atempo, no waveform splice, and no sentence-by-sentence synthesis",
             "native-pause-token sample changes punctuation tokens only and stays one continuous inference",
             "native-pause-token sample has zero waveform edits and therefore cannot introduce splice cuts",
-            "native-duration-pause sample preserves the accepted phoneme string, voice, and speed 0.84",
+            "final-natural-pause sample restores sentence-level Paced generation at native speed 0.87",
+            "final-natural-pause boundary cleanup uses -45 dBFS detection with 50 ms protected context before exact semantic pauses",
+            "final-natural-pause keeps the approved patched phonemes, including the الدافع pronunciation fix",
+            "native-duration-pause sample preserves the accepted phoneme string, voice, and speed 0.87",
             "native-duration-pause sample extends punctuation pred_dur before alignment/decoder; no waveform editing",
             "native-structural sample uses Kokoro punctuation tokens only, including em-dash structural beats",
             "native-structural sample has zero waveform edits and one continuous inference call",
