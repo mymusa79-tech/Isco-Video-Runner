@@ -426,6 +426,23 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertIn("3 قنوات مختلفة", rendered)
         self.assertNotIn("عينات", rendered)
 
+    def test_selection_confirmation_shows_two_sources_before_confirmation(self):
+        request = {
+            "scope": "long",
+            "approved_topic": "موضوع",
+            "research_pack": [
+                {"source_title": "مصدر أول", "source_url": "https://youtu.be/1"},
+                {"source_title": "مصدر ثان", "source_url": "https://youtu.be/2"},
+                {"source_title": "مصدر ثالث", "source_url": "https://youtu.be/3"},
+            ],
+        }
+        text = control.render_selection_confirmation(request)
+        self.assertIn("مصدر أول", text)
+        self.assertIn("https://youtu.be/1", text)
+        self.assertIn("مصدر ثان", text)
+        self.assertNotIn("مصدر ثالث", text)
+        self.assertIn(control.CONFIRM_TEXT, text)
+
 
 if __name__ == "__main__":
     unittest.main()

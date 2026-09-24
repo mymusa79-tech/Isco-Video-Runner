@@ -855,6 +855,32 @@ def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, 
     return "\n".join(lines), rows
 
 
+def render_selection_confirmation(request: dict[str, Any]) -> str:
+    scope_label = {"long": "فيديو طويل فقط", "bundle": "فيديو طويل + شورت", "short": "شورت فقط"}[str(request["scope"])]
+    pack = [item for item in request.get("research_pack", []) if isinstance(item, dict)]
+    lines = [
+        "✅ تم اختيار الفكرة وحفظ مصادر البحث",
+        "",
+        f"الموضوع: {request['approved_topic']}",
+        f"النطاق: {scope_label}",
+    ]
+    if pack:
+        lines.extend(["", "🔎 أهم المصادر قبل التأكيد:"])
+        for index, source in enumerate(pack[:2], 1):
+            lines.append(f"{index}) {str(source.get('source_title') or 'مصدر')}")
+            url = str(source.get("source_url") or "").strip()
+            if url:
+                lines.append(f"   {url}")
+    lines.extend(
+        [
+            "",
+            "لم يبدأ الإنتاج بعد.",
+            f"إذا كان القرار نهائيًا أرسل حرفيًا:\n{CONFIRM_TEXT}",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _actor_chat(update: dict[str, Any]) -> tuple[str, str]:
     callback = update.get("callback_query")
     if isinstance(callback, dict):
@@ -903,15 +929,7 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             except Exception:
                 send_telegram("⚠️ هذا الاختيار لم يعد صالحًا. اطلب /research من جديد.")
                 return
-            pack_count = len(request.get("research_pack") or [])
-            scope_label = {"long": "Long فقط", "bundle": "Long + Short", "short": "Short فقط"}[request["scope"]]
-            send_telegram(
-                "✅ تم اختيار الفكرة وحفظ Research Pack\n\n"
-                f"الموضوع: {request['approved_topic']}\n"
-                f"النطاق: {scope_label}\n"
-                f"مصادر الدليل: {pack_count}\n\n"
-                f"لم يبدأ الإنتاج. إذا كان القرار نهائيًا أرسل حرفيًا:\n{CONFIRM_TEXT}"
-            )
+            send_telegram(render_selection_confirmation(request))
             return
         raise RuntimeError("unsupported callback")
 
