@@ -393,6 +393,7 @@ def smooth_sentence_edges(
     *,
     pred_dur: torch.LongTensor | None = None,
     threshold_db: float = -34.0,
+    end_threshold_db: float = -42.0,
     frame_ms: int = 10,
     pre_roll_ms: int = 12,
     post_roll_ms: int = 180,
@@ -418,16 +419,22 @@ def smooth_sentence_edges(
 
     frame = max(1, int(SAMPLE_RATE * frame_ms / 1000.0))
     rms = _frame_rms(audio, frame)
-    threshold = float(10 ** (threshold_db / 20.0))
-    active_frames = np.flatnonzero(rms > threshold)
-    if active_frames.size == 0:
+    start_threshold = float(10 ** (threshold_db / 20.0))
+    end_threshold = float(10 ** (end_threshold_db / 20.0))
+    start_active_frames = np.flatnonzero(rms > start_threshold)
+    end_active_frames = np.flatnonzero(rms > end_threshold)
+    if start_active_frames.size == 0 or end_active_frames.size == 0:
         return audio.astype(np.float32, copy=True), {
             "status": "no_active_frames",
             "threshold_db": threshold_db,
+        "end_threshold_db": end_threshold_db,
+            "end_threshold_db": end_threshold_db,
         }
 
-    speech_start = int(active_frames[0] * frame)
-    speech_end = min(int(audio.size), int((active_frames[-1] + 1) * frame))
+    speech_start = int(start_active_frames[0] * frame)
+    # Preserve quiet final consonant releases that fall below the onset threshold.
+    # This prevents stop/fricative endings such as ك/ف/ت from being treated as tail noise.
+    speech_end = min(int(audio.size), int((end_active_frames[-1] + 1) * frame))
 
     pre = int(SAMPLE_RATE * pre_roll_ms / 1000.0)
     post = int(SAMPLE_RATE * post_roll_ms / 1000.0)
@@ -654,9 +661,9 @@ def main() -> int:
         g2p=verified_g2p,
         sentences=SHORT_SENTENCES,
         pauses_ms=SHORT_PAUSES_MS,
-        onset_fade_ms=20,
-        pre_release_soften_ms=85,
-        pre_release_floor=0.82,
+        onset_fade_ms=24,
+        pre_release_soften_ms=100,
+        pre_release_floor=0.80,
     )
     short_raw = output / "01-nabra-new-short-smooth-raw.wav"
     short_mix = output / "02-nabra-new-short-smooth-mix-ready.wav"
@@ -669,9 +676,9 @@ def main() -> int:
         g2p=verified_g2p,
         sentences=LONG_SENTENCES,
         pauses_ms=LONG_PAUSES_MS,
-        onset_fade_ms=14,
-        pre_release_soften_ms=65,
-        pre_release_floor=0.86,
+        onset_fade_ms=20,
+        pre_release_soften_ms=90,
+        pre_release_floor=0.82,
     )
     long_raw = output / "03-nabra-long-validation-smooth-raw.wav"
     long_mix = output / "04-nabra-long-validation-smooth-mix-ready.wav"
@@ -689,10 +696,11 @@ def main() -> int:
             "frame_ms": 10,
             "pre_roll_ms": 12,
             "post_roll_ms": 180,
-            "short_onset_fade_ms": 20,
-            "long_onset_fade_ms": 14,
-            "short_pre_release_soften_ms": 85,
-            "long_pre_release_soften_ms": 65,
+            "short_onset_fade_ms": 24,
+            "long_onset_fade_ms": 20,
+            "short_pre_release_soften_ms": 100,
+            "long_pre_release_soften_ms": 90,
+            "end_threshold_db": -42.0,
             "release_hold_ms": 35,
             "release_fade_ms": 110,
             "principle": (
