@@ -18,12 +18,15 @@ from clean_v2.pipeline import (
     _run_legacy_tone_naturalness_audit,
     _run_one_bounded_tone_repair,
     _run_text_audits,
+    _tone_repair_prompt,
+    _validate_and_apply_script_patches,
 )
 from clean_v2.tone_audit import (
     TONE_AUDIT_SCHEMA,
     _mistral_tone_call,
     _scope_clean_v2_tone_prompt,
     _scope_religious_quote_prompt,
+    _enforce_hook_quality_contract,
 )
 
 
@@ -38,6 +41,10 @@ def _tone_result(*, status: str = "pass", validation: str = "valid") -> dict:
         "naturalness_flags": [],
         "narrative_format_flags": [],
         "unverified_religious_quote_flags": [],
+        "hook_specificity": True,
+        "hook_honesty": True,
+        "hook_curiosity": True,
+        "hook_genericness": False,
         "notes": [],
     }
 
@@ -54,6 +61,10 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                 "naturalness_flags",
                 "narrative_format_flags",
                 "unverified_religious_quote_flags",
+                "hook_specificity",
+                "hook_honesty",
+                "hook_curiosity",
+                "hook_genericness",
                 "notes",
             },
         )
@@ -81,8 +92,126 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(captured["task_kind"], "text_audit")
         self.assertEqual(captured["temperature"], 0.1)
         name, schema = captured["response_schema"]
-        self.assertEqual(name, "clean_v2_tone_naturalness_audit_v1")
+        self.assertEqual(name, "clean_v2_tone_naturalness_audit_v2")
         self.assertIs(schema, TONE_AUDIT_SCHEMA)
+
+    def test_hook_quality_prompt_adds_same_call_editorial_dimensions(self):
+        base = (
+            "5. Unverified religious quotations: flag any religious quotation or attribution presented as authoritative unless the\n"
+            "   approved research context directly supports it as verified. Judge this semantically - do not rely only on a fixed\n"
+            "   list of marker phrases."
+        )
+        scoped = _scope_clean_v2_tone_prompt(base)
+        for field in (
+            "hook_specificity",
+            "hook_honesty",
+            "hook_curiosity",
+            "hook_genericness",
+        ):
+            self.assertIn(field, scoped)
+        self.assertIn("calm hooks are fully acceptable", scoped)
+        self.assertIn("dozens of unrelated videos", scoped)
+        self.assertIn("SAME audit response", scoped)
+
+    def test_generic_hook_example_is_rejected(self):
+        payload = _tone_result()
+        payload.update(
+            {
+                "hook_specificity": False,
+                "hook_honesty": False,
+                "hook_curiosity": False,
+                "hook_genericness": True,
+                "notes": ["hook=غيّر حياتك اليوم."],
+            }
+        )
+        result = _enforce_hook_quality_contract(payload)
+        self.assertEqual(result["status"], "block")
+        hook_flags = [
+            item
+            for item in result["narrative_format_flags"]
+            if item.startswith("hook_quality:")
+        ]
+        self.assertEqual(len(hook_flags), 1)
+        self.assertIn("hook_specificity", hook_flags[0])
+        self.assertIn("hook_genericness", hook_flags[0])
+
+    def test_specific_quiet_hook_example_is_accepted(self):
+        payload = _tone_result()
+        payload["notes"] = ["hook=لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟"]
+        result = _enforce_hook_quality_contract(payload)
+        self.assertEqual(result["status"], "pass")
+        self.assertFalse(
+            any(
+                item.startswith("hook_quality:")
+                for item in result["narrative_format_flags"]
+            )
+        )
+
+    def test_hook_quality_repair_targets_and_replaces_only_first_hook(self):
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": f"s{index}", "heading": "h", "purpose": "p", "visual_query_en": "desk"}
+                for index in range(1, 6)
+            ],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "غيّر حياتك اليوم. هذه بداية شرح مرتبطة بالموضوع."},
+                {"id": "s2", "narration": "هذه فقرة ثانية تحتوي شرحًا كافيًا للاختبار."},
+                {"id": "s3", "narration": "هذه فقرة ثالثة تحتوي شرحًا كافيًا للاختبار."},
+                {"id": "s4", "narration": "هذه فقرة رابعة تحتوي شرحًا كافيًا للاختبار."},
+                {"id": "s5", "narration": "هذه فقرة أخيرة تحتوي خاتمة كافية للاختبار."},
+            ],
+        }
+        revision = "- [tone] hook_quality: failed hook_specificity, hook_genericness"
+        self.assertEqual(
+            _repair_target_section_ids(script, revision, {}),
+            ("s1",),
+        )
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s1",
+                        "find": "غيّر حياتك اليوم.",
+                        "replace": "لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟",
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+        )
+        self.assertTrue(
+            repaired["sections"][0]["narration"].startswith(
+                "لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟"
+            )
+        )
+        self.assertIn("هذه بداية شرح مرتبطة بالموضوع.", repaired["sections"][0]["narration"])
+
+    def test_hook_quality_repair_prompt_opens_only_flagged_hook(self):
+        plan = {
+            "title": "اختبار",
+            "sections": [{"id": "s1"}],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [{"id": "s1", "narration": "غيّر حياتك اليوم. هذه بداية شرح."}],
+        }
+        prompt = _tone_repair_prompt(
+            brief={"format": "film", "research_pack": []},
+            plan=plan,
+            script=script,
+            identity={},
+            cta_plan={},
+            revision_note="- [tone] hook_quality: failed hook_specificity",
+        )
+        self.assertIn("Replace the complete first spoken hook sentence exactly once", prompt)
+        self.assertIn("Calm is acceptable; forced shock/clickbait is not", prompt)
 
     def test_first_spoken_sentence_is_runtime_hook(self):
         script = {

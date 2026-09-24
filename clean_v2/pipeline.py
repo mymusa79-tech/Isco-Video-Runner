@@ -1266,6 +1266,8 @@ def _repair_target_section_ids(
         anchor = str(cta_plan.get("anchor_section_id") or "").strip()
         if anchor in ordered_ids:
             targets.add(anchor)
+    if "hook_quality:" in lowered and ordered_ids:
+        targets.add(ordered_ids[0])
 
     if "repeated_not_x_but_y" in revision_note:
         for item in sections:
@@ -1290,6 +1292,7 @@ def _repair_target_section_ids(
 
 
 _HOOK_WORD_FIX_MAX_CHARS = 40
+_HOOK_QUALITY_REPAIR_PREFIX = "hook_quality:"
 
 
 def _audit_verified_repair_terms(revision_note: str) -> frozenset[str]:
@@ -1346,6 +1349,8 @@ def _validate_and_apply_script_patches(
     original_hook = _first_spoken_sentence(original_script)
     audit_verified_terms = _audit_verified_repair_terms(revision_note)
     hook_word_fix_used = False
+    hook_quality_fix_used = False
+    hook_quality_repair_allowed = _HOOK_QUALITY_REPAIR_PREFIX in revision_note.casefold()
     opener = str(identity.get("opener") or "").strip()
     closer = str(identity.get("closer") or "").strip()
     spoken_cta = str(cta_plan.get("spoken_text") or "").strip()
@@ -1404,28 +1409,54 @@ def _validate_and_apply_script_patches(
                 raise ValueError("script patch find text must match exactly once")
 
             hook_fix_this_patch = False
+            hook_quality_fix_this_patch = False
             if (
                 original_hook
                 and sections
                 and section_id == str(sections[0].get("id") or "")
                 and find in original_hook
             ):
-                # A short, audit-verified word/phrase fix inside the hook (e.g. a
-                # flagged typo or non-standard verb) is allowed once, in addition
-                # to the broad-rewrite guard below. Anything else touching the
-                # hook still falls through to the hard equality check after the
-                # loop.
                 compact_find = " ".join(find.split()).strip()
-                if (
-                    hook_word_fix_used
-                    or len(find) > _HOOK_WORD_FIX_MAX_CHARS
-                    or compact_find not in audit_verified_terms
-                ):
-                    raise ValueError("script patch changed the locked hook")
-                hook_fix_this_patch = True
+                if hook_quality_repair_allowed:
+                    # Hook-quality repair is deliberately narrow: one replacement of
+                    # the complete first spoken sentence, then the normal full audit
+                    # reruns. No other locked anchor is opened.
+                    replacement_hook = " ".join(replace.split()).strip()
+                    if (
+                        hook_quality_fix_used
+                        or compact_find != original_hook
+                        or not replacement_hook
+                        or len(replacement_hook) > 220
+                        or _first_spoken_sentence(
+                            {"sections": [{"narration": replacement_hook}]}
+                        )
+                        != replacement_hook
+                    ):
+                        raise ValueError("invalid bounded hook-quality repair")
+                    hook_fix_this_patch = True
+                    hook_quality_fix_this_patch = True
+                else:
+                    # A short, audit-verified word/phrase fix inside the hook (e.g. a
+                    # flagged typo or non-standard verb) remains allowed once.
+                    if (
+                        hook_word_fix_used
+                        or len(find) > _HOOK_WORD_FIX_MAX_CHARS
+                        or compact_find not in audit_verified_terms
+                    ):
+                        raise ValueError("script patch changed the locked hook")
+                    hook_fix_this_patch = True
 
             for locked_name, locked_text in (
-                ("hook", original_hook if section_id == str(sections[0].get("id") or "") else ""),
+                (
+                    "hook",
+                    ""
+                    if hook_quality_fix_this_patch
+                    else (
+                        original_hook
+                        if section_id == str(sections[0].get("id") or "")
+                        else ""
+                    ),
+                ),
                 ("opener", opener),
                 ("closer", closer),
                 ("cta", spoken_cta if section_id == cta_anchor else ""),
@@ -1439,7 +1470,9 @@ def _validate_and_apply_script_patches(
 
         seen.add(key)
         total_find_chars += len(find)
-        if hook_fix_this_patch:
+        if hook_quality_fix_this_patch:
+            hook_quality_fix_used = True
+        elif hook_fix_this_patch:
             hook_word_fix_used = True
         item["narration"] = narration.replace(find, replace, 1)
         applied_count += 1
@@ -1454,6 +1487,7 @@ def _validate_and_apply_script_patches(
     if (
         original_hook
         and not hook_word_fix_used
+        and not hook_quality_fix_used
         and _first_spoken_sentence(normalized) != original_hook
     ):
         raise ValueError("script patch changed the locked hook")
@@ -1647,6 +1681,14 @@ def _tone_repair_prompt(
     allowed_patch_section_ids = _repair_target_section_ids(
         script, revision_note, cta_plan
     )
+    if _HOOK_QUALITY_REPAIR_PREFIX in revision_note.casefold():
+        hook_lock_rule = (
+            "- The hook itself is the audited defect. Replace the complete first spoken hook sentence "
+            "exactly once with a more specific, honest, naturally curious hook about the SAME approved "
+            "topic. Calm is acceptable; forced shock/clickbait is not. Do not alter the sentence after it."
+        )
+    else:
+        hook_lock_rule = f"- Preserve this first spoken hook sentence exactly: {hook}"
     return with_human_feel(with_channel_persona(f"""
 You are making ONE bounded tone/naturalness repair to an already approved Arabic spoken script.
 The production data below is authoritative. Do not redesign the episode and do not broaden scope.
@@ -1677,15 +1719,15 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - If REVISION_NOTE includes repeated_not_x_but_y, remove the repeated "ليس X بل Y" /
   "ليس ... بل ..." framing and use varied, natural Arabic sentence structures instead.
 - Preserve the section count, ids, order, title, and each section's role.
-- Preserve this first spoken hook sentence exactly: {hook}
+{hook_lock_rule}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
 - If the current script contains the approved prayer sentence or channel-definition sentence,
   preserve each of those host-owned identity lines exactly once and do not patch them.
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
   its existing anchor section when needed to make the surrounding transition sound natural.
-- These host-owned locks are also restored deterministically after your candidate is parsed; spend
-  repair effort only on the listed tone/naturalness defects, not on rewriting locked anchors.
+- All host-owned locks other than an explicitly hook_quality-flagged hook remain exact; spend
+  repair effort only on the listed tone/naturalness defects, not on unrelated anchors.
 - Preserve all approved factual claims and their research boundaries. Do not add, remove,
   strengthen, quantify, or invent claims, studies, experts, quotations, diagnoses, or authority.
 - Tone repair is NOT permission to explain the science again. Never introduce a concrete study
