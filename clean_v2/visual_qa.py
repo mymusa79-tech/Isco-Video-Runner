@@ -159,6 +159,81 @@ def _apply_no_face_policy(audit: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+
+def verify_final_composition_visual_qa(
+    *,
+    output_dir: Path,
+    final_path: Path,
+    script: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Make Final Cut QA inspect canonical evidence from the composed final media."""
+    from scripts.canonical_visual_evidence_v1 import build_canonical_visual_evidence
+
+    output_dir = Path(output_dir)
+    final_path = Path(final_path)
+    if not final_path.is_file():
+        raise CleanV2VisualQABlock(
+            "CLEAN_V2_VISUAL_QA_BLOCK reason=final_composition_missing"
+        )
+
+    timeline_path = output_dir / "timeline-first.json"
+    try:
+        timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CleanV2VisualQABlock(
+            "CLEAN_V2_VISUAL_QA_BLOCK reason=timeline_first_missing_for_composition_review"
+        ) from exc
+    identity_events = timeline.get("identity_events") if isinstance(timeline, Mapping) else None
+    if not isinstance(identity_events, list) or not identity_events:
+        raise CleanV2VisualQABlock(
+            "CLEAN_V2_VISUAL_QA_BLOCK reason=identity_events_missing_from_final_timeline"
+        )
+
+    narration_context = " ".join(
+        str(item.get("narration") or "")
+        for item in (script.get("sections") or [])
+        if isinstance(item, Mapping)
+    )
+    evidence = build_canonical_visual_evidence(
+        final_path,
+        output_dir / "visual-evidence" / "final-composition",
+        narration_context=narration_context[:1400],
+        intended_visual=(
+            "Final composed video including hook, approved intro, prayer visual, "
+            "channel identity, topic visuals and approved outro inside one voice-owned timeline."
+        ),
+    )
+    composition = {
+        "status": "pass",
+        "source_media": final_path.name,
+        "timeline_contract": str(timeline.get("contract_id") or ""),
+        "timeline_owner": str(timeline.get("timeline_owner") or ""),
+        "identity_event_kinds": [
+            str(item.get("kind") or "")
+            for item in identity_events
+            if isinstance(item, Mapping)
+        ],
+        "prompt_hash": evidence.prompt_hash,
+        "frame_sha256": list(evidence.frame_sha256),
+        "provider_calls_added": 0,
+    }
+
+    report_path = output_dir / "final-cut-visual-qa.json"
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        report = {}
+    if not isinstance(report, dict) or report.get("status") != "pass":
+        raise CleanV2VisualQABlock(
+            "CLEAN_V2_VISUAL_QA_BLOCK reason=selected_clip_review_missing_before_composition_review"
+        )
+    report["final_composition_review"] = composition
+    report["final_composition_review_performed"] = True
+    _write_json(report_path, report)
+    _write_json(output_dir / "final-composition-visual-qa.json", composition)
+    return composition
+
+
 def run_final_cut_visual_qa(
     *,
     output_dir: Path,
