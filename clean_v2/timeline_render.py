@@ -74,6 +74,7 @@ def render_identity_composition(
             "-stream_loop", "-1", "-i", str(assets["outro"]),
             "-filter_complex", filters,
             "-map", "[vout]", "-map", "0:a:0",
+            "-t", f"{voice_seconds:.3f}",
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
             "-pix_fmt", "yuv420p", "-c:a", "copy",
             "-movflags", "+faststart", str(destination),
