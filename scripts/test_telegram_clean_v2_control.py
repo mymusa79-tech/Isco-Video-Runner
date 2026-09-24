@@ -331,6 +331,15 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "no unused evidence-backed"):
                 control.research(state, "short")
 
+    def test_today_stats_accept_snapshot_five_minutes_after_midnight(self):
+        midnight = control._parse_utc("2026-09-23T20:00:00Z")
+        snapshots = [
+            {"captured_at": "2026-09-23T20:05:00Z", "total_views": 1300, "subscribers": 18}
+        ]
+        baseline = control._midnight_baseline_snapshot(snapshots, midnight)
+        self.assertIsNotNone(baseline)
+        self.assertEqual(baseline["total_views"], 1300)
+
 
 if __name__ == "__main__":
     unittest.main()

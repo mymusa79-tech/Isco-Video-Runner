@@ -312,6 +312,29 @@ def _baseline_snapshot(
     return eligible[0][1]
 
 
+def _midnight_baseline_snapshot(
+    snapshots: list[dict[str, Any]],
+    midnight_utc: datetime,
+    *,
+    tolerance: timedelta = timedelta(minutes=15),
+) -> dict[str, Any] | None:
+    nearby: list[tuple[float, dict[str, Any]]] = []
+    for item in snapshots:
+        if not isinstance(item, dict):
+            continue
+        try:
+            when = _parse_utc(str(item.get("captured_at") or ""))
+        except (TypeError, ValueError):
+            continue
+        distance = abs((when - midnight_utc).total_seconds())
+        if distance <= tolerance.total_seconds():
+            nearby.append((distance, item))
+    if nearby:
+        nearby.sort(key=lambda pair: pair[0])
+        return nearby[0][1]
+    return _baseline_snapshot(snapshots, midnight_utc)
+
+
 def channel_stats(state: dict[str, Any]) -> dict[str, Any]:
     current = fetch_channel_snapshot()
     existing = [
@@ -324,7 +347,7 @@ def channel_stats(state: dict[str, Any]) -> dict[str, Any]:
     oman_midnight = oman_now.replace(hour=0, minute=0, second=0, microsecond=0)
     today_cutoff = oman_midnight - OMAN_OFFSET
     week_cutoff = now_utc - timedelta(days=7)
-    today_base = _baseline_snapshot(existing, today_cutoff)
+    today_base = _midnight_baseline_snapshot(existing, today_cutoff)
     week_base = _baseline_snapshot(existing, week_cutoff)
 
     def delta(base: dict[str, Any] | None, key: str) -> int | None:
