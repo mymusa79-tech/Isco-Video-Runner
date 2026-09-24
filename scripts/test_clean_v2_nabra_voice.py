@@ -83,6 +83,21 @@ class NabraRouteTests(unittest.TestCase):
             self.assertEqual(backup.calls, 2)
             self.assertEqual(gemini_calls, first_gemini_calls)
 
+    def test_short_style_flag_still_allows_nabra_before_route_lock(self) -> None:
+        backup = _FakeNabra()
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "voice.wav"
+            synth = GeminiPrimaryNabraFallbackSynthesizer("", nabra=backup)
+            with mock.patch(
+                "clean_v2.media._legacy_voice_identity",
+                return_value=("Charon", "Orus"),
+            ):
+                synth.synthesize("نص شورت واضح.", target, primary_only=True)
+
+            self.assertEqual(synth.last_provider, "nabra:af_msa")
+            self.assertTrue(synth.fallback_used)
+            self.assertEqual(backup.calls, 1)
+
     def test_both_routes_fail_closed(self) -> None:
         backup = _FakeNabra(fail=True)
         with tempfile.TemporaryDirectory() as tmp:
