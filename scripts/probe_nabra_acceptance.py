@@ -398,8 +398,8 @@ def smooth_sentence_edges(
     onset_fade_ms: int = 4,
     pre_release_soften_ms: int = 0,
     pre_release_floor: float = 1.0,
-    release_hold_ms: int = 35,
-    release_fade_ms: int = 110,
+    release_hold_ms: int = 25,
+    release_fade_ms: int = 150,
 ) -> tuple[np.ndarray, dict]:
     """Clean sentence boundaries without touching lexical timing.
 
@@ -836,7 +836,7 @@ def main() -> int:
         g2p=verified_g2p,
         sentences=SHORT_SENTENCES,
         pauses_ms=SHORT_PAUSES_MS,
-        onset_fade_ms=24,
+        onset_fade_ms=26,
         pre_release_soften_ms=90,
         pre_release_floor=0.82,
     )
@@ -851,7 +851,7 @@ def main() -> int:
         g2p=verified_g2p,
         sentences=LONG_SENTENCES,
         pauses_ms=LONG_PAUSES_MS,
-        onset_fade_ms=20,
+        onset_fade_ms=22,
         pre_release_soften_ms=75,
         pre_release_floor=0.84,
     )
@@ -871,15 +871,15 @@ def main() -> int:
             "frame_ms": 10,
             "pre_roll_ms": 12,
             "post_roll_ms": 180,
-            "short_onset_fade_ms": 24,
-            "long_onset_fade_ms": 20,
+            "short_onset_fade_ms": 26,
+            "long_onset_fade_ms": 22,
             "short_pre_release_soften_ms": 90,
             "long_pre_release_soften_ms": 75,
-            "release_hold_ms": 35,
-            "release_fade_ms": 110,
+            "release_hold_ms": 25,
+            "release_fade_ms": 150,
             "principle": (
-                "silence only model-reserved BOS lead; gentle passage-specific fade-in; "
-                "very small pre-release easing before semantic silence; preserve lexical timing"
+                "silence only model-reserved BOS lead; gentle equal-power fade-in; "
+                "longer tail-only fade-out after lexical speech; preserve lexical timing"
             ),
         },
         "short": {
