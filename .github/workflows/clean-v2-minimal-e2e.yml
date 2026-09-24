@@ -21,6 +21,8 @@ on:
       - "scripts/test_clean_v2_final_master_qc.py"
       - "scripts/test_clean_v2_legacy_cinematic.py"
       - "scripts/test_clean_v2_visual_pacing.py"
+      - "scripts/telegram_clean_v2_notify.py"
+      - "scripts/test_telegram_clean_v2_notify.py"
       - "docs/clean-v2/**"
       - ".github/workflows/clean-v2-minimal-e2e.yml"
 
@@ -72,6 +74,7 @@ jobs:
             scripts.test_clean_v2_legacy_cinematic \
             scripts.test_clean_v2_final_master_qc \
             scripts.test_clean_v2_visual_pacing \
+            scripts.test_telegram_clean_v2_notify \
             -v
 
   produce:
@@ -172,6 +175,8 @@ jobs:
 
       - name: Produce one Clean V2 video
         env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -183,6 +188,14 @@ jobs:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
         run: |
           set -euo pipefail
+          python scripts/telegram_clean_v2_notify.py watch --output "$CLEAN_V2_OUTPUT" --kind long --poll-seconds 4 &
+          notify_pid=$!
+          cleanup_notify() {
+            kill "$notify_pid" 2>/dev/null || true
+            wait "$notify_pid" 2>/dev/null || true
+          }
+          trap cleanup_notify EXIT
+          set +e
           python -m clean_v2 \
             --brief "$GITHUB_WORKSPACE/engine/production/approved_brief.json" \
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
@@ -191,6 +204,11 @@ jobs:
             --resume-from "$CLEAN_V2_RESUME" \
             --max-visuals 5 \
             --output "$CLEAN_V2_OUTPUT"
+          production_status=$?
+          set -e
+          cleanup_notify
+          trap - EXIT
+          exit "$production_status"
 
       - name: Require complete final file
         run: |
@@ -301,3 +319,17 @@ jobs:
           path: ${{ env.CLEAN_V2_OUTPUT }}
           if-no-files-found: warn
           retention-days: 7
+      - name: Notify Telegram terminal result
+        if: always()
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CLEAN_V2_JOB_STATUS: ${{ job.status }}
+        run: |
+          python scripts/telegram_clean_v2_notify.py terminal \
+            --output "$CLEAN_V2_OUTPUT" \
+            --kind long \
+            --job-status "$CLEAN_V2_JOB_STATUS" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
