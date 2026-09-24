@@ -514,17 +514,11 @@ def apply_contextual_cta_overlay(
         )
         return report
 
-    temporary = output_dir / ".contextual-cta-final.mp4"
-    temporary.unlink(missing_ok=True)
-    try:
-        render_cta_overlay(Path(final_path), binding, schedule, temporary)
-        os.replace(temporary, final_path)
-        report["render_status"] = "applied"
-    except Exception as exc:
-        temporary.unlink(missing_ok=True)
-        report["render_status"] = "render_error_fallback_to_uncarded_video"
-        report["render_error_type"] = type(exc).__name__
-
+    # The legacy ASS/text card is intentionally no longer rendered. The authored
+    # action and safe schedule remain useful planning evidence, while the visual layer
+    # is owned by visual_cta.py and uses only the user's approved original assets.
+    report["render_status"] = "delegated_to_approved_visual_assets"
+    report["visual_owner"] = "clean_v2.visual_cta"
     report_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
