@@ -67,6 +67,7 @@ jobs:
             scripts.test_clean_v2_contextual_cta \
             scripts.test_clean_v2_identity_visual_cta \
             scripts.test_clean_v2_voice \
+            scripts.test_clean_v2_nabra_voice \
             scripts.test_clean_v2_short \
             scripts.test_clean_v2_legacy_cinematic \
             scripts.test_clean_v2_final_master_qc \
