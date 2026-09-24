@@ -360,6 +360,76 @@ class GroqJsonModeContractTests(unittest.TestCase):
         self.assertEqual(payload["max_completion_tokens"], 321)
 
 
+    def test_planning_uses_groq_strict_structured_output(self) -> None:
+        captured: dict[str, object] = {}
+
+        def post_json(url, *, headers, payload, timeout):
+            del url, headers, timeout
+            captured["payload"] = payload
+            return {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": '{"ok": true}'},
+                    }
+                ]
+            }
+
+        with (
+            mock.patch.object(providers_module, "_read_secret", return_value="secret"),
+            mock.patch.object(providers_module, "_post_json", side_effect=post_json),
+        ):
+            providers_module._groq_stage_call(
+                _planning_prompt(_brief()),
+                800,
+                "planning",
+            )
+
+        response_format = captured["payload"]["response_format"]
+        self.assertEqual(response_format["type"], "json_schema")
+        self.assertTrue(response_format["json_schema"]["strict"])
+        schema = response_format["json_schema"]["schema"]
+        section = schema["properties"]["sections"]["items"]
+        self.assertIn("id", section["required"])
+        self.assertEqual(
+            set(section["required"]),
+            set(section["properties"]),
+        )
+
+    def test_script_uses_groq_strict_schema_without_prefix_items(self) -> None:
+        captured: dict[str, object] = {}
+
+        def post_json(url, *, headers, payload, timeout):
+            del url, headers, timeout
+            captured["payload"] = payload
+            return {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": '{"ok": true}'},
+                    }
+                ]
+            }
+
+        with (
+            mock.patch.object(providers_module, "_read_secret", return_value="secret"),
+            mock.patch.object(providers_module, "_post_json", side_effect=post_json),
+        ):
+            providers_module._groq_stage_call(
+                _script_prompt(_brief(), _plan()),
+                1200,
+                "script",
+            )
+
+        response_format = captured["payload"]["response_format"]
+        self.assertEqual(response_format["type"], "json_schema")
+        self.assertTrue(response_format["json_schema"]["strict"])
+        sections = response_format["json_schema"]["schema"]["properties"]["sections"]
+        self.assertNotIn("prefixItems", sections)
+        self.assertEqual(sections["minItems"], len(_plan()["sections"]))
+        self.assertEqual(sections["maxItems"], len(_plan()["sections"]))
+
+
 
 class MistralPlanningSchemaTests(unittest.TestCase):
     @staticmethod
