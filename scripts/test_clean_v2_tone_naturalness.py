@@ -357,6 +357,81 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             self.assertEqual(persisted["provider_status"], "pass")
             self.assertEqual(persisted["hard_flag_count"], 1)
 
+    def test_factuality_productivity_misflag_is_advisory_not_block(self):
+        plan = {"sections": [{"id": "s1"}]}
+        script = {"sections": [{"id": "s1", "narration": "اكتب مهمة واحدة وحدد وقتًا لمراجعتها."}]}
+
+        def audit(_key, _plan, _research, _model, *, diagnostics):
+            raw = {
+                "status": "block",
+                "unsupported_claims": [],
+                "professional_advice_flags": [
+                    {"section_id": "s1", "issue": "ordinary productivity guidance to write one task"}
+                ],
+                "expert_persona_flags": [],
+                "notes": [],
+            }
+            diagnostics.update({"validation": "valid", "attempts": [], "raw_result": raw})
+            return dict(raw)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch(
+                "clean_v2.pipeline._build_production_plan_for_audit",
+                return_value=SimpleNamespace(sections=[]),
+            ), patch(
+                "clean_v2.text_audit.audit_plan_with_mistral",
+                side_effect=audit,
+            ):
+                report = _run_legacy_factuality_audit(
+                    output_dir=root,
+                    brief={"format": "short", "research_pack": []},
+                    plan=plan,
+                    script=script,
+                )
+
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["provider_status"], "block")
+        self.assertEqual(report["hard_flag_count"], 0)
+        self.assertEqual(len(report["advisory_flags"]["professional_advice_flags"]), 1)
+
+    def test_factuality_medical_advice_flag_is_hard_block(self):
+        plan = {"sections": [{"id": "s1"}]}
+        script = {"sections": [{"id": "s1", "narration": "غيّر جرعة الدواء لعلاج الأعراض."}]}
+
+        def audit(_key, _plan, _research, _model, *, diagnostics):
+            raw = {
+                "status": "pass",
+                "unsupported_claims": [],
+                "professional_advice_flags": [
+                    {"section_id": "s1", "issue": "medical treatment advice"}
+                ],
+                "expert_persona_flags": [],
+                "notes": [],
+            }
+            diagnostics.update({"validation": "valid", "attempts": [], "raw_result": raw})
+            return dict(raw)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch(
+                "clean_v2.pipeline._build_production_plan_for_audit",
+                return_value=SimpleNamespace(sections=[]),
+            ), patch(
+                "clean_v2.text_audit.audit_plan_with_mistral",
+                side_effect=audit,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "factuality/AI-expert gate blocked"):
+                    _run_legacy_factuality_audit(
+                        output_dir=root,
+                        brief={"format": "short", "research_pack": []},
+                        plan=plan,
+                        script=script,
+                    )
+            persisted = json.loads((root / "factuality-audit.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["status"], "block")
+            self.assertEqual(persisted["hard_flag_count"], 1)
+
     def test_valid_content_block_is_quality_block_not_infrastructure(self):
         blocked = _tone_result(status="block")
         blocked["naturalness_flags"] = ["generic AI filler"]
