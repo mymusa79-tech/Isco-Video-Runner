@@ -170,7 +170,7 @@ jobs:
       - name: Notify owner that visible interface is active
         run: |
           set -euo pipefail
-          payload="$(jq -nc --arg chat_id "$TELEGRAM_CHAT_ID" '{chat_id:$chat_id,text:"✅ تم تحديث واجهة البوت فعليًا.\n\nاستخدم زر القائمة بجانب خانة الكتابة لرؤية الأوامر الجديدة، أو أرسل /start لفتح الواجهة الرئيسية.",disable_web_page_preview:true,reply_markup:{remove_keyboard:true}}')"
+          payload="$(jq -nc --arg chat_id "$TELEGRAM_CHAT_ID" '{chat_id:$chat_id,text:"✅ تم تحديث واجهة البوت فعليًا.\n\nالقائمة الرئيسية أصبحت بالعربية. اختر ما تريد مباشرة من الأزرار أسفل المحادثة.",disable_web_page_preview:true,reply_markup:{keyboard:[[{text:"🔎 بحث جديد"},{text:"📊 الإحصائيات"}],[{text:"🟢 حالة الإنتاج"},{text:"🎥 آخر إنتاج"}],[{text:"❌ إلغاء الاختيار"},{text:"🏠 الرئيسية"}]],resize_keyboard:true,is_persistent:true,input_field_placeholder:"اختر من القائمة"}}')"
           response="$(curl --fail-with-body --silent --show-error \
             -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -H 'content-type: application/json' \
