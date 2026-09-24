@@ -2197,8 +2197,7 @@ def _write_resume_checkpoint(
     if _RESUME_STAGE_INDEX[completed_stage] >= _RESUME_STAGE_INDEX["voice"]:
         if voice_provider not in {
             "gemini:Charon",
-            "azure-f0:ar-OM-AbdullahNeural",
-            "piper-local:ar_JO-kareem-medium",
+            "nabra:af_msa",
         }:
             raise RuntimeError("Clean V2 checkpoint voice provider is not approved")
         if not isinstance(voice_fallback_used, bool):
