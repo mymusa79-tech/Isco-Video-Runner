@@ -124,10 +124,12 @@ class ProviderWireFailure(RuntimeError):
         *,
         http_status: int | None = None,
         retry_after_seconds: float | None = None,
+        safe_detail: str | None = None,
     ) -> None:
         self.reason_code = str(reason_code or "provider_failure")
         self.http_status = http_status
         self.retry_after_seconds = retry_after_seconds
+        self.safe_detail = str(safe_detail or "").strip() or None
         super().__init__(self.reason_code)
 
 
@@ -167,6 +169,38 @@ def _retry_after_seconds(headers: object) -> float | None:
     return seconds
 
 
+def _safe_http_error_detail(raw: bytes) -> str | None:
+    """Extract only bounded provider error metadata; never echo request data."""
+    if not raw:
+        return None
+    try:
+        decoded = raw.decode("utf-8", errors="replace")
+        payload = json.loads(decoded)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return None
+
+    fields: list[str] = []
+    for key in ("type", "code", "param", "message"):
+        value = error.get(key)
+        if value is None or isinstance(value, (dict, list)):
+            continue
+        text = re.sub(r"[\r\n\t]+", " ", str(value)).strip()
+        if not text:
+            continue
+        text = re.sub(r"\s{2,}", " ", text)
+        if len(text) > 360:
+            text = text[:357] + "..."
+        fields.append(f"{key}={text}")
+    if not fields:
+        return None
+    return " | ".join(fields)[:900]
+
+
 def _post_json(
     url: str,
     *,
@@ -190,12 +224,17 @@ def _post_json(
             raw = response.read(MAX_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
         http_status = int(exc.code)
+        try:
+            error_raw = exc.read(8192)
+        except Exception:
+            error_raw = b""
         raise ProviderWireFailure(
             f"http_{http_status}",
             http_status=http_status,
             retry_after_seconds=(
                 _retry_after_seconds(exc.headers) if http_status == 429 else None
             ),
+            safe_detail=_safe_http_error_detail(error_raw),
         ) from None
     except (urllib.error.URLError, TimeoutError, socket.timeout) as exc:
         raise ProviderWireFailure(f"transport_{type(exc).__name__.lower()}") from None
@@ -279,24 +318,29 @@ def _groq_call(prompt: str, max_tokens: int, *, response_schema: dict[str, Any] 
     model = str(os.environ.get("GROQ_CONTENT_MODEL") or "openai/gpt-oss-20b").strip()
     if not model:
         raise NoWireFailure("missing_model")
-    body = _post_json(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {key}"},
-        payload={
-            "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt + "\nReturn only one complete JSON object. No markdown.",
-                }
-            ],
-            "response_format": ({"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": response_schema}} if response_schema is not None else {"type": "json_object"}),
-            "include_reasoning": False,
-            "temperature": 0.3,
-            "max_completion_tokens": int(max_tokens),
-        },
-        timeout=90,
-    )
+    try:
+        body = _post_json(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}"},
+            payload={
+                "model": model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt + "\nReturn only one complete JSON object. No markdown.",
+                    }
+                ],
+                "response_format": ({"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": response_schema}} if response_schema is not None else {"type": "json_object"}),
+                "include_reasoning": False,
+                "temperature": 0.3,
+                "max_completion_tokens": int(max_tokens),
+            },
+            timeout=90,
+        )
+    except ProviderWireFailure as exc:
+        if exc.http_status == 400 and exc.safe_detail:
+            print(f"Groq HTTP 400 diagnostic: {exc.safe_detail}")
+        raise
     choices = body.get("choices") or []
     if not choices or not isinstance(choices[0], dict):
         raise ProviderWireFailure("groq_no_choice")
