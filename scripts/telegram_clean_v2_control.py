@@ -644,9 +644,9 @@ def research(state: dict[str, Any], scope: str) -> dict[str, Any]:
         if int((item.get("market_evidence") or {}).get("sample_count", 0)) >= 1
     ]
     chosen = evidence_backed[:3]
-    if len(chosen) < 3:
-        raise RuntimeError("research could not produce three unused evidence-backed candidates")
     state["ideas"].extend(measured)
+    if not chosen:
+        raise RuntimeError("research found no unused evidence-backed candidates")
     session_id = secrets.token_hex(4)
     state["sessions"][session_id] = {
         "session_id": session_id,
@@ -773,7 +773,9 @@ def scope_keyboard() -> list[list[dict[str, str]]]:
 
 
 def render_candidates(result: dict[str, Any]) -> tuple[str, list[list[dict[str, str]]]]:
-    lines = ["🔎 3 أفكار جديدة", ""]
+    count = len(result["candidates"])
+    noun = "فكرة" if count == 1 else "فكرتان" if count == 2 else "أفكار"
+    lines = [f"🔎 {count} {noun} مناسبة", ""]
     rows = []
     for index, item in enumerate(result["candidates"], 1):
         evidence = item.get("market_evidence") or {}
@@ -832,8 +834,8 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             except Exception as exc:
                 print(f"Telegram research failed: {type(exc).__name__}")
                 send_telegram(
-                    "⚠️ لم أجد 3 أفكار جديدة بدليل سوق صالح في هذه المحاولة. "
-                    "لم يبدأ أي Production؛ أعد البحث لاحقًا."
+                    "⚠️ لم يُعثر على مواضيع مناسبة بهذه المعايير الآن. "
+                    "لم يبدأ أي إنتاج؛ جرّب معايير مختلفة أو أعد البحث لاحقًا."
                 )
                 return
             text, keyboard = render_candidates(result)

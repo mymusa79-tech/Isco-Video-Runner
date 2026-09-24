@@ -298,6 +298,39 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertTrue(send.called)
 
 
+    def test_research_returns_up_to_three_qualified_topics(self):
+        state = control.default_state()
+        rows = [
+            {"title": "فكرة أولى جديدة", "market_query": "فكرة أولى", "reason": "سبب"},
+            {"title": "فكرة ثانية جديدة", "market_query": "فكرة ثانية", "reason": "سبب"},
+        ]
+        evidence = {
+            "sample_count": 2,
+            "distinct_channels": 2,
+            "max_views_per_day": 300,
+            "median_views_per_day": 200,
+            "top_samples": [{"video_id": "v1", "title": "مصدر", "channel": "قناة"}],
+        }
+        with mock.patch.object(control, "_candidate_pool", return_value=rows), mock.patch.object(
+            control, "market_evidence", return_value=(0.7, evidence)
+        ):
+            result = control.research(state, "long")
+        self.assertEqual(len(result["candidates"]), 2)
+        rendered, buttons = control.render_candidates(result)
+        self.assertIn("2 فكرتان", rendered)
+        self.assertEqual(len(buttons), 2)
+
+    def test_research_rejects_only_when_zero_topics_qualify(self):
+        state = control.default_state()
+        rows = [{"title": "فكرة بلا دليل", "market_query": "فكرة", "reason": "سبب"}]
+        with mock.patch.object(control, "_candidate_pool", return_value=rows), mock.patch.object(
+            control,
+            "market_evidence",
+            return_value=(0.0, {"sample_count": 0, "distinct_channels": 0, "top_samples": []}),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "no unused evidence-backed"):
+                control.research(state, "short")
+
 
 if __name__ == "__main__":
     unittest.main()
