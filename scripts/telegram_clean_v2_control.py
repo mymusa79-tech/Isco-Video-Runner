@@ -920,9 +920,21 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
 
     message = update.get("message") or {}
     text = str(message.get("text") or "").strip()
-    if text in {"/start", "/menu", "/research", "بحث"}:
+    if text in {"/start", "start", "ابدأ", "ابدأ البوت"}:
         send_telegram(
-            "🧭 Clean V2 Editorial Lite\n\nاختر ما تريد البحث له. البحث والاختيار لا يبدأان Production.\n\n📊 استخدم /stats لإحصائيات القناة.",
+            "👋 مرحبًا بك في مساعد نداء اليقظة\n\n"
+            "1) ابحث عن فكرة مناسبة للقناة.\n"
+            "2) اختر الفكرة التي تناسبك.\n"
+            "3) أرسل «تأكيد الإنتاج» فقط عندما تريد بدء الإنتاج فعليًا.\n\n"
+            "الاختيار وحده لا يبدأ أي إنتاج.\n"
+            "📊 للإحصائيات استخدم /stats.\n"
+            "🔎 للبحث استخدم /research.",
+            scope_keyboard(),
+        )
+        return
+    if text in {"/menu", "menu", "/research", "research", "بحث"}:
+        send_telegram(
+            "🔎 اختر نوع المحتوى الذي تريد البحث له. لن يبدأ الإنتاج قبل تأكيدك النهائي.",
             scope_keyboard(),
         )
         return

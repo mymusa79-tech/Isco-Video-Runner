@@ -398,6 +398,20 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             control.cancel_current(state)
 
+    def test_start_explains_three_step_flow_and_safety_gate(self):
+        state = control.default_state()
+        update = {"message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/start"}}
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "send_telegram") as send:
+            control.handle_update(state, update, Path(tmp) / "dispatch.json")
+        text = send.call_args.args[0]
+        self.assertIn("1)", text)
+        self.assertIn("2)", text)
+        self.assertIn("3)", text)
+        self.assertIn("الاختيار وحده لا يبدأ", text)
+        self.assertIn("/stats", text)
+
 
 if __name__ == "__main__":
     unittest.main()

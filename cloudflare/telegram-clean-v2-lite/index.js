@@ -58,10 +58,25 @@ function scopeKeyboard() {
   };
 }
 
+async function sendWelcome(env, chatId) {
+  await telegram(env, "sendMessage", {
+    chat_id: chatId,
+    text:
+      "👋 مرحبًا بك في مساعد نداء اليقظة\n\n" +
+      "1) ابحث عن فكرة مناسبة للقناة.\n" +
+      "2) اختر الفكرة التي تناسبك.\n" +
+      "3) أرسل «تأكيد الإنتاج» فقط عندما تريد بدء الإنتاج فعليًا.\n\n" +
+      "الاختيار وحده لا يبدأ أي إنتاج.\n" +
+      "📊 للإحصائيات استخدم /stats.\n" +
+      "🔎 للبحث استخدم /research.",
+    reply_markup: scopeKeyboard(),
+  });
+}
+
 async function sendScopeMenu(env, chatId) {
   await telegram(env, "sendMessage", {
     chat_id: chatId,
-    text: "🧭 Clean V2 Editorial Lite\n\nاختر نطاق البحث. البحث والاختيار لا يبدأان Production.",
+    text: "🔎 اختر نوع المحتوى الذي تريد البحث له. لن يبدأ الإنتاج قبل تأكيدك النهائي.",
     reply_markup: scopeKeyboard(),
   });
 }
@@ -124,8 +139,12 @@ async function dispatchControl(env, update) {
   }
 }
 
-function isLocalMenuText(text) {
-  return ["/start", "/menu", "/research", "بحث"].includes(String(text || "").trim());
+function isStartText(text) {
+  return ["/start", "start", "ابدأ", "ابدأ البوت"].includes(String(text || "").trim());
+}
+
+function isResearchText(text) {
+  return ["/menu", "menu", "/research", "research", "بحث"].includes(String(text || "").trim());
 }
 
 function isCancelText(text) {
@@ -189,7 +208,11 @@ export default {
     }
 
     const text = String((update.message && update.message.text) || "").trim();
-    if (isLocalMenuText(text)) {
+    if (isStartText(text)) {
+      ctx.waitUntil(sendWelcome(env, current.chat));
+      return new Response("OK");
+    }
+    if (isResearchText(text)) {
       ctx.waitUntil(sendScopeMenu(env, current.chat));
       return new Response("OK");
     }
