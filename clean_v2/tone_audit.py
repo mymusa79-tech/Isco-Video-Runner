@@ -17,6 +17,10 @@ TONE_AUDIT_SCHEMA: dict[str, Any] = {
         "naturalness_flags": {"type": "array", "items": {"type": "string"}},
         "narrative_format_flags": {"type": "array", "items": {"type": "string"}},
         "unverified_religious_quote_flags": {"type": "array", "items": {"type": "string"}},
+        "hook_specificity": {"type": "boolean"},
+        "hook_honesty": {"type": "boolean"},
+        "hook_curiosity": {"type": "boolean"},
+        "hook_genericness": {"type": "boolean"},
         "notes": {"type": "array", "items": {"type": "string"}},
     },
     "required": [
@@ -26,6 +30,10 @@ TONE_AUDIT_SCHEMA: dict[str, Any] = {
         "naturalness_flags",
         "narrative_format_flags",
         "unverified_religious_quote_flags",
+        "hook_specificity",
+        "hook_honesty",
+        "hook_curiosity",
+        "hook_genericness",
         "notes",
     ],
     "additionalProperties": False,
@@ -41,6 +49,12 @@ _REQUIRED_ARRAYS = (
     "notes",
 )
 _AUDIT_ROUTE_LOCK = threading.RLock()
+_HOOK_QUALITY_FIELDS = (
+    "hook_specificity",
+    "hook_honesty",
+    "hook_curiosity",
+    "hook_genericness",
+)
 
 
 _LEGACY_RELIGIOUS_QUOTE_RULE = (
@@ -79,8 +93,56 @@ def _scope_clean_v2_tone_prompt(prompt: str) -> str:
   naturally inside its existing anchor section.
 - The narrative identity opener/closer are host-owned exact phrases. Do not request
   rewriting them; judge only the surrounding spoken transition.
+- Evaluate the actual PLAN hook (the first spoken sentence) with four required booleans in the
+  SAME audit response; this adds no provider call:
+  * hook_specificity=true only when the hook names a concrete situation, tension, behavior,
+    consequence, or question rather than a broad motivational claim.
+  * hook_honesty=true only when it sounds believable and natural, not manufactured, inflated,
+    manipulative, or written as forced shock/clickbait.
+  * hook_curiosity=true only when it creates a genuine reason to hear the next sentence by opening
+    a specific unresolved question/tension; calm hooks are fully acceptable.
+  * hook_genericness=true when changing roughly one or two words could make the same sentence fit
+    dozens of unrelated videos. Genericness=true is always a defect.
+- A hook passes only when specificity, honesty, and curiosity are true AND genericness is false.
+  If it fails, set status=block and add one concise narrative_format_flags item prefixed exactly
+  "hook_quality:" naming the failed dimension(s). Do not demand sensationalism.
+- Extend the existing JSON object with exactly these required boolean fields:
+  "hook_specificity", "hook_honesty", "hook_curiosity", "hook_genericness".
 [/CLEAN_V2_TONE_SCOPE]
 """.strip()
+
+
+def _enforce_hook_quality_contract(result: dict[str, Any]) -> dict[str, Any]:
+    """Apply the hook verdict locally after the existing semantic audit."""
+    wrong_hook_fields = [
+        field
+        for field in _HOOK_QUALITY_FIELDS
+        if field not in result or type(result[field]) is not bool
+    ]
+    if wrong_hook_fields:
+        raise ValueError(
+            "tone audit response missing/invalid hook boolean(s): "
+            + ", ".join(wrong_hook_fields)
+        )
+
+    failed: list[str] = []
+    if not result["hook_specificity"]:
+        failed.append("hook_specificity")
+    if not result["hook_honesty"]:
+        failed.append("hook_honesty")
+    if not result["hook_curiosity"]:
+        failed.append("hook_curiosity")
+    if result["hook_genericness"]:
+        failed.append("hook_genericness")
+
+    if failed:
+        result["status"] = "block"
+        flags = result.get("narrative_format_flags")
+        if not isinstance(flags, list):
+            raise ValueError("tone audit narrative_format_flags must be an array")
+        if not any(str(item).startswith("hook_quality:") for item in flags):
+            flags.append("hook_quality: failed " + ", ".join(failed))
+    return result
 
 
 def _validate_tone_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -88,11 +150,11 @@ def _validate_tone_result(result: dict[str, Any]) -> dict[str, Any]:
 
     try:
         validate_audit_payload(result, required_arrays=_REQUIRED_ARRAYS)
+        return _enforce_hook_quality_contract(result)
     except Exception as exc:
         raise MistralExecutorWireFailure(
             f"tone audit invalid contract {type(exc).__name__.lower()}"
         ) from exc
-    return result
 
 
 def _mistral_tone_call(prompt: str) -> dict[str, Any]:
@@ -101,7 +163,7 @@ def _mistral_tone_call(prompt: str) -> dict[str, Any]:
             prompt,
             max_tokens=2600,
             task_kind="text_audit",
-            response_schema=("clean_v2_tone_naturalness_audit_v1", TONE_AUDIT_SCHEMA),
+            response_schema=("clean_v2_tone_naturalness_audit_v2", TONE_AUDIT_SCHEMA),
             temperature=0.1,
         )
     )
@@ -149,6 +211,12 @@ def audit_tone_and_naturalness_with_mistral(
 
         tone_quality.route_text_audit = route_with_final_mistral
         try:
-            return tone_quality.audit_tone_and_naturalness(api_key, plan, model)
+            result = tone_quality.audit_tone_and_naturalness(api_key, plan, model)
+            raw = result.get("raw_result")
+            if isinstance(raw, dict):
+                for field in _HOOK_QUALITY_FIELDS:
+                    if type(raw.get(field)) is bool:
+                        result[field] = raw[field]
+            return result
         finally:
             tone_quality.route_text_audit = original_route
