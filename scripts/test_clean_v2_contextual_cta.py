@@ -140,23 +140,12 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                 script=script,
             )
             final_path = root / "final.mp4"
-            final_path.write_bytes(b"original-video")
+            original = b"original-video"
+            final_path.write_bytes(original)
             narration = root / "narration-mastered.wav"
             narration.write_bytes(b"audio")
-            captured = {}
 
-            def fake_render(src, binding, schedule, dest):
-                captured["binding"] = binding
-                captured["schedule"] = schedule
-                shutil.copy2(src, dest)
-                with dest.open("ab") as handle:
-                    handle.write(b"-cta")
-                return dest
-
-            with mock.patch("clean_v2.media.probe_duration", return_value=100.0), mock.patch(
-                "clean_v2.contextual_cta.render_cta_overlay",
-                side_effect=fake_render,
-            ):
+            with mock.patch("clean_v2.media.probe_duration", return_value=100.0):
                 report = apply_contextual_cta_overlay(
                     output_dir=root,
                     final_path=final_path,
@@ -164,14 +153,18 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                     script=script,
                 )
 
-            schedule = captured["schedule"]
-            self.assertGreaterEqual(schedule.start_seconds, 30.5)
-            self.assertLessEqual(schedule.end_seconds, 88.0)
-            self.assertEqual(report["render_status"], "applied")
+            schedule = report["schedule"]
+            self.assertGreaterEqual(schedule["start_seconds"], 30.5)
+            self.assertLessEqual(schedule["end_seconds"], 88.0)
+            self.assertEqual(
+                report["render_status"],
+                "delegated_to_approved_visual_assets",
+            )
+            self.assertEqual(report["visual_owner"], "clean_v2.visual_cta")
             self.assertEqual(report["provider_calls_added"], 0)
-            self.assertTrue(final_path.read_bytes().endswith(b"-cta"))
+            self.assertEqual(final_path.read_bytes(), original)
 
-    def test_overlay_render_failure_falls_back_to_original_video(self) -> None:
+    def test_legacy_cta_renderer_is_not_used_after_asset_migration(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             script = _script()
@@ -188,9 +181,8 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
             narration.write_bytes(b"audio")
 
             with mock.patch("clean_v2.media.probe_duration", return_value=100.0), mock.patch(
-                "clean_v2.contextual_cta.render_cta_overlay",
-                side_effect=RuntimeError("ffmpeg unavailable"),
-            ):
+                "clean_v2.contextual_cta.render_cta_overlay"
+            ) as legacy_render:
                 report = apply_contextual_cta_overlay(
                     output_dir=root,
                     final_path=final_path,
@@ -198,9 +190,10 @@ class CleanV2ContextualCtaTests(unittest.TestCase):
                     script=script,
                 )
 
+            legacy_render.assert_not_called()
             self.assertEqual(
                 report["render_status"],
-                "render_error_fallback_to_uncarded_video",
+                "delegated_to_approved_visual_assets",
             )
             self.assertEqual(final_path.read_bytes(), original)
             self.assertEqual(report["provider_calls_added"], 0)
