@@ -976,7 +976,8 @@ def _normalize_user_command_text(value: str) -> str:
     for marker in ("\u200e", "\u200f", "\u061c", "\ufe0f"):
         text = text.replace(marker, "")
     text = " ".join(text.split())
-    text = re.sub(r"^[^\\w\\u0600-\\u06ff/]+", "", text, flags=re.UNICODE).strip()
+    while text and not (text[0].isalnum() or text[0] in {"/", "_"}):
+        text = text[1:].lstrip()
     return text
 
 
