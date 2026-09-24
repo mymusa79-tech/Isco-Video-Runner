@@ -1276,7 +1276,7 @@ class _InfrastructureRouter:
 class _FakeVoice:
     def __init__(self) -> None:
         self.calls = 0
-        self.last_provider = "piper-local:ar_JO-kareem-medium"
+        self.last_provider = "nabra:af_msa"
         self.fallback_used = True
 
     def synthesize(self, transcript: str, output_path: Path) -> Path:
@@ -1908,7 +1908,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(checkpoint["completed_stage"], "voice")
             self.assertEqual(
-                checkpoint["voice_provider"], "piper-local:ar_JO-kareem-medium"
+                checkpoint["voice_provider"], "nabra:af_msa"
             )
             self.assertTrue(checkpoint["voice_fallback_used"])
             self.assertNotIn("rights-manifest.json", checkpoint["artifacts"])
