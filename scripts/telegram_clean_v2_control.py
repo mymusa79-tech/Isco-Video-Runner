@@ -971,6 +971,16 @@ def authorized(update: dict[str, Any]) -> bool:
     return bool(expected and actor == expected and chat == expected)
 
 
+def _normalize_user_command_text(value: str) -> str:
+    text = str(value or "")
+    for marker in ("\u200e", "\u200f", "\u061c", "\ufe0f"):
+        text = text.replace(marker, "")
+    text = " ".join(text.split())
+    while text and not (text[0].isalnum() or text[0] in {"/", "_"}):
+        text = text[1:].lstrip()
+    return text
+
+
 def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: Path) -> None:
     if not authorized(update):
         raise RuntimeError("unauthorized Telegram update")
@@ -1005,8 +1015,8 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         raise RuntimeError("unsupported callback")
 
     message = update.get("message") or {}
-    text = str(message.get("text") or "").strip()
-    if text in {"/start", "start", "ابدأ", "ابدأ البوت"}:
+    text = _normalize_user_command_text(str(message.get("text") or ""))
+    if text in {"/start", "start", "ابدأ", "ابدأ البوت", "الرئيسية"}:
         send_telegram(
             "👋 مرحبًا بك في مساعد نداء اليقظة\n\n"
             "1) ابحث عن فكرة مناسبة للقناة.\n"
@@ -1018,7 +1028,7 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             scope_keyboard(),
         )
         return
-    if text in {"/menu", "menu", "/research", "research", "بحث"}:
+    if text in {"/menu", "menu", "/research", "research", "بحث", "بحث جديد"}:
         send_telegram(
             "🔎 اختر نوع المحتوى الذي تريد البحث له. لن يبدأ الإنتاج قبل تأكيدك النهائي.",
             scope_keyboard(),
@@ -1040,7 +1050,7 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             return
         send_telegram(render_channel_stats(stats))
         return
-    if text in {"/cancel", "cancel", "إلغاء", "الغاء"}:
+    if text in {"/cancel", "cancel", "إلغاء", "الغاء", "إلغاء الاختيار"}:
         try:
             request = cancel_current(state)
         except Exception:

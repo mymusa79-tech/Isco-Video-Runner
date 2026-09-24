@@ -531,5 +531,84 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertNotEqual(result["session_id"], "old")
 
 
+    def test_arabic_keyboard_labels_normalize_to_controller_commands(self):
+        cases = {
+            "🔎 بحث جديد": "بحث جديد",
+            "📊 الإحصائيات": "الإحصائيات",
+            "🟢 حالة الإنتاج": "حالة الإنتاج",
+            "🎥 آخر إنتاج": "آخر إنتاج",
+            "❌ إلغاء الاختيار": "إلغاء الاختيار",
+            "🏠 الرئيسية": "الرئيسية",
+            "\u200f📊\ufe0f  الإحصائيات\u200e": "الإحصائيات",
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(control._normalize_user_command_text(raw), expected)
+
+    def test_arabic_stats_button_routes_to_stats_instead_of_fallback(self):
+        state = control.default_state()
+        update = {
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "📊 الإحصائيات",
+            }
+        }
+        stats = {
+            "subscribers": 20,
+            "hidden_subscribers": False,
+            "total_views": 1500,
+            "video_count": 12,
+            "last_long": None,
+            "last_short": None,
+            "views_today": None,
+            "views_7d": None,
+            "subscribers_today": None,
+            "subscribers_7d": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "channel_stats", return_value=stats), mock.patch.object(
+            control, "send_telegram"
+        ) as send:
+            control.handle_update(state, update, Path(tmp) / "dispatch.json")
+        sent_text = send.call_args.args[0]
+        self.assertIn("إحصائيات قناة نداء اليقظة", sent_text)
+        self.assertNotIn("استخدم /research", sent_text)
+
+    def test_arabic_status_and_last_buttons_route_to_runtime_views(self):
+        state = control.default_state()
+        runtime = {
+            "active": True,
+            "scope": "short",
+            "kind": "short",
+            "topic": "موضوع",
+            "stage": "3/6 الصوت ✅",
+            "run_url": "https://github.example/run/1",
+            "last_success": {
+                "scope": "short",
+                "topic": "موضوع سابق",
+                "artifact_url": "https://github.example/artifact/1",
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
+        ), mock.patch.object(control, "load_runtime_status", return_value=runtime), mock.patch.object(
+            control, "send_telegram"
+        ) as send:
+            for label in ("🟢 حالة الإنتاج", "🎥 آخر إنتاج"):
+                update = {
+                    "message": {
+                        "from": {"id": 123},
+                        "chat": {"id": 123},
+                        "text": label,
+                    }
+                }
+                control.handle_update(state, update, Path(tmp) / "dispatch.json")
+        texts = [call.args[0] for call in send.call_args_list]
+        self.assertTrue(any("يوجد إنتاج يعمل الآن" in text for text in texts))
+        self.assertTrue(any("آخر إنتاج ناجح" in text for text in texts))
+
+
 if __name__ == "__main__":
     unittest.main()
