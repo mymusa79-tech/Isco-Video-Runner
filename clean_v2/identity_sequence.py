@@ -10,8 +10,8 @@ from typing import Any, Mapping
 from .media import probe_duration
 
 PRAYER_SENTENCE = "اللهم صلِّ وسلِّم على نبينا محمد."
-SHORT_CHANNEL_DEFINITION = "هذه نداء اليقظة، مساحة وعي قصيرة تعيدك إلى ما ينفعك."
-LONG_CHANNEL_DEFINITION = "هذه نداء اليقظة، مساحة للوعي الصادق والنهوض الهادئ نحو حياة أوضح."
+SHORT_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح."
+LONG_CHANNEL_DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أصدق، ونبحث عن خطوة عملية نحو حياة أوضح."
 
 _ASSET_DIR = Path(__file__).resolve().parent / "assets" / "identity"
 _SHORT_INTRO = _ASSET_DIR / "short_intro.mp4"
