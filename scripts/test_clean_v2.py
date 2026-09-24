@@ -266,11 +266,12 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
 
     def test_script_prompt_authors_strong_hook_before_tone_audit(self) -> None:
         prompt = _script_prompt(_brief(), _plan())
-        self.assertIn("strongest natural entry into THIS exact episode", prompt)
-        self.assertIn("specific situation, tension, behavior, consequence, or", prompt)
-        self.assertIn("forced shock/clickbait", prompt)
-        self.assertIn("same core tension the script will develop", prompt.lower())
-        self.assertIn("do not optimize for a fixed word count or duration", prompt.lower())
+        normalized_prompt = " ".join(prompt.split())
+        self.assertIn("strongest natural entry into THIS exact episode", normalized_prompt)
+        self.assertIn("specific situation, tension, behavior, consequence, or", normalized_prompt)
+        self.assertIn("forced shock/clickbait", normalized_prompt)
+        self.assertIn("same core tension the script will develop", normalized_prompt.lower())
+        self.assertIn("do not optimize for a fixed word count or duration", normalized_prompt.lower())
 
     def test_long_script_prompt_receives_exact_identity_handoff_for_smooth_topic_entry(self) -> None:
         opener = "هذه نداء اليقظة، مساحة للوعي الصادق والنهوض الهادئ نحو حياة أوضح."
