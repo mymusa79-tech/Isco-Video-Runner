@@ -15,6 +15,7 @@ on:
       - "scripts/test_clean_v2_tone_naturalness.py"
       - "scripts/test_clean_v2_opening_director.py"
       - "scripts/test_clean_v2_contextual_cta.py"
+      - "scripts/test_clean_v2_identity_visual_cta.py"
       - "scripts/test_clean_v2_voice.py"
       - "scripts/test_clean_v2_short.py"
       - "scripts/test_clean_v2_final_master_qc.py"
@@ -64,6 +65,7 @@ jobs:
             scripts.test_clean_v2_tone_naturalness \
             scripts.test_clean_v2_opening_director \
             scripts.test_clean_v2_contextual_cta \
+            scripts.test_clean_v2_identity_visual_cta \
             scripts.test_clean_v2_voice \
             scripts.test_clean_v2_short \
             scripts.test_clean_v2_legacy_cinematic \
@@ -257,9 +259,13 @@ jobs:
             *) echo "Unexpected Clean V2 contextual CTA mode" >&2; exit 1 ;;
           esac
           case "$(jq -r .render_status "$CLEAN_V2_OUTPUT/cta-plan.json")" in
-            applied|render_error_fallback_to_uncarded_video|not_scheduled) ;;
+            delegated_to_approved_visual_assets|not_scheduled) ;;
             *) echo "Unexpected Clean V2 contextual CTA render status" >&2; exit 1 ;;
           esac
+          test -s "$CLEAN_V2_OUTPUT/visual-cta.json"
+          test "$(jq -r .provider_calls_added "$CLEAN_V2_OUTPUT/visual-cta.json")" = "0"
+          test -s "$CLEAN_V2_OUTPUT/identity-sequence.json"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/identity-sequence.json")" = "pass"
           test -s "$CLEAN_V2_OUTPUT/structural-ai-flags.json"
           test "$(jq -r .mode "$CLEAN_V2_OUTPUT/structural-ai-flags.json")" = "advisory"
           test -s "$CLEAN_V2_OUTPUT/narrative-identity.json"
