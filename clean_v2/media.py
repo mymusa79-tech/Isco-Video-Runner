@@ -2749,9 +2749,10 @@ def render_video(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Opening clips (fixed 7/11/12s audited shots, when present) keep their
-    # exact existing raw scale/crop/trim treatment - untouched by grading or
-    # dissolves, which only apply to the ordinary body clips below.
+    # All stock footage in this render shares one measured reference. M8 has
+    # already normalized technical color space; this step aligns appearance only.
+    grade_filters = _build_reference_color_plan(paths, output_dir)
+
     opening_count = 3 if opening_enabled else 0
     opening_paths_for_render = paths[:opening_count]
     opening_durations = durations[:opening_count]
@@ -2777,6 +2778,7 @@ def render_video(
                     else COHESION_DISSOLVE_SECONDS
                 ),
                 short_motion_lite=(fmt == "short"),
+                grade_filters=grade_filters,
             )
         else:
             body_segments = []
@@ -2794,11 +2796,9 @@ def render_video(
         for opening_path, clip_seconds in zip(opening_paths_for_render, opening_durations):
             label = f"v{input_index}"
             labels.append(f"[{label}]")
-            # Same restrained color-grade fragment as every body clip (see
-            # _trim_and_grade_clip) so the opening reads as the same film as
-            # the rest of the video - the opening's own 7/11/12s timing and
-            # asset selection are untouched, only the color pass is added.
-            grade = _grade_clip_filter(opening_path)
+            # Opening footage uses the exact same reference-match plan as body
+            # footage; timing/asset selection remain untouched.
+            grade = grade_filters.get(str(opening_path), "")
             vf = (
                 f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                 f"crop={width}:{height},setsar=1,fps=30"
@@ -2815,11 +2815,11 @@ def render_video(
             # applicable) by _build_section_body_segments - just reset PTS.
             filters.append(f"[{input_index}:v]setpts=PTS-STARTPTS[{label}]")
             input_index += 1
-        if fmt == "short":
-            filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
-            filters.append(f"[vcat]{SHORT_MASTER_LOOK_FILTER}[vout]")
-        else:
-            filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vout]")
+        master_lut = _write_master_look_lut(work_dir / "warm-neutral-master-v1.cube")
+        filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
+        filters.append(
+            f"[vcat]lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral[vout]"
+        )
 
         command.extend(
             [
