@@ -307,6 +307,44 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
             self.assertIn(_PLANNING_FACTUALITY_RULE, captured[provider])
 
 
+class GroqJsonModeContractTests(unittest.TestCase):
+    def test_gptoss_json_mode_hides_reasoning(self) -> None:
+        captured: dict[str, object] = {}
+
+        def post_json(url, *, headers, payload, timeout):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["payload"] = payload
+            captured["timeout"] = timeout
+            return {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": '{"ok": true}'},
+                    }
+                ]
+            }
+
+        with (
+            mock.patch.object(providers_module, "_read_secret", return_value="secret"),
+            mock.patch.object(providers_module, "_post_json", side_effect=post_json),
+            mock.patch.dict(
+                os.environ,
+                {"GROQ_CONTENT_MODEL": "openai/gpt-oss-20b"},
+                clear=False,
+            ),
+        ):
+            result = providers_module._groq_call("prompt", 321)
+
+        self.assertEqual(result, {"ok": True})
+        payload = captured["payload"]
+        self.assertEqual(payload["model"], "openai/gpt-oss-20b")
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertEqual(payload["reasoning_format"], "hidden")
+        self.assertEqual(payload["max_completion_tokens"], 321)
+
+
+
 class MistralPlanningSchemaTests(unittest.TestCase):
     @staticmethod
     def _brief_for(fmt: str) -> dict:
