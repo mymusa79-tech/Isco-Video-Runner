@@ -193,9 +193,12 @@ jobs:
           test -s "$CLEAN_V2_OUTPUT/identity-sequence.json"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/identity-sequence.json")" = "pass"
 
+          # Rich Short Lite acquires one or two approved assets per each of the
+          # three semantic sections (3-6 provider-backed assets), then creates
+          # 6-9 edit beats locally without extra provider/vision calls.
           shots="$(jq -r '.assets | length' "$CLEAN_V2_OUTPUT/rights-manifest.json")"
-          test "$shots" -ge 2
-          test "$shots" -le 4
+          test "$shots" -ge 3
+          test "$shots" -le 6
 
       - name: Write cohort result
         if: success()
