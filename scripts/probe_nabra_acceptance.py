@@ -190,12 +190,12 @@ def repair_sentence_final_pause(
     sentence: str,
     phonemes: str,
 ) -> tuple[str, list[dict]]:
-    """Normalize only the final spoken word to natural MSA pause form.
+    """Normalize the final Arabic word while retaining a model stop cue.
 
-    The production timeline already owns the semantic pause, so terminal
-    punctuation is removed from the phoneme stream. If the written final
-    Arabic word does not explicitly end in a long-vowel letter and the G2P
-    invented a final short case vowel, drop that vowel at pause.
+    The timeline owns pause *duration*, but Nabra still needs a terminal stop
+    marker to close pitch/energy naturally. We therefore remove spurious short
+    case vowels first, then restore one "." prosody cue. No extra silence is
+    introduced by this function.
     """
     matches = list(ARABIC_WORD_RE.finditer(sentence))
     phones = phonemes.split()
@@ -204,23 +204,11 @@ def repair_sentence_final_pause(
 
     last_surface = matches[-1].group(0)
     last_bare = _undia(last_surface)
-    phone = phones[-1]
-    core = phone.rstrip(FINAL_PHONE_PUNCT)
-    suffix = phone[len(core):]
+    source_phone = phones[-1]
+    phone = source_phone.rstrip(FINAL_PHONE_PUNCT)
     repairs: list[dict] = []
 
-    if suffix:
-        repairs.append({
-            "kind": "terminal_phoneme_punctuation",
-            "word": last_bare,
-            "source": phone,
-            "target": core,
-            "reason": "timeline_owns_pause",
-        })
-        phone = core
-
     # Taa marbuta is already handled by the orthography repair above.
-    # Preserve genuine long-vowel word endings and explicit final Arabic vowels.
     protected_long_letter = bool(last_bare) and last_bare[-1] in "اىيوة"
     final_base_pos = None
     for pos in range(len(last_surface) - 1, -1, -1):
@@ -245,7 +233,18 @@ def repair_sentence_final_pause(
             })
             phone = repaired
 
-    phones[-1] = phone
+    # Restore one terminal stop cue for Nabra's end-of-sentence prosody.
+    # Pause length remains fully controlled by the external timeline.
+    final_phone = phone + "."
+    if final_phone != source_phone:
+        repairs.append({
+            "kind": "terminal_stop_cue",
+            "word": last_bare,
+            "source": source_phone,
+            "target": final_phone,
+            "reason": "model_prosody_only_timeline_owns_pause_duration",
+        })
+    phones[-1] = final_phone
     return " ".join(phones), repairs
 
 
@@ -393,7 +392,6 @@ def smooth_sentence_edges(
     *,
     pred_dur: torch.LongTensor | None = None,
     threshold_db: float = -34.0,
-    end_threshold_db: float = -42.0,
     frame_ms: int = 10,
     pre_roll_ms: int = 12,
     post_roll_ms: int = 180,
@@ -419,22 +417,16 @@ def smooth_sentence_edges(
 
     frame = max(1, int(SAMPLE_RATE * frame_ms / 1000.0))
     rms = _frame_rms(audio, frame)
-    start_threshold = float(10 ** (threshold_db / 20.0))
-    end_threshold = float(10 ** (end_threshold_db / 20.0))
-    start_active_frames = np.flatnonzero(rms > start_threshold)
-    end_active_frames = np.flatnonzero(rms > end_threshold)
-    if start_active_frames.size == 0 or end_active_frames.size == 0:
+    threshold = float(10 ** (threshold_db / 20.0))
+    active_frames = np.flatnonzero(rms > threshold)
+    if active_frames.size == 0:
         return audio.astype(np.float32, copy=True), {
             "status": "no_active_frames",
             "threshold_db": threshold_db,
-        "end_threshold_db": end_threshold_db,
-            "end_threshold_db": end_threshold_db,
         }
 
-    speech_start = int(start_active_frames[0] * frame)
-    # Preserve quiet final consonant releases that fall below the onset threshold.
-    # This prevents stop/fricative endings such as ك/ف/ت from being treated as tail noise.
-    speech_end = min(int(audio.size), int((end_active_frames[-1] + 1) * frame))
+    speech_start = int(active_frames[0] * frame)
+    speech_end = min(int(audio.size), int((active_frames[-1] + 1) * frame))
 
     pre = int(SAMPLE_RATE * pre_roll_ms / 1000.0)
     post = int(SAMPLE_RATE * post_roll_ms / 1000.0)
@@ -662,8 +654,8 @@ def main() -> int:
         sentences=SHORT_SENTENCES,
         pauses_ms=SHORT_PAUSES_MS,
         onset_fade_ms=24,
-        pre_release_soften_ms=100,
-        pre_release_floor=0.80,
+        pre_release_soften_ms=90,
+        pre_release_floor=0.82,
     )
     short_raw = output / "01-nabra-new-short-smooth-raw.wav"
     short_mix = output / "02-nabra-new-short-smooth-mix-ready.wav"
@@ -677,8 +669,8 @@ def main() -> int:
         sentences=LONG_SENTENCES,
         pauses_ms=LONG_PAUSES_MS,
         onset_fade_ms=20,
-        pre_release_soften_ms=90,
-        pre_release_floor=0.82,
+        pre_release_soften_ms=75,
+        pre_release_floor=0.84,
     )
     long_raw = output / "03-nabra-long-validation-smooth-raw.wav"
     long_mix = output / "04-nabra-long-validation-smooth-mix-ready.wav"
@@ -698,9 +690,8 @@ def main() -> int:
             "post_roll_ms": 180,
             "short_onset_fade_ms": 24,
             "long_onset_fade_ms": 20,
-            "short_pre_release_soften_ms": 100,
-            "long_pre_release_soften_ms": 90,
-            "end_threshold_db": -42.0,
+            "short_pre_release_soften_ms": 90,
+            "long_pre_release_soften_ms": 75,
             "release_hold_ms": 35,
             "release_fade_ms": 110,
             "principle": (
