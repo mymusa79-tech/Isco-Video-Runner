@@ -67,8 +67,7 @@ class TopicResearchV5SurfaceTests(unittest.TestCase):
         candidate = self._candidate("موضوع دائم", 0.45, 0.90)
         text = creator_v5._candidate_panel_text("long", [candidate])
         self.assertIn("Evergreen قوي — ليس فرصة حالية", text)
-        self.assertIn("لم توجد فرصة «قوية الآن»", text)
-        self.assertIn("الآن: 4.5/10", text)
+        self.assertIn("📈 الآن 4.5/10", text)
         self.assertNotIn("الأنسب الآن", text)
         self.assertNotIn("فرصة الآن: زخم حديث قوي", text)
 
@@ -76,7 +75,7 @@ class TopicResearchV5SurfaceTests(unittest.TestCase):
         self.assertIn("حتى 3", creator_v5._search_text())
         started = creator_v5._research_started_text("topic")
         self.assertIn("حتى 3", started)
-        self.assertIn("لن أصف Evergreen منخفض الزخم كأنه ترند", started)
+        self.assertIn("سأعرض لك فقط ما يستحق الاختيار", started)
 
     def test_ready_status_reports_actual_one_candidate_count(self):
         candidate = self._candidate("موضوع واحد", 0.70, 0.80)
@@ -117,7 +116,7 @@ class TopicResearchV5SurfaceTests(unittest.TestCase):
         core.panel._handle_command("choices-s1", client, state, None, 77)
         self.assertEqual(len(client.messages), 1)
         _, text, keyboard = client.messages[0]
-        self.assertIn("1 فرصة بحث حي للحلقة", text)
+        self.assertIn("أفضل الخيارات — الحلقة", text)
         callbacks = [
             button.get("callback_data", "")
             for row in (keyboard or [])
