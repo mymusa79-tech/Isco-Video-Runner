@@ -185,7 +185,19 @@ def _synthesize_sectioned_voice(
                 f"Clean V2 sectioned voice found empty narration: section={section_id}"
             )
 
-        chunks = _bounded_voice_chunks(section_text)
+        # For the approved Hook -> Intro -> identity order, keep the very first
+        # spoken sentence as its own TTS chunk. This gives the post-render identity
+        # splice an exact measured hook boundary without alignment AI or extra calls.
+        if index == 1:
+            match = re.search(r"[.!؟!]", section_text)
+            if match is not None and match.end() < len(section_text):
+                hook_text = section_text[: match.end()].strip()
+                remainder = section_text[match.end() :].strip()
+                chunks = [hook_text, *_bounded_voice_chunks(remainder)]
+            else:
+                chunks = _bounded_voice_chunks(section_text)
+        else:
+            chunks = _bounded_voice_chunks(section_text)
         if not chunks:
             raise RuntimeError(
                 f"Clean V2 sectioned voice found no narration chunks: section={section_id}"
@@ -2504,10 +2516,11 @@ def _script_prompt(
         length = "Aim for roughly 650-900 spoken Arabic words across all sections."
     elif fmt == "short":
         length = (
-            "Write a complete miniature idea, not caption fragments: aim for roughly 65-105 spoken Arabic words across all 3 sections, "
-            "usually 4-6 complete sentences with natural variation in length. Every sentence must be grammatically sound and carry enough "
-            "context to be understood on first listen. Prefer a 30-40 second result, but do not pad a complete idea; the measured audio gate "
-            "is authoritative and the complete Short must stay within 20-45 seconds."
+            "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
+            "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
+            "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
+            "understood on first listen. Prefer a final 30-40 second result including identity media, but do not pad a complete idea; the measured "
+            "final gate is authoritative and the complete Short must stay within 20-45 seconds."
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
