@@ -38,8 +38,6 @@ PRONUNCIATION_PATCHES = (
     ("tˌakaˈuːna", "takˈuːna", "تكون"),
     ("jˌataħaˈuːal", "jˌataħˈawːal", "يتحول"),
     ("faħˈaiˌaːt", "falħˈaiˌaːt", "فالحياة"),
-    ("χˈatːatt", "χˈatːatta", "خططتَ"),
-    ("tˌaqadːˈumakˌa", "tˌaqadːˈumak", "تقدمك في الوقف"),
 )
 
 def repair_obvious_g2p_artifacts(phonemes: str) -> tuple[str, list[dict]]:
@@ -181,8 +179,72 @@ def repair_spoken_msa_orthography(
     return " ".join(out), repairs, diagnostics
 
 
+FINAL_PHONE_PUNCT = ".,;:!?…"
+FINAL_SHORT_VOWEL_RE = re.compile(r"(?:[ˌˈ]?[aiu])$")
+
+
+def repair_sentence_final_pause(
+    sentence: str,
+    phonemes: str,
+) -> tuple[str, list[dict]]:
+    """Normalize only the final spoken word to natural MSA pause form.
+
+    The production timeline already owns the semantic pause, so terminal
+    punctuation is removed from the phoneme stream. If the written final
+    Arabic word does not explicitly end in a long-vowel letter and the G2P
+    invented a final short case vowel, drop that vowel at pause.
+    """
+    matches = list(ARABIC_WORD_RE.finditer(sentence))
+    phones = phonemes.split()
+    if not matches or not phones or len(matches) != len(phones):
+        return phonemes, []
+
+    last_surface = matches[-1].group(0)
+    last_bare = _undia(last_surface)
+    phone = phones[-1]
+    core = phone.rstrip(FINAL_PHONE_PUNCT)
+    suffix = phone[len(core):]
+    repairs: list[dict] = []
+
+    if suffix:
+        repairs.append({
+            "kind": "terminal_phoneme_punctuation",
+            "word": last_bare,
+            "source": phone,
+            "target": core,
+            "reason": "timeline_owns_pause",
+        })
+        phone = core
+
+    # Taa marbuta is already handled by the orthography repair above.
+    # Preserve genuine long-vowel word endings and explicit final Arabic vowels.
+    protected_long_letter = bool(last_bare) and last_bare[-1] in "اىيوة"
+    final_base_pos = None
+    for pos in range(len(last_surface) - 1, -1, -1):
+        if ARABIC_WORD_RE.fullmatch(last_surface[pos]):
+            final_base_pos = pos
+            break
+    trailing_marks = last_surface[final_base_pos + 1:] if final_base_pos is not None else ""
+    explicit_final_vowel = any(ch in "\u064B\u064C\u064D\u064E\u064F\u0650" for ch in trailing_marks)
+
+    if not protected_long_letter and not explicit_final_vowel:
+        repaired = FINAL_SHORT_VOWEL_RE.sub("", phone)
+        if repaired != phone:
+            repairs.append({
+                "kind": "sentence_final_case_vowel",
+                "word": last_bare,
+                "source": phone,
+                "target": repaired,
+                "reason": "spoken_msa_pause_form",
+            })
+            phone = repaired
+
+    phones[-1] = phone
+    return " ".join(phones), repairs
+
+
 SHORT_SENTENCES = (
-    "بَعْضُ الأَيّام لا تَسير كَما خَطَّطْتَ.",
+    "بَعْضُ الأَيّام لا تَسير كَما خَطَّطْت.",
     "وَهَذا لا يَعْني أَنَّكَ خَسِرْت تَقَدُّمَك.",
     "أَصْلِح ما تَسْتَطيع، وَاتْرُك ما لا تَسْتَطيع تَغْييرَه الآن.",
     "ثُمَّ عُد إِلى خُطْوَتِك التّالِيَة بِهُدوء.",
@@ -504,6 +566,8 @@ def synthesize_passage(
                 phonemes,
             )
             repairs.extend(orthography_repairs)
+            phonemes, final_pause_repairs = repair_sentence_final_pause(sentence, phonemes)
+            repairs.extend(final_pause_repairs)
             phoneme_rows.append(phonemes)
             pronunciation_repairs.append(repairs)
             output = KPipeline.infer(
