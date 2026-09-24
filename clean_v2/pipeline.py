@@ -2865,14 +2865,23 @@ host will place visual CTA overlays only in safe content windows after value has
 For short, social CTA remains visual-only: do not add subscribe/comment/share/like language anywhere
 in spoken narration.
 
-IDENTITY_SEQUENCE is also HOST-MANAGED. Write the first sentence as the truthful hook. Do NOT write
-a greeting, prayer sentence, or channel introduction yourself: after validation the runtime inserts
-exactly one approved prayer sentence and one channel-definition sentence immediately after the hook.
-Their real synthesized audio units become Timeline boundaries; Intro/Prayer/Identity/Outro visuals are
-rendered inside those measured bounds and never extend the narration. The next topic sentence must
-resume naturally after the identity beat. Prayer, channel definition, and return to the episode must
-feel like one continuous spoken passage rather than unrelated blocks. Finish the topic naturally; the
-Outro visual occupies the measured final voice unit instead of adding time after narration.
+IDENTITY_SEQUENCE is also HOST-MANAGED. The first sentence is the hook and must be the strongest
+natural entry into THIS exact episode, not merely an acceptable opening sentence. Write it as one
+complete, self-contained sentence that names a specific situation, tension, behavior, consequence, or
+question from this topic and creates a genuine unresolved reason to hear the next sentence. It must
+sound believable and human, never inflated, generic, manufactured, or forced shock/clickbait. A calm
+hook is fully acceptable when the tension is specific. Avoid reusable motivational openings that could
+fit dozens of unrelated videos. The hook must open the SAME core tension the script will develop, and
+the later payoff must meaningfully resolve that tension; do not write a strong hook that the body
+abandons. Do not optimize for a fixed word count or duration.
+
+Do NOT write a greeting, prayer sentence, or channel introduction yourself: after validation the
+runtime inserts exactly one approved prayer sentence and one channel-definition sentence immediately
+after the hook. Their real synthesized audio units become Timeline boundaries; Intro/Prayer/Identity/
+Outro visuals are rendered inside those measured bounds and never extend the narration. The next topic
+sentence must resume naturally after the identity beat. Prayer, channel definition, and return to the
+episode must feel like one continuous spoken passage rather than unrelated blocks. Finish the topic
+naturally; the Outro visual occupies the measured final voice unit instead of adding time after narration.
 {identity_handoff_guidance}
 
 {short_context}
