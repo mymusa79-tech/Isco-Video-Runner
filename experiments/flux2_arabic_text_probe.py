@@ -43,7 +43,7 @@ SCENES = [
         "width": 1536, "height": 1024,
         "prompt": (
             "Create a cinematic YouTube thumbnail background with a tired person at a desk at night. "
-            "Render this EXACT English headline inside the image: "START TODAY". "
+            "Render this EXACT English headline inside the image: START TODAY. "
             "Large clean bold typography, exact spelling, no extra text, no logo, no watermark."
         ),
     },
