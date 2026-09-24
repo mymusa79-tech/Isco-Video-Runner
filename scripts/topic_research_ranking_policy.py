@@ -18,6 +18,7 @@ POLICY_VERSION = "topic-ranking-multistage-v1"
 STRONG_CURRENT_INTEREST_MIN = 0.65
 HYBRID_CURRENT_INTEREST_MIN = 0.50
 EVERGREEN_STRENGTH_MIN = 0.70
+MIN_OPPORTUNITY_SCORE = 0.70
 SURFACE_MARKET_CLASSES = ("rising", "hybrid", "evergreen")
 
 
@@ -158,6 +159,10 @@ def _build_candidate_payload(candidate: dict[str, Any], kind: str) -> dict[str, 
     return normalized
 
 
+def _quality_qualified(candidate: dict[str, Any]) -> bool:
+    return float(candidate.get("opportunity_score", 0.0) or 0.0) >= MIN_OPPORTUNITY_SCORE
+
+
 def _is_distinct(candidate: dict[str, Any], chosen: list[dict[str, Any]]) -> bool:
     return not any(
         memory_ui._same_topic_across_formats(
@@ -169,7 +174,10 @@ def _is_distinct(candidate: dict[str, Any], chosen: list[dict[str, Any]]) -> boo
 
 def _diverse_top(candidates: list[dict[str, Any]], limit: int = 3) -> list[dict[str, Any]]:
     """Admission -> role priority -> composite ranking -> semantic diversity."""
-    admitted = [item for item in candidates if _market_class(item) in SURFACE_MARKET_CLASSES]
+    admitted = [
+        item for item in candidates
+        if _market_class(item) in SURFACE_MARKET_CLASSES and _quality_qualified(item)
+    ]
     ranked = sorted(admitted, key=lambda item: float(item.get("control_score", 0.0) or 0.0), reverse=True)
     chosen: list[dict[str, Any]] = []
 
@@ -295,6 +303,8 @@ def install(*, core: Any, panel: Any) -> None:
         "STRONG_CURRENT_INTEREST_MIN": STRONG_CURRENT_INTEREST_MIN,
         "HYBRID_CURRENT_INTEREST_MIN": HYBRID_CURRENT_INTEREST_MIN,
         "EVERGREEN_STRENGTH_MIN": EVERGREEN_STRENGTH_MIN,
+        "MIN_OPPORTUNITY_SCORE": MIN_OPPORTUNITY_SCORE,
+        "_quality_qualified": _quality_qualified,
         "_market_class": _market_class,
         "_market_class_ar": _market_class_ar,
         "_ranking_components": _ranking_components,
@@ -312,8 +322,9 @@ def install(*, core: Any, panel: Any) -> None:
         def reason(exc: Exception) -> str:
             if "distinct production-ready candidate" in str(exc):
                 return (
-                    "السبب: وُجد قياس حي، لكن لا توجد فرصة حالية ≥5/10 "
-                    "ولا Evergreen قوي يكفي للعرض الرئيسي."
+                    "السبب: لم يُعثر على مواضيع مناسبة بهذا البحث بعد فلاتر السوق والجودة "
+                    f"(opportunity_score ≥{MIN_OPPORTUNITY_SCORE * 10:.1f}/10). "
+                    "جرّب معايير أو seed queries مختلفة."
                 )
             return previous_reason(exc)
 
