@@ -2494,7 +2494,8 @@ Arab/Muslim audience.
 IDENTITY_SEQUENCE is runtime-owned and must be respected by the plan: the first spoken sentence is
 always the hook; immediately after that hook the approved visual intro is inserted; narration then
 continues with the approved prayer sentence, one short channel-definition sentence, and only then
-the topic/body. Do not plan any greeting, prayer, channel introduction, or extra preamble before the
+the topic/body. Treat the prayer, definition, and first topic line as one continuous opening beat, not
+three disconnected modules. Do not plan any greeting, prayer, channel introduction, or extra preamble before the
 hook, and do not duplicate those identity lines inside section purpose text. The approved Outro is
 renderer-owned and appended after the completed content, so keep the final topic beat complete and do not
 plan any extra CTA or identity material for after the Outro.
@@ -2597,6 +2598,8 @@ the return to the episode must feel like one continuous spoken passage rather th
 blocks. The approved Outro is appended by the renderer after the completed narration; finish the
 topic naturally before that boundary.
 {identity_handoff_guidance}
+
+{identity_continuity}
 
 {short_context}
 
