@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -797,6 +798,61 @@ class ShortContractTests(unittest.TestCase):
             "_expand_short_visual_sequence",
             inspect.getsource(media_module.render_video),
         )
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+    def test_timeline_first_render_pads_picture_to_measured_voice_duration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            visual = root / "visual.mp4"
+            narration = root / "narration-mastered.wav"
+            final = root / "final.mp4"
+
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "color=c=black:s=320x180:r=30:d=0.600",
+                    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(visual),
+                ],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=48000:duration=1.127",
+                    "-c:a", "pcm_s16le", str(narration),
+                ],
+                check=True,
+            )
+            (root / "timeline-first.json").write_text(
+                json.dumps(
+                    {
+                        "status": "pass",
+                        "timeline_owner": "measured_charon_voice",
+                        "voice_seconds_measured": 1.127,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            seen: dict[str, float] = {}
+
+            def compose(source, destination, *, fmt, timeline):
+                del fmt, timeline
+                seen["body_seconds"] = media_module.probe_duration(Path(source))
+                shutil.copy2(source, destination)
+
+            with mock.patch(
+                "clean_v2.timeline_render.render_identity_composition",
+                side_effect=compose,
+            ):
+                media_module.render_video(narration, [visual], final, "film")
+
+            self.assertGreater(seen["body_seconds"], 1.08)
+            self.assertLessEqual(abs(seen["body_seconds"] - 1.127), 0.04)
+            self.assertLessEqual(
+                abs(media_module.probe_duration(final) - 1.127),
+                0.04,
+            )
 
     def test_optional_local_ai_still_replaces_one_short_auxiliary_without_network_generation(self) -> None:
         plan = _plan(
