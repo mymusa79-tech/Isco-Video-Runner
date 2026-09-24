@@ -37,7 +37,16 @@ SHORT_SENTENCES = (
     "ثُمَّ عُد إِلى خُطْوَتِك التّالِيَة بِهُدوء.",
     "فَالحَياة لا تَطْلُب مِنْكَ أَنْ تَكون مُثاليًّا؛ بَل أَنْ تَسْتَمِر بِوُضوح وَمَرونَة.",
 )
-SHORT_PAUSES_MS = (380, 700, 1000, 1800)
+# Pause length follows rhetorical function, not sentence count:
+# setup lands -> medium; immediate clarification -> short; completed instruction
+# -> medium; action line before the closing takeaway -> rare reflective long.
+SHORT_PAUSES_MS = (650, 420, 720, 1600)
+SHORT_PAUSE_REASONS = (
+    "اكتمال التمهيد وترك الفكرة تهبط قبل تصحيحها",
+    "استمرار مباشر: الجملة التالية تكمل نفس المعنى فلا نبالغ في الوقفة",
+    "اكتمال التعليمات المركبة قبل الانتقال إلى الفعل التالي",
+    "وقفة تأملية نادرة قبل الخلاصة النهائية",
+)
 
 LONG_SENTENCES = (
     "أَحْيانًا نَظُنُّ أَنَّ التَّقَدُّم يَحْتاج إِلى قَرار كَبير، لَكِنَّ الحَقيقَة أَبْسَط مِن ذَلِك.",
@@ -51,7 +60,18 @@ LONG_SENTENCES = (
     "اِرْجِع بِهُدوء، وَابْدَأ مِن أَقْرَب خُطْوَة مُمْكِنَة.",
     "بَعْد مُدَّة، سَتَكْتَشِف أَنَّ ما صَنَع الفَرْق لَم يَكُن لَحْظَة حَماس، بَلْ عادات صَغيرَة حافَظْت عَلَيْها حِينَ كان التَّقَدُّم بَطيئًا.",
 )
-LONG_PAUSES_MS = (420, 700, 380, 1000, 680, 950, 400, 720, 1800)
+LONG_PAUSES_MS = (650, 420, 650, 950, 700, 420, 950, 650, 1600)
+LONG_PAUSE_REASONS = (
+    "اكتمال طرح الفكرة الأساسية قبل شرحها",
+    "استمرار تفسيري مباشر لنفس الفكرة",
+    "اكتمال وصف الشك قبل التحول إلى النتيجة",
+    "نهاية قوس معنوي صغير وبداية فكرة قيمة الاستمرار",
+    "اكتمال تعريف الاستمرار قبل نفي الكمال",
+    "استمرار تقابلي: ليس المطلوب... ثم المطلوب...",
+    "اكتمال التوجيه الأساسي قبل مثال التعثر",
+    "اكتمال التحذير قبل أمر الرجوع الهادئ",
+    "وقفة تأملية نادرة قبل الخاتمة النهائية",
+)
 
 
 def wav_info(path: Path) -> dict:
@@ -322,6 +342,7 @@ def main() -> int:
         "short": {
             "sentences": SHORT_SENTENCES,
             "pauses_ms": SHORT_PAUSES_MS,
+            "pause_reasons": SHORT_PAUSE_REASONS,
             "phonemes": short_phonemes,
             "edges": short_edges,
             "synthesis_seconds": round(short_synth, 3),
@@ -331,6 +352,7 @@ def main() -> int:
         "long": {
             "sentences": LONG_SENTENCES,
             "pauses_ms": LONG_PAUSES_MS,
+            "pause_reasons": LONG_PAUSE_REASONS,
             "phonemes": long_phonemes,
             "edges": long_edges,
             "synthesis_seconds": round(long_synth, 3),
