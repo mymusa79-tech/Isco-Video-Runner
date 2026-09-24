@@ -332,7 +332,9 @@ class ShortContractTests(unittest.TestCase):
     def test_cohort_attempt_2_s3_requires_one_direct_practical_action(self) -> None:
         prompt = short_prompt_context(_TEMPLATE_FIXTURES["inner_dialogue"]["brief"])
         self.assertIn("MUST begin with a direct Arabic imperative verb", prompt)
-        for example in ("ابدأ بـ...", "جرّب أن...", "افعل...", "اختر...", "اكتب..."):
+        self.assertIn("STRICTER SAFEGUARD", prompt)
+        self.assertIn("SELF-CHECK", prompt)
+        for example in ("ابدأ بمهمة واحدة", "جرّب أن", "افعل شيئًا واحدًا", "اختر مهمة واحدة", "اكتب أول خطوة"):
             self.assertIn(example, prompt)
 
         no_action = {
@@ -350,10 +352,30 @@ class ShortContractTests(unittest.TestCase):
             validate_short_script(no_action)
 
         direct_action = json.loads(json.dumps(no_action, ensure_ascii=False))
-        direct_action["sections"][2]["narration"] = "ابدأ بخطوة صغيرة تستطيع تنفيذها الآن."
+        direct_action["sections"][2]["narration"] = (
+            "عندها يصبح الطريق أوضح. اكتب أول خطوة تستطيع تنفيذها الآن."
+        )
         report = validate_short_script(direct_action)
         self.assertEqual(report["practical_action_sentences"], 1)
         self.assertEqual(report["practical_action_markers"], 1)
+
+        prefixed_action = json.loads(json.dumps(no_action, ensure_ascii=False))
+        prefixed_action["sections"][2]["narration"] = "الآن ابدأ بخطوة صغيرة."
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            r"short_s3_action_must_begin_with_direct_imperative",
+        ):
+            validate_short_script(prefixed_action)
+
+        payoff_derivative = json.loads(json.dumps(no_action, ensure_ascii=False))
+        payoff_derivative["sections"][2]["narration"] = (
+            "بدأت الصورة تتضح عندما قلّ الضغط. اكتب خطوة واحدة واضحة."
+        )
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            r"short_s3_payoff_contains_forbidden_action_family",
+        ):
+            validate_short_script(payoff_derivative)
 
         double_action = json.loads(json.dumps(no_action, ensure_ascii=False))
         double_action["sections"][2]["narration"] = "اكتب كلمة واحدة على ورقة ثم اخرج للمشي."
@@ -858,7 +880,6 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             narration.write_bytes(b"fixture")
             for index in range(1, 4):
                 (audio_dir / f"{index:02d}.wav").write_bytes(b"section")
-
             durations = {
                 "narration-mastered.wav": 46.03,
                 "01.wav": 12.0,
@@ -873,7 +894,6 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
                     output_dir=root,
                     narration_path=narration,
                 )
-
             self.assertEqual(report["status"], "pass")
             self.assertEqual(report["voice_seconds_measured"], 46.03)
             self.assertIsNone(report["editorial_target_seconds"])
