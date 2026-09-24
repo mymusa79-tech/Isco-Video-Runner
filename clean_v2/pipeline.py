@@ -679,6 +679,7 @@ def _run_legacy_factuality_audit(
     report = {
         "schema_version": 1,
         "source": "clean-v2-legacy-factuality-audit",
+        "trusted_identity_excluded_from_model_judgment": True,
         **result,
         "status": local_status,
         "provider_status": provider_status,
