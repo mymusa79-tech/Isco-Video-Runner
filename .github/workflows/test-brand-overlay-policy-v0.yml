@@ -1,0 +1,23 @@
+name: Test Brand Overlay Policy V0
+
+on:
+  push:
+    branches:
+      - brand-overlay-v0-policy-20260924
+    paths:
+      - clean_v2/brand_overlay_policy.py
+      - scripts/test_brand_overlay_policy_v0.py
+      - .github/workflows/test-brand-overlay-policy-v0.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  policy-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run policy test
+        run: python3 scripts/test_brand_overlay_policy_v0.py
