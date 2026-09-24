@@ -614,6 +614,90 @@ def _script_without_trusted_identity(
     return cleaned
 
 
+_FACTUALITY_HIGH_RISK_TERMS = (
+    "medical", "medicine", "diagnosis", "diagnose", "treatment", "prescription",
+    "doctor", "therapist", "psychologist", "legal", "lawyer", "attorney",
+    "financial", "finance", "investment", "investing", "personal safety",
+    "safety risk", "self-harm", "suicide", "emergency",
+    "طبي", "طبية", "تشخيص", "علاج", "دواء", "وصفة", "طبيب", "معالج",
+    "نفسي", "قانون", "قانوني", "محامي", "مالي", "استثمار", "سلامة",
+    "إيذاء النفس", "ايذاء النفس", "انتحار", "طوارئ",
+)
+
+
+def _factuality_section_text(script: Mapping[str, Any], section_id: str) -> str:
+    for item in script.get("sections") or []:
+        if isinstance(item, Mapping) and str(item.get("id") or "").strip() == section_id:
+            return str(item.get("narration") or "")
+    return ""
+
+
+def _factuality_issue_is_high_risk(
+    item: Mapping[str, Any],
+    *,
+    script: Mapping[str, Any],
+) -> bool:
+    section_id = str(item.get("section_id") or "").strip()
+    combined = (
+        str(item.get("issue") or "")
+        + " "
+        + _factuality_section_text(script, section_id)
+    ).casefold()
+    return any(term.casefold() in combined for term in _FACTUALITY_HIGH_RISK_TERMS)
+
+
+def _deterministic_factuality_policy(
+    *,
+    diagnostics: Mapping[str, Any],
+    audit_script: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Convert provider detections into the local authoritative hard/advisory split."""
+    raw = diagnostics.get("raw_result")
+    if not isinstance(raw, Mapping):
+        raw = {}
+
+    unsupported = [
+        dict(item) for item in (raw.get("unsupported_claims") or [])
+        if isinstance(item, Mapping)
+    ]
+    professional = [
+        dict(item) for item in (raw.get("professional_advice_flags") or [])
+        if isinstance(item, Mapping)
+    ]
+    persona = [
+        dict(item) for item in (raw.get("expert_persona_flags") or [])
+        if isinstance(item, Mapping)
+    ]
+
+    hard_professional = [
+        item for item in professional
+        if _factuality_issue_is_high_risk(item, script=audit_script)
+    ]
+    hard_persona = [
+        item for item in persona
+        if _factuality_issue_is_high_risk(item, script=audit_script)
+    ]
+    advisory_professional = [item for item in professional if item not in hard_professional]
+    advisory_persona = [item for item in persona if item not in hard_persona]
+
+    hard_flags = {
+        "unsupported_claims": unsupported,
+        "professional_advice_flags": hard_professional,
+        "expert_persona_flags": hard_persona,
+    }
+    advisory_flags = {
+        "professional_advice_flags": advisory_professional,
+        "expert_persona_flags": advisory_persona,
+    }
+    hard_flag_count = sum(len(values) for values in hard_flags.values())
+    return {
+        "status": "block" if hard_flag_count else "pass",
+        "hard_flag_count": hard_flag_count,
+        "hard_flags": hard_flags,
+        "advisory_flags": advisory_flags,
+    }
+
+
 def _run_structural_ai_flags(
     *,
     output_dir: Path,
@@ -671,11 +755,11 @@ def _run_legacy_factuality_audit(
         diagnostics=diagnostics,
     )
     provider_status = str(result.get("status") or "")
-    hard_flag_count = sum(
-        len(result.get(field) or [])
-        for field in _FACTUALITY_REPAIR_FLAG_FIELDS
+    local_policy = _deterministic_factuality_policy(
+        diagnostics=diagnostics,
+        audit_script=audit_script,
     )
-    local_status = "block" if hard_flag_count else "pass"
+    local_status = str(local_policy["status"])
     report = {
         "schema_version": 1,
         "source": "clean-v2-legacy-factuality-audit",
@@ -683,9 +767,11 @@ def _run_legacy_factuality_audit(
         **result,
         "status": local_status,
         "provider_status": provider_status,
-        "decision_source": "deterministic_local_flags",
+        "decision_source": "deterministic_local_risk_policy",
         "trusted_identity": list(trusted_identity),
-        "hard_flag_count": hard_flag_count,
+        "hard_flag_count": int(local_policy["hard_flag_count"]),
+        "hard_flags": dict(local_policy["hard_flags"]),
+        "advisory_flags": dict(local_policy["advisory_flags"]),
         "diagnostics": diagnostics,
     }
     atomic_write_json(output_dir / "factuality-audit.json", report)
@@ -841,8 +927,12 @@ def _run_legacy_tone_naturalness_audit(
 
 def _structured_factuality_flags(report: Mapping[str, Any]) -> list[tuple[str, str]]:
     """Read authoritative section locations from the validated provider payload."""
-    diagnostics = report.get("diagnostics")
-    raw = diagnostics.get("raw_result") if isinstance(diagnostics, Mapping) else None
+    hard = report.get("hard_flags")
+    if isinstance(hard, Mapping):
+        raw = hard
+    else:
+        diagnostics = report.get("diagnostics")
+        raw = diagnostics.get("raw_result") if isinstance(diagnostics, Mapping) else None
     if not isinstance(raw, Mapping):
         return []
     rows: list[tuple[str, str]] = []
