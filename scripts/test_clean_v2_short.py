@@ -754,7 +754,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(len(rejected), 1)
         self.assertIn("short_near_monochrome", str(rejected[0]["reason"]))
 
-    def test_short_visual_lite_keeps_provider_assets_fixed_and_expands_edit_beats_locally(self) -> None:
+    def test_short_visual_changes_follow_story_beats_not_duration_thresholds(self) -> None:
         plan = _plan(
             [
                 "thoughtful person alone pausing by window",
@@ -762,6 +762,34 @@ class ShortContractTests(unittest.TestCase):
                 "contemplative person calmly taking one step",
             ]
         )
+        plan["visual_story"] = {
+            "visual_world": "warm neutral natural light no identifiable faces",
+            "story_arc": {
+                "beginning": "pause",
+                "transformation": "choose",
+                "arrival": "move",
+            },
+            "beats": [
+                {
+                    "id": f"b{index}",
+                    "section_id": section_id,
+                    "viewer_intent": f"understand beat {index}",
+                    "shot_intent": query,
+                    "source_preference": "stock_motion",
+                }
+                for index, (section_id, query) in enumerate(
+                    (
+                        ("s1", "closed notebook by window"),
+                        ("s1", "hand opens notebook"),
+                        ("s2", "phone face down on desk"),
+                        ("s2", "hand writes one clear task"),
+                        ("s3", "shoes at doorway ready to move"),
+                        ("s3", "feet walking into warm daylight"),
+                    ),
+                    1,
+                )
+            ],
+        }
         source = StockVisualSource()
         counter = {"value": 0}
 
@@ -784,51 +812,38 @@ class ShortContractTests(unittest.TestCase):
         ), mock.patch(
             "clean_v2.media._download_media",
             side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
+        ), mock.patch(
+            "clean_v2.media._short_visual_color_compatible",
+            return_value=(True, None),
         ):
             clips, rights = source.acquire(
                 plan,
                 Path(temporary),
                 "short",
                 9,
-                section_estimated_seconds={"s1": 12.0, "s2": 12.0, "s3": 12.0},
+                # Deliberately huge values: duration must not add any scene.
+                section_estimated_seconds={"s1": 120.0, "s2": 120.0, "s3": 120.0},
             )
 
-        self.assertEqual(len(clips), SHORT_STOCK_ASSET_MAX)
-        self.assertEqual(len(rights), SHORT_STOCK_ASSET_MAX)
+        self.assertEqual(len(clips), 6)
+        self.assertEqual(len(rights), 6)
+        self.assertEqual(
+            [row["beat_id"] for row in rights],
+            ["b1", "b2", "b3", "b4", "b5", "b6"],
+        )
         self.assertEqual(
             [row["section_id"] for row in rights],
             ["s1", "s1", "s2", "s2", "s3", "s3"],
-        )
-        for index in range(0, 6, 2):
-            self.assertNotEqual(rights[index]["query"], rights[index + 1]["query"])
-
-        section_ids = ["s1", "s1", "s2", "s2", "s3", "s3"]
-        self.assertEqual(
-            len(_expand_short_visual_sequence(clips, section_ids, 28.0)),
-            SHORT_VISUAL_MIN,
-        )
-        self.assertEqual(
-            len(_expand_short_visual_sequence(clips, section_ids, 34.0)),
-            SHORT_VISUAL_TARGET,
-        )
-        self.assertEqual(
-            len(_expand_short_visual_sequence(clips, section_ids, 39.0)),
-            8,
-        )
-        self.assertEqual(
-            len(_expand_short_visual_sequence(clips, section_ids, 44.0)),
-            SHORT_VISUAL_MAX,
         )
         self.assertLess(SHORT_CUT_DISSOLVE_SECONDS, 0.2)
         self.assertIn("saturation=0.90", SHORT_MASTER_LOOK_FILTER)
         self.assertIn("colorbalance=", SHORT_MASTER_LOOK_FILTER)
         self.assertIn("_short_motion_filter", inspect.getsource(media_module._trim_and_grade_clip))
-        self.assertIn(
+        self.assertNotIn(
             "_expand_short_visual_sequence",
             inspect.getsource(media_module.render_video),
         )
 
-    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
     def test_timeline_first_render_pads_picture_to_measured_voice_duration(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -883,7 +898,7 @@ class ShortContractTests(unittest.TestCase):
                 0.04,
             )
 
-    def test_optional_local_ai_still_replaces_one_short_auxiliary_without_network_generation(self) -> None:
+    def test_ai_still_preference_is_marker_only_in_phase_b(self) -> None:
         plan = _plan(
             [
                 "thoughtful person alone pausing by window",
@@ -891,6 +906,24 @@ class ShortContractTests(unittest.TestCase):
                 "contemplative person calmly taking one step",
             ]
         )
+        plan["visual_story"] = {
+            "visual_world": "warm neutral natural light no identifiable faces",
+            "story_arc": {
+                "beginning": "pause",
+                "transformation": "choose",
+                "arrival": "move",
+            },
+            "beats": [
+                {
+                    "id": f"b{index}",
+                    "section_id": f"s{index}",
+                    "viewer_intent": f"understand beat {index}",
+                    "shot_intent": f"warm practical action {index} no face",
+                    "source_preference": "ai_still" if index == 2 else "stock_motion",
+                }
+                for index in range(1, 4)
+            ],
+        }
         source = StockVisualSource()
         counter = {"value": 0}
 
@@ -912,10 +945,6 @@ class ShortContractTests(unittest.TestCase):
             still.write_bytes(b"I" * 4096)
             output = root / "visuals"
 
-            def render_still(_source, destination):
-                Path(destination).write_bytes(b"A" * 4096)
-                return Path(destination)
-
             with mock.patch.dict(
                 "os.environ",
                 {"CLEAN_V2_SHORT_AI_STILL": str(still)},
@@ -928,23 +957,24 @@ class ShortContractTests(unittest.TestCase):
                 "clean_v2.media._download_media",
                 side_effect=lambda _url, destination: Path(destination).write_bytes(b"V" * 2048),
             ), mock.patch(
+                "clean_v2.media._short_visual_color_compatible",
+                return_value=(True, None),
+            ), mock.patch(
                 "clean_v2.media._render_local_short_ai_still",
-                side_effect=render_still,
-            ):
+            ) as render_still:
                 clips, rights = source.acquire(
                     plan,
                     output,
                     "short",
                     5,
-                    section_estimated_seconds={"s1": 6.4, "s2": 6.3, "s3": 6.3},
+                    section_estimated_seconds={"s1": 60.0, "s2": 60.0, "s3": 60.0},
                 )
 
-        self.assertEqual(len(clips), SHORT_VISUAL_MIN)
-        local = [row for row in rights if row.get("provider") == "generated_local_ai_still"]
-        self.assertEqual(len(local), 1)
-        self.assertEqual(local[0]["section_id"], "s2")
-        self.assertEqual(local[0]["generation_cost"], 0)
-        self.assertEqual(local[0]["network_generation_calls"], 0)
+        self.assertEqual(len(clips), 3)
+        self.assertEqual([row["provider"] for row in rights], ["pexels"] * 3)
+        self.assertEqual(rights[1]["source_preference"], "ai_still")
+        self.assertEqual(rights[1]["source_actual"], "stock_motion")
+        render_still.assert_not_called()
 
     def test_duration_contract_has_no_editorial_target_only_operational_safety(self) -> None:
         self.assertEqual(SHORT_DURATION_SAFETY_MAX_SECONDS, 120.0)
