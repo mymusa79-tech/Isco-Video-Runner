@@ -18,6 +18,8 @@ from clean_v2.pipeline import (
     _run_legacy_tone_naturalness_audit,
     _run_one_bounded_tone_repair,
     _run_text_audits,
+    _tone_repair_prompt,
+    _validate_and_apply_script_patches,
 )
 from clean_v2.tone_audit import (
     TONE_AUDIT_SCHEMA,
@@ -144,6 +146,72 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                 for item in result["narrative_format_flags"]
             )
         )
+
+    def test_hook_quality_repair_targets_and_replaces_only_first_hook(self):
+        plan = {
+            "title": "اختبار",
+            "sections": [
+                {"id": f"s{index}", "heading": "h", "purpose": "p", "visual_query_en": "desk"}
+                for index in range(1, 6)
+            ],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [
+                {"id": "s1", "narration": "غيّر حياتك اليوم. هذه بداية شرح مرتبطة بالموضوع."},
+                {"id": "s2", "narration": "هذه فقرة ثانية تحتوي شرحًا كافيًا للاختبار."},
+                {"id": "s3", "narration": "هذه فقرة ثالثة تحتوي شرحًا كافيًا للاختبار."},
+                {"id": "s4", "narration": "هذه فقرة رابعة تحتوي شرحًا كافيًا للاختبار."},
+                {"id": "s5", "narration": "هذه فقرة أخيرة تحتوي خاتمة كافية للاختبار."},
+            ],
+        }
+        revision = "- [tone] hook_quality: failed hook_specificity, hook_genericness"
+        self.assertEqual(
+            _repair_target_section_ids(script, revision, {}),
+            ("s1",),
+        )
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s1",
+                        "find": "غيّر حياتك اليوم.",
+                        "replace": "لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟",
+                    }
+                ]
+            },
+            plan=plan,
+            original_script=script,
+            identity={},
+            cta_plan={},
+            revision_note=revision,
+        )
+        self.assertTrue(
+            repaired["sections"][0]["narration"].startswith(
+                "لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟"
+            )
+        )
+        self.assertIn("هذه بداية شرح مرتبطة بالموضوع.", repaired["sections"][0]["narration"])
+
+    def test_hook_quality_repair_prompt_opens_only_flagged_hook(self):
+        plan = {
+            "title": "اختبار",
+            "sections": [{"id": "s1"}],
+        }
+        script = {
+            "title": "اختبار",
+            "sections": [{"id": "s1", "narration": "غيّر حياتك اليوم. هذه بداية شرح."}],
+        }
+        prompt = _tone_repair_prompt(
+            brief={"format": "film", "research_pack": []},
+            plan=plan,
+            script=script,
+            identity={},
+            cta_plan={},
+            revision_note="- [tone] hook_quality: failed hook_specificity",
+        )
+        self.assertIn("Replace the complete first spoken hook sentence exactly once", prompt)
+        self.assertIn("Calm is acceptable; forced shock/clickbait is not", prompt)
 
     def test_first_spoken_sentence_is_runtime_hook(self):
         script = {
