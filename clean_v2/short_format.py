@@ -309,9 +309,13 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "Do not sacrifice grammar or meaning just to make it shorter.\n"
         "- s2: advance the hook with the selected template's specific cause/turn; add new information instead of paraphrasing s1 or switching to generic motivation. Keep the pressure moving; do not drop into a long explanatory lull.\n"
         "- s3: resolve the SAME tension/question opened by s1-s2 with a concrete earned payoff, then give exactly ONE practical action in one clear imperative sentence. The ending must feel like a strong answer to the hook, not generic advice. "
-        "That action sentence MUST begin with a direct Arabic imperative verb, not a descriptive suggestion, and must not append a second action with ثم/و. "
-        "Good examples: \"ابدأ بـ...\", \"جرّب أن...\", \"افعل...\", \"اختر...\", \"اكتب...\". "
-        "Bad examples: \"اكتب... ثم اخرج...\", \"يمكنك أن...\", \"من الأفضل أن...\", or a general description with no command.\n"
+        "That action sentence MUST begin with a direct Arabic imperative verb, contain exactly ONE imperative verb, and express exactly ONE practical action. "
+        "That action sentence must not append a second action with ثم/و, punctuation, or any other construction. Every other sentence in s3 must be purely descriptive, with ZERO command verbs. "
+        "STRICTER SAFEGUARD: outside the single designated action sentence, do not use any of these words or any inflection/derivative of them, even as a noun, past tense, or description: "
+        "اختر، افعل، ابدأ، اكتب، حدد، حدّد، ضع، حوّل، حول، اربط، جرّب، جرب، خذ، اترك، اجعل، خصص، خصّص، افتح، اغلق، أغلق، نفذ، نفّذ، اخرج، امش، تحرك، تحرّك، راقب، اقرأ، اقرا، توقف، توقّف، قم. "
+        "SELF-CHECK before finalizing s3: count every imperative verb in the whole s3 and every sentence containing one; both counts must equal exactly 1. If either count is not 1, rewrite s3 completely. "
+        "Good examples: \"ابدأ بمهمة واحدة تستطيع إنهاءها اليوم.\", \"جرّب أن تبدأ بخطوة واحدة فقط.\", \"افعل شيئًا واحدًا واضحًا الآن.\", \"اختر مهمة واحدة تستحق وقتك اليوم.\", \"اكتب أول خطوة تستطيع تنفيذها الآن.\". "
+        "Bad examples: \"اكتب... ثم اخرج...\", \"توقف عن الانتظار. ابدأ بخطوة صغيرة الآن.\", \"يمكنك أن...\", \"من الأفضل أن...\", or a general description with no command.\n"
         "- No channel identity opener, dialogue labels, social CTA, or quotation unless the selected "
         "quote_reflection template has explicit approved quote evidence.\n"
         f"- {selection['writing_directive']}\n"
@@ -402,6 +406,47 @@ _PRACTICAL_ACTION_MARKERS = (
     "توقّف",
     "قم",
 )
+
+# Strict local safeguard for s3 payoff prose. These stems cover the configured
+# imperative families across common Arabic inflections/derivatives without adding
+# another model call or a heavyweight morphology dependency.
+_S3_FORBIDDEN_ACTION_FAMILY_PATTERNS = (
+    r"اختر|اختار|اختيار|يختار|تختار|نختار|مختار",
+    r"فعل",
+    r"ابد[اأ]|بد[اأ]|بدء|بداي",
+    r"كتب",
+    r"حدد",
+    r"وضع",
+    r"حول|تحويل",
+    r"ربط",
+    r"جرب|تجرب",
+    r"اخذ|خذ",
+    r"ترك",
+    r"جعل",
+    r"خصص",
+    r"فتح",
+    r"غلق|اغلاق",
+    r"نفذ|تنفيذ",
+    r"خرج",
+    r"امش|يمش|تمش|مشي",
+    r"حرك",
+    r"راقب|مراقب|رقب",
+    r"قرا|قراء",
+    r"توقف|وقف",
+    r"(^|[^\u0600-\u06ff])(قم|قام|قيام|يقوم|تقوم)([^\u0600-\u06ff]|$)",
+)
+
+
+def _contains_forbidden_action_family(text: object) -> bool:
+    normalized = _semantic_key(text)
+    return any(re.search(pattern, normalized) for pattern in _S3_FORBIDDEN_ACTION_FAMILY_PATTERNS)
+
+
+def _sentence_begins_with_direct_action(sentence: object) -> bool:
+    normalized = _semantic_key(sentence)
+    first = normalized.split()[0] if normalized else ""
+    allowed = {_semantic_key(marker) for marker in _PRACTICAL_ACTION_MARKERS}
+    return first in allowed
 
 
 def _first_sentence(text: object) -> str:
@@ -545,25 +590,35 @@ def validate_short_script(script: Mapping[str, Any]) -> dict[str, Any]:
         raise ShortFormatError("short_zero_social_cta_contract_violated")
 
     s3 = _clean(sections[2].get("narration"))
+    s3_sentences = [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!؟!])\s+", s3)
+        if sentence.strip()
+    ]
     action_sentences = [
         sentence
-        for sentence in re.split(r"(?<=[.!؟!])\s+", s3)
-        if any(
-            _semantic_key(marker) in _semantic_key(sentence)
-            for marker in _PRACTICAL_ACTION_MARKERS
-        )
+        for sentence in s3_sentences
+        if _practical_action_marker_count(sentence) > 0
     ]
     if len(action_sentences) != 1:
         raise ShortFormatError(
             "short_s3_requires_exactly_one_practical_action "
             f"action_sentences={len(action_sentences)}"
         )
-    action_marker_count = _practical_action_marker_count(action_sentences[0])
+    action_sentence = action_sentences[0]
+    if not _sentence_begins_with_direct_action(action_sentence):
+        raise ShortFormatError("short_s3_action_must_begin_with_direct_imperative")
+
+    action_marker_count = _practical_action_marker_count(action_sentence)
     if action_marker_count != 1:
         raise ShortFormatError(
             "short_s3_requires_one_action_only "
             f"imperative_markers={action_marker_count}"
         )
+
+    payoff_sentences = [sentence for sentence in s3_sentences if sentence != action_sentence]
+    if any(_contains_forbidden_action_family(sentence) for sentence in payoff_sentences):
+        raise ShortFormatError("short_s3_payoff_contains_forbidden_action_family")
 
     return {
         "hook": hook,
