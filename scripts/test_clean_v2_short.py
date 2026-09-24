@@ -1207,18 +1207,19 @@ class ShortPipelineSeamTests(unittest.TestCase):
             azure_call.assert_not_called()
             piper_call.assert_not_called()
 
-    def test_short_identity_is_local_not_applicable_with_zero_provider_calls(self) -> None:
+    def test_short_identity_is_fixed_locally_with_zero_provider_calls(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
             report = _short_identity_not_applicable(output)
-            self.assertEqual(report["status"], "not_applicable")
+            self.assertEqual(report["status"], "pass")
             self.assertEqual(report["provider_calls_added"], 0)
             persisted = json.loads(
                 (output / "narrative-identity.json").read_text(encoding="utf-8")
             )
             self.assertEqual(persisted["transitions"], [])
-            self.assertEqual(persisted["opener"], "")
+            self.assertTrue(persisted["opener"])
             self.assertEqual(persisted["closer"], "")
+            self.assertTrue(persisted["prayer_sentence"])
 
     def test_opening_director_short_is_local_not_applicable_before_any_provider_use(self) -> None:
         router = mock.Mock()
