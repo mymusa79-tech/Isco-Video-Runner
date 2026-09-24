@@ -287,7 +287,7 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
         captured: dict[str, str] = {}
 
         def failing_call(name):
-            def call(actual_prompt, _max_tokens):
+            def call(actual_prompt, _max_tokens, **_kwargs):
                 captured[name] = actual_prompt
                 raise ProviderWireFailure("http_503", http_status=503)
             return call
