@@ -92,9 +92,9 @@ def smooth_sentence_edges(
     *,
     threshold_db: float = -34.0,
     frame_ms: int = 10,
-    pre_roll_ms: int = 45,
+    pre_roll_ms: int = 12,
     post_roll_ms: int = 100,
-    fade_in_ms: int = 30,
+    fade_in_ms: int = 8,
     fade_out_ms: int = 80,
 ) -> tuple[np.ndarray, dict]:
     """Clean phrase-edge noise and make the sentence release into silence smoothly.
@@ -286,9 +286,9 @@ def main() -> int:
         "edge_policy": {
             "threshold_db": -34.0,
             "frame_ms": 10,
-            "pre_roll_ms": 45,
+            "pre_roll_ms": 12,
             "post_roll_ms": 100,
-            "fade_in_ms": 30,
+            "fade_in_ms": 8,
             "fade_out_ms": 80,
             "principle": "fade protected context/release, never retime lexical speech",
         },
