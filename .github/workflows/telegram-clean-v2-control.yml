@@ -28,6 +28,7 @@ jobs:
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
+      GITHUB_RUNTIME_TOKEN: ${{ github.token }}
 
     steps:
       - name: Checkout exact main controller
