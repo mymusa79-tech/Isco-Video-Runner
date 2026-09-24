@@ -29,7 +29,6 @@ jobs:
       MISTRAL_CONTENT_MODEL: ministral-14b-2512
       CLOUDFLARE_VISION_FREE_ONLY: "true"
       CLOUDFLARE_VISION_MAX_CALLS_PER_WORKFLOW: "5"
-      CLEAN_V2_ALLOW_PIPER_FALLBACK: "false"
       CLEAN_V2_OUTPUT: ${{ github.workspace }}/output/clean-v2-short-final-one
       PYTHONPATH: ${{ github.workspace }}/engine/src:${{ github.workspace }}
 
@@ -68,10 +67,23 @@ jobs:
             ffmpeg \
             fonts-noto-core \
             tesseract-ocr \
-            tesseract-ocr-ara
+            tesseract-ocr-ara \
+            espeak-ng \
+            libsndfile1
           python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
           python -m pip install --disable-pip-version-check --no-deps -e engine
-          python -m pip install --disable-pip-version-check 'piper-tts==1.4.2'
+          python -m pip install --disable-pip-version-check \
+            --index-url https://download.pytorch.org/whl/cpu torch
+          python -m pip install --disable-pip-version-check \
+            soundfile huggingface_hub 'misaki[en]>=0.9.4' \
+            'phonemizer-fork>=3.3.2' camel-tools
+          python -m pip install --disable-pip-version-check \
+            'kokoro @ git+https://github.com/Oddadmix/kokoro.git@df50e07df746aec0bd7a6f237752d7109ace0b3d'
+          camel_data -i disambig-mle-calima-msa-r13
+          curl -fsSL \
+            'https://gist.githubusercontent.com/Oddadmix/dc699f7942a9516ce29d4842c7aed756/raw/827b541c892a862f9ef3b44006a6e27b100d1bdd/arabic_g2p.py' \
+            -o scripts/arabic_g2p.py
+          test -s scripts/arabic_g2p.py
 
       - name: Build immutable Short final brief
         run: |
@@ -107,45 +119,6 @@ jobs:
           echo "ISCO_APPROVED_BRIEF_SHA256=$sha" >> "$GITHUB_ENV"
           test "${#sha}" = 64
 
-      - name: Restore verified Piper voice cache
-        id: voice_cache
-        uses: actions/cache/restore@1bd1e32a3bdc45362d1e726936510720a7c30a57
-        with:
-          path: ${{ runner.temp }}/piper-voices
-          key: clean-v2-piper-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}
-          restore-keys: |
-            piper-voice-v2-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}-
-
-      - name: Download Piper asset on cache miss
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/piper-voices"
-          if ! test -s "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx" \
-            || ! test -s "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx.json"; then
-            python -m piper.download_voices \
-              --data-dir "$RUNNER_TEMP/piper-voices" \
-              ar_JO-kareem-medium
-          fi
-
-      - name: Verify Piper asset identity
-        run: |
-          python - <<'PY'
-          import os
-          from pathlib import Path
-          from clean_v2.media import verify_voice_assets
-          verify_voice_assets(
-              Path(os.environ["RUNNER_TEMP"]) / "piper-voices/ar_JO-kareem-medium.onnx",
-              Path("engine/security/piper_voice_hashes.json"),
-          )
-          PY
-
-      - name: Save verified Piper voice cache candidate
-        if: steps.voice_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@1bd1e32a3bdc45362d1e726936510720a7c30a57
-        with:
-          path: ${{ runner.temp }}/piper-voices
-          key: clean-v2-piper-${{ runner.os }}-${{ hashFiles('engine/security/piper_voice_hashes.json') }}
-
       - name: Run one final cold Short
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -165,8 +138,6 @@ jobs:
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
             --engine-sha "$ISCO_ENGINE_SHA" \
             --runner-sha "$GITHUB_SHA" \
-            --piper-model "$RUNNER_TEMP/piper-voices/ar_JO-kareem-medium.onnx" \
-            --voice-manifest "$GITHUB_WORKSPACE/engine/security/piper_voice_hashes.json" \
             --max-visuals 5 \
             --output "$CLEAN_V2_OUTPUT"
 
@@ -175,7 +146,10 @@ jobs:
           set -euo pipefail
           test -s "$CLEAN_V2_OUTPUT/final.mp4"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/run-manifest.json")" = "pass"
-          test "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" = "gemini:Charon"
+          case "$(jq -r .voice_provider "$CLEAN_V2_OUTPUT/run-manifest.json")" in
+            "gemini:Charon"|"nabra:af_msa") ;;
+            *) echo "Unexpected Clean V2 voice provider" >&2; exit 1 ;;
+          esac
 
           test "$(jq -r .format "$CLEAN_V2_OUTPUT/short-contract.json")" = "short"
           test "$(jq -r .section_count "$CLEAN_V2_OUTPUT/short-contract.json")" = "3"
@@ -183,11 +157,16 @@ jobs:
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "pass"
           test "$(jq -r .width "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1080"
           test "$(jq -r .height "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1920"
-          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d >= 7 && d <= 30) }"
+          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d >= 20 && d <= 45) }"
 
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-master-qc.json")" = "pass"
           test "$(jq -r .mode "$CLEAN_V2_OUTPUT/cta-plan.json")" = "none"
+          test -s "$CLEAN_V2_OUTPUT/visual-cta.json"
+          test "$(jq -r .provider_calls_added "$CLEAN_V2_OUTPUT/visual-cta.json")" = "0"
+          test "$(jq -r .event_count "$CLEAN_V2_OUTPUT/visual-cta.json")" -le 2
+          test -s "$CLEAN_V2_OUTPUT/identity-sequence.json"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/identity-sequence.json")" = "pass"
 
           test -s "$CLEAN_V2_OUTPUT/short-timed-text.json"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-timed-text.json")" = "pass"

@@ -719,6 +719,156 @@ class GeminiPrimaryPiperFallbackSynthesizer:
         )
 
 
+class GeminiPrimaryNabraFallbackSynthesizer:
+    """Production voice route: Charon first, then one local Nabra fallback."""
+
+    EXPECTED_PRIMARY_VOICE = "Charon"
+    EXPECTED_QUESTIONER_VOICE = "Orus"
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        tts_model: str = "gemini-3.1-flash-tts-preview",
+        nabra: Any | None = None,
+    ) -> None:
+        from .nabra_voice import NabraVoiceSynthesizer
+
+        self.api_key = str(api_key or "").strip()
+        self.tts_model = str(tts_model or "").strip() or "gemini-3.1-flash-tts-preview"
+        self.nabra = nabra if nabra is not None else NabraVoiceSynthesizer()
+        self.last_provider: str | None = None
+        self.fallback_used: bool | None = None
+        self.charon_attempts = 0
+        self.voice_roles: dict[str, str] | None = None
+        self.voice_approval_status: str | None = None
+        self.voice_reference_profile: str | None = None
+        # Never mix narrator identities inside one production run. The first
+        # successful chunk locks all following chunks to that same route.
+        self._route_lock: str | None = None
+
+    def _use_nabra(self, transcript: str, output_path: Path) -> Path:
+        if _spoken_voice_roles(transcript).get("mode") == "dialogue_qa":
+            raise VoiceInfrastructureError(
+                charon_attempts=self.charon_attempts,
+                charon_reason="dialogue_charon_unavailable",
+                secondary_reason="nabra_single_narrator_only",
+                piper_fallback_allowed=False,
+            )
+        try:
+            result = self.nabra.synthesize(transcript, output_path)
+        except Exception as exc:
+            output_path.unlink(missing_ok=True)
+            raise VoiceInfrastructureError(
+                charon_attempts=self.charon_attempts,
+                charon_reason="charon_unavailable",
+                secondary_reason=f"nabra_{_tts_failure_reason(exc, missing='unavailable')}"[:120],
+                piper_fallback_allowed=False,
+            ) from None
+        self._route_lock = "nabra"
+        self.last_provider = "nabra:af_msa"
+        self.fallback_used = True
+        self.voice_approval_status = "human_approved_fallback"
+        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
+        print("Clean V2 voice provider selected: nabra:af_msa")
+        return result
+
+    def synthesize(
+        self,
+        transcript: str,
+        output_path: Path,
+        *,
+        primary_only: bool = False,
+    ) -> Path:
+        if not transcript.strip():
+            raise RuntimeError("cannot synthesize an empty transcript")
+
+        primary_voice, questioner_voice = _legacy_voice_identity()
+        if primary_voice != self.EXPECTED_PRIMARY_VOICE:
+            raise RuntimeError(
+                "Clean V2 primary voice identity mismatch: "
+                f"expected={self.EXPECTED_PRIMARY_VOICE} actual={primary_voice}"
+            )
+        if questioner_voice != self.EXPECTED_QUESTIONER_VOICE:
+            raise RuntimeError(
+                "Clean V2 questioner voice identity mismatch: "
+                f"expected={self.EXPECTED_QUESTIONER_VOICE} actual={questioner_voice}"
+            )
+
+        self.voice_roles = _spoken_voice_roles(transcript)
+        if self._route_lock == "nabra":
+            self.charon_attempts = 0
+            return self._use_nabra(transcript, output_path)
+
+        # The first successful Charon chunk locks the production to Charon.
+        # A later Charon outage therefore fails closed instead of switching voice
+        # mid-video. Nabra is used only when the primary route is unavailable
+        # before narrator identity has been established.
+        self.last_provider = None
+        self.fallback_used = None
+        self.voice_approval_status = None
+        self.charon_attempts = 0
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        charon_error: BaseException | None = None
+
+        if self.api_key:
+            for attempt in range(1, CHARON_MAX_ATTEMPTS + 1):
+                self.charon_attempts = attempt
+                try:
+                    _legacy_gemini_synthesize(
+                        self.api_key,
+                        transcript,
+                        output_path,
+                        model=self.tts_model,
+                        voice=primary_voice,
+                        style=SHORT_CHARON_STYLE if primary_only else "",
+                    )
+                    if not output_path.is_file() or output_path.stat().st_size < 1024:
+                        raise RuntimeError("Gemini TTS produced an empty narration file")
+                    self._route_lock = "charon"
+                    self.last_provider = f"gemini:{primary_voice}"
+                    self.fallback_used = False
+                    self.voice_approval_status = "human_approved_reference"
+                    self.voice_reference_profile = _assert_human_approved_voice_reference(
+                        tts_model=self.tts_model,
+                        primary_voice=primary_voice,
+                        questioner_voice=questioner_voice,
+                    )
+                    print(
+                        f"Clean V2 voice provider selected: {self.last_provider} "
+                        f"attempt={attempt}/{CHARON_MAX_ATTEMPTS}"
+                    )
+                    return output_path
+                except Exception as exc:
+                    charon_error = exc
+                    output_path.unlink(missing_ok=True)
+                    print(
+                        "Clean V2 Charon attempt failed: "
+                        f"attempt={attempt}/{CHARON_MAX_ATTEMPTS} "
+                        f"error_type={type(exc).__name__} "
+                        f"detail={_tts_exception_detail(exc)}"
+                    )
+                    if attempt >= CHARON_MAX_ATTEMPTS:
+                        break
+                    delay = _charon_retry_delay(exc, attempt - 1)
+                    if delay is None:
+                        break
+                    time.sleep(delay)
+
+        charon_reason = _tts_failure_reason(charon_error, missing="missing_api_key")
+        if self._route_lock == "charon":
+            raise VoiceInfrastructureError(
+                charon_attempts=self.charon_attempts,
+                charon_reason=charon_reason,
+                secondary_reason="narrator_route_locked_to_charon",
+                piper_fallback_allowed=False,
+            )
+        # primary_only is retained as the existing Short performance-style flag.
+        # It must not disable the user-approved Nabra backup before a narrator route
+        # has been established for this production.
+        return self._use_nabra(transcript, output_path)
+
+
 def _get_json(
     url: str,
     *,

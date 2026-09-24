@@ -13,6 +13,13 @@ from typing import Any, Callable, Mapping
 
 from .channel_persona import with_channel_persona
 from .human_feel import with_human_feel
+from .identity_sequence import (
+    PRAYER_SENTENCE,
+    SHORT_CHANNEL_DEFINITION,
+    apply_identity_media,
+    assert_spoken_identity,
+    inject_spoken_identity,
+)
 from .contracts import (
     atomic_write_json,
     compute_brief_sha256,
@@ -178,7 +185,19 @@ def _synthesize_sectioned_voice(
                 f"Clean V2 sectioned voice found empty narration: section={section_id}"
             )
 
-        chunks = _bounded_voice_chunks(section_text)
+        # For the approved Hook -> Intro -> identity order, keep the very first
+        # spoken sentence as its own TTS chunk. This gives the post-render identity
+        # splice an exact measured hook boundary without alignment AI or extra calls.
+        if index == 1 and PRAYER_SENTENCE in section_text:
+            match = re.search(r"[.!؟!]", section_text)
+            if match is not None and match.end() < len(section_text):
+                hook_text = section_text[: match.end()].strip()
+                remainder = section_text[match.end() :].strip()
+                chunks = [hook_text, *_bounded_voice_chunks(remainder)]
+            else:
+                chunks = _bounded_voice_chunks(section_text)
+        else:
+            chunks = _bounded_voice_chunks(section_text)
         if not chunks:
             raise RuntimeError(
                 f"Clean V2 sectioned voice found no narration chunks: section={section_id}"
@@ -228,9 +247,9 @@ def _synthesize_sectioned_voice(
                     "Clean V2 sectioned voice provider missing: "
                     f"section={section_id} chunk={chunk_index}"
                 )
-            if require_charon_only and provider != "gemini:Charon":
+            if require_charon_only and provider not in {"gemini:Charon", "nabra:af_msa"}:
                 raise RuntimeError(
-                    "CLEAN_V2_VOICE_INFRASTRUCTURE reason=short_charon_only_provider_drift "
+                    "CLEAN_V2_VOICE_INFRASTRUCTURE reason=short_approved_voice_provider_drift "
                     f"actual={provider}"
                 )
             if section_provider is None:
@@ -1440,6 +1459,8 @@ ONE_BOUNDED_TONE_REPAIR_CONTRACT:
 - Preserve the section count, ids, order, title, and each section's role.
 - Preserve this first spoken hook sentence exactly: {hook}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
+- If the current script contains the approved prayer sentence or channel-definition sentence,
+  preserve each of those host-owned identity lines exactly once and do not patch them.
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
   its existing anchor section when needed to make the surrounding transition sound natural.
@@ -1654,6 +1675,8 @@ ONE_BOUNDED_FACTUALITY_REPAIR_CONTRACT:
 - Preserve the section count, ids, order, title, and each section's role.
 - Preserve this first spoken hook sentence exactly: {hook}
 - Preserve the runtime narrative-identity opener and closer exactly once each.
+- If the current script contains the approved prayer sentence or channel-definition sentence,
+  preserve each of those host-owned identity lines exactly once and do not patch them.
 - Preserve the authored CTA spoken_text exactly once and in the same anchor section. Never add,
   paraphrase, move it to another section, or repeat it. You MAY reposition that exact CTA within
   its existing anchor section when needed to make the surrounding transition sound natural.
@@ -2040,6 +2063,19 @@ def _run_legacy_cinematic_layer(
             short_audio_polish_report,
         )
 
+    # Final CTA surface is local and deterministic: only the user-approved icon
+    # PNGs / original subscribe+bell clip / original click sound are allowed.
+    # It runs after any Short music bed so the click remains audible above music.
+    from clean_v2.visual_cta import apply_visual_cta_assets
+
+    visual_cta_report = apply_visual_cta_assets(
+        output_dir=output_dir,
+        final_path=final_path,
+        narration_path=narration_path,
+        script=script,
+        fmt=fmt,
+    )
+
     return {
         **report,
         "contextual_cta": {
@@ -2047,6 +2083,7 @@ def _run_legacy_cinematic_layer(
             "render_status": cta_report.get("render_status"),
             "provider_calls_added": cta_report.get("provider_calls_added"),
         },
+        "visual_cta": visual_cta_report,
         "short_timed_text": short_timed_text_report,
         "short_audio_polish": short_audio_polish_report,
     }
@@ -2160,8 +2197,7 @@ def _write_resume_checkpoint(
     if _RESUME_STAGE_INDEX[completed_stage] >= _RESUME_STAGE_INDEX["voice"]:
         if voice_provider not in {
             "gemini:Charon",
-            "azure-f0:ar-OM-AbdullahNeural",
-            "piper-local:ar_JO-kareem-medium",
+            "nabra:af_msa",
         }:
             raise RuntimeError("Clean V2 checkpoint voice provider is not approved")
         if not isinstance(voice_fallback_used, bool):
@@ -2262,13 +2298,14 @@ def _validate_script_for_brief(
 def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
     report = {
         "schema_version": 1,
-        "source": "clean-v2-short-format",
-        "status": "not_applicable",
-        "reason": "short_uses_first_spoken_sentence_hook_without_channel_identity_anchors",
-        "canonical_opener": "",
+        "source": "clean-v2-short-fixed-identity",
+        "status": "pass",
+        "reason": "fixed_identity_inserted_after_first_sentence_hook",
+        "canonical_opener": SHORT_CHANNEL_DEFINITION,
         "canonical_closer": "",
-        "opener": "",
+        "opener": SHORT_CHANNEL_DEFINITION,
         "closer": "",
+        "prayer_sentence": PRAYER_SENTENCE,
         "transitions": [],
         "provider_calls_added": 0,
     }
@@ -2454,11 +2491,20 @@ routines, and wide shots without identifiable faces. Keep visuals modest and sui
 Arab/Muslim audience.
 {short_visual_query_instruction}
 
+IDENTITY_SEQUENCE is runtime-owned and must be respected by the plan: the first spoken sentence is
+always the hook; immediately after that hook the approved visual intro is inserted; narration then
+continues with the approved prayer sentence, one short channel-definition sentence, and only then
+the topic/body. Treat the prayer, definition, and first topic line as one continuous opening beat, not
+three disconnected modules. Do not plan any greeting, prayer, channel introduction, or extra preamble before the
+hook, and do not duplicate those identity lines inside section purpose text. The approved Outro is
+renderer-owned and appended after the completed content, so keep the final topic beat complete and do not
+plan any extra CTA or identity material for after the Outro.
+
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
 share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
 delivered, not like a generic sales line. For moment OR short format, return an empty CTA string.
-For short, the zero-social-CTA rule is hard: do not put subscribe/comment/share/like language in
-section purpose text either.
+For short, the zero-SPOKEN-social-CTA rule is hard: do not put subscribe/comment/share/like language
+in section purpose text; visual-only CTA overlays are renderer-owned and do not belong in narration.
 
 {short_context}
 
@@ -2484,22 +2530,39 @@ def _script_prompt(
     plan: Mapping[str, Any],
     *,
     transitions: list[str] | None = None,
+    identity_opener: str = "",
 ) -> str:
     fmt = str(brief["format"])
     if fmt == "film":
         length = "Aim for roughly 650-900 spoken Arabic words across all sections."
     elif fmt == "short":
         length = (
-            "Write a complete miniature idea, not caption fragments: aim for roughly 65-105 spoken Arabic words across all 3 sections, "
-            "usually 4-6 complete sentences with natural variation in length. Every sentence must be grammatically sound and carry enough "
-            "context to be understood on first listen. Prefer a 30-40 second result, but do not pad a complete idea; the measured audio gate "
-            "is authoritative and the complete Short must stay within 20-45 seconds."
+            "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
+            "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
+            "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
+            "understood on first listen. Prefer a final 30-40 second result including identity media, but do not pad a complete idea; the measured "
+            "final gate is authoritative and the complete Short must stay within 20-45 seconds."
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
     brief_json = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     plan_json = json.dumps(plan, ensure_ascii=False, separators=(",", ":"))
     short_context = short_prompt_context(brief) if fmt == "short" else ""
+    identity_handoff = (
+        SHORT_CHANNEL_DEFINITION
+        if fmt == "short"
+        else " ".join(str(identity_opener or "").split()).strip()
+    )
+    identity_handoff_guidance = ""
+    if identity_handoff:
+        identity_handoff_guidance = f"""
+The exact host-owned spoken handoff that will appear between the hook/Intro and your first topic
+sentence is:
+{PRAYER_SENTENCE} {identity_handoff}
+Write the first topic sentence after the hook so it flows naturally from that exact handoff into the
+episode subject. It must sound like one continuous thought, not three separate announcements. Do not
+repeat the prayer, channel definition, topic title, or a second greeting; do not use a fixed generic
+connector mechanically. Let the wording of the topic sentence itself provide the semantic bridge."""
     transition_guidance = ""
     if transitions:
         transition_list = "\n".join(f"- {item}" for item in transitions)
@@ -2521,8 +2584,20 @@ The approved brief and locked plan are authoritative. Follow every hard constrai
 Modern Standard Arabic, without generic motivational filler, fake quotations, invented facts, or
 medical/religious authority. Write narration only; do not add camera directions or markdown.
 CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA in narration. The
-host will place it once at a safe mid-late point after value has been delivered. For short, CTA is
-fully disabled: do not add subscribe/comment/share/like language anywhere in spoken narration.
+host will place visual CTA overlays only in safe content windows after value has been delivered.
+For short, social CTA remains visual-only: do not add subscribe/comment/share/like language anywhere
+in spoken narration.
+
+IDENTITY_SEQUENCE is also HOST-MANAGED. Write the first sentence as the truthful hook. Do NOT write
+a greeting, prayer sentence, or channel introduction yourself: after script validation the runtime
+inserts exactly one approved prayer sentence and one channel-definition sentence immediately after
+the hook, and the approved visual intro is later inserted between the hook and that prayer. Therefore
+the next topic sentence you write must resume naturally after a short identity beat, without phrases
+such as "كما قلت" or references that assume uninterrupted speech. Prayer, channel definition, and
+the return to the episode must feel like one continuous spoken passage rather than three unrelated
+blocks. The approved Outro is appended by the renderer after the completed narration; finish the
+topic naturally before that boundary.
+{identity_handoff_guidance}
 
 {short_context}
 
@@ -2553,9 +2628,13 @@ def _narrative_identity_prompt(
     )
     return f"""
 You are writing the channel-identity anchors for one video on the Arabic YouTube channel نداء
-اليقظة. These are identity anchors, not slogans: they must preserve the meaning of the channel's
-fixed signature below while being freshly reworded in natural Arabic for this specific episode.
-Never copy the fixed signature verbatim.
+اليقظة. These are identity anchors, not slogans. The opener has one specific job: be ONE concise natural
+Arabic sentence that briefly defines what قناة نداء اليقظة is, so it can be spoken immediately after
+the approved prayer sentence and before the episode topic. Make its ending hand off naturally toward
+this episode's subject, so the listener hears one continuous introduction rather than a separate
+channel slogan followed by a restart. Do not include a greeting, prayer, CTA, or episode thesis
+inside the opener. Preserve the meaning of the channel's fixed signature below while rewording it
+naturally for this episode. Never copy the fixed signature verbatim.
 
 CHANNEL_FIXED_SIGNATURE_OPENER (preserve this meaning, reword it):
 {canonical_opener}
@@ -2641,40 +2720,23 @@ def _strip_exact_host_phrase(text: str, phrase: str) -> str:
 def _apply_brand_signature(
     sections: list[dict[str, Any]], fmt: str, opener: str, closer: str
 ) -> None:
-    # Mirrors the Engine's own real placement algorithm exactly (resilient_planner's
-    # _apply_brand_signature/_insert_after_first_sentence): Moment uses only a
-    # subtle visual signature, not a spoken one, so it is skipped here too.
-    if fmt in {"moment", "short"} or not sections:
-        return
-    opener = opener.strip()
-    closer = closer.strip()
-    for section in sections:
-        narration = section["narration"]
-        for phrase in (opener, closer):
-            if phrase:
-                narration = _strip_exact_host_phrase(narration, phrase)
-        section["narration"] = narration
-    sections[0]["narration"] = _insert_after_first_sentence(sections[0]["narration"], opener)
-    if closer:
-        sections[-1]["narration"] = f"{sections[-1]['narration'].rstrip()} {closer}".strip()
+    inject_spoken_identity(
+        sections,
+        fmt=fmt,
+        opener=opener,
+        closer=closer,
+    )
 
 
 def _assert_brand_signature_invariant(
     sections: list[dict[str, Any]], fmt: str, opener: str, closer: str
 ) -> None:
-    if fmt in {"moment", "short"} or not sections:
-        return
-    opener = opener.strip()
-    closer = closer.strip()
-    joined = "\n".join(section["narration"] for section in sections)
-    if opener and joined.count(opener) != 1:
-        raise RuntimeError(
-            "narrative identity opener invariant failed: expected exactly one runtime opener"
-        )
-    if closer and joined.count(closer) != 1:
-        raise RuntimeError(
-            "narrative identity closer invariant failed: expected exactly one runtime closer"
-        )
+    assert_spoken_identity(
+        sections,
+        fmt=fmt,
+        opener=opener,
+        closer=closer,
+    )
 
 
 class _Journal:
@@ -3036,7 +3098,10 @@ class CleanV2Pipeline:
                     lambda: self.router.route(
                         stage="script",
                         prompt=_script_prompt(
-                            brief, plan, transitions=identity.get("transitions")
+                            brief,
+                            plan,
+                            transitions=identity.get("transitions"),
+                            identity_opener=str(identity.get("opener") or ""),
                         ),
                         max_tokens=7500 if brief["format"] == "film" else 2500,
                         validator=lambda value: _validate_script_for_brief(
@@ -3150,36 +3215,9 @@ class CleanV2Pipeline:
                 voice_fallback_used = resume[1].get("voice_fallback_used")
                 if voice_provider not in {
                     "gemini:Charon",
-                    "azure-f0:ar-OM-AbdullahNeural",
-                    "piper-local:ar_JO-kareem-medium",
+                    "nabra:af_msa",
                 } or not isinstance(voice_fallback_used, bool):
                     raise RuntimeError("Clean V2 resume voice metadata is invalid")
-                piper_policy = getattr(
-                    self.voice_synthesizer, "allow_piper_fallback", None
-                )
-                if (
-                    str(brief["format"]) == "short"
-                    and voice_provider != "gemini:Charon"
-                ):
-                    raise RuntimeError(
-                        "CLEAN_V2_VOICE_INFRASTRUCTURE "
-                        "reason=short_resume_requires_charon"
-                    )
-                if (
-                    voice_provider == "piper-local:ar_JO-kareem-medium"
-                    and piper_policy is False
-                ):
-                    from clean_v2.media import VoiceInfrastructureError
-
-                    failure = VoiceInfrastructureError(
-                        charon_attempts=0,
-                        charon_reason="resume_piper_not_allowed",
-                        secondary_reason="resume_checkpoint_rejected",
-                        piper_fallback_allowed=False,
-                    )
-                    journal.run(
-                        "voice", lambda: (_ for _ in ()).throw(failure)
-                    )
                 journal.reuse("voice")
                 journal.payload["voice_provider"] = voice_provider
                 journal.payload["voice_fallback_used"] = voice_fallback_used
@@ -3191,7 +3229,6 @@ class CleanV2Pipeline:
                         self.voice_synthesizer,
                         list(script["sections"]),
                         narration_path,
-                        require_charon_only=str(brief["format"]) == "short",
                     ),
                 )
                 voice_provider = voice_result.get("voice_provider")
@@ -3501,6 +3538,13 @@ class CleanV2Pipeline:
                 ),
             )
 
+            identity_media_report = apply_identity_media(
+                output_dir=output_dir,
+                final_path=final_path,
+                script=script,
+                fmt=str(brief["format"]),
+            )
+
             final_report = journal.run(
                 "final_file",
                 lambda: _inspect_final_with_short_gate(
@@ -3562,6 +3606,7 @@ class CleanV2Pipeline:
                 visual_qa_status=visual_qa_report.get("status"),
                 opening_director_status=opening_report.get("status"),
                 cinematic_v2_status=cinematic_report.get("status"),
+                identity_media_status=identity_media_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
                 provider_wire_attempts=sum(
                     1

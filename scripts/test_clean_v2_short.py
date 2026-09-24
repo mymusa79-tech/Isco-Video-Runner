@@ -1068,12 +1068,14 @@ class ShortPipelineSeamTests(unittest.TestCase):
     def test_short_script_prompt_keeps_rich_45s_ceiling_and_reuses_template_context(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
-        self.assertIn("65-105 spoken Arabic words", prompt)
-        self.assertIn("30-40 second result", prompt)
+        self.assertIn("50-80 authored Arabic words", prompt)
+        self.assertIn("final 30-40 second result including identity media", prompt)
         self.assertIn("20-45 seconds", prompt)
         self.assertIn("selected_template=inner_dialogue", prompt)
-        self.assertIn("CTA is", prompt)
-        self.assertIn("fully disabled", prompt)
+        self.assertIn("social CTA remains visual-only", prompt)
+        self.assertIn("IDENTITY_SEQUENCE is also HOST-MANAGED", prompt)
+        self.assertIn("وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح.", prompt)
+        self.assertIn("one continuous thought, not three separate announcements", prompt)
         self.assertIn("paradox, direct scene, real question", prompt)
         self.assertIn("resolve the SAME tension/question", prompt)
         self.assertIn("must not append a second action", prompt)
@@ -1207,18 +1209,19 @@ class ShortPipelineSeamTests(unittest.TestCase):
             azure_call.assert_not_called()
             piper_call.assert_not_called()
 
-    def test_short_identity_is_local_not_applicable_with_zero_provider_calls(self) -> None:
+    def test_short_identity_is_fixed_locally_with_zero_provider_calls(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
             report = _short_identity_not_applicable(output)
-            self.assertEqual(report["status"], "not_applicable")
+            self.assertEqual(report["status"], "pass")
             self.assertEqual(report["provider_calls_added"], 0)
             persisted = json.loads(
                 (output / "narrative-identity.json").read_text(encoding="utf-8")
             )
             self.assertEqual(persisted["transitions"], [])
-            self.assertEqual(persisted["opener"], "")
+            self.assertTrue(persisted["opener"])
             self.assertEqual(persisted["closer"], "")
+            self.assertTrue(persisted["prayer_sentence"])
 
     def test_opening_director_short_is_local_not_applicable_before_any_provider_use(self) -> None:
         router = mock.Mock()

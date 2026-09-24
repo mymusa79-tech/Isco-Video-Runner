@@ -222,38 +222,18 @@ def bind_contextual_cta(plan: Any) -> CtaBinding:
         )
 
     primary, secondary = _screen_copy(mode, authored)
-    visual_only = mode == CtaMode.LIKE
-    spoken = "" if visual_only else _clip_words(_first_sentence(authored), MAX_SPOKEN_WORDS)
-    if not visual_only and not spoken:
-        return CtaBinding(
-            CTA_CONTRACT_VERSION,
-            CtaMode.NONE,
-            None,
-            "",
-            "",
-            "",
-            True,
-            "empty_spoken_cta",
-        )
 
-    if spoken:
-        all_narration = "\n".join(
-            _compact(getattr(section, "narration", ""))
-            for section in getattr(plan, "sections", [])
-        )
-        if spoken not in all_narration:
-            current = _compact(getattr(anchor, "narration", ""))
-            separator = " " if current else ""
-            anchor.narration = current + separator + spoken
-
+    # Approved CTA contract: every CTA is visual-only. The plan's authored
+    # action selects which approved asset is shown, but narration is never
+    # mutated and no social request is spoken aloud.
     return CtaBinding(
         CTA_CONTRACT_VERSION,
         mode,
         str(getattr(anchor, "id", "")) or None,
-        spoken,
+        "",
         primary,
         secondary,
-        visual_only,
+        True,
         reason,
     )
 
@@ -514,17 +494,11 @@ def apply_contextual_cta_overlay(
         )
         return report
 
-    temporary = output_dir / ".contextual-cta-final.mp4"
-    temporary.unlink(missing_ok=True)
-    try:
-        render_cta_overlay(Path(final_path), binding, schedule, temporary)
-        os.replace(temporary, final_path)
-        report["render_status"] = "applied"
-    except Exception as exc:
-        temporary.unlink(missing_ok=True)
-        report["render_status"] = "render_error_fallback_to_uncarded_video"
-        report["render_error_type"] = type(exc).__name__
-
+    # The legacy ASS/text card is intentionally no longer rendered. The authored
+    # action and safe schedule remain useful planning evidence, while the visual layer
+    # is owned by visual_cta.py and uses only the user's approved original assets.
+    report["render_status"] = "delegated_to_approved_visual_assets"
+    report["visual_owner"] = "clean_v2.visual_cta"
     report_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

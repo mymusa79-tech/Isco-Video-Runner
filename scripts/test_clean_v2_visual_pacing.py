@@ -653,7 +653,7 @@ class _LongFakeVoice:
     def __init__(self, seconds: float) -> None:
         self.seconds = seconds
         self.calls = 0
-        self.last_provider = "piper-local:ar_JO-kareem-medium"
+        self.last_provider = "nabra:af_msa"
         self.fallback_used = True
 
     def synthesize(self, transcript: str, output_path: Path) -> Path:
@@ -833,8 +833,9 @@ class PipelineWiringTests(unittest.TestCase):
 
             visuals = _RecordingVisuals()
             visual_qa = _RecordingVisualQA()
-            # Sectioned TTS now calls the fixture once per 5 script sections; keep
-            # the historical full narration duration at 130s (5 * 26s).
+            # Runtime identity gives the first section one extra measured hook chunk.
+            # This fixture returns a fixed 26s per synth call, so its synthetic total
+            # becomes 156s (6 * 26s) while the real provider remains text-duration-owned.
             long_voice = _LongFakeVoice(26.0)
             pipeline = CleanV2Pipeline(
                 router=_FakeRouter(),
@@ -871,7 +872,7 @@ class PipelineWiringTests(unittest.TestCase):
             self.assertEqual(set(received), {"s1", "s2", "s3", "s4", "s5"})
             for seconds in received.values():
                 self.assertGreater(seconds, 0.0)
-            self.assertAlmostEqual(sum(received.values()), 130.0, places=3)
+            self.assertAlmostEqual(sum(received.values()), 156.0, places=3)
             # Not a flat 26.0s-each split: sections have different narration
             # lengths, so their shares differ.
             self.assertGreater(max(received.values()) - min(received.values()), 1.0)

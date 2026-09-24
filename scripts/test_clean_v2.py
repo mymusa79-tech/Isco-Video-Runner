@@ -257,6 +257,15 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
         self.assertIn('"research_pack"', prompt)
         self.assertIn('"claim_scope"', prompt)
 
+    def test_long_script_prompt_receives_exact_identity_handoff_for_smooth_topic_entry(self) -> None:
+        opener = "هذه نداء اليقظة، مساحة للوعي الصادق والنهوض الهادئ نحو حياة أوضح."
+        prompt = _script_prompt(_brief(), _plan(), identity_opener=opener)
+
+        self.assertIn("اللهم صلِّ وسلِّم على نبينا محمد.", prompt)
+        self.assertIn(opener, prompt)
+        self.assertIn("one continuous thought, not three separate announcements", prompt)
+        self.assertIn("semantic bridge", prompt)
+
     def test_actual_script_router_sends_same_factuality_rule_to_all_four_providers(self) -> None:
         prompt = _script_prompt(_brief(), _plan())
         captured: dict[str, str] = {}
@@ -1276,7 +1285,7 @@ class _InfrastructureRouter:
 class _FakeVoice:
     def __init__(self) -> None:
         self.calls = 0
-        self.last_provider = "piper-local:ar_JO-kareem-medium"
+        self.last_provider = "nabra:af_msa"
         self.fallback_used = True
 
     def synthesize(self, transcript: str, output_path: Path) -> Path:
@@ -1479,7 +1488,9 @@ class CleanV2EndToEndTests(unittest.TestCase):
                 [event["stage"] for event in first_router.events],
                 ["planning", "script"],
             )
-            self.assertEqual(first_voice.calls, len(_script()["sections"]))
+            # First section is intentionally split once at the hook boundary so
+            # the approved Intro can be inserted at an exact measured timestamp.
+            self.assertEqual(first_voice.calls, len(_script()["sections"]) + 1)
             self.assertEqual(first_visuals.calls, 1)
 
             class _ForbiddenRouter:
@@ -1906,7 +1917,7 @@ class CleanV2EndToEndTests(unittest.TestCase):
             )
             self.assertEqual(checkpoint["completed_stage"], "voice")
             self.assertEqual(
-                checkpoint["voice_provider"], "piper-local:ar_JO-kareem-medium"
+                checkpoint["voice_provider"], "nabra:af_msa"
             )
             self.assertTrue(checkpoint["voice_fallback_used"])
             self.assertNotIn("rights-manifest.json", checkpoint["artifacts"])
