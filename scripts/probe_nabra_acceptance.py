@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Final Nabra acceptance probe: new short text + longer fresh text.
+"""Final Nabra acceptance probe: listener-review 0.90 smooth voice + exact semantic pauses.
 
 Probe-only. Tests whether the listener-approved Nabra voice generalizes to new
 Arabic content while keeping sentence pauses natural and phrase endings smooth.
@@ -28,7 +28,7 @@ from kokoro import pipeline as kpipeline_mod
 
 REPO_ID = "oddadmix/Nabra-82M-v0.1"
 SAMPLE_RATE = 24000
-NATIVE_SPEED = 0.84
+NATIVE_SPEED = 0.90
 
 SHORT_SENTENCES = (
     "بَعْضُ الأَيّام لا تَسير كَما خَطَّطْت.",
@@ -37,7 +37,7 @@ SHORT_SENTENCES = (
     "ثُمَّ عُد إِلى خُطْوَتِك التّالِيَة بِهُدوء.",
     "فَالحَياة لا تَطْلُب مِنْكَ أَنْ تَكون مُثاليًّا؛ بَل أَنْ تَسْتَمِر بِوُضوح وَمَرونَة.",
 )
-SHORT_PAUSES_MS = (420, 520, 680, 920)
+SHORT_PAUSES_MS = (380, 950, 420, 1800)
 
 LONG_SENTENCES = (
     "أَحْيانًا نَظُنُّ أَنَّ التَّقَدُّم يَحْتاج إِلى قَرار كَبير، لَكِنَّ الحَقيقَة أَبْسَط مِن ذَلِك.",
@@ -51,7 +51,7 @@ LONG_SENTENCES = (
     "اِرْجِع بِهُدوء، وَابْدَأ مِن أَقْرَب خُطْوَة مُمْكِنَة.",
     "بَعْد مُدَّة، سَتَكْتَشِف أَنَّ ما صَنَع الفَرْق لَم يَكُن لَحْظَة حَماس، بَلْ عادات صَغيرَة حافَظْت عَلَيْها حِينَ كان التَّقَدُّم بَطيئًا.",
 )
-LONG_PAUSES_MS = (450, 560, 420, 680, 820, 460, 620, 760, 980)
+LONG_PAUSES_MS = (420, 950, 380, 1000, 420, 950, 400, 1000, 1800)
 
 
 def wav_info(path: Path) -> dict:
