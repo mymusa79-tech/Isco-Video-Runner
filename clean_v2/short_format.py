@@ -7,10 +7,10 @@ SHORT_SECTION_COUNT = 3
 SHORT_WIDTH = 1080
 SHORT_HEIGHT = 1920
 # Rich Short Lite: complete the idea instead of compressing it into fragments.
-# The target is intentionally a center, not a padding requirement; a complete
-# Short may finish earlier, while 45s is the hard ceiling.
+# The accepted production envelope is 30-45 seconds. 36s is a center target,
+# not padding: the idea must remain complete and natural inside the hard range.
 SHORT_TARGET_SECONDS = 36.0
-SHORT_MIN_SECONDS = 20.0
+SHORT_MIN_SECONDS = 30.0
 SHORT_MAX_SECONDS = 45.0
 SHORT_HOOK_MAX_WORDS = 18
 SHORT_HOOK_PREFERRED_MIN_WORDS = 8
@@ -622,6 +622,35 @@ def _query_action_families(words: set[str]) -> set[str]:
     }
 
 
+_VISIBLE_FACE_PATTERNS = (
+    "portrait",
+    "selfie",
+    "facial close",
+    "face close",
+    "close up face",
+    "close-up face",
+    "looking at camera",
+    "smiling face",
+)
+_FACE_SAFE_CUES = (
+    "no face",
+    "no-face",
+    "without face",
+    "face hidden",
+    "hidden face",
+    "from behind",
+    "back view",
+)
+
+
+def _assert_no_explicit_face_query(query: str) -> None:
+    lowered = _clean(query).casefold()
+    if any(cue in lowered for cue in _FACE_SAFE_CUES):
+        return
+    if any(pattern in lowered for pattern in _VISIBLE_FACE_PATTERNS):
+        raise ShortFormatError("short_visual_query_explicit_face_forbidden")
+
+
 def validate_short_visual_queries(
     plan: Mapping[str, Any],
     brief: Mapping[str, Any],
@@ -644,6 +673,8 @@ def validate_short_visual_queries(
         raise ShortFormatError("short_visual_query_alt_missing")
     if any(_semantic_key(primary) == _semantic_key(alternate) for primary, alternate in zip(queries, alternate_queries)):
         raise ShortFormatError("short_visual_query_alt_must_add_new_visual_information")
+    for query in (*queries, *alternate_queries):
+        _assert_no_explicit_face_query(query)
     words = [_query_words(query) for query in queries]
 
     if template == "inner_dialogue":

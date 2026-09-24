@@ -9,6 +9,7 @@ from clean_v2.media import (
     GeminiPrimaryNabraFallbackSynthesizer,
     VoiceInfrastructureError,
 )
+from clean_v2.nabra_voice import NABRA_SPEED, NABRA_VOICE
 
 
 class _FakeNabra:
@@ -25,12 +26,22 @@ class _FakeNabra:
 
 
 class NabraRouteTests(unittest.TestCase):
+    def test_approved_nabra_profile_is_locked(self) -> None:
+        self.assertEqual(NABRA_VOICE, "af_msa")
+        self.assertEqual(NABRA_SPEED, 0.87)
+
     def _patch_identity(self):
         return mock.patch.multiple(
             "clean_v2.media",
             _legacy_voice_identity=mock.DEFAULT,
             _assert_human_approved_voice_reference=mock.DEFAULT,
         )
+
+    def test_production_entrypoint_is_charon_then_nabra_only(self) -> None:
+        source = Path("clean_v2/__main__.py").read_text(encoding="utf-8")
+        self.assertIn("GeminiPrimaryNabraFallbackSynthesizer", source)
+        self.assertNotIn("GeminiPrimaryPiperFallbackSynthesizer", source)
+        self.assertNotIn("AzureF0NeuralVoiceSynthesizer", source)
 
     def test_charon_success_never_calls_nabra(self) -> None:
         backup = _FakeNabra()

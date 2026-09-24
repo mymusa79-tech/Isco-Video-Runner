@@ -108,7 +108,7 @@ jobs:
               "No fabricated facts.",
               "One natural Arabic narrator only.",
               "No social CTA.",
-              "Complete Short must not exceed 30 seconds."
+              "Complete Short must stay between 30 and 45 seconds."
             ]
           }
           JSON
@@ -174,15 +174,15 @@ jobs:
 
           test "$(jq -r .format "$CLEAN_V2_OUTPUT/short-contract.json")" = "short"
           test "$(jq -r .section_count "$CLEAN_V2_OUTPUT/short-contract.json")" = "3"
-          jq -e '.duration.minimum_seconds == 7' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
-          jq -e '.duration.target_seconds == 15' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
-          jq -e '.duration.maximum_seconds == 30' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
+          jq -e '.duration.minimum_seconds == 30' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
+          jq -e '.duration.target_seconds == 36' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
+          jq -e '.duration.maximum_seconds == 45' "$CLEAN_V2_OUTPUT/short-contract.json" >/dev/null
 
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-pre-visual.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "pass"
           test "$(jq -r .width "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1080"
           test "$(jq -r .height "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1920"
-          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d >= 20 && d <= 45) }"
+          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d >= 30 && d <= 45) }"
 
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-master-qc.json")" = "pass"
@@ -193,9 +193,12 @@ jobs:
           test -s "$CLEAN_V2_OUTPUT/identity-sequence.json"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/identity-sequence.json")" = "pass"
 
+          # Rich Short Lite acquires one or two approved assets per each of the
+          # three semantic sections (3-6 provider-backed assets), then creates
+          # 6-9 edit beats locally without extra provider/vision calls.
           shots="$(jq -r '.assets | length' "$CLEAN_V2_OUTPUT/rights-manifest.json")"
-          test "$shots" -ge 2
-          test "$shots" -le 4
+          test "$shots" -ge 3
+          test "$shots" -le 6
 
       - name: Write cohort result
         if: success()

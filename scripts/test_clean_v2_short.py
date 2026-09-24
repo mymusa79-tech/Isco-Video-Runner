@@ -21,6 +21,7 @@ from clean_v2.pipeline import (
     _validate_script_for_brief,
 )
 from clean_v2 import media as media_module
+from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.media import (
     GeminiPrimaryPiperFallbackSynthesizer,
     SHORT_CHARON_STYLE,
@@ -763,7 +764,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(local[0]["network_generation_calls"], 0)
 
     def test_duration_and_frame_contract_are_hard_bounds(self) -> None:
-        self.assertEqual(SHORT_MIN_SECONDS, 20.0)
+        self.assertEqual(SHORT_MIN_SECONDS, 30.0)
         self.assertEqual(SHORT_TARGET_SECONDS, 36.0)
         self.assertEqual(SHORT_MAX_SECONDS, 45.0)
         for seconds in (SHORT_MIN_SECONDS, SHORT_TARGET_SECONDS, SHORT_MAX_SECONDS):
@@ -899,10 +900,10 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
                 (audio_dir / f"{index:02d}.wav").write_bytes(b"section")
 
             durations = {
-                "narration-mastered.wav": 24.0,
-                "01.wav": 5.0,
-                "02.wav": 7.0,
-                "03.wav": 12.0,
+                "narration-mastered.wav": 36.0,
+                "01.wav": 8.0,
+                "02.wav": 10.0,
+                "03.wav": 18.0,
             }
 
             with mock.patch(
@@ -920,11 +921,11 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             self.assertFalse(report["tts_regeneration_for_duration"])
             self.assertEqual(
                 section_duration_map(report),
-                {"s1": 5.0, "s2": 7.0, "s3": 12.0},
+                {"s1": 8.0, "s2": 10.0, "s3": 18.0},
             )
             self.assertEqual(
                 [(item["start"], item["end"]) for item in report["section_events"]],
-                [(0.0, 5.0), (5.0, 12.0), (12.0, 24.0)],
+                [(0.0, 8.0), (8.0, 18.0), (18.0, 36.0)],
             )
 
             script = {
@@ -1065,12 +1066,12 @@ class ShortAudioPolishTests(unittest.TestCase):
 
 
 class ShortPipelineSeamTests(unittest.TestCase):
-    def test_short_script_prompt_keeps_rich_45s_ceiling_and_reuses_template_context(self) -> None:
+    def test_short_script_prompt_keeps_accepted_30_45s_envelope_and_reuses_template_context(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
         self.assertIn("50-80 authored Arabic words", prompt)
-        self.assertIn("final 30-40 second result including identity media", prompt)
-        self.assertIn("20-45 seconds", prompt)
+        self.assertIn("final 34-38 second result including identity media", prompt)
+        self.assertIn("30-45 seconds", prompt)
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("social CTA remains visual-only", prompt)
         self.assertIn("IDENTITY_SEQUENCE is also HOST-MANAGED", prompt)
@@ -1251,6 +1252,33 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertEqual(binding.mode, CtaMode.NONE)
         self.assertEqual(binding.spoken_text, "")
         self.assertEqual(binding.reason, "short_no_cta")
+
+
+class ShortNoFacePolicyTests(unittest.TestCase):
+    def test_identifiable_person_is_deterministic_block(self) -> None:
+        result = visual_qa_module._apply_no_face_policy(
+            {
+                "status": "pass",
+                "identifiable_person": True,
+                "relevance": 0.95,
+                "visual_quality": 0.95,
+                "reason": "otherwise acceptable",
+            }
+        )
+        self.assertEqual(result["status"], "block")
+        self.assertEqual(result["no_face_policy"], "block")
+        self.assertIn("no_face_policy_identifiable_person", result["reason"])
+
+    def test_no_identifiable_person_preserves_provider_verdict(self) -> None:
+        result = visual_qa_module._apply_no_face_policy(
+            {
+                "status": "pass",
+                "identifiable_person": False,
+                "reason": "clean",
+            }
+        )
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["no_face_policy"], "pass")
 
 
 if __name__ == "__main__":
