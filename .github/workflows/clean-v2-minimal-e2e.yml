@@ -25,6 +25,8 @@ on:
       - "scripts/test_telegram_clean_v2_notify.py"
       - "scripts/telegram_clean_v2_control.py"
       - "scripts/test_telegram_clean_v2_control.py"
+      - "scripts/clean_v2_release_delivery.py"
+      - "scripts/test_clean_v2_release_delivery.py"
       - "cloudflare/telegram-clean-v2-lite/**"
       - ".github/workflows/telegram-clean-v2-control.yml"
       - ".github/workflows/clean-v2-telegram-production.yml"
@@ -83,9 +85,12 @@ jobs:
             scripts.test_clean_v2_visual_pacing \
             scripts.test_telegram_clean_v2_notify \
             scripts.test_telegram_clean_v2_control \
+            scripts.test_clean_v2_release_delivery \
             -v
 
   produce:
+    permissions:
+      contents: write
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' &&
@@ -327,6 +332,18 @@ jobs:
           path: ${{ env.CLEAN_V2_OUTPUT }}
           if-no-files-found: warn
           retention-days: 7
+      - name: Deliver final video through unified GitHub Release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python scripts/clean_v2_release_delivery.py deliver \
+            --output-root "$CLEAN_V2_OUTPUT" \
+            --scope long \
+            --delivery-key "minimal-e2e"
+
       - name: Notify Telegram terminal result
         if: always()
         continue-on-error: true

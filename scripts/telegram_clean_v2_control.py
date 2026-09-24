@@ -31,6 +31,7 @@ WINDOW_DAYS = 30
 SHORT_MAX_SECONDS = 30
 YOUTUBE_CHANNEL_ID = os.environ.get("YOUTUBE_CHANNEL_ID", "UC_fmWGRen6QUQNd4Dj80MgA")
 OMAN_OFFSET = timedelta(hours=4)
+CLEAN_V2_DELIVERY_TAG_PREFIX = "clean-v2-final-"
 
 FALLBACK_IDEAS = [
     ("لماذا نؤجل الأشياء المهمة رغم أننا نعرف قيمتها؟", "التسويف وتأجيل المهام المهمة"),
@@ -945,23 +946,81 @@ def render_production_status(runtime: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def render_last_success(runtime: dict[str, Any]) -> tuple[str, list[list[dict[str, str]]] | None]:
-    last = runtime.get("last_success")
-    if not isinstance(last, dict):
+def _github_release_json(path: str) -> Any:
+    token = str(
+        os.environ.get("GITHUB_RUNTIME_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+        or ""
+    ).strip()
+    repository = str(os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    api = str(os.environ.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
+    if not token or not repository:
+        return None
+    request = urllib.request.Request(
+        f"{api}/repos/{repository}/{path.lstrip('/')}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "isco-clean-v2-last-delivery",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        print(f"Clean V2 release lookup failed: {type(exc).__name__}")
+        return None
+
+
+def latest_release_delivery() -> dict[str, str]:
+    payload = _github_release_json("releases?per_page=50")
+    if not isinstance(payload, list):
+        return {}
+    for release in payload:
+        if not isinstance(release, dict) or release.get("draft"):
+            continue
+        tag = str(release.get("tag_name") or "")
+        if not tag.startswith(CLEAN_V2_DELIVERY_TAG_PREFIX):
+            continue
+        assets = release.get("assets")
+        if not isinstance(assets, list):
+            continue
+        direct_url = ""
+        for item in assets:
+            if not isinstance(item, dict) or str(item.get("name") or "") != "final.mp4":
+                continue
+            candidate = str(item.get("browser_download_url") or "").strip()
+            if candidate.startswith("https://"):
+                direct_url = candidate
+                break
+        if not direct_url:
+            continue
+        kind = "short" if tag.startswith(CLEAN_V2_DELIVERY_TAG_PREFIX + "short-") else "long"
+        name = str(release.get("name") or "").strip()
+        topic = name.split(" — ", 1)[1].strip() if " — " in name else ""
+        return {
+            "kind": kind,
+            "topic": topic,
+            "release_tag": tag,
+            "browser_download_url": direct_url,
+        }
+    return {}
+
+
+def render_last_success(delivery: dict[str, Any]) -> tuple[str, list[list[dict[str, str]]] | None]:
+    if not isinstance(delivery, dict) or not delivery:
         return "⚪ لا يوجد إنتاج ناجح محفوظ بعد.", None
-    scope_label = {
-        "long": "🎬 فيديو طويل",
-        "short": "⚡ شورت",
-        "bundle": "🎬 طويل + ⚡ شورت",
-    }.get(str(last.get("scope") or ""), "إنتاج")
-    topic = str(last.get("topic") or "").strip()
-    url = str(last.get("artifact_url") or "").strip()
+    kind = str(delivery.get("kind") or "")
+    scope_label = "⚡ شورت" if kind == "short" else "🎬 فيديو طويل"
+    topic = str(delivery.get("topic") or "").strip()
+    url = str(delivery.get("browser_download_url") or "").strip()
     lines = ["✅ آخر إنتاج ناجح", f"النوع: {scope_label}"]
     if topic:
         lines.append(f"الموضوع: {topic}")
     keyboard = None
     if url:
-        keyboard = [[{"text": "🎥 فتح الفيديو النهائي", "url": url}]]
+        keyboard = [[{"text": "🎥 مشاهدة/تحميل الفيديو", "url": url}]]
     return "\n".join(lines), keyboard
 
 
@@ -1038,7 +1097,7 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         send_telegram(render_production_status(load_runtime_status()))
         return
     if text in {"/last", "last", "آخر إنتاج", "اخر انتاج"}:
-        last_text, last_keyboard = render_last_success(load_runtime_status())
+        last_text, last_keyboard = render_last_success(latest_release_delivery())
         send_telegram(last_text, last_keyboard)
         return
     if text in {"/stats", "stats", "إحصائيات", "الاحصائيات", "الإحصائيات"}:
