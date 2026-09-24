@@ -1253,5 +1253,32 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertEqual(binding.reason, "short_no_cta")
 
 
+class ShortNoFacePolicyTests(unittest.TestCase):
+    def test_identifiable_person_is_deterministic_block(self) -> None:
+        result = visual_qa_module._apply_no_face_policy(
+            {
+                "status": "pass",
+                "identifiable_person": True,
+                "relevance": 0.95,
+                "visual_quality": 0.95,
+                "reason": "otherwise acceptable",
+            }
+        )
+        self.assertEqual(result["status"], "block")
+        self.assertEqual(result["no_face_policy"], "block")
+        self.assertIn("no_face_policy_identifiable_person", result["reason"])
+
+    def test_no_identifiable_person_preserves_provider_verdict(self) -> None:
+        result = visual_qa_module._apply_no_face_policy(
+            {
+                "status": "pass",
+                "identifiable_person": False,
+                "reason": "clean",
+            }
+        )
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["no_face_policy"], "pass")
+
+
 if __name__ == "__main__":
     unittest.main()
