@@ -247,9 +247,9 @@ def _synthesize_sectioned_voice(
                     "Clean V2 sectioned voice provider missing: "
                     f"section={section_id} chunk={chunk_index}"
                 )
-            if require_charon_only and provider != "gemini:Charon":
+            if require_charon_only and provider not in {"gemini:Charon", "nabra:af_msa"}:
                 raise RuntimeError(
-                    "CLEAN_V2_VOICE_INFRASTRUCTURE reason=short_charon_only_provider_drift "
+                    "CLEAN_V2_VOICE_INFRASTRUCTURE reason=short_approved_voice_provider_drift "
                     f"actual={provider}"
                 )
             if section_provider is None:
