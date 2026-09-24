@@ -210,6 +210,20 @@ def started_text(*, scope: str, topic: str, run_url: str) -> str:
     return "\n".join(lines)
 
 
+def bundle_summary_text(*, topic: str, run_url: str) -> str:
+    lines = [
+        "✅ اكتملت الحزمة كاملة",
+        "",
+        "🎬 الفيديو الطويل: مكتمل",
+        "⚡ الشورت: مكتمل",
+    ]
+    if topic:
+        lines.extend(["", f"الموضوع: {topic}"])
+    if run_url:
+        lines.extend(["", f"تفاصيل التشغيل: {run_url}"])
+    return "\n".join(lines)
+
+
 def workflow_watchdog_text(*, scope: str, run_url: str) -> str:
     label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الطويل + الشورت"}.get(scope, "الإنتاج")
     lines = [
@@ -251,6 +265,10 @@ def main() -> int:
     started_p.add_argument("--topic", default="")
     started_p.add_argument("--run-url", default="")
 
+    bundle_p = sub.add_parser("bundle-summary")
+    bundle_p.add_argument("--topic", default="")
+    bundle_p.add_argument("--run-url", default="")
+
     watchdog_p = sub.add_parser("watchdog")
     watchdog_p.add_argument("--output-root", type=Path, required=True)
     watchdog_p.add_argument("--scope", choices=("long", "short", "bundle"), required=True)
@@ -263,6 +281,10 @@ def main() -> int:
     if args.command == "started":
         return 0 if send_message(
             started_text(scope=args.scope, topic=args.topic, run_url=args.run_url)
+        ) else 1
+    if args.command == "bundle-summary":
+        return 0 if send_message(
+            bundle_summary_text(topic=args.topic, run_url=args.run_url)
         ) else 1
     if args.command == "watchdog":
         return workflow_watchdog(

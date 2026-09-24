@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from scripts.telegram_clean_v2_notify import (
+    bundle_summary_text,
     current_stage,
     failure_guidance,
     milestone_messages,
@@ -114,6 +115,12 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         self.assertIn("⚡ الشورت", messages["planning"])
         self.assertIn("1/6 التخطيط", messages["planning"])
         self.assertIn("2/6 النص", messages["script"])
+
+    def test_bundle_summary_reports_both_outputs(self):
+        text = bundle_summary_text(topic="موضوع", run_url="https://github.example/run/4")
+        self.assertIn("الفيديو الطويل: مكتمل", text)
+        self.assertIn("الشورت: مكتمل", text)
+        self.assertIn("اكتملت الحزمة كاملة", text)
 
 
 if __name__ == "__main__":

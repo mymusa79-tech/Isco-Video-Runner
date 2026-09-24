@@ -216,6 +216,9 @@ jobs:
             bundle)
               run_one film long
               run_one short short
+              python scripts/telegram_clean_v2_notify.py bundle-summary \
+                --topic "$TELEGRAM_REQUEST_TOPIC" \
+                --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
               ;;
           esac
 
