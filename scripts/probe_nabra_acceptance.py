@@ -541,6 +541,132 @@ def smooth_sentence_edges(
     }
 
 
+def infer_with_terminal_duration_cap(
+    model: KModel,
+    phonemes: str,
+    voice_pack: torch.Tensor,
+    *,
+    speed: float,
+    terminal_cap_frames: int = 3,
+    punctuation_cap_frames: int = 1,
+    eos_cap_frames: int = 1,
+) -> tuple[torch.Tensor, torch.LongTensor, dict]:
+    """Kokoro/Nabra inference with a bounded sentence-final duration cap only.
+
+    One duration frame is 600 samples at 24 kHz = 25 ms. The model's predicted
+    durations are left untouched except for:
+      1) the final lexical phoneme (cap 3 frames / 75 ms by default),
+      2) terminal punctuation (cap 1 frame), and
+      3) EOS (cap 1 frame).
+    """
+    mapped_chars = [
+        ch for ch in phonemes
+        if model.vocab.get(ch) is not None
+    ]
+    input_ids = [model.vocab[ch] for ch in mapped_chars]
+    assert len(input_ids) + 2 <= model.context_length, (
+        len(input_ids) + 2,
+        model.context_length,
+    )
+
+    ids = torch.LongTensor([[0, *input_ids, 0]]).to(model.device)
+    ref_s = voice_pack[len(phonemes) - 1].to(model.device)
+    input_lengths = torch.full(
+        (ids.shape[0],),
+        ids.shape[-1],
+        device=ids.device,
+        dtype=torch.long,
+    )
+    text_mask = torch.arange(input_lengths.max(), device=ids.device).unsqueeze(0)
+    text_mask = text_mask.expand(input_lengths.shape[0], -1).type_as(input_lengths)
+    text_mask = torch.gt(text_mask + 1, input_lengths.unsqueeze(1)).to(model.device)
+
+    bert_dur = model.bert(ids, attention_mask=(~text_mask).int())
+    d_en = model.bert_encoder(bert_dur).transpose(-1, -2)
+    s = ref_s[:, 128:]
+    d = model.predictor.text_encoder(d_en, s, input_lengths, text_mask)
+    x, _ = model.predictor.lstm(d)
+    duration = model.predictor.duration_proj(x)
+    duration = torch.sigmoid(duration).sum(axis=-1) / speed
+    pred_dur = torch.round(duration).clamp(min=1).long().squeeze()
+
+    original = pred_dur.detach().cpu().clone()
+    punctuation_chars = set(".!?؛،:…")
+    skip_chars = punctuation_chars | set(" \t\nˈˌ")
+
+    final_char_pos = None
+    for pos in range(len(mapped_chars) - 1, -1, -1):
+        if mapped_chars[pos] not in skip_chars:
+            final_char_pos = pos
+            break
+
+    terminal_pred_index = None
+    terminal_char = None
+    if final_char_pos is not None:
+        terminal_pred_index = final_char_pos + 1  # BOS occupies pred_dur[0]
+        terminal_char = mapped_chars[final_char_pos]
+        pred_dur[terminal_pred_index] = torch.clamp(
+            pred_dur[terminal_pred_index],
+            max=terminal_cap_frames,
+        )
+
+    punctuation_changes = []
+    if final_char_pos is not None:
+        for pos in range(final_char_pos + 1, len(mapped_chars)):
+            if mapped_chars[pos] in punctuation_chars:
+                pred_index = pos + 1
+                before = int(pred_dur[pred_index].item())
+                pred_dur[pred_index] = torch.clamp(
+                    pred_dur[pred_index],
+                    max=punctuation_cap_frames,
+                )
+                punctuation_changes.append({
+                    "char": mapped_chars[pos],
+                    "before_frames": before,
+                    "after_frames": int(pred_dur[pred_index].item()),
+                })
+
+    pred_dur[-1] = torch.clamp(pred_dur[-1], max=eos_cap_frames)
+
+    indices = torch.repeat_interleave(
+        torch.arange(ids.shape[1], device=model.device),
+        pred_dur.to(model.device),
+    )
+    pred_aln_trg = torch.zeros(
+        (ids.shape[1], indices.shape[0]),
+        device=model.device,
+    )
+    pred_aln_trg[indices, torch.arange(indices.shape[0], device=model.device)] = 1
+    pred_aln_trg = pred_aln_trg.unsqueeze(0)
+
+    en = d.transpose(-1, -2) @ pred_aln_trg
+    f0_pred, n_pred = model.predictor.F0Ntrain(en, s)
+    t_en = model.text_encoder(ids, input_lengths, text_mask)
+    asr = t_en @ pred_aln_trg
+    audio = model.decoder(asr, f0_pred, n_pred, ref_s[:, :128]).squeeze().cpu()
+
+    terminal_before = (
+        int(original[terminal_pred_index].item())
+        if terminal_pred_index is not None else None
+    )
+    terminal_after = (
+        int(pred_dur[terminal_pred_index].item())
+        if terminal_pred_index is not None else None
+    )
+    duration_report = {
+        "terminal_char": terminal_char,
+        "terminal_before_frames": terminal_before,
+        "terminal_after_frames": terminal_after,
+        "terminal_before_ms": None if terminal_before is None else terminal_before * 25,
+        "terminal_after_ms": None if terminal_after is None else terminal_after * 25,
+        "punctuation": punctuation_changes,
+        "eos_before_frames": int(original[-1].item()),
+        "eos_after_frames": int(pred_dur[-1].item()),
+        "only_terminal_duration_family_modified": True,
+    }
+    return audio, pred_dur.detach().cpu(), duration_report
+
+
 def synthesize_passage(
     *,
     model: KModel,
@@ -575,16 +701,16 @@ def synthesize_passage(
             repairs.extend(final_pause_repairs)
             phoneme_rows.append(phonemes)
             pronunciation_repairs.append(repairs)
-            output = KPipeline.infer(
+            generated_audio, generated_pred_dur, duration_report = infer_with_terminal_duration_cap(
                 model,
                 phonemes,
-                voice.to(model.device),
+                voice,
                 speed=NATIVE_SPEED,
             )
-            chunk = output.audio.detach().cpu().numpy().astype(np.float32)
+            chunk = generated_audio.numpy().astype(np.float32)
             chunk, edge_report = smooth_sentence_edges(
                 chunk,
-                pred_dur=output.pred_dur.detach().cpu() if output.pred_dur is not None else None,
+                pred_dur=generated_pred_dur,
                 onset_fade_ms=onset_fade_ms,
                 pre_release_soften_ms=pre_release_soften_ms,
                 pre_release_floor=pre_release_floor,
@@ -593,6 +719,7 @@ def synthesize_passage(
             edge_report["text"] = sentence
             edge_report["phonemes"] = phonemes
             edge_report["orthography_diagnostics"] = orthography_diagnostics
+            edge_report["terminal_duration"] = duration_report
             reports.append(edge_report)
             chunks.append(chunk)
 
