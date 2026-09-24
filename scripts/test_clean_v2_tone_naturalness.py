@@ -316,7 +316,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "pass")
         self.assertEqual(report["provider_status"], "block")
-        self.assertEqual(report["decision_source"], "deterministic_local_flags")
+        self.assertEqual(report["decision_source"], "deterministic_local_risk_policy")
         self.assertEqual(report["hard_flag_count"], 0)
         audited = "\n".join(item["narration"] for item in captured["script"]["sections"])
         self.assertNotIn("اللهم صلِّ وسلِّم على نبينا محمد.", audited)
