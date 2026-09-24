@@ -769,7 +769,7 @@ class GeminiPrimaryNabraFallbackSynthesizer:
         self.last_provider = "nabra:af_msa"
         self.fallback_used = True
         self.voice_approval_status = "human_approved_fallback"
-        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.94"
+        self.voice_reference_profile = "nabra-82m-v0.1:af_msa:0.87"
         print("Clean V2 voice provider selected: nabra:af_msa")
         return result
 
