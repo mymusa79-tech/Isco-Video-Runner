@@ -618,6 +618,12 @@ def apply_safe_short_s3_single_action_trim(script: dict[str, Any]) -> bool:
         for index, sentence in enumerate(sentences)
         if _practical_action_marker_count(sentence) > 0
     ]
+    non_action_indexes = [
+        index for index in range(len(sentences)) if index not in action_indexes
+    ]
+    if not non_action_indexes:
+        return False
+
     repaired_sentences = list(sentences)
 
     if len(action_indexes) == 1:
