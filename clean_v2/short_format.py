@@ -7,7 +7,6 @@ SHORT_SECTION_COUNT = 3
 SHORT_WIDTH = 1080
 SHORT_HEIGHT = 1920
 # Rich Short Lite: complete the idea instead of compressing it into fragments.
-# The target is intentionally a center, not a padding requirement; a complete
 # The accepted production envelope is 30-45 seconds. 36s is a center target,
 # not padding: the idea must remain complete and natural inside the hard range.
 SHORT_TARGET_SECONDS = 36.0
