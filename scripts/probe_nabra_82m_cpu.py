@@ -29,7 +29,7 @@ from kokoro import pipeline as kpipeline_mod
 REPO_ID = "oddadmix/Nabra-82M-v0.1"
 SAMPLE_RATE = 24000
 NATIVE_SPEED = 0.94
-NATIVE_PROSODY_SPEED = 0.87
+NATIVE_PROSODY_SPEED = 0.90
 
 # Manually corrected MSA tashkeel. This intentionally bypasses Camel's wrong
 # guesses seen in the first probe (e.g. أَنَّ, أَبْدَأ, فِرَقًا).
@@ -311,6 +311,147 @@ def trim_boundary_noise_with_padding(
         "trimmed_start_ms": round(start * 1000.0 / SAMPLE_RATE, 2),
         "trimmed_end_ms": round((audio.size - end) * 1000.0 / SAMPLE_RATE, 2),
     }
+
+
+def build_clean_pause_only_timeline(
+    audio: np.ndarray,
+    phonemes: str,
+    pred_dur: torch.LongTensor,
+    model: KModel,
+) -> tuple[np.ndarray, list[dict]]:
+    """Create natural pauses without stretching or re-synthesizing speech.
+
+    We use the duration already reserved by Kokoro/Nabra punctuation, mute only
+    the safe center of that reservation, then extend *that zero-only region* to
+    a semantic target. Speech samples are never stretched, retimed, or
+    regenerated, and silence is never inserted inside voiced audio.
+    """
+    chars = [ch for ch in phonemes if model.vocab.get(ch) is not None]
+    durations = pred_dur.detach().cpu().long()
+    if durations.numel() != len(chars) + 2:
+        raise RuntimeError(
+            f"pause-only token mismatch: durations={durations.numel()} chars={len(chars)}"
+        )
+
+    # Map source-string character positions to model-token positions.
+    token_map: list[tuple[int, int, str]] = []
+    token_index = 0
+    for source_index, ch in enumerate(phonemes):
+        if model.vocab.get(ch) is None:
+            continue
+        token_map.append((source_index, token_index, ch))
+        token_index += 1
+
+    # Semantic targets: long enough to be felt, short enough to remain human.
+    boundaries = (
+        ("first_idea", "ʤadˈiːdat", 320),
+        ("second_idea", "tarˈiːqikˌa", 280),
+        ("warning_to_action", "kaːmˌilan", 340),
+        ("action_to_closing", "aljˈawm", 460),
+    )
+
+    regions: list[dict] = []
+    for label, anchor, target_ms in boundaries:
+        anchor_start = phonemes.find(anchor)
+        if anchor_start < 0 or phonemes.find(anchor, anchor_start + 1) >= 0:
+            raise RuntimeError(f"pause-only anchor must occur exactly once: {label}")
+        punct_start = anchor_start + len(anchor)
+        punct_end = punct_start
+        while punct_end < len(phonemes):
+            ch = phonemes[punct_end]
+            if ch in PUNCTUATION_CHARS or ch.isspace():
+                punct_end += 1
+                continue
+            break
+
+        punctuation_tokens = [
+            token_idx
+            for source_idx, token_idx, ch in token_map
+            if punct_start <= source_idx < punct_end and ch in PUNCTUATION_CHARS
+        ]
+        if not punctuation_tokens:
+            raise RuntimeError(f"no punctuation tokens after {label}")
+
+        first_token = min(punctuation_tokens)
+        last_token = max(punctuation_tokens)
+        # pred_dur[0] is BOS; model token i lives at pred_dur[i+1].
+        span_start = int(durations[: first_token + 1].sum().item() * 600)
+        span_end = int(durations[: last_token + 2].sum().item() * 600)
+        span_start = max(0, min(span_start, int(audio.size)))
+        span_end = max(span_start, min(span_end, int(audio.size)))
+        span_ms = (span_end - span_start) * 1000.0 / SAMPLE_RATE
+        if span_end <= span_start:
+            raise RuntimeError(f"empty punctuation reservation for {label}")
+
+        # Preserve the natural release and possible early next-word attack.
+        # The protected margin is adaptive so short punctuation spans still work.
+        span_len = span_end - span_start
+        max_margin = int(SAMPLE_RATE * 0.070)
+        margin = min(max_margin, max(1, span_len // 4))
+        gate_start = span_start + margin
+        gate_end = span_end - margin
+        if gate_end <= gate_start:
+            raise RuntimeError(f"punctuation reservation too short for {label}")
+
+        regions.append(
+            {
+                "label": label,
+                "anchor": anchor,
+                "target_ms": target_ms,
+                "span_start": span_start,
+                "span_end": span_end,
+                "gate_start": gate_start,
+                "gate_end": gate_end,
+                "reserved_ms": round(span_ms, 2),
+            }
+        )
+
+    # Work right-to-left so insertions do not invalidate earlier source indices.
+    out = audio.astype(np.float32, copy=True)
+    applied: list[dict] = []
+    for region in sorted(regions, key=lambda item: item["gate_start"], reverse=True):
+        gate_start = int(region["gate_start"])
+        gate_end = int(region["gate_end"])
+        gate_len = gate_end - gate_start
+        fade = min(int(SAMPLE_RATE * 0.010), max(1, gate_len // 4))
+
+        # Turn the middle of already-reserved punctuation time into true silence.
+        if fade > 1:
+            out[gate_start:gate_start+fade] *= np.linspace(
+                1.0, 0.0, fade, endpoint=False, dtype=np.float32
+            )
+            out[gate_end-fade:gate_end] *= np.linspace(
+                0.0, 1.0, fade, endpoint=False, dtype=np.float32
+            )
+        zero_start = gate_start + fade
+        zero_end = gate_end - fade
+        if zero_end > zero_start:
+            out[zero_start:zero_end] = 0.0
+
+        existing_zero_ms = max(0.0, (zero_end-zero_start) * 1000.0 / SAMPLE_RATE)
+        extra_ms = max(0.0, float(region["target_ms"]) - existing_zero_ms)
+        extra_samples = int(round(SAMPLE_RATE * extra_ms / 1000.0))
+
+        # Extend only an already-zero location. No voiced samples are split.
+        if extra_samples > 0:
+            insert_at = zero_start + max(0, (zero_end-zero_start)//2)
+            silence = np.zeros(extra_samples, dtype=np.float32)
+            out = np.concatenate((out[:insert_at], silence, out[insert_at:]))
+
+        applied.append(
+            {
+                "label": region["label"],
+                "target_ms": region["target_ms"],
+                "reserved_ms": region["reserved_ms"],
+                "existing_clean_silence_ms": round(existing_zero_ms, 2),
+                "added_zero_only_ms": round(extra_samples * 1000.0 / SAMPLE_RATE, 2),
+                "speech_stretched": False,
+                "speech_regenerated": False,
+            }
+        )
+
+    applied.reverse()
+    return out, applied
 
 
 def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
@@ -633,6 +774,19 @@ def main() -> int:
     pause_token_final_path = output / "21-nabra-native-pause-tokens-mix-ready.wav"
     mix_ready(pause_token_raw_path, pause_token_final_path)
 
+    if pause_token_output.pred_dur is None:
+        raise RuntimeError("Nabra did not return pred_dur for final pause-only timeline")
+    final90_audio, final90_pauses = build_clean_pause_only_timeline(
+        pause_token_audio,
+        pause_token_phonemes,
+        pause_token_output.pred_dur,
+        model,
+    )
+    final90_raw_path = output / "28-nabra-090-clean-pauses-raw.wav"
+    sf.write(final90_raw_path, final90_audio, SAMPLE_RATE, subtype="PCM_16")
+    final90_mix_path = output / "29-nabra-090-clean-pauses-mix-ready.wav"
+    mix_ready(final90_raw_path, final90_mix_path)
+
     # Final listener-guided candidate: restore the natural sentence-level
     # pacing of the original Paced sample while preserving the now-approved
     # lexical phonemes and 0.87 native speed. Each phrase edge is normalized
@@ -817,6 +971,14 @@ def main() -> int:
         "native_pause_tokens_synthesis_seconds": round(pause_token_seconds, 3),
         "native_pause_tokens_raw_wav": wav_info(pause_token_raw_path),
         "native_pause_tokens_mix_ready_wav": wav_info(pause_token_final_path),
+        "final_090_clean_pause_speed": NATIVE_PROSODY_SPEED,
+        "final_090_clean_pause_regions": final90_pauses,
+        "final_090_clean_pause_single_inference": True,
+        "final_090_clean_pause_duration_boost": False,
+        "final_090_clean_pause_sentence_resynthesis": False,
+        "final_090_clean_pause_speech_stretch": False,
+        "final_090_clean_pause_raw_wav": wav_info(final90_raw_path),
+        "final_090_clean_pause_mix_ready_wav": wav_info(final90_mix_path),
         "final_natural_pause_speed": NATIVE_PROSODY_SPEED,
         "final_natural_pause_phonemes": sentence_phonemes,
         "final_natural_pause_ms": PAUSES_MS,
@@ -869,6 +1031,9 @@ def main() -> int:
             "native-calm sample has no atempo, no waveform splice, and no sentence-by-sentence synthesis",
             "native-pause-token sample changes punctuation tokens only and stays one continuous inference",
             "native-pause-token sample has zero waveform edits and therefore cannot introduce splice cuts",
+            "final 0.90 sample disables punctuation-duration boost and sentence-by-sentence re-synthesis",
+            "final 0.90 sample extends silence only after creating a zero-only region inside model-reserved punctuation time",
+            "final 0.90 sample never stretches or regenerates lexical speech",
             "final-natural-pause sample restores sentence-level Paced generation at native speed 0.87",
             "final-natural-pause boundary cleanup uses -45 dBFS detection with 50 ms protected context before exact semantic pauses",
             "final-natural-pause keeps the approved patched phonemes, including the الدافع pronunciation fix",
