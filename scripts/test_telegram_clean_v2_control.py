@@ -349,6 +349,30 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertEqual(short["title"], "شورت 25 ثانية")
         self.assertEqual(long["title"], "فيديو 2:50")
 
+    def test_research_session_closes_after_first_selection(self):
+        state = control.default_state()
+        state["ideas"] = [{
+            "idea_id": "i1",
+            "title": "موضوع واحد",
+            "market_evidence": {
+                "sample_count": 1,
+                "distinct_channels": 1,
+                "top_samples": [{"video_id": "v1", "title": "مصدر"}],
+            },
+            "research_pack": [],
+            "selected": False,
+        }]
+        state["sessions"]["s1"] = {
+            "session_id": "s1",
+            "scope": "long",
+            "idea_ids": ["i1"],
+            "created_at": control.utc_now(),
+        }
+        control.select_candidate(state, "s1", 0)
+        self.assertIsNotNone(state["sessions"]["s1"]["closed_at"])
+        with self.assertRaisesRegex(RuntimeError, "closed"):
+            control.select_candidate(state, "s1", 0)
+
 
 if __name__ == "__main__":
     unittest.main()

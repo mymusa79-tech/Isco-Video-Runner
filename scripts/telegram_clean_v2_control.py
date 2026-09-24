@@ -735,6 +735,8 @@ def select_candidate(state: dict[str, Any], session_id: str, index: int) -> dict
     session = state.get("sessions", {}).get(session_id)
     if not isinstance(session, dict):
         raise RuntimeError("research session expired")
+    if session.get("closed_at") or session.get("obsolete_at"):
+        raise RuntimeError("research session is closed")
     ids = session.get("idea_ids")
     if not isinstance(ids, list) or not 0 <= index < len(ids):
         raise RuntimeError("invalid candidate selection")
@@ -765,6 +767,8 @@ def select_candidate(state: dict[str, Any], session_id: str, index: int) -> dict
     request["request_sha256"] = _request_hash(request)
     state["requests"][request_id] = request
     state["current_request_id"] = request_id
+    session["closed_at"] = utc_now()
+    session["selected_index"] = index
     return request
 
 

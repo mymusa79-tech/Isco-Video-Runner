@@ -23,6 +23,7 @@ function target(update) {
       chat: String((callback.message && callback.message.chat && callback.message.chat.id) || ""),
       callbackId: String(callback.id || ""),
       data: String(callback.data || ""),
+      messageId: String((callback.message && callback.message.message_id) || ""),
     };
   }
   const message = (update && update.message) || {};
@@ -31,6 +32,7 @@ function target(update) {
     chat: String((message.chat && message.chat.id) || ""),
     callbackId: "",
     data: "",
+    messageId: "",
   };
 }
 
@@ -62,6 +64,19 @@ async function sendScopeMenu(env, chatId) {
     text: "🧭 Clean V2 Editorial Lite\n\nاختر نطاق البحث. البحث والاختيار لا يبدأان Production.",
     reply_markup: scopeKeyboard(),
   });
+}
+
+async function clearCallbackKeyboard(env, current) {
+  if (!current.chat || !current.messageId) return;
+  try {
+    await telegram(env, "editMessageReplyMarkup", {
+      chat_id: current.chat,
+      message_id: Number(current.messageId),
+      reply_markup: { inline_keyboard: [] },
+    });
+  } catch (_) {
+    // Visual cleanup is best-effort; server-side session closure remains authoritative.
+  }
 }
 
 async function answerCallback(env, callbackId, text = "") {
@@ -153,6 +168,7 @@ export default {
         ctx.waitUntil(answerCallback(env, current.callbackId, "🔎 بدأ البحث…"));
       } else if (current.data.startsWith("pick:")) {
         ctx.waitUntil(answerCallback(env, current.callbackId, "✅ أسجل الاختيار…"));
+        ctx.waitUntil(clearCallbackKeyboard(env, current));
       } else {
         ctx.waitUntil(answerCallback(env, current.callbackId, "أمر غير معروف"));
         return new Response("OK");
