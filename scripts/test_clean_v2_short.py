@@ -432,6 +432,34 @@ class ShortContractTests(unittest.TestCase):
         action_only["sections"][2]["narration"] = "اكتب كلمة واحدة، ثم اخرج للمشي."
         self.assertFalse(apply_safe_short_s3_single_action_trim(action_only))
 
+        forbidden_payoff = json.loads(json.dumps(base, ensure_ascii=False))
+        forbidden_payoff["sections"][2]["narration"] = (
+            "عندما يخف الضغط تصبح الصورة أوضح. "
+            "البداية الصغيرة تكسر الجمود. "
+            "اختر مهمة واحدة الآن."
+        )
+        self.assertTrue(apply_safe_short_s3_single_action_trim(forbidden_payoff))
+        self.assertEqual(
+            forbidden_payoff["sections"][2]["narration"],
+            "عندما يخف الضغط تصبح الصورة أوضح. اختر مهمة واحدة الآن.",
+        )
+        validate_short_script(forbidden_payoff)
+
+        only_forbidden_payoff = json.loads(json.dumps(base, ensure_ascii=False))
+        only_forbidden_payoff["sections"][2]["narration"] = (
+            "البداية الصغيرة تكسر الجمود. اختر مهمة واحدة الآن."
+        )
+        original = only_forbidden_payoff["sections"][2]["narration"]
+        self.assertFalse(
+            apply_safe_short_s3_single_action_trim(only_forbidden_payoff)
+        )
+        self.assertEqual(only_forbidden_payoff["sections"][2]["narration"], original)
+        with self.assertRaisesRegex(
+            ShortFormatError,
+            "short_s3_payoff_contains_forbidden_action_family",
+        ):
+            validate_short_script(only_forbidden_payoff)
+
     def test_pipeline_applies_safe_s3_action_trim_before_acceptance(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
