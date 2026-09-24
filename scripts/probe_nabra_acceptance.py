@@ -118,6 +118,7 @@ def repair_spoken_msa_orthography(
             clear_construct = (
                 bool(next_bare)
                 and not boundary_after
+                and not bare.startswith("ال")
                 and next_bare.startswith("ال")
             )
             if clear_construct:
@@ -126,24 +127,28 @@ def repair_spoken_msa_orthography(
                     "word": bare,
                     "status": "construct_t_preserved",
                 })
-            elif phone.endswith("at"):
-                repaired = phone[:-1]
-                out[index] = repaired
-                repairs.append({
-                    "kind": "taa_marbuta",
-                    "word": bare,
-                    "source": phone,
-                    "target": repaired,
-                    "reason": "spoken_msa_pausal_taa_marbuta",
-                })
             else:
-                diagnostics.append({
-                    "kind": "taa_marbuta",
-                    "word": bare,
-                    "status": "no_final_at_pattern",
-                    "phoneme": phone,
-                })
-
+                phone_core = phone.rstrip(".,;:!?…")
+                phone_suffix = phone[len(phone_core):]
+                if phone_core.endswith("at"):
+                    repaired = phone_core[:-1] + phone_suffix
+                    out[index] = repaired
+                    repairs.append({
+                        "kind": "taa_marbuta",
+                        "word": bare,
+                        "source": phone,
+                        "target": repaired,
+                        "reason": "spoken_msa_pausal_taa_marbuta",
+                    })
+                else:
+                    diagnostics.append({
+                        "kind": "taa_marbuta",
+                        "word": bare,
+                        "status": "no_final_at_pattern",
+                        "phoneme": phone,
+                    })
+                    continue
+                continue
         elif bare.endswith("ت"):
             diagnostics.append({
                 "kind": "taa_maftuha",
