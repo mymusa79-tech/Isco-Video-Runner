@@ -204,5 +204,100 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertEqual(payload["request_id"], "req-1")
 
 
+    def test_duration_parser_supports_youtube_iso8601(self):
+        self.assertEqual(control._parse_duration_seconds("PT59S"), 59)
+        self.assertEqual(control._parse_duration_seconds("PT2M30S"), 150)
+        self.assertEqual(control._parse_duration_seconds("PT1H2M3S"), 3723)
+
+    def test_channel_stats_uses_real_channel_snapshot_deltas(self):
+        state = control.default_state()
+        state["youtube_snapshots"] = [
+            {
+                "captured_at": "2026-09-17T09:59:00Z",
+                "total_views": 1000,
+                "subscribers": 15,
+            },
+            {
+                "captured_at": "2026-09-23T20:00:00Z",
+                "total_views": 1300,
+                "subscribers": 18,
+            },
+        ]
+        current = {
+            "captured_at": "2026-09-24T10:00:00Z",
+            "channel_id": "channel",
+            "subscribers": 20,
+            "hidden_subscribers": False,
+            "total_views": 1500,
+            "video_count": 12,
+            "last_long": {
+                "video_id": "long1",
+                "title": "آخر حلقة",
+                "published_at": "2026-09-23T10:00:00Z",
+                "duration_seconds": 240,
+                "views": 300,
+                "likes": 20,
+                "comments": 4,
+            },
+            "last_short": {
+                "video_id": "short1",
+                "title": "آخر شورت",
+                "published_at": "2026-09-24T08:00:00Z",
+                "duration_seconds": 35,
+                "views": 800,
+                "likes": 70,
+                "comments": 5,
+            },
+        }
+        with mock.patch.object(control, "fetch_channel_snapshot", return_value=current):
+            stats = control.channel_stats(state)
+        self.assertEqual(stats["views_today"], 200)
+        self.assertEqual(stats["views_7d"], 500)
+        self.assertEqual(stats["subscribers_today"], 2)
+        self.assertEqual(stats["subscribers_7d"], 5)
+        self.assertEqual(state["youtube_snapshots"][-1]["total_views"], 1500)
+        rendered = control.render_channel_stats(stats)
+        self.assertIn("مشاهدات اليوم: +200", rendered)
+        self.assertIn("مشاهدات آخر 7 أيام: +500", rendered)
+        self.assertIn("آخر حلقة", rendered)
+        self.assertIn("آخر شورت", rendered)
+
+    def test_stats_command_is_read_only_for_production_dispatch(self):
+        state = control.default_state()
+        update = {
+            "message": {
+                "from": {"id": 123},
+                "chat": {"id": 123},
+                "text": "/stats",
+            }
+        }
+        stats = {
+            "captured_at": "2026-09-24T10:00:00Z",
+            "channel_id": "channel",
+            "subscribers": 20,
+            "hidden_subscribers": False,
+            "total_views": 1500,
+            "video_count": 12,
+            "last_long": None,
+            "last_short": None,
+            "views_today": None,
+            "views_7d": None,
+            "subscribers_today": None,
+            "subscribers_7d": None,
+        }
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            "os.environ",
+            {"TELEGRAM_CHAT_ID": "123"},
+            clear=False,
+        ), mock.patch.object(control, "channel_stats", return_value=stats), mock.patch.object(
+            control, "send_telegram"
+        ) as send:
+            dispatch = Path(tmp) / "dispatch.json"
+            control.handle_update(state, update, dispatch)
+            self.assertFalse(dispatch.exists())
+            self.assertTrue(send.called)
+
+
+
 if __name__ == "__main__":
     unittest.main()

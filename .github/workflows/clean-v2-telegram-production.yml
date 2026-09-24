@@ -158,14 +158,7 @@ jobs:
               --output "$brief"
 
             local brief_sha
-            brief_sha="$(BRIEF="$brief" python - <<'PY'
-import json, os
-from pathlib import Path
-from clean_v2.contracts import compute_brief_sha256
-p=Path(os.environ["BRIEF"])
-print(compute_brief_sha256(json.loads(p.read_text(encoding="utf-8"))))
-PY
-)"
+            brief_sha="$(BRIEF="$brief" python -c 'import json,os; from pathlib import Path; from clean_v2.contracts import compute_brief_sha256; p=Path(os.environ["BRIEF"]); print(compute_brief_sha256(json.loads(p.read_text(encoding="utf-8"))))')"
             rm -rf "$out"
             python scripts/telegram_clean_v2_notify.py watch --output "$out" --kind "$kind" --poll-seconds 4 &
             local notify_pid=$!
