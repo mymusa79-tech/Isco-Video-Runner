@@ -11,6 +11,7 @@ from scripts.telegram_clean_v2_notify import (
     failure_guidance,
     milestone_messages,
     short_failure_reason,
+    runtime_status_payload,
     started_text,
     terminal_text,
     workflow_watchdog_text,
@@ -142,6 +143,19 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         self.assertEqual(button["text"], "🎥 فتح الفيديو النهائي")
         self.assertEqual(button["url"], "https://github.example/artifacts/7")
         self.assertIn("جاهز للتسليم", payload["text"])
+
+    def test_runtime_status_payload_tracks_real_last_stage(self):
+        payload = runtime_status_payload(
+            active=True,
+            scope="bundle",
+            kind="short",
+            topic="موضوع",
+            stage="⚡ الشورت · 3/6 الصوت ✅",
+            run_url="https://github.example/run/6",
+        )
+        self.assertTrue(payload["active"])
+        self.assertEqual(payload["kind"], "short")
+        self.assertIn("3/6 الصوت", payload["stage"])
 
 
 if __name__ == "__main__":

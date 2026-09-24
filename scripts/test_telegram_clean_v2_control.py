@@ -464,6 +464,31 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertNotIn("snapshots", text)
         self.assertNotIn("OAuth", text)
 
+    def test_status_command_reports_type_and_real_last_stage(self):
+        runtime = {
+            "active": True,
+            "scope": "bundle",
+            "kind": "short",
+            "topic": "موضوع",
+            "stage": "⚡ الشورت · 3/6 الصوت ✅",
+            "run_url": "https://github.example/run/6",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "runtime.json"
+            path.write_text(json.dumps(runtime, ensure_ascii=False), encoding="utf-8")
+            state = control.default_state()
+            update = {"message": {"from": {"id": 123}, "chat": {"id": 123}, "text": "/status"}}
+            with mock.patch.dict(
+                "os.environ",
+                {"TELEGRAM_CHAT_ID": "123", "TELEGRAM_RUNTIME_STATE_PATH": str(path)},
+                clear=False,
+            ), mock.patch.object(control, "send_telegram") as send:
+                control.handle_update(state, update, Path(tmp) / "dispatch.json")
+            text = send.call_args.args[0]
+            self.assertIn("يوجد إنتاج يعمل الآن", text)
+            self.assertIn("الشورت", text)
+            self.assertIn("3/6 الصوت", text)
+
 
 if __name__ == "__main__":
     unittest.main()

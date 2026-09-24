@@ -894,6 +894,42 @@ def _actor_chat(update: dict[str, Any]) -> tuple[str, str]:
     return str(actor.get("id") or ""), str(chat.get("id") or "")
 
 
+def load_runtime_status() -> dict[str, Any]:
+    raw_path = str(os.environ.get("TELEGRAM_RUNTIME_STATE_PATH") or "").strip()
+    if not raw_path:
+        return {}
+    try:
+        value = json.loads(Path(raw_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def render_production_status(runtime: dict[str, Any]) -> str:
+    if not runtime.get("active"):
+        return "⚪ لا يوجد إنتاج يعمل الآن."
+    scope_label = {
+        "long": "🎬 فيديو طويل",
+        "short": "⚡ شورت",
+        "bundle": "🎬 طويل + ⚡ شورت",
+    }.get(str(runtime.get("scope") or ""), "إنتاج")
+    kind = str(runtime.get("kind") or "")
+    if str(runtime.get("scope") or "") == "bundle" and kind:
+        scope_label += " — " + ("الطويل" if kind == "long" else "الشورت")
+    lines = [
+        "🟢 يوجد إنتاج يعمل الآن",
+        f"النوع: {scope_label}",
+        f"آخر مرحلة: {str(runtime.get('stage') or 'بدأ التشغيل')}",
+    ]
+    topic = str(runtime.get("topic") or "").strip()
+    if topic:
+        lines.append(f"الموضوع: {topic}")
+    run_url = str(runtime.get("run_url") or "").strip()
+    if run_url:
+        lines.extend(["", f"متابعة التشغيل: {run_url}"])
+    return "\n".join(lines)
+
+
 def authorized(update: dict[str, Any]) -> bool:
     expected = str(os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
     actor, chat = _actor_chat(update)
@@ -952,6 +988,9 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             "🔎 اختر نوع المحتوى الذي تريد البحث له. لن يبدأ الإنتاج قبل تأكيدك النهائي.",
             scope_keyboard(),
         )
+        return
+    if text in {"/status", "status", "الحالة", "حالة الإنتاج", "حاله الانتاج"}:
+        send_telegram(render_production_status(load_runtime_status()))
         return
     if text in {"/stats", "stats", "إحصائيات", "الاحصائيات", "الإحصائيات"}:
         try:

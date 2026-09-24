@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -17,6 +19,8 @@ MILESTONES = (
     ("final_master_qc", "الفحص النهائي"),
 )
 TERMINAL = {"pass", "failed", "quality_pending"}
+RUNTIME_BRANCH = "clean-v2-telegram-runtime-state"
+RUNTIME_PATH = "state/telegram-runtime.json"
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -85,6 +89,95 @@ def send_message(
     except Exception as exc:
         print(f"Telegram Clean V2 notify failed: {type(exc).__name__}")
         return False
+
+
+def _runtime_request(method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    token = str(os.environ.get("GITHUB_RUNTIME_TOKEN") or "").strip()
+    repo = str(os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    api = str(os.environ.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
+    if not token or not repo:
+        return {}
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        f"{api}/repos/{repo}/{path.lstrip('/')}",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+            "User-Agent": "isco-clean-v2-telegram-runtime",
+        },
+        method=method,
+    )
+    with urllib.request.urlopen(request, timeout=12) as response:
+        raw = response.read().decode("utf-8")
+    return json.loads(raw) if raw else {}
+
+
+def publish_runtime_status(status: dict[str, Any]) -> bool:
+    token = str(os.environ.get("GITHUB_RUNTIME_TOKEN") or "").strip()
+    repo = str(os.environ.get("GITHUB_REPOSITORY") or "").strip()
+    head_sha = str(os.environ.get("GITHUB_SHA") or "").strip()
+    if not token or not repo or not head_sha:
+        return False
+    try:
+        try:
+            _runtime_request("GET", f"git/ref/heads/{RUNTIME_BRANCH}")
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+            _runtime_request(
+                "POST",
+                "git/refs",
+                {"ref": f"refs/heads/{RUNTIME_BRANCH}", "sha": head_sha},
+            )
+        current_sha = ""
+        try:
+            current = _runtime_request(
+                "GET",
+                f"contents/{RUNTIME_PATH}?ref={RUNTIME_BRANCH}",
+            )
+            current_sha = str(current.get("sha") or "")
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+        payload: dict[str, Any] = {
+            "message": "state: Telegram runtime status",
+            "content": base64.b64encode(
+                (json.dumps(status, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+            ).decode("ascii"),
+            "branch": RUNTIME_BRANCH,
+        }
+        if current_sha:
+            payload["sha"] = current_sha
+        _runtime_request("PUT", f"contents/{RUNTIME_PATH}", payload)
+        return True
+    except Exception as exc:
+        print(f"Telegram runtime status update failed: {type(exc).__name__}")
+        return False
+
+
+def runtime_status_payload(
+    *,
+    active: bool,
+    scope: str,
+    kind: str,
+    topic: str,
+    stage: str,
+    run_url: str,
+    result: str = "",
+) -> dict[str, Any]:
+    return {
+        "active": active,
+        "scope": scope,
+        "kind": kind,
+        "topic": topic,
+        "stage": stage,
+        "run_url": run_url,
+        "result": result,
+        "updated_at": int(time.time()),
+    }
 
 
 def passed_stages(manifest: dict[str, Any]) -> set[str]:
@@ -196,7 +289,15 @@ def terminal_text(*, manifest: dict[str, Any], job_status: str, kind: str, run_u
     return "\n".join(lines)
 
 
-def watch(output: Path, *, kind: str, poll_seconds: float) -> int:
+def watch(
+    output: Path,
+    *,
+    kind: str,
+    poll_seconds: float,
+    scope: str = "",
+    topic: str = "",
+    run_url: str = "",
+) -> int:
     manifest_path = output / "run-manifest.json"
     sent: set[str] = set()
     while True:
@@ -204,6 +305,16 @@ def watch(output: Path, *, kind: str, poll_seconds: float) -> int:
         if manifest:
             for stage, text in milestone_messages(manifest, sent, kind=kind):
                 send_message(text)
+                publish_runtime_status(
+                    runtime_status_payload(
+                        active=True,
+                        scope=scope or kind,
+                        kind=kind,
+                        topic=topic,
+                        stage=text,
+                        run_url=run_url,
+                    )
+                )
                 sent.add(stage)
             if str(manifest.get("status") or "") in TERMINAL:
                 return 0
@@ -300,6 +411,9 @@ def main() -> int:
     watch_p.add_argument("--output", type=Path, required=True)
     watch_p.add_argument("--kind", choices=("long", "short"), required=True)
     watch_p.add_argument("--poll-seconds", type=float, default=4.0)
+    watch_p.add_argument("--scope", choices=("long", "short", "bundle"), default="")
+    watch_p.add_argument("--topic", default="")
+    watch_p.add_argument("--run-url", default="")
 
     final_p = sub.add_parser("terminal")
     final_p.add_argument("--output", type=Path, required=True)
@@ -329,12 +443,30 @@ def main() -> int:
     watchdog_p.add_argument("--output-root", type=Path, required=True)
     watchdog_p.add_argument("--scope", choices=("long", "short", "bundle"), required=True)
     watchdog_p.add_argument("--job-status", required=True)
+    watchdog_p.add_argument("--topic", default="")
     watchdog_p.add_argument("--run-url", default="")
 
     args = parser.parse_args()
     if args.command == "watch":
-        return watch(args.output, kind=args.kind, poll_seconds=args.poll_seconds)
+        return watch(
+            args.output,
+            kind=args.kind,
+            poll_seconds=args.poll_seconds,
+            scope=args.scope,
+            topic=args.topic,
+            run_url=args.run_url,
+        )
     if args.command == "started":
+        publish_runtime_status(
+            runtime_status_payload(
+                active=True,
+                scope=args.scope,
+                kind="",
+                topic=args.topic,
+                stage="بدأ الإنتاج",
+                run_url=args.run_url,
+            )
+        )
         return 0 if send_message(
             started_text(scope=args.scope, topic=args.topic, run_url=args.run_url)
         ) else 1
@@ -353,6 +485,17 @@ def main() -> int:
             bundle_summary_text(topic=args.topic, run_url=args.run_url)
         ) else 1
     if args.command == "watchdog":
+        publish_runtime_status(
+            runtime_status_payload(
+                active=False,
+                scope=args.scope,
+                kind="",
+                topic=getattr(args, "topic", ""),
+                stage="اكتمل التشغيل" if args.job_status == "success" else "توقف التشغيل",
+                run_url=args.run_url,
+                result=args.job_status,
+            )
+        )
         return workflow_watchdog(
             output_root=args.output_root,
             job_status=args.job_status,

@@ -56,6 +56,18 @@ jobs:
           echo "TELEGRAM_STATE_ROOT=$state_root" >> "$GITHUB_ENV"
           echo "TELEGRAM_STATE_PATH=$state_root/$STATE_FILE" >> "$GITHUB_ENV"
 
+      - name: Load current production runtime status
+        run: |
+          set -euo pipefail
+          runtime="$RUNNER_TEMP/telegram-runtime.json"
+          if git fetch --no-tags origin clean-v2-telegram-runtime-state:refs/remotes/origin/clean-v2-telegram-runtime-state 2>/dev/null &&
+             git show origin/clean-v2-telegram-runtime-state:state/telegram-runtime.json > "$runtime" 2>/dev/null; then
+            :
+          else
+            printf '%s\n' '{}' > "$runtime"
+          fi
+          echo "TELEGRAM_RUNTIME_STATE_PATH=$runtime" >> "$GITHUB_ENV"
+
       - name: Handle authorized Telegram update
         env:
           WEBHOOK_UPDATE_B64: ${{ inputs.webhook_update_b64 }}
