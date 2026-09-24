@@ -2365,7 +2365,12 @@ def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[P
             ]
         )
     if rank >= _RESUME_STAGE_INDEX["voice"]:
-        paths.append(Path("narration.wav"))
+        paths.extend([Path("narration.wav"), Path("voice-sections.json")])
+        audio_root = output_dir / "audio"
+        if not audio_root.is_dir():
+            raise RuntimeError("Clean V2 resume voice audio directory is missing")
+        for audio_path in sorted(audio_root.rglob("*.wav")):
+            paths.append(audio_path.relative_to(output_dir))
     if rank >= _RESUME_STAGE_INDEX["visuals"]:
         rights_path = output_dir / "rights-manifest.json"
         rights = _read_json_object(rights_path)
@@ -3437,6 +3442,13 @@ class CleanV2Pipeline:
             narration_path = output_dir / "narration.wav"
             if resume is not None and _resume_includes(resume[1], "voice"):
                 _copy_resume_artifact(resume[0], output_dir, "narration.wav")
+                resume_artifacts = resume[1].get("artifacts") or {}
+                if not isinstance(resume_artifacts, dict):
+                    raise RuntimeError("Clean V2 resume artifact manifest is invalid")
+                for raw_relative in sorted(resume_artifacts):
+                    relative = str(raw_relative)
+                    if relative == "voice-sections.json" or relative.startswith("audio/"):
+                        _copy_resume_artifact(resume[0], output_dir, relative)
                 voice_provider = str(resume[1].get("voice_provider") or "")
                 voice_fallback_used = resume[1].get("voice_fallback_used")
                 if voice_provider not in {
