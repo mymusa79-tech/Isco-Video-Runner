@@ -385,7 +385,7 @@ class ShortContractTests(unittest.TestCase):
         ):
             validate_short_script(double_action)
 
-    def test_mistral_only_gets_explicit_short_hook_counting_guidance(self) -> None:
+    def test_mistral_only_gets_explicit_short_contract_preflight(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
         plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
         valid = {
@@ -428,12 +428,18 @@ class ShortContractTests(unittest.TestCase):
         for provider in ("gemini", "groq", "openrouter"):
             self.assertEqual(seen[provider], base_prompt)
             self.assertNotIn("MISTRAL_SHORT_HOOK_COMPLIANCE", seen[provider])
+            self.assertNotIn("MISTRAL_SHORT_S3_COMPLIANCE", seen[provider])
         self.assertIn("MISTRAL_SHORT_HOOK_COMPLIANCE", seen["mistral"])
         self.assertIn("preferably 8-16 words", seen["mistral"])
         self.assertIn("split the first sentence on whitespace", seen["mistral"])
         self.assertIn("NEVER more than 18", seen["mistral"])
         self.assertIn("if count > 18", seen["mistral"])
         self.assertIn("without fragmenting the sentence", seen["mistral"])
+        self.assertIn("MISTRAL_SHORT_S3_COMPLIANCE", seen["mistral"])
+        self.assertIn("Exactly ONE s3 sentence", seen["mistral"])
+        self.assertIn("count action sentences", seen["mistral"])
+        self.assertIn("require exactly 1", seen["mistral"])
+        self.assertIn("scan every payoff sentence", seen["mistral"])
 
     def test_provider_router_rejects_technically_successful_hook_over_18_words(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
