@@ -1,4 +1,4 @@
-name: Test Brand Overlay Policy V0
+name: Test Brand Overlay V0
 
 on:
   push:
@@ -6,7 +6,9 @@ on:
       - brand-overlay-v0-policy-20260924
     paths:
       - clean_v2/brand_overlay_policy.py
+      - clean_v2/brand_overlay_renderer.py
       - scripts/test_brand_overlay_policy_v0.py
+      - scripts/test_brand_overlay_renderer_v0.py
       - .github/workflows/test-brand-overlay-policy-v0.yml
   workflow_dispatch:
 
@@ -14,10 +16,34 @@ permissions:
   contents: read
 
 jobs:
-  policy-test:
+  overlay-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check Arabic rendering environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          fc-match "Noto Kufi Arabic:style=Black"
+          python3 - <<'PY'
+          from PIL import features
+          print("RAQM", features.check("raqm"))
+          if not features.check("raqm"):
+              raise SystemExit("Pillow RAQM unavailable")
+          PY
+
       - name: Run policy test
         run: python3 scripts/test_brand_overlay_policy_v0.py
+
+      - name: Run renderer test
+        run: python3 scripts/test_brand_overlay_renderer_v0.py
+
+      - name: Upload renderer samples
+        uses: actions/upload-artifact@v4
+        with:
+          name: brand-overlay-renderer-v0-samples
+          path: artifacts/brand-overlay-renderer-v0/
+          if-no-files-found: error
+          retention-days: 7
