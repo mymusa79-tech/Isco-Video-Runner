@@ -763,7 +763,7 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(local[0]["network_generation_calls"], 0)
 
     def test_duration_and_frame_contract_are_hard_bounds(self) -> None:
-        self.assertEqual(SHORT_MIN_SECONDS, 20.0)
+        self.assertEqual(SHORT_MIN_SECONDS, 30.0)
         self.assertEqual(SHORT_TARGET_SECONDS, 36.0)
         self.assertEqual(SHORT_MAX_SECONDS, 45.0)
         for seconds in (SHORT_MIN_SECONDS, SHORT_TARGET_SECONDS, SHORT_MAX_SECONDS):
@@ -1065,12 +1065,12 @@ class ShortAudioPolishTests(unittest.TestCase):
 
 
 class ShortPipelineSeamTests(unittest.TestCase):
-    def test_short_script_prompt_keeps_rich_45s_ceiling_and_reuses_template_context(self) -> None:
+    def test_short_script_prompt_keeps_accepted_30_45s_envelope_and_reuses_template_context(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
         self.assertIn("50-80 authored Arabic words", prompt)
-        self.assertIn("final 30-40 second result including identity media", prompt)
-        self.assertIn("20-45 seconds", prompt)
+        self.assertIn("final 34-38 second result including identity media", prompt)
+        self.assertIn("30-45 seconds", prompt)
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("social CTA remains visual-only", prompt)
         self.assertIn("IDENTITY_SEQUENCE is also HOST-MANAGED", prompt)
