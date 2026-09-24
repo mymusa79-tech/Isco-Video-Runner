@@ -856,13 +856,16 @@ class GeminiPrimaryNabraFallbackSynthesizer:
                     time.sleep(delay)
 
         charon_reason = _tts_failure_reason(charon_error, missing="missing_api_key")
-        if primary_only or self._route_lock == "charon":
+        if self._route_lock == "charon":
             raise VoiceInfrastructureError(
                 charon_attempts=self.charon_attempts,
                 charon_reason=charon_reason,
                 secondary_reason="narrator_route_locked_to_charon",
                 piper_fallback_allowed=False,
             )
+        # primary_only is retained as the existing Short performance-style flag.
+        # It must not disable the user-approved Nabra backup before a narrator route
+        # has been established for this production.
         return self._use_nabra(transcript, output_path)
 
 
