@@ -226,7 +226,7 @@ def _operator_status(state: dict[str, Any], releases) -> tuple[str, list[list[di
     if pending is not None:
         kind = "الحلقة" if str(pending.get("kind") or "") == "long" else "الشورت"
         now = f"🔎 بحث {kind} جارٍ."
-        action = "لا يلزمك شيء الآن."
+        action = "لا يلزمك شيء الآن — نفس بطاقة البحث ستتحدث عند اكتماله."
     elif active_production is not None:
         now = "🎬 الإنتاج يعمل الآن."
         action = "لا تكرر تأكيد الإنتاج."
@@ -239,7 +239,13 @@ def _operator_status(state: dict[str, Any], releases) -> tuple[str, list[list[di
         session_id = str(ready_session.get("session_id") or "").strip()
         candidates = ready_session.get("candidates")
         count = len(candidates) if isinstance(candidates, list) else 0
-        now = f"✅ البحث مكتمل: {count} {'خيار' if count == 1 else 'خيارات'} جاهزة."
+        if count == 1:
+            ready = "خيار واحد جاهز للمراجعة"
+        elif count == 2:
+            ready = "خياران جاهزان للمراجعة"
+        else:
+            ready = f"{count} خيارات جاهزة للمراجعة"
+        now = f"✅ البحث مكتمل: {ready}."
         action = "افتح الخيارات واختر ما يناسبك."
         if session_id:
             extra_rows.append([{"text": "📋 فتح الخيارات", "callback_data": f"cmd:choices-{session_id}"}])
