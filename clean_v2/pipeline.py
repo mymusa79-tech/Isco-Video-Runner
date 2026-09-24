@@ -188,7 +188,7 @@ def _synthesize_sectioned_voice(
         # For the approved Hook -> Intro -> identity order, keep the very first
         # spoken sentence as its own TTS chunk. This gives the post-render identity
         # splice an exact measured hook boundary without alignment AI or extra calls.
-        if index == 1:
+        if index == 1 and PRAYER_SENTENCE in section_text:
             match = re.search(r"[.!؟!]", section_text)
             if match is not None and match.end() < len(section_text):
                 hook_text = section_text[: match.end()].strip()
