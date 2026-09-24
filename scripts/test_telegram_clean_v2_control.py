@@ -340,6 +340,15 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertIsNotNone(baseline)
         self.assertEqual(baseline["total_views"], 1300)
 
+    def test_stats_format_split_uses_clean_v2_short_contract(self):
+        videos = [
+            {"title": "فيديو 2:50", "duration_seconds": 170, "published_at": "2026-09-24T10:00:00Z"},
+            {"title": "شورت 25 ثانية", "duration_seconds": 25, "published_at": "2026-09-24T09:00:00Z"},
+        ]
+        short, long = control._latest_by_clean_v2_format(videos)
+        self.assertEqual(short["title"], "شورت 25 ثانية")
+        self.assertEqual(long["title"], "فيديو 2:50")
+
 
 if __name__ == "__main__":
     unittest.main()

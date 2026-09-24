@@ -28,6 +28,7 @@ MODEL = os.environ.get("GEMINI_CONTENT_MODEL", "gemini-3.7-flash")
 YOUTUBE_REGION = os.environ.get("YOUTUBE_REGION", "SA")
 YOUTUBE_LANGUAGE = os.environ.get("YOUTUBE_LANGUAGE", "ar")
 WINDOW_DAYS = 30
+SHORT_MAX_SECONDS = 30
 YOUTUBE_CHANNEL_ID = os.environ.get("YOUTUBE_CHANNEL_ID", "UC_fmWGRen6QUQNd4Dj80MgA")
 OMAN_OFFSET = timedelta(hours=4)
 
@@ -179,6 +180,26 @@ def _parse_duration_seconds(value: str) -> int:
     )
 
 
+def _latest_by_clean_v2_format(videos: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    last_short = next(
+        (
+            item
+            for item in videos
+            if 0 < int(item.get("duration_seconds") or 0) <= SHORT_MAX_SECONDS
+        ),
+        None,
+    )
+    last_long = next(
+        (
+            item
+            for item in videos
+            if int(item.get("duration_seconds") or 0) > SHORT_MAX_SECONDS
+        ),
+        None,
+    )
+    return last_short, last_long
+
+
 def _youtube_api(resource: str, params: dict[str, str]) -> dict[str, Any]:
     key = str(os.environ.get("YOUTUBE_API_KEY") or "").strip()
     if not key:
@@ -248,14 +269,7 @@ def fetch_channel_snapshot() -> dict[str, Any]:
                 }
             )
     videos.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
-    last_short = next(
-        (item for item in videos if 0 < int(item.get("duration_seconds") or 0) <= 180),
-        None,
-    )
-    last_long = next(
-        (item for item in videos if int(item.get("duration_seconds") or 0) > 180),
-        None,
-    )
+    last_short, last_long = _latest_by_clean_v2_format(videos)
     return {
         "captured_at": utc_now(),
         "channel_id": channel_id,
