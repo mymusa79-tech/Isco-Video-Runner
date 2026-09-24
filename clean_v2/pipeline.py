@@ -29,7 +29,13 @@ from .contracts import (
     validate_plan,
     validate_script,
 )
-from .media import concat_wav_parts, inspect_final, probe_duration, render_video
+from .media import (
+    VoiceInfrastructureError,
+    concat_wav_parts,
+    inspect_final,
+    probe_duration,
+    render_video,
+)
 from .structural_ai import structural_ai_flags
 from .short_format import (
     SHORT_DURATION_SAFETY_MAX_SECONDS,
@@ -257,7 +263,60 @@ def _synthesize_sectioned_voice(
                     )
                 else:
                     voice_synthesizer.synthesize(chunk_text, chunk_path)
-            except Exception:
+            except Exception as exc:
+                restart_nabra = getattr(
+                    voice_synthesizer,
+                    "activate_full_run_nabra_fallback",
+                    None,
+                )
+                if (
+                    isinstance(exc, VoiceInfrastructureError)
+                    and exc.secondary_reason == "narrator_route_locked_to_charon"
+                    and callable(restart_nabra)
+                ):
+                    prior_attempts = total_charon_attempts + int(
+                        getattr(voice_synthesizer, "charon_attempts", 0) or 0
+                    )
+                    atomic_write_json(
+                        report_path,
+                        {
+                            "schema_version": 1,
+                            "source": "clean-v2-sectioned-voice",
+                            "status": "restarting_with_nabra",
+                            "reason": "charon_failed_after_route_lock",
+                            "failed_section": section_id,
+                            "failed_chunk": chunk_index,
+                            "charon_tts_attempts_before_restart": prior_attempts,
+                            "sections": reports,
+                            "current_section_chunks": chunk_reports,
+                        },
+                    )
+                    shutil.rmtree(audio_dir, ignore_errors=True)
+                    audio_dir.mkdir(parents=True, exist_ok=True)
+                    narration_path.unlink(missing_ok=True)
+                    restart_nabra()
+                    restarted = _synthesize_sectioned_voice(
+                        voice_synthesizer,
+                        sections,
+                        narration_path,
+                        fmt=fmt,
+                        identity_definition=identity_definition,
+                        identity_closer=identity_closer,
+                        require_charon_only=require_charon_only,
+                    )
+                    restarted["voice_restart_reason"] = "charon_failed_after_route_lock"
+                    restarted["charon_tts_attempts_before_restart"] = prior_attempts
+                    atomic_write_json(
+                        report_path,
+                        {
+                            "schema_version": 1,
+                            "source": "clean-v2-sectioned-voice",
+                            "status": "pass",
+                            **restarted,
+                        },
+                    )
+                    return restarted
+
                 atomic_write_json(
                     report_path,
                     {
