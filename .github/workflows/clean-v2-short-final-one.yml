@@ -102,7 +102,7 @@ jobs:
               "No fabricated facts.",
               "One natural Arabic narrator only.",
               "No social CTA.",
-              "Complete Short must not exceed 30 seconds."
+              "Complete Short must stay between 30 and 45 seconds."
             ]
           }
           JSON
@@ -172,7 +172,7 @@ jobs:
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "pass"
           test "$(jq -r .width "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1080"
           test "$(jq -r .height "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1920"
-          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d >= 20 && d <= 45) }"
+          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d >= 30 && d <= 45) }"
 
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-master-qc.json")" = "pass"
