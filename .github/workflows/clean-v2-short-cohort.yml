@@ -178,11 +178,16 @@ jobs:
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "pass"
           test "$(jq -r .width "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1080"
           test "$(jq -r .height "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1920"
-          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d >= 7 && d <= 30) }"
+          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d >= 20 && d <= 45) }"
 
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-master-qc.json")" = "pass"
           test "$(jq -r .mode "$CLEAN_V2_OUTPUT/cta-plan.json")" = "none"
+          test -s "$CLEAN_V2_OUTPUT/visual-cta.json"
+          test "$(jq -r .provider_calls_added "$CLEAN_V2_OUTPUT/visual-cta.json")" = "0"
+          test "$(jq -r .event_count "$CLEAN_V2_OUTPUT/visual-cta.json")" -le 2
+          test -s "$CLEAN_V2_OUTPUT/identity-sequence.json"
+          test "$(jq -r .status "$CLEAN_V2_OUTPUT/identity-sequence.json")" = "pass"
 
           shots="$(jq -r '.assets | length' "$CLEAN_V2_OUTPUT/rights-manifest.json")"
           test "$shots" -ge 2
