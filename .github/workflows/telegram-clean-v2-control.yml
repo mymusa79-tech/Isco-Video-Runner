@@ -23,7 +23,6 @@ jobs:
     env:
       STATE_BRANCH: clean-v2-telegram-state
       STATE_FILE: state/telegram-clean-v2.json
-      DISPATCH_FILE: ${{ runner.temp }}/clean-v2-telegram-dispatch.json
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
@@ -38,6 +37,9 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
 
+      - name: Bind runtime paths
+        run: echo "DISPATCH_FILE=$RUNNER_TEMP/clean-v2-telegram-dispatch.json" >> "$GITHUB_ENV"
+
       - name: Restore simple Telegram JSON state
         run: |
           set -euo pipefail
@@ -49,7 +51,7 @@ jobs:
           fi
           mkdir -p "$state_root/state"
           if [ ! -s "$state_root/$STATE_FILE" ]; then
-            printf '%s\n' '{"schema_version":1,"ideas":[],"sessions":{},"requests":{},"current_request_id":null,"updated_at":null}' > "$state_root/$STATE_FILE"
+            printf '%s\n' '{"schema_version":1,"ideas":[],"sessions":{},"requests":{},"current_request_id":null,"youtube_snapshots":[],"updated_at":null}' > "$state_root/$STATE_FILE"
           fi
           echo "TELEGRAM_STATE_ROOT=$state_root" >> "$GITHUB_ENV"
           echo "TELEGRAM_STATE_PATH=$state_root/$STATE_FILE" >> "$GITHUB_ENV"

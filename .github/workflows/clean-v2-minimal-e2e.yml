@@ -28,6 +28,7 @@ on:
       - "cloudflare/telegram-clean-v2-lite/**"
       - ".github/workflows/telegram-clean-v2-control.yml"
       - ".github/workflows/clean-v2-telegram-production.yml"
+      - ".github/workflows/clean-v2-youtube-snapshot.yml"
       - ".github/workflows/deploy-telegram-clean-v2-lite.yml"
       - "docs/clean-v2/**"
       - ".github/workflows/clean-v2-minimal-e2e.yml"
