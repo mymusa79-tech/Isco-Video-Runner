@@ -595,6 +595,88 @@ def _mistral_script_response_schema(prompt: str) -> dict[str, Any]:
     }
 
 
+def _groq_planning_response_schema(prompt: str) -> dict[str, Any]:
+    """Strict Groq schema for plan shape; semantic checks remain local."""
+    source = _mistral_planning_response_schema(prompt)
+    source_section = source["properties"]["sections"]["items"]
+    section_properties = {
+        key: {"type": "string"}
+        for key in source_section["properties"]
+    }
+    section_schema = {
+        "type": "object",
+        "properties": section_properties,
+        "required": list(section_properties),
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "promise": {"type": "string"},
+            "cta": {"type": "string"},
+            "sections": {
+                "type": "array",
+                "items": section_schema,
+                "minItems": int(source["properties"]["sections"]["minItems"]),
+                "maxItems": int(source["properties"]["sections"]["maxItems"]),
+            },
+        },
+        "required": ["title", "promise", "cta", "sections"],
+        "additionalProperties": False,
+    }
+
+
+def _groq_script_response_schema(prompt: str) -> dict[str, Any]:
+    """Strict Groq schema for script shape; exact order/semantics stay local."""
+    source = _mistral_script_response_schema(prompt)
+    section_ids = [
+        str(item["properties"]["id"]["const"])
+        for item in source["properties"]["sections"]["prefixItems"]
+    ]
+    section_schema = {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "enum": section_ids},
+            "narration": {"type": "string"},
+        },
+        "required": ["id", "narration"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "sections": {
+                "type": "array",
+                "items": section_schema,
+                "minItems": len(section_ids),
+                "maxItems": len(section_ids),
+            },
+        },
+        "required": ["title", "sections"],
+        "additionalProperties": False,
+    }
+
+
+def _groq_stage_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
+    if stage == "planning":
+        return _groq_call(
+            prompt,
+            max_tokens,
+            response_schema=_groq_planning_response_schema(prompt),
+            schema_name="planning",
+        )
+    if stage == "script":
+        return _groq_call(
+            prompt,
+            max_tokens,
+            response_schema=_groq_script_response_schema(prompt),
+            schema_name="script",
+        )
+    return _groq_call(prompt, max_tokens)
+
+
 def _mistral_call(prompt: str, max_tokens: int, stage: str) -> dict[str, Any]:
     try:
         if stage == "visual_query_recovery":
@@ -676,7 +758,7 @@ class ProviderAdapter:
 def default_adapters() -> tuple[ProviderAdapter, ...]:
     return (
         ProviderAdapter("gemini", _gemini_call),
-        ProviderAdapter("groq", _groq_call),
+        ProviderAdapter("groq", _groq_stage_call, accepts_stage=True),
         ProviderAdapter("openrouter", _openrouter_call),
         ProviderAdapter(
             "mistral",
