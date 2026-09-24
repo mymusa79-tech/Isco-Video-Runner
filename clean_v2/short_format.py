@@ -6,12 +6,9 @@ from typing import Any, Mapping
 SHORT_SECTION_COUNT = 3
 SHORT_WIDTH = 1080
 SHORT_HEIGHT = 1920
-# Rich Short Lite: complete the idea instead of compressing it into fragments.
-# The accepted production envelope is 30-45 seconds. 36s is a center target,
-# not padding: the idea must remain complete and natural inside the hard range.
-SHORT_TARGET_SECONDS = 36.0
-SHORT_MIN_SECONDS = 30.0
-SHORT_MAX_SECONDS = 45.0
+# Timeline First: duration is editorially unconstrained. The measured mastered voice
+# owns runtime; this distant ceiling is operational runaway protection only.
+SHORT_DURATION_SAFETY_MAX_SECONDS = 120.0
 SHORT_HOOK_MAX_WORDS = 18
 SHORT_HOOK_PREFERRED_MIN_WORDS = 8
 SHORT_HOOK_PREFERRED_MAX_WORDS = 16
@@ -302,8 +299,8 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
         "SHORT_FORMAT_CONTRACT:\n"
         f"- selected_template={selection['template']}\n"
         f"- beat_shape={beats}\n"
-        f"- target_duration_seconds={SHORT_TARGET_SECONDS:g}; hard_range="
-        f"{SHORT_MIN_SECONDS:g}-{SHORT_MAX_SECONDS:g}\n"
+        f"- duration_owner=measured_voice; editorial_target_duration=none; "
+        f"operational_safety_max_seconds={SHORT_DURATION_SAFETY_MAX_SECONDS:g}\n"
         f"- exact_sections={SHORT_SECTION_COUNT}; frame={SHORT_WIDTH}x{SHORT_HEIGHT}\n"
         f"- s1: the first spoken sentence is the truthful hook: one complete, natural Arabic sentence, preferably "
         f"{SHORT_HOOK_PREFERRED_MIN_WORDS}-{SHORT_HOOK_PREFERRED_MAX_WORDS} words and never more than {SHORT_HOOK_MAX_WORDS}; no greeting. "
@@ -335,12 +332,13 @@ def short_prompt_context(brief: Mapping[str, Any]) -> str:
 
 
 def validate_short_duration(seconds: float, *, phase: str) -> float:
+    """Validate only the operational safety ceiling; never an editorial target."""
     value = float(seconds)
-    if not SHORT_MIN_SECONDS <= value <= SHORT_MAX_SECONDS:
+    if value <= 0 or value > SHORT_DURATION_SAFETY_MAX_SECONDS:
         raise ShortFormatError(
-            "short_duration_out_of_range "
+            "short_duration_operational_safety_violation "
             f"phase={phase} seconds={value:.3f} "
-            f"allowed={SHORT_MIN_SECONDS:g}-{SHORT_MAX_SECONDS:g}"
+            f"safety_maximum={SHORT_DURATION_SAFETY_MAX_SECONDS:g}"
         )
     return value
 
@@ -786,9 +784,11 @@ def short_contract_report(brief: Mapping[str, Any]) -> dict[str, Any]:
         "section_count": SHORT_SECTION_COUNT,
         "frame": {"width": SHORT_WIDTH, "height": SHORT_HEIGHT},
         "duration": {
-            "target_seconds": SHORT_TARGET_SECONDS,
-            "minimum_seconds": SHORT_MIN_SECONDS,
-            "maximum_seconds": SHORT_MAX_SECONDS,
+            "timeline_owner": "measured_charon_voice",
+            "editorial_target_seconds": None,
+            "minimum_editorial_seconds": None,
+            "maximum_editorial_seconds": None,
+            "safety_maximum_seconds": SHORT_DURATION_SAFETY_MAX_SECONDS,
         },
         "hook": {
             "first_spoken_sentence": True,

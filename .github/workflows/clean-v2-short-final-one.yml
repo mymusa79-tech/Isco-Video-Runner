@@ -104,7 +104,7 @@ jobs:
               "No fabricated facts.",
               "One natural Arabic narrator only.",
               "No social CTA.",
-              "Complete Short must stay between 30 and 45 seconds."
+              "Complete Short follows the natural mastered voice duration; no editorial duration target."
             ]
           }
           JSON
@@ -174,7 +174,10 @@ jobs:
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "pass"
           test "$(jq -r .width "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1080"
           test "$(jq -r .height "$CLEAN_V2_OUTPUT/short-duration-final.json")" = "1920"
-          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d >= 30 && d <= 45) }"
+          awk "BEGIN { d=$(jq -r .duration_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); exit !(d > 0 && d <= 120) }"
+          awk "BEGIN { x=$(jq -r .duration_delta_seconds "$CLEAN_V2_OUTPUT/short-duration-final.json"); if (x < 0) x=-x; exit !(x <= 0.08) }"
+          test "$(jq -r .timeline_owner "$CLEAN_V2_OUTPUT/timeline-first.json")" = "measured_charon_voice"
+          test "$(jq -r .final_composition_review_performed "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "true"
 
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-cut-visual-qa.json")" = "pass"
           test "$(jq -r .status "$CLEAN_V2_OUTPUT/final-master-qc.json")" = "pass"

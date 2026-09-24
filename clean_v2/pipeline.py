@@ -17,7 +17,6 @@ from .identity_sequence import (
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
     channel_definition,
-    apply_identity_media,
     assert_spoken_identity,
     inject_spoken_identity,
 )
@@ -33,9 +32,7 @@ from .contracts import (
 from .media import concat_wav_parts, inspect_final, probe_duration, render_video
 from .structural_ai import structural_ai_flags
 from .short_format import (
-    SHORT_MAX_SECONDS,
-    SHORT_MIN_SECONDS,
-    SHORT_TARGET_SECONDS,
+    SHORT_DURATION_SAFETY_MAX_SECONDS,
     INNER_DIALOGUE_VOICE_RULES,
     apply_safe_short_hook_trim,
     select_short_template,
@@ -68,7 +65,7 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
-RESUME_CONTRACT_VERSION = 2
+RESUME_CONTRACT_VERSION = 3
 RESUMABLE_STAGES = ("planning", "script", "voice", "visuals")
 _RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
 
@@ -154,6 +151,9 @@ def _synthesize_sectioned_voice(
     sections: list[dict[str, Any]],
     narration_path: Path,
     *,
+    fmt: str = "",
+    identity_definition: str = "",
+    identity_closer: str = "",
     require_charon_only: bool = False,
 ) -> dict[str, Any]:
     """Synthesize bounded Charon units, then deterministically reassemble sections.
@@ -186,19 +186,49 @@ def _synthesize_sectioned_voice(
                 f"Clean V2 sectioned voice found empty narration: section={section_id}"
             )
 
-        # For the approved Hook -> Intro -> identity order, keep the very first
-        # spoken sentence as its own TTS chunk. This gives the post-render identity
-        # splice an exact measured hook boundary without alignment AI or extra calls.
-        if index == 1 and PRAYER_SENTENCE in section_text:
-            match = re.search(r"[.!؟!]", section_text)
-            if match is not None and match.end() < len(section_text):
-                hook_text = section_text[: match.end()].strip()
-                remainder = section_text[match.end() :].strip()
-                chunks = [hook_text, *_bounded_voice_chunks(remainder)]
-            else:
-                chunks = _bounded_voice_chunks(section_text)
+        voice_units: list[tuple[str, str]] = []
+        if fmt in {"short", "film"} and index == 1:
+            prayer_pos = section_text.find(PRAYER_SENTENCE)
+            definition = " ".join(str(identity_definition or "").split()).strip()
+            definition_pos = section_text.find(definition) if definition else -1
+            if prayer_pos <= 0 or definition_pos <= prayer_pos:
+                raise RuntimeError("Timeline First requires explicit hook/prayer/identity voice units")
+            hook_text = section_text[:prayer_pos].strip()
+            after_definition = section_text[definition_pos + len(definition):].strip()
+            voice_units.extend(
+                [
+                    ("hook", hook_text),
+                    ("prayer", PRAYER_SENTENCE),
+                    ("channel_identity", definition),
+                ]
+            )
+            voice_units.extend(("topic", item) for item in _bounded_voice_chunks(after_definition))
         else:
-            chunks = _bounded_voice_chunks(section_text)
+            remaining = section_text
+            closer = " ".join(str(identity_closer or "").split()).strip()
+            if fmt == "film" and index == len(sections) and closer and remaining.endswith(closer):
+                topic_text = remaining[: -len(closer)].strip()
+                voice_units.extend(("topic", item) for item in _bounded_voice_chunks(topic_text))
+                voice_units.append(("outro", closer))
+            elif fmt in {"short", "film"} and index == len(sections):
+                sentences = [
+                    item.strip()
+                    for item in re.split(r"(?<=[.!؟!])\s+", remaining)
+                    if item.strip()
+                ]
+                if len(sentences) >= 2:
+                    topic_text = " ".join(sentences[:-1]).strip()
+                    voice_units.extend(("topic", item) for item in _bounded_voice_chunks(topic_text))
+                    voice_units.append(("outro", sentences[-1]))
+                else:
+                    voice_units.append(("outro", remaining))
+            else:
+                voice_units.extend(("topic", item) for item in _bounded_voice_chunks(remaining))
+
+        chunks = [text for _role, text in voice_units if text]
+        roles = [role for role, text in voice_units if text]
+        if " ".join(" ".join(chunks).split()) != " ".join(section_text.split()):
+            raise RuntimeError(f"Timeline First voice-unit split changed narration: section={section_id}")
         if not chunks:
             raise RuntimeError(
                 f"Clean V2 sectioned voice found no narration chunks: section={section_id}"
@@ -297,6 +327,7 @@ def _synthesize_sectioned_voice(
                     "provider": provider,
                     "charon_attempts": attempts,
                     "fallback_used": fallback_used,
+                    "role": roles[chunk_index - 1],
                 }
             )
 
@@ -2334,7 +2365,12 @@ def _checkpoint_artifact_paths(output_dir: Path, completed_stage: str) -> list[P
             ]
         )
     if rank >= _RESUME_STAGE_INDEX["voice"]:
-        paths.append(Path("narration.wav"))
+        paths.extend([Path("narration.wav"), Path("voice-sections.json")])
+        audio_root = output_dir / "audio"
+        if not audio_root.is_dir():
+            raise RuntimeError("Clean V2 resume voice audio directory is missing")
+        for audio_path in sorted(audio_root.rglob("*.wav")):
+            paths.append(audio_path.relative_to(output_dir))
     if rank >= _RESUME_STAGE_INDEX["visuals"]:
         rights_path = output_dir / "rights-manifest.json"
         rights = _read_json_object(rights_path)
@@ -2508,17 +2544,18 @@ def _run_short_duration_gate(
     phase: str,
     report_name: str,
 ) -> dict[str, Any]:
+    """Compatibility report: only the distant operational ceiling remains."""
     seconds = probe_duration(media_path)
-    in_range = SHORT_MIN_SECONDS <= seconds <= SHORT_MAX_SECONDS
+    passed = 0 < seconds <= SHORT_DURATION_SAFETY_MAX_SECONDS
     report = {
         "schema_version": 1,
-        "source": "clean-v2-short-duration-gate",
-        "status": "pass" if in_range else "block",
+        "source": "clean-v2-short-operational-safety-gate",
+        "status": "pass" if passed else "block",
         "phase": phase,
         "duration_seconds": round(seconds, 3),
-        "minimum_seconds": SHORT_MIN_SECONDS,
-        "target_seconds": SHORT_TARGET_SECONDS,
-        "maximum_seconds": SHORT_MAX_SECONDS,
+        "timeline_owner": "measured_charon_voice",
+        "editorial_target_seconds": None,
+        "safety_maximum_seconds": SHORT_DURATION_SAFETY_MAX_SECONDS,
         "provider_calls_added": 0,
     }
     atomic_write_json(output_dir / report_name, report)
@@ -2537,69 +2574,70 @@ def _run_audio_mastering_stage(
         output_dir=output_dir,
         narration_path=narration_path,
     )
+    if fmt not in {"short", "film"}:
+        return report
+
+    from clean_v2.timeline_first import TimelineFirstError, build_voice_owned_timeline
+
+    mastered = output_dir / "narration-mastered.wav"
+    try:
+        voice_timeline = build_voice_owned_timeline(
+            output_dir=output_dir,
+            narration_path=mastered,
+            fmt=fmt,
+            require_identity=True,
+        )
+    except TimelineFirstError as exc:
+        blocked = dict(exc.report)
+        if blocked:
+            atomic_write_json(output_dir / "timeline-first.json", blocked)
+        raise RuntimeError(str(exc)) from exc
+
+    atomic_write_json(output_dir / "timeline-first.json", voice_timeline)
+    atomic_write_json(output_dir / "voice-owned-timeline.json", voice_timeline)
     if fmt == "short":
-        from clean_v2.short_voice_owned_timeline import (
-            ShortVoiceTimelineError,
-            build_short_voice_owned_timeline,
-        )
-
-        mastered = output_dir / "narration-mastered.wav"
-        try:
-            voice_timeline = build_short_voice_owned_timeline(
-                output_dir=output_dir,
-                narration_path=mastered,
-            )
-        except ShortVoiceTimelineError as exc:
-            blocked = dict(exc.report)
-            atomic_write_json(
-                output_dir / "short-voice-owned-timeline.json",
-                blocked,
-            )
-            atomic_write_json(
-                output_dir / "short-duration-pre-visual.json",
-                {
-                    "schema_version": 1,
-                    "source": "clean-v2-short-voice-owned-timeline-v1",
-                    "status": "block",
-                    "phase": "post_audio_mastering_pre_visuals",
-                    "duration_seconds": blocked.get("voice_seconds_measured"),
-                    "minimum_seconds": SHORT_MIN_SECONDS,
-                    "target_seconds": SHORT_TARGET_SECONDS,
-                    "maximum_seconds": SHORT_MAX_SECONDS,
-                    "timeline_owner": "measured_charon_voice",
-                    "planning_repair_required": bool(
-                        blocked.get("planning_repair_required")
-                    ),
-                    "provider_calls_added": 0,
-                },
-            )
-            raise RuntimeError(str(exc)) from exc
-
-        atomic_write_json(
-            output_dir / "short-voice-owned-timeline.json",
-            voice_timeline,
-        )
+        atomic_write_json(output_dir / "short-voice-owned-timeline.json", voice_timeline)
         atomic_write_json(
             output_dir / "short-duration-pre-visual.json",
             {
                 "schema_version": 1,
-                "source": "clean-v2-short-voice-owned-timeline-v1",
+                "source": "clean-v2-timeline-first-v1",
                 "status": "pass",
                 "phase": "post_audio_mastering_pre_visuals",
                 "duration_seconds": voice_timeline["voice_seconds_measured"],
-                "minimum_seconds": SHORT_MIN_SECONDS,
-                "target_seconds": SHORT_TARGET_SECONDS,
-                "maximum_seconds": SHORT_MAX_SECONDS,
                 "timeline_owner": "measured_charon_voice",
-                "planning_repair_required": False,
+                "editorial_target_seconds": None,
+                "safety_maximum_seconds": voice_timeline["safety_maximum_seconds"],
                 "provider_calls_added": 0,
             },
         )
-        return {
-            **report,
-            "short_voice_owned_timeline": voice_timeline,
-        }
-    return report
+
+    atomic_write_json(
+        output_dir / "identity-sequence.json",
+        {
+            "schema_version": 2,
+            "source": "clean-v2-timeline-first-v1",
+            "status": "pass",
+            "format": fmt,
+            "sequence": [
+                "hook",
+                "intro",
+                "prayer_sentence_with_visual",
+                "channel_definition",
+                "topic",
+                "outro",
+            ],
+            "timeline_owner": "measured_charon_voice",
+            "identity_events": voice_timeline["identity_events"],
+            "voice_seconds": voice_timeline["voice_seconds_measured"],
+            "post_render_identity_splice": False,
+            "provider_calls_added": 0,
+        },
+    )
+    return {
+        **report,
+        "voice_owned_timeline": voice_timeline,
+    }
 
 
 def _inspect_final_with_short_gate(
@@ -2610,32 +2648,40 @@ def _inspect_final_with_short_gate(
     fmt: str,
 ) -> dict[str, Any]:
     report = final_inspector(final_path)
+    if fmt in {"short", "film"}:
+        from clean_v2.timeline_first import assert_final_matches_voice
+
+        timeline = _read_json_object(output_dir / "timeline-first.json")
+        assert_final_matches_voice(
+            final_seconds=float(report["duration_seconds"]),
+            timeline=timeline,
+        )
+
     if fmt == "short":
         duration = float(report["duration_seconds"])
         width = int(report.get("width") or 0)
         height = int(report.get("height") or 0)
-        passed = (
-            SHORT_MIN_SECONDS <= duration <= SHORT_MAX_SECONDS
-            and width == 1080
-            and height == 1920
-        )
+        validate_short_duration(duration, phase="final_render")
+        validate_short_dimensions(width, height)
+        timeline = _read_json_object(output_dir / "timeline-first.json")
+        voice_seconds = float(timeline["voice_seconds_measured"])
         atomic_write_json(
             output_dir / "short-duration-final.json",
             {
                 "schema_version": 1,
-                "source": "clean-v2-short-final-gate",
-                "status": "pass" if passed else "block",
+                "source": "clean-v2-timeline-first-final-gate",
+                "status": "pass",
                 "duration_seconds": duration,
+                "voice_seconds": voice_seconds,
+                "duration_delta_seconds": round(duration - voice_seconds, 3),
                 "width": width,
                 "height": height,
-                "minimum_seconds": SHORT_MIN_SECONDS,
-                "target_seconds": SHORT_TARGET_SECONDS,
-                "maximum_seconds": SHORT_MAX_SECONDS,
+                "timeline_owner": "measured_charon_voice",
+                "editorial_target_seconds": None,
+                "safety_maximum_seconds": SHORT_DURATION_SAFETY_MAX_SECONDS,
                 "provider_calls_added": 0,
             },
         )
-        validate_short_duration(duration, phase="final_render")
-        validate_short_dimensions(width, height)
     return report
 
 
@@ -2679,14 +2725,11 @@ routines, and wide shots without identifiable faces. Keep visuals modest and sui
 Arab/Muslim audience.
 {short_visual_query_instruction}
 
-IDENTITY_SEQUENCE is runtime-owned and must be respected by the plan: the first spoken sentence is
-always the hook; immediately after that hook the approved visual intro is inserted; narration then
-continues with the approved prayer sentence, one short channel-definition sentence, and only then
-the topic/body. Treat the prayer, definition, and first topic line as one continuous opening beat, not
-three disconnected modules. Do not plan any greeting, prayer, channel introduction, or extra preamble before the
-hook, and do not duplicate those identity lines inside section purpose text. The approved Outro is
-renderer-owned and appended after the completed content, so keep the final topic beat complete and do not
-plan any extra CTA or identity material for after the Outro.
+IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken
+sentence is always the hook; the approved Intro, prayer visual, channel identity and Outro are timed
+from real voice-unit boundaries before final render. They never add or remove runtime. Treat the prayer,
+definition, and first topic line as one continuous opening beat, not disconnected modules. Do not plan
+any greeting, prayer, channel introduction, extra preamble, or duplicate identity material.
 
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
 share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
@@ -2728,8 +2771,8 @@ def _script_prompt(
             "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
             "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
-            "understood on first listen. Prefer a final 34-38 second result including identity media, but do not pad a complete idea; the measured "
-            "final gate is authoritative and the complete Short must stay within 30-45 seconds."
+            "understood on first listen. Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "
+            "The measured mastered voice owns the final runtime; only a distant operational safety ceiling exists."
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
@@ -2777,14 +2820,13 @@ For short, social CTA remains visual-only: do not add subscribe/comment/share/li
 in spoken narration.
 
 IDENTITY_SEQUENCE is also HOST-MANAGED. Write the first sentence as the truthful hook. Do NOT write
-a greeting, prayer sentence, or channel introduction yourself: after script validation the runtime
-inserts exactly one approved prayer sentence and one channel-definition sentence immediately after
-the hook, and the approved visual intro is later inserted between the hook and that prayer. Therefore
-the next topic sentence you write must resume naturally after a short identity beat, without phrases
-such as "كما قلت" or references that assume uninterrupted speech. Prayer, channel definition, and
-the return to the episode must feel like one continuous spoken passage rather than three unrelated
-blocks. The approved Outro is appended by the renderer after the completed narration; finish the
-topic naturally before that boundary.
+a greeting, prayer sentence, or channel introduction yourself: after validation the runtime inserts
+exactly one approved prayer sentence and one channel-definition sentence immediately after the hook.
+Their real synthesized audio units become Timeline boundaries; Intro/Prayer/Identity/Outro visuals are
+rendered inside those measured bounds and never extend the narration. The next topic sentence must
+resume naturally after the identity beat. Prayer, channel definition, and return to the episode must
+feel like one continuous spoken passage rather than unrelated blocks. Finish the topic naturally; the
+Outro visual occupies the measured final voice unit instead of adding time after narration.
 {identity_handoff_guidance}
 
 {short_context}
@@ -3396,9 +3438,17 @@ class CleanV2Pipeline:
                     max_visuals=max_visuals,
                 )
 
+            identity_runtime = _read_json_object(output_dir / "narrative-identity.json")
             narration_path = output_dir / "narration.wav"
             if resume is not None and _resume_includes(resume[1], "voice"):
                 _copy_resume_artifact(resume[0], output_dir, "narration.wav")
+                resume_artifacts = resume[1].get("artifacts") or {}
+                if not isinstance(resume_artifacts, dict):
+                    raise RuntimeError("Clean V2 resume artifact manifest is invalid")
+                for raw_relative in sorted(resume_artifacts):
+                    relative = str(raw_relative)
+                    if relative == "voice-sections.json" or relative.startswith("audio/"):
+                        _copy_resume_artifact(resume[0], output_dir, relative)
                 voice_provider = str(resume[1].get("voice_provider") or "")
                 voice_fallback_used = resume[1].get("voice_fallback_used")
                 if voice_provider not in {
@@ -3417,6 +3467,12 @@ class CleanV2Pipeline:
                         self.voice_synthesizer,
                         list(script["sections"]),
                         narration_path,
+                        fmt=str(brief["format"]),
+                        identity_definition=channel_definition(
+                            str(brief["format"]),
+                            str(identity_runtime.get("opener") or ""),
+                        ),
+                        identity_closer=str(identity_runtime.get("closer") or ""),
                     ),
                 )
                 voice_provider = voice_result.get("voice_provider")
@@ -3504,12 +3560,10 @@ class CleanV2Pipeline:
                 sections_for_visuals = list(plan.get("sections") or [])[
                     : max(1, int(max_visuals))
                 ]
-                if str(brief["format"]) == "short":
-                    from clean_v2.short_voice_owned_timeline import section_duration_map
+                if str(brief["format"]) in {"short", "film"}:
+                    from clean_v2.timeline_first import section_duration_map
 
-                    voice_timeline = _read_json_object(
-                        output_dir / "short-voice-owned-timeline.json"
-                    )
+                    voice_timeline = _read_json_object(output_dir / "timeline-first.json")
                     exact_voice_sections = section_duration_map(voice_timeline)
                     section_estimated_seconds = {
                         str(item.get("id") or ""): exact_voice_sections[
@@ -3555,8 +3609,8 @@ class CleanV2Pipeline:
                         "assets": rights,
                         "estimated_section_seconds": section_estimated_seconds,
                         "note": (
-                            "Provider metadata captured at acquisition. Short section timing comes from the measured "
-                            "Charon voice-owned timeline; other formats keep the local narration-weighted estimate. "
+                            "Provider metadata captured at acquisition. Film and Short section timing comes from the same "
+                            "measured voice-owned Timeline First contract; no character-ratio timing is used for identity. "
                             "No visual quality audit executed in Clean V2 bootstrap."
                         ),
                     },
@@ -3726,12 +3780,19 @@ class CleanV2Pipeline:
                 ),
             )
 
-            identity_media_report = apply_identity_media(
+            # Final-composition QA must inspect the media after every post-render
+            # visual/text/CTA layer, not the pre-cinematic intermediate.
+            from clean_v2.visual_qa import verify_final_composition_visual_qa
+
+            final_composition_qa_report = verify_final_composition_visual_qa(
                 output_dir=output_dir,
                 final_path=final_path,
                 script=script,
-                fmt=str(brief["format"]),
             )
+
+            identity_media_report = _read_json_object(output_dir / "identity-sequence.json")
+            if identity_media_report.get("status") != "pass":
+                raise RuntimeError("Timeline First identity sequence missing before final inspection")
 
             final_report = journal.run(
                 "final_file",
@@ -3792,6 +3853,7 @@ class CleanV2Pipeline:
                 text_audit_status=text_audit_report.get("status"),
                 audio_mastering_status=audio_mastering_report.get("status"),
                 visual_qa_status=visual_qa_report.get("status"),
+                final_composition_visual_qa_status=final_composition_qa_report.get("status"),
                 opening_director_status=opening_report.get("status"),
                 cinematic_v2_status=cinematic_report.get("status"),
                 identity_media_status=identity_media_report.get("status"),

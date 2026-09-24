@@ -10,13 +10,36 @@ by every Vision provider. No provider is allowed to resample a compressed review
 import base64
 import hashlib
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from isco_video_agent.providers import gemini as gemini_provider
-from isco_video_agent.security import secret_free_subprocess_env
+try:
+    from isco_video_agent.providers import gemini as gemini_provider
+except ModuleNotFoundError:
+    gemini_provider = None
+
+
+def secret_free_subprocess_env() -> dict[str, str]:
+    """Minimal secret-free environment for local FFmpeg evidence extraction."""
+    allowed = (
+        "PATH",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "LD_LIBRARY_PATH",
+        "DYLD_LIBRARY_PATH",
+        "SYSTEMROOT",
+        "WINDIR",
+    )
+    env = {key: os.environ[key] for key in allowed if key in os.environ}
+    env.setdefault("PATH", os.defpath)
+    return env
 
 
 EVIDENCE_VERSION = "canonical_visual_evidence.v1"
@@ -280,6 +303,9 @@ def audit_gemini_canonical_evidence(
 ) -> dict[str, Any]:
     del source, narration_context, intended_visual
     evidence = require_canonical_evidence(canonical_evidence)
+    global gemini_provider
+    if gemini_provider is None:
+        from isco_video_agent.providers import gemini as gemini_provider
     client = gemini_provider._client(api_key)
     inputs: list[dict[str, Any]] = [
         {

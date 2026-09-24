@@ -2395,6 +2395,18 @@ def render_video(
     duration = probe_duration(narration_path)
     portrait = fmt in {"moment", "story", "short"}
     width, height = ((1080, 1920) if portrait else (1920, 1080))
+    output_dir = Path(output_path).parent
+
+    timeline: dict[str, Any] = {}
+    timeline_path = output_dir / "timeline-first.json"
+    if fmt in {"short", "film"} and timeline_path.is_file():
+        try:
+            parsed_timeline = json.loads(timeline_path.read_text(encoding="utf-8"))
+            timeline = parsed_timeline if isinstance(parsed_timeline, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            timeline = {}
+        if timeline.get("status") != "pass":
+            raise RuntimeError("timeline-first manifest missing or invalid before render")
 
     opening_report: dict[str, Any] = {}
     opening_path = Path(output_path).parent / "opening-director.json"
@@ -2457,7 +2469,6 @@ def render_video(
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_dir = Path(output_path).parent
 
     # Opening clips (fixed 7/11/12s audited shots, when present) keep their
     # exact existing raw scale/crop/trim treatment - untouched by grading or
@@ -2557,10 +2568,23 @@ def render_video(
                 "+faststart",
                 "-shortest",
                 "-y",
-                str(output_path),
+                str(output_dir / ".timeline-body.mp4" if timeline else output_path),
             ]
         )
         _run(command, timeout=1800)
+        if timeline:
+            from clean_v2.timeline_render import render_identity_composition
+
+            body_path = output_dir / ".timeline-body.mp4"
+            try:
+                render_identity_composition(
+                    body_path,
+                    output_path,
+                    fmt=fmt,
+                    timeline=timeline,
+                )
+            finally:
+                body_path.unlink(missing_ok=True)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
     return output_path
