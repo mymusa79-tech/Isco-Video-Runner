@@ -181,6 +181,123 @@ def add_model_native_structural_prosody(phonemes: str) -> str:
     return out
 
 
+def top_up_model_gaps_only(
+    audio: np.ndarray,
+    phonemes: str,
+    pred_dur: torch.LongTensor,
+    model: KModel,
+) -> tuple[np.ndarray, list[dict]]:
+    """Extend only silence that Nabra already created around punctuation.
+
+    This mirrors kokoro-onnx's pause insertion strategy: use model timings to
+    locate punctuation, find the quiet run actually touching that mark, and
+    insert only the missing silence inside that already-quiet run. If the model
+    ran straight through a mark, leave it untouched rather than cutting speech.
+    """
+    if pred_dur is None:
+        raise RuntimeError("pred_dur required for gap top-up")
+
+    chars = [ch for ch in phonemes if model.vocab.get(ch) is not None]
+    durations = pred_dur.detach().cpu().long()
+    if durations.numel() != len(chars) + 2:
+        raise RuntimeError(
+            f"duration/token mismatch: durations={durations.numel()} chars={len(chars)}"
+        )
+
+    frame = max(1, int(0.010 * SAMPLE_RATE))
+    usable = int(audio.size) // frame * frame
+    framed = audio[:usable].reshape(-1, frame)
+    loudness = np.sqrt((framed.astype(np.float64) ** 2).mean(axis=1))
+    peak = float(loudness.max()) if loudness.size else 0.0
+    quiet = loudness <= (peak * (10 ** (-40.0 / 20.0)))
+    reach = int(0.150 / 0.010)
+
+    # Listener-approved semantic targets. Commas stay brief; the four ellipses
+    # are the actual idea boundaries in the accepted 0.87 phoneme stream.
+    ellipsis_targets = iter((0.42, 0.36, 0.42, 0.56))
+    records: list[dict] = []
+    insertions: list[tuple[int, int, str, float, float]] = []
+
+    elapsed_frames = 0
+    for token_index, ch in enumerate(chars):
+        elapsed_frames += int(durations[token_index + 1].item())
+        if ch == ",":
+            target = 0.12
+        elif ch == "…":
+            try:
+                target = next(ellipsis_targets)
+            except StopIteration as exc:
+                raise RuntimeError("unexpected extra ellipsis in accepted phonemes") from exc
+        else:
+            continue
+
+        at_sample = min(int(audio.size), elapsed_frames * 600)
+        at_frame = at_sample // frame
+
+        # Find the nearest quiet frame within +/-150 ms, then expand only the
+        # contiguous quiet run touching it. Never choose a distant unrelated gap.
+        inside = None
+        for idx in sorted(
+            range(at_frame - reach, at_frame + reach + 1),
+            key=lambda value: abs(value - at_frame),
+        ):
+            if 0 <= idx < len(quiet) and bool(quiet[idx]):
+                inside = idx
+                break
+
+        if inside is None:
+            records.append(
+                {
+                    "mark": ch,
+                    "target_ms": round(target * 1000.0, 1),
+                    "existing_ms": 0.0,
+                    "added_ms": 0.0,
+                    "status": "no_existing_quiet_run_leave_untouched",
+                }
+            )
+            continue
+
+        start = inside
+        while start > 0 and bool(quiet[start - 1]):
+            start -= 1
+        end = inside
+        while end + 1 < len(quiet) and bool(quiet[end + 1]):
+            end += 1
+
+        existing = (end - start + 1) * 0.010
+        missing = max(0.0, target - existing)
+        add_samples = int(round(missing * SAMPLE_RATE))
+        middle = (start + (end - start + 1) // 2) * frame
+
+        records.append(
+            {
+                "mark": ch,
+                "target_ms": round(target * 1000.0, 1),
+                "existing_ms": round(existing * 1000.0, 1),
+                "added_ms": round(add_samples * 1000.0 / SAMPLE_RATE, 1),
+                "status": "topped_up_existing_gap" if add_samples else "already_long_enough",
+            }
+        )
+        if add_samples:
+            insertions.append((middle, add_samples, ch, existing, target))
+
+    # Insert right-to-left so original speech sample coordinates stay valid.
+    out = audio.astype(np.float32, copy=True)
+    for middle, add_samples, _, _, _ in sorted(insertions, reverse=True):
+        out = np.concatenate(
+            (
+                out[:middle],
+                np.zeros(add_samples, dtype=np.float32),
+                out[middle:],
+            )
+        )
+
+    # Strong invariant: deleting only the inserted zero blocks must recover the
+    # original sample stream exactly. We record this structurally by construction;
+    # no original sample is edited, trimmed, faded, or re-synthesized here.
+    return out, records
+
+
 def soften_segment_onset(audio: np.ndarray) -> np.ndarray:
     """Gently fade the model's phrase-start onset without cutting speech.
 
@@ -501,6 +618,19 @@ def main() -> int:
     pause_token_final_path = output / "21-nabra-native-pause-tokens-mix-ready.wav"
     mix_ready(pause_token_raw_path, pause_token_final_path)
 
+    if pause_token_output.pred_dur is None:
+        raise RuntimeError("accepted 0.87 sample did not return pred_dur")
+    topup_audio, topup_report = top_up_model_gaps_only(
+        pause_token_audio,
+        pause_token_phonemes,
+        pause_token_output.pred_dur,
+        model,
+    )
+    topup_raw_path = output / "22-nabra-087-existing-gap-topup-raw.wav"
+    sf.write(topup_raw_path, topup_audio, SAMPLE_RATE, subtype="PCM_16")
+    topup_final_path = output / "23-nabra-087-existing-gap-topup-mix-ready.wav"
+    mix_ready(topup_raw_path, topup_final_path)
+
     structural_phonemes = add_model_native_structural_prosody(patched_phonemes)
     structural_started = time.perf_counter()
     with torch.inference_mode():
@@ -619,6 +749,12 @@ def main() -> int:
         "native_pause_tokens_synthesis_seconds": round(pause_token_seconds, 3),
         "native_pause_tokens_raw_wav": wav_info(pause_token_raw_path),
         "native_pause_tokens_mix_ready_wav": wav_info(pause_token_final_path),
+        "existing_gap_topup_source_baseline": "accepted 0.87 native-pause-token sample",
+        "existing_gap_topup_strategy": "kokoro-onnx pauses.py equivalent",
+        "existing_gap_topup_speech_samples_modified": False,
+        "existing_gap_topup_report": topup_report,
+        "existing_gap_topup_raw_wav": wav_info(topup_raw_path),
+        "existing_gap_topup_mix_ready_wav": wav_info(topup_final_path),
         "native_structural_phonemes": structural_phonemes,
         "native_structural_lexical_phonemes_unchanged": True,
         "native_structural_single_inference": True,
@@ -654,6 +790,9 @@ def main() -> int:
             "native-calm sample has no atempo, no waveform splice, and no sentence-by-sentence synthesis",
             "native-pause-token sample changes punctuation tokens only and stays one continuous inference",
             "native-pause-token sample has zero waveform edits and therefore cannot introduce splice cuts",
+            "existing-gap top-up starts from the listener-approved 0.87 sample and only inserts zeros inside quiet runs already created by Nabra",
+            "existing-gap top-up never edits, trims, fades, retimes, or re-synthesizes any speech sample",
+            "existing-gap top-up skips a punctuation mark entirely when no real quiet run exists around its model timing",
             "native-structural sample uses Kokoro punctuation tokens only, including em-dash structural beats",
             "native-structural sample has zero waveform edits and one continuous inference call",
             "human-pause version uses pred_dur only as an approximate locator, then snaps to a low-energy zero crossing",
