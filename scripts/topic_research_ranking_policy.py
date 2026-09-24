@@ -203,96 +203,80 @@ def _diverse_top(candidates: list[dict[str, Any]], limit: int = 3) -> list[dict[
     return chosen[:limit]
 
 
+
 def _candidate_panel_text(kind: str, candidates: list[dict[str, Any]]) -> str:
     icon = "🎬" if kind == "long" else "⚡"
+    label = "الحلقة" if kind == "long" else "الشورت"
     count = min(3, len(candidates))
-    subject = "للحلقة" if kind == "long" else "للشورت"
-    heading = f"{count} {'فرصة' if count == 1 else 'فرص'} بحث حي {subject}"
     badges = ("1️⃣", "2️⃣", "3️⃣")
-    lines = [
-        f"{icon} {heading}",
-        "",
-        "الاختيار يمر عبر: دليل حي → تصنيف السوق → ملاءمة القناة → القوة الإبداعية → ثقة التنفيذ → التنويع.",
-        "«الآن» مبني على YouTube حديث وليس تقديرًا من النموذج.",
-        "",
-    ]
-    if not any(_market_class(item) == "rising" for item in candidates):
-        lines.extend([
-            f"📉 لم توجد فرصة «قوية الآن» بدرجة اهتمام ≥ {STRONG_CURRENT_INTEREST_MIN * 10:.1f}/10 في هذه الدورة.",
-            "أي Evergreen ظاهر أدناه معروض لقيمته المستمرة، وليس باعتباره ترندًا حاليًا.",
-            "",
-        ])
+    lines = [f"{icon} أفضل الخيارات — {label}", ""]
     if count < 3:
         lines.extend([
-            f"ℹ️ وجدت {count} خيارًا صالحًا فقط في هذه الدورة. لم أخفّض أي Quality/Market Gate لملء العدد إلى 3.",
+            f"وجدت {count} فقط اجتازت حد الجودة {MIN_OPPORTUNITY_SCORE * 10:.1f}/10.",
             "",
         ])
     for index, item in enumerate(candidates[:3]):
-        score = float(item.get("control_score", 0.0) or 0.0) * 10
-        components = item.get("ranking_components") or {}
-        fit = float(components.get("channel", 0.0) or 0.0) * 10
+        quality = float(item.get("opportunity_score", 0.0) or 0.0) * 10
         trend = float(item.get("trend_score", 0.0) or 0.0) * 10
         lines.append(f"{badges[index]} {str(item.get('title') or '').strip()}")
-        lines.append(f"   ⭐ فرصة: {score:.1f}/10 · ملاءمة القناة: {fit:.1f}/10 · الآن: {trend:.1f}/10")
+        lines.append(f"   ⭐ الجودة {quality:.1f}/10 · 📈 الآن {trend:.1f}/10")
         lines.append(f"   {_market_class_ar(item)}")
         why = [str(value) for value in (item.get("why") or []) if str(value).strip()]
         if why:
-            lines.append("   💡 " + " — ".join(why[:2]))
+            lines.append(f"   💡 {why[0]}")
         lines.append("")
-    lines.append("👇 اختر فكرة، أو افتح التفاصيل لرؤية دليل السوق وتاريخه. لا يبدأ Production من هذه البطاقة.")
+    lines.append("اختر الفكرة، أو افتح «التفاصيل» لمعرفة سبب اختيارها. الاختيار لا يبدأ الإنتاج.")
     return "\n".join(lines).strip()
 
 
 def _candidate_detail(item: dict[str, Any], index: int) -> str:
-    score = float(item.get("control_score", 0.0) or 0.0) * 10
-    kind = str(item.get("ranking_kind") or ("short" if item.get("format_hint") == "moment" else "long"))
-    components = item.get("ranking_components") or _ranking_components(item, kind)
-    fit = float(components.get("channel", 0.0) or 0.0) * 10
-    creative = float(components.get("creative", 0.0) or 0.0) * 10
-    execution = float(components.get("execution", 0.0) or 0.0) * 10
+    quality = float(item.get("opportunity_score", 0.0) or 0.0) * 10
+    audience = float(item.get("audience_fit", 0.0) or 0.0) * 10
+    evergreen = float(item.get("evergreen_score", 0.0) or 0.0) * 10
+    hook = float(item.get("hook_potential", 0.0) or 0.0) * 10
+    retention = float(item.get("retention_potential", 0.0) or 0.0) * 10
+    packaging = float(item.get("title_thumbnail_potential", 0.0) or 0.0) * 10
+    emotional = float(item.get("emotional_pull", 0.0) or 0.0) * 10
     trend = float(item.get("trend_score", 0.0) or 0.0) * 10
+    competition = float(item.get("competition_opportunity", 0.0) or 0.0) * 10
+    evidence_quality = float(item.get("evidence_quality", 0.0) or 0.0) * 10
+    feasibility = float(item.get("production_feasibility", 0.0) or 0.0) * 10
+    why = [str(value).strip() for value in (item.get("why") or []) if str(value).strip()]
+    evidence_notes = [str(value).strip() for value in (item.get("evidence") or []) if str(value).strip()]
     evidence_items = item.get("market_evidence")
-    evidence = next((value for value in evidence_items or [] if isinstance(value, dict)), {})
+    market = next((value for value in evidence_items or [] if isinstance(value, dict)), {})
+
     lines = [
-        f"🔎 تفاصيل الفكرة {index + 1}",
+        f"🔎 لماذا اختيرت الفكرة {index + 1}؟",
         "",
         str(item.get("title") or ""),
         "",
-        f"⭐ فرصة مركبة: {score:.1f}/10",
-        f"🎯 ملاءمة القناة: {fit:.1f}/10",
-        f"🎨 القوة الإبداعية: {creative:.1f}/10",
-        f"🛠️ ثقة التنفيذ: {execution:.1f}/10",
-        f"📈 الاهتمام الحالي المقاس: {trend:.1f}/10",
-        f"{_market_class_ar(item)}",
-        f"🌲 Evergreen: {float(item.get('evergreen_score', 0.0) or 0.0) * 10:.1f}/10",
-        f"🪝 قوة الـHook: {float(item.get('hook_potential', 0.0) or 0.0) * 10:.1f}/10",
-        f"⏱️ الاحتفاظ المتوقع: {float(item.get('retention_potential', 0.0) or 0.0) * 10:.1f}/10",
-        f"🖼️ العنوان/الصورة: {float(item.get('title_thumbnail_potential', 0.0) or 0.0) * 10:.1f}/10",
-        f"🎬 سهولة الإنتاج: {float(item.get('production_feasibility', 0.0) or 0.0) * 10:.1f}/10",
-        f"📚 جودة الخلفية البحثية: {float(item.get('evidence_quality', 0.0) or 0.0) * 10:.1f}/10",
-        "",
-        "📊 دليل السوق الحي:",
-        f"• الاستعلام: {str(evidence.get('query') or item.get('market_query') or '')}",
-        f"• النافذة: آخر {int(evidence.get('window_days', 30) or 30)} يومًا",
-        f"• عينات صالحة: {int(evidence.get('sample_count', 0) or 0)} من {int(evidence.get('distinct_channels', 0) or 0)} قنوات",
-        f"• أعلى سرعة مشاهدة: {float(evidence.get('max_views_per_day', 0.0) or 0.0):,.0f} مشاهدة/يوم",
-        f"• الوسيط: {float(evidence.get('median_views_per_day', 0.0) or 0.0):,.0f} مشاهدة/يوم",
-        f"• قيس في: {str(evidence.get('fetched_at') or item.get('researched_at') or '')[:19].replace('T', ' ')} UTC",
+        f"⭐ التقييم العام: {quality:.1f}/10  ·  الحد المطلوب: {MIN_OPPORTUNITY_SCORE * 10:.1f}/10",
+        f"🏷️ {_market_class_ar(item)}",
     ]
-    top = evidence.get("top_samples")
-    if isinstance(top, list) and top:
-        lines.extend(["", "أقوى العينات:"])
-        for sample in top[:3]:
-            if isinstance(sample, dict):
-                lines.append(
-                    f"• {str(sample.get('title') or '')[:120]} — {float(sample.get('views_per_day', 0.0) or 0.0):,.0f}/يوم"
-                )
+    if why:
+        lines.append("💡 " + " — ".join(why[:2]))
     lines.extend([
         "",
-        "ملاحظة: التصنيف السوقي مستقل عن الجودة التحريرية؛ Evergreen منخفض الزخم لا يُقدَّم كفرصة «الآن».",
+        "أهم الدرجات:",
+        f"🎯 الجمهور {audience:.1f} · 🌲 الاستمرارية {evergreen:.1f} · 🪝 الهوك {hook:.1f}",
+        f"⏱️ الاحتفاظ {retention:.1f} · 🖼️ العنوان {packaging:.1f} · ❤️ الجذب {emotional:.1f}",
+        f"📈 الآن {trend:.1f} · ⚔️ المنافسة {competition:.1f} · 📚 الدليل {evidence_quality:.1f} · 🎬 الإنتاج {feasibility:.1f}",
     ])
+    if evidence_notes:
+        lines.extend(["", "لماذا لفتت الفكرة البحث؟"])
+        lines.extend(f"• {value[:220]}" for value in evidence_notes[:2])
+    if market:
+        samples = int(market.get("sample_count", 0) or 0)
+        channels = int(market.get("distinct_channels", 0) or 0)
+        window = int(market.get("window_days", 30) or 30)
+        median = float(market.get("median_views_per_day", 0.0) or 0.0)
+        lines.extend([
+            "",
+            f"📊 YouTube: {samples} عينات من {channels} قنوات خلال {window} يومًا",
+            f"الوسيط: {median:,.0f} مشاهدة/يوم",
+        ])
     return "\n".join(lines)
-
 
 def install(*, core: Any, panel: Any) -> None:
     """Bind the ranking policy to both core globals and Telegram presentation hooks."""
