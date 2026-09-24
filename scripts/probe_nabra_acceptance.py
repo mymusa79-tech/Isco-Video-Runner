@@ -547,7 +547,7 @@ def infer_with_terminal_duration_cap(
     voice_pack: torch.Tensor,
     *,
     speed: float,
-    terminal_cap_frames: int = 3,
+    terminal_cap_frames: int = 4,
     punctuation_cap_frames: int = 1,
     eos_cap_frames: int = 1,
 ) -> tuple[torch.Tensor, torch.LongTensor, dict]:
@@ -555,9 +555,10 @@ def infer_with_terminal_duration_cap(
 
     One duration frame is 600 samples at 24 kHz = 25 ms. The model's predicted
     durations are left untouched except for:
-      1) the final lexical phoneme (cap 3 frames / 75 ms by default),
+      1) an abnormally long final lexical phoneme (>4 frames / 100 ms),
       2) terminal punctuation (cap 1 frame), and
       3) EOS (cap 1 frame).
+    Normal 50-100 ms lexical endings are preserved exactly.
     """
     mapped_chars = [
         ch for ch in phonemes
@@ -605,10 +606,11 @@ def infer_with_terminal_duration_cap(
     if final_char_pos is not None:
         terminal_pred_index = final_char_pos + 1  # BOS occupies pred_dur[0]
         terminal_char = mapped_chars[final_char_pos]
-        pred_dur[terminal_pred_index] = torch.clamp(
-            pred_dur[terminal_pred_index],
-            max=terminal_cap_frames,
-        )
+        if int(pred_dur[terminal_pred_index].item()) > terminal_cap_frames:
+            pred_dur[terminal_pred_index] = torch.clamp(
+                pred_dur[terminal_pred_index],
+                max=terminal_cap_frames,
+            )
 
     punctuation_changes = []
     if final_char_pos is not None:
@@ -662,6 +664,9 @@ def infer_with_terminal_duration_cap(
         "punctuation": punctuation_changes,
         "eos_before_frames": int(original[-1].item()),
         "eos_after_frames": int(pred_dur[-1].item()),
+        "normal_terminal_lexical_duration_preserved": (
+            terminal_before is None or terminal_before <= terminal_cap_frames
+        ),
         "only_terminal_duration_family_modified": True,
     }
     return audio, pred_dur.detach().cpu(), duration_report
