@@ -1,7 +1,299 @@
 {
   "schema_version": 1,
-  "ideas": [],
-  "sessions": {},
+  "ideas": [
+    {
+      "idea_id": "idea-ad18a6a0f8",
+      "title": "لماذا نؤجل الأشياء المهمة رغم أننا نعرف قيمتها؟",
+      "normalized_title": "لماذا نوجل الاشياء المهمة رغم اننا نعرف قيمتها؟",
+      "market_query": "التسويف وتأجيل المهام المهمة",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.754,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 6,
+        "max_views_per_day": 12347.3,
+        "median_views_per_day": 450.8,
+        "top_samples": [
+          {
+            "video_id": "kF_ROq0LJUQ",
+            "title": "How To Manage Your Time | Easy English podcast | B1-B2 Listening practice",
+            "channel": "Daily English Podcast",
+            "published_at": "2026-09-06T14:00:07Z",
+            "views": 221922,
+            "views_per_day": 12347.3
+          },
+          {
+            "video_id": "DYh5B2yu1wg",
+            "title": "كيف تتخلص من الكسل والتسويف؟ 6 خطوات لتغيير حياتك | كتاب مسموع",
+            "channel": "مجلة الكتب الصوتية",
+            "published_at": "2026-08-28T08:53:51Z",
+            "views": 53750,
+            "views_per_day": 1977.1
+          },
+          {
+            "video_id": "MJpMz63HPp4",
+            "title": "SI SIEMPRE DEJAS TODO PARA DESPUÉS, NECESITAS ESCUCHAR ESTO | Brian Tracy español",
+            "channel": "Productividad Tracy",
+            "published_at": "2026-09-03T19:01:12Z",
+            "views": 12512,
+            "views_per_day": 602.6
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-24T13:21:47Z"
+    },
+    {
+      "idea_id": "idea-0e48bc87b3",
+      "title": "كيف تبني عادة تستمر عندما يختفي الدافع؟",
+      "normalized_title": "كيف تبني عادة تستمر عندما يختفي الدافع؟",
+      "market_query": "بناء العادات بدون دافع",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.662,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 5,
+        "max_views_per_day": 2489.3,
+        "median_views_per_day": 172.2,
+        "top_samples": [
+          {
+            "video_id": "ymLGIiFwozY",
+            "title": "success is A habit  Improve your english fluency ✅️   motivational video 🔥",
+            "channel": "ENGLISH WITH  HK",
+            "published_at": "2026-09-12T15:00:16Z",
+            "views": 29702,
+            "views_per_day": 2489.3
+          },
+          {
+            "video_id": "SMVG7fSAkfI",
+            "title": "How To Actually Transform Your Life Through Small Habits | Napoleon Hill",
+            "channel": "Napoleon Hill Notes",
+            "published_at": "2026-08-27T11:30:04Z",
+            "views": 13275,
+            "views_per_day": 472.8
+          },
+          {
+            "video_id": "skj-9qNtZRA",
+            "title": "Become Mentally Stronger With These 20 Daily Habits 🧠| Build Discipline, Focus & Unstoppable Mindse✅",
+            "channel": "Mind Blowing Motive",
+            "published_at": "2026-09-10T02:59:39Z",
+            "views": 3471,
+            "views_per_day": 240.5
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-24T13:21:49Z"
+    },
+    {
+      "idea_id": "idea-b6fd6e4fe9",
+      "title": "لماذا نشعر أننا متأخرون عن الآخرين؟",
+      "normalized_title": "لماذا نشعر اننا متاخرون عن الاخرين؟",
+      "market_query": "الشعور بالتأخر مقارنة الآخرين",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.471,
+      "market_evidence": {
+        "sample_count": 6,
+        "distinct_channels": 5,
+        "max_views_per_day": 180.9,
+        "median_views_per_day": 8.3,
+        "top_samples": [
+          {
+            "video_id": "h0_QVQbGN0M",
+            "title": "Your Life Is Not A Race: Why You’re Right Where You Need To Be",
+            "channel": "Rikki Lee",
+            "published_at": "2026-08-25T18:46:53Z",
+            "views": 5386,
+            "views_per_day": 180.9
+          },
+          {
+            "video_id": "9YPzfEHib2s",
+            "title": "🚨 ¿COMPARARTE TE MOTIVA? PIÉNSALO. 👀💔 #mikaasmr #stream #vtuber #reflexion",
+            "channel": "『 MIKA ASMR - 猫 ♡ 』",
+            "published_at": "2026-09-15T16:57:40Z",
+            "views": 1511,
+            "views_per_day": 170.7
+          },
+          {
+            "video_id": "CawnKSeD-MI",
+            "title": "Why being 'behind' is a lie you tell yourself #mindset #motivation",
+            "channel": "Stoic Universe",
+            "published_at": "2026-08-27T13:00:09Z",
+            "views": 307,
+            "views_per_day": 11.0
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-24T13:21:49Z"
+    },
+    {
+      "idea_id": "idea-774b34bae6",
+      "title": "كيف تتعامل مع يوم لم تنجز فيه شيئًا؟",
+      "normalized_title": "كيف تتعامل مع يوم لم تنجز فيه شييًا؟",
+      "market_query": "التعامل مع يوم بدون إنجاز",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.573,
+      "market_evidence": {
+        "sample_count": 4,
+        "distinct_channels": 4,
+        "max_views_per_day": 1136.2,
+        "median_views_per_day": 24.1,
+        "top_samples": [
+          {
+            "video_id": "fTG6LLEEdgg",
+            "title": "EGGSTER CAN'T GO A DAY WITHOUT AN ACE",
+            "channel": "Apple Pie Night",
+            "published_at": "2026-09-09T02:00:33Z",
+            "views": 17580,
+            "views_per_day": 1136.2
+          },
+          {
+            "video_id": "ie8FgaqjcK4",
+            "title": "يوم واحد بدون إنجاز ممكن ينسفك كلياً لو وقعت بهذا الفخ النفسي!",
+            "channel": "غيّـــر نفســـك",
+            "published_at": "2026-08-28T16:30:21Z",
+            "views": 754,
+            "views_per_day": 28.1
+          },
+          {
+            "video_id": "vLcE9l3DqUE",
+            "title": "400 days off the booze today guys! Massive achievement for myself & I'm so happy😎🙌🤝💪#sobrietyjourney",
+            "channel": "DB",
+            "published_at": "2026-09-12T20:37:32Z",
+            "views": 235,
+            "views_per_day": 20.1
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-24T13:21:49Z"
+    },
+    {
+      "idea_id": "idea-38a814550c",
+      "title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "normalized_title": "لماذا نفقد الحماس بعد بداية قوية؟",
+      "market_query": "فقدان الحماس بعد بداية قوية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.498,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 628.8,
+        "median_views_per_day": 628.8,
+        "top_samples": [
+          {
+            "video_id": "foon5iPFl1k",
+            "title": "السبب الحقيقي وراء فقدانك الحافز بعد بداية قوية",
+            "channel": "The Detached Mind",
+            "published_at": "2026-09-22T19:25:01Z",
+            "views": 1099,
+            "views_per_day": 628.8
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-24T13:21:48Z"
+    },
+    {
+      "idea_id": "idea-6425521b89",
+      "title": "كيف تبدأ من جديد دون خطة مثالية؟",
+      "normalized_title": "كيف تبدا من جديد دون خطة مثالية؟",
+      "market_query": "البدء من جديد بدون خطة مثالية",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.356,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 81.3,
+        "median_views_per_day": 81.3,
+        "top_samples": [
+          {
+            "video_id": "4-X1fQg-CVA",
+            "title": "Beginning Again Does Not Require A Perfect Plan",
+            "channel": "Life Lived Alone",
+            "published_at": "2026-09-08T17:01:13Z",
+            "views": 1289,
+            "views_per_day": 81.3
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-24T13:21:50Z"
+    },
+    {
+      "idea_id": "idea-aeb3825f87",
+      "title": "متى تتحول الراحة إلى هروب؟",
+      "normalized_title": "متي تتحول الراحة الي هروب؟",
+      "market_query": "الراحة والهروب من المسؤوليات",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.305,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 38.1,
+        "median_views_per_day": 38.1,
+        "top_samples": [
+          {
+            "video_id": "O4tMtYmDKmQ",
+            "title": "ليست كل راحة راحة",
+            "channel": "مختبر الوعي",
+            "published_at": "2026-09-14T16:59:21Z",
+            "views": 375,
+            "views_per_day": 38.1
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-24T13:21:50Z"
+    },
+    {
+      "idea_id": "idea-8f47e8357f",
+      "title": "كيف تستعيد تركيزك بعد أيام من التشتت؟",
+      "normalized_title": "كيف تستعيد تركيزك بعد ايام من التشتت؟",
+      "market_query": "استعادة التركيز بعد التشتت",
+      "reason": "حاجة عملية مستمرة تناسب هوية القناة ويمكن قياس اهتمام YouTube الحديث بها.",
+      "market_score": 0.177,
+      "market_evidence": {
+        "sample_count": 1,
+        "distinct_channels": 1,
+        "max_views_per_day": 5.2,
+        "median_views_per_day": 5.2,
+        "top_samples": [
+          {
+            "video_id": "dNnswliyFKg",
+            "title": "كيف تستعيد تركيزك بعد المقاطعة؟ مهارة نقطة العودة",
+            "channel": "على متن فكرة",
+            "published_at": "2026-09-19T13:00:22Z",
+            "views": 26,
+            "views_per_day": 5.2
+          }
+        ]
+      },
+      "research_pack": [],
+      "selected": false,
+      "created_at": "2026-09-24T13:21:48Z"
+    }
+  ],
+  "sessions": {
+    "347a5f49": {
+      "session_id": "347a5f49",
+      "scope": "short",
+      "idea_ids": [
+        "idea-ad18a6a0f8",
+        "idea-0e48bc87b3",
+        "idea-b6fd6e4fe9"
+      ],
+      "created_at": "2026-09-24T13:21:50Z"
+    }
+  },
   "requests": {},
   "current_request_id": null,
   "youtube_snapshots": [
@@ -24,5 +316,5 @@
       }
     }
   ],
-  "updated_at": "2026-09-24T13:21:27Z"
+  "updated_at": "2026-09-24T13:21:51Z"
 }
