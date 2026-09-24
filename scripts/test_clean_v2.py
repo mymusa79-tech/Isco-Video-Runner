@@ -257,6 +257,15 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
         self.assertIn('"research_pack"', prompt)
         self.assertIn('"claim_scope"', prompt)
 
+    def test_long_script_prompt_receives_exact_identity_handoff_for_smooth_topic_entry(self) -> None:
+        opener = "هذه نداء اليقظة، مساحة للوعي الصادق والنهوض الهادئ نحو حياة أوضح."
+        prompt = _script_prompt(_brief(), _plan(), identity_opener=opener)
+
+        self.assertIn("اللهم صلِّ وسلِّم على نبينا محمد.", prompt)
+        self.assertIn(opener, prompt)
+        self.assertIn("one continuous thought, not three separate announcements", prompt)
+        self.assertIn("semantic bridge", prompt)
+
     def test_actual_script_router_sends_same_factuality_rule_to_all_four_providers(self) -> None:
         prompt = _script_prompt(_brief(), _plan())
         captured: dict[str, str] = {}
