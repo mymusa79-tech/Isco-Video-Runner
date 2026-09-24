@@ -21,6 +21,7 @@ from clean_v2.pipeline import (
     _validate_script_for_brief,
 )
 from clean_v2 import media as media_module
+from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.media import (
     GeminiPrimaryPiperFallbackSynthesizer,
     SHORT_CHARON_STYLE,
@@ -899,10 +900,10 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
                 (audio_dir / f"{index:02d}.wav").write_bytes(b"section")
 
             durations = {
-                "narration-mastered.wav": 24.0,
-                "01.wav": 5.0,
-                "02.wav": 7.0,
-                "03.wav": 12.0,
+                "narration-mastered.wav": 36.0,
+                "01.wav": 8.0,
+                "02.wav": 10.0,
+                "03.wav": 18.0,
             }
 
             with mock.patch(
@@ -920,11 +921,11 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             self.assertFalse(report["tts_regeneration_for_duration"])
             self.assertEqual(
                 section_duration_map(report),
-                {"s1": 5.0, "s2": 7.0, "s3": 12.0},
+                {"s1": 8.0, "s2": 10.0, "s3": 18.0},
             )
             self.assertEqual(
                 [(item["start"], item["end"]) for item in report["section_events"]],
-                [(0.0, 5.0), (5.0, 12.0), (12.0, 24.0)],
+                [(0.0, 8.0), (8.0, 18.0), (18.0, 36.0)],
             )
 
             script = {
