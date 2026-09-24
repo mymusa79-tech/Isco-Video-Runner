@@ -489,19 +489,46 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertIn("الشورت", text)
             self.assertIn("3/6 الصوت", text)
 
-    def test_last_command_returns_last_success_with_video_link(self):
-        runtime = {
-            "last_success": {
-                "scope": "short",
-                "topic": "موضوع ناجح",
-                "artifact_url": "https://github.example/artifacts/9",
-            }
+    def test_last_command_returns_unified_release_asset_link(self):
+        delivery = {
+            "kind": "short",
+            "topic": "موضوع ناجح",
+            "release_tag": "clean-v2-final-short-short-final-one-9-a1",
+            "browser_download_url": "https://github.example/releases/download/tag/final.mp4",
         }
-        text, keyboard = control.render_last_success(runtime)
+        text, keyboard = control.render_last_success(delivery)
         self.assertIn("آخر إنتاج ناجح", text)
         self.assertIn("شورت", text)
         self.assertIn("موضوع ناجح", text)
-        self.assertEqual(keyboard[0][0]["url"], "https://github.example/artifacts/9")
+        self.assertEqual(
+            keyboard[0][0]["url"],
+            "https://github.example/releases/download/tag/final.mp4",
+        )
+        self.assertEqual(keyboard[0][0]["text"], "🎥 مشاهدة/تحميل الفيديو")
+
+    def test_latest_delivery_comes_from_clean_v2_release_asset_not_runtime_artifact(self):
+        payload = [
+            {
+                "draft": False,
+                "tag_name": "clean-v2-final-short-short-final-one-9-a1",
+                "name": "Clean V2 Short — موضوع ناجح",
+                "assets": [
+                    {
+                        "name": "final.mp4",
+                        "browser_download_url": "https://github.example/releases/download/tag/final.mp4",
+                    }
+                ],
+            }
+        ]
+        with mock.patch.object(control, "_github_release_json", return_value=payload):
+            delivery = control.latest_release_delivery()
+        self.assertEqual(delivery["kind"], "short")
+        self.assertEqual(delivery["topic"], "موضوع ناجح")
+        self.assertEqual(
+            delivery["browser_download_url"],
+            "https://github.example/releases/download/tag/final.mp4",
+        )
+        self.assertNotIn("artifact_url", delivery)
 
     def test_bundle_research_prompt_requires_long_and_derived_short_fit(self):
         instruction = control._scope_research_instruction("bundle")
@@ -576,7 +603,7 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         self.assertIn("إحصائيات قناة نداء اليقظة", sent_text)
         self.assertNotIn("استخدم /research", sent_text)
 
-    def test_arabic_status_and_last_buttons_route_to_runtime_views(self):
+    def test_arabic_status_and_last_buttons_route_to_runtime_and_release_views(self):
         state = control.default_state()
         runtime = {
             "active": True,
@@ -585,17 +612,17 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             "topic": "موضوع",
             "stage": "3/6 الصوت ✅",
             "run_url": "https://github.example/run/1",
-            "last_success": {
-                "scope": "short",
-                "topic": "موضوع سابق",
-                "artifact_url": "https://github.example/artifact/1",
-            },
+        }
+        release_delivery = {
+            "kind": "short",
+            "topic": "موضوع سابق",
+            "browser_download_url": "https://github.example/releases/download/tag/final.mp4",
         }
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
             "os.environ", {"TELEGRAM_CHAT_ID": "123"}, clear=False
         ), mock.patch.object(control, "load_runtime_status", return_value=runtime), mock.patch.object(
-            control, "send_telegram"
-        ) as send:
+            control, "latest_release_delivery", return_value=release_delivery
+        ), mock.patch.object(control, "send_telegram") as send:
             for label in ("🟢 حالة الإنتاج", "🎥 آخر إنتاج"):
                 update = {
                     "message": {

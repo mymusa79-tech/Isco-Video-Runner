@@ -245,18 +245,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Send final video artifact link
+      - name: Deliver final video through unified GitHub Release
         if: success()
         env:
-          TELEGRAM_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ -n "$TELEGRAM_ARTIFACT_URL" ]; then
-            GITHUB_RUNTIME_TOKEN="${{ github.token }}" \
-            python scripts/telegram_clean_v2_notify.py artifact \
-              --scope "$TELEGRAM_REQUEST_SCOPE" \
-              --topic "$TELEGRAM_REQUEST_TOPIC" \
-              --url "$TELEGRAM_ARTIFACT_URL" || true
-          fi
+          python scripts/clean_v2_release_delivery.py deliver \
+            --output-root "$CLEAN_V2_TELEGRAM_OUTPUT" \
+            --scope "$TELEGRAM_REQUEST_SCOPE" \
+            --topic "$TELEGRAM_REQUEST_TOPIC" \
+            --delivery-key "telegram"
 
       - name: Telegram terminal watchdog
         if: always()

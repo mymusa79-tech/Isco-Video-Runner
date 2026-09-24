@@ -14,6 +14,8 @@ concurrency:
 
 jobs:
   short-cohort:
+    permissions:
+      contents: write
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' &&
@@ -241,6 +243,18 @@ jobs:
           path: ${{ env.CLEAN_V2_OUTPUT }}
           if-no-files-found: warn
           retention-days: 7
+      - name: Deliver final video through unified GitHub Release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python scripts/clean_v2_release_delivery.py deliver \
+            --output-root "$CLEAN_V2_OUTPUT" \
+            --scope short \
+            --delivery-key "short-cohort-${{ matrix.attempt }}"
+
       - name: Notify Telegram terminal result
         if: always()
         continue-on-error: true
