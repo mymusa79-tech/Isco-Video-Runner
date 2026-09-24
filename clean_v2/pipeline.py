@@ -2599,8 +2599,6 @@ blocks. The approved Outro is appended by the renderer after the completed narra
 topic naturally before that boundary.
 {identity_handoff_guidance}
 
-{identity_continuity}
-
 {short_context}
 
 APPROVED_RESEARCH_PACK factuality rule (mandatory):
