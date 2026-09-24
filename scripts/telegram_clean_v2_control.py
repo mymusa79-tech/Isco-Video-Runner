@@ -772,6 +772,21 @@ def select_candidate(state: dict[str, Any], session_id: str, index: int) -> dict
     return request
 
 
+def cancel_current(state: dict[str, Any]) -> dict[str, Any]:
+    request_id = str(state.get("current_request_id") or "")
+    request = state.get("requests", {}).get(request_id)
+    if not isinstance(request, dict):
+        raise RuntimeError("no selected request is waiting for cancellation")
+    if request.get("request_sha256") != _request_hash(request):
+        raise RuntimeError("selected request integrity check failed")
+    if request.get("status") != "awaiting_confirmation":
+        raise RuntimeError("selected request can no longer be cancelled")
+    request["status"] = "cancelled"
+    request["cancelled_at"] = utc_now()
+    state["current_request_id"] = None
+    return request
+
+
 def confirm_current(state: dict[str, Any]) -> dict[str, Any]:
     request_id = str(state.get("current_request_id") or "")
     request = state.get("requests", {}).get(request_id)
@@ -919,6 +934,14 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
             send_telegram("⚠️ تعذر تحديث إحصائيات YouTube الآن. لم يتأثر البحث أو الإنتاج.")
             return
         send_telegram(render_channel_stats(stats))
+        return
+    if text in {"/cancel", "cancel", "إلغاء", "الغاء"}:
+        try:
+            request = cancel_current(state)
+        except Exception:
+            send_telegram("⚠️ لا يوجد اختيار معلّق يمكن إلغاؤه الآن.")
+            return
+        send_telegram(f"🛑 تم إلغاء الاختيار المعلّق:\n{request['approved_topic']}\n\nلم يبدأ أي إنتاج.")
         return
     if text == CONFIRM_TEXT:
         try:

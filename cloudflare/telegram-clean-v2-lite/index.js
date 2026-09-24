@@ -128,6 +128,10 @@ function isLocalMenuText(text) {
   return ["/start", "/menu", "/research", "بحث"].includes(String(text || "").trim());
 }
 
+function isCancelText(text) {
+  return ["/cancel", "cancel", "إلغاء", "الغاء"].includes(String(text || "").trim());
+}
+
 function isStatsText(text) {
   return ["/stats", "stats", "إحصائيات", "الاحصائيات", "الإحصائيات"].includes(String(text || "").trim());
 }
@@ -187,6 +191,17 @@ export default {
     const text = String((update.message && update.message.text) || "").trim();
     if (isLocalMenuText(text)) {
       ctx.waitUntil(sendScopeMenu(env, current.chat));
+      return new Response("OK");
+    }
+    if (isCancelText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر تمرير طلب الإلغاء الآن. لم يبدأ أي إنتاج جديد.",
+          }),
+        ),
+      );
       return new Response("OK");
     }
     if (isStatsText(text)) {

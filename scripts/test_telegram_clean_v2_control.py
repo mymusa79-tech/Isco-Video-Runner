@@ -373,6 +373,31 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "closed"):
             control.select_candidate(state, "s1", 0)
 
+    def test_cancel_only_cancels_unconfirmed_selection(self):
+        state = control.default_state()
+        request = {
+            "schema_version": 1,
+            "request_id": "req-cancel",
+            "source": "clean_v2_telegram_editorial_lite",
+            "scope": "long",
+            "approved_by_user": True,
+            "approved_topic": "موضوع قابل للإلغاء",
+            "research_pack": [],
+            "idea_id": "idea-1",
+            "selected_at": control.utc_now(),
+            "status": "awaiting_confirmation",
+            "confirmed_at": None,
+            "dispatched_at": None,
+        }
+        request["request_sha256"] = control._request_hash(request)
+        state["requests"][request["request_id"]] = request
+        state["current_request_id"] = request["request_id"]
+        cancelled = control.cancel_current(state)
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertIsNone(state["current_request_id"])
+        with self.assertRaises(RuntimeError):
+            control.cancel_current(state)
+
 
 if __name__ == "__main__":
     unittest.main()
