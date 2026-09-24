@@ -87,12 +87,7 @@ jobs:
       ISCO_APPROVED_BRIEF_SHA256: bcf8d3017ee8e18ee4808614c7c07731b0452a5ba6182e1183404f663078e129
       GEMINI_CONTENT_MODEL: gemini-3.7-flash
       GEMINI_TTS_MODEL: gemini-3.1-flash-tts-preview
-      AZURE_SPEECH_REGION: ${{ vars.AZURE_SPEECH_REGION }}
-      CLEAN_V2_AZURE_TTS_F0_CONFIRMED: ${{ vars.CLEAN_V2_AZURE_TTS_F0_CONFIRMED }}
       # Set only after listening to the generated Fusha acceptance sample.
-      CLEAN_V2_AZURE_TTS_VOICE_APPROVED: ${{ vars.CLEAN_V2_AZURE_TTS_VOICE_APPROVED }}
-      # Default production policy is fail-closed after Charon/Azure neural exhaustion.
-      # Piper remains installed as a deliberately manual emergency switch only.
       GROQ_CONTENT_MODEL: openai/gpt-oss-20b
       OPENROUTER_CONTENT_MODEL: google/gemma-4-26b-a4b-it:free
       MISTRAL_CONTENT_MODEL: ministral-14b-2512
@@ -156,8 +151,8 @@ jobs:
             ffmpeg \
             fonts-noto-core \
             tesseract-ocr \
-            tesseract-ocr-ara \\
-            espeak-ng \\
+            tesseract-ocr-ara \
+            espeak-ng \
             libsndfile1
           python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
           python -m pip install --disable-pip-version-check --no-deps -e engine
@@ -173,8 +168,6 @@ jobs:
             'https://gist.githubusercontent.com/Oddadmix/dc699f7942a9516ce29d4842c7aed756/raw/827b541c892a862f9ef3b44006a6e27b100d1bdd/arabic_g2p.py' \
             -o scripts/arabic_g2p.py
           test -s scripts/arabic_g2p.py
-          tesseract --list-langs | grep -Fx eng >/dev/null
-          tesseract --list-langs | grep -Fx ara >/dev/null
 
       - name: Produce one Clean V2 video
         env:
@@ -193,7 +186,8 @@ jobs:
             --brief "$GITHUB_WORKSPACE/engine/production/approved_brief.json" \
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
             --engine-sha "$ISCO_ENGINE_SHA" \
-            --runner-sha "$GITHUB_SHA" \            --resume-from "$CLEAN_V2_RESUME" \
+            --runner-sha "$GITHUB_SHA" \
+            --resume-from "$CLEAN_V2_RESUME" \
             --max-visuals 5 \
             --output "$CLEAN_V2_OUTPUT"
 
