@@ -344,7 +344,7 @@ class MistralExecutorTransportTests(unittest.TestCase):
 class CleanV2ProviderRoutingTests(unittest.TestCase):
     @staticmethod
     def _technical(name: str, order: list[str]):
-        def fail(_prompt: str, _tokens: int):
+        def fail(_prompt: str, _tokens: int, *_args, **_kwargs):
             order.append(name)
             raise providers.ProviderWireFailure(f"{name}_technical")
 
@@ -363,7 +363,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                 with mock.patch.object(
                     providers, "_gemini_call", side_effect=self._technical("gemini", order)
                 ), mock.patch.object(
-                    providers, "_groq_call", side_effect=self._technical("groq", order)
+                    providers, "_groq_stage_call", side_effect=self._technical("groq", order)
                 ), mock.patch.object(
                     providers,
                     "_openrouter_call",
@@ -399,7 +399,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         mistral_attempts = 0
 
         def fail(reason: str, name: str):
-            def _failure(_prompt: str, _tokens: int):
+            def _failure(_prompt: str, _tokens: int, *_args, **_kwargs):
                 order.append(name)
                 raise providers.ProviderWireFailure(reason)
             return _failure
@@ -429,7 +429,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         with mock.patch.object(
             providers, "_gemini_call", side_effect=fail("http_503", "gemini")
         ), mock.patch.object(
-            providers, "_groq_call", side_effect=fail("groq_output_truncated", "groq")
+            providers, "_groq_stage_call", side_effect=fail("groq_output_truncated", "groq")
         ), mock.patch.object(
             providers, "_openrouter_call", side_effect=fail("http_429", "openrouter")
         ), mock.patch.object(
@@ -468,7 +468,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         mistral_attempts = 0
 
         def fail(reason: str):
-            def _failure(_prompt: str, _tokens: int):
+            def _failure(_prompt: str, _tokens: int, *_args, **_kwargs):
                 raise providers.ProviderWireFailure(reason)
             return _failure
 
@@ -537,7 +537,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         )
 
         def fail(reason: str, name: str):
-            def _failure(_prompt: str, _tokens: int):
+            def _failure(_prompt: str, _tokens: int, *_args, **_kwargs):
                 order.append(name)
                 raise providers.ProviderWireFailure(reason)
             return _failure
@@ -600,7 +600,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         raw_content = json.dumps({"alternate_query": original_query})
 
         def fail(reason: str):
-            def _failure(_prompt: str, _tokens: int):
+            def _failure(_prompt: str, _tokens: int, *_args, **_kwargs):
                 raise providers.ProviderWireFailure(reason)
             return _failure
 
