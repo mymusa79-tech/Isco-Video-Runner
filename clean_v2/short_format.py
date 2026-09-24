@@ -544,6 +544,75 @@ def _practical_action_marker_count(text: object) -> int:
     )
 
 
+def apply_safe_short_s3_single_action_trim(script: dict[str, Any]) -> bool:
+    """Remove one clearly separated extra s3 command; otherwise stay fail-closed."""
+    sections = script.get("sections")
+    if (
+        not isinstance(sections, list)
+        or len(sections) != SHORT_SECTION_COUNT
+        or not isinstance(sections[2], dict)
+    ):
+        return False
+
+    original = sections[2].get("narration")
+    s3 = _clean(original)
+    sentences = [
+        item.strip()
+        for item in re.split(r"(?<=[.!؟!])\s+", s3)
+        if item.strip()
+    ]
+    counts = [_practical_action_marker_count(item) for item in sentences]
+    action_indexes = [index for index, count in enumerate(counts) if count]
+    if len(sentences) < 2 or not any(count == 0 for count in counts):
+        return False
+
+    repaired = list(sentences)
+    if len(action_indexes) == 1 and counts[action_indexes[0]] == 2:
+        index = action_indexes[0]
+        sentence = sentences[index]
+        spans: list[tuple[int, int]] = []
+        for marker in dict.fromkeys(_PRACTICAL_ACTION_MARKERS):
+            spans.extend(
+                match.span()
+                for match in re.finditer(
+                    rf"(?<!\w){re.escape(marker)}(?!\w)", sentence, flags=re.I
+                )
+            )
+        spans = sorted(set(spans))
+        if len(spans) != 2:
+            return False
+        first_end, second_start = spans[0][1], spans[1][0]
+        between = sentence[first_end:second_start]
+        separator = re.search(
+            r"(?:[،,؛;:]\s*(?:(?:ثم|و)\s*)?|\s+(?:ثم|و)\s+)$",
+            between,
+        )
+        if separator is None:
+            return False
+        cut = first_end + separator.start()
+        if _word_count(sentence[first_end:cut]) < 2:
+            return False
+        repaired[index] = (
+            re.sub(r"[.!؟!]+$", "", sentence[:cut].rstrip(" ،,؛;:")).strip() + "."
+        )
+    elif len(action_indexes) == 2 and all(
+        counts[index] == 1 and _sentence_begins_with_direct_action(sentences[index])
+        for index in action_indexes
+    ):
+        repaired.pop(action_indexes[0])
+    else:
+        return False
+
+    candidate = " ".join(repaired).strip()
+    sections[2]["narration"] = candidate
+    try:
+        validate_short_script(script)
+    except ShortFormatError:
+        sections[2]["narration"] = original
+        return False
+    return True
+
+
 def validate_short_hook_contract(script: Mapping[str, Any]) -> dict[str, Any]:
     """Validate the provider-owned first spoken sentence before script acceptance."""
     sections = script.get("sections")

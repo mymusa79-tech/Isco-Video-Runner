@@ -81,6 +81,7 @@ from clean_v2.short_format import (
     SHORT_WIDTH,
     ShortFormatError,
     TEMPLATE_VISUAL_QUERY_DIRECTIVES,
+    apply_safe_short_s3_single_action_trim,
     select_short_template,
     short_contract_report,
     short_prompt_context,
@@ -384,6 +385,77 @@ class ShortContractTests(unittest.TestCase):
             r"short_s3_requires_one_action_only imperative_markers=2",
         ):
             validate_short_script(double_action)
+
+    def test_safe_s3_action_trim_preserves_payoff_and_strict_validator(self) -> None:
+        base = {
+            "title": "شورت",
+            "sections": [
+                {"id": "s1", "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ."},
+                {"id": "s2", "narration": "أحيانًا نربط البداية بالشعور المناسب فنؤجل الحركة نفسها."},
+                {
+                    "id": "s3",
+                    "narration": "عندها يصبح الطريق أوضح. اكتب كلمة واحدة على ورقة، ثم اخرج للمشي.",
+                },
+            ],
+        }
+        self.assertTrue(apply_safe_short_s3_single_action_trim(base))
+        self.assertEqual(
+            base["sections"][2]["narration"],
+            "عندها يصبح الطريق أوضح. اكتب كلمة واحدة على ورقة.",
+        )
+        self.assertEqual(validate_short_script(base)["practical_action_markers"], 1)
+
+        two_sentences = json.loads(json.dumps(base, ensure_ascii=False))
+        two_sentences["sections"][2]["narration"] = (
+            "عندها يصبح الطريق أوضح. اختر مهمة واحدة الآن. اكتب أول خطوة فقط."
+        )
+        self.assertTrue(apply_safe_short_s3_single_action_trim(two_sentences))
+        self.assertEqual(
+            two_sentences["sections"][2]["narration"],
+            "عندها يصبح الطريق أوضح. اكتب أول خطوة فقط.",
+        )
+        validate_short_script(two_sentences)
+
+        unsafe = json.loads(json.dumps(base, ensure_ascii=False))
+        unsafe["sections"][2]["narration"] = (
+            "عندها يصبح الطريق أوضح. اكتب كلمة واحدة اخرج للمشي."
+        )
+        original = unsafe["sections"][2]["narration"]
+        self.assertFalse(apply_safe_short_s3_single_action_trim(unsafe))
+        self.assertEqual(unsafe["sections"][2]["narration"], original)
+        with self.assertRaisesRegex(ShortFormatError, "short_s3_requires_one_action_only"):
+            validate_short_script(unsafe)
+
+        action_only = json.loads(json.dumps(base, ensure_ascii=False))
+        action_only["sections"][2]["narration"] = "اكتب كلمة واحدة، ثم اخرج للمشي."
+        self.assertFalse(apply_safe_short_s3_single_action_trim(action_only))
+
+    def test_pipeline_applies_safe_s3_action_trim_before_acceptance(self) -> None:
+        brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]
+        plan = _plan(_TEMPLATE_FIXTURES["inner_dialogue"]["queries"])
+        value = {
+            "title": "شورت",
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": "قد يختفي الدافع حين تنتظر الشعور قبل أن تبدأ.",
+                },
+                {
+                    "id": "s2",
+                    "narration": "أحيانًا نربط البداية بالشعور المناسب فنؤجل الحركة نفسها.",
+                },
+                {
+                    "id": "s3",
+                    "narration": "عندها يصبح الطريق أوضح. اكتب كلمة واحدة على ورقة، ثم اخرج للمشي.",
+                },
+            ],
+        }
+        accepted = _validate_script_for_brief(value, plan, brief)
+        self.assertEqual(
+            accepted["sections"][2]["narration"],
+            "عندها يصبح الطريق أوضح. اكتب كلمة واحدة على ورقة.",
+        )
+        validate_short_script(accepted)
 
     def test_mistral_only_gets_explicit_short_contract_preflight(self) -> None:
         brief = _TEMPLATE_FIXTURES["inner_dialogue"]["brief"]

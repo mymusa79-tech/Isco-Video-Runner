@@ -35,6 +35,7 @@ from .short_format import (
     SHORT_DURATION_SAFETY_MAX_SECONDS,
     INNER_DIALOGUE_VOICE_RULES,
     apply_safe_short_hook_trim,
+    apply_safe_short_s3_single_action_trim,
     select_short_template,
     short_contract_report,
     short_prompt_context,
@@ -2514,6 +2515,7 @@ def _validate_script_for_brief(
         # boundary. Unsafe continuous sentences remain hard contract failures so the
         # bounded provider route can continue exactly as before.
         apply_safe_short_hook_trim(script)
+        apply_safe_short_s3_single_action_trim(script)
         validate_short_hook_contract(script)
         validate_short_script(script)
     return script
