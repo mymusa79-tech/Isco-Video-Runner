@@ -2530,6 +2530,7 @@ def _script_prompt(
     plan: Mapping[str, Any],
     *,
     transitions: list[str] | None = None,
+    identity_opener: str = "",
 ) -> str:
     fmt = str(brief["format"])
     if fmt == "film":
@@ -2547,6 +2548,21 @@ def _script_prompt(
     brief_json = json.dumps(brief, ensure_ascii=False, separators=(",", ":"))
     plan_json = json.dumps(plan, ensure_ascii=False, separators=(",", ":"))
     short_context = short_prompt_context(brief) if fmt == "short" else ""
+    identity_handoff = (
+        SHORT_CHANNEL_DEFINITION
+        if fmt == "short"
+        else " ".join(str(identity_opener or "").split()).strip()
+    )
+    identity_handoff_guidance = ""
+    if identity_handoff:
+        identity_handoff_guidance = f"""
+The exact host-owned spoken handoff that will appear between the hook/Intro and your first topic
+sentence is:
+{PRAYER_SENTENCE} {identity_handoff}
+Write the first topic sentence after the hook so it flows naturally from that exact handoff into the
+episode subject. It must sound like one continuous thought, not three separate announcements. Do not
+repeat the prayer, channel definition, topic title, or a second greeting; do not use a fixed generic
+connector mechanically. Let the wording of the topic sentence itself provide the semantic bridge."""
     transition_guidance = ""
     if transitions:
         transition_list = "\n".join(f"- {item}" for item in transitions)
@@ -2577,8 +2593,11 @@ a greeting, prayer sentence, or channel introduction yourself: after script vali
 inserts exactly one approved prayer sentence and one channel-definition sentence immediately after
 the hook, and the approved visual intro is later inserted between the hook and that prayer. Therefore
 the next topic sentence you write must resume naturally after a short identity beat, without phrases
-such as "كما قلت" or references that assume uninterrupted speech. The approved Outro is appended
-by the renderer after the completed narration; finish the topic naturally before that boundary.
+such as "كما قلت" or references that assume uninterrupted speech. Prayer, channel definition, and
+the return to the episode must feel like one continuous spoken passage rather than three unrelated
+blocks. The approved Outro is appended by the renderer after the completed narration; finish the
+topic naturally before that boundary.
+{identity_handoff_guidance}
 
 {short_context}
 
@@ -2611,9 +2630,11 @@ def _narrative_identity_prompt(
 You are writing the channel-identity anchors for one video on the Arabic YouTube channel نداء
 اليقظة. These are identity anchors, not slogans. The opener has one specific job: be ONE concise natural
 Arabic sentence that briefly defines what قناة نداء اليقظة is, so it can be spoken immediately after
-the approved prayer sentence and before the episode topic. Do not include a greeting, prayer, CTA,
-or episode thesis inside the opener. Preserve the meaning of the channel's fixed signature below
-while rewording it naturally for this episode. Never copy the fixed signature verbatim.
+the approved prayer sentence and before the episode topic. Make its ending hand off naturally toward
+this episode's subject, so the listener hears one continuous introduction rather than a separate
+channel slogan followed by a restart. Do not include a greeting, prayer, CTA, or episode thesis
+inside the opener. Preserve the meaning of the channel's fixed signature below while rewording it
+naturally for this episode. Never copy the fixed signature verbatim.
 
 CHANNEL_FIXED_SIGNATURE_OPENER (preserve this meaning, reword it):
 {canonical_opener}
@@ -3077,7 +3098,10 @@ class CleanV2Pipeline:
                     lambda: self.router.route(
                         stage="script",
                         prompt=_script_prompt(
-                            brief, plan, transitions=identity.get("transitions")
+                            brief,
+                            plan,
+                            transitions=identity.get("transitions"),
+                            identity_opener=str(identity.get("opener") or ""),
                         ),
                         max_tokens=7500 if brief["format"] == "film" else 2500,
                         validator=lambda value: _validate_script_for_brief(
