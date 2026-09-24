@@ -410,6 +410,11 @@ def choose_dark_slate_index(
     return None
 
 
+def _plain_caption(text: str) -> str:
+    """One shaping-safe RTL copy used for body, depth and shadow layers."""
+    return "\u202B" + _ass_escape(text) + "\u202C"
+
+
 def build_rich_ass(
     events: Sequence[Mapping[str, object]],
     *,
