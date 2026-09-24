@@ -24,7 +24,7 @@ from clean_v2.tone_audit import (
     _mistral_tone_call,
     _scope_clean_v2_tone_prompt,
     _scope_religious_quote_prompt,
-    _validate_tone_result,
+    _enforce_hook_quality_contract,
 )
 
 
@@ -125,7 +125,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                 "notes": [f"hook={example}"],
             }
         )
-        result = _validate_tone_result(payload)
+        result = _enforce_hook_quality_contract(payload)
         self.assertEqual(result["status"], "block")
         hook_flags = [
             item
