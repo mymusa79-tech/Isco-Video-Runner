@@ -36,6 +36,7 @@ PRONUNCIATION_PATCHES = (
     ("biaːnnˌatˈiːʤat", "binnˌatˈiːʤat", "بالنتيجة"),
     ("tˌakaˈuːna", "takˈuːna", "تكون"),
     ("jˌataħaˈuːal", "jˌataħˈawːal", "يتحول"),
+    ("faħˈaiˌaːt", "falħˈaiˌaːt", "فالحياة"),
 )
 
 def repair_obvious_g2p_artifacts(phonemes: str) -> tuple[str, list[dict]]:
@@ -196,6 +197,7 @@ def _detect_synthetic_onset_contamination(
 def smooth_sentence_edges(
     audio: np.ndarray,
     *,
+    pred_dur: torch.LongTensor | None = None,
     threshold_db: float = -34.0,
     frame_ms: int = 10,
     pre_roll_ms: int = 12,
@@ -240,17 +242,28 @@ def smooth_sentence_edges(
     speech_start_local = speech_start - start
     speech_end_local = min(int(out.size), speech_end - start)
 
-    contamination_cut, onset_report = _detect_synthetic_onset_contamination(out)
-    adaptive_fade = 0
-    if contamination_cut is not None and contamination_cut > 0:
-        out[:contamination_cut] = 0.0
-        adaptive_fade = min(
-            int(SAMPLE_RATE * 0.008),
-            max(0, int(out.size) - contamination_cut),
+    # Use Nabra/Kokoro's own BOS duration as the hard safety boundary.
+    # pred_dur[0] is model-reserved lead time before the first lexical token.
+    # We may silence noise inside that lead, but never beyond it.
+    model_lead_original = 0
+    if pred_dur is not None and int(pred_dur.numel()) >= 2:
+        model_lead_original = max(0, int(pred_dur[0].item()) * 600)
+    model_lead_local = max(
+        0,
+        min(int(out.size), model_lead_original - start),
+    )
+    model_lead_cleaned = 0
+    model_lead_fade = 0
+    if model_lead_local > 0:
+        out[:model_lead_local] = 0.0
+        model_lead_cleaned = model_lead_local
+        model_lead_fade = min(
+            int(SAMPLE_RATE * 0.006),
+            max(0, int(out.size) - model_lead_local),
         )
-        if adaptive_fade > 1:
-            out[contamination_cut:contamination_cut + adaptive_fade] *= np.sin(
-                np.linspace(0.0, np.pi / 2.0, adaptive_fade, dtype=np.float32)
+        if model_lead_fade > 1:
+            out[model_lead_local:model_lead_local + model_lead_fade] *= np.sin(
+                np.linspace(0.0, np.pi / 2.0, model_lead_fade, dtype=np.float32)
             ) ** 2
 
     # The protected pre-roll used to retain the model's hiss/breath onset.
@@ -305,8 +318,10 @@ def smooth_sentence_edges(
         "pre_roll_ms": pre_roll_ms,
         "pre_roll_zeroed": True,
         "onset_fade_ms_applied": round(onset_fade * 1000.0 / SAMPLE_RATE, 2),
-        "adaptive_onset_cleanup": onset_report,
-        "adaptive_onset_fade_ms": round(adaptive_fade * 1000.0 / SAMPLE_RATE, 2),
+        "model_reserved_lead_ms": round(model_lead_original * 1000.0 / SAMPLE_RATE, 2),
+        "model_lead_cleanup_ms": round(model_lead_cleaned * 1000.0 / SAMPLE_RATE, 2),
+        "model_lead_fade_ms": round(model_lead_fade * 1000.0 / SAMPLE_RATE, 2),
+        "onset_cleanup_touches_first_lexical_token": False,
         "post_roll_ms_requested": post_roll_ms,
         "available_release_ms": round(available_tail * 1000.0 / SAMPLE_RATE, 2),
         "release_hold_ms_applied": round(hold * 1000.0 / SAMPLE_RATE, 2),
@@ -348,7 +363,10 @@ def synthesize_passage(
                 speed=NATIVE_SPEED,
             )
             chunk = output.audio.detach().cpu().numpy().astype(np.float32)
-            chunk, edge_report = smooth_sentence_edges(chunk)
+            chunk, edge_report = smooth_sentence_edges(
+                chunk,
+                pred_dur=output.pred_dur.detach().cpu() if output.pred_dur is not None else None,
+            )
             edge_report["sentence_index"] = index + 1
             edge_report["text"] = sentence
             edge_report["phonemes"] = phonemes
@@ -445,8 +463,8 @@ def main() -> int:
             "release_hold_ms": 35,
             "release_fade_ms": 110,
             "principle": (
-                "zero pre-speech hiss; fade only after detected lexical speech; "
-                "never retime or attenuate the speech core"
+                "silence only model-reserved BOS lead; tiny fade at first lexical token; "
+                "fade only after detected lexical speech at the end; never retime speech core"
             ),
         },
         "short": {
