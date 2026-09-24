@@ -14,6 +14,7 @@ from clean_v2.pipeline import (
     _factuality_target_section_ids,
     _first_spoken_sentence,
     _repair_target_section_ids,
+    _run_legacy_factuality_audit,
     _run_legacy_tone_naturalness_audit,
     _run_one_bounded_tone_repair,
     _run_text_audits,
@@ -267,6 +268,169 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
             _factuality_target_section_ids(report, script),
             ("s2",),
         )
+
+    def test_factuality_provider_block_without_flags_is_local_pass(self):
+        script = {
+            "sections": [
+                {"id": "s1", "narration": "هوك واضح. اللهم صلِّ وسلِّم على نبينا محمد. وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح. ابدأ بخطوة صغيرة."},
+                {"id": "s2", "narration": "اختر مهمة واحدة واكتبها الآن."},
+                {"id": "s3", "narration": "راجع ما أنجزته في نهاية اليوم."},
+            ]
+        }
+        plan = {"sections": [{"id": "s1"}, {"id": "s2"}, {"id": "s3"}]}
+        captured = {}
+
+        def build_plan(*, brief, plan, script):
+            captured["script"] = script
+            return SimpleNamespace(sections=[])
+
+        def audit(_key, _plan, _research, _model, *, diagnostics):
+            diagnostics.update({"validation": "valid", "attempts": [], "raw_result": {"status": "block"}})
+            return {
+                "status": "block",
+                "unsupported_claims": [],
+                "professional_advice_flags": [],
+                "expert_persona_flags": [],
+                "notes": ["provider disagreed without a concrete hard flag"],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "narrative-identity.json").write_text(
+                json.dumps({"opener": "", "closer": "", "transitions": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            with patch(
+                "clean_v2.pipeline._build_production_plan_for_audit",
+                side_effect=build_plan,
+            ), patch(
+                "clean_v2.text_audit.audit_plan_with_mistral",
+                side_effect=audit,
+            ):
+                report = _run_legacy_factuality_audit(
+                    output_dir=root,
+                    brief={"format": "short", "research_pack": []},
+                    plan=plan,
+                    script=script,
+                )
+
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["provider_status"], "block")
+        self.assertEqual(report["decision_source"], "deterministic_local_risk_policy")
+        self.assertEqual(report["hard_flag_count"], 0)
+        audited = "\n".join(item["narration"] for item in captured["script"]["sections"])
+        self.assertNotIn("اللهم صلِّ وسلِّم على نبينا محمد.", audited)
+        self.assertNotIn("وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح.", audited)
+
+    def test_factuality_local_flags_block_even_if_provider_status_pass(self):
+        plan = {"sections": [{"id": "s1"}]}
+        script = {"sections": [{"id": "s1", "narration": "هذه نسبة دقيقة غير موثقة."}]}
+
+        def audit(_key, _plan, _research, _model, *, diagnostics):
+            diagnostics.update({"validation": "valid", "attempts": [], "raw_result": {"status": "pass"}})
+            return {
+                "status": "pass",
+                "unsupported_claims": [{"section_id": "s1", "issue": "unsupported statistic"}],
+                "professional_advice_flags": [],
+                "expert_persona_flags": [],
+                "notes": [],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch(
+                "clean_v2.pipeline._build_production_plan_for_audit",
+                return_value=SimpleNamespace(sections=[]),
+            ), patch(
+                "clean_v2.text_audit.audit_plan_with_mistral",
+                side_effect=audit,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "factuality/AI-expert gate blocked"):
+                    _run_legacy_factuality_audit(
+                        output_dir=root,
+                        brief={"format": "short", "research_pack": []},
+                        plan=plan,
+                        script=script,
+                    )
+            persisted = json.loads((root / "factuality-audit.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["status"], "block")
+            self.assertEqual(persisted["provider_status"], "pass")
+            self.assertEqual(persisted["hard_flag_count"], 1)
+
+    def test_factuality_productivity_misflag_is_advisory_not_block(self):
+        plan = {"sections": [{"id": "s1"}]}
+        script = {"sections": [{"id": "s1", "narration": "اكتب مهمة واحدة وحدد وقتًا لمراجعتها."}]}
+
+        def audit(_key, _plan, _research, _model, *, diagnostics):
+            raw = {
+                "status": "block",
+                "unsupported_claims": [],
+                "professional_advice_flags": [
+                    {"section_id": "s1", "issue": "ordinary productivity guidance to write one task"}
+                ],
+                "expert_persona_flags": [],
+                "notes": [],
+            }
+            diagnostics.update({"validation": "valid", "attempts": [], "raw_result": raw})
+            return dict(raw)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch(
+                "clean_v2.pipeline._build_production_plan_for_audit",
+                return_value=SimpleNamespace(sections=[]),
+            ), patch(
+                "clean_v2.text_audit.audit_plan_with_mistral",
+                side_effect=audit,
+            ):
+                report = _run_legacy_factuality_audit(
+                    output_dir=root,
+                    brief={"format": "short", "research_pack": []},
+                    plan=plan,
+                    script=script,
+                )
+
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["provider_status"], "block")
+        self.assertEqual(report["hard_flag_count"], 0)
+        self.assertEqual(len(report["advisory_flags"]["professional_advice_flags"]), 1)
+
+    def test_factuality_medical_advice_flag_is_hard_block(self):
+        plan = {"sections": [{"id": "s1"}]}
+        script = {"sections": [{"id": "s1", "narration": "غيّر جرعة الدواء لعلاج الأعراض."}]}
+
+        def audit(_key, _plan, _research, _model, *, diagnostics):
+            raw = {
+                "status": "pass",
+                "unsupported_claims": [],
+                "professional_advice_flags": [
+                    {"section_id": "s1", "issue": "medical treatment advice"}
+                ],
+                "expert_persona_flags": [],
+                "notes": [],
+            }
+            diagnostics.update({"validation": "valid", "attempts": [], "raw_result": raw})
+            return dict(raw)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch(
+                "clean_v2.pipeline._build_production_plan_for_audit",
+                return_value=SimpleNamespace(sections=[]),
+            ), patch(
+                "clean_v2.text_audit.audit_plan_with_mistral",
+                side_effect=audit,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "factuality/AI-expert gate blocked"):
+                    _run_legacy_factuality_audit(
+                        output_dir=root,
+                        brief={"format": "short", "research_pack": []},
+                        plan=plan,
+                        script=script,
+                    )
+            persisted = json.loads((root / "factuality-audit.json").read_text(encoding="utf-8"))
+            self.assertEqual(persisted["status"], "block")
+            self.assertEqual(persisted["hard_flag_count"], 1)
 
     def test_valid_content_block_is_quality_block_not_infrastructure(self):
         blocked = _tone_result(status="block")

@@ -16,6 +16,7 @@ from .human_feel import with_human_feel
 from .identity_sequence import (
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
+    channel_definition,
     apply_identity_media,
     assert_spoken_identity,
     inject_spoken_identity,
@@ -576,6 +577,125 @@ def _build_production_plan_for_audit(
     )
 
 
+def _trusted_identity_for_factuality(
+    *,
+    output_dir: Path,
+    brief: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Return exact host-owned identity phrases excluded from factuality judgment."""
+    fmt = str(brief.get("format") or "")
+    identity_path = output_dir / "narrative-identity.json"
+    identity = _read_json_object(identity_path) if identity_path.is_file() else {}
+    definition = channel_definition(fmt, str(identity.get("opener") or ""))
+    phrases: list[str] = []
+    for phrase in (PRAYER_SENTENCE, definition):
+        normalized = " ".join(str(phrase or "").split()).strip()
+        if normalized and normalized not in phrases:
+            phrases.append(normalized)
+    return tuple(phrases)
+
+
+def _script_without_trusted_identity(
+    script: Mapping[str, Any],
+    trusted_identity: tuple[str, ...],
+) -> dict[str, Any]:
+    """Remove only exact runtime-owned identity text before semantic factuality review."""
+    cleaned = copy.deepcopy(dict(script))
+    sections = cleaned.get("sections")
+    if not isinstance(sections, list):
+        return cleaned
+    for item in sections:
+        if not isinstance(item, dict):
+            continue
+        narration = " ".join(str(item.get("narration") or "").split()).strip()
+        for phrase in trusted_identity:
+            narration = " ".join(narration.replace(phrase, " ").split()).strip()
+        item["narration"] = narration
+    return cleaned
+
+
+_FACTUALITY_HIGH_RISK_TERMS = (
+    "medical", "medicine", "diagnosis", "diagnose", "treatment", "prescription",
+    "doctor", "therapist", "psychologist", "legal", "lawyer", "attorney",
+    "financial", "finance", "investment", "investing", "personal safety",
+    "safety risk", "self-harm", "suicide", "emergency",
+    "طبي", "طبية", "تشخيص", "علاج", "دواء", "وصفة", "طبيب", "معالج",
+    "نفسي", "قانون", "قانوني", "محامي", "مالي", "استثمار", "سلامة",
+    "إيذاء النفس", "ايذاء النفس", "انتحار", "طوارئ",
+)
+
+
+def _factuality_section_text(script: Mapping[str, Any], section_id: str) -> str:
+    for item in script.get("sections") or []:
+        if isinstance(item, Mapping) and str(item.get("id") or "").strip() == section_id:
+            return str(item.get("narration") or "")
+    return ""
+
+
+def _factuality_issue_is_high_risk(
+    item: Mapping[str, Any],
+    *,
+    script: Mapping[str, Any],
+) -> bool:
+    section_id = str(item.get("section_id") or "").strip()
+    combined = (
+        str(item.get("issue") or "")
+        + " "
+        + _factuality_section_text(script, section_id)
+    ).casefold()
+    return any(term.casefold() in combined for term in _FACTUALITY_HIGH_RISK_TERMS)
+
+
+def _deterministic_factuality_policy(
+    *,
+    result: Mapping[str, Any],
+    audit_script: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Convert validated provider detections into the local hard/advisory split."""
+    raw = result if isinstance(result, Mapping) else {}
+
+    unsupported = [
+        dict(item) for item in (raw.get("unsupported_claims") or [])
+        if isinstance(item, Mapping)
+    ]
+    professional = [
+        dict(item) for item in (raw.get("professional_advice_flags") or [])
+        if isinstance(item, Mapping)
+    ]
+    persona = [
+        dict(item) for item in (raw.get("expert_persona_flags") or [])
+        if isinstance(item, Mapping)
+    ]
+
+    hard_professional = [
+        item for item in professional
+        if _factuality_issue_is_high_risk(item, script=audit_script)
+    ]
+    hard_persona = [
+        item for item in persona
+        if _factuality_issue_is_high_risk(item, script=audit_script)
+    ]
+    advisory_professional = [item for item in professional if item not in hard_professional]
+    advisory_persona = [item for item in persona if item not in hard_persona]
+
+    hard_flags = {
+        "unsupported_claims": unsupported,
+        "professional_advice_flags": hard_professional,
+        "expert_persona_flags": hard_persona,
+    }
+    advisory_flags = {
+        "professional_advice_flags": advisory_professional,
+        "expert_persona_flags": advisory_persona,
+    }
+    hard_flag_count = sum(len(values) for values in hard_flags.values())
+    return {
+        "status": "block" if hard_flag_count else "pass",
+        "hard_flag_count": hard_flag_count,
+        "hard_flags": hard_flags,
+        "advisory_flags": advisory_flags,
+    }
+
+
 def _run_structural_ai_flags(
     *,
     output_dir: Path,
@@ -613,7 +733,16 @@ def _run_legacy_factuality_audit(
 
     api_key = _read_secret("GEMINI_API_KEY")
     model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
-    production_plan = _build_production_plan_for_audit(brief=brief, plan=plan, script=script)
+    trusted_identity = _trusted_identity_for_factuality(
+        output_dir=output_dir,
+        brief=brief,
+    )
+    audit_script = _script_without_trusted_identity(script, trusted_identity)
+    production_plan = _build_production_plan_for_audit(
+        brief=brief,
+        plan=plan,
+        script=audit_script,
+    )
     research_context = brief.get("research_pack") or []
     diagnostics: dict[str, Any] = {}
     result = audit_plan_with_mistral(
@@ -623,10 +752,24 @@ def _run_legacy_factuality_audit(
         model,
         diagnostics=diagnostics,
     )
+    provider_status = str(result.get("status") or "")
+    local_policy = _deterministic_factuality_policy(
+        result=result,
+        audit_script=audit_script,
+    )
+    local_status = str(local_policy["status"])
     report = {
         "schema_version": 1,
         "source": "clean-v2-legacy-factuality-audit",
+        "trusted_identity_excluded_from_model_judgment": True,
         **result,
+        "status": local_status,
+        "provider_status": provider_status,
+        "decision_source": "deterministic_local_risk_policy",
+        "trusted_identity": list(trusted_identity),
+        "hard_flag_count": int(local_policy["hard_flag_count"]),
+        "hard_flags": dict(local_policy["hard_flags"]),
+        "advisory_flags": dict(local_policy["advisory_flags"]),
         "diagnostics": diagnostics,
     }
     atomic_write_json(output_dir / "factuality-audit.json", report)
@@ -636,7 +779,7 @@ def _run_legacy_factuality_audit(
             f"{item.get('provider')}:{item.get('outcome')}" for item in attempts
         ) or "no providers configured"
         raise RuntimeError(f"{TEXT_AUDIT_STAGE} exhausted bounded provider route: {summary}")
-    if result.get("status") == "block":
+    if local_status == "block":
         raise CleanV2FactualityContentBlock(report)
     return report
 
@@ -782,8 +925,12 @@ def _run_legacy_tone_naturalness_audit(
 
 def _structured_factuality_flags(report: Mapping[str, Any]) -> list[tuple[str, str]]:
     """Read authoritative section locations from the validated provider payload."""
-    diagnostics = report.get("diagnostics")
-    raw = diagnostics.get("raw_result") if isinstance(diagnostics, Mapping) else None
+    hard = report.get("hard_flags")
+    if isinstance(hard, Mapping):
+        raw = hard
+    else:
+        diagnostics = report.get("diagnostics")
+        raw = diagnostics.get("raw_result") if isinstance(diagnostics, Mapping) else None
     if not isinstance(raw, Mapping):
         return []
     rows: list[tuple[str, str]] = []
@@ -2581,8 +2728,8 @@ def _script_prompt(
             "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
             "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
-            "understood on first listen. Prefer a final 30-40 second result including identity media, but do not pad a complete idea; the measured "
-            "final gate is authoritative and the complete Short must stay within 20-45 seconds."
+            "understood on first listen. Prefer a final 34-38 second result including identity media, but do not pad a complete idea; the measured "
+            "final gate is authoritative and the complete Short must stay within 30-45 seconds."
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
