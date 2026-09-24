@@ -1,0 +1,43 @@
+name: Probe FLUX.2 Arabic Text
+
+on:
+  push:
+    branches:
+      - probe/flux2-arabic-text-20260924
+    paths:
+      - experiments/flux2_arabic_text_probe.py
+      - .github/workflows/probe-flux2-arabic-text.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Cloudflare secrets
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID}"
+      - name: Run isolated Arabic text probe
+        run: python3 experiments/flux2_arabic_text_probe.py
+      - name: Print manifest
+        if: always()
+        run: |
+          if [ -f artifacts/flux2-arabic-text-probe/manifest.json ]; then
+            cat artifacts/flux2-arabic-text-probe/manifest.json
+          fi
+      - name: Upload text probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux2-arabic-text-probe
+          path: artifacts/flux2-arabic-text-probe/
+          if-no-files-found: error
+          retention-days: 7
