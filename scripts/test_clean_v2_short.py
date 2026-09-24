@@ -24,6 +24,7 @@ from clean_v2.pipeline import (
 from clean_v2 import media as media_module
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2.media import (
+    GeminiPrimaryNabraFallbackSynthesizer,
     GeminiPrimaryPiperFallbackSynthesizer,
     SHORT_CHARON_STYLE,
     SHORT_CUT_DISSOLVE_SECONDS,
@@ -1285,6 +1286,98 @@ class ShortPipelineSeamTests(unittest.TestCase):
         self.assertFalse(report["voice_fallback_used"])
         self.assertTrue(voice.primary_only_flags)
         self.assertTrue(all(voice.primary_only_flags))
+
+    def test_mid_run_charon_failure_restarts_whole_voice_with_nabra(self) -> None:
+        class FakeNabra:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def synthesize(self, transcript, output_path):
+                self.calls.append(str(transcript))
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(output_path).write_bytes(b"N" * 2048)
+                return Path(output_path)
+
+        gemini_calls = {"count": 0}
+
+        def fake_gemini(api_key, transcript, output_path, *, model, voice, style=""):
+            del api_key, transcript, model, voice, style
+            gemini_calls["count"] += 1
+            if gemini_calls["count"] == 1:
+                Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(output_path).write_bytes(b"C" * 2048)
+                return Path(output_path)
+            raise RuntimeError("http 429")
+
+        def fake_concat(_inputs, output):
+            Path(output).write_bytes(b"J" * 4096)
+            return Path(output)
+
+        sections = [
+            {"id": "s1", "narration": "هذه جملة أولى واضحة للاختبار."},
+            {"id": "s2", "narration": "هذه جملة ثانية واضحة للاختبار."},
+        ]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            narration = root / "narration.wav"
+            nabra = FakeNabra()
+            synth = GeminiPrimaryNabraFallbackSynthesizer(
+                "gemini-key",
+                nabra=nabra,
+            )
+            with (
+                mock.patch.object(
+                    media_module,
+                    "_legacy_voice_identity",
+                    return_value=("Charon", "Orus"),
+                ),
+                mock.patch.object(
+                    media_module,
+                    "_assert_human_approved_voice_reference",
+                    return_value="fixture",
+                ),
+                mock.patch.object(
+                    media_module,
+                    "_legacy_gemini_synthesize",
+                    side_effect=fake_gemini,
+                ),
+                mock.patch.object(
+                    media_module,
+                    "_charon_retry_delay",
+                    return_value=0,
+                ),
+                mock.patch(
+                    "clean_v2.pipeline.concat_wav_parts",
+                    side_effect=fake_concat,
+                ),
+            ):
+                report = _synthesize_sectioned_voice(
+                    synth,
+                    sections,
+                    narration,
+                    require_charon_only=True,
+                )
+
+            persisted = json.loads(
+                (root / "voice-sections.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(gemini_calls["count"], 4)
+        self.assertEqual(len(nabra.calls), 2)
+        self.assertEqual(report["voice_provider"], "nabra:af_msa")
+        self.assertTrue(report["voice_fallback_used"])
+        self.assertEqual(
+            report["voice_restart_reason"],
+            "charon_failed_after_route_lock",
+        )
+        self.assertEqual(report["charon_tts_attempts_before_restart"], 4)
+        self.assertEqual(
+            {section["provider"] for section in report["sections"]},
+            {"nabra:af_msa"},
+        )
+        self.assertEqual(persisted["status"], "pass")
+        self.assertEqual(persisted["voice_provider"], "nabra:af_msa")
 
     def test_short_charon_passes_viewer_facing_performance_direction_without_rewriting(self) -> None:
         captured: dict[str, object] = {}
