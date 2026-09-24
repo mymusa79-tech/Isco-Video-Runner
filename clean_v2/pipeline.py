@@ -2830,9 +2830,10 @@ itself requires them. Prefer environments, hands, objects, routines, and wide sh
 identifiable faces. When the scene permits it, make the search describe a lived-in cinematic
 environment with visible foreground/midground/background depth, practical light sources, contextual
 objects, and spatial separation around the subject; avoid empty walls, flat generic desks, or plain
-studio-like backgrounds unless the idea genuinely calls for them. For short-form searches, prefer a
-subject placed to one side with usable negative space for on-screen text when that composition still
-fits the idea. Keep visuals modest and suitable for a broad Arab/Muslim audience.
+studio-like backgrounds unless the idea genuinely calls for them. For short-form searches, prefer the
+main subject/action on the left or lower-left with usable clean negative space in the upper-right for
+the Arabic on-screen text when that composition still fits the idea. Keep visuals modest and suitable
+for a broad Arab/Muslim audience.
 {short_visual_query_instruction}
 
 IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken
