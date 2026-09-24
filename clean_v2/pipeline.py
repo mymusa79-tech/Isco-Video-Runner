@@ -2581,8 +2581,8 @@ def _script_prompt(
             "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
             "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
-            "understood on first listen. Prefer a final 30-40 second result including identity media, but do not pad a complete idea; the measured "
-            "final gate is authoritative and the complete Short must stay within 20-45 seconds."
+            "understood on first listen. Prefer a final 34-38 second result including identity media, but do not pad a complete idea; the measured "
+            "final gate is authoritative and the complete Short must stay within 30-45 seconds."
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
