@@ -30,6 +30,30 @@ REPO_ID = "oddadmix/Nabra-82M-v0.1"
 SAMPLE_RATE = 24000
 NATIVE_SPEED = 0.90
 
+# Exact, listener-driven repairs for obvious Arabic G2P artifacts only.
+# These are phoneme-local and fail closed if the expected source is absent or broad.
+PRONUNCIATION_PATCHES = (
+    ("biaːnnˌatˈiːʤat", "binnˌatˈiːʤat", "بالنتيجة"),
+    ("tˌakaˈuːna", "takˈuːna", "تكون"),
+    ("jˌataħaˈuːal", "jˌataħˈawːal", "يتحول"),
+)
+
+def repair_obvious_g2p_artifacts(phonemes: str) -> tuple[str, list[dict]]:
+    out = phonemes
+    applied: list[dict] = []
+    for source, target, label in PRONUNCIATION_PATCHES:
+        count = out.count(source)
+        if count == 0:
+            continue
+        if count != 1:
+            raise RuntimeError(
+                f"pronunciation patch {label!r} matched {count} times; refusing broad change"
+            )
+        out = out.replace(source, target, 1)
+        applied.append({"label": label, "source": source, "target": target})
+    return out, applied
+
+
 SHORT_SENTENCES = (
     "بَعْضُ الأَيّام لا تَسير كَما خَطَّطْت.",
     "وَهَذا لا يَعْني أَنَّكَ خَسِرْت تَقَدُّمَك.",
@@ -107,6 +131,68 @@ def _frame_rms(audio: np.ndarray, frame: int) -> np.ndarray:
     return np.asarray(values, dtype=np.float64)
 
 
+def _detect_synthetic_onset_contamination(
+    audio: np.ndarray,
+    *,
+    frame_ms: int = 10,
+    search_ms: int = 400,
+) -> tuple[int | None, dict]:
+    """Find low-level hiss/noise before the first sustained speech core.
+
+    This does not classify normal quiet consonants as noise by energy alone.
+    Cleanup is enabled only when the pre-core region contains the characteristic
+    low-energy/high-frequency or high-zero-crossing synthetic onset observed in
+    the listener-rejected samples.
+    """
+    frame = max(1, int(SAMPLE_RATE * frame_ms / 1000.0))
+    frames = min(int(np.ceil(search_ms / frame_ms)), int(np.ceil(audio.size / frame)))
+    if frames <= 2:
+        return None, {"status": "too_short"}
+
+    rows: list[dict] = []
+    for index in range(frames):
+        chunk = audio[index * frame : min(audio.size, (index + 1) * frame)]
+        if chunk.size < 8:
+            break
+        rms = float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))
+        db = 20.0 * np.log10(max(rms, 1e-12))
+        zcr = float(np.mean(np.signbit(chunk[:-1]) != np.signbit(chunk[1:])))
+        windowed = chunk.astype(np.float64) * np.hanning(chunk.size)
+        power = np.abs(np.fft.rfft(windowed)) ** 2
+        freqs = np.fft.rfftfreq(chunk.size, 1.0 / SAMPLE_RATE)
+        hf_ratio = float(power[freqs > 4000.0].sum() / max(power.sum(), 1e-12))
+        rows.append({"db": db, "zcr": zcr, "hf_ratio": hf_ratio})
+
+    core = None
+    for index, row in enumerate(rows):
+        if row["db"] <= -27.0 or row["hf_ratio"] >= 0.12:
+            continue
+        look = rows[index : min(len(rows), index + 4)]
+        if sum(item["db"] > -30.0 for item in look) >= 3:
+            core = index
+            break
+
+    if core is None or core < 5:
+        return None, {"status": "no_safe_core", "core_frame": core}
+
+    contaminated = [
+        index for index, row in enumerate(rows[:core])
+        if (-45.0 < row["db"] < -27.0)
+        and (row["hf_ratio"] > 0.15 or row["zcr"] > 0.22)
+    ]
+    if not contaminated:
+        return None, {"status": "no_contamination", "core_frame": core}
+
+    # Keep 20 ms immediately before the robust speech core to protect lexical attack.
+    clean_until = max(0, (core * frame) - int(SAMPLE_RATE * 0.020))
+    return clean_until, {
+        "status": "synthetic_onset_contamination",
+        "core_frame": core,
+        "contaminated_frames": contaminated,
+        "clean_until_ms": round(clean_until * 1000.0 / SAMPLE_RATE, 2),
+    }
+
+
 def smooth_sentence_edges(
     audio: np.ndarray,
     *,
@@ -153,6 +239,19 @@ def smooth_sentence_edges(
     out = audio[start:end].astype(np.float32, copy=True)
     speech_start_local = speech_start - start
     speech_end_local = min(int(out.size), speech_end - start)
+
+    contamination_cut, onset_report = _detect_synthetic_onset_contamination(out)
+    adaptive_fade = 0
+    if contamination_cut is not None and contamination_cut > 0:
+        out[:contamination_cut] = 0.0
+        adaptive_fade = min(
+            int(SAMPLE_RATE * 0.008),
+            max(0, int(out.size) - contamination_cut),
+        )
+        if adaptive_fade > 1:
+            out[contamination_cut:contamination_cut + adaptive_fade] *= np.sin(
+                np.linspace(0.0, np.pi / 2.0, adaptive_fade, dtype=np.float32)
+            ) ** 2
 
     # The protected pre-roll used to retain the model's hiss/breath onset.
     # Make that region truly silent instead. The lexical attack is not removed.
@@ -206,6 +305,8 @@ def smooth_sentence_edges(
         "pre_roll_ms": pre_roll_ms,
         "pre_roll_zeroed": True,
         "onset_fade_ms_applied": round(onset_fade * 1000.0 / SAMPLE_RATE, 2),
+        "adaptive_onset_cleanup": onset_report,
+        "adaptive_onset_fade_ms": round(adaptive_fade * 1000.0 / SAMPLE_RATE, 2),
         "post_roll_ms_requested": post_roll_ms,
         "available_release_ms": round(available_tail * 1000.0 / SAMPLE_RATE, 2),
         "release_hold_ms_applied": round(hold * 1000.0 / SAMPLE_RATE, 2),
@@ -230,13 +331,16 @@ def synthesize_passage(
     chunks: list[np.ndarray] = []
     reports: list[dict] = []
     phoneme_rows: list[str] = []
+    pronunciation_repairs: list[list[dict]] = []
     started = time.perf_counter()
 
     with torch.inference_mode():
         for index, sentence in enumerate(sentences):
             phonemes, _ = g2p(sentence)
             phonemes = clean_phonemes(phonemes)
+            phonemes, repairs = repair_obvious_g2p_artifacts(phonemes)
             phoneme_rows.append(phonemes)
+            pronunciation_repairs.append(repairs)
             output = KPipeline.infer(
                 model,
                 phonemes,
@@ -261,7 +365,13 @@ def synthesize_passage(
                 np.zeros(int(round(SAMPLE_RATE * pauses_ms[index] / 1000.0)), dtype=np.float32)
             )
 
-    return np.concatenate(timeline).astype(np.float32), reports, phoneme_rows, synth_seconds
+    return (
+        np.concatenate(timeline).astype(np.float32),
+        reports,
+        phoneme_rows,
+        pronunciation_repairs,
+        synth_seconds,
+    )
 
 
 def main() -> int:
@@ -296,7 +406,7 @@ def main() -> int:
     voice = torch.load(voice_path, map_location="cpu", weights_only=True)
     load_seconds = time.perf_counter() - load_started
 
-    short_audio, short_edges, short_phonemes, short_synth = synthesize_passage(
+    short_audio, short_edges, short_phonemes, short_repairs, short_synth = synthesize_passage(
         model=model,
         voice=voice,
         g2p=verified_g2p,
@@ -308,7 +418,7 @@ def main() -> int:
     sf.write(short_raw, short_audio, SAMPLE_RATE, subtype="PCM_16")
     mix_ready(short_raw, short_mix)
 
-    long_audio, long_edges, long_phonemes, long_synth = synthesize_passage(
+    long_audio, long_edges, long_phonemes, long_repairs, long_synth = synthesize_passage(
         model=model,
         voice=voice,
         g2p=verified_g2p,
@@ -344,6 +454,7 @@ def main() -> int:
             "pauses_ms": SHORT_PAUSES_MS,
             "pause_reasons": SHORT_PAUSE_REASONS,
             "phonemes": short_phonemes,
+            "pronunciation_repairs": short_repairs,
             "edges": short_edges,
             "synthesis_seconds": round(short_synth, 3),
             "raw_wav": wav_info(short_raw),
@@ -354,6 +465,7 @@ def main() -> int:
             "pauses_ms": LONG_PAUSES_MS,
             "pause_reasons": LONG_PAUSE_REASONS,
             "phonemes": long_phonemes,
+            "pronunciation_repairs": long_repairs,
             "edges": long_edges,
             "synthesis_seconds": round(long_synth, 3),
             "raw_wav": wav_info(long_raw),
