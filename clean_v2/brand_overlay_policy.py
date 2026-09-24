@@ -35,6 +35,9 @@ class OverlayFormatPolicy:
     font_size_min: int
     font_size_max: int
     preferred_font_size: int
+    intro_font_size: int
+    highlight_font_size: int
+    breathing_gap_px: int
     line_spacing_ratio: float
     preferred_stroke_width: int
     logo_max_width_ratio: float
@@ -57,7 +60,10 @@ FORMAT_POLICIES: dict[FormatName, OverlayFormatPolicy] = {
         max_lines=3,
         font_size_min=56,
         font_size_max=96,
-        preferred_font_size=84,
+        preferred_font_size=82,
+        intro_font_size=54,
+        highlight_font_size=82,
+        breathing_gap_px=34,
         line_spacing_ratio=0.12,
         preferred_stroke_width=3,
         logo_max_width_ratio=0.09,
@@ -77,7 +83,10 @@ FORMAT_POLICIES: dict[FormatName, OverlayFormatPolicy] = {
         max_lines=3,
         font_size_min=88,
         font_size_max=124,
-        preferred_font_size=112,
+        preferred_font_size=116,
+        intro_font_size=76,
+        highlight_font_size=116,
+        breathing_gap_px=42,
         line_spacing_ratio=0.10,
         preferred_stroke_width=3,
         logo_max_width_ratio=0.14,
@@ -167,8 +176,10 @@ def validate_overlay_request(
 # Rendering rules enforced by the future renderer:
 # - Noto Kufi Arabic Black is the only display font in V0
 # - real RTL shaping; never split an Arabic word between lines
-# - long thumbnail: left/right composition; default 84px, 12% line gap, stroke 3
-# - short poster: clean top composition; default 112px, 10% line gap, stroke 3
+# - typography hierarchy is intentional, not uniform: intro line smaller, highlighted payoff larger
+# - long thumbnail calibrated direction B-breathing: 54px intro, 82px highlight, 34px breathing gap, stroke 3
+# - short poster calibrated direction B-breathing: 76px intro, 116px highlight, 42px breathing gap, stroke 3
+# - preserve visible breathing room around the whole text block; do not vertically pack lines
 # - auto-fit only inside each format's font_size_min..font_size_max
 # - primary text white; at most one gold highlight segment
 # - light stroke/shadow only; no heavy sticker treatment
