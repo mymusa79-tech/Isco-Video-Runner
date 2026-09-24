@@ -77,6 +77,8 @@ class CanonicalVisualEvidenceTests(unittest.TestCase):
         self.assertIn("DISTINCTIVE SEMANTIC JOB", prompt)
         self.assertIn("broad mood/theme", prompt)
         self.assertIn("original-source frames", prompt)
+        self.assertIn("NO-FACE POLICY", prompt)
+        self.assertIn("identifiable_person=true, status MUST be block", prompt)
 
     def test_attempt5_s1_does_not_require_unstated_decision_fatigue(self) -> None:
         narration = (
