@@ -193,7 +193,7 @@ class PlanningCardinalityTests(unittest.TestCase):
         self.assertIn("foreground/midground/background depth", prompt)
         self.assertIn("practical light sources", prompt)
         self.assertIn("avoid empty walls, flat generic desks", prompt)
-        self.assertIn("usable negative space for on-screen text", prompt)
+        self.assertIn("left or lower-left", prompt)\n        self.assertIn("upper-right for", prompt)
 
     def test_run249_planning_keeps_complete_visual_query_and_rejects_truncation_shapes(self) -> None:
         brief = _brief()
