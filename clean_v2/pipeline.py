@@ -17,7 +17,6 @@ from .identity_sequence import (
     PRAYER_SENTENCE,
     SHORT_CHANNEL_DEFINITION,
     channel_definition,
-    apply_identity_media,
     assert_spoken_identity,
     inject_spoken_identity,
 )
@@ -33,9 +32,7 @@ from .contracts import (
 from .media import concat_wav_parts, inspect_final, probe_duration, render_video
 from .structural_ai import structural_ai_flags
 from .short_format import (
-    SHORT_MAX_SECONDS,
-    SHORT_MIN_SECONDS,
-    SHORT_TARGET_SECONDS,
+    SHORT_DURATION_SAFETY_MAX_SECONDS,
     INNER_DIALOGUE_VOICE_RULES,
     apply_safe_short_hook_trim,
     select_short_template,
@@ -68,7 +65,7 @@ QUALITY_STAGE = "final_master_qc"
 QUALITY_STAGES = frozenset(
     {CINEMATIC_STAGE, VISUAL_QA_STAGE, OPENING_STAGE, TEXT_AUDIT_STAGE, QUALITY_STAGE}
 )
-RESUME_CONTRACT_VERSION = 2
+RESUME_CONTRACT_VERSION = 3
 RESUMABLE_STAGES = ("planning", "script", "voice", "visuals")
 _RESUME_STAGE_INDEX = {name: index for index, name in enumerate(RESUMABLE_STAGES)}
 
@@ -154,6 +151,9 @@ def _synthesize_sectioned_voice(
     sections: list[dict[str, Any]],
     narration_path: Path,
     *,
+    fmt: str = "",
+    identity_definition: str = "",
+    identity_closer: str = "",
     require_charon_only: bool = False,
 ) -> dict[str, Any]:
     """Synthesize bounded Charon units, then deterministically reassemble sections.
@@ -186,19 +186,49 @@ def _synthesize_sectioned_voice(
                 f"Clean V2 sectioned voice found empty narration: section={section_id}"
             )
 
-        # For the approved Hook -> Intro -> identity order, keep the very first
-        # spoken sentence as its own TTS chunk. This gives the post-render identity
-        # splice an exact measured hook boundary without alignment AI or extra calls.
-        if index == 1 and PRAYER_SENTENCE in section_text:
-            match = re.search(r"[.!؟!]", section_text)
-            if match is not None and match.end() < len(section_text):
-                hook_text = section_text[: match.end()].strip()
-                remainder = section_text[match.end() :].strip()
-                chunks = [hook_text, *_bounded_voice_chunks(remainder)]
-            else:
-                chunks = _bounded_voice_chunks(section_text)
+        voice_units: list[tuple[str, str]] = []
+        if fmt in {"short", "film"} and index == 1:
+            prayer_pos = section_text.find(PRAYER_SENTENCE)
+            definition = " ".join(str(identity_definition or "").split()).strip()
+            definition_pos = section_text.find(definition) if definition else -1
+            if prayer_pos <= 0 or definition_pos <= prayer_pos:
+                raise RuntimeError("Timeline First requires explicit hook/prayer/identity voice units")
+            hook_text = section_text[:prayer_pos].strip()
+            after_definition = section_text[definition_pos + len(definition):].strip()
+            voice_units.extend(
+                [
+                    ("hook", hook_text),
+                    ("prayer", PRAYER_SENTENCE),
+                    ("channel_identity", definition),
+                ]
+            )
+            voice_units.extend(("topic", item) for item in _bounded_voice_chunks(after_definition))
         else:
-            chunks = _bounded_voice_chunks(section_text)
+            remaining = section_text
+            closer = " ".join(str(identity_closer or "").split()).strip()
+            if fmt == "film" and index == len(sections) and closer and remaining.endswith(closer):
+                topic_text = remaining[: -len(closer)].strip()
+                voice_units.extend(("topic", item) for item in _bounded_voice_chunks(topic_text))
+                voice_units.append(("outro", closer))
+            elif fmt in {"short", "film"} and index == len(sections):
+                sentences = [
+                    item.strip()
+                    for item in re.split(r"(?<=[.!؟!])\s+", remaining)
+                    if item.strip()
+                ]
+                if len(sentences) >= 2:
+                    topic_text = " ".join(sentences[:-1]).strip()
+                    voice_units.extend(("topic", item) for item in _bounded_voice_chunks(topic_text))
+                    voice_units.append(("outro", sentences[-1]))
+                else:
+                    voice_units.append(("outro", remaining))
+            else:
+                voice_units.extend(("topic", item) for item in _bounded_voice_chunks(remaining))
+
+        chunks = [text for _role, text in voice_units if text]
+        roles = [role for role, text in voice_units if text]
+        if " ".join(" ".join(chunks).split()) != " ".join(section_text.split()):
+            raise RuntimeError(f"Timeline First voice-unit split changed narration: section={section_id}")
         if not chunks:
             raise RuntimeError(
                 f"Clean V2 sectioned voice found no narration chunks: section={section_id}"
@@ -297,6 +327,7 @@ def _synthesize_sectioned_voice(
                     "provider": provider,
                     "charon_attempts": attempts,
                     "fallback_used": fallback_used,
+                    "role": roles[chunk_index - 1],
                 }
             )
 
@@ -3396,6 +3427,7 @@ class CleanV2Pipeline:
                     max_visuals=max_visuals,
                 )
 
+            identity_runtime = _read_json_object(output_dir / "narrative-identity.json")
             narration_path = output_dir / "narration.wav"
             if resume is not None and _resume_includes(resume[1], "voice"):
                 _copy_resume_artifact(resume[0], output_dir, "narration.wav")
@@ -3417,6 +3449,12 @@ class CleanV2Pipeline:
                         self.voice_synthesizer,
                         list(script["sections"]),
                         narration_path,
+                        fmt=str(brief["format"]),
+                        identity_definition=channel_definition(
+                            str(brief["format"]),
+                            str(identity_runtime.get("opener") or ""),
+                        ),
+                        identity_closer=str(identity_runtime.get("closer") or ""),
                     ),
                 )
                 voice_provider = voice_result.get("voice_provider")
