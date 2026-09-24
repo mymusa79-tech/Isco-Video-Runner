@@ -410,78 +410,6 @@ def choose_dark_slate_index(
     return None
 
 
-_ARABIC_CAPTION_STOPWORDS = frozenset({
-    "في", "من", "على", "إلى", "عن", "مع", "أن", "إن", "ثم", "أو", "بل",
-    "لكن", "هذا", "هذه", "ذلك", "التي", "الذي", "هو", "هي", "كان", "كنت",
-    "ما", "لا", "لم", "لن", "قد", "كل", "حتى", "فقط",
-})
-
-
-def _accent_word_index(text: str) -> int:
-    words = _clean(text).split()
-    if not words:
-        return 0
-    candidates: list[tuple[int, int]] = []
-    for index, word in enumerate(words):
-        bare = re.sub(r"[^\w\u0600-\u06FF]+", "", word, flags=re.UNICODE)
-        if bare and bare not in _ARABIC_CAPTION_STOPWORDS:
-            candidates.append((len(bare), index))
-    if candidates:
-        return max(candidates)[1]
-    return len(words) - 1
-
-
-def _accent_caption(text: str, focus_index: int) -> str:
-    """Render one stable RTL phrase with a larger warm-gold spoken word."""
-    words = _clean(text).split()
-    if not words:
-        return ""
-    rendered: list[str] = []
-    for index, word in enumerate(words):
-        escaped = _ass_escape(word)
-        if index == focus_index:
-            rendered.append(
-                "{\\c"
-                + ACCENT_ASS
-                + f"\\fs{FOCUS_FONT_SIZE}"
-                + "}"
-                + escaped
-                + "{\\c"
-                + PRIMARY_ASS
-                + f"\\fs{BODY_FONT_SIZE}"
-                + "}"
-            )
-        else:
-            rendered.append(escaped)
-    # Explicit RTL embedding keeps libass from visually reordering Arabic runs
-    # when inline colour/size tags split shaping spans.
-    return "\u202B" + " ".join(rendered) + "\u202C"
-
-
-def _plain_caption(text: str) -> str:
-    """One shaping-safe uncoloured copy used only for depth/shadow layers."""
-    return "\u202B" + _ass_escape(text) + "\u202C"
-
-
-def _word_highlight_windows(item: TimedTextEvent) -> list[tuple[float, float, int]]:
-    words = _clean(item.text).split()
-    if not words:
-        return []
-    duration = item.end - item.start
-    weights = [
-        max(1, len(re.sub(r"[^\w\u0600-\u06FF]+", "", word, flags=re.UNICODE)))
-        for word in words
-    ]
-    total = max(1, sum(weights))
-    cursor = item.start
-    windows: list[tuple[float, float, int]] = []
-    for index, weight in enumerate(weights):
-        end = item.end if index == len(weights) - 1 else cursor + duration * (weight / total)
-        windows.append((cursor, end, index))
-        cursor = end
-    return windows
-
-
 def build_rich_ass(
     events: Sequence[Mapping[str, object]],
     *,
@@ -646,7 +574,7 @@ def render_progressive_text(
         "shadow_offset": [CAPTION_SHADOW_X, CAPTION_SHADOW_Y],
         "provider_calls": 0,
         "word_level_alignment_claimed": False,
-        "word_highlight_timing": "none_static_two_tier_phrase",
+        "word_highlight_timing": "disabled_for_static_two_tier_phrase",
         "word_highlight_count": 0,
         "two_tier_phrase_layout": True,
         "voice_owned_event_timing_preserved": True,
