@@ -13,6 +13,13 @@ from typing import Any, Callable, Mapping
 
 from .channel_persona import with_channel_persona
 from .human_feel import with_human_feel
+from .identity_sequence import (
+    PRAYER_SENTENCE,
+    SHORT_CHANNEL_DEFINITION,
+    apply_identity_media,
+    assert_spoken_identity,
+    inject_spoken_identity,
+)
 from .contracts import (
     atomic_write_json,
     compute_brief_sha256,
@@ -2262,13 +2269,14 @@ def _validate_script_for_brief(
 def _short_identity_not_applicable(output_dir: Path) -> dict[str, Any]:
     report = {
         "schema_version": 1,
-        "source": "clean-v2-short-format",
-        "status": "not_applicable",
-        "reason": "short_uses_first_spoken_sentence_hook_without_channel_identity_anchors",
-        "canonical_opener": "",
+        "source": "clean-v2-short-fixed-identity",
+        "status": "pass",
+        "reason": "fixed_identity_inserted_after_first_sentence_hook",
+        "canonical_opener": SHORT_CHANNEL_DEFINITION,
         "canonical_closer": "",
-        "opener": "",
+        "opener": SHORT_CHANNEL_DEFINITION,
         "closer": "",
+        "prayer_sentence": PRAYER_SENTENCE,
         "transitions": [],
         "provider_calls_added": 0,
     }
@@ -2454,11 +2462,17 @@ routines, and wide shots without identifiable faces. Keep visuals modest and sui
 Arab/Muslim audience.
 {short_visual_query_instruction}
 
+IDENTITY_SEQUENCE is runtime-owned and must be respected by the plan: the first spoken sentence is
+always the hook; immediately after that hook the approved visual intro is inserted; narration then
+continues with the approved prayer sentence, one short channel-definition sentence, and only then
+the topic/body. Do not plan any greeting, prayer, channel introduction, or extra preamble before the
+hook, and do not duplicate those identity lines inside section purpose text.
+
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
 share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
 delivered, not like a generic sales line. For moment OR short format, return an empty CTA string.
-For short, the zero-social-CTA rule is hard: do not put subscribe/comment/share/like language in
-section purpose text either.
+For short, the zero-SPOKEN-social-CTA rule is hard: do not put subscribe/comment/share/like language
+in section purpose text; visual-only CTA overlays are renderer-owned and do not belong in narration.
 
 {short_context}
 
@@ -2521,8 +2535,16 @@ The approved brief and locked plan are authoritative. Follow every hard constrai
 Modern Standard Arabic, without generic motivational filler, fake quotations, invented facts, or
 medical/religious authority. Write narration only; do not add camera directions or markdown.
 CTA placement is HOST-MANAGED: do not add, paraphrase, or repeat the plan CTA in narration. The
-host will place it once at a safe mid-late point after value has been delivered. For short, CTA is
-fully disabled: do not add subscribe/comment/share/like language anywhere in spoken narration.
+host will place visual CTA overlays only in safe content windows after value has been delivered.
+For short, social CTA remains visual-only: do not add subscribe/comment/share/like language anywhere
+in spoken narration.
+
+IDENTITY_SEQUENCE is also HOST-MANAGED. Write the first sentence as the truthful hook. Do NOT write
+a greeting, prayer sentence, or channel introduction yourself: after script validation the runtime
+inserts exactly one approved prayer sentence and one channel-definition sentence immediately after
+the hook, and the approved visual intro is later inserted between the hook and that prayer. Therefore
+the next topic sentence you write must resume naturally after a short identity beat, without phrases
+such as "كما قلت" or references that assume uninterrupted speech.
 
 {short_context}
 
@@ -2553,9 +2575,11 @@ def _narrative_identity_prompt(
     )
     return f"""
 You are writing the channel-identity anchors for one video on the Arabic YouTube channel نداء
-اليقظة. These are identity anchors, not slogans: they must preserve the meaning of the channel's
-fixed signature below while being freshly reworded in natural Arabic for this specific episode.
-Never copy the fixed signature verbatim.
+اليقظة. These are identity anchors, not slogans. The opener has one specific job: be ONE concise natural
+Arabic sentence that briefly defines what قناة نداء اليقظة is, so it can be spoken immediately after
+the approved prayer sentence and before the episode topic. Do not include a greeting, prayer, CTA,
+or episode thesis inside the opener. Preserve the meaning of the channel's fixed signature below
+while rewording it naturally for this episode. Never copy the fixed signature verbatim.
 
 CHANNEL_FIXED_SIGNATURE_OPENER (preserve this meaning, reword it):
 {canonical_opener}
@@ -2641,40 +2665,23 @@ def _strip_exact_host_phrase(text: str, phrase: str) -> str:
 def _apply_brand_signature(
     sections: list[dict[str, Any]], fmt: str, opener: str, closer: str
 ) -> None:
-    # Mirrors the Engine's own real placement algorithm exactly (resilient_planner's
-    # _apply_brand_signature/_insert_after_first_sentence): Moment uses only a
-    # subtle visual signature, not a spoken one, so it is skipped here too.
-    if fmt in {"moment", "short"} or not sections:
-        return
-    opener = opener.strip()
-    closer = closer.strip()
-    for section in sections:
-        narration = section["narration"]
-        for phrase in (opener, closer):
-            if phrase:
-                narration = _strip_exact_host_phrase(narration, phrase)
-        section["narration"] = narration
-    sections[0]["narration"] = _insert_after_first_sentence(sections[0]["narration"], opener)
-    if closer:
-        sections[-1]["narration"] = f"{sections[-1]['narration'].rstrip()} {closer}".strip()
+    inject_spoken_identity(
+        sections,
+        fmt=fmt,
+        opener=opener,
+        closer=closer,
+    )
 
 
 def _assert_brand_signature_invariant(
     sections: list[dict[str, Any]], fmt: str, opener: str, closer: str
 ) -> None:
-    if fmt in {"moment", "short"} or not sections:
-        return
-    opener = opener.strip()
-    closer = closer.strip()
-    joined = "\n".join(section["narration"] for section in sections)
-    if opener and joined.count(opener) != 1:
-        raise RuntimeError(
-            "narrative identity opener invariant failed: expected exactly one runtime opener"
-        )
-    if closer and joined.count(closer) != 1:
-        raise RuntimeError(
-            "narrative identity closer invariant failed: expected exactly one runtime closer"
-        )
+    assert_spoken_identity(
+        sections,
+        fmt=fmt,
+        opener=opener,
+        closer=closer,
+    )
 
 
 class _Journal:
@@ -3501,6 +3508,13 @@ class CleanV2Pipeline:
                 ),
             )
 
+            identity_media_report = apply_identity_media(
+                output_dir=output_dir,
+                final_path=final_path,
+                script=script,
+                fmt=str(brief["format"]),
+            )
+
             final_report = journal.run(
                 "final_file",
                 lambda: _inspect_final_with_short_gate(
@@ -3562,6 +3576,7 @@ class CleanV2Pipeline:
                 visual_qa_status=visual_qa_report.get("status"),
                 opening_director_status=opening_report.get("status"),
                 cinematic_v2_status=cinematic_report.get("status"),
+                identity_media_status=identity_media_report.get("status"),
                 final_master_qc_status=final_master_report.get("status"),
                 provider_wire_attempts=sum(
                     1
