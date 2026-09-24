@@ -987,6 +987,12 @@ def main() -> int:
         save_state(args.state, state)
         print(json.dumps({"request_id": request["request_id"], "status": request["status"]}))
         return 0
+    if args.command == "snapshot":
+        snapshot_value = fetch_channel_snapshot()
+        append_youtube_snapshot(state, snapshot_value)
+        save_state(args.state, state)
+        print(json.dumps(snapshot_value, ensure_ascii=False, sort_keys=True))
+        return 0
     materialize_brief(state, args.request_id, args.request_sha256, args.format, args.output)
     print(json.dumps({"request_id": args.request_id, "format": args.format, "output": str(args.output)}))
     return 0
