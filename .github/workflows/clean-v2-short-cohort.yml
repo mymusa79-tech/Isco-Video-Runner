@@ -127,6 +127,8 @@ jobs:
 
       - name: Run cold Short attempt ${{ matrix.attempt }}
         env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -139,6 +141,14 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf "$CLEAN_V2_OUTPUT"
+          python scripts/telegram_clean_v2_notify.py watch --output "$CLEAN_V2_OUTPUT" --kind short --poll-seconds 4 &
+          notify_pid=$!
+          cleanup_notify() {
+            kill "$notify_pid" 2>/dev/null || true
+            wait "$notify_pid" 2>/dev/null || true
+          }
+          trap cleanup_notify EXIT
+          set +e
           python -m clean_v2 \
             --brief "$CLEAN_V2_SHORT_BRIEF" \
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
@@ -146,6 +156,11 @@ jobs:
             --runner-sha "$GITHUB_SHA" \
             --max-visuals 5 \
             --output "$CLEAN_V2_OUTPUT"
+          production_status=$?
+          set -e
+          cleanup_notify
+          trap - EXIT
+          exit "$production_status"
 
       - name: Verify Short V1 acceptance contract
         run: |
@@ -223,3 +238,16 @@ jobs:
           path: ${{ env.CLEAN_V2_OUTPUT }}
           if-no-files-found: warn
           retention-days: 7
+      - name: Notify Telegram terminal result
+        if: always()
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CLEAN_V2_JOB_STATUS: ${{ job.status }}
+        run: |
+          python scripts/telegram_clean_v2_notify.py terminal \
+            --output "$CLEAN_V2_OUTPUT" \
+            --kind short \
+            --job-status "$CLEAN_V2_JOB_STATUS" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
