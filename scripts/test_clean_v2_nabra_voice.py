@@ -9,6 +9,7 @@ from clean_v2.media import (
     GeminiPrimaryNabraFallbackSynthesizer,
     VoiceInfrastructureError,
 )
+from clean_v2.nabra_voice import NABRA_SPEED, NABRA_VOICE
 
 
 class _FakeNabra:
@@ -25,6 +26,10 @@ class _FakeNabra:
 
 
 class NabraRouteTests(unittest.TestCase):
+    def test_approved_nabra_profile_is_locked(self) -> None:
+        self.assertEqual(NABRA_VOICE, "af_msa")
+        self.assertEqual(NABRA_SPEED, 0.94)
+
     def _patch_identity(self):
         return mock.patch.multiple(
             "clean_v2.media",
