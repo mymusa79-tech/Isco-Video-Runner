@@ -5,7 +5,7 @@ from pathlib import Path
 
 NABRA_REPO_ID = "oddadmix/Nabra-82M-v0.1"
 NABRA_VOICE = "af_msa"
-NABRA_SPEED = 0.87
+NABRA_SPEED = 0.94
 NABRA_SAMPLE_RATE = 24000
 
 
