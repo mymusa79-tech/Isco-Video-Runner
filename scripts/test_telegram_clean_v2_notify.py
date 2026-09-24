@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from scripts.telegram_clean_v2_notify import (
+    bundle_blocked_text,
     bundle_summary_text,
     current_stage,
     failure_guidance,
@@ -121,6 +122,12 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         self.assertIn("الفيديو الطويل: مكتمل", text)
         self.assertIn("الشورت: مكتمل", text)
         self.assertIn("اكتملت الحزمة كاملة", text)
+
+    def test_bundle_long_failure_explains_short_was_not_started(self):
+        text = bundle_blocked_text(topic="موضوع", run_url="https://github.example/run/5")
+        self.assertIn("فشل الفيديو الطويل", text)
+        self.assertIn("الشورت لم يبدأ", text)
+        self.assertIn("أعد محاولة الفيديو الطويل", text)
 
 
 if __name__ == "__main__":

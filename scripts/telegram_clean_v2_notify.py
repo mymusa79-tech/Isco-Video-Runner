@@ -210,6 +210,19 @@ def started_text(*, scope: str, topic: str, run_url: str) -> str:
     return "\n".join(lines)
 
 
+def bundle_blocked_text(*, topic: str, run_url: str) -> str:
+    lines = [
+        "⚠️ توقفت الحزمة بعد فشل الفيديو الطويل",
+        "⚡ الشورت لم يبدأ لأن الحزمة تشترط نجاح الطويل أولًا.",
+        "الخطوة التالية: عالج أو أعد محاولة الفيديو الطويل، ثم أعد تشغيل الحزمة.",
+    ]
+    if topic:
+        lines.extend(["", f"الموضوع: {topic}"])
+    if run_url:
+        lines.extend(["", f"تفاصيل التشغيل: {run_url}"])
+    return "\n".join(lines)
+
+
 def bundle_summary_text(*, topic: str, run_url: str) -> str:
     lines = [
         "✅ اكتملت الحزمة كاملة",
@@ -265,6 +278,10 @@ def main() -> int:
     started_p.add_argument("--topic", default="")
     started_p.add_argument("--run-url", default="")
 
+    blocked_p = sub.add_parser("bundle-blocked")
+    blocked_p.add_argument("--topic", default="")
+    blocked_p.add_argument("--run-url", default="")
+
     bundle_p = sub.add_parser("bundle-summary")
     bundle_p.add_argument("--topic", default="")
     bundle_p.add_argument("--run-url", default="")
@@ -281,6 +298,10 @@ def main() -> int:
     if args.command == "started":
         return 0 if send_message(
             started_text(scope=args.scope, topic=args.topic, run_url=args.run_url)
+        ) else 1
+    if args.command == "bundle-blocked":
+        return 0 if send_message(
+            bundle_blocked_text(topic=args.topic, run_url=args.run_url)
         ) else 1
     if args.command == "bundle-summary":
         return 0 if send_message(

@@ -214,7 +214,12 @@ jobs:
               run_one short short
               ;;
             bundle)
-              run_one film long
+              if ! run_one film long; then
+                python scripts/telegram_clean_v2_notify.py bundle-blocked \
+                  --topic "$TELEGRAM_REQUEST_TOPIC" \
+                  --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
+                exit 1
+              fi
               run_one short short
               python scripts/telegram_clean_v2_notify.py bundle-summary \
                 --topic "$TELEGRAM_REQUEST_TOPIC" \
