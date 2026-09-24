@@ -3748,6 +3748,14 @@ class CleanV2Pipeline:
                 ),
             )
 
+            from clean_v2.visual_qa import verify_final_composition_visual_qa
+
+            final_composition_qa_report = verify_final_composition_visual_qa(
+                output_dir=output_dir,
+                final_path=final_path,
+                script=script,
+            )
+
             journal.payload["quality_layers_executed"] = [
                 TEXT_AUDIT_STAGE,
                 CINEMATIC_STAGE,
@@ -3831,6 +3839,7 @@ class CleanV2Pipeline:
                 text_audit_status=text_audit_report.get("status"),
                 audio_mastering_status=audio_mastering_report.get("status"),
                 visual_qa_status=visual_qa_report.get("status"),
+                final_composition_visual_qa_status=final_composition_qa_report.get("status"),
                 opening_director_status=opening_report.get("status"),
                 cinematic_v2_status=cinematic_report.get("status"),
                 identity_media_status=identity_media_report.get("status"),
