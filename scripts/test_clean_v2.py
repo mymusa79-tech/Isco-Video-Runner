@@ -327,6 +327,52 @@ class ScriptPromptFactualityRuleTests(unittest.TestCase):
             self.assertIn(_PLANNING_FACTUALITY_RULE, captured[provider])
 
 
+class GroqHttpDiagnosticTests(unittest.TestCase):
+    def test_safe_http_error_detail_keeps_only_bounded_error_metadata(self) -> None:
+        raw = json.dumps(
+            {
+                "error": {
+                    "message": "response_format schema rejected",
+                    "type": "invalid_request_error",
+                    "param": "response_format",
+                    "code": "invalid_request",
+                    "failed_generation": "DO_NOT_LOG_GENERATION",
+                },
+                "request_prompt": "DO_NOT_LOG_PROMPT",
+                "authorization": "DO_NOT_LOG_SECRET",
+            }
+        ).encode("utf-8")
+
+        detail = providers_module._safe_http_error_detail(raw)
+
+        self.assertIn("type=invalid_request_error", detail)
+        self.assertIn("param=response_format", detail)
+        self.assertIn("message=response_format schema rejected", detail)
+        self.assertNotIn("DO_NOT_LOG_GENERATION", detail)
+        self.assertNotIn("DO_NOT_LOG_PROMPT", detail)
+        self.assertNotIn("DO_NOT_LOG_SECRET", detail)
+
+    def test_groq_http_400_prints_only_safe_detail_and_preserves_reason(self) -> None:
+        failure = ProviderWireFailure(
+            "http_400",
+            http_status=400,
+            safe_detail="type=invalid_request_error | param=response_format | message=bad schema",
+        )
+        with (
+            mock.patch.object(providers_module, "_read_secret", return_value="super-secret-key"),
+            mock.patch.object(providers_module, "_post_json", side_effect=failure),
+            mock.patch("builtins.print") as printed,
+        ):
+            with self.assertRaises(ProviderWireFailure) as raised:
+                providers_module._groq_call("PRIVATE PROMPT TEXT", 321)
+
+        self.assertEqual(raised.exception.reason_code, "http_400")
+        logged = " ".join(str(arg) for call in printed.call_args_list for arg in call.args)
+        self.assertIn("param=response_format", logged)
+        self.assertNotIn("super-secret-key", logged)
+        self.assertNotIn("PRIVATE PROMPT TEXT", logged)
+
+
 class GroqJsonModeContractTests(unittest.TestCase):
     def test_gptoss_json_mode_hides_reasoning(self) -> None:
         captured: dict[str, object] = {}
