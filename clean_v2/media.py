@@ -2817,18 +2817,23 @@ def render_video(
             input_index += 1
         master_lut = _write_master_look_lut(work_dir / "warm-neutral-master-v1.cube")
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
+        master_look = (
+            f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral"
+        )
         if timeline:
             filters.append(
-                f"[vcat]lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
+                f"[vcat]{master_look},"
                 f"tpad=stop_mode=clone:stop_duration={duration:.3f},"
                 f"trim=duration={duration:.3f},setpts=PTS-STARTPTS[vout]"
             )
         else:
-            filters.append(
-                f"[vcat]lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral[vout]"
-            )
+            filters.append(f"[vcat]{master_look}[vout]")
 
-        duration_limit = ["-t", f"{duration:.3f}"] if timeline else ["-shortest"]
+        duration_limit = (
+            ["-t", f"{duration:.3f}"]
+            if timeline
+            else ["-shortest"]
+        )
 
         command.extend(
             [
