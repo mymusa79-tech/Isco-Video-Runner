@@ -151,6 +151,10 @@ function isCancelText(text) {
   return ["/cancel", "cancel", "إلغاء", "الغاء"].includes(String(text || "").trim());
 }
 
+function isLastText(text) {
+  return ["/last", "last", "آخر إنتاج", "اخر انتاج"].includes(String(text || "").trim());
+}
+
 function isStatusText(text) {
   return ["/status", "status", "الحالة", "حالة الإنتاج", "حاله الانتاج"].includes(String(text || "").trim());
 }
@@ -226,6 +230,17 @@ export default {
           telegram(env, "sendMessage", {
             chat_id: current.chat,
             text: "⚠️ تعذر تمرير طلب الإلغاء الآن. لم يبدأ أي إنتاج جديد.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
+    if (isLastText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر قراءة آخر إنتاج ناجح الآن.",
           }),
         ),
       );

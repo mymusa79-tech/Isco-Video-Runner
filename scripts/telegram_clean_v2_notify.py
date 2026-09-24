@@ -133,19 +133,26 @@ def publish_runtime_status(status: dict[str, Any]) -> bool:
                 {"ref": f"refs/heads/{RUNTIME_BRANCH}", "sha": head_sha},
             )
         current_sha = ""
+        current_data: dict[str, Any] = {}
         try:
             current = _runtime_request(
                 "GET",
                 f"contents/{RUNTIME_PATH}?ref={RUNTIME_BRANCH}",
             )
             current_sha = str(current.get("sha") or "")
+            encoded = str(current.get("content") or "").replace("\n", "")
+            if encoded:
+                decoded = json.loads(base64.b64decode(encoded).decode("utf-8"))
+                if isinstance(decoded, dict):
+                    current_data = decoded
         except urllib.error.HTTPError as exc:
             if exc.code != 404:
                 raise
+        merged = {**current_data, **status}
         payload: dict[str, Any] = {
             "message": "state: Telegram runtime status",
             "content": base64.b64encode(
-                (json.dumps(status, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+                (json.dumps(merged, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
             ).decode("ascii"),
             "branch": RUNTIME_BRANCH,
         }
@@ -471,11 +478,31 @@ def main() -> int:
             started_text(scope=args.scope, topic=args.topic, run_url=args.run_url)
         ) else 1
     if args.command == "artifact":
-        return 0 if send_message(
+        delivered = send_message(
             artifact_delivery_text(scope=args.scope, topic=args.topic),
             button_text="🎥 فتح الفيديو النهائي",
             button_url=args.url,
-        ) else 1
+        )
+        publish_runtime_status(
+            {
+                **runtime_status_payload(
+                    active=False,
+                    scope=args.scope,
+                    kind="",
+                    topic=args.topic,
+                    stage="تم التسليم",
+                    run_url="",
+                    result="success",
+                ),
+                "last_success": {
+                    "scope": args.scope,
+                    "topic": args.topic,
+                    "artifact_url": args.url,
+                    "delivered_at": int(time.time()),
+                },
+            }
+        )
+        return 0 if delivered else 1
     if args.command == "bundle-blocked":
         return 0 if send_message(
             bundle_blocked_text(topic=args.topic, run_url=args.run_url)

@@ -489,6 +489,20 @@ class TelegramCleanV2ControlTests(unittest.TestCase):
             self.assertIn("الشورت", text)
             self.assertIn("3/6 الصوت", text)
 
+    def test_last_command_returns_last_success_with_video_link(self):
+        runtime = {
+            "last_success": {
+                "scope": "short",
+                "topic": "موضوع ناجح",
+                "artifact_url": "https://github.example/artifacts/9",
+            }
+        }
+        text, keyboard = control.render_last_success(runtime)
+        self.assertIn("آخر إنتاج ناجح", text)
+        self.assertIn("شورت", text)
+        self.assertIn("موضوع ناجح", text)
+        self.assertEqual(keyboard[0][0]["url"], "https://github.example/artifacts/9")
+
 
 if __name__ == "__main__":
     unittest.main()

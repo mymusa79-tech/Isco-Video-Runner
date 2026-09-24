@@ -930,6 +930,26 @@ def render_production_status(runtime: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def render_last_success(runtime: dict[str, Any]) -> tuple[str, list[list[dict[str, str]]] | None]:
+    last = runtime.get("last_success")
+    if not isinstance(last, dict):
+        return "⚪ لا يوجد إنتاج ناجح محفوظ بعد.", None
+    scope_label = {
+        "long": "🎬 فيديو طويل",
+        "short": "⚡ شورت",
+        "bundle": "🎬 طويل + ⚡ شورت",
+    }.get(str(last.get("scope") or ""), "إنتاج")
+    topic = str(last.get("topic") or "").strip()
+    url = str(last.get("artifact_url") or "").strip()
+    lines = ["✅ آخر إنتاج ناجح", f"النوع: {scope_label}"]
+    if topic:
+        lines.append(f"الموضوع: {topic}")
+    keyboard = None
+    if url:
+        keyboard = [[{"text": "🎥 فتح الفيديو النهائي", "url": url}]]
+    return "\n".join(lines), keyboard
+
+
 def authorized(update: dict[str, Any]) -> bool:
     expected = str(os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
     actor, chat = _actor_chat(update)
@@ -991,6 +1011,10 @@ def handle_update(state: dict[str, Any], update: dict[str, Any], dispatch_path: 
         return
     if text in {"/status", "status", "الحالة", "حالة الإنتاج", "حاله الانتاج"}:
         send_telegram(render_production_status(load_runtime_status()))
+        return
+    if text in {"/last", "last", "آخر إنتاج", "اخر انتاج"}:
+        last_text, last_keyboard = render_last_success(load_runtime_status())
+        send_telegram(last_text, last_keyboard)
         return
     if text in {"/stats", "stats", "إحصائيات", "الاحصائيات", "الإحصائيات"}:
         try:

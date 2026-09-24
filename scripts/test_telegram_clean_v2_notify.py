@@ -157,6 +157,19 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         self.assertEqual(payload["kind"], "short")
         self.assertIn("3/6 الصوت", payload["stage"])
 
+    def test_runtime_payload_can_preserve_last_success_metadata(self):
+        payload = runtime_status_payload(
+            active=False,
+            scope="short",
+            kind="",
+            topic="موضوع",
+            stage="تم التسليم",
+            run_url="",
+            result="success",
+        )
+        payload["last_success"] = {"artifact_url": "https://github.example/artifacts/9"}
+        self.assertEqual(payload["last_success"]["artifact_url"], "https://github.example/artifacts/9")
+
 
 if __name__ == "__main__":
     unittest.main()

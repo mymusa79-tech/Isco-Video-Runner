@@ -251,6 +251,7 @@ jobs:
           TELEGRAM_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
         run: |
           if [ -n "$TELEGRAM_ARTIFACT_URL" ]; then
+            GITHUB_RUNTIME_TOKEN="${{ github.token }}" \
             python scripts/telegram_clean_v2_notify.py artifact \
               --scope "$TELEGRAM_REQUEST_SCOPE" \
               --topic "$TELEGRAM_REQUEST_TOPIC" \
