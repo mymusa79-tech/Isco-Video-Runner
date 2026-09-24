@@ -156,7 +156,7 @@ def watch(output: Path, *, kind: str, poll_seconds: float) -> int:
 
 def terminal(output: Path, *, job_status: str, kind: str, run_url: str) -> int:
     manifest = _read_json(output / "run-manifest.json")
-    send_message(
+    ok = send_message(
         terminal_text(
             manifest=manifest,
             job_status=job_status,
@@ -164,7 +164,28 @@ def terminal(output: Path, *, job_status: str, kind: str, run_url: str) -> int:
             run_url=run_url,
         )
     )
-    return 0
+    return 0 if ok else 1
+
+
+def workflow_watchdog_text(*, scope: str, run_url: str) -> str:
+    label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الطويل + الشورت"}.get(scope, "الإنتاج")
+    lines = [
+        f"❌ تعذر إكمال {label}",
+        "",
+        "توقف التشغيل قبل أن يصل إلى مرحلة إنتاج يمكن تشخيصها من ملف الفيديو.",
+        "الخطوة التالية: أعد المحاولة مرة واحدة. إذا تكرر الفشل، افتح التفاصيل التقنية.",
+    ]
+    if run_url:
+        lines.extend(["", f"تفاصيل التشغيل: {run_url}"])
+    return "\n".join(lines)
+
+
+def workflow_watchdog(*, output_root: Path, job_status: str, scope: str, run_url: str) -> int:
+    if job_status == "success":
+        return 0
+    if output_root.exists() and any(output_root.rglob(".telegram-terminal-sent")):
+        return 0
+    return 0 if send_message(workflow_watchdog_text(scope=scope, run_url=run_url)) else 1
 
 
 def main() -> int:
@@ -182,9 +203,22 @@ def main() -> int:
     final_p.add_argument("--job-status", required=True)
     final_p.add_argument("--run-url", default="")
 
+    watchdog_p = sub.add_parser("watchdog")
+    watchdog_p.add_argument("--output-root", type=Path, required=True)
+    watchdog_p.add_argument("--scope", choices=("long", "short", "bundle"), required=True)
+    watchdog_p.add_argument("--job-status", required=True)
+    watchdog_p.add_argument("--run-url", default="")
+
     args = parser.parse_args()
     if args.command == "watch":
         return watch(args.output, kind=args.kind, poll_seconds=args.poll_seconds)
+    if args.command == "watchdog":
+        return workflow_watchdog(
+            output_root=args.output_root,
+            job_status=args.job_status,
+            scope=args.scope,
+            run_url=args.run_url,
+        )
     return terminal(
         args.output,
         job_status=args.job_status,
