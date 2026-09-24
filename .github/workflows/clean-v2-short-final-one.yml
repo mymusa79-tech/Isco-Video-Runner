@@ -67,8 +67,8 @@ jobs:
             ffmpeg \
             fonts-noto-core \
             tesseract-ocr \
-            tesseract-ocr-ara \\
-            espeak-ng \\
+            tesseract-ocr-ara \
+            espeak-ng \
             libsndfile1
           python -m pip install --disable-pip-version-check -r engine/requirements-lock.txt
           python -m pip install --disable-pip-version-check --no-deps -e engine
@@ -137,7 +137,8 @@ jobs:
             --brief "$CLEAN_V2_SHORT_BRIEF" \
             --approved-sha "$ISCO_APPROVED_BRIEF_SHA256" \
             --engine-sha "$ISCO_ENGINE_SHA" \
-            --runner-sha "$GITHUB_SHA" \            --max-visuals 5 \
+            --runner-sha "$GITHUB_SHA" \
+            --max-visuals 5 \
             --output "$CLEAN_V2_OUTPUT"
 
       - name: Verify final Short contract and polish evidence
