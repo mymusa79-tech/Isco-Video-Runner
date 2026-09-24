@@ -58,7 +58,7 @@ PRONUNCIATION_PATCH_CANDIDATES = (
     ("ʔaddˈaːfiʕ", "ʔad dˈaːfiʕ", "الدافع"),
     # Keep اليوم as /al-yawm/ with no trailing vowel-like release.
     ("tˈastatˌiːʕ aljˈaum.", "tˈastatˌiːʕ aljˈawm.", "اليوم بعد تستطيع"),
-    ("kullˌa jˈawm", "kullˌa jˈawm", "كل يوم"),
+    ("kullˌa jˈaum", "kullˌa jˈawm", "كل يوم"),
 )
 
 
@@ -85,7 +85,7 @@ def add_native_pause_tokens(phonemes: str) -> str:
         # Warning -> action transition.
         ("kaːmˌilan. ", "kaːmˌilan… — "),
         # Action line -> closing reflection: strongest pause.
-        ("aljˈawm. faːl", "aljˈaum… — — faːl"),
+        ("aljˈawm. faːl", "aljˈawm… — — faːl"),
         # Closing sentence internal breathing points.
         ("alhˈaːdiʔ ", "alhˈaːdiʔ, "),
         ("kullˌa jˈawm ", "kullˌa jˈawm, "),
@@ -124,7 +124,7 @@ def add_model_native_prosody_punctuation(phonemes: str) -> str:
         # Emphasize the core phrase but keep one continuous breath.
         ("saːdˈiqat ", "saːdˈiqat, "),
         # Action line gets a reflective transition into the closing idea.
-        ("aljˈawm. faːl", "aljˈaum… faːl"),
+        ("aljˈawm. faːl", "aljˈawm… faːl"),
         # Natural micro-beats inside the final thought.
         ("alhˈaːdiʔ ", "alhˈaːdiʔ, "),
         ("kullˌa jˈawm ", "kullˌa jˈawm, "),
@@ -163,7 +163,7 @@ def add_model_native_structural_prosody(phonemes: str) -> str:
         ("saːdˈiqat ", "saːdˈiqat, "),
         ("tarˈiːqikˌa. ", "tarˈiːqikˌa — "),
         ("kaːmˌilan. ", "kaːmˌilan… "),
-        ("aljˈawm. faːl", "aljˈaum — — faːl"),
+        ("aljˈawm. faːl", "aljˈawm — — faːl"),
         ("alhˈaːdiʔ ", "alhˈaːdiʔ, "),
         ("kullˌa jˈawm ", "kullˌa jˈawm, "),
     )
