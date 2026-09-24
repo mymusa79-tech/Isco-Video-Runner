@@ -3191,36 +3191,9 @@ class CleanV2Pipeline:
                 voice_fallback_used = resume[1].get("voice_fallback_used")
                 if voice_provider not in {
                     "gemini:Charon",
-                    "azure-f0:ar-OM-AbdullahNeural",
-                    "piper-local:ar_JO-kareem-medium",
+                    "nabra:af_msa",
                 } or not isinstance(voice_fallback_used, bool):
                     raise RuntimeError("Clean V2 resume voice metadata is invalid")
-                piper_policy = getattr(
-                    self.voice_synthesizer, "allow_piper_fallback", None
-                )
-                if (
-                    str(brief["format"]) == "short"
-                    and voice_provider != "gemini:Charon"
-                ):
-                    raise RuntimeError(
-                        "CLEAN_V2_VOICE_INFRASTRUCTURE "
-                        "reason=short_resume_requires_charon"
-                    )
-                if (
-                    voice_provider == "piper-local:ar_JO-kareem-medium"
-                    and piper_policy is False
-                ):
-                    from clean_v2.media import VoiceInfrastructureError
-
-                    failure = VoiceInfrastructureError(
-                        charon_attempts=0,
-                        charon_reason="resume_piper_not_allowed",
-                        secondary_reason="resume_checkpoint_rejected",
-                        piper_fallback_allowed=False,
-                    )
-                    journal.run(
-                        "voice", lambda: (_ for _ in ()).throw(failure)
-                    )
                 journal.reuse("voice")
                 journal.payload["voice_provider"] = voice_provider
                 journal.payload["voice_fallback_used"] = voice_fallback_used
@@ -3232,7 +3205,6 @@ class CleanV2Pipeline:
                         self.voice_synthesizer,
                         list(script["sections"]),
                         narration_path,
-                        require_charon_only=str(brief["format"]) == "short",
                     ),
                 )
                 voice_provider = voice_result.get("voice_provider")
