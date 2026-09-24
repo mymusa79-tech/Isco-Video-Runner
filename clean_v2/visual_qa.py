@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
+from clean_v2.visual_story import contextual_intent, fallback_visual_story, validate_visual_story
+
 
 STAGE_ID = "final_cut_visual_qa"
 MAX_SEMANTIC_RECOVERY_CANDIDATES = 3
@@ -346,15 +348,14 @@ def run_final_cut_visual_qa(
     """Review every clip that will appear in the final render and allow one bounded
     semantic replacement per failed clip.
 
-    A section with visual pacing's extra same-query clips (pacing_auxiliary entries)
-    reviews its primary and every auxiliary independently - each with its own
-    canonical evidence and its own PASS/BLOCK - since every one of them is visible to
-    the viewer, not just the primary. The existing final-cut threshold and semantic
-    floor remain authoritative per clip. Recovery is attempted only when a given
-    clip's semantic floor is below that unchanged target: one narration-bound
-    alternate query and up to three bounded stock candidates, reviewed in order until
-    one is final-cut-ready, targeting that exact clip's own slot (never a still-passing
-    sibling clip in the same section). No second query or unbounded loop exists.
+    A section may contain multiple real story beats (the legacy pacing_auxiliary flag
+    is retained only as a render compatibility marker). Every visible clip is reviewed
+    independently with canonical evidence and the unchanged PASS/BLOCK gates. Recovery
+    is attempted only when a clip's semantic floor is below the unchanged target: one
+    narration-bound alternate query and up to three bounded stock candidates. Phase B
+    reviews the full bounded candidate set against the same previous/current/next story
+    context, then selects the strongest final-cut-ready candidate. It never accepts the
+    first passing candidate early. No second query or unbounded loop exists.
     """
 
     from isco_video_agent.ai_budget import BudgetLedger, Capability, Priority, TaskSpec
@@ -381,6 +382,22 @@ def run_final_cut_visual_qa(
 
     output_dir = Path(output_dir)
     sections = list(plan.get("sections") or [])
+    visual_story_path = output_dir / "visual-story.json"
+    if visual_story_path.is_file():
+        try:
+            visual_story = validate_visual_story(
+                json.loads(visual_story_path.read_text(encoding="utf-8")),
+                plan,
+            )
+        except Exception as exc:
+            raise CleanV2VisualQABlock(
+                "CLEAN_V2_VISUAL_QA_BLOCK reason=visual_story_invalid"
+            ) from exc
+        story_file_present = True
+    else:
+        # Direct unit callers and pre-Phase-B fixtures retain one beat per section.
+        visual_story = fallback_visual_story(plan)
+        story_file_present = False
     script_by_id = {
         str(item.get("id") or ""): str(item.get("narration") or "")
         for item in (script.get("sections") or [])
@@ -410,6 +427,26 @@ def run_final_cut_visual_qa(
         raise CleanV2VisualQABlock(
             "CLEAN_V2_VISUAL_QA_BLOCK reason=selected_visual_section_coverage_mismatch"
         )
+
+    if story_file_present:
+        expected_beat_ids = [
+            str(item.get("id") or "").strip()
+            for item in visual_story.get("beats", [])
+            if isinstance(item, dict)
+        ]
+        selected_beat_ids = [
+            str(item.get("beat_id") or "").strip()
+            for item in rights
+            if isinstance(item, dict)
+        ]
+        if (
+            not expected_beat_ids
+            or any(not beat_id for beat_id in selected_beat_ids)
+            or selected_beat_ids != expected_beat_ids
+        ):
+            raise CleanV2VisualQABlock(
+                "CLEAN_V2_VISUAL_QA_BLOCK reason=selected_visual_beat_coverage_mismatch"
+            )
 
     gemini = _secret("GEMINI_API_KEY")
     model = str(os.environ.get("GEMINI_CONTENT_MODEL") or "gemini-3.7-flash").strip()
@@ -441,6 +478,7 @@ def run_final_cut_visual_qa(
         recovery: bool,
         clip_position: int = 1,
         recovery_candidate_index: int | None = None,
+        beat_id: str = "",
     ) -> tuple[dict[str, Any], float]:
         suffix = (
             f"-recovery-{max(1, int(recovery_candidate_index or 1)):02d}"
@@ -540,6 +578,7 @@ def run_final_cut_visual_qa(
         audit.update(
             {
                 "section": section_id,
+                "beat_id": beat_id,
                 "clip_position": clip_position,
                 "provider": str(row.get("provider") or ""),
                 "candidate_id": row.get("asset_id"),
@@ -555,6 +594,7 @@ def run_final_cut_visual_qa(
                 "is_selected": not recovery,
                 "is_final_cut_auxiliary": bool(row.get("pacing_auxiliary")),
                 "semantic_recovery_attempt": recovery,
+                "story_context_reviewed": bool(beat_id),
                 "final_cut_semantic_floor": round(floor, 6),
                 "final_cut_readiness_target": FINAL_CUT_TARGET_SEMANTIC_FLOOR,
                 "final_cut_readiness": (
@@ -589,6 +629,12 @@ def run_final_cut_visual_qa(
                         )
                     audited_selected_clip_count += 1
                     intended_visual = str(row.get("query") or section_intended_visual).strip()
+                    beat_id = str(row.get("beat_id") or "").strip()
+                    contextual_visual = contextual_intent(
+                        visual_story,
+                        beat_id,
+                        str(row.get("shot_intent") or intended_visual).strip(),
+                    )
 
                     primary_audit, primary_floor = review_clip(
                         index=index,
@@ -596,9 +642,10 @@ def run_final_cut_visual_qa(
                         clip=clip,
                         row=row,
                         narration_context=narration_context,
-                        intended_visual=intended_visual,
+                        intended_visual=contextual_visual,
                         recovery=False,
                         clip_position=clip_position,
+                        beat_id=beat_id,
                     )
                     audits.append(primary_audit)
                     _write_json(output_dir / "visual-audit.json", audits)
@@ -758,13 +805,15 @@ def run_final_cut_visual_qa(
                     ]
                     recovery_record["candidate_pool_size"] = len(acquired_candidates)
                     candidate_reviews: list[dict[str, Any]] = []
-                    selected_recovery: tuple[
-                        Path,
-                        dict[str, Any],
-                        dict[str, Any],
-                        float,
-                        int,
-                    ] | None = None
+                    ready_recoveries: list[
+                        tuple[
+                            Path,
+                            dict[str, Any],
+                            dict[str, Any],
+                            float,
+                            int,
+                        ]
+                    ] = []
                     best_recovery_floor = 0.0
 
                     for candidate_position, acquired in enumerate(
@@ -780,10 +829,15 @@ def run_final_cut_visual_qa(
                                 clip=recovery_clip,
                                 row=replacement_row,
                                 narration_context=narration_context,
-                                intended_visual=alternate,
+                                intended_visual=contextual_intent(
+                                    visual_story,
+                                    beat_id,
+                                    alternate,
+                                ),
                                 recovery=True,
                                 recovery_candidate_index=candidate_position,
                                 clip_position=clip_position,
+                                beat_id=beat_id,
                             )
                         except Exception:
                             for cleanup_clip, _cleanup_row in acquired_candidates:
@@ -807,20 +861,32 @@ def run_final_cut_visual_qa(
                         _write_json(output_dir / "visual-audit.json", audits)
 
                         if ready:
-                            selected_recovery = (
-                                recovery_clip,
-                                replacement_row,
-                                recovery_audit,
-                                recovery_floor,
-                                candidate_position,
+                            ready_recoveries.append(
+                                (
+                                    recovery_clip,
+                                    replacement_row,
+                                    recovery_audit,
+                                    recovery_floor,
+                                    candidate_position,
+                                )
                             )
-                            break
 
+                        # Selection happens only after every bounded candidate has
+                        # been reviewed against the same previous/current/next story
+                        # context. A passing first candidate is never auto-promoted.
                         recovery_audit["is_selected"] = False
-                        recovery_clip.unlink(missing_ok=True)
-                        recovery_clip.with_suffix(".m8.json").unlink(missing_ok=True)
+
+                    selected_recovery = (
+                        max(ready_recoveries, key=lambda item: (item[3], -item[4]))
+                        if ready_recoveries
+                        else None
+                    )
 
                     if selected_recovery is None:
+                        for cleanup_clip, _cleanup_row in acquired_candidates:
+                            cleanup_path = Path(cleanup_clip)
+                            cleanup_path.unlink(missing_ok=True)
+                            cleanup_path.with_suffix(".m8.json").unlink(missing_ok=True)
                         recovery_record.update(
                             {
                                 "status": "rejected",
@@ -863,6 +929,17 @@ def run_final_cut_visual_qa(
                     # replaced in place without touching a still-passing primary.
                     visual_source.commit_replacement(recovery_clip, clip)
                     original_row = dict(row)
+                    for story_key in (
+                        "beat_id",
+                        "viewer_intent",
+                        "shot_intent",
+                        "source_preference",
+                        "source_actual",
+                        "pacing_auxiliary",
+                        "story_beat_auxiliary",
+                    ):
+                        if story_key in original_row:
+                            replacement_row[story_key] = original_row[story_key]
                     replacement_row["recovery_of_provider"] = original_row.get("provider")
                     replacement_row["recovery_of_asset_id"] = original_row.get("asset_id")
                     replacement_row["recovery_of_query"] = intended_visual
@@ -911,7 +988,8 @@ def run_final_cut_visual_qa(
         "schema_version": 1,
         "layer": STAGE_ID,
         "status": "pass",
-        "mode": "selected_clips_plus_one_semantic_recovery",
+        "mode": "selected_clips_plus_contextual_semantic_recovery",
+        "candidate_selection_mode": "review_all_ready_candidates_then_best_contextual_floor",
         "repair_or_replacement_enabled": True,
         "semantic_recovery_attempt_limit_per_section": 1,
         "semantic_recovery_candidate_review_limit_per_section": (
