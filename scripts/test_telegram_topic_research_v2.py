@@ -60,6 +60,7 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
         self.assertEqual(v2.STRONG_CURRENT_INTEREST_MIN, 0.65)
         self.assertEqual(v2.HYBRID_CURRENT_INTEREST_MIN, 0.50)
         self.assertEqual(v2.EVERGREEN_STRENGTH_MIN, 0.70)
+        self.assertEqual(v2.MIN_OPPORTUNITY_SCORE, 0.70)
         self.assertEqual(v2._market_class(self._candidate("64", 0.64, 0.50, 0.9)), "explore")
         self.assertEqual(v2._market_class(self._candidate("65", 0.65, 0.50, 0.9)), "rising")
         self.assertEqual(v2._market_class(self._candidate("49 evergreen", 0.49, 0.90, 0.9)), "evergreen")
@@ -122,6 +123,45 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
         chosen = v2._diverse_top([weak, evergreen], 3)
         self.assertEqual([item["title"] for item in chosen], ["دائم"])
         self.assertEqual(v2._market_class(weak), "explore")
+
+    def test_opportunity_quality_floor_blocks_weak_topic_even_with_strong_market(self):
+        weak = self._candidate("سوق قوي لكن جودة ضعيفة", 0.90, 0.80, 0.99)
+        weak["opportunity_score"] = 0.69
+        strong = self._candidate("جودة كافية", 0.66, 0.80, 0.60)
+        strong["opportunity_score"] = 0.70
+        chosen = v2._diverse_top(
+            [
+                v2._build_candidate_payload(weak, "long"),
+                v2._build_candidate_payload(strong, "long"),
+            ],
+            3,
+        )
+        self.assertEqual([item["title"] for item in chosen], ["جودة كافية"])
+
+    def test_up_to_three_keeps_only_qualified_topics_without_padding(self):
+        candidates = []
+        for index, opportunity in enumerate((0.88, 0.76, 0.69, 0.40), start=1):
+            item = self._candidate(f"فكرة {index}", 0.72, 0.80, 0.95 - index * 0.01)
+            item["opportunity_score"] = opportunity
+            candidates.append(v2._build_candidate_payload(item, "long"))
+        chosen = v2._diverse_top(candidates, 3)
+        self.assertEqual([item["title"] for item in chosen], ["فكرة 1", "فكرة 2"])
+
+    def test_zero_qualified_topics_returns_empty_instead_of_weak_fallback(self):
+        candidates = []
+        for index, opportunity in enumerate((0.69, 0.55), start=1):
+            item = self._candidate(f"ضعيف {index}", 0.80, 0.85, 0.99)
+            item["opportunity_score"] = opportunity
+            candidates.append(v2._build_candidate_payload(item, "long"))
+        self.assertEqual(v2._diverse_top(candidates, 3), [])
+
+    def test_zero_result_reason_is_explicit_and_suggests_new_seeds(self):
+        reason = v2._research_failure_reason(
+            RuntimeError("Live research did not produce any distinct production-ready candidate")
+        )
+        self.assertIn("لم يُعثر على مواضيع مناسبة", reason)
+        self.assertIn("opportunity_score ≥7.0/10", reason)
+        self.assertIn("seed queries", reason)
 
     def test_current_market_role_is_selected_before_high_composite_evergreen(self):
         current = v2._build_candidate_payload(self._candidate("الآن", 0.66, 0.60, 0.10), "long")
