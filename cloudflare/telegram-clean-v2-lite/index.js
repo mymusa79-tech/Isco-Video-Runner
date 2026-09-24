@@ -158,7 +158,7 @@ async function dispatchControl(env, update) {
 }
 
 function isStartText(text) {
-  return ["/start", "start", "ابدأ", "ابدأ البوت"].includes(String(text || "").trim());
+  return ["/start", "start", "ابدأ", "ابدأ البوت", "🏠 الرئيسية"].includes(String(text || "").trim());
 }
 
 function isResearchText(text) {
