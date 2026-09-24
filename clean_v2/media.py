@@ -2836,10 +2836,14 @@ def render_video(
             input_index += 1
         master_lut = _write_master_look_lut(work_dir / "warm-neutral-master-v1.cube")
         filters.append(f"{''.join(labels)}concat=n={input_index}:v=1:a=0[vcat]")
-        master_look = (
-            f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral,"
-            f"{CINEMATIC_FINISH_FILTER}"
+        finish_filter = (
+            CINEMATIC_FINISH_FILTER
+            if any(str(value or "").strip() for value in grade_filters.values())
+            else ""
         )
+        master_look = f"lut3d=file='{_ffmpeg_filter_path(master_lut)}':interp=tetrahedral"
+        if finish_filter:
+            master_look = f"{master_look},{finish_filter}"
         if timeline:
             filters.append(
                 f"[vcat]{master_look},"
