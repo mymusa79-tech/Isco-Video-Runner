@@ -2720,14 +2720,11 @@ routines, and wide shots without identifiable faces. Keep visuals modest and sui
 Arab/Muslim audience.
 {short_visual_query_instruction}
 
-IDENTITY_SEQUENCE is runtime-owned and must be respected by the plan: the first spoken sentence is
-always the hook; immediately after that hook the approved visual intro is inserted; narration then
-continues with the approved prayer sentence, one short channel-definition sentence, and only then
-the topic/body. Treat the prayer, definition, and first topic line as one continuous opening beat, not
-three disconnected modules. Do not plan any greeting, prayer, channel introduction, or extra preamble before the
-hook, and do not duplicate those identity lines inside section purpose text. The approved Outro is
-renderer-owned and appended after the completed content, so keep the final topic beat complete and do not
-plan any extra CTA or identity material for after the Outro.
+IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken
+sentence is always the hook; the approved Intro, prayer visual, channel identity and Outro are timed
+from real voice-unit boundaries before final render. They never add or remove runtime. Treat the prayer,
+definition, and first topic line as one continuous opening beat, not disconnected modules. Do not plan
+any greeting, prayer, channel introduction, extra preamble, or duplicate identity material.
 
 For CTA, author exactly ONE natural primary action that fits this episode: comment, subscribe,
 share, or like. Never bundle multiple actions in one CTA. It must feel earned after value has been
@@ -2769,8 +2766,8 @@ def _script_prompt(
             "Write a complete miniature idea, not caption fragments: aim for roughly 50-80 authored Arabic words across all 3 sections, "
             "usually 4-6 complete sentences with natural variation in length. The runtime adds one short prayer sentence and one short channel "
             "definition after the hook, so do not duplicate them. Every sentence must be grammatically sound and carry enough context to be "
-            "understood on first listen. Prefer a final 34-38 second result including identity media, but do not pad a complete idea; the measured "
-            "final gate is authoritative and the complete Short must stay within 30-45 seconds."
+            "understood on first listen. Do not write toward a target duration and do not compress or pad a complete idea to hit a clock. "
+            "The measured mastered voice owns the final runtime; only a distant operational safety ceiling exists."
         )
     else:
         length = "Aim for roughly 60-140 spoken Arabic words across all sections."
@@ -2818,14 +2815,13 @@ For short, social CTA remains visual-only: do not add subscribe/comment/share/li
 in spoken narration.
 
 IDENTITY_SEQUENCE is also HOST-MANAGED. Write the first sentence as the truthful hook. Do NOT write
-a greeting, prayer sentence, or channel introduction yourself: after script validation the runtime
-inserts exactly one approved prayer sentence and one channel-definition sentence immediately after
-the hook, and the approved visual intro is later inserted between the hook and that prayer. Therefore
-the next topic sentence you write must resume naturally after a short identity beat, without phrases
-such as "كما قلت" or references that assume uninterrupted speech. Prayer, channel definition, and
-the return to the episode must feel like one continuous spoken passage rather than three unrelated
-blocks. The approved Outro is appended by the renderer after the completed narration; finish the
-topic naturally before that boundary.
+a greeting, prayer sentence, or channel introduction yourself: after validation the runtime inserts
+exactly one approved prayer sentence and one channel-definition sentence immediately after the hook.
+Their real synthesized audio units become Timeline boundaries; Intro/Prayer/Identity/Outro visuals are
+rendered inside those measured bounds and never extend the narration. The next topic sentence must
+resume naturally after the identity beat. Prayer, channel definition, and return to the episode must
+feel like one continuous spoken passage rather than unrelated blocks. Finish the topic naturally; the
+Outro visual occupies the measured final voice unit instead of adding time after narration.
 {identity_handoff_guidance}
 
 {short_context}
@@ -3552,12 +3548,10 @@ class CleanV2Pipeline:
                 sections_for_visuals = list(plan.get("sections") or [])[
                     : max(1, int(max_visuals))
                 ]
-                if str(brief["format"]) == "short":
-                    from clean_v2.short_voice_owned_timeline import section_duration_map
+                if str(brief["format"]) in {"short", "film"}:
+                    from clean_v2.timeline_first import section_duration_map
 
-                    voice_timeline = _read_json_object(
-                        output_dir / "short-voice-owned-timeline.json"
-                    )
+                    voice_timeline = _read_json_object(output_dir / "timeline-first.json")
                     exact_voice_sections = section_duration_map(voice_timeline)
                     section_estimated_seconds = {
                         str(item.get("id") or ""): exact_voice_sections[
@@ -3603,8 +3597,8 @@ class CleanV2Pipeline:
                         "assets": rights,
                         "estimated_section_seconds": section_estimated_seconds,
                         "note": (
-                            "Provider metadata captured at acquisition. Short section timing comes from the measured "
-                            "Charon voice-owned timeline; other formats keep the local narration-weighted estimate. "
+                            "Provider metadata captured at acquisition. Film and Short section timing comes from the same "
+                            "measured voice-owned Timeline First contract; no character-ratio timing is used for identity. "
                             "No visual quality audit executed in Clean V2 bootstrap."
                         ),
                     },
@@ -3774,12 +3768,9 @@ class CleanV2Pipeline:
                 ),
             )
 
-            identity_media_report = apply_identity_media(
-                output_dir=output_dir,
-                final_path=final_path,
-                script=script,
-                fmt=str(brief["format"]),
-            )
+            identity_media_report = _read_json_object(output_dir / "identity-sequence.json")
+            if identity_media_report.get("status") != "pass":
+                raise RuntimeError("Timeline First identity sequence missing before final inspection")
 
             final_report = journal.run(
                 "final_file",
