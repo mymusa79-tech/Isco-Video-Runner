@@ -7,6 +7,7 @@ from scripts.telegram_clean_v2_notify import (
     failure_guidance,
     milestone_messages,
     short_failure_reason,
+    started_text,
     terminal_text,
     workflow_watchdog_text,
 )
@@ -94,6 +95,13 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         guidance = failure_guidance(manifest, "failure")
         self.assertIn("انتظر قليلًا", guidance)
         self.assertIn("أعد المحاولة", guidance)
+
+    def test_started_message_confirms_real_workflow_start(self):
+        text = started_text(scope="bundle", topic="موضوع تجريبي", run_url="https://github.example/run/3")
+        self.assertIn("بدأ الإنتاج فعليًا", text)
+        self.assertIn("طويل", text)
+        self.assertIn("شورت", text)
+        self.assertIn("موضوع تجريبي", text)
 
 
 if __name__ == "__main__":

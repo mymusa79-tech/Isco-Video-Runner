@@ -192,6 +192,18 @@ def terminal(output: Path, *, job_status: str, kind: str, run_url: str) -> int:
     return 0 if ok else 1
 
 
+def started_text(*, scope: str, topic: str, run_url: str) -> str:
+    label = {"long": "🎬 فيديو طويل", "short": "⚡ شورت", "bundle": "🎬 طويل + ⚡ شورت"}.get(scope, "الإنتاج")
+    lines = [
+        f"🚀 بدأ الإنتاج فعليًا — {label}",
+        f"الموضوع: {topic}" if topic else "الموضوع: غير محدد",
+        "سأرسل لك تحديثًا عند اكتمال كل مرحلة رئيسية.",
+    ]
+    if run_url:
+        lines.extend(["", f"متابعة التشغيل: {run_url}"])
+    return "\n".join(lines)
+
+
 def workflow_watchdog_text(*, scope: str, run_url: str) -> str:
     label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الطويل + الشورت"}.get(scope, "الإنتاج")
     lines = [
@@ -228,6 +240,11 @@ def main() -> int:
     final_p.add_argument("--job-status", required=True)
     final_p.add_argument("--run-url", default="")
 
+    started_p = sub.add_parser("started")
+    started_p.add_argument("--scope", choices=("long", "short", "bundle"), required=True)
+    started_p.add_argument("--topic", default="")
+    started_p.add_argument("--run-url", default="")
+
     watchdog_p = sub.add_parser("watchdog")
     watchdog_p.add_argument("--output-root", type=Path, required=True)
     watchdog_p.add_argument("--scope", choices=("long", "short", "bundle"), required=True)
@@ -237,6 +254,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "watch":
         return watch(args.output, kind=args.kind, poll_seconds=args.poll_seconds)
+    if args.command == "started":
+        return 0 if send_message(
+            started_text(scope=args.scope, topic=args.topic, run_url=args.run_url)
+        ) else 1
     if args.command == "watchdog":
         return workflow_watchdog(
             output_root=args.output_root,

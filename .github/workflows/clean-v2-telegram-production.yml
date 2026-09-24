@@ -90,17 +90,26 @@ jobs:
           test "$status" = "dispatched"
           test "$stored_sha" = "$REQUEST_SHA256"
           scope="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].scope // empty' "$state")"
+          topic="$(jq -r --arg id "$REQUEST_ID" '.requests[$id].approved_topic // empty' "$state")"
           case "$scope" in
             long|bundle|short) ;;
             *) echo "Unsupported Telegram request scope" >&2; exit 2 ;;
           esac
           echo "TELEGRAM_REQUEST_STATE=$state" >> "$GITHUB_ENV"
           echo "TELEGRAM_REQUEST_SCOPE=$scope" >> "$GITHUB_ENV"
+          echo "TELEGRAM_REQUEST_TOPIC=$topic" >> "$GITHUB_ENV"
           echo "CLEAN_V2_TELEGRAM_OUTPUT=$GITHUB_WORKSPACE/output/clean-v2-telegram/$REQUEST_ID" >> "$GITHUB_ENV"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
+
+      - name: Notify Telegram that production actually started
+        run: |
+          python scripts/telegram_clean_v2_notify.py started \
+            --scope "$TELEGRAM_REQUEST_SCOPE" \
+            --topic "$TELEGRAM_REQUEST_TOPIC" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" || true
 
       - name: Install production dependencies
         run: |
