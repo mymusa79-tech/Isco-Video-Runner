@@ -2697,12 +2697,9 @@ def render_video(
             paths = opening_paths
             durations = [7.0, 11.0, 12.0]
     else:
-        # Short may render 6-9 edit beats while keeping at most six provider-backed
-        # assets. Extra beats reuse already-audited assets locally.
+        # Phase B: Planning beats own scene changes for both Film and Short.
+        # Timeline First owns only timing, so duration never fabricates/repeats shots.
         paths = [Path(item) for item in visual_paths]
-        if fmt == "short":
-            section_ids = _pacing_section_ids(Path(output_path).parent, paths)
-            paths = _expand_short_visual_sequence(paths, section_ids, duration)
         durations = _section_slot_durations(Path(output_path).parent, paths, duration)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
