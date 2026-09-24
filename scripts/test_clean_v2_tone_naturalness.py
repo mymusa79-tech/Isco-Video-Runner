@@ -142,7 +142,7 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         example = "لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟"
         payload = _tone_result()
         payload["notes"] = [f"hook={example}"]
-        result = _validate_tone_result(payload)
+        result = _enforce_hook_quality_contract(payload)
         self.assertEqual(result["status"], "pass")
         self.assertFalse(
             any(
