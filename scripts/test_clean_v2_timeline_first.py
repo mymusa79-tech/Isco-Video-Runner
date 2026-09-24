@@ -172,12 +172,16 @@ class FinalCompositionVisualQATests(unittest.TestCase):
             )
             seen: list[Path] = []
 
-            def evidence(path, *_args, **_kwargs):
-                seen.append(Path(path))
-                return SimpleNamespace(prompt_hash="prompt", frame_sha256=["frame"])
+            def evidence(*, final_path, **_kwargs):
+                seen.append(Path(final_path))
+                return {
+                    "mode": "test_final_composition",
+                    "prompt_hash": "prompt",
+                    "frame_sha256": ["frame"],
+                }
 
             with mock.patch(
-                "scripts.canonical_visual_evidence_v1.build_canonical_visual_evidence",
+                "clean_v2.visual_qa._build_final_composition_evidence",
                 side_effect=evidence,
             ):
                 result = verify_final_composition_visual_qa(
@@ -187,6 +191,7 @@ class FinalCompositionVisualQATests(unittest.TestCase):
                 )
 
             self.assertEqual(seen, [final_path])
+            self.assertEqual(result["evidence_mode"], "test_final_composition")
             self.assertEqual(result["source_media"], "final.mp4")
             self.assertEqual(
                 result["identity_event_kinds"],
