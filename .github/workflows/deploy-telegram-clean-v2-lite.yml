@@ -9,6 +9,7 @@ on:
       - ".github/workflows/deploy-telegram-clean-v2-lite.yml"
       - ".github/workflows/telegram-clean-v2-control.yml"
       - ".github/workflows/clean-v2-telegram-production.yml"
+      - ".github/workflows/clean-v2-youtube-snapshot.yml"
       - "scripts/telegram_clean_v2_control.py"
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - ".github/workflows/deploy-telegram-clean-v2-lite.yml"
       - ".github/workflows/telegram-clean-v2-control.yml"
       - ".github/workflows/clean-v2-telegram-production.yml"
+      - ".github/workflows/clean-v2-youtube-snapshot.yml"
       - "scripts/telegram_clean_v2_control.py"
       - "scripts/test_telegram_clean_v2_control.py"
 
@@ -124,7 +126,7 @@ PY
         run: |
           set -euo pipefail
           health="$(curl --fail-with-body --silent --show-error "$WORKER_URL/health")"
-          printf '%s' "$health" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("phase") == "B"'
+          printf '%s' "$health" | python -c 'import json,sys; p=json.load(sys.stdin); assert p.get("ok") is True and p.get("phase") == "C"'
           response="$(curl --fail-with-body --silent --show-error \
             -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
             -H 'content-type: application/json' \
