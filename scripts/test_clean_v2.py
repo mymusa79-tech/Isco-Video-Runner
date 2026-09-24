@@ -355,7 +355,8 @@ class GroqJsonModeContractTests(unittest.TestCase):
         payload = captured["payload"]
         self.assertEqual(payload["model"], "openai/gpt-oss-20b")
         self.assertEqual(payload["response_format"], {"type": "json_object"})
-        self.assertEqual(payload["reasoning_format"], "hidden")
+        self.assertIs(payload["include_reasoning"], False)
+        self.assertNotIn("reasoning_format", payload)
         self.assertEqual(payload["max_completion_tokens"], 321)
 
 
