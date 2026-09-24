@@ -113,12 +113,16 @@ function isLocalMenuText(text) {
   return ["/start", "/menu", "/research", "بحث"].includes(String(text || "").trim());
 }
 
+function isStatsText(text) {
+  return ["/stats", "stats", "إحصائيات", "الاحصائيات", "الإحصائيات"].includes(String(text || "").trim());
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
       return new Response(
-        JSON.stringify({ ok: true, mode: "clean-v2-telegram-lite", phase: "B" }),
+        JSON.stringify({ ok: true, mode: "clean-v2-telegram-lite", phase: "C" }),
         { headers: { "content-type": "application/json" } },
       );
     }
@@ -169,6 +173,17 @@ export default {
       ctx.waitUntil(sendScopeMenu(env, current.chat));
       return new Response("OK");
     }
+    if (isStatsText(text)) {
+      ctx.waitUntil(
+        dispatchControl(env, update).catch(() =>
+          telegram(env, "sendMessage", {
+            chat_id: current.chat,
+            text: "⚠️ تعذر تحديث إحصائيات YouTube الآن. لم يتأثر البحث أو الإنتاج.",
+          }),
+        ),
+      );
+      return new Response("OK");
+    }
     if (text === CONFIRM_TEXT) {
       ctx.waitUntil(
         dispatchControl(env, update).catch(() =>
@@ -184,7 +199,7 @@ export default {
     ctx.waitUntil(
       telegram(env, "sendMessage", {
         chat_id: current.chat,
-        text: "استخدم /research لطلب 3 أفكار جديدة. بدء الإنتاج يتطلب العبارة الدقيقة «تأكيد الإنتاج».",
+        text: "استخدم /research لطلب 3 أفكار جديدة، و/stats لإحصائيات القناة. بدء الإنتاج يتطلب العبارة الدقيقة «تأكيد الإنتاج».",
       }),
     );
     return new Response("OK");
