@@ -222,38 +222,18 @@ def bind_contextual_cta(plan: Any) -> CtaBinding:
         )
 
     primary, secondary = _screen_copy(mode, authored)
-    visual_only = mode == CtaMode.LIKE
-    spoken = "" if visual_only else _clip_words(_first_sentence(authored), MAX_SPOKEN_WORDS)
-    if not visual_only and not spoken:
-        return CtaBinding(
-            CTA_CONTRACT_VERSION,
-            CtaMode.NONE,
-            None,
-            "",
-            "",
-            "",
-            True,
-            "empty_spoken_cta",
-        )
 
-    if spoken:
-        all_narration = "\n".join(
-            _compact(getattr(section, "narration", ""))
-            for section in getattr(plan, "sections", [])
-        )
-        if spoken not in all_narration:
-            current = _compact(getattr(anchor, "narration", ""))
-            separator = " " if current else ""
-            anchor.narration = current + separator + spoken
-
+    # Approved CTA contract: every CTA is visual-only. The plan's authored
+    # action selects which approved asset is shown, but narration is never
+    # mutated and no social request is spoken aloud.
     return CtaBinding(
         CTA_CONTRACT_VERSION,
         mode,
         str(getattr(anchor, "id", "")) or None,
-        spoken,
+        "",
         primary,
         secondary,
-        visual_only,
+        True,
         reason,
     )
 
