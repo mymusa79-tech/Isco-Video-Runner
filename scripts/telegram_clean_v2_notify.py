@@ -34,17 +34,42 @@ def _telegram_target() -> tuple[str, str]:
     )
 
 
-def send_message(text: str) -> bool:
+def build_message_payload(
+    text: str,
+    *,
+    chat_id: str,
+    button_text: str = "",
+    button_url: str = "",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "chat_id": chat_id,
+        "text": str(text)[:3900],
+        "disable_web_page_preview": True,
+    }
+    if button_text and button_url:
+        payload["reply_markup"] = {
+            "inline_keyboard": [[{"text": button_text, "url": button_url}]]
+        }
+    return payload
+
+
+def send_message(
+    text: str,
+    *,
+    button_text: str = "",
+    button_url: str = "",
+) -> bool:
     token, chat_id = _telegram_target()
     if not token or not chat_id:
         print("Telegram Clean V2 notify disabled: missing bot token or chat id")
         return False
     payload = json.dumps(
-        {
-            "chat_id": chat_id,
-            "text": str(text)[:3900],
-            "disable_web_page_preview": True,
-        },
+        build_message_payload(
+            text,
+            chat_id=chat_id,
+            button_text=button_text,
+            button_url=button_url,
+        ),
         ensure_ascii=False,
     ).encode("utf-8")
     request = urllib.request.Request(
@@ -210,6 +235,15 @@ def started_text(*, scope: str, topic: str, run_url: str) -> str:
     return "\n".join(lines)
 
 
+def artifact_delivery_text(*, scope: str, topic: str) -> str:
+    label = {"long": "الفيديو الطويل", "short": "الشورت", "bundle": "الحزمة"}.get(scope, "الإنتاج")
+    lines = [f"🎥 {label} جاهز للتسليم"]
+    if topic:
+        lines.append(f"الموضوع: {topic}")
+    lines.append("اضغط الزر لفتح ملفات الإنتاج النهائية.")
+    return "\n".join(lines)
+
+
 def bundle_blocked_text(*, topic: str, run_url: str) -> str:
     lines = [
         "⚠️ توقفت الحزمة بعد فشل الفيديو الطويل",
@@ -278,6 +312,11 @@ def main() -> int:
     started_p.add_argument("--topic", default="")
     started_p.add_argument("--run-url", default="")
 
+    artifact_p = sub.add_parser("artifact")
+    artifact_p.add_argument("--scope", choices=("long", "short", "bundle"), required=True)
+    artifact_p.add_argument("--topic", default="")
+    artifact_p.add_argument("--url", required=True)
+
     blocked_p = sub.add_parser("bundle-blocked")
     blocked_p.add_argument("--topic", default="")
     blocked_p.add_argument("--run-url", default="")
@@ -298,6 +337,12 @@ def main() -> int:
     if args.command == "started":
         return 0 if send_message(
             started_text(scope=args.scope, topic=args.topic, run_url=args.run_url)
+        ) else 1
+    if args.command == "artifact":
+        return 0 if send_message(
+            artifact_delivery_text(scope=args.scope, topic=args.topic),
+            button_text="🎥 فتح الفيديو النهائي",
+            button_url=args.url,
         ) else 1
     if args.command == "bundle-blocked":
         return 0 if send_message(

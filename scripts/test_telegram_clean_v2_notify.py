@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 
 from scripts.telegram_clean_v2_notify import (
+    artifact_delivery_text,
+    build_message_payload,
     bundle_blocked_text,
     bundle_summary_text,
     current_stage,
@@ -128,6 +130,18 @@ class TelegramCleanV2NotifyTests(unittest.TestCase):
         self.assertIn("فشل الفيديو الطويل", text)
         self.assertIn("الشورت لم يبدأ", text)
         self.assertIn("أعد محاولة الفيديو الطويل", text)
+
+    def test_artifact_delivery_uses_direct_final_video_button(self):
+        payload = build_message_payload(
+            artifact_delivery_text(scope="short", topic="موضوع"),
+            chat_id="123",
+            button_text="🎥 فتح الفيديو النهائي",
+            button_url="https://github.example/artifacts/7",
+        )
+        button = payload["reply_markup"]["inline_keyboard"][0][0]
+        self.assertEqual(button["text"], "🎥 فتح الفيديو النهائي")
+        self.assertEqual(button["url"], "https://github.example/artifacts/7")
+        self.assertIn("جاهز للتسليم", payload["text"])
 
 
 if __name__ == "__main__":
