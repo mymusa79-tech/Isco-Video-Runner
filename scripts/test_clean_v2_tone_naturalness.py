@@ -24,6 +24,7 @@ from clean_v2.tone_audit import (
     _mistral_tone_call,
     _scope_clean_v2_tone_prompt,
     _scope_religious_quote_prompt,
+    _validate_tone_result,
 )
 
 
@@ -38,6 +39,10 @@ def _tone_result(*, status: str = "pass", validation: str = "valid") -> dict:
         "naturalness_flags": [],
         "narrative_format_flags": [],
         "unverified_religious_quote_flags": [],
+        "hook_specificity": True,
+        "hook_honesty": True,
+        "hook_curiosity": True,
+        "hook_genericness": False,
         "notes": [],
     }
 
@@ -54,6 +59,10 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
                 "naturalness_flags",
                 "narrative_format_flags",
                 "unverified_religious_quote_flags",
+                "hook_specificity",
+                "hook_honesty",
+                "hook_curiosity",
+                "hook_genericness",
                 "notes",
             },
         )
@@ -81,8 +90,66 @@ class CleanV2ToneNaturalnessTests(unittest.TestCase):
         self.assertEqual(captured["task_kind"], "text_audit")
         self.assertEqual(captured["temperature"], 0.1)
         name, schema = captured["response_schema"]
-        self.assertEqual(name, "clean_v2_tone_naturalness_audit_v1")
+        self.assertEqual(name, "clean_v2_tone_naturalness_audit_v2")
         self.assertIs(schema, TONE_AUDIT_SCHEMA)
+
+    def test_hook_quality_prompt_adds_same_call_editorial_dimensions(self):
+        base = (
+            "5. Unverified religious quotations: flag any religious quotation or attribution presented as authoritative unless the\n"
+            "   approved research context directly supports it as verified. Judge this semantically - do not rely only on a fixed\n"
+            "   list of marker phrases."
+        )
+        scoped = _scope_clean_v2_tone_prompt(base)
+        for field in (
+            "hook_specificity",
+            "hook_honesty",
+            "hook_curiosity",
+            "hook_genericness",
+        ):
+            self.assertIn(field, scoped)
+        self.assertIn("calm hooks are fully acceptable", scoped)
+        self.assertIn("dozens of unrelated videos", scoped)
+        self.assertIn("SAME audit response", scoped)
+
+    def test_generic_hook_example_is_rejected(self):
+        # Realistic generic motivational hook: swapping one or two words could fit
+        # dozens of unrelated videos, so the same Tone Audit must fail it.
+        example = "غيّر حياتك اليوم."
+        payload = _tone_result()
+        payload.update(
+            {
+                "hook_specificity": False,
+                "hook_honesty": False,
+                "hook_curiosity": False,
+                "hook_genericness": True,
+                "notes": [f"hook={example}"],
+            }
+        )
+        result = _validate_tone_result(payload)
+        self.assertEqual(result["status"], "block")
+        hook_flags = [
+            item
+            for item in result["narrative_format_flags"]
+            if item.startswith("hook_quality:")
+        ]
+        self.assertEqual(len(hook_flags), 1)
+        self.assertIn("hook_specificity", hook_flags[0])
+        self.assertIn("hook_genericness", hook_flags[0])
+
+    def test_specific_quiet_hook_example_is_accepted(self):
+        # Calm, concrete, topic-bound hook: it names a familiar failure and opens
+        # one precise question without forced shock.
+        example = "لماذا تنتهي خطتك كل يوم عند أول مقاطعة؟"
+        payload = _tone_result()
+        payload["notes"] = [f"hook={example}"]
+        result = _validate_tone_result(payload)
+        self.assertEqual(result["status"], "pass")
+        self.assertFalse(
+            any(
+                item.startswith("hook_quality:")
+                for item in result["narrative_format_flags"]
+            )
+        )
 
     def test_first_spoken_sentence_is_runtime_hook(self):
         script = {
