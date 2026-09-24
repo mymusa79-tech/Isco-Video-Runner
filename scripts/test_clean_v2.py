@@ -2748,6 +2748,27 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 }
             ]
         }
+        visual_story = {
+            "schema_version": 1,
+            "visual_world": (
+                "Grounded hopeful cinematic realism, soft natural light, warm neutral colors, "
+                "objects and environments, no identifiable faces."
+            ),
+            "story_arc": {
+                "beginning": "show the friction clearly",
+                "transformation": "make the avoidance mechanism visible",
+                "arrival": "land on a practical shift",
+            },
+            "beats": [
+                {
+                    "id": "b1",
+                    "section_id": "s3",
+                    "viewer_intent": "understand the avoidance mechanism",
+                    "shot_intent": self.ORIGINAL_QUERY,
+                    "source_preference": "stock_motion",
+                }
+            ],
+        }
         script = {"sections": [{"id": "s3", "narration": self.NARRATION}]}
         rights = [
             {
@@ -2762,13 +2783,20 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 "query": self.ORIGINAL_QUERY,
                 "local_file": "visual-03.mp4",
                 "section_id": "s3",
+                "beat_id": "b1",
+                "viewer_intent": "understand the avoidance mechanism",
+                "shot_intent": self.ORIGINAL_QUERY,
+                "source_preference": "stock_motion",
+                "source_actual": "stock_motion",
             }
         ]
 
         evidence_counter = {"n": 0}
         audit_counter = {"n": 0}
+        intended_visual_calls: list[str] = []
 
         def build_evidence(_clip, _bundle, **_kwargs):
+            intended_visual_calls.append(str(_kwargs.get("intended_visual") or ""))
             evidence_counter["n"] += 1
             n = evidence_counter["n"]
             return SimpleNamespace(
@@ -2803,6 +2831,10 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
             original.write_bytes(b"O" * 4096)
             (output / "rights-manifest.json").write_text(
                 json.dumps({"schema_version": 1, "assets": rights}),
+                encoding="utf-8",
+            )
+            (output / "visual-story.json").write_text(
+                json.dumps(visual_story),
                 encoding="utf-8",
             )
 
@@ -2935,6 +2967,7 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
                 "acquire_calls": visual_source.acquire_calls,
                 "commit_calls": visual_source.commit_calls,
                 "audit_calls": audit_counter["n"],
+                "intended_visual_calls": intended_visual_calls,
             }
 
     def test_attempt1_s3_floor_040_gets_one_narration_bound_recovery_and_passes(self) -> None:
@@ -2973,30 +3006,43 @@ class VisualQASemanticRecoveryTests(unittest.TestCase):
         self.assertEqual(outcome["final_bytes"], b"O" * 4096)
 
 
-    def test_one_query_can_recover_with_second_bounded_candidate(self) -> None:
+    def test_three_candidates_are_context_reviewed_before_best_is_selected(self) -> None:
+        # Candidate 1 already clears the 0.85 readiness floor. Phase B must
+        # still review candidates 2 and 3, then choose the strongest contextual
+        # fit instead of accepting the first passing candidate immediately.
         outcome = self._run_case(
-            recovery_relevances=[0.60, 0.92, 0.40],
+            recovery_relevances=[0.90, 0.92, 0.95],
         )
 
         self.assertEqual(outcome["router_calls"], 1)
         self.assertEqual(outcome["acquire_calls"], 1)
         self.assertEqual(outcome["commit_calls"], 1)
-        self.assertEqual(outcome["audit_calls"], 3)
+        self.assertEqual(outcome["audit_calls"], 4)
+        self.assertEqual(len(outcome["intended_visual_calls"]), 4)
+        for contextual_visual in outcome["intended_visual_calls"]:
+            self.assertIn("Current:", contextual_visual)
+            self.assertIn("Previous: story opening", contextual_visual)
+            self.assertIn("Next: story arrival", contextual_visual)
+            self.assertIn("Same story arc:", contextual_visual)
         self.assertEqual(outcome["result"]["status"], "pass")
         self.assertEqual(
             outcome["result"]["semantic_recovery_candidate_review_limit_per_section"],
             3,
         )
+        self.assertEqual(
+            outcome["result"]["candidate_selection_mode"],
+            "review_all_ready_candidates_then_best_contextual_floor",
+        )
         record = outcome["recovery"][0]
         self.assertEqual(record["candidate_pool_size"], 3)
-        self.assertEqual(record["candidate_review_count"], 2)
-        self.assertEqual(record["selected_candidate_index"], 2)
+        self.assertEqual(record["candidate_review_count"], 3)
+        self.assertEqual(record["selected_candidate_index"], 3)
         self.assertEqual(
             [item["status"] for item in record["candidate_reviews"]],
-            ["rejected", "ready"],
+            ["ready", "ready", "ready"],
         )
-        self.assertEqual(outcome["rights"][0]["provider"], "pixabay")
-        self.assertEqual(outcome["rights"][0]["asset_id"], "9990002")
+        self.assertEqual(outcome["rights"][0]["provider"], "pexels")
+        self.assertEqual(outcome["rights"][0]["asset_id"], "9990003")
 
     def test_three_recovery_candidates_is_hard_fail_closed_limit(self) -> None:
         outcome = self._run_case(
