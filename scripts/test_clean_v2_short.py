@@ -76,10 +76,8 @@ from clean_v2.short_voice_owned_timeline import (
 from clean_v2.short_format import (
     SHORT_HEIGHT,
     SHORT_HOOK_MAX_WORDS,
-    SHORT_MAX_SECONDS,
-    SHORT_MIN_SECONDS,
+    SHORT_DURATION_SAFETY_MAX_SECONDS,
     SHORT_SECTION_COUNT,
-    SHORT_TARGET_SECONDS,
     SHORT_WIDTH,
     ShortFormatError,
     TEMPLATE_VISUAL_QUERY_DIRECTIVES,
@@ -763,14 +761,14 @@ class ShortContractTests(unittest.TestCase):
         self.assertEqual(local[0]["generation_cost"], 0)
         self.assertEqual(local[0]["network_generation_calls"], 0)
 
-    def test_duration_and_frame_contract_are_hard_bounds(self) -> None:
-        self.assertEqual(SHORT_MIN_SECONDS, 30.0)
-        self.assertEqual(SHORT_TARGET_SECONDS, 36.0)
-        self.assertEqual(SHORT_MAX_SECONDS, 45.0)
-        for seconds in (SHORT_MIN_SECONDS, SHORT_TARGET_SECONDS, SHORT_MAX_SECONDS):
+    def test_duration_contract_has_no_editorial_target_only_operational_safety(self) -> None:
+        self.assertEqual(SHORT_DURATION_SAFETY_MAX_SECONDS, 120.0)
+        for seconds in (0.5, 34.0, 48.0, 57.0, 120.0):
             self.assertEqual(validate_short_duration(seconds, phase="test"), seconds)
-        for seconds in (SHORT_MIN_SECONDS - 0.001, SHORT_MAX_SECONDS + 0.001):
-            with self.assertRaisesRegex(ShortFormatError, "short_duration_out_of_range"):
+        for seconds in (0.0, 120.001):
+            with self.assertRaisesRegex(
+                ShortFormatError, "short_duration_operational_safety_violation"
+            ):
                 validate_short_duration(seconds, phase="test")
 
         self.assertEqual(
@@ -851,39 +849,38 @@ class ShortTimedTextTests(unittest.TestCase):
 
 
 class ShortVoiceOwnedTimelineTests(unittest.TestCase):
-    def test_voice_46_03_fails_closed_without_regeneration_or_extension(self) -> None:
+    def test_voice_46_03_is_accepted_without_regeneration_or_extension(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            audio_dir = root / "audio"
+            audio_dir.mkdir()
             narration = root / "narration-mastered.wav"
             narration.write_bytes(b"fixture")
+            for index in range(1, 4):
+                (audio_dir / f"{index:02d}.wav").write_bytes(b"section")
 
+            durations = {
+                "narration-mastered.wav": 46.03,
+                "01.wav": 12.0,
+                "02.wav": 14.0,
+                "03.wav": 20.03,
+            }
             with mock.patch(
-                "clean_v2.short_voice_owned_timeline.probe_duration",
-                return_value=46.03,
-            ), mock.patch(
-                "clean_v2.short_voice_owned_timeline.retime_events",
-                wraps=retime_events,
-            ) as retime_mock:
-                with self.assertRaisesRegex(
-                    ShortVoiceTimelineError,
-                    r"VOICE_EXCEEDS_SHORT_MAX voice=46\.030s max=45\.000s planning_repair_required=true",
-                ) as raised:
-                    build_short_voice_owned_timeline(
-                        output_dir=root,
-                        narration_path=narration,
-                    )
+                "clean_v2.timeline_first.probe_duration",
+                side_effect=lambda path: durations[Path(path).name],
+            ):
+                report = build_short_voice_owned_timeline(
+                    output_dir=root,
+                    narration_path=narration,
+                )
 
-            self.assertEqual(raised.exception.report["status"], "block")
-            self.assertEqual(
-                raised.exception.report["reason"],
-                "VOICE_EXCEEDS_SHORT_MAX",
-            )
-            self.assertTrue(raised.exception.report["planning_repair_required"])
-            self.assertFalse(
-                raised.exception.report["tts_regeneration_for_duration"]
-            )
-            self.assertEqual(raised.exception.report["duration_repair_attempts"], 0)
-            retime_mock.assert_not_called()
+            self.assertEqual(report["status"], "pass")
+            self.assertEqual(report["voice_seconds_measured"], 46.03)
+            self.assertIsNone(report["editorial_target_seconds"])
+            self.assertFalse(report["time_compression"])
+            self.assertFalse(report["time_extension"])
+            self.assertFalse(report["tts_regeneration_for_duration"])
+            self.assertEqual(report["duration_repair_attempts"], 0)
 
         source = inspect.getsource(voice_timeline_module)
         self.assertNotIn("atempo=", source)
@@ -907,7 +904,7 @@ class ShortVoiceOwnedTimelineTests(unittest.TestCase):
             }
 
             with mock.patch(
-                "clean_v2.short_voice_owned_timeline.probe_duration",
+                "clean_v2.timeline_first.probe_duration",
                 side_effect=lambda path: durations[Path(path).name],
             ):
                 report = build_short_voice_owned_timeline(
@@ -1066,12 +1063,14 @@ class ShortAudioPolishTests(unittest.TestCase):
 
 
 class ShortPipelineSeamTests(unittest.TestCase):
-    def test_short_script_prompt_keeps_accepted_30_45s_envelope_and_reuses_template_context(self) -> None:
+    def test_short_script_prompt_has_no_duration_target_and_reuses_template_context(self) -> None:
         fixture = _TEMPLATE_FIXTURES["inner_dialogue"]
         prompt = _script_prompt(fixture["brief"], _plan(fixture["queries"]))
         self.assertIn("50-80 authored Arabic words", prompt)
-        self.assertIn("final 34-38 second result including identity media", prompt)
-        self.assertIn("30-45 seconds", prompt)
+        self.assertIn("Do not write toward a target duration", prompt)
+        self.assertIn("measured mastered voice owns the final runtime", prompt)
+        self.assertNotIn("30-45 seconds", prompt)
+        self.assertNotIn("34-38 second", prompt)
         self.assertIn("selected_template=inner_dialogue", prompt)
         self.assertIn("social CTA remains visual-only", prompt)
         self.assertIn("IDENTITY_SEQUENCE is also HOST-MANAGED", prompt)
