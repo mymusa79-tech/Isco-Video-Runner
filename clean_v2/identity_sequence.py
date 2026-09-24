@@ -127,6 +127,13 @@ def _hook_seconds(output_dir: Path, script: Mapping[str, Any], fmt: str) -> floa
     if not hook:
         raise RuntimeError("identity media requires first spoken hook")
 
+    # The voice stage deliberately synthesizes the first sentence as chunk 01,
+    # so prefer its measured duration. Fall back to the previous conservative
+    # estimate only for old/resumed artifacts that predate that lightweight seam.
+    exact_hook = output_dir / "audio" / "01-chunks" / "01.wav"
+    if exact_hook.is_file() and exact_hook.stat().st_size > 1024:
+        return float(probe_duration(exact_hook))
+
     section_audio = output_dir / "audio" / "01.wav"
     if section_audio.is_file():
         section_seconds = probe_duration(section_audio)
