@@ -180,16 +180,16 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
         self.assertGreater(payload["ranking_components"]["creative"], 0.0)
         self.assertGreater(payload["ranking_components"]["execution"], 0.0)
 
-    def test_detail_exposes_market_provenance_and_multistage_scores(self):
+    def test_detail_explains_selection_in_plain_language(self):
         candidate = v2._build_candidate_payload(self._candidate("موضوع", 0.72, 0.88, 0.90), "long")
         text = v2._candidate_detail(candidate, 0)
-        self.assertIn("الاهتمام الحالي المقاس", text)
-        self.assertIn("القوة الإبداعية", text)
-        self.assertIn("ثقة التنفيذ", text)
-        self.assertIn("آخر 30 يومًا", text)
-        self.assertIn("3 قنوات", text)
-        self.assertIn("مشاهدة/يوم", text)
-        self.assertIn("التصنيف السوقي مستقل", text)
+        self.assertIn("لماذا اختيرت الفكرة", text)
+        self.assertIn("التقييم العام: 8.4/10", text)
+        self.assertIn("الجمهور 9.1", text)
+        self.assertIn("الهوك 9.0", text)
+        self.assertIn("YouTube: 4 عينات من 3 قنوات خلال 30 يومًا", text)
+        self.assertIn("الوسيط: 900 مشاهدة/يوم", text)
+        self.assertNotIn("ثقة التنفيذ", text)
 
     def test_fallback_is_not_accepted_as_live_market_candidate(self):
         candidate = self._candidate("موضوع", 0.70, 0.85, 0.88)
@@ -224,27 +224,25 @@ class TelegramTopicResearchV2Tests(unittest.TestCase):
             for i in range(3)
         ]
         text = v2._candidate_panel_text("short", candidates)
-        self.assertIn("3 فرص بحث حي للشورت", text)
-        self.assertNotIn("لم أخفّض", text)
-        self.assertNotIn("لم توجد فرصة «قوية الآن»", text)
+        self.assertIn("أفضل الخيارات — الشورت", text)
+        self.assertIn("⭐ الجودة 8.4/10", text)
+        self.assertNotIn("اجتازت حد الجودة", text)
 
     def test_panel_is_honest_when_only_evergreen_has_value(self):
         candidate = v2._build_candidate_payload(
             self._candidate("دائم", 0.45, 0.90, 0.90), "long"
         )
         text = v2._candidate_panel_text("long", [candidate])
-        self.assertIn("لم توجد فرصة «قوية الآن»", text)
         self.assertIn("Evergreen قوي — ليس فرصة حالية", text)
-        self.assertIn("الآن: 4.5/10", text)
+        self.assertIn("📈 الآن 4.5/10", text)
 
     def test_partial_panel_is_honest_and_does_not_claim_three(self):
         candidate = v2._build_candidate_payload(
             self._candidate("فكرة شورت", 0.72, 0.75, 0.90), "short"
         )
         text = v2._candidate_panel_text("short", [candidate])
-        self.assertIn("1 فرصة بحث حي للشورت", text)
-        self.assertIn("وجدت 1 خيارًا صالحًا فقط", text)
-        self.assertIn("لم أخفّض أي Quality/Market Gate", text)
+        self.assertIn("أفضل الخيارات — الشورت", text)
+        self.assertIn("وجدت 1 فقط اجتازت حد الجودة 7.0/10", text)
 
     def test_partial_keyboard_removes_impossible_pick_buttons(self):
         base_rows = [
