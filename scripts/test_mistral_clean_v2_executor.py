@@ -363,7 +363,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
                 with mock.patch.object(
                     providers, "_gemini_call", side_effect=self._technical("gemini", order)
                 ), mock.patch.object(
-                    providers, "_groq_call", side_effect=self._technical("groq", order)
+                    providers, "_groq_stage_call", side_effect=self._technical("groq", order)
                 ), mock.patch.object(
                     providers,
                     "_openrouter_call",
@@ -429,7 +429,7 @@ class CleanV2ProviderRoutingTests(unittest.TestCase):
         with mock.patch.object(
             providers, "_gemini_call", side_effect=fail("http_503", "gemini")
         ), mock.patch.object(
-            providers, "_groq_call", side_effect=fail("groq_output_truncated", "groq")
+            providers, "_groq_stage_call", side_effect=fail("groq_output_truncated", "groq")
         ), mock.patch.object(
             providers, "_openrouter_call", side_effect=fail("http_429", "openrouter")
         ), mock.patch.object(
