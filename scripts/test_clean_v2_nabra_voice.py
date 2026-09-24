@@ -37,6 +37,12 @@ class NabraRouteTests(unittest.TestCase):
             _assert_human_approved_voice_reference=mock.DEFAULT,
         )
 
+    def test_production_entrypoint_is_charon_then_nabra_only(self) -> None:
+        source = Path("clean_v2/__main__.py").read_text(encoding="utf-8")
+        self.assertIn("GeminiPrimaryNabraFallbackSynthesizer", source)
+        self.assertNotIn("GeminiPrimaryPiperFallbackSynthesizer", source)
+        self.assertNotIn("AzureF0NeuralVoiceSynthesizer", source)
+
     def test_charon_success_never_calls_nabra(self) -> None:
         backup = _FakeNabra()
         with tempfile.TemporaryDirectory() as tmp:
