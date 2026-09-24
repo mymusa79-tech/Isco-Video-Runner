@@ -185,6 +185,12 @@ class PlanningCardinalityTests(unittest.TestCase):
         ):
             validate_plan(six, brief)
 
+    def test_planning_keeps_stock_queries_in_one_lighting_world(self) -> None:
+        prompt = _planning_prompt(_brief())
+        self.assertIn("warm natural morning/daylight", prompt)
+        self.assertIn("neutral-warm tones", prompt)
+        self.assertIn("do not mix obvious neon/night/cold-blue looks", prompt)
+
     def test_run249_planning_keeps_complete_visual_query_and_rejects_truncation_shapes(self) -> None:
         brief = _brief()
         brief["format"] = "film"

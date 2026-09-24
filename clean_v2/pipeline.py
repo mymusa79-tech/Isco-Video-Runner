@@ -2764,9 +2764,11 @@ Build a simple production plan. Do not add research, statistics, quotations, dia
 outside the approved brief and its research_pack. Use {section_requirement} for format
 {fmt}. Keep the arc practical, natural, hopeful, and direct. Each visual query must be a concrete
 English stock-footage search phrase. Keep every section purpose complete (never cut mid-thought),
-and keep each visual query concise and at most 260 characters. Prefer environments, hands, objects,
-routines, and wide shots without identifiable faces. Keep visuals modest and suitable for a broad
-Arab/Muslim audience.
+and keep each visual query concise and at most 260 characters. Keep the whole video's stock searches
+inside one restrained lighting world where semantically appropriate: warm natural morning/daylight,
+soft contrast, neutral-warm tones; do not mix obvious neon/night/cold-blue looks unless the topic
+itself requires them. Prefer environments, hands, objects, routines, and wide shots without
+identifiable faces. Keep visuals modest and suitable for a broad Arab/Muslim audience.
 {short_visual_query_instruction}
 
 IDENTITY_SEQUENCE is runtime-owned inside one measured-audio Visual Timeline: the first spoken

@@ -970,6 +970,97 @@ class ColorGradeIntegrationTests(unittest.TestCase):
         self.assertIn("trim=duration=6.000", vf)
 
 
+class ReferenceColorMatchLiteTests(unittest.TestCase):
+    def test_representative_reference_chooses_real_clip_near_median(self) -> None:
+        measured = {
+            "cold.mp4": media_module._RgbStats(70, 85, 120, 35, 36, 38),
+            "middle.mp4": media_module._RgbStats(112, 108, 104, 42, 41, 40),
+            "hot.mp4": media_module._RgbStats(170, 145, 105, 58, 54, 48),
+        }
+        self.assertEqual(
+            media_module._representative_reference(measured),
+            "middle.mp4",
+        )
+
+    def test_reference_match_filter_is_bounded_and_clip_constant(self) -> None:
+        source = media_module._RgbStats(70, 180, 90, 12, 80, 18)
+        reference = media_module._RgbStats(130, 120, 115, 60, 30, 45)
+        fragment = media_module._reference_match_filter(source, reference)
+        self.assertTrue(fragment.startswith("lutrgb="))
+        self.assertEqual(fragment.count("clip(val*"), 3)
+        self.assertIn("r='", fragment)
+        self.assertIn("g='", fragment)
+        self.assertIn("b='", fragment)
+        # One filter string is calculated once for the clip: there is no
+        # frame/time expression that could pump the grade during playback.
+        self.assertNotIn(" t ", fragment)
+        self.assertNotIn("n)", fragment)
+
+    def test_reference_color_plan_reports_zero_ai_and_one_real_reference(self) -> None:
+        paths = [Path("a.mp4"), Path("b.mp4"), Path("c.mp4")]
+        values = {
+            "a.mp4": media_module._RgbStats(80, 90, 100, 30, 30, 30),
+            "b.mp4": media_module._RgbStats(110, 108, 105, 40, 39, 38),
+            "c.mp4": media_module._RgbStats(160, 140, 115, 55, 52, 48),
+        }
+
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(
+            media_module,
+            "_sample_rgb_stats",
+            side_effect=lambda path: values[path.name],
+        ):
+            filters = media_module._build_reference_color_plan(paths, Path(root))
+            report = json.loads((Path(root) / "color-match.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(report["status"], "applied")
+        self.assertEqual(report["reference_file"], "b.mp4")
+        self.assertEqual(report["provider_calls_added"], 0)
+        self.assertEqual(report["ai_calls_added"], 0)
+        self.assertEqual(filters["b.mp4"], "")
+        self.assertTrue(filters["a.mp4"].startswith("lutrgb="))
+        self.assertTrue(filters["c.mp4"].startswith("lutrgb="))
+
+    def test_master_lut_has_expected_cube_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            path = media_module._write_master_look_lut(Path(root) / "look.cube")
+            lines = path.read_text(encoding="ascii").splitlines()
+        self.assertEqual(lines[0], 'TITLE "Isco Warm Neutral Master v1"')
+        self.assertEqual(lines[1], f"LUT_3D_SIZE {media_module.MASTER_LOOK_LUT_SIZE}")
+        self.assertEqual(
+            len(lines),
+            4 + (media_module.MASTER_LOOK_LUT_SIZE ** 3),
+        )
+
+
+@unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
+class MasterLutFfmpegTests(unittest.TestCase):
+    def test_generated_cube_is_accepted_by_ffmpeg_lut3d(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            root_path = Path(root)
+            source = root_path / "source.mp4"
+            dest = root_path / "dest.mp4"
+            lut = media_module._write_master_look_lut(root_path / "look.cube")
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-f", "lavfi", "-i", "color=c=#6d4c41:s=160x90:r=10:d=1",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", str(source),
+                ],
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", str(source),
+                    "-vf", f"lut3d=file='{media_module._ffmpeg_filter_path(lut)}':interp=tetrahedral",
+                    "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(dest),
+                ],
+                check=True,
+            )
+            self.assertTrue(dest.is_file())
+            self.assertGreater(dest.stat().st_size, 1000)
+
+
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required")
 class DissolvePairTests(unittest.TestCase):
     @staticmethod
