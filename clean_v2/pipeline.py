@@ -1171,6 +1171,18 @@ def _validate_and_apply_script_patches(
     closer = str(identity.get("closer") or "").strip()
     spoken_cta = str(cta_plan.get("spoken_text") or "").strip()
     cta_anchor = str(cta_plan.get("anchor_section_id") or "").strip()
+    original_narration_joined = "\n".join(
+        str(item.get("narration") or "")
+        for item in (original_script.get("sections") or [])
+        if isinstance(item, Mapping)
+    )
+    # The approved prayer sentence is host-inserted, host-owned narration (see
+    # identity_sequence.inject_spoken_identity) exactly like the hook/opener/closer/CTA
+    # above. The repair prompts already ask the model not to touch it, but that is only
+    # soft prompt guidance; give it the same hard validator lock the other host-owned
+    # anchors already have instead of relying on the model to comply (Run #29: a patch
+    # touching this same region was only caught because it also overlapped the opener).
+    prayer = PRAYER_SENTENCE if PRAYER_SENTENCE in original_narration_joined else ""
     total_find_chars = 0
     seen: set[tuple[str, str]] = set()
 
@@ -1226,6 +1238,7 @@ def _validate_and_apply_script_patches(
             ("opener", opener),
             ("closer", closer),
             ("cta", spoken_cta if section_id == cta_anchor else ""),
+            ("prayer", prayer),
         ):
             if locked_text and locked_text in find and replace.count(locked_text) != 1:
                 raise ValueError(f"script patch changed locked {locked_name}")
@@ -1248,6 +1261,8 @@ def _validate_and_apply_script_patches(
         raise ValueError("script patch changed the locked narrative identity opener")
     if closer and joined.count(closer) != 1:
         raise ValueError("script patch changed the locked narrative identity closer")
+    if prayer and joined.count(prayer) != 1:
+        raise ValueError("script patch changed the locked prayer sentence")
     if spoken_cta:
         if joined.count(spoken_cta) != 1:
             raise ValueError("script patch changed or duplicated the locked CTA")

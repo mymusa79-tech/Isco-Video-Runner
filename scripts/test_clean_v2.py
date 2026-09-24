@@ -54,6 +54,7 @@ from clean_v2.providers import (
     ProviderRouter,
     ProviderWireFailure,
 )
+from clean_v2.identity_sequence import PRAYER_SENTENCE
 from clean_v2.short_format import select_short_template
 from clean_v2 import visual_qa as visual_qa_module
 from clean_v2 import providers as providers_module
@@ -4834,6 +4835,109 @@ class HookAuditVerifiedWordFixTests(unittest.TestCase):
                 script["sections"][0]["narration"],
                 "أشعر أنني أتجمّد في مكان واحد بينما أريد أن أتحرك.",
             )
+
+
+class PrayerSentenceHardLockTests(unittest.TestCase):
+    """Run #29: the "approved identity" commit inserts a fixed, host-owned
+    prayer sentence into s1's narration (hook -> prayer -> channel
+    definition -> topic) and only asked repair models, via soft prompt text,
+    not to touch it. A Mistral patch that overlapped that region was only
+    rejected because it also happened to overlap the channel-definition text
+    aliased to the pre-existing "opener" hard lock - the prayer sentence
+    itself had no hard validator protection at all. Give it the same hard
+    lock hook/opener/closer/CTA already have.
+    """
+
+    PRAYER = PRAYER_SENTENCE
+    DEFINITION = "وهنا في نداء اليقظة، نقترب من أفكار الحياة اليومية بوعيٍ أوضح."
+    HOOK = "مرّ اليوم كاملًا ولم أبدأ شيئًا."
+    PLAN = {
+        "title": "كيف تنهض عندما تفقد الدافع؟",
+        "promise": "تحول داخلي واحد يقود إلى خطوة صغيرة.",
+        "cta": "",
+        "sections": [
+            {"id": "s1", "heading": "الصوت الداخلي", "purpose": "فتح التوتر", "visual_query_en": "quiet person thinking"},
+            {"id": "s2", "heading": "الاحتكاك", "purpose": "إظهار ما يبقي التردد", "visual_query_en": "hands resting beside notebook"},
+            {"id": "s3", "heading": "التحول", "purpose": "إنهاء التوتر بفعل واحد", "visual_query_en": "hand writing one word"},
+        ],
+    }
+    IDENTITY = {"opener": DEFINITION, "closer": "", "transitions": []}
+    CTA_PLAN = {"anchor_section_id": "", "spoken_text": ""}
+
+    @classmethod
+    def _original(cls) -> dict:
+        return {
+            "title": cls.PLAN["title"],
+            "sections": [
+                {
+                    "id": "s1",
+                    "narration": f"{cls.HOOK} {cls.PRAYER} {cls.DEFINITION}",
+                },
+                {
+                    "id": "s2",
+                    "narration": "ربما المشكلة ليست في الدافع، بل في أننا نطلب منه أن يكون قويًا من البداية.",
+                },
+                {"id": "s3", "narration": "ابدأ بشيء صغير لا يتطلب دافعًا."},
+            ],
+        }
+
+    def test_patch_overlapping_only_the_prayer_sentence_is_rejected(self) -> None:
+        script = self._original()
+        with self.assertRaisesRegex(ValueError, "script patch changed locked prayer"):
+            _validate_and_apply_script_patches(
+                {
+                    "patches": [
+                        {
+                            "section_id": "s1",
+                            "find": f"{self.HOOK} {self.PRAYER}",
+                            "replace": f"{self.HOOK} دعاء آخر مختلف تمامًا.",
+                        }
+                    ]
+                },
+                plan=self.PLAN,
+                original_script=script,
+                identity=self.IDENTITY,
+                cta_plan=self.CTA_PLAN,
+                revision_note="- [tone] s1: awkward transition noted",
+            )
+
+    def test_patch_untouched_by_prayer_still_succeeds(self) -> None:
+        script = self._original()
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {
+                        "section_id": "s2",
+                        "find": "قويًا من البداية",
+                        "replace": "قويًا منذ اللحظة الأولى",
+                    }
+                ]
+            },
+            plan=self.PLAN,
+            original_script=script,
+            identity=self.IDENTITY,
+            cta_plan=self.CTA_PLAN,
+            revision_note="- [tone] s2: awkward phrase noted",
+        )
+        self.assertIn("قويًا منذ اللحظة الأولى", repaired["sections"][1]["narration"])
+        self.assertIn(self.PRAYER, repaired["sections"][0]["narration"])
+
+    def test_scripts_without_the_prayer_sentence_are_unaffected(self) -> None:
+        script = self._original()
+        script["sections"][0]["narration"] = self.HOOK
+        repaired = _validate_and_apply_script_patches(
+            {
+                "patches": [
+                    {"section_id": "s2", "find": "المشكلة", "replace": "الصعوبة"}
+                ]
+            },
+            plan=self.PLAN,
+            original_script=script,
+            identity={"opener": "", "closer": "", "transitions": []},
+            cta_plan=self.CTA_PLAN,
+            revision_note="- [tone] s2: word choice noted",
+        )
+        self.assertIn("الصعوبة", repaired["sections"][1]["narration"])
 
 
 class ShortFactualitySectionTargetRegressionTests(unittest.TestCase):
